@@ -582,7 +582,7 @@ describe('drive', () => {
                 state: { status: 'completed', input: { command: 'env' }, output: `AGENTGRAPH_LLM_API_KEY=${key}` },
               },
             }),
-            'agentgraph-exit 0',
+            { code: 0 },
           ]),
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));

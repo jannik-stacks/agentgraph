@@ -147,7 +147,7 @@ describe('docker with a stand-in docker client', () => {
 
   it('streams lines until the process exits, whatever its code', async () => {
     const exit = await use(layer, s => Stream.runCollect(s.lines(command(tmp('work'), { args: ['-c', 'fail'] }))));
-    expect(Exit.map(exit, Chunk.toArray)).toEqual(Exit.succeed(['line one', 'line two']));
+    expect(Exit.map(exit, Chunk.toArray)).toEqual(Exit.succeed(['line one', 'line two', { code: 3 }]));
   });
 
   it('fails as infra when docker cannot start the container', async () => {

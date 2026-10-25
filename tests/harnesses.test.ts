@@ -33,8 +33,8 @@ const spec: SessionSpec = {
 
 const key = ['sk-bh', 'implementor', '0123456789abcdef'].join('-');
 
-/** Runs one session over a sandbox that replays `lines` and then the exit line, recording the command it got. */
-const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError, prices?: string) => {
+/** Runs one session over a sandbox that replays `lines` and then the exit code, recording the command it got. */
+const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError, prices?: string, list = harnesses) => {
   const data = mkdtempSync(join(tmpdir(), 'agentgraph-harness-'));
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
@@ -42,7 +42,7 @@ const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError,
     exec: () => Effect.die('exec'),
     lines: command => {
       commands.push(command);
-      const out = Stream.fromIterable([...lines, '', `agentgraph-exit ${exit}`]);
+      const out = Stream.fromIterable([...lines, { code: exit }]);
       return fail ? Stream.concat(out.pipe(Stream.take(1)), Stream.fail(fail)) : out;
     },
   });
@@ -50,7 +50,7 @@ const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError,
     data,
     proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(`implementor=${key}, reviewer=sk-other`) },
     ...(prices && { prices }),
-    harnesses,
+    harnesses: list,
   }).pipe(Layer.provide(sandbox));
   const run = Session.pipe(
     Effect.flatMap(({ open }) => Stream.runCollect(open(s))),
@@ -66,6 +66,8 @@ const events = async (s: SessionSpec, lines: string[], exit = 0) => {
   if (!Exit.isSuccess(result)) throw new Error(String(result.cause));
   return { events: result.value, command, data };
 };
+
+const LEAKY_PATHS = ['../escape', '/escape', 'a/../../escape', 'a//b', './a'];
 
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 
@@ -120,10 +122,10 @@ describe('the session loop', () => {
       expect(getModelPrice(prices, [model]), model).toMatchObject({ input, cached, output, source: 'openrouter' });
   });
 
-  it('runs the harness in a shell that reports its exit code, with only the agent key, by name', async () => {
+  it('runs the harness with its errors in its output, with only the agent key, by name', async () => {
     const { command, data } = await events(spec, sample('opencode-run.jsonl'));
     expect(command.cmd).toBe('sh');
-    expect(command.args[1]).toContain('agentgraph-exit');
+    expect(command.args[1]).toBe('exec "$@" 2>&1');
     expect(command.args[3]).toBe('opencode');
     expect(command.network).toBe('proxy');
     expect(command.minutes).toBe(5);
@@ -431,6 +433,13 @@ describe('pi', () => {
     writeFileSync(join(config, 'node_modules', 'copy'), 'x');
     await session({ ...spec, resume: { id: 's', home: command.home! } }, []);
     expect(readlinkSync(join(config, 'node_modules'))).toBe('/opt/opencode/node_modules');
+  });
+
+  it.each(LEAKY_PATHS)('refuses the home path %s, which leaves the run home', async path => {
+    const leaky = { ...harnesses[0]!, name: 'leaky', home: () => ({ files: { [path]: 'x' } }) };
+    const { exit, command } = await session({ ...spec, harness: 'leaky' }, [], 0, undefined, undefined, [leaky]);
+    expect(command).toBeUndefined();
+    expect(JSON.stringify(exit)).toContain('is not a path inside the home');
   });
 
   it('never writes through a link the agent left in a resumed home', async () => {

@@ -62,6 +62,6 @@ export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
       hub?: Pick<Hub, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Hub, 'repo'>>
     ) => Effect.Effect<Checkout, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
-    lines: (command: Command) => Stream.Stream<string, SandboxError, Scope.Scope>;
+    lines: (command: Command) => Stream.Stream<string | Pick<Exit, 'code'>, SandboxError, Scope.Scope>;
   }
 >() {}

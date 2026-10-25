@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Effect, Layer, Redacted, Stream } from 'effect';
 import type { Agent } from './hub.ts';
-import { Sandbox, type SandboxError } from './sandbox.ts';
+import { type Exit, Sandbox, type SandboxError } from './sandbox.ts';
 import { Session } from './session.ts';
 import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
 
@@ -37,13 +37,8 @@ export const readConfig = async (
   return config;
 };
 
-const exitLine = /^agentgraph-exit (\d+)$/;
-
-/** Runs the harness and prints its exit code as a last line, so the stream says how the process ended. */
-const wrapped = (cmd: string, args: string[]) => ({
-  cmd: 'sh',
-  args: ['-c', '"$@" 2>&1; code=$?; printf "\\nagentgraph-exit %s\\n" "$code"; exit "$code"', 'sh', cmd, ...args],
-});
+/** Runs the harness with its errors on the one stream it prints to, so the lines keep their order. */
+const wrapped = (cmd: string, args: string[]) => ({ cmd: 'sh', args: ['-c', 'exec "$@" 2>&1', 'sh', cmd, ...args] });
 
 /** `agent=key` pairs, separated by commas or white space. */
 const keysOf = (keys: Redacted.Redacted) =>
@@ -90,31 +85,33 @@ const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usa
   return { ...u, usd };
 };
 
-/** Makes the directories of `path` under `home`, refusing a link the sandbox may have left in their place. */
-const homeDir = async (home: string, path: string) => {
+/** `path` under `home` with its directories made, refusing a path that leaves the home or a link the sandbox may have left in its way. */
+const makeHomePath = async (home: string, path: string) => {
+  const parts = path.split('/');
+  if (parts.some(part => !part || part === '.' || part === '..'))
+    throw new Error(`${path} is not a path inside the home`);
   let dir = home;
-  for (const part of path.split('/')) {
+  for (const part of parts.slice(0, -1)) {
     dir = join(dir, part);
     await mkdir(dir).catch((e: NodeJS.ErrnoException) => {
       if (e.code !== 'EEXIST') throw e;
     });
     if (!(await lstat(dir)).isDirectory()) throw new Error(`${dir} is not a directory`);
   }
-  return dir;
+  return join(dir, parts.at(-1)!);
 };
 
 /** Links `path` under `home` to `target`, replacing what the sandbox left there. */
 const linkHome = async (home: string, path: string, target: string) => {
-  const at = join(await homeDir(home, dirname(path)), basename(path));
+  const at = await makeHomePath(home, path);
   await rm(at, { recursive: true, force: true });
   await symlink(target, at);
 };
 
 /** Writes `text` to `path` under `home` without following a link the sandbox may have left in the home. */
 const writeHome = async (home: string, path: string, text: string) => {
-  const dir = await homeDir(home, dirname(path));
   const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW } = constants;
-  const file = await openFile(join(dir, basename(path)), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW);
+  const file = await openFile(await makeHomePath(home, path), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW);
   await file.writeFile(text).finally(() => file.close());
 };
 
@@ -172,14 +169,13 @@ export const harnessSession = (s: {
             let done: Extract<Piece, { type: 'done' }> | undefined;
             let tail = '';
 
-            const step = (raw: string): SessionEvent[] => {
-              const line = secret.length >= 8 ? raw.replaceAll(secret, '***') : raw;
-              const exit = exitLine.exec(line);
-              if (exit) {
+            const step = (raw: string | Pick<Exit, 'code'>): SessionEvent[] => {
+              if (typeof raw !== 'string') {
                 const ended = done?.ended ?? 'error';
                 const final = reply || (ended === 'error' ? (done?.error ?? tail.trim()) : '');
-                return [{ type: 'end', final, ended, exit: Number(exit[1]) }];
+                return [{ type: 'end', final, ended, exit: raw.code }];
               }
+              const line = secret.length >= 8 ? raw.replaceAll(secret, '***') : raw;
               let json: unknown;
               try {
                 json = JSON.parse(line);

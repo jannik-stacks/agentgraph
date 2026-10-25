@@ -297,7 +297,7 @@ describe('hostSandbox', () => {
         return { exit, lines: Chunk.toArray(lines), late: late._tag === 'Left' && late.left.reason };
       }).pipe(Effect.scoped, Effect.provide(hostSandbox(dir)))
     );
-    expect(out).toEqual({ exit: { code: 3, output: 'bot\n' }, lines: ['a', 'b'], late: 'timeout' });
+    expect(out).toEqual({ exit: { code: 3, output: 'bot\n' }, lines: ['a', 'b', { code: 0 }], late: 'timeout' });
   });
 
   it('kills a command that runs past its minutes', async () => {

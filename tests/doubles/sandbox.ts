@@ -107,11 +107,11 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         return Effect.sync(() => child.kill('SIGKILL'));
       }).pipe(Effect.timeoutFail({ duration: Duration.minutes(command.minutes), onTimeout: late(command) })),
     lines: command =>
-      Stream.async<string, SandboxError>(emit => {
+      Stream.async<string | Pick<Exit, 'code'>, SandboxError>(emit => {
         const child = spawned(command);
         createInterface({ input: child.stdout }).on('line', line => void emit.single(line));
         child.on('error', e => void emit.fail(new SandboxError({ reason: 'infra', detail: e.message })));
-        child.on('close', () => void emit.end());
+        child.on('close', code => void emit.single({ code: code ?? 1 }).then(() => emit.end()));
         return Effect.sync(() => child.kill('SIGKILL'));
       }).pipe(
         Stream.interruptWhen(

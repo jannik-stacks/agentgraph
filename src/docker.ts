@@ -256,25 +256,28 @@ export const dockerSandbox = (o: {
 
       const lines = (c: Command) =>
         Stream.unwrapScoped(
-          Effect.map(prepare(c), ({ name, args }) =>
-            Stream.asyncPush<string, SandboxError>(emit =>
+          Effect.map(prepare(c), ({ name, args }) => {
+            let code = 0;
+            return Stream.asyncPush<string, SandboxError>(emit =>
               Effect.acquireRelease(
                 Effect.sync(() => {
                   const proc = start(args, c.secrets, name, chunk => void emit.single(chunk));
-                  void proc.closed.then(code =>
-                    code === 125 ? emit.fail(infra('docker could not start the container')) : emit.end()
-                  );
+                  void proc.closed.then(closed => {
+                    code = closed;
+                    return code === 125 ? emit.fail(infra('docker could not start the container')) : emit.end();
+                  });
                   return proc;
                 }),
                 proc => proc.stop()
               )
             ).pipe(
               Stream.splitLines,
+              Stream.concat(Stream.sync(() => ({ code }))),
               Stream.interruptWhen(
                 Effect.zipRight(Effect.sleep(Duration.minutes(c.minutes)), Effect.failSync(timeout(c)))
               )
-            )
-          )
+            );
+          })
         );
 
       const exec = (c: Command) =>
