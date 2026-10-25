@@ -47,7 +47,7 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 | `AGENTGRAPH_APP_ENV` | Env file with `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE` |
 | `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY` | The App id and private key, when set directly instead |
 | `AGENTGRAPH_APP_KEY_FILE` | File holding the App's private key, read once per start; `/dev/fd/3` reads it from the [Keychain](../infra/github/README.md#create-the-app) |
-| `AGENTGRAPH_DATA` | The data root of instances, `~/.agentgraph`; `--data` wins |
+| `AGENTGRAPH_DATA` | The data root of instances, `~/.agentgraph`, or the runs folder when the CLI runs [on a forge](#on-a-forge); `--data` wins |
 | `AGENTGRAPH_EVERY` | Poll interval in minutes, 5 |
 | `AGENTGRAPH_HARNESS` | The harness every agent runs on, whatever the hub names |
 | `AGENTGRAPH_PROVIDER` | A provider from the config; agents that name no harness get its first |

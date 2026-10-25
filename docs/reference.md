@@ -113,5 +113,5 @@ Written by the first command in a repo; see [the data dir](forge.md#the-data-dir
 | `repo`     | path                  | the repo                      | The checkout the forge's base syncs from and branches go to |
 | `base`     | branch name           | the branch checked out first  | The branch the forge's base fast-forwards to              |
 | `owner`    | name                  | `git config user.name`        | The author of every local verb and the only trusted login |
-| `provider` | provider name         | none                          | The provider picked when several were ready               |
+| `provider` | provider name         | none                          | The saved provider: the only ready one, the one picked when several were, or `--provider` with `--save` |
 | `exported` | map of ref to commit  | none                          | Where agentgraph last wrote each ref into the repo        |
