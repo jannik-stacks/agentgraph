@@ -48,13 +48,16 @@ at that level first.
 11. Spell words out: no `Repo`, `Dep` or `Cfg` in type names. The allowed abbreviations are
     `Dirs`, `Ms`, `Id`, `Url`, `Json`, `Sha`, `Ast`, `Api`, `Cli`, `Pid` and `Env`.
 12. Name what a thing is for, not what it holds: `SharedMount`, not `DependencyVolume`.
-13. Type suffixes: `Spec` input, `Result` what an action hands back, `Entry` keyed record, `Settings`
-    config (never Config or Options), `Point` chart position, `XWithY`.
+13. Type suffixes mean one thing each: `Spec` is an input describing what to make, `Result` what one action
+    hands back, `Entry` one keyed record of a cache, store or log, `Settings` configuration (never Config or
+    Options), `Point` a position, `Lookup` a value for a key, and `XWithY` a pair. There is no `Index` or
+    `Map` suffix.
 14. Core code in `src/` uses the short words from `docs/vocabulary.md`. Edge code (bench, tune, studio,
     `bin/`, hub scripts, test doubles) uses long, self-explaining names.
 15. Edge types never take a core word: `TuneProposerResult`, not `Proposal`.
-16. One word per concept, one export per name. Retired: bothub, compound, climb, stamp, provenance, and
-    alive or live for running.
+16. One word per concept, one export per name. Retired words, each with what to say instead, are listed
+    once in [retired-words.mjs](examples/agentgraph/scripts/retired-words.mjs); lint and the hub's checks
+    read that list.
 17. Don't overload taken words: session is a harness session, run is one workflow execution, no `core`,
     no export named like an Effect or platform type (`TokenScope`, not `Scope`).
 
@@ -74,7 +77,9 @@ at that level first.
     simplest.
 23. Design structural changes twice, have another model challenge the pick, then build.
 24. Smallest correct change, but holistic: wire both sides and miss no caller.
-25. No option, field or layer the data doesn't demand. Not needed now means removed.
+25. No option, field or layer the data doesn't demand. Not needed now means removed. A needed part that
+    works badly is different: fix its implementation or abstraction instead of cutting it, so a reduce pass
+    removes only what nothing needs.
 26. Search before adding a function: `rg` the verb and the noun, check Node and Effect.
 27. Delegate: a built-in or maintained library (`util.parseEnv`, `Effect.timeoutFail`, LiteLLM) beats our
     own code.
@@ -89,12 +94,14 @@ at that level first.
 ## Layout
 
 34. `src/` is production code only. Test doubles live in `tests/doubles/`, named after the file they
-    replace.
+    replace. Tests assert outside loops and branches: one `it.each` row per case, or collect the results
+    and assert once.
 35. Layer folders; imports only go down; no cycles.
 36. The engine repo holds the engine and one minimal example. A repo's hub lives in that repo or in a
     `<repo>-agentgraph` repo.
 37. The engine is the SDK; the runner is where it runs. Keep them apart.
-38. Everything runs through plain npm scripts and the CLI.
+38. Everything runs through plain npm scripts and the CLI. Agent instructions live in `AGENTS.md`; there
+    is no `CLAUDE.md`, not even a stub.
 
 ## Workflow and config fields
 
@@ -109,8 +116,13 @@ at that level first.
 
 ## Lint and enforcement
 
-46. If a tool can check a rule, a tool checks it. `bin/style.mjs` (oxlint) runs `verb-first`,
-    `no-of-for`, `unique-export`, `retired-word` and `no-comment`.
+46. If a tool can check a rule, a tool checks it. This is the one list of what tools enforce:
+    - `bin/style.mjs` (oxlint) fails `verb-first` (rule 7), `no-of-for` (9), `unique-export` (16),
+      `retired-word` (16) and `no-comment` (18).
+    - The hub's [rules check](examples/agentgraph/scripts/rules.mjs), over the lines a change adds, fails
+      the prose bans (55), unicode diagram arrows (55), retired hub terms (16), a two-dot review diff
+      and an `update-ref` without its old sha (59), and a `CLAUDE.md` (38).
+    - `test-guards` fails assertions in loops and branches (34); `bin/refs.mjs` fails dead docs links (20).
 47. Old violations sit in `bin/style-baseline.txt`; after a rename batch run `node bin/style.mjs --write`.
 48. A setting nothing reads can't exist: knip and static analysis run after every big change.
 49. Checks name exact tools and commands; judged checks cover only what no tool decides.
@@ -122,8 +134,8 @@ at that level first.
 52. Say where things happen: "opened a local PR in the dogfood forge".
 53. Explain each term on first use (arm, case set); if it needs too much explaining, rename it.
 54. Keep pages short; have a second model rewrite stiff paragraphs.
-55. No em-dash taglines on headings, no `·`, no math symbols, no marketing words. Diagram arrows are
-    ASCII `>` `<` `v` `^`.
+55. No em-dash taglines on headings, no `·`, no math symbols, no marketing words. Diagram arrows in fenced
+    blocks are ASCII `>` `<` `v` `^`; a plain `→` in prose is fine.
 
 ## Exceptions
 
@@ -146,3 +158,7 @@ one without that check.
 57. One conventional-commit subject line; optional body of one to three lines on why only.
     `bin/commit-msg.mjs` checks it.
 58. Never commit secrets. Agents don't sign or push.
+59. A one-off review diffs the branch against its merge-base, `base...HEAD` with three dots. Anything
+    persisted or rerun (end checks, exports, baselines, patches) uses the sha recorded when the work
+    settled, never a merge-base or tip recomputed against a live branch. A ref update names the old sha it
+    expects: `update-ref <ref> <new> <old>`, `--force-with-lease=<ref>:<sha>`.
