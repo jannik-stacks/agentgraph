@@ -115,20 +115,14 @@ export class Box extends Container<Env> {
     }
     if (op === 'stop') {
       const child = this.children.get(url.searchParams.get('arg') ?? '');
-      if (child) {
-        const kill = await this.ctx.container!.exec(['sh', '-c', 'kill -KILL -"$1"', 'kill', String(child.pid)], {
-          user: '0:0',
-        });
-        await kill.exitCode;
-        await child.exitCode.catch(() => undefined);
-      }
+      if (child) await this.killGroup(child);
       return new Response(null, { status: 204, headers });
     }
     if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
     const child = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', op, ...url.searchParams.getAll('arg')], {
       user: op === 'init' || op === 'put' ? '0:0' : '1000:1000',
       ...(request.body && { stdin: request.body }),
-      stderr: 'pipe',
+      stderr: op === 'pull' ? 'ignore' : 'pipe',
     });
     if (op === 'pull') return new Response(child.stdout, { headers });
     const { exitCode, stdout, stderr } = await child.output();
@@ -136,6 +130,14 @@ export class Box extends Container<Env> {
     return exitCode === 0
       ? new Response(null, { status: 204, headers })
       : new Response(text.decode(stdout) + text.decode(stderr), { status: 500 });
+  }
+
+  async killGroup(child: ExecProcess) {
+    const kill = await this.ctx.container!.exec(['sh', '-c', 'kill -KILL -"$1"', 'kill', String(child.pid)], {
+      user: '0:0',
+    });
+    await kill.exitCode;
+    await child.exitCode.catch(() => undefined);
   }
 
   async run(id: string, network: Network, argv: string[], headers: HeadersInit) {
@@ -155,7 +157,7 @@ export class Box extends Container<Env> {
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const pump = async () => {
       const writer = writable.getWriter();
-      writer.closed.catch(() => child.kill(15));
+      writer.closed.catch(() => this.killGroup(child));
       let last = 10;
       try {
         for await (const chunk of child.stdout as ReadableStream<Uint8Array>) {
@@ -167,8 +169,7 @@ export class Box extends Container<Env> {
         await writer.write(new TextEncoder().encode((last === 10 ? '' : '\n') + frame(code)));
         await writer.close();
       } catch (error) {
-        child.kill(15);
-        await child.exitCode.catch(() => undefined);
+        await this.killGroup(child);
         await writer.abort(error).catch(() => undefined);
       } finally {
         done();

@@ -9,5 +9,6 @@ COPY . .
 ENV AGENTGRAPH_DATA=/data \
     AGENTGRAPH_SANDBOX_URL=http://box.internal \
     AGENTGRAPH_PROXY_URL=http://gateway.internal/v1 \
-    AGENTGRAPH_CACHE_VOLUME=
+    AGENTGRAPH_CACHE_VOLUME= \
+    AGENTGRAPH_MIN_FREE_GB=1
 ENTRYPOINT ["sh", "examples/deploy/cloudflare/engine.sh"]

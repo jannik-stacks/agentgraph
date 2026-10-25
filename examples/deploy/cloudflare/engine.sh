@@ -20,9 +20,16 @@ backup() {
     curl -sSf -X PUT --data-binary "@/tmp/$1.tar.gz" http://data.internal/data.tar.gz
 }
 
-(while sleep 300; do backup every || echo "backing up /data failed" >&2; done) &
+(
+  trap 'exit 0' TERM
+  while :; do
+    sleep 300 &
+    wait $!
+    backup every || echo "backing up /data failed" >&2
+  done
+) &
 saver=$!
 node bin/run.ts loop --data /data &
 engine=$!
-trap 'kill $saver $engine 2> /dev/null || :; wait $engine || :; backup last || :; exit 0' TERM INT
+trap 'kill $saver $engine 2> /dev/null || :; wait $saver $engine || :; backup last || :; exit 0' TERM INT
 wait $engine || exit $?
