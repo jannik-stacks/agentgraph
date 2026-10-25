@@ -120,7 +120,7 @@ const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
       fail(`no provider ${named}; the config has ${providers.map(p => p.name).join(', ')}`)
     );
   const ready: Provider[] = [];
-  for (const p of providers) if (await p.ready()) ready.push(p);
+  for (const p of providers) if ((await p.ready()) || p.detect?.()) ready.push(p);
   if (ready.length === 0) fail(`${noModel}\n${after}`, 1);
   if (ready.length === 1) return ready[0]!;
   const names = ready.map(p => p.name);
@@ -317,6 +317,7 @@ async function runOnInstance() {
       return;
     }
     case 'merge': {
+      await synced();
       const pull = await mergePull(i, numbered()).catch((e: Error) => fail(e.message, 1));
       console.log(`${pull.base} at ${pull.head.slice(0, 7)} in agentgraph`);
       return report(i, n, `git merge ${pull.branch}`);
@@ -341,12 +342,12 @@ async function runOnInstance() {
     case 'show':
       return rest[0] ? showIssue(await forgeOf(), numbered(), i) : showAll(i, await forgeOf());
     case 'check':
-      if (!values.runs) return checkHub(await synced());
-      return printRuns(await start({ hub: await synced(), issue: 'all', data: i.data, instruction: instructed() }));
-    case 'dispatch':
-      return printRuns(
-        await start({ hub: await synced(), issue: 'all', data: i.data, base: i.base, instruction: instructed() })
-      );
+    case 'dispatch': {
+      if (verb === 'check' && !values.runs) return checkHub(await synced());
+      const hub = await synced();
+      await prepare(i, hub, 'Nothing was run.');
+      return printRuns(await start({ hub, issue: 'all', data: i.data, base: i.base, instruction: instructed() }));
+    }
     case 'loop':
       return loop(i);
     case 'prune-logs':

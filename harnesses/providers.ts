@@ -28,6 +28,8 @@ const readHidden = async (question: string) => {
   return answer.trim();
 };
 
+const loggedIn = (cmd: string, args: string[]) => spawnSync(cmd, args, { stdio: 'ignore' }).status === 0;
+
 const needTerminal = (how: string) => {
   if (!process.stdin.isTTY) throw new Error(`no terminal to log in from; ${how}`);
 };
@@ -38,6 +40,7 @@ const claude: Provider = {
   ready: () =>
     !!process.env.CLAUDE_CODE_OAUTH_TOKEN ||
     (keychain ? security(['find-generic-password']).status === 0 : existsSync(claudeToken)),
+  detect: () => loggedIn('claude', ['auth', 'status']),
   settings: () => ({
     AGENTGRAPH_PROXY_URL: 'claude=',
     AGENTGRAPH_PROXY_KEYS: '',
@@ -71,6 +74,7 @@ const chatgpt: Provider = {
   name: 'chatgpt',
   harnesses: ['codex'],
   ready: () => existsSync(codexLogin),
+  detect: () => loggedIn('codex', ['login', 'status']),
   settings: () => ({
     AGENTGRAPH_PROXY_URL: 'codex=',
     AGENTGRAPH_PROXY_KEYS: '',

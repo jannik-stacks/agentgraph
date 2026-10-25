@@ -34,6 +34,7 @@ export type Provider = {
   name: string;
   harnesses: string[];
   ready: () => boolean | Promise<boolean>;
+  detect?: () => boolean;
   settings?: () => Record<string, string>;
   login?: () => Promise<void>;
 };

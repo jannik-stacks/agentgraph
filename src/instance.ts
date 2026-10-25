@@ -128,7 +128,7 @@ export const ensureBase = async (i: Instance): Promise<string | undefined> => {
   const theirs = await inForge(i, ['rev-parse', mirror]);
   const ours = await inForge(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}`], [1]);
   if (!ours || (await isAncestor(i, ours, theirs))) {
-    await inForge(i, ['update-ref', `refs/heads/${i.base}`, theirs]);
+    await inForge(i, ['update-ref', `refs/heads/${i.base}`, theirs, ours]);
     return undefined;
   }
   if (await isAncestor(i, theirs, ours)) return undefined;
@@ -224,9 +224,10 @@ export const mergePull = async (i: Pick<Instance, 'forge' | 'owner'>, n: number)
   const pr = await findPull(i.forge, n);
   if (!pr || pr.state !== 'open') throw new Error(`#${n} has no open pull request`);
   const { base, branch, head } = pr.pull;
-  if (!(await isAncestor(i, await inForge(i, ['rev-parse', `refs/heads/${base}`]), head)))
+  const at = await inForge(i, ['rev-parse', `refs/heads/${base}`]);
+  if (!(await isAncestor(i, at, head)))
     throw new Error(`${base} moved since ${branch} branched; review ${n} changes "rebase" first`);
-  await inForge(i, ['update-ref', `refs/heads/${base}`, head]);
+  await inForge(i, ['update-ref', `refs/heads/${base}`, head, at]);
   await apply(i.forge, i.owner, pr.number, { kind: 'merge', number: pr.number, head });
   for (const t of await readIssues(i.forge))
     if (t.state === 'open' && t.pull?.base === branch)
