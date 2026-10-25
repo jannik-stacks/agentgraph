@@ -37,7 +37,7 @@ const claude: Provider = {
   name: 'claude',
   harnesses: ['claude'],
   ready: () =>
-    !!process.env.CLAUDE_CODE_OAUTH_TOKEN ||
+    !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE) ||
     (keychain ? security(['find-generic-password']).status === 0 : existsSync(claudeToken)),
   detect: () => loggedIn('claude', ['auth', 'status']),
   settings: () => ({
@@ -46,6 +46,7 @@ const claude: Provider = {
     AGENTGRAPH_SESSION_ENV: 'CLAUDE_CODE_OAUTH_TOKEN',
     AGENTGRAPH_MODELS: claudeModels,
     ...(!process.env.CLAUDE_CODE_OAUTH_TOKEN &&
+      !process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE &&
       (keychain
         ? { CLAUDE_CODE_OAUTH_TOKEN: security(['find-generic-password', '-w']).stdout.trim() }
         : { CLAUDE_CODE_OAUTH_TOKEN_FILE: claudeToken })),
@@ -112,7 +113,7 @@ const chatgpt: Provider = {
 const anthropic: Provider = {
   name: 'anthropic',
   harnesses: ['claude'],
-  ready: () => !!process.env.ANTHROPIC_API_KEY,
+  ready: () => !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY_FILE),
   settings: () => ({
     AGENTGRAPH_PROXY_URL: 'claude=',
     AGENTGRAPH_PROXY_KEYS: '',

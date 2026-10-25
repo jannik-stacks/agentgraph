@@ -122,7 +122,7 @@ The package has no entry point yet, so a plugin imports its types from `src/harn
 - The first `session` piece starts the session; later ones are ignored. A session that ends without a `done` piece ends in `error`.
 - `command` and `home` get the model from the route only. The route also holds the proxy URL, and the loop puts the agent's key in the `key` env var.
 - `home` paths are relative to the session home and cannot leave it.
-- `volumes` maps container paths to docker volumes that outlive the session. Sessions of harnesses sharing a volume run one at a time.
+- `volumes` maps container paths to docker volumes that outlive the session. Nothing locks a volume: a harness whose sessions must not share one at once takes its own lock, as `codex` does with `flock`.
 - `check` returns what the harness cannot do, phrased to follow its name, such as `takes no tools`. The hub reports it as `harness: echo takes no tools`.
 
 `AGENTGRAPH_HARNESS` runs every agent on that harness. Otherwise an agent without a `harness` gets the first harness `AGENTGRAPH_PROVIDER` serves, else the first in the config. A hub loads only when every agent's harness is in the config and its `check` finds nothing. A config that does not load fails every hub with its problem. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/hub.ts#loadHub -->

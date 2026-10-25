@@ -44,6 +44,8 @@ const builtIn = fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url
 
 export const readHarnessSettings = Effect.gen(function* () {
   const path = resolve(yield* Effect.orDie(Config.string('AGENTGRAPH_CONFIG').pipe(Config.withDefault(builtIn))));
+  const harness = yield* Effect.orDie(Config.string('AGENTGRAPH_HARNESS').pipe(Config.withDefault('')));
+  const named = yield* Effect.orDie(Config.string('AGENTGRAPH_PROVIDER').pipe(Config.withDefault('')));
   return yield* Effect.tryPromise({
     try: async () => {
       const settings: HarnessSettings | undefined = (await import(pathToFileURL(path).href)).default;
@@ -51,7 +53,6 @@ export const readHarnessSettings = Effect.gen(function* () {
       const names = settings.harnesses.map(h => h.name);
       const twice = names.find((name, i) => names.indexOf(name) !== i);
       if (twice) throw new Error(`lists the harness ${twice} twice`);
-      const { AGENTGRAPH_HARNESS: harness, AGENTGRAPH_PROVIDER: named } = process.env;
       if (harness && !names.includes(harness)) throw new Error(`has no harness ${harness}`);
       const provider = named ? settings.providers?.find(p => p.name === named) : undefined;
       if (named && !provider) throw new Error(`has no provider ${named}`);
