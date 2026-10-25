@@ -1,6 +1,6 @@
 # The hub contract
 
-The 0.2.0 contract keeps names and meanings stable across 0.x releases. Every rename or removal is listed in `CHANGELOG.md`, and `check` fails on a key the hub no longer has. <!-- code: src/hub.ts#loadHub -->
+Nothing here is stable yet: names and abstractions change whenever we find better ones, hub calls such as `say`, `tell` and `dispatch` included. Every rename or removal is listed in `CHANGELOG.md`, and `check` fails on a key the hub no longer has. <!-- code: src/hub.ts#loadHub -->
 
 ## Engine
 
@@ -8,13 +8,13 @@ The engine is `src/`, `bin/run.ts`, `bin/forge.ts`, `bin/setup-app.ts` and the s
 
 ## Hub
 
-Every [hub field](reference.md) is stable, and the [proposal kinds](proposals.md#kinds) are the agents' write contract.
+Every [hub field](reference.md) is listed in the reference, and the [proposal kinds](proposals.md#kinds) are the agents' write contract.
 
 Prompts, descriptions, scripts and extra folders are free to change. Scripts reach the hub through `$AGENTGRAPH_HUB` and get the [script variables](loop.md#checks). <!-- code: src/engine.ts#checkFiles -->
 
 ## Commands
 
-These entry points are stable:
+These are the entry points:
 
 - `npx agentgraph` with `check`, `--issue`, `--all`, `loop`, `status` and `prune-logs`, and the flags `--forge`, `--instance` and `--logs`; see [the CLI](local.md#the-cli).
 - `node bin/forge.ts <dir> init <repo> --hub <hub>`; see [Instances](forge.md#instances).
