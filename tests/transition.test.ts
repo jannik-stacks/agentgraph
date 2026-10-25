@@ -156,6 +156,23 @@ describe('transition, waiting', () => {
     });
   });
 
+  it('back once the rounds are spent parks with the reason; a human back after that gets one more round', () => {
+    const one = { ...w, steps: w.steps.map(s => (s.name === 'merge' ? { ...s, back: { ...s.back!, rounds: 1 } } : s)) };
+    const parked = transition(one, { ...waiting, rounds: { merge: 1 } }, { kind: 'back', why: 'rename foo' });
+    expect(parked).toMatchObject({ step: 'merge', status: 'waiting', reason: 'rename foo', rounds: { merge: 1 } });
+    expect(transition(one, parked, { kind: 'answer', text: 'go on' })).toBe(parked);
+    const next = transition(one, parked, { kind: 'back', why: 'rename bar' });
+    expect(next).toMatchObject({
+      step: 'implement',
+      status: 'running',
+      rounds: { merge: 1 },
+      feedback: 'the merge step sent this back: rename bar',
+    });
+    expect(next.reason).toBeUndefined();
+    const again = transition(one, { ...next, step: 'merge', status: 'waiting' }, { kind: 'back', why: 'rename baz' });
+    expect(again).toMatchObject({ step: 'merge', status: 'waiting', reason: 'rename baz' });
+  });
+
   it('stop (closed): stopped', () => {
     expect(transition(w, waiting, { kind: 'stop', why: 'closed' })).toMatchObject({
       status: 'stopped',
