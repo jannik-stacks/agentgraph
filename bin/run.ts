@@ -157,6 +157,12 @@ const findUnserved = (provider: Provider, hub: Hub) =>
 let connected: Promise<{ provider: Provider; model?: string }> | undefined;
 const connect = (i: Instance, hub: string, after: string) =>
   (connected ??= (async () => {
+    if (!process.env.AGENTGRAPH_SANDBOX_URL) {
+      const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`))).catch((e: Error) =>
+        fail(`${e.message}\n${after}`, 1)
+      );
+      console.log(`sandbox  docker ${docker}`);
+    }
     const provider = await pickProvider(i, after);
     if (values.save && values.provider) writeInstanceProvider(i, provider.name);
     const harness = values.harness ?? provider.harnesses[0]!;
@@ -166,12 +172,6 @@ const connect = (i: Instance, hub: string, after: string) =>
       `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
     );
     console.log(`repo     ${i.repo}, base ${i.base}`);
-    if (!process.env.AGENTGRAPH_SANDBOX_URL) {
-      const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`))).catch((e: Error) =>
-        fail(`${e.message}\n${after}`, 1)
-      );
-      console.log(`sandbox  docker ${docker}`);
-    }
     if (!(await provider.ready()))
       await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))().catch((e: Error) =>
         fail(`${e.message}\n${after}`, 1)

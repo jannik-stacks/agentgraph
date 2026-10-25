@@ -84,14 +84,17 @@ const inCodexVolume = (flags: string, script: string, stdio: 'ignore' | 'inherit
 const chatgpt: Provider = {
   name: 'chatgpt',
   harnesses: ['codex'],
-  ready: () => inCodexVolume('--network none', 'exec codex login status', 'ignore'),
-  detect: () => loggedIn('codex', ['login', 'status']),
+  ready: () =>
+    !process.env.AGENTGRAPH_SANDBOX_URL && inCodexVolume('--network none', 'exec codex login status', 'ignore'),
+  detect: () => !process.env.AGENTGRAPH_SANDBOX_URL && loggedIn('codex', ['login', 'status']),
   settings: () => ({
     AGENTGRAPH_PROXY_URL: 'codex=',
     AGENTGRAPH_PROXY_KEYS: '',
     AGENTGRAPH_MODELS: '*=gpt-6.1-sol,smart=gpt-6.1-sol,fast=gpt-6-luna',
   }),
   login: async () => {
+    if (process.env.AGENTGRAPH_SANDBOX_URL)
+      throw new Error('the ChatGPT login lives in a local docker volume, which AGENTGRAPH_SANDBOX_URL does not reach');
     needTerminal('run npx agentgraph start --provider chatgpt from a terminal once');
     console.log('login    agentgraph needs its own ChatGPT login for the sandbox.');
     if (
