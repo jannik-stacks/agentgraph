@@ -67,6 +67,16 @@ keep)
   tar -czf /tmp/agentgraph-kept.tgz -C "$root/" --exclude=.cache work homes
   wc -c < /tmp/agentgraph-kept.tgz
   ;;
+reap)
+  for round in 1 2 3; do
+    for environ in /proc/[0-9]*/environ; do
+      pid=${environ#/proc/}
+      pid=${pid%/environ}
+      [ "$pid" != $$ ] || continue
+      if tr '\0' '\n' < "$environ" 2> /dev/null | grep -qxF "AGENTGRAPH_RUN=$1"; then kill -KILL "$pid" 2> /dev/null || :; fi
+    done
+  done
+  ;;
 run)
   minutes=$1
   shift

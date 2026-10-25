@@ -229,6 +229,19 @@ describe('remote sandbox', () => {
     expect(exit).toEqual(Exit.succeed([false, false]));
   });
 
+  it('leaves a running command alone while another one starts', async () => {
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        const slow = yield* Effect.fork(s.exec(sh(work.dir, 'sleep 0.5; echo slow')));
+        yield* Effect.sleep('100 millis');
+        yield* s.exec(sh(work.dir, 'true'));
+        return yield* slow.await;
+      })
+    );
+    expect(exit).toEqual(Exit.succeed(Exit.succeed({ code: 0, output: 'slow\n' })));
+  });
+
   it('keeps the box when its work never came back', async () => {
     let id = '';
     await use(layer(), s =>

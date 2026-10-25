@@ -90,7 +90,6 @@ export class Box extends Container<Env> {
   interceptHttps = true;
   entrypoint = ['sh', '-c', boxScript, 'box', 'start'];
   running = new Map<Network, number>();
-  children = new Map<string, Promise<ExecProcess>>();
   requests = 0;
   stopped = new Set<string>();
   static {
@@ -156,9 +155,8 @@ export class Box extends Container<Env> {
     }
     if (op === 'stop') {
       const id = url.searchParams.get('arg') ?? '';
-      const child = await this.children.get(id)?.catch(() => undefined);
-      if (child) await this.killGroup(child);
-      else this.stopped.add(id);
+      this.stopped.add(id);
+      await this.reap(id);
       return new Response(null, { status: 204, headers });
     }
     if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
@@ -175,12 +173,9 @@ export class Box extends Container<Env> {
       : new Response(text.decode(stdout) + text.decode(stderr), { status: 500 });
   }
 
-  async killGroup(child: ExecProcess) {
-    const kill = await this.ctx.container!.exec(['sh', '-c', 'kill -KILL -"$1"', 'kill', String(child.pid)], {
-      user: '0:0',
-    });
-    await kill.exitCode;
-    await child.exitCode.catch(() => undefined);
+  async reap(id: string) {
+    const reaper = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'reap', id], { user: '0:0' });
+    await reaper.exitCode;
   }
 
   async run(id: string, network: Network, argv: string[], secrets: Record<string, string>, headers: HeadersInit) {
@@ -188,22 +183,22 @@ export class Box extends Container<Env> {
     this.running.set(network, (this.running.get(network) ?? 0) + 1);
     const done = () => {
       this.running.set(network, (this.running.get(network) ?? 1) - 1);
-      this.children.delete(id);
     };
     const started = this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'run', ...argv], {
       user: '1000:1000',
-      env: secrets,
+      env: { ...secrets, AGENTGRAPH_RUN: id },
       stderr: 'combined',
     }).catch(error => {
       done();
       throw error;
     });
-    this.children.set(id, started);
     const child = await started;
+    if (this.stopped.has(id)) await this.reap(id);
+    void child.exitCode.then(() => this.reap(id)).catch(() => undefined);
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const pump = async () => {
       const writer = writable.getWriter();
-      writer.closed.catch(() => this.killGroup(child));
+      writer.closed.catch(() => this.reap(id));
       let last = 10;
       try {
         for await (const chunk of child.stdout as ReadableStream<Uint8Array>) {
@@ -212,11 +207,11 @@ export class Box extends Container<Env> {
           await writer.write(chunk);
         }
         const code = await child.exitCode;
-        await this.killGroup(child);
+        await this.reap(id);
         await writer.write(new TextEncoder().encode((last === 10 ? '' : '\n') + frame(code)));
         await writer.close();
       } catch (error) {
-        await this.killGroup(child);
+        await this.reap(id);
         await writer.abort(error).catch(() => undefined);
       } finally {
         done();
