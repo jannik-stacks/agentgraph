@@ -24,7 +24,7 @@ describe('diagrams', () => {
   });
 
   it('accepts a line leaving a box through its bottom edge', () => {
-    expect(check('┌─────┐\n│ hi  │\n└──┬──┘\n   ▼\n').status).toBe(0);
+    expect(check('┌─────┐\n│ hi  │\n└──┬──┘\n   v\n').status).toBe(0);
   });
 
   it('reports a right edge one column off', () => {

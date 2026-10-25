@@ -125,6 +125,28 @@ describe('agentgraph hub checks', () => {
     expect(check(at('rules.mjs'), clean)).toEqual({ ok: true, out: 'rules: ok' });
   });
 
+  it('flags unicode diagram arrows, two-dot review diffs, update-ref without an old sha and a CLAUDE.md', () => {
+    const repo = change(
+      { 'src/a.ts': 'export const a = 1;\n', 'docs/a.md': '# A\n' },
+      {
+        'src/a.ts':
+          "export const a = 1;\nawait inForge(i, ['update-ref', `refs/heads/${i.base}`, theirs]);\nawait inForge(i, ['update-ref', ref, head, current]);\n",
+        'docs/a.md': '# A\n\n```\n      ▲\n      v\n```\n\nKeep `../x` and `a...b`.\n',
+        'examples/agentgraph/skills/review.md':
+          'Review the whole branch: `git diff bothub-main..HEAD -- agentgraph`.\n',
+        'CLAUDE.md': '@AGENTS.md\n',
+      }
+    );
+    const { ok, out } = check(at('rules.mjs'), repo);
+    expect(ok).toBe(false);
+    expect(out.split('\n').slice(0, -1).toSorted()).toEqual([
+      'CLAUDE.md:1: a CLAUDE.md file; agent instructions live in AGENTS.md only',
+      'docs/a.md:4: a unicode arrow in a fenced block; diagram arrow heads are ASCII > < v ^',
+      'examples/agentgraph/skills/review.md:1: a two-dot diff range; review a branch with base...HEAD, or diff a recorded sha',
+      'src/a.ts:2: update-ref without the expected old sha; pass it so a concurrent move fails',
+    ]);
+  });
+
   it('lints and format-checks the code files a change touches', () => {
     const repo = change(
       { '.oxlintrc.json': '{ "rules": { "no-debugger": "error" } }\n', 'src/a.ts': 'export const a = 1;\n' },

@@ -24,6 +24,9 @@ const named = path =>
   /^(src|studio\/src|docs|bin|examples)\//.test(path) && !/^examples\/[^/]+\/(scripts|notes|fixtures)\//.test(path);
 
 const inTests = path => testPath.test(path);
+const kept = path => !path.startsWith('research/');
+const diagram = (path, kind) => kept(path) && kind === 'fence' && /\.mdx?$/.test(path);
+const engine = (path, kind) => kind === 'code' && /^src\/.*\.ts$/.test(path);
 const launchers = new Set(['src/runner.ts', 'src/sim.ts']);
 
 /** A line that quotes the old name, or names the new one beside it, is a hint about the name. */
@@ -69,6 +72,10 @@ const rules = [
   [shipped, /not (yet )?implemented|\bunimplemented\b/i, 'a path that is not implemented'],
   [shipped, /\b(fake[ds]?|stub(bed|s)?|mock(ed|s)?|dummy)\b/i, 'a fake in shipped code; build the real thing', (_, text) => /placeholder=/.test(text)],
 
+  [diagram, /[►◄▲▼▶◀→←↑↓⟶⟵⇒⇐]/, 'a unicode arrow in a fenced block; diagram arrow heads are ASCII > < v ^'],
+  [path => kept(path) && !inTests(path), /\bgit diff\b[^\n]*[^.\s]\.\.(?!\.)[^./\s]/, 'a two-dot diff range; review a branch with base...HEAD, or diff a recorded sha'],
+  [engine, /'update-ref',\s*[^,\]]+,\s*[^,\]]+\]/, 'update-ref without the expected old sha; pass it so a concurrent move fails'],
+
   ...retiredWords
     .filter(([, , pattern]) => pattern)
     .map(([old, replacement, pattern]) => [named, pattern, `${old}; say ${replacement}`, hint(old, replacement)]),
@@ -104,6 +111,9 @@ const uncalibrated = ({ path, text, lines }) => {
   return [`${path}:1: a new check in block or stop mode with no calibration; start it in warn mode, or say in its body which replay calibrated it`];
 };
 
-const scanned = files(path => codePath.test(path) || /\.(mdx?|ya?ml)$/.test(path));
-const fileRules = [longBlocks, uncalibrated];
+const claudeFile = ({ path }) =>
+  kept(path) && /(^|\/)CLAUDE\.md$/.test(path) ? [`${path}:1: a CLAUDE.md file; agent instructions live in AGENTS.md only`] : [];
+
+const scanned = files(path => codePath.test(path) || /\.(mdx?|ya?ml|sh)$/.test(path));
+const fileRules = [longBlocks, uncalibrated, claudeFile];
 report('rules', [...scan(rules, scanned), ...fileRules.flatMap(rule => scanned.flatMap(rule))]);

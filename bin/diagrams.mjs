@@ -6,8 +6,8 @@ import { join, relative } from 'node:path';
 const root = join(import.meta.dirname, '..');
 const BOX = /[┌┐└┘│─├┤┬┴┼]/;
 const ASCII_BOX = /\+-{2,}\+/;
-const down = new Set('│├┤┬┼┌┐|+▲↑^'); // chars above a vertical that continue into it
-const up = new Set('│├┤┴┼└┘|+▼↓v'); // chars below a vertical that it continues into
+const down = new Set('│├┤┬┼┌┐|+^'); // chars above a vertical that continue into it
+const up = new Set('│├┤┴┼└┘|+v'); // chars below a vertical that it continues into
 const right = new Set('─┌└├┬┴┼'); // chars with a stub to their right
 const left = new Set('─┐┘┤┬┴┼'); // chars with a stub to their left
 const wide = [
