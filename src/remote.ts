@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { copyFileSync, existsSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { buffer } from 'node:stream/consumers';
@@ -26,6 +27,8 @@ type BoxEntry = {
   trees: Map<string, string>;
   sync: Effect.Semaphore;
   hub?: string;
+  toolchain?: Command;
+  ready: boolean;
 };
 
 const call = (url: string, init: RequestInit & { signal?: AbortSignal }) =>
@@ -139,6 +142,7 @@ export const remoteSandbox = (o: {
             if (init.headers.has(freshHeader)) {
               box.trees.clear();
               delete box.hub;
+              box.ready = false;
             }
             const { base, head = base } = box.work;
             yield* push(box, workDir(box), [...new Set([head, base])]);
@@ -162,6 +166,7 @@ export const remoteSandbox = (o: {
             if (!box) return yield* infra(`${c.dir} is not a checkout of this sandbox`);
             const home = c.home ? yield* homeDir(c.home) : undefined;
             yield* before(box, c, home);
+            if (!box.ready && c !== box.toolchain) yield* provision(box);
             yield* news(box);
             yield* Effect.forkScoped(Effect.repeat(Effect.ignore(news(box)), Schedule.spaced('1 minute')));
             const env = {
@@ -176,17 +181,22 @@ export const remoteSandbox = (o: {
             };
             const network = c.network === 'proxy' ? box.network : c.network;
             const argv = [String(c.minutes), ...Object.entries(env).map(([k, v]) => `${k}=${v}`), c.cmd, ...c.args];
-            const response = yield* call(`${box.url}/run?network=${network}`, {
+            const id = randomUUID();
+            const response = yield* call(`${box.url}/run?network=${network}&id=${id}`, {
               method: 'POST',
               body: JSON.stringify(argv),
             });
             if (response.headers.has(freshHeader)) return yield* infra('the box restarted before the command ran');
             let code: number | undefined;
             let pulled = false;
-            yield* Effect.addFinalizer(() => (pulled ? Effect.void : Effect.ignore(after(box, home))));
+            yield* Effect.addFinalizer(() =>
+              pulled
+                ? Effect.void
+                : Effect.ignore(Effect.zipRight(op(box, 'stop', [id]), Effect.retry(after(box, home), { times: 2 })))
+            );
             const ended = Effect.gen(function* () {
-              pulled = true;
               yield* after(box, home);
+              pulled = true;
               if (code === undefined) return yield* infra('the box stream ended without an exit code');
               return { code };
             });
@@ -212,6 +222,14 @@ export const remoteSandbox = (o: {
           )
         );
 
+      const provision = (box: BoxEntry) =>
+        Effect.gen(function* () {
+          if (!box.toolchain) return;
+          const out = yield* exec(box.toolchain);
+          if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
+          box.ready = true;
+        });
+
       const exec = (c: Command) =>
         Stream.runFold(lines(c), { code: 0, output: '' }, (exit: Exit, piece) =>
           typeof piece === 'string'
@@ -234,7 +252,10 @@ export const remoteSandbox = (o: {
             network: hub?.network ?? 'egress',
             trees: new Map(),
             sync: yield* Effect.makeSemaphore(1),
+            ready: true,
           };
+          if (work.git.GIT_INDEX_FILE && existsSync(work.git.GIT_INDEX_FILE))
+            copyFileSync(work.git.GIT_INDEX_FILE, syncIndex(work));
           yield* Effect.acquireRelease(
             Effect.sync(() => boxes.set(work.dir, box)),
             () =>
@@ -252,17 +273,17 @@ export const remoteSandbox = (o: {
             ...makeToolchainSetupCommands(files.toString('utf8').split('\n')),
             ...(hub.toolchain ? [hub.toolchain] : []),
           ];
-          if (toolchain.length > 0) {
-            const out = yield* exec({
-              cmd: 'sh',
-              args: ['-ec', toolchain.join('\n')],
-              dir: work.dir,
-              env: {},
-              network: 'open',
-              minutes: 30,
-            });
-            if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
-          }
+          if (toolchain.length === 0) return work;
+          box.toolchain = {
+            cmd: 'sh',
+            args: ['-ec', toolchain.join('\n')],
+            dir: work.dir,
+            env: {},
+            network: 'open',
+            minutes: 30,
+          };
+          box.ready = false;
+          yield* provision(box);
           return work;
         });
 

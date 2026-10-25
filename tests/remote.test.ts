@@ -147,11 +147,19 @@ describe('remote sandbox', () => {
     expect(existsSync(join(boxes, id))).toBe(false);
   });
 
-  it('ends a command at its minutes', async () => {
+  it('ends a command at its minutes, stops it and brings back what it wrote', async () => {
     const exit = await use(layer(), s =>
-      Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'sleep 3', { minutes: 0.005 })))
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        const ran = yield* Effect.either(
+          s.exec(sh(work.dir, 'echo early > e.txt; sleep 1.5; echo late > l.txt', { minutes: 0.015 }))
+        );
+        yield* Effect.sleep('1800 millis');
+        const after = yield* s.exec(sh(work.dir, 'ls'));
+        return [String(ran).includes('timeout'), existsSync(join(work.dir, 'e.txt')), after.output];
+      })
     );
-    expect(String(exit)).toContain('timeout');
+    expect(exit).toEqual(Exit.succeed([true, true, 'a.txt\ne.txt\n']));
   });
 
   it('fails when the stream ends without an exit code', async () => {

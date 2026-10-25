@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -15,6 +15,7 @@ const read = async (request: IncomingMessage) => {
 
 export const startBoxServer = async (dir: string, { frame = true } = {}) => {
   const runs: { id: string; network: string; argv: string[] }[] = [];
+  const children = new Map<string, ChildProcess>();
   const server = createServer(async (request, response) => {
     const url = new URL(request.url!, 'http://box');
     const [id = '', op = ''] = url.pathname.slice(1).split('/');
@@ -27,6 +28,15 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
     mkdirSync(join(root, 'tmp'), { recursive: true });
     const body = await read(request);
     const env = { ...process.env, AGENTGRAPH_BOX_ROOT: root };
+    if (op === 'stop') {
+      const child = children.get(url.searchParams.get('arg') ?? '');
+      if (child?.exitCode === null) {
+        const exited = new Promise(resolve => child.once('close', resolve));
+        process.kill(-child.pid!, 'SIGKILL');
+        await exited;
+      }
+      return response.end();
+    }
     if (op === 'run') {
       const [minutes = '1', ...argv] = JSON.parse(body.toString('utf8')) as string[];
       runs.push({ id, network: url.searchParams.get('network') ?? '', argv });
@@ -47,7 +57,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       };
       child.stdout.on('data', out);
       child.stderr.on('data', out);
-      response.on('close', () => child.exitCode === null && process.kill(-child.pid!, 'SIGKILL'));
+      children.set(url.searchParams.get('id') ?? '', child);
       child.on('close', code =>
         response.end(frame ? `${last === 10 ? '' : '\n'}\u0000agentgraph-exit ${code ?? 137}\n` : '')
       );
