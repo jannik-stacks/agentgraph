@@ -52,7 +52,7 @@ const op = (box: BoxEntry, name: string, args: string[], body?: Uint8Array) =>
     call(
       `${box.url}/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`,
       { method: 'POST', ...(body && { body: new Uint8Array(body) }) },
-      () => name === 'init' || (box.restarted = true)
+      () => (box.restarted = true)
     ),
     response => name === 'init' || !response.headers.has(freshHeader),
     () => infra(`the box restarted during ${name}`)
@@ -194,8 +194,8 @@ export const remoteSandbox = (o: {
       const before = (box: BoxEntry, c: Command, home?: SyncedDir) =>
         box.sync.withPermits(1)(
           Effect.gen(function* () {
-            const init = yield* op(box, 'init', []);
-            if (init.headers.has(freshHeader) || box.restarted) {
+            yield* op(box, 'init', []);
+            if (box.restarted) {
               delete box.restarted;
               const lost = box.pending.size > 0;
               box.pending.clear();
