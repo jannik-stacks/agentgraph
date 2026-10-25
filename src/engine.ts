@@ -1505,6 +1505,7 @@ const runEndChecks = (
     const owed = [...new Set([...(stored?.owed ?? []), ...adding])];
     if (!stored || owed.length === 0) return stored;
     const ended: Run = { ...stored, owed };
+    if (owed.length > (stored.owed?.length ?? 0)) yield* store.put(ended);
     let run = ended;
     const w = hub.workflows[ended.workflow];
     const opened = w ? yield* caught(reopen(hub, w, ended)) : `the hub has no workflow ${ended.workflow}`;
