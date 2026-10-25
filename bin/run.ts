@@ -227,15 +227,14 @@ else await runOnInstance();
 async function runOnForge() {
   if (values.provider || values.harness || values.model || values.save)
     fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the hub and its env');
-  const data = root;
   const folder = values.forge && values.forge !== 'github' ? resolve(values.forge) : undefined;
   if (folder) process.env.AGENTGRAPH_FORGE = folder;
   const hub = values.hub && resolve(values.hub);
   const needHub = () => hub ?? fail(`${verb} on a forge needs --hub`);
   switch (verb) {
     case 'loop': {
-      if (values.once) return printRuns(await start({ hub: needHub(), issue: 'all', data }));
-      process.env.AGENTGRAPH_DATA = data;
+      if (values.once) return printRuns(await start({ hub: needHub(), issue: 'all', data: root }));
+      process.env.AGENTGRAPH_DATA = root;
       if (hub)
         Object.assign(process.env, {
           AGENTGRAPH_HUB: hub,
@@ -251,7 +250,7 @@ async function runOnForge() {
       const { repo } = await Effect.runPromise(readConfiguredHub(needHub()));
       const lines = [
         ...(folder ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
-        ...findRunsWaitingOnPeople(await listRuns(data)).flatMap(run =>
+        ...findRunsWaitingOnPeople(await listRuns(root)).flatMap(run =>
           formatNextSteps(run, folder ? undefined : repo)
         ),
       ];
@@ -260,9 +259,9 @@ async function runOnForge() {
     }
     case 'check':
     case 'dispatch':
-      return printRuns(await start({ hub: needHub(), issue: 'all', data, instruction: instructed() }));
+      return printRuns(await start({ hub: needHub(), issue: 'all', data: root, instruction: instructed() }));
     case 'prune-logs':
-      return prune(data);
+      return prune(root);
     default:
       fail(`${verb || 'a verb'} does not run on --forge or with App credentials\n${usage}`);
   }
