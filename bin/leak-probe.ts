@@ -34,7 +34,7 @@ const isSecretVariable = (name: string, value: string) =>
 
 const isSecretText = (text: string) =>
   secret.test(text) ||
-  [...text.matchAll(/^(?:export )?([A-Za-z_]\w*)=["']?([^\s"'#]*)/gm)].some(([, name, value]) =>
+  [...text.matchAll(/(?:^|\s)(?:export )?([A-Za-z_]\w*)=["']?([^\s"'#]*)/gm)].some(([, name, value]) =>
     isSecretVariable(name!, value!)
   );
 
@@ -82,7 +82,7 @@ const probes: Record<string, () => Promise<string[]> | string[]> = {
       .split('\n')
       .flatMap(line => {
         const [, pid, command] = /^\s*(\d+)\s+(.*)$/.exec(line) ?? [];
-        return pid && pid !== String(process.pid) && secret.test(command!) ? [`ps ${pid}`] : [];
+        return pid && pid !== String(process.pid) && isSecretText(command!) ? [`ps ${pid}`] : [];
       }),
   docker: () =>
     readOutput('docker', ['ps', '-q'])

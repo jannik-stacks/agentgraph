@@ -26,7 +26,7 @@ describe('leak-probe', () => {
       'home/.keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${canary}\n`,
       'home/clean.txt': 'nothing here\n',
       'home/master.env': 'export LITELLM_MASTER_KEY="unprefixed-master-value"\n',
-      'bin/ps': `#!/bin/sh\necho "  4242 node app --key ${canary}"\necho "  4343 node app"\n`,
+      'bin/ps': `#!/bin/sh\necho "  4242 node app --key ${canary}"\necho "  4343 node app"\necho "  4444 node app LITELLM_MASTER_KEY=unprefixed-master-value"\n`,
       'bin/docker': `#!/bin/sh\n[ "$1" = ps ] && { echo abc; exit 0; }\nprintf '/agentgraph-litellm\\t["LITELLM_MASTER_KEY=${canary}","PATH=/bin"]\\n'\n`,
     });
     for (const shim of ['ps', 'docker']) chmodSync(join(dir, 'bin', shim), 0o755);
@@ -49,9 +49,10 @@ describe('leak-probe', () => {
           `file ${join(dir, 'home/.keys.env')}`,
           `file ${join(dir, 'home/master.env')}`,
           'ps 4242',
+          'ps 4444',
           'docker /agentgraph-litellm LITELLM_MASTER_KEY',
           `studio ${join(dir, 'home/.keys.env')}`,
-          '6 hit(s)',
+          '7 hit(s)',
         ].sort()
       );
       expect(out).not.toContain(canary);
