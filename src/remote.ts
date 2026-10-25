@@ -29,6 +29,7 @@ type BoxEntry = {
   hub?: string;
   toolchain?: Command;
   ready: boolean;
+  roots?: string;
 };
 
 const call = (url: string, init: RequestInit & { signal?: AbortSignal }) =>
@@ -42,10 +43,14 @@ const call = (url: string, init: RequestInit & { signal?: AbortSignal }) =>
   });
 
 const op = (box: BoxEntry, name: string, args: string[], body?: Uint8Array) =>
-  call(`${box.url}/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`, {
-    method: 'POST',
-    ...(body && { body: new Uint8Array(body) }),
-  });
+  Effect.filterOrFail(
+    call(`${box.url}/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`, {
+      method: 'POST',
+      ...(body && { body: new Uint8Array(body) }),
+    }),
+    response => name === 'init' || !response.headers.has(freshHeader),
+    () => infra(`the box restarted during ${name}`)
+  );
 
 const treeOf = (git: Record<string, string>) =>
   Effect.zipRight(
@@ -145,7 +150,10 @@ export const remoteSandbox = (o: {
               box.ready = false;
             }
             const { base, head = base } = box.work;
-            yield* push(box, workDir(box), [...new Set([head, base])]);
+            const roots = [...new Set([head, base])];
+            if (box.roots !== roots.join(' ')) box.trees.delete('/work');
+            yield* push(box, workDir(box), roots);
+            box.roots = roots.join(' ');
             if (home) yield* push(box, home);
             if (c.hub && box.hub !== c.hub) {
               yield* putDir(box, c.hub, '/hub');
@@ -192,7 +200,12 @@ export const remoteSandbox = (o: {
             yield* Effect.addFinalizer(() =>
               pulled
                 ? Effect.void
-                : Effect.ignore(Effect.zipRight(op(box, 'stop', [id]), Effect.retry(after(box, home), { times: 2 })))
+                : Effect.ignore(
+                    Effect.timeout(
+                      Effect.zipRight(op(box, 'stop', [id]), Effect.retry(after(box, home), { times: 2 })),
+                      '5 minutes'
+                    )
+                  )
             );
             const ended = Effect.gen(function* () {
               yield* after(box, home);

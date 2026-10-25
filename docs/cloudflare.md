@@ -43,7 +43,7 @@ The box answers a small HTTP protocol, so any server that runs `examples/deploy/
 
 ## Networks
 
-A box reaches nothing while a command with network `none` runs. During a session the box reaches `gateway.internal`, and with the hub's `network: egress` also the hosts in `infra/local/egress/allowlist`. The gateway forward keeps the path after `/v1`, never follows redirects, and applies `GATEWAY_HEADERS`.
+Egress is set per box, from the commands running in it. A box with only `none` commands running reaches nothing. During a session the box reaches `gateway.internal`, and with the hub's `network: egress` also the hosts in `infra/local/egress/allowlist`. The gateway forward keeps the path after `/v1`, never follows redirects, and applies `GATEWAY_HEADERS`. A check that runs next to a session in the same box shares the session's reach, unlike under docker, where each command has its own network.
 
 ## Models
 
