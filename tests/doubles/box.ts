@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -23,6 +23,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       rmSync(root, { recursive: true, force: true });
       return response.end();
     }
+    if (!existsSync(root)) response.setHeader('agentgraph-box-fresh', '1');
     mkdirSync(join(root, 'tmp'), { recursive: true });
     const body = await read(request);
     const env = { ...process.env, AGENTGRAPH_BOX_ROOT: root };

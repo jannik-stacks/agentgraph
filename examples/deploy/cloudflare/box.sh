@@ -33,9 +33,9 @@ push)
   sync "$1" "$2"
   tree=$3
   shift 3
+  [ $# -eq 0 ] || printf '%s\n' "$@" > "$GIT_DIR/shallow"
   git index-pack --stdin --strict > /dev/null
   if [ $# -gt 0 ]; then
-    printf '%s\n' "$@" > "$GIT_DIR/shallow"
     git update-ref --no-deref HEAD "$1"
     GIT_INDEX_FILE="$GIT_DIR/index" git read-tree "$1"
   fi
@@ -67,7 +67,7 @@ run)
   shift
   [ ! -f "$env" ] || . "$env"
   cd "$root/work"
-  if command -v timeout > /dev/null; then exec timeout -s KILL "${minutes}m" env "$@"; fi
+  if command -v timeout > /dev/null; then exec timeout -k 10s -s KILL "${minutes}m" env "$@"; fi
   exec env "$@"
   ;;
 *)

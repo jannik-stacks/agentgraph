@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { buffer } from 'node:stream/consumers';
@@ -11,6 +12,7 @@ import type { Hub } from './hub.ts';
 import { type Checkout, type Command, type Exit, Sandbox, SandboxError } from './sandbox.ts';
 
 const exitFrame = '\u0000agentgraph-exit ';
+const freshHeader = 'agentgraph-box-fresh';
 const outputLimit = 64 << 10;
 
 const infra = (detail: string) => new SandboxError({ reason: 'infra', detail });
@@ -118,7 +120,12 @@ export const remoteSandbox = (o: {
     Effect.gen(function* () {
       const host = yield* Effect.provide(Sandbox, dockerSandbox({ ...o, cache: '' }));
       const boxes = new Map<string, BoxEntry>();
-      const workDir = (box: BoxEntry): SyncedDir => ({ box: '/work', boxGit: '/work/.git', git: box.work.git });
+      const syncIndex = (work: Checkout) => join(o.data, 'sync', `${basename(work.dir)}.index`);
+      const workDir = (box: BoxEntry): SyncedDir => ({
+        box: '/work',
+        boxGit: '/work/.git',
+        git: { ...box.work.git, GIT_INDEX_FILE: syncIndex(box.work) },
+      });
       const homeDir = (home: string) =>
         Effect.map(homeGit(o.data, home), (git): SyncedDir => {
           const box = `/homes/${basename(home)}`;
@@ -128,7 +135,11 @@ export const remoteSandbox = (o: {
       const before = (box: BoxEntry, c: Command, home?: SyncedDir) =>
         box.sync.withPermits(1)(
           Effect.gen(function* () {
-            if (box.trees.size === 0) yield* op(box, 'init', []);
+            const init = yield* op(box, 'init', []);
+            if (init.headers.has(freshHeader)) {
+              box.trees.clear();
+              delete box.hub;
+            }
             const { base, head = base } = box.work;
             yield* push(box, workDir(box), [...new Set([head, base])]);
             if (home) yield* push(box, home);
@@ -169,8 +180,12 @@ export const remoteSandbox = (o: {
               method: 'POST',
               body: JSON.stringify(argv),
             });
+            if (response.headers.has(freshHeader)) return yield* infra('the box restarted before the command ran');
             let code: number | undefined;
+            let pulled = false;
+            yield* Effect.addFinalizer(() => (pulled ? Effect.void : Effect.ignore(after(box, home))));
             const ended = Effect.gen(function* () {
+              pulled = true;
               yield* after(box, home);
               if (code === undefined) return yield* infra('the box stream ended without an exit code');
               return { code };
@@ -224,7 +239,10 @@ export const remoteSandbox = (o: {
             Effect.sync(() => boxes.set(work.dir, box)),
             () =>
               Effect.zipRight(
-                Effect.sync(() => boxes.delete(work.dir)),
+                Effect.sync(() => {
+                  boxes.delete(work.dir);
+                  rmSync(syncIndex(work), { force: true });
+                }),
                 Effect.ignore(call(box.url, { method: 'DELETE' }))
               )
           );

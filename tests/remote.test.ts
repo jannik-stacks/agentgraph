@@ -10,6 +10,10 @@ import { git, tmp } from './kit.ts';
 const origin = () => {
   const dir = tmp('origin');
   git(dir, 'init', '-q', '-b', 'main');
+  writeFileSync(join(dir, 'old.txt'), 'old\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'old');
+  rmSync(join(dir, 'old.txt'));
   writeFileSync(join(dir, 'a.txt'), 'main\n');
   writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
   git(dir, 'add', '.');
@@ -61,6 +65,18 @@ describe('remote sandbox', () => {
         ignored: false,
       })
     );
+  });
+
+  it('seeds a box again after it restarted, from the files the host has', async () => {
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        yield* s.exec(sh(work.dir, 'echo kept > b.txt'));
+        rmSync(join(boxes, basename(work.dir)), { recursive: true });
+        return yield* s.exec(sh(work.dir, 'cat b.txt; git log --format=%s'));
+      })
+    );
+    expect(exit).toEqual(Exit.succeed({ code: 0, output: 'kept\nmain\n' }));
   });
 
   it('streams lines with the exit code last', async () => {
