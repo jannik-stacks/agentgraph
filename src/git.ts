@@ -39,7 +39,7 @@ export const makeHostEnv = (env: Record<string, string> = {}): Record<string, st
 export const hostGit = (
   env: Record<string, string>,
   args: string[],
-  { input, codes = [] }: { input?: string; codes?: number[] } = {}
+  { input, codes = [] }: { input?: string | Uint8Array; codes?: number[] } = {}
 ) =>
   Effect.async<Buffer, SandboxError>(resume => {
     const child = spawn('git', [...hardened, ...args], {

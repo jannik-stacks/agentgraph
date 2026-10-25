@@ -36,7 +36,6 @@ type SandboxSetupSpec = {
 
 /**
  * Shell lines that install the toolchain a repo's root `files` name, run from the repo root with network.
- * @internal
  */
 export const makeToolchainSetupCommands = (files: string[]) => {
   const has = (...names: string[]) => names.some(name => files.includes(name));

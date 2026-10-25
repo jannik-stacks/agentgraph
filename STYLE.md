@@ -133,7 +133,7 @@ reread this list and ask whether a restructure or rename would remove an excepti
 one without that check.
 
 - **Layer constructors are named `<how><Service>`, without a verb:** `fileForge`, `githubForge`,
-  `fileStore`, `harnessSession`, `dockerSandbox`, `hostSandbox` and the test double `replaySession`.
+  `fileStore`, `harnessSession`, `dockerSandbox`, `remoteSandbox`, `hostSandbox` and the test double `replaySession`.
   They read as values handed to `Effect.provide`. `bin/style.mjs` exempts exactly the ones it
   would flag.
 - **Harness plugins are named after their harness:** `opencode()`, `claude()` and `pi()` read in

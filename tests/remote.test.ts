@@ -1,0 +1,149 @@
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { Chunk, Effect, Exit, type Layer, type Scope, Stream } from 'effect';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { remoteSandbox } from '../src/remote.ts';
+import { type Command, Sandbox } from '../src/sandbox.ts';
+import { startBoxServer } from './doubles/box.ts';
+import { git, tmp } from './kit.ts';
+
+const origin = () => {
+  const dir = tmp('origin');
+  git(dir, 'init', '-q', '-b', 'main');
+  writeFileSync(join(dir, 'a.txt'), 'main\n');
+  writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'main');
+  return dir;
+};
+
+const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Type']) => Effect.Effect<A, E, Scope.Scope>) =>
+  Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
+
+const sh = (dir: string, script: string, more: Partial<Command> = {}): Command => ({
+  cmd: 'sh',
+  args: ['-c', script],
+  dir,
+  env: {},
+  network: 'none',
+  minutes: 1,
+  ...more,
+});
+
+describe('remote sandbox', () => {
+  const boxes = tmp('boxes');
+  let server: Awaited<ReturnType<typeof startBoxServer>>;
+  beforeAll(async () => {
+    server = await startBoxServer(boxes);
+  });
+  afterAll(() => server.close());
+  const layer = () => remoteSandbox({ url: server.url, data: tmp('data'), origin: origin() });
+
+  it('keeps a written file for the next command and on the host, and deletes travel both ways', async () => {
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        const first = yield* s.exec(
+          sh(work.dir, 'echo box > b.txt; rm a.txt; mkdir -p node_modules; echo x > node_modules/m')
+        );
+        const seen = [existsSync(join(work.dir, 'b.txt')), existsSync(join(work.dir, 'a.txt'))];
+        writeFileSync(join(work.dir, 'c.txt'), 'host\n');
+        rmSync(join(work.dir, 'b.txt'));
+        const second = yield* s.exec(sh(work.dir, 'ls; cat node_modules/m; git status --short'));
+        return { first, seen, second, ignored: existsSync(join(work.dir, 'node_modules')) };
+      })
+    );
+    expect(exit).toEqual(
+      Exit.succeed({
+        first: { code: 0, output: '' },
+        seen: [true, false],
+        second: { code: 0, output: 'c.txt\nnode_modules\nx\n D a.txt\n?? c.txt\n' },
+        ignored: false,
+      })
+    );
+  });
+
+  it('streams lines with the exit code last', async () => {
+    const exit = await use(layer(), s =>
+      Effect.flatMap(s.checkout('main'), work =>
+        Stream.runCollect(s.lines(sh(work.dir, 'echo one; echo two; printf three; exit 3')))
+      )
+    );
+    expect(Exit.map(exit, Chunk.toArray)).toEqual(Exit.succeed(['one', 'two', 'three', { code: 3 }]));
+  });
+
+  it('brings the session home, the hub and the news to the box, on the network of its hub', async () => {
+    const hub = tmp('hub');
+    writeFileSync(join(hub, 'rules.md'), 'rules\n');
+    const home = join(tmp('homes'), 'session-1');
+    mkdirSync(join(home, '.cache'), { recursive: true });
+    writeFileSync(join(home, 'state'), 'one\n');
+    writeFileSync(join(home, '.cache', 'big'), 'stays\n');
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main', undefined, undefined, { network: 'models' });
+        writeFileSync(work.news, 'news\n');
+        return yield* s.exec(
+          sh(
+            work.dir,
+            'cat "$HOME/state" "$AGENTGRAPH_HUB/rules.md" "$NEWS"; ls -A "$HOME"; echo two > "$HOME/state"',
+            {
+              home,
+              hub,
+              env: { NEWS: work.news },
+              network: 'proxy',
+            }
+          )
+        );
+      })
+    );
+    expect(exit).toEqual(Exit.succeed({ code: 0, output: 'one\nrules\nnews\nstate\n' }));
+    expect(readFileSync(join(home, 'state'), 'utf8')).toBe('two\n');
+    expect(server.runs.at(-1)?.network).toBe('models');
+  });
+
+  it('runs the toolchain step in the box with network open, once per checkout', async () => {
+    const before = server.runs.length;
+    const exit = await use(layer(), s =>
+      Effect.flatMap(s.checkout('main', undefined, undefined, { toolchain: 'echo tool > /dev/null' }), work =>
+        s.exec(sh(work.dir, 'true'))
+      )
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(server.runs.slice(before).map(run => run.network)).toEqual(['open', 'none']);
+  });
+
+  it('refuses a hub image and a dir it did not check out', async () => {
+    const image = await use(layer(), s => s.checkout('main', undefined, undefined, { image: 'other' }));
+    const stray = await use(layer(), s => s.exec(sh(tmp('stray'), 'true')));
+    expect(String(image)).toContain('one image');
+    expect(String(stray)).toContain('is not a checkout');
+  });
+
+  it('destroys the box when the checkout closes', async () => {
+    let id = '';
+    await use(layer(), s =>
+      Effect.flatMap(s.checkout('main'), work => {
+        id = basename(work.dir);
+        return s.exec(sh(work.dir, 'true'));
+      })
+    );
+    expect(existsSync(join(boxes, id))).toBe(false);
+  });
+
+  it('ends a command at its minutes', async () => {
+    const exit = await use(layer(), s =>
+      Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'sleep 3', { minutes: 0.005 })))
+    );
+    expect(String(exit)).toContain('timeout');
+  });
+
+  it('fails when the stream ends without an exit code', async () => {
+    const mute = await startBoxServer(tmp('boxes'), { frame: false });
+    const exit = await use(remoteSandbox({ url: mute.url, data: tmp('data'), origin: origin() }), s =>
+      Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true')))
+    );
+    await mute.close();
+    expect(String(exit)).toContain('without an exit code');
+  });
+});

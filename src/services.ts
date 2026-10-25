@@ -8,6 +8,7 @@ import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
 import { harnessSession, readConfiguredHub, readHarnessSettings } from './harnesses.ts';
 import { HubError } from './hub.ts';
+import { remoteSandbox } from './remote.ts';
 import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
 
@@ -23,6 +24,7 @@ export type Settings = {
   cache: string;
   /** The image commands start in when a hub names none. */
   image: string;
+  sandbox: string;
   checkLogs: (typeof checkLogs)[number];
   /** The studio's URL that posted bodies link back to; empty for none. */
   studio: string;
@@ -44,6 +46,7 @@ export const settings: Config.Config<Settings> = Config.all({
   prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(prices)),
   cache: Config.string('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
   image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault('agentgraph-sandbox:local')),
+  sandbox: Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
   checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
   forge: Config.string('AGENTGRAPH_FORGE').pipe(
@@ -85,7 +88,9 @@ export const hubAt = (path: string) =>
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
 export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
-  const sandbox = dockerSandbox({ data: s.data, cache: s.cache, image: s.image, ...origin });
+  const sandbox = s.sandbox
+    ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
+    : dockerSandbox({ data: s.data, cache: s.cache, image: s.image, ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load
   const trust = Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
     Effect.provide(sandbox),
