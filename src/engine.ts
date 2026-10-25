@@ -36,6 +36,7 @@ import {
   type Workflow,
   unchanged,
   isHumanWaitStep,
+  isRunDone,
   parseAgentRequest,
 } from './workflow.ts';
 
@@ -344,8 +345,6 @@ const filed = () =>
     }
   );
 
-const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
-
 /** The reason a run waits while a run it started works. */
 const waitingOn = (child: Run) => `waiting on ${child.id}`;
 
@@ -356,7 +355,9 @@ const undispatchable = (hub: Hub, run: Pick<Run, 'id'>, asked: Extract<Proposal,
     if (!p) return [];
     const w = hub.workflows[p.workflow];
     const issue = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).find(t => t.number === p.issue);
-    const held = (yield* Effect.flatMap(Store, s => s.list({ issue: p.issue }))).some(r => live(r) && r.id !== run.id);
+    const held = (yield* Effect.flatMap(Store, s => s.list({ issue: p.issue }))).some(
+      r => !isRunDone(r) && r.id !== run.id
+    );
     const reason =
       asked.length > 1
         ? 'propose one run at a time'
@@ -390,7 +391,7 @@ const dispatch = (hub: Hub, run: Pick<Run, 'id'>, p: Extract<Proposal, { kind: '
   });
 
 const recipient = (issue: number, by: string) =>
-  Effect.flatMap(Store, s => Effect.map(s.list({ issue }), rs => rs.find(r => live(r) && r.id !== by)));
+  Effect.flatMap(Store, s => Effect.map(s.list({ issue }), rs => rs.find(r => !isRunDone(r) && r.id !== by)));
 
 /** Passes trusted text to a live run, as a router proposal or CLI instruction. */
 export const tell = (issue: number, text: string, by = 'cli') =>
@@ -446,7 +447,9 @@ export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[
       r => hub.workflows[r.workflow] && pullOf(hub.workflows[r.workflow]!, r.issue, open) === issue.number
     );
     const target = runs
-      .filter(r => live(r) && r.issue === (owner?.issue ?? issue.number) && hub.workflows[r.workflow]?.on.issue_comment)
+      .filter(
+        r => !isRunDone(r) && r.issue === (owner?.issue ?? issue.number) && hub.workflows[r.workflow]?.on.issue_comment
+      )
       .sort((a, b) => a.started.localeCompare(b.started))
       .at(-1);
     if (target) yield* Effect.flatMap(Store, store => store.trace(target.id, { at, step: target.step, spoken: event }));
@@ -1625,7 +1628,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           const why = `Spent $${current.usd.toFixed(2)}, over the hub's usd-per-run of ${hub.limits.usdPerRun}.`;
           yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
         }
-        const t = live(current) ? yield* Effect.option(issuesOf(w, current)) : Option.none();
+        const t = !isRunDone(current) ? yield* Effect.option(issuesOf(w, current)) : Option.none();
         const queued = Option.isSome(t) ? yield* told(hub, w, current, t.value) : undefined;
         if (queued) yield* settle(queued.outcome, { ...transition(w, current, queued.outcome), seen: queued.at });
       }
@@ -1689,7 +1692,7 @@ const follow = (w: Workflow, given: Run, known: NonNullable<Run['base']>, head: 
     const forge = yield* Forge;
     yield* store.lock(given.id);
     const run = (yield* store.get(given.id)) ?? given;
-    if (!live(run)) return;
+    if (isRunDone(run)) return;
     const base = run.base ?? known;
     if (base.sha === head && !base.from) return;
     const from = base.from ?? base.sha;
@@ -1914,7 +1917,7 @@ export const tick = (
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const all = yield* store.list();
     const runs = all.filter(mine).filter(r => !retro(hub, r));
-    const waiting = runs.filter(live).map(run => ({ run, at: run.seen ?? run.started }));
+    const waiting = runs.filter(r => !isRunDone(r)).map(run => ({ run, at: run.seen ?? run.started }));
     const started = runs
       .map(r => r.started)
       .sort()
@@ -2030,7 +2033,7 @@ export const tick = (
       yield* Effect.gen(function* () {
         if (Either.isLeft(yield* Effect.either(store.lock(waitingRun.run.id)))) return;
         const run = yield* store.get(waitingRun.run.id);
-        if (!run || !live(run)) return;
+        if (!run || isRunDone(run)) return;
         const at = run.seen ?? run.started;
 
         const w = hub.workflows[run.workflow];
@@ -2147,7 +2150,7 @@ export const tick = (
     const busy = new Set(
       runs
         .map(r => touched.find(t => t.id === r.id) ?? r)
-        .filter(live)
+        .filter(r => !isRunDone(r))
         .map(r => `${r.workflow}#${r.issue}`)
     );
     const open = new Set(issues.filter(t => inScope(hub, t)).map(t => t.number));
@@ -2203,7 +2206,10 @@ export const tick = (
       if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || young(m.issue)) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
       const concerns = (name: string) => m.kind !== 'comment' || !routed || !!hub.workflows[name]?.on.issue_comment;
-      if (/^(stop|cancel)$/i.test(verb) && !runs.some(r => r.issue === m.issue && live(r) && !concerns(r.workflow)))
+      if (
+        /^(stop|cancel)$/i.test(verb) &&
+        !runs.some(r => r.issue === m.issue && !isRunDone(r) && !concerns(r.workflow))
+      )
         continue;
       const old =
         restart === undefined &&
@@ -2216,7 +2222,7 @@ export const tick = (
       const held = [...busy].some(k => k.endsWith(`#${m.issue}`) && concerns(k.slice(0, k.lastIndexOf('#'))));
       if (!held && !old) yield* start(w, m.issue, m.at, m, restart);
     }
-    if (only !== undefined && !marked && !runs.some(live) && !touched.some(r => r.issue === only)) {
+    if (only !== undefined && !marked && !runs.some(r => !isRunDone(r)) && !touched.some(r => r.issue === only)) {
       const w = triggered[0] ?? (yield* assigned(only));
       if (
         w &&
@@ -2274,7 +2280,7 @@ export const tick = (
       }
     }
 
-    for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(live)) {
+    for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => !isRunDone(r))) {
       const w = hub.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
       if (!w || !r.base || !head || (head === r.base.sha && !r.base.from) || pullOf(w, r.issue, issues) === undefined)
@@ -2332,7 +2338,7 @@ export const scanIssuesAndRunningRuns = (
     const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(
       t => !t.pull && inScope(hub, t)
     );
-    const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(live);
+    const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(r => !isRunDone(r));
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
     return (yield* Effect.forEach(issues, n => tick(hub, n, true, debounce), {
       concurrency: hub.limits.parallel,

@@ -398,8 +398,6 @@ const sessionRow = (
   };
 };
 
-const live = (r: ServedRun) => r.run.status === 'running';
-
 /** What a run is doing or waiting for, in a sentence or two. */
 export const statusTip = (run: Run) => {
   const at = `issue #${run.said?.[0]?.issue ?? run.issue}`;
@@ -452,7 +450,7 @@ export const RunLine = ({ r }: { r: ServedRun }) => (
     className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono transition-colors text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
   >
     <Col className="w-[4ch]">#{r.run.issue}</Col>
-    <Col className="w-[8ch]">{flag(r.run.status, live(r))}</Col>
+    <Col className="w-[8ch]">{flag(r.run.status, r.run.status === 'running')}</Col>
     <Col className="text-zinc-500">{took(r.run.started, undefined)}</Col>
   </Link>
 );
@@ -465,7 +463,7 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Trac
   const partRow = (part: SessionTraceLines | Trace): Row => {
     if ('events' in part) {
       by ??= part.prompt?.prompt.agent ?? 'the agent';
-      return sessionRow(part, live(r), expand, r.repo, target);
+      return sessionRow(part, r.run.status === 'running', expand, r.repo, target);
     }
     const row = lineRow(part, by);
     if ('outcome' in part) by = undefined;
@@ -499,7 +497,7 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Trac
           <Tooltip tip={statusTip(run)} focusable>
             {flag(run.status, run.status !== 'done')}
           </Tooltip>
-          {live(r) && (
+          {r.run.status === 'running' && (
             <span className={cx('ml-1.5 align-middle', accent.text)}>
               <Pulse />
             </span>
@@ -511,7 +509,7 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Trac
         </Link>
         <Col className="w-[6ch] text-right text-zinc-500">{usd(run.usd)}</Col>
         <Col className="w-[8ch] text-right text-zinc-500">
-          {took(run.started, live(r) ? undefined : (run.ended ?? trace.at(-1)?.at))}
+          {took(run.started, r.run.status === 'running' ? undefined : (run.ended ?? trace.at(-1)?.at))}
         </Col>
         {r.pull && <Url url={r.pull} />}
         {r.branch &&
@@ -532,7 +530,9 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Trac
       open: true,
       summary: (
         <span className="flex min-w-0 items-baseline gap-x-2">
-          <span className={cx('font-medium', live(r) && i === visits.length - 1 && accent.text)}>{visit.step}</span>
+          <span className={cx('font-medium', r.run.status === 'running' && i === visits.length - 1 && accent.text)}>
+            {visit.step}
+          </span>
           {visit.parts.flatMap((part, j) =>
             'check' in part && part.item === undefined
               ? [

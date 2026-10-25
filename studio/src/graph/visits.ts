@@ -1,6 +1,6 @@
 import type { Graph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
-import type { Run } from '../../../src/workflow.ts';
+import { isRunDone, type Run } from '../../../src/workflow.ts';
 import { getStepDoerKind } from './chips.ts';
 import type { Trail } from './scenarios.ts';
 
@@ -71,7 +71,7 @@ export function makeWorkflowRunVisits(graph: Graph, trail: Trail, run: Run): { v
     else if (o.kind === 'pass' || o.kind === 'back' || o.kind === 'stop') visit.left = o.kind;
   });
   const last = visits.at(-1);
-  if (run.status !== 'done' && run.status !== 'stopped' && (!last || last.left)) enter(run.step, trail.at(-1));
+  if (!isRunDone(run) && (!last || last.left)) enter(run.step, trail.at(-1));
 
   const end: End =
     run.status === 'done'

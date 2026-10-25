@@ -99,6 +99,8 @@ export type Run = {
   usd: number;
 };
 
+export const isRunDone = (run: Run) => run.status === 'done' || run.status === 'stopped';
+
 export const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
 const Count = Schema.Int.pipe(Schema.positive());
 const Names = Schema.mutable(Schema.Array(Schema.String));
@@ -402,13 +404,13 @@ export function getEventOutcome(w: Workflow, run: Run, m: Event, lined: Event[] 
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
     return { kind: 'stop', why: `the ${label} label was removed` };
   const waiting = run.status === 'waiting';
-  const live = waiting || run.status === 'running';
-  if (m.kind === 'closed' && live) return { kind: 'stop', why: 'closed' };
+  if (m.kind === 'closed' && !isRunDone(run)) return { kind: 'stop', why: 'closed' };
   const said = parseAgentRequest(m);
   const body = m.comment?.body.trim() ?? '';
   const [first = '', ...rest] = said?.split(/\s+/) ?? [];
-  if (first.toLowerCase() === 'stop' && live) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
-  if (first.toLowerCase() === 'restart' && live) return { kind: 'stop', why: 'a human restarted it' };
+  if (first.toLowerCase() === 'stop' && !isRunDone(run))
+    return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
+  if (first.toLowerCase() === 'restart' && !isRunDone(run)) return { kind: 'stop', why: 'a human restarted it' };
   if (first.toLowerCase() === 'cancel')
     return run.status === 'running' ? { kind: 'ask', question: cancelled } : undefined;
   const step = w.steps.find(s => s.name === run.step);
@@ -424,7 +426,7 @@ export function getEventOutcome(w: Workflow, run: Run, m: Event, lined: Event[] 
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };
     }
   }
-  if (said !== undefined && live) return { kind: 'answer', text: said };
+  if (said !== undefined && !isRunDone(run)) return { kind: 'answer', text: said };
   return undefined;
 }
 
