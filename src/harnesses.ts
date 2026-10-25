@@ -99,7 +99,6 @@ const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usa
   return { ...u, usd };
 };
 
-/** `path` under `home` with its directories made, refusing a path that leaves the home or a link the sandbox may have left in its way. */
 const makeHomePath = async (home: string, path: string) => {
   const parts = path.split('/');
   if (parts.some(part => !part || part === '.' || part === '..'))
@@ -115,7 +114,6 @@ const makeHomePath = async (home: string, path: string) => {
   return join(dir, parts.at(-1)!);
 };
 
-/** Links `path` under `home` to `target`, replacing what the sandbox left there. */
 const linkHome = async (home: string, path: string, target: string) => {
   const at = await makeHomePath(home, path);
   await rm(at, { recursive: true, force: true });
