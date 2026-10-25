@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -692,6 +692,11 @@ describe('an instance', () => {
     expect(hub.startsWith(join(i.dir, 'hubs'))).toBe(true);
     expect(readFileSync(join(hub, 'hub.yaml'), 'utf8')).toBe(readFileSync(join(sandboxHub, 'hub.yaml'), 'utf8'));
     expect(await ensureHub(i, sandboxHub)).toBe(sandboxHub);
+    symlinkSync('/etc/hosts', join(w.seed, '.agentgraph', 'agents', 'leak.md'));
+    git(w.seed, 'add', '.agentgraph');
+    git(w.seed, 'commit', '-q', '-m', 'link');
+    await ensureBase(i);
+    await expect(ensureHub(i)).rejects.toThrow('.agentgraph holds links or submodules: agents/leak.md');
 
     const release = await createLoopLock(i.data);
     expect(await isLoopHeld(i.data)).toBe(true);

@@ -75,7 +75,7 @@ Workflows that name no `base` start from the instance's base. <!-- code: src/mai
 
 <!-- code: src/instance.ts#ensureHub src/instance.ts#defaultHub -->
 
-To change the default hub, copy the folder `show hub` prints to `.agentgraph/` in your repo, edit it and commit it.
+A committed hub with symlinks or submodules is refused. To change the default hub, copy the folder `show hub` prints to `.agentgraph/` in your repo, edit it and commit it.
 
 ## The data dir
 

@@ -6,7 +6,12 @@ export const findRunsWaitingOnPeople = (runs: Run[]) =>
     .filter(run => run.status === 'waiting' && !runs.some(c => c.by === run.id && run.reason === `waiting on ${c.id}`))
     .toSorted((a, b) => b.started.localeCompare(a.started));
 
-export const formatNextSteps = (run: Run, github?: string) => {
+const quote = (path: string) => `'${path.replaceAll("'", `'\\''`)}'`;
+
+export const formatInstanceFlags = (repo?: string, data?: string) =>
+  `${repo ? ` --repo ${quote(repo)}` : ''}${data ? ` --data ${quote(data)}` : ''}`;
+
+export const formatNextSteps = (run: Run, github?: string, flags = '') => {
   const issue = github && `https://github.com/${github}/issues/${run.issue}`;
   const n = run.issue;
   return [
@@ -14,8 +19,8 @@ export const formatNextSteps = (run: Run, github?: string) => {
     ...(issue
       ? [run.reason ? `  Answer at ${issue}` : `  Review the PR linked from ${issue}`]
       : run.reason
-        ? [`  npx agentgraph say ${n} "<answer>"`]
-        : [`  npx agentgraph merge ${n}`, `  npx agentgraph review ${n} changes "<why>"`]),
+        ? [`  npx agentgraph say ${n} "<answer>"${flags}`]
+        : [`  npx agentgraph merge ${n}${flags}`, `  npx agentgraph review ${n} changes "<why>"${flags}`]),
   ];
 };
 

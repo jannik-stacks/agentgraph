@@ -4,7 +4,8 @@ import { runsAtom } from '../state.ts';
 import { Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 
-const local = !!(import.meta.env as Record<string, string | undefined>).VITE_AGI_FORGE;
+const env = import.meta.env as Record<string, string | undefined>;
+const local = !!env.VITE_AGI_FORGE;
 
 export const InboxPage = () => {
   const { value: runs, failure } = useAtomValue(runsAtom);
@@ -20,7 +21,10 @@ export const InboxPage = () => {
           children: [],
           body: (
             <pre className="py-1 whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
-              {[r.run.reason, ...formatNextSteps(r.run, local ? undefined : r.repo || '<owner>/<repo>').slice(1)]
+              {[
+                r.run.reason,
+                ...formatNextSteps(r.run, local ? undefined : r.repo || '<owner>/<repo>', env.VITE_AGI_FLAGS).slice(1),
+              ]
                 .filter(Boolean)
                 .join('\n')}
             </pre>

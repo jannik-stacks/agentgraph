@@ -29,7 +29,13 @@ import {
   type Instance,
 } from '../src/instance.ts';
 import { createLoopLock, isLoopHeld, readEngineEnv, start, writeTriggeringIssue } from '../src/main.ts';
-import { findRunsWaitingOnPeople, formatIssueList, formatIssueTimeline, formatNextSteps } from '../src/status.ts';
+import {
+  findRunsWaitingOnPeople,
+  formatInstanceFlags,
+  formatIssueList,
+  formatIssueTimeline,
+  formatNextSteps,
+} from '../src/status.ts';
 import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import type { Run } from '../src/workflow.ts';
 
@@ -81,7 +87,6 @@ const fail = (message: string, code = 2): never => {
 if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
 const n = Number(rest[0]);
 const numbered = () => (Number.isInteger(n) && n > 0 ? n : fail(`${verb} takes an issue number\n${usage}`));
-const quote = (path: string) => `'${path.replaceAll("'", `'\\''`)}'`;
 const said = () => rest.slice(1).join(' ').trim();
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
   .version;
@@ -208,8 +213,7 @@ const root = resolve(values.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(
 if (!onForge && !process.env.AGENTGRAPH_CONFIG && existsSync(join(root, 'config.ts')))
   process.env.AGENTGRAPH_CONFIG = join(root, 'config.ts');
 
-const selected = `${values.repo ? ` --repo ${quote(resolve(values.repo))}` : ''}${values.data ? ` --data ${quote(root)}` : ''}`;
-const aim = (line: string, to = selected) => (line.includes('npx agentgraph ') ? `${line}${to}` : line);
+const selected = formatInstanceFlags(values.repo && resolve(values.repo), values.data && root);
 
 if (verb === 'check' && values.hub && !values.runs) {
   const repo = onForge ? undefined : await findRepo(resolve(values.repo ?? '.'));
@@ -301,7 +305,7 @@ async function runOnInstance() {
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);
-    return ensureHub(i, values.hub);
+    return ensureHub(i, values.hub).catch((e: Error) => fail(e.message, 1));
   };
   switch (verb) {
     case 'start': {
@@ -446,7 +450,7 @@ async function drive(i: Instance, issue: number, hub: string, before: string | u
   });
   await stop();
   if (!runs) {
-    console.log(aim(`stopped; npx agentgraph say ${issue} "go on" resumes it`));
+    console.log(`stopped; npx agentgraph say ${issue} "go on"${selected} resumes it`);
     process.exit(130);
   }
   if (runs.length === 0) console.log(`nothing to do on #${issue}`);
@@ -458,32 +462,38 @@ async function report(i: Instance, issue: number, merged = false) {
     why: e.message,
   }));
   if (result && 'why' in result)
-    console.log(aim(`not written to your repo: ${result.why}\n  npx agentgraph export ${issue} --as <branch>`));
+    console.log(`not written to your repo: ${result.why}\n  npx agentgraph export ${issue} --as <branch>${selected}`);
   else if (result) {
     const { ref, base, stat } = result;
     if (stat) console.log(`\n${stat}`);
     console.log(`In your repo: ${ref}    git diff ${base}...${ref}`);
     console.log(`Worktree:     git worktree add ../${basename(i.repo)}-${issue} ${ref}`);
   }
-  const waiting = findRunsWaitingOnPeople(await listRuns(i.data, { issue })).flatMap(run => formatNextSteps(run));
+  const waiting = findRunsWaitingOnPeople(await listRuns(i.data, { issue })).flatMap(run =>
+    formatNextSteps(run, undefined, selected)
+  );
   const merge = result && !('why' in result) ? [`  git merge ${result.ref}`] : [];
-  const steps = merged ? merge : waiting.filter(l => l.startsWith('  ')).map(l => aim(l));
+  const steps = merged ? merge : waiting.filter(l => l.startsWith('  '));
   if (steps.length) console.log(`Next:\n${steps.join('\n')}`);
 }
 
 async function loop(i: Instance) {
-  const connection = await connect(i, await ensureHub(i, values.hub), 'Nothing was driven.');
+  const first = await ensureHub(i, values.hub).catch((e: Error) => fail(e.message, 1));
+  const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
   trapInterrupt();
   const every = Number(process.env.AGENTGRAPH_EVERY ?? 5);
   try {
     while (!stopping.signal.aborted) {
-      let why = await ensureBase(i);
-      const hub = why ? '' : await ensureHub(i, values.hub);
-      why ||= await loadServedHub(connection, hub).then(
-        () => '',
-        (e: Error) => e.message
-      );
+      let hub = '';
+      const why =
+        (await ensureBase(i)) ||
+        (await ensureHub(i, values.hub)
+          .then(dir => loadServedHub(connection, (hub = dir)))
+          .then(
+            () => '',
+            (e: Error) => e.message
+          ));
       if (why) console.error(why);
       else {
         const runs = await start(
@@ -498,7 +508,7 @@ async function loop(i: Instance) {
           if (result)
             console.log(
               'why' in result
-                ? aim(`#${issue} not written: ${result.why}; npx agentgraph export ${issue} --as <branch>`)
+                ? `#${issue} not written: ${result.why}; npx agentgraph export ${issue} --as <branch>${selected}`
                 : `#${issue} in your repo as ${result.ref}`
             );
         }
@@ -522,9 +532,9 @@ async function loop(i: Instance) {
 }
 
 async function showAll(i: Instance, forge: Forge['Type']) {
-  const lines = findRunsWaitingOnPeople(await listRuns(i.data))
-    .flatMap(run => formatNextSteps(run))
-    .map(line => aim(line));
+  const lines = findRunsWaitingOnPeople(await listRuns(i.data)).flatMap(run =>
+    formatNextSteps(run, undefined, selected)
+  );
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
   console.log(formatIssueList(await Effect.runPromise(forge.issues())));
 }
@@ -547,9 +557,9 @@ async function showInstances(root: string) {
   const all = findInstances(root);
   if (all.length === 0) console.log(`no instances under ${root}`);
   for (const i of all) {
-    const waiting = findRunsWaitingOnPeople(await listRuns(i.data))
-      .flatMap(run => formatNextSteps(run))
-      .map(line => aim(line, ` --repo ${quote(i.repo)} --data ${quote(root)}`));
+    const waiting = findRunsWaitingOnPeople(await listRuns(i.data)).flatMap(run =>
+      formatNextSteps(run, undefined, formatInstanceFlags(i.repo, root))
+    );
     console.log(`${i.repo}${existsSync(i.repo) ? '' : ' (gone)'}  ${i.dir}`);
     for (const line of waiting) console.log(`  ${line}`);
   }

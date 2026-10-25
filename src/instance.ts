@@ -146,6 +146,9 @@ export const ensureHub = async (i: Instance, flag?: string) => {
   if (!tree) return defaultHub;
   const dir = join(i.dir, 'hubs', tree);
   if (existsSync(dir)) return dir;
+  const linked = (await inForge(i, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
+  if (linked.length)
+    throw new Error(`.agentgraph holds links or submodules: ${linked.map(l => l.split('\t')[1]).join(', ')}`);
   const draft = `${dir}.${randomUUID()}`;
   const index = { GIT_DIR: origin(i), GIT_INDEX_FILE: `${draft}.index`, GIT_WORK_TREE: draft };
   await mkdir(draft, { recursive: true });

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A committed `.agentgraph/` with symlinks or submodules is refused. The studio's Inbox commands carry
+  the instance's `--repo` and `--data`.
 - `start` and `say` take `--label`, repeatable; `show hub` prints the hub in use and its files.
 - `npx agentgraph <verb>` inside any repo needs no setup: the first command makes a local instance
   under `--data`, `AGENTGRAPH_DATA` or `~/.agentgraph`. `start`, `say`, `review`, `merge`, `export`,

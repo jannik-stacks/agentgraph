@@ -6,6 +6,7 @@ import { Effect, Either } from 'effect';
 import { createServer } from 'vite';
 import { readConfiguredHub } from '../src/harnesses.ts';
 import { ensureBase, ensureHub, ensureInstance, findRepo } from '../src/instance.ts';
+import { formatInstanceFlags } from '../src/status.ts';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -44,6 +45,7 @@ process.env.VITE_AGI_HUB = hubDir;
 process.env.VITE_AGI_DATA = dataDir;
 const forge = instance?.forge ?? values.forge;
 if (forge) process.env.VITE_AGI_FORGE = resolve(forge);
+if (instance) process.env.VITE_AGI_FLAGS = formatInstanceFlags(instance.repo, resolve(values.data ?? root));
 if (values.bench) process.env.VITE_AGI_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
 if (values.tune) process.env.VITE_AGI_TUNE = resolve(values.tune);
 const vite = await createServer({ root: import.meta.dirname });
