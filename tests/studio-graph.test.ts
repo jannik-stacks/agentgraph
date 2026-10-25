@@ -15,12 +15,12 @@ type Row = {
 };
 
 const { layout } = await studioModule<{
-  layout: (graphs: { workflow: string; graph: Graph }[], starts: []) => { rows: Row[] };
+  layout: (graphs: { workflow: string; graph: Graph }[], starts: [], hidden: Set<string>) => { rows: Row[] };
 }>('graph/layout.ts');
-type Chip = { glyph?: string; label: string; tip: string };
-const { makeStepChips, splitStepChipsIntoRows } = await studioModule<{
-  makeStepChips: (node: Graph['nodes'][number]) => Chip[];
-  splitStepChipsIntoRows: (chips: Chip[], width: number) => Chip[][];
+type Chip = { kind: string; glyph?: string; label: string; tip: string };
+const { makeStepChips, splitStepChips } = await studioModule<{
+  makeStepChips: (node: Graph['nodes'][number], hidden: Set<string>) => Chip[];
+  splitStepChips: (chips: Chip[], width: number) => { title?: Chip; rows: Chip[][] };
 }>('graph/chips.ts');
 
 const SHOWN = fixtureHubs.map(hub => {
@@ -43,7 +43,7 @@ const graphsOf = (list: readonly Fixture[]) =>
 
 describe('studio graph', () => {
   it.each(SHOWN)('%s: places each step once, apart from the others, inside its own row', (_, list) => {
-    const { rows } = layout(graphsOf(list), []);
+    const { rows } = layout(graphsOf(list), [], new Set());
     const boxes = rows.flatMap(r => r.nodes);
     expect(
       boxes.flatMap((a, i) => boxes.slice(i + 1).flatMap(b => (overlaps(a.box, b.box) ? [`${a.id} ${b.id}`] : [])))
@@ -56,7 +56,7 @@ describe('studio graph', () => {
   });
 
   it.each(SHOWN)('%s: routes each way back inside its row without crossing a node', (_, list) => {
-    const { rows } = layout(graphsOf(list), []);
+    const { rows } = layout(graphsOf(list), [], new Set());
     const bad = rows.flatMap(row =>
       row.backs.flatMap(({ points }) =>
         points.flatMap((p, i) => {
@@ -72,17 +72,17 @@ describe('studio graph', () => {
   });
 
   it('wraps chips into at most three lines, folding the rest into a last chip that lists them', () => {
-    const chips = Array.from({ length: 12 }, (_, i) => ({ label: `chip number ${i}`, tip: `tip ${i}` }));
+    const chips = Array.from({ length: 12 }, (_, i) => ({ kind: 'how', label: `chip number ${i}`, tip: `tip ${i}` }));
     const width = 200;
-    const lines = splitStepChipsIntoRows(chips, width);
+    const lines = splitStepChips(chips, width).rows;
     expect(lines).toHaveLength(3);
     const more = lines[2]!.at(-1)!;
     const shown = lines.flat().length - 1;
     expect(more.label).toBe(`+${12 - shown} more`);
     expect(more.tip).toContain('chip number 11');
     expect(
-      splitStepChipsIntoRows(chips.slice(0, 2), width)
-        .flat()
+      splitStepChips(chips.slice(0, 2), width)
+        .rows.flat()
         .map(c => c.label)
     ).toEqual(['chip number 0', 'chip number 1']);
   });
@@ -94,9 +94,14 @@ describe('studio graph', () => {
       implementor: { returns: ['comment' as const, 'push' as const, 'pull_request' as const] },
     };
     const nodes = makeWorkflowGraph(workflows.issue!, checks, undefined, agents).nodes;
-    const writes = (step: string) => makeStepChips(nodes.find(n => n.step === step)!).filter(c => c.glyph === 'writes');
+    const writes = (step: string) =>
+      makeStepChips(
+        nodes.find(n => n.step === step)!,
+        new Set()
+      ).filter(c => c.glyph === 'writes');
     expect(writes('implement')).toEqual([
       {
+        kind: 'writes',
         glyph: 'writes',
         label: 'comment push pr',
         tip: 'implementor can write to GitHub: comment, push, pull_request. The engine refuses anything else. Set by returns in agents/implementor.md.',

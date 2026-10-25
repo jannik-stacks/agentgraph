@@ -15,7 +15,7 @@ import type { Run } from '../../../src/workflow.ts';
 import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
 import { accent, cx, TipBubble, Tooltip, useTip } from '../ui.tsx';
-import { makeStepChips, getStepDoerKind, splitStepChipsIntoRows } from './chips.ts';
+import { type Chip, type ChipKind, getStepDoerKind, makeStepChips, splitStepChips } from './chips.ts';
 import { chipRoom, type CanvasPoint } from './layout.ts';
 
 type GraphNode = Graph['nodes'][number];
@@ -71,7 +71,7 @@ const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; class
 /** The ring around the selected step, the one the side panel shows. */
 const ring = 'ring-2 ring-zinc-900 ring-offset-2 ring-offset-zinc-50 dark:ring-zinc-100 dark:ring-offset-zinc-900';
 
-const hidden = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
+const handle = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
 /** Where arrows end: a few pixels short of the node, so the head never touches its border. */
 const arrival = { left: -5 };
 
@@ -81,7 +81,8 @@ type Overlay = { visits: number; here?: Run | undefined };
 type StepData = {
   node: GraphNode;
   overlay?: Overlay | undefined;
-  live?: string | undefined;
+  live?: Record<string, number> | undefined;
+  hidden: ReadonlySet<string>;
   selected: boolean;
 };
 export type StepFlowNode = Node<StepData, 'step'>;
@@ -92,24 +93,54 @@ const triesTip = (tries: number) =>
 /** A round badge on a corner of the step. */
 const Bubble = ({ tip, className, children }: { tip: string; className: string; children: ReactNode }) => (
   <Tooltip tip={tip} action="Click for the step" focusable className={cx('absolute', className)}>
-    <span className="flex h-5 min-w-5 cursor-pointer items-center justify-center gap-0.5 rounded-full px-1.5 text-[10px] font-semibold text-white ring-2 ring-white dark:ring-zinc-950">
+    <span className="flex h-5 min-w-5 cursor-pointer items-center justify-center gap-0.5 rounded-full px-1.5 font-mono text-[10px] font-semibold tabular-nums text-white ring-2 ring-white dark:ring-zinc-950">
       {children}
     </span>
   </Tooltip>
 );
 
-const Chip = ({ tip, count, children }: { tip: string; count?: number | undefined; children: ReactNode }) => (
-  <Tooltip tip={tip} action="Click for the step" focusable>
-    <span className="relative flex items-center gap-1 rounded border border-zinc-200 px-1 font-mono text-[10px] leading-4 whitespace-nowrap text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-      {children}
-      {count !== undefined && (
-        <span className="absolute -top-1.5 -right-1.5 z-10 min-w-3 rounded-full bg-zinc-500 px-0.5 text-center text-[8px] leading-3 font-medium text-white tabular-nums dark:bg-zinc-400 dark:text-zinc-950">
-          {count}
-        </span>
-      )}
-    </span>
+const chipKinds: Record<ChipKind, { look: string; tip: string }> = {
+  who: {
+    look: 'rounded-full bg-zinc-800 px-1.5 text-white dark:bg-zinc-200 dark:text-zinc-900',
+    tip: 'Who runs the step: the model alias, or you.',
+  },
+  checks: {
+    look: 'rounded border border-zinc-300 px-1 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300',
+    tip: 'What gates the step: its checks, and how many an agent judges.',
+  },
+  writes: {
+    look: 'rounded bg-zinc-100 px-1 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+    tip: 'What its agent may write to GitHub.',
+  },
+  how: { look: 'text-zinc-500', tip: 'How it runs: once per item, reading traces, answering asides.' },
+};
+
+const ChipLabel = ({ kind, glyph, label, className }: Omit<Chip, 'tip'> & { className?: string }) => (
+  <span
+    className={cx(
+      'flex items-center gap-1 font-mono text-[10px] leading-4 whitespace-nowrap',
+      chipKinds[kind].look,
+      className
+    )}
+  >
+    {glyph && <Glyph name={glyph} />}
+    {label}
+  </span>
+);
+
+const StepChip = ({ tip, ...chip }: Chip) => (
+  <Tooltip tip={tip} action="Click for the step" focusable className="shrink-0">
+    <ChipLabel {...chip} />
   </Tooltip>
 );
+
+const shineTiming = (id: string) => {
+  const h = [...id].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
+  return {
+    '--shine-duration': `${2.2 + (h % 2000) / 1000}s`,
+    '--shine-delay': `${-((h >>> 11) % 4000) / 1000}s`,
+  } as React.CSSProperties;
+};
 
 const statusLine = (node: GraphNode, run: Run) =>
   run.status === 'waiting' && run.reason !== undefined
@@ -123,15 +154,22 @@ const statusLine = (node: GraphNode, run: Run) =>
           : 'working';
 
 /** A step: what it does, its checks and its tries, with the run's position when one is drawn. */
-export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<StepFlowNode>) => {
+export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }: NodeProps<StepFlowNode>) => {
   const kind = getStepDoerKind(node.doer);
   const here = overlay?.here;
   const refused = !!here && !!node.run && node.run.tries > 0;
-  const status = here ? statusLine(node, here) : live;
+  const running = here ? here.status === 'running' : !!live?.running;
+  const status = here
+    ? statusLine(node, here)
+    : live &&
+      Object.entries(live)
+        .map(([status, n]) => `${n} ${status}`)
+        .join(', ');
+  const { title, rows } = splitStepChips(makeStepChips(node, hidden), chipRoom);
   return (
     <div
       className={cx(
-        'relative flex size-full cursor-pointer flex-col gap-0.5 rounded-md border px-2.5 pt-3 text-xs transition-shadow',
+        'relative isolate flex size-full cursor-pointer flex-col gap-0.5 rounded-md border px-2.5 pt-3 text-xs transition-shadow',
         here || live
           ? cx(accent.border, accent.tint)
           : 'border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700',
@@ -141,11 +179,13 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
         selected && ring
       )}
     >
-      <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} style={arrival} />
-      <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
+      {running && <span className="agi-shine" style={shineTiming(id)} />}
+      <Handle type="target" position={Position.Left} isConnectable={false} className={handle} style={arrival} />
+      <Handle type="source" position={Position.Right} isConnectable={false} className={handle} />
       <div className="flex min-w-0 items-center gap-1.5">
         <Glyph name={kind === 'human' ? 'person' : kind} className="size-3.5 text-zinc-500" />
         <span className="truncate text-[13px] font-semibold">{node.step}</span>
+        {title && <StepChip {...title} />}
       </div>
       {status ? (
         <Tooltip
@@ -165,13 +205,10 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
         <div className="mb-1 truncate text-zinc-500">{kind === 'human' ? 'waits for you' : node.doer}</div>
       )}
       <div className="flex flex-col gap-0.5">
-        {splitStepChipsIntoRows(makeStepChips(node), chipRoom).map((line, i) => (
+        {rows.map((line, i) => (
           <div key={i} className="flex items-center gap-1.5">
             {line.map((chip, j) => (
-              <Chip key={j} tip={chip.tip} count={chip.count}>
-                {chip.glyph && <Glyph name={chip.glyph} />}
-                {chip.label}
-              </Chip>
+              <StepChip key={j} {...chip} />
             ))}
           </div>
         ))}
@@ -221,8 +258,8 @@ export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>
       reached ? accent.text : 'text-zinc-500'
     )}
   >
-    <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} style={arrival} />
-    <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
+    <Handle type="target" position={Position.Left} isConnectable={false} className={handle} style={arrival} />
+    <Handle type="source" position={Position.Right} isConnectable={false} className={handle} />
     <Tooltip
       tip={done ? 'The run is done once its last step passes.' : `A run starts here, on ${label}.`}
       className="items-center gap-1.5"
@@ -367,7 +404,7 @@ const LegendItem = ({ mark, children }: { mark: ReactNode; children: ReactNode }
 );
 
 /** What the badges mean, short of what the graph says by itself. */
-export const Legend = () => (
+export const Legend = ({ hidden, onToggle }: { hidden: ReadonlySet<string>; onToggle: (kind: ChipKind) => void }) => (
   <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 text-[11px] text-zinc-500">
     <LegendItem
       mark={
@@ -387,9 +424,19 @@ export const Legend = () => (
     >
       not the main path
     </LegendItem>
-    <LegendItem mark={<Glyph name="writes" className="size-3" />}>writes to GitHub</LegendItem>
-    <LegendItem mark={<Glyph name="each" className="size-3" />}>once per item</LegendItem>
-    <LegendItem mark={<Glyph name="aside" className="size-3" />}>answers questions in an aside</LegendItem>
+    {(Object.keys(chipKinds) as ChipKind[]).map(kind => (
+      <li key={kind}>
+        <Tooltip tip={chipKinds[kind].tip} action={hidden.has(kind) ? 'Click to show' : 'Click to hide'}>
+          <button type="button" aria-pressed={!hidden.has(kind)} onClick={() => onToggle(kind)}>
+            <ChipLabel
+              kind={kind}
+              label={kind}
+              className={cx('transition-opacity', hidden.has(kind) && 'line-through opacity-40')}
+            />
+          </button>
+        </Tooltip>
+      </li>
+    ))}
     <LegendItem mark={<span className={cx('size-3 rounded-sm border', accent.border, accent.tint)} />}>
       a run is here
     </LegendItem>

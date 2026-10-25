@@ -1,53 +1,50 @@
 import type { Graph } from '../../../src/graph.ts';
 
+export type ChipKind = 'who' | 'checks' | 'writes' | 'how';
+
 export type Chip = {
-  glyph?: 'hand' | 'stop' | 'checks' | 'agent' | 'writes' | 'traces' | 'aside' | 'each';
+  kind: ChipKind;
+  glyph?: 'stop' | 'checks' | 'writes' | 'traces' | 'aside' | 'each';
   label: string;
-  count?: number;
   tip: string;
 };
 
 export const getStepDoerKind = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
 
 /** The badges a step shows under its name, in the order they read. */
-export const makeStepChips = (node: Graph['nodes'][number]): Chip[] => {
+export const makeStepChips = (node: Graph['nodes'][number], hidden: ReadonlySet<string>): Chip[] => {
   const chips: Chip[] = [];
   const n = node.checks.length;
+  const judged = node.checks.filter(c => c.agent).length;
   const judges = [...new Set(node.checks.flatMap(c => c.agent ?? []))];
   const readers = [...(node.traces ? [node.doer] : []), ...node.checks.filter(c => c.traces).map(c => c.agent)];
   if (getStepDoerKind(node.doer) === 'human')
     chips.push({
-      glyph: 'hand',
+      kind: 'who',
       label: 'you decide',
       tip: 'Waits for you. Approve or merge to go on; request changes to send it back.',
-    });
-  for (const c of node.checks.filter(c => c.mode === 'stop'))
-    chips.push({ glyph: 'stop', label: c.name, tip: `If ${c.name} fails, the run stops at once.` });
-  if (n > 0)
-    chips.push({
-      glyph: 'checks',
-      label: n === 1 ? 'check' : 'checks',
-      count: n,
-      tip: `${n === 1 ? 'One check runs' : `${n} checks run`} after each try: ${node.checks.map(c => c.name).join(', ')}.`,
-    });
-  if (judges.length > 1)
-    chips.push({
-      glyph: 'agent',
-      label: 'reviewers',
-      count: judges.length,
-      tip: `${judges.join(' and ')} review each try side by side, each in its own session. Their findings go back together.`,
     });
   if (node.model !== undefined) {
     const agent = node.doer.split(' / ')[0]!;
     chips.push({
-      glyph: 'agent',
+      kind: 'who',
       label: node.model,
       tip: `${agent} runs on the model alias ${node.model}, which the proxy maps to a model. Set by model in agents/${agent}.md.`,
     });
   }
+  for (const c of node.checks.filter(c => c.mode === 'stop'))
+    chips.push({ kind: 'checks', glyph: 'stop', label: c.name, tip: `If ${c.name} fails, the run stops at once.` });
+  if (n > 0)
+    chips.push({
+      kind: 'checks',
+      glyph: 'checks',
+      label: `${n} ${n === 1 ? 'check' : 'checks'}${judged ? `, ${judged} judged` : ''}`,
+      tip: `${n === 1 ? 'One check runs' : `${n} checks run`} after each try: ${node.checks.map(c => c.name).join(', ')}.${judged ? ` ${judges.join(' and ')} ${judges.length === 1 ? 'judges' : 'judge'} ${judged === 1 ? 'one' : judged} of them, each in its own session.` : ''}`,
+    });
   if (node.writes?.length) {
     const agent = node.doer.split(' / ')[0]!;
     chips.push({
+      kind: 'writes',
       glyph: 'writes',
       label: node.writes.map(k => (k === 'pull_request' ? 'pr' : k)).join(' '),
       tip: `${agent} can write to GitHub: ${node.writes.join(', ')}. The engine refuses anything else. Set by returns in agents/${agent}.md.`,
@@ -55,12 +52,14 @@ export const makeStepChips = (node: Graph['nodes'][number]): Chip[] => {
   }
   if (readers.length > 0)
     chips.push({
+      kind: 'how',
       glyph: 'traces',
       label: 'reads traces',
       tip: `${readers.join(' and ')} read the traces of the runs on the issue: each session's prompt, thinking, tool calls and replies, not only the change.`,
     });
   if (node.asides)
     chips.push({
+      kind: 'how',
       glyph: 'aside',
       label: 'answers asides',
       tip: "A plain comment or question here is answered by a fork of the earlier step's session, in your thread; the run keeps waiting.",
@@ -68,6 +67,7 @@ export const makeStepChips = (node: Graph['nodes'][number]): Chip[] => {
   if (node.each !== undefined) {
     const unit = node.each === 'hunks' || node.each === 'files' ? node.each.slice(0, -1) : undefined;
     chips.push({
+      kind: 'how',
       glyph: 'each',
       label: `each ${unit ?? 'item'}`,
       tip: unit
@@ -75,17 +75,16 @@ export const makeStepChips = (node: Graph['nodes'][number]): Chip[] => {
         : `Runs once per line that ${node.each} prints, each in a fresh session.`,
     });
   }
-  return chips;
+  return chips.filter(c => !hidden.has(c.kind));
 };
 
 /** Width of a chip in 10px mono: border, padding, glyph and gap, then one advance per character. */
-const chipWidth = (chip: Chip) =>
-  8 + (chip.glyph ? 16 : 0) + chip.label.length * 6.1 + (chip.count === undefined ? 0 : 4);
+const chipWidth = (chip: Chip) => 8 + (chip.glyph ? 16 : 0) + chip.label.length * 6.1;
 const chipGap = 6;
 const maxLines = 3;
 
 /** The chips packed into lines of `width`, at most three; what does not fit becomes a last "+N more" chip. */
-export const splitStepChipsIntoRows = (chips: Chip[], width: number): Chip[][] => {
+const splitStepChipsIntoRows = (chips: Chip[], width: number): Chip[][] => {
   const lines: Chip[][] = [];
   let used = Infinity;
   for (const [i, chip] of chips.entries()) {
@@ -98,9 +97,10 @@ export const splitStepChipsIntoRows = (chips: Chip[], width: number): Chip[][] =
     if (lines.length === maxLines) {
       const last = lines.at(-1)!;
       const rest = chips.slice(i);
-      const more = () => ({
+      const more = (): Chip => ({
+        kind: 'how',
         label: `+${rest.length} more`,
-        tip: `Also ${rest.map(c => (c.count === undefined ? c.label : `${c.count} ${c.label}`)).join(', ')}.`,
+        tip: `Also ${rest.map(c => c.label).join(', ')}.`,
       });
       while (last.length > 1 && last.reduce((sum, c) => sum + chipWidth(c) + chipGap, chipWidth(more())) > width)
         rest.unshift(last.pop()!);
@@ -111,4 +111,16 @@ export const splitStepChipsIntoRows = (chips: Chip[], width: number): Chip[][] =
     used = w;
   }
   return lines;
+};
+
+export const splitStepChips = (chips: Chip[], width: number) => {
+  const who = chips.filter(c => c.kind === 'who');
+  const title = who.length === 1 ? who[0] : undefined;
+  return {
+    title,
+    rows: splitStepChipsIntoRows(
+      chips.filter(c => c !== title),
+      width
+    ),
+  };
 };

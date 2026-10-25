@@ -12,11 +12,13 @@ body {
 
 :root {
   --agi-code-bg: var(--color-zinc-50);
+  --agi-shine: var(--color-sky-200);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --agi-code-bg: var(--color-zinc-900);
+    --agi-shine: --alpha(var(--color-sky-400) / 18%);
   }
 }
 
@@ -157,6 +159,32 @@ body {
   }
 }
 
+.agi-shine {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 45%;
+    background: linear-gradient(90deg, transparent, var(--agi-shine), transparent);
+    transform: translateX(-130%) skewX(-20deg);
+    animation: agi-shine var(--shine-duration) ease-in-out var(--shine-delay) infinite;
+  }
+}
+
+@keyframes agi-shine {
+  40%,
+  100% {
+    transform: translateX(260%) skewX(-20deg);
+  }
+}
+
 .agi-tip {
   opacity: 0;
   transition:
@@ -183,5 +211,8 @@ body {
   }
   .agi-loading > span {
     animation: none !important;
+  }
+  .agi-shine {
+    display: none;
   }
 }

@@ -26,6 +26,7 @@ import { makeRunStory, makeRunTrail, makeWorkflowRunVisits } from './visits.ts';
 
 const hubParam = queryParam('hub');
 const runParam = queryParam('run');
+const hideParam = queryParam('hide');
 
 const panelAtom = atomWithStorage('agentgraph.stepPanel', 320, undefined, { getOnInit: true });
 const panelWidth = (w: number) => Math.round(Math.min(Math.max(w, 260), 720, innerWidth * 0.7));
@@ -51,7 +52,15 @@ const usePanelWidth = () => {
  * The workflows of `shown` as one canvas, with the picked run drawn over its workflow, and a side panel for the
  * selected step or workflow.
  */
-const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: RunDrawnOnWorkflow | undefined }) => {
+const WorkflowGraph = ({
+  shown,
+  picked,
+  hidden,
+}: {
+  shown: Fixture[];
+  picked: RunDrawnOnWorkflow | undefined;
+  hidden: ReadonlySet<string>;
+}) => {
   const selected = useAtomValue(selectedStepAtom);
   const [workflowName, stepName] = selected?.split('/') ?? [];
   const fixture = shown.find(f => f.workflow.name === workflowName);
@@ -61,7 +70,7 @@ const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: RunDrawnOn
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <div className="min-h-0 min-w-0 flex-1">
         <ReactFlowProvider>
-          <Canvas shown={shown} picked={picked} />
+          <Canvas shown={shown} picked={picked} hidden={hidden} />
         </ReactFlowProvider>
       </div>
       {fixture && (
@@ -121,14 +130,16 @@ const useHere = () => {
   }, [runs]);
 };
 
-const hereLine = (counts: Record<string, number> | undefined) =>
-  counts &&
-  Object.entries(counts)
-    .map(([status, n]) => `${n} ${status}`)
-    .join(', ');
-
 /** Draws the workflows, each with its run overlay when it holds the picked run. */
-const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: RunDrawnOnWorkflow | undefined }) => {
+const Canvas = ({
+  shown,
+  picked,
+  hidden,
+}: {
+  shown: Fixture[];
+  picked: RunDrawnOnWorkflow | undefined;
+  hidden: ReadonlySet<string>;
+}) => {
   const [selected, select] = useAtom(selectedStepAtom);
   const here = useHere();
   const graphs = useMemo(
@@ -158,8 +169,8 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: RunDrawnOnWorkflo
         ...(asked.length > 0 ? asked : graph.nodes.slice(-1)).flatMap(n => heard.map(t => ({ node: n, target: t }))),
       ].map(({ node, target }) => ({ workflow, step: node.step, target: target.workflow }));
     });
-    return layout(graphs, starts);
-  }, [graphs]);
+    return layout(graphs, starts, hidden);
+  }, [graphs, hidden]);
   const { nodes, edges } = useMemo(() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
@@ -199,7 +210,8 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: RunDrawnOnWorkflo
           data: {
             node,
             selected: selected === id,
-            live: run ? undefined : hereLine(here.get(`${fixture}/${node.step}`)),
+            hidden,
+            live: run ? undefined : here.get(`${fixture}/${node.step}`),
             ...(run && {
               overlay: {
                 visits: visits!.filter(v => v.node.step === node.step).length,
@@ -246,7 +258,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: RunDrawnOnWorkflo
         data: { points: start.points, tip: `${start.step} starts a ${start.target} run.` },
       } satisfies RouteFlowEdge);
     return { nodes, edges };
-  }, [graphs, laid, selected, here]);
+  }, [graphs, laid, selected, here, hidden]);
   return (
     <ReactFlow
       nodes={nodes}
@@ -287,6 +299,8 @@ export const GraphPage = () => {
   const [hubKey, setHub] = useAtom(hubParam);
   const [runKey, setRun] = useAtom(runParam);
   const { value: real = [] } = useAtomValue(runsAtom);
+  const [hide, setHide] = useAtom(hideParam);
+  const hidden = useMemo(() => new Set(hide?.split(',')), [hide]);
 
   const hub = hubs.find(h => h.key === hubKey) ?? hubs[0];
   const runs = useMemo(
@@ -362,8 +376,18 @@ export const GraphPage = () => {
           )}
         </p>
       </AutoHeight>
-      <WorkflowGraph shown={hub.fixtures} picked={picked} />
-      <Legend />
+      <WorkflowGraph shown={hub.fixtures} picked={picked} hidden={hidden} />
+      <Legend
+        hidden={hidden}
+        onToggle={kind =>
+          setHide(
+            [...hidden]
+              .filter(k => k !== kind)
+              .concat(hidden.has(kind) ? [] : [kind])
+              .join(',') || null
+          )
+        }
+      />
     </div>
   );
 };

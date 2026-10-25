@@ -1,5 +1,5 @@
 import type { Graph } from '../../../src/graph.ts';
-import { makeStepChips, splitStepChipsIntoRows } from './chips.ts';
+import { makeStepChips, splitStepChips } from './chips.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
 export type CanvasPoint = { x: number; y: number };
@@ -36,11 +36,11 @@ export type Start = { workflow: string; step: string; target: string };
  * above their row; starts of other workflows run down below the source row, along a gutter left of all rows, and into
  * the target's trigger.
  */
-export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Start[]) => {
+export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Start[], hidden: ReadonlySet<string>) => {
   const gutter = 16 + nest * starts.length;
   const lines = Math.max(
-    1,
-    ...graphs.flatMap(g => g.graph.nodes.map(n => splitStepChipsIntoRows(makeStepChips(n), chipRoom).length))
+    0,
+    ...graphs.flatMap(g => g.graph.nodes.map(n => splitStepChips(makeStepChips(n, hidden), chipRoom).rows.length))
   );
   const stepHeight = 62 + 20 * lines;
   let top = 0;
