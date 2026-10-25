@@ -33,15 +33,19 @@ export const writeTriggeringIssue = async (
   author: string,
   workflow?: string
 ): Promise<number> => {
-  const labelled = Object.values(hub.workflows).filter(w => w.on.issues?.label && (workflow ?? w.name) === w.name);
-  if (labelled.length !== 1)
-    throw new Error(`name one workflow with a label: --workflow ${labelled.map(w => w.name).join('|') || '<name>'}`);
-  if (hub.trust && !hub.trust.includes(author)) throw new Error(`${author} is not in the hub's trust list`);
+  const labelled = Object.values(hub.workflows).flatMap(w => (w.on.issues?.label ? [[w.name, w.on.issues.label]] : []));
+  const picked = labelled.filter(([name]) => (workflow ?? name) === name);
+  if (picked.length !== 1)
+    throw new Error(`name one workflow with a label: --workflow ${picked.map(([name]) => name).join('|') || '<name>'}`);
+  const [, label] = picked[0]!;
+  if (labelled.filter(([, l]) => l === label).length > 1) throw new Error(`${label} starts more than one workflow`);
+  if (author.endsWith('[bot]') || (hub.trust && !hub.trust.includes(author)))
+    throw new Error(`${author} may not start runs on this hub`);
   const [title = '', ...body] = text.split('\n');
   const front = {
     title,
     author,
-    labels: [labelled[0]!.on.issues!.label!],
+    labels: [label!],
     ...(hub.milestone && { milestone: hub.milestone }),
   };
   return writeIssueFile(forge, front, body.join('\n').trim());
@@ -85,7 +89,7 @@ const configured = (extra: Record<string, string>) =>
  * `'all'`, and resolves with the runs it touched. The only place that leaves Effect.
  */
 export const start = (
-  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction },
+  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction; marked?: true },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers
 ): Promise<Run[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
@@ -104,7 +108,7 @@ export const start = (
             ? instruct(hub, one.instruction)
             : one.issue === 'all'
               ? scanIssuesAndRunningRuns(hub)
-              : tick(hub, one.issue)
+              : tick(hub, one.issue, one.marked)
         ).pipe(Effect.withConfigProvider(provider));
       })
     : Effect.gen(function* () {

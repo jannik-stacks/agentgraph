@@ -42,9 +42,15 @@ const world = () => {
   };
   Object.assign(process.env, { AGENTGRAPH_FORGE: dir, AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2' });
   const seen: Settings[] = [];
-  const run = (turns: SessionEvent[][], issue: number | 'all' = 'all', instruction?: Instruction, failures = 0) => {
+  const run = (
+    turns: SessionEvent[][],
+    issue: number | 'all' = 'all',
+    instruction?: Instruction,
+    failures = 0,
+    marked?: true
+  ) => {
     let left = failures;
-    return main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }) }, s => {
+    return main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }), ...(marked && { marked }) }, s => {
       seen.push(s);
       const forgeDir = s.forge as string;
       return Layer.mergeAll(
@@ -148,6 +154,9 @@ describe('bin/forge.ts with run --forge', () => {
     expect(w.forge('show', '3')).toContain('+hello');
     expect(await w.run([])).toEqual([]);
     expect(readdirSync(join(w.root, 'data')).filter(d => d.startsWith('issue-'))).toHaveLength(1);
+    w.forge('close', '1');
+    expect(w.forge('show')).toMatch(/^#1 closed Fix the typo\n/);
+    expect(w.forge('show', '1')).toContain('In the readme.');
   });
 
   it('goes from text to a run to a diff with no GitHub', async () => {
@@ -158,6 +167,12 @@ describe('bin/forge.ts with run --forge', () => {
       'name one workflow with a label: --workflow <name>'
     );
     await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'morgan')).rejects.toThrow('issue|triage');
+    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'x[bot]', 'issue')).rejects.toThrow(
+      'x[bot] may not'
+    );
+    await expect(
+      writeTriggeringIssue({ ...hub, trust: ['ann'] }, w.dir, 'Add a greeting', 'morgan', 'issue')
+    ).rejects.toThrow('morgan may not');
     expect(await writeTriggeringIssue(hub, w.dir, 'Add a greeting\n\nAdd hello.txt.', 'morgan', 'issue')).toBe(1);
     expect(w.forge('show', '1')).toMatch(/^#1 open Add a greeting by morgan \[agent:ready\]\n\nAdd hello.txt.\n/);
     const pull: Proposal = {
@@ -176,7 +191,10 @@ describe('bin/forge.ts with run --forge', () => {
         ],
         [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
       ],
-      1
+      1,
+      undefined,
+      0,
+      true
     );
     expect(runs.map(r => [r.workflow, r.step, r.status])).toEqual([['issue', 'merge', 'waiting']]);
     expect(w.forge('show', '2')).toContain('+hello');

@@ -20,7 +20,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { stringify } from 'yaml';
-import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
+import { fileForge, Forge, formatIssueFile, parseIssueFile, writeIssueFile } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { instanceAt } from '../src/instance.ts';
@@ -77,7 +77,8 @@ const record = (n: number, kind: Event['kind'], body?: string, placed: { path?: 
 };
 const close = (n: number) => {
   const md = join(dir, `${n}.md`);
-  writeFileSync(md, readFileSync(md, 'utf8').replace(/^state: open$/m, 'state: closed'));
+  const { front, body } = parseIssueFile(readFileSync(md, 'utf8'));
+  writeFileSync(md, formatIssueFile({ ...front, state: 'closed' }, body.trim()));
   record(n, 'closed');
 };
 const pullOf = async (n: number) => {

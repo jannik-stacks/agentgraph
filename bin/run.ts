@@ -192,6 +192,7 @@ const runs = await start({
   issue,
   data: resolve(values.data),
   ...(instruction && { instruction }),
+  ...(command === 'start' && { marked: true as const }),
 });
 for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 if (runs.length === 0) console.log(issue === 'all' ? 'nothing to do' : `nothing to do on #${issue}`);

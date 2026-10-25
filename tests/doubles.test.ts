@@ -1,10 +1,19 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Stream } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fileForge, Forge } from '../src/forge.ts';
+import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
@@ -189,8 +198,39 @@ describe('fileForge', () => {
       child: true,
       merge: '#1 is not an open pull request',
       missing: 404,
-      events: [['label', 'size:M', false]],
+      events: [
+        ['label', 'ready', true],
+        ['label', 'size:M', false],
+      ],
     });
+  });
+});
+
+describe('fileForge files', () => {
+  it('gives issues filed at once their own numbers, and adopts a dropped file once', async () => {
+    const dir = temp();
+    writeFileSync(join(dir, '1.md'), '---\ntitle: One\nauthor: a\nlabels: [ready]\n---\n');
+    const numbers = await Effect.runPromise(
+      Effect.gen(function* () {
+        const forge = yield* Forge;
+        const [, ...events] = yield* Effect.all(
+          [
+            Effect.forEach([1, 2, 3], () => forge.apply(1, { kind: 'issue', title: 'Part', body: '' }), {
+              concurrency: 'unbounded',
+            }),
+            ...[1, 2, 3].map(() => Effect.map(forge.issue(1), t => t.events.length)),
+          ],
+          { concurrency: 'unbounded' }
+        );
+        const human = yield* Effect.promise(() =>
+          Promise.all([1, 2].map(() => writeIssueFile(dir, { title: 'Two', author: 'a', labels: [] }, '')))
+        );
+        return { events, human, all: (yield* forge.issues()).map(t => t.number) };
+      }).pipe(Effect.provide(fileForge(dir)))
+    );
+    expect(numbers.events).toEqual([1, 1, 1]);
+    expect(numbers.all.toSorted((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(readdirSync(dir).filter(f => !/^\d+\.(md|jsonl)$/.test(f))).toEqual([]);
   });
 });
 

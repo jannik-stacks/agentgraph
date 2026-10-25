@@ -1,4 +1,5 @@
 import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
@@ -112,19 +113,36 @@ export const unpushable = (path: string, modes: string[]) =>
       ? `${path} is under .github/ or .git/`
       : undefined;
 
+export const parseIssueFile = (text: string) => {
+  const [, head = '', body = text] = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text) ?? [];
+  return { front: (parse(head) ?? {}) as Partial<Issue>, body };
+};
+
+export const formatIssueFile = (front: Partial<Issue>, body: string) => `---\n${stringify(front)}---\n\n${body}\n`;
+
+const publish = async (path: string, text: string) => {
+  const draft = `${path}.${randomUUID()}`;
+  await writeFile(draft, text);
+  try {
+    return await link(draft, path).then(
+      () => true,
+      (e: NodeJS.ErrnoException) => (e.code === 'EEXIST' ? false : Promise.reject(e))
+    );
+  } finally {
+    await unlink(draft);
+  }
+};
+
 export const writeIssueFile = async (
   dir: string,
-  front: Pick<Issue, 'title' | 'author' | 'labels'> & Partial<Pick<Issue, 'milestone'>>,
+  front: Pick<Issue, 'title' | 'author' | 'labels'> & Partial<Omit<Issue, 'number' | 'body' | 'url' | 'pull'>>,
   body: string
 ): Promise<number> => {
   await mkdir(dir, { recursive: true });
   const taken = (await readdir(dir)).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
   const number = Math.max(0, ...taken) + 1;
-  const text = `---\n${stringify({ ...front, state: 'open' })}---\n\n${body}\n`;
-  return writeFile(join(dir, `${number}.md`), text, { flag: 'wx' }).then(
-    () => number,
-    (e: NodeJS.ErrnoException) => (e.code === 'EEXIST' ? writeIssueFile(dir, front, body) : Promise.reject(e))
-  );
+  const written = await publish(join(dir, `${number}.md`), formatIssueFile({ state: 'open', ...front }, body));
+  return written ? number : writeIssueFile(dir, front, body);
 };
 
 const me = 'agentgraph[bot]';
@@ -181,8 +199,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       const read = async (n: number): Promise<Issue | undefined> => {
         const text = await optional(readFile(md(n), 'utf8'));
         if (text === undefined) return undefined;
-        const [, head = '', body = text] = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text) ?? [];
-        const front = (parse(head) ?? {}) as Partial<Issue>;
+        const { front, body } = parseIssueFile(text);
         const [, first = '', rest = ''] = /^#*\s*(.*)\n?([\s\S]*)$/.exec(body.trim()) ?? [];
         const pull = await optional(readFile(pullFile(n), 'utf8'));
         return {
@@ -202,25 +219,24 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         t.author === me || (trust ? trust.includes(t.author) : !t.author?.endsWith('[bot]'))
           ? { ...t, body: removeRunLink(t.body) }
           : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text') };
+      const writePull = async (number: number, pull?: Issue['pull']) => {
+        if (!pull) return;
+        await mkdir(join(dir, String(number)), { recursive: true });
+        await writeFile(pullFile(number), `${JSON.stringify(pull, null, 2)}\n`);
+      };
       const write = async ({ number, body, url: _url, pull, ...front }: Issue) => {
         await mkdir(dir, { recursive: true });
-        await writeFile(md(number), `---\n${stringify(front)}---\n\n${body}\n`);
-        if (pull) {
-          await mkdir(join(dir, String(number)), { recursive: true });
-          await writeFile(pullFile(number), `${JSON.stringify(pull, null, 2)}\n`);
-        }
+        await writeFile(md(number), formatIssueFile(front, body));
+        await writePull(number, pull);
       };
       const adopt = async (n: number) => {
         if (await optional(stat(timeline(n)))) return;
         const [t, file] = await Promise.all([read(n), optional(stat(md(n)))]);
         if (!t?.author || t.author === me || t.labels.length === 0 || !file) return;
-        const draft = `${timeline(n)}.${process.pid}.${Date.now()}`;
         const at = file.mtime.toISOString();
         const trusted = !t.author.endsWith('[bot]');
         const events = t.labels.map(label => ({ issue: n, kind: 'label', label, actor: t.author, trusted, at }));
-        await writeFile(draft, events.map(m => `${JSON.stringify(m)}\n`).join(''));
-        await link(draft, timeline(n)).catch((e: NodeJS.ErrnoException) => e.code === 'EEXIST' || Promise.reject(e));
-        await unlink(draft);
+        await publish(timeline(n), events.map(m => `${JSON.stringify(m)}\n`).join(''));
       };
       const readTimeline = async (n: number) => {
         await adopt(n);
@@ -246,9 +262,9 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       /** The tip of `branch` on the checkout's remote, fetched. */
       const tip = (work: Checkout, branch: string) =>
         git(work, 'fetch', '-q', 'origin', `refs/heads/${branch}`).then(() => git(work, 'rev-parse', 'FETCH_HEAD'));
-      const open = async (fields: Pick<Issue, 'title' | 'body'> & Partial<Issue>) => {
-        const number = Math.max(0, ...(await numbers())) + 1;
-        await write({ number, state: 'open', labels: [], author: who, url: '', ...fields });
+      const open = async ({ body, pull, ...front }: Pick<Issue, 'title' | 'body'> & Partial<Issue>) => {
+        const number = await writeIssueFile(dir, { labels: [], author: who, ...front }, body);
+        await writePull(number, pull);
         return number;
       };
       const must = async (n: number) => {
