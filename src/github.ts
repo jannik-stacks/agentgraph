@@ -3,6 +3,7 @@ import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import {
   addressed,
   isAgentBranch,
+  isPostedBy,
   pushLimits,
   unpushable,
   Forge,
@@ -907,5 +908,20 @@ export const githubForge = (
         )
       );
 
-    return { issues, issue, since, apply, slug: me, ...(studio && { studio }) };
+    const findPost: Forge['Type']['findPost'] = (number, p, operation) => {
+      type Posted = { id: number; number: number; html_url: string; body?: string | null };
+      const find = (posts: Posted[], id: (post: Posted) => number) => {
+        const post = posts.find(c => isPostedBy(c.body ?? '', operation));
+        return post && { proposal: p, ok: true, url: post.html_url, id: String(id(post)) };
+      };
+      if (p.kind === 'issue')
+        return Effect.map(gh<Posted[]>('GET', `${repo}/issues?state=all&sort=created&direction=desc&per_page=100`), i =>
+          find(i, post => post.number)
+        );
+      if (p.kind !== 'comment' || p.edit !== undefined) return Effect.succeed(undefined);
+      const thread = p.under === undefined ? `issues/${number}` : `pulls/${number}`;
+      return Effect.map(all<Posted>(`${repo}/${thread}/comments?per_page=100`), c => find(c, post => post.id));
+    };
+
+    return { issues, issue, since, apply, findPost, slug: me, ...(studio && { studio }) };
   });

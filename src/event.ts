@@ -60,8 +60,8 @@ export type Applied = {
   at?: string;
 };
 
-/** The run, step and session a write to the forge comes from. */
-export type RunLink = { run: string; step: string; session?: string };
+/** The run, step and session a write to the forge comes from, and the operation that names one write. */
+export type RunLink = { run: string; step: string; session?: string; operation?: string };
 
 /** The studio page of a run. */
 export const makeStudioRunUrl = (studio: string, run: string) =>

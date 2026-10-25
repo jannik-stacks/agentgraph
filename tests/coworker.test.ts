@@ -109,7 +109,7 @@ describe('stacks', () => {
     expect(specs[0]!.prompt).toContain('pull requests go into agentgraph/7.');
     const pr = pr10(where);
     expect(pr.pull).toMatchObject({ branch: 'agentgraph/9', base: 'agentgraph/7' });
-    expect(pr.body).toMatch(/\n\nCloses #9\n\nStacks on #8\n?$/);
+    expect(pr.body).toMatch(/\n\nCloses #9\n\nStacks on #8\n\n<!-- agentgraph run=run-9 [^\n]*-->\n?$/);
     expect(pr.diff).toContain('bye.txt');
     expect(pr.diff).not.toContain('hello.txt');
     expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(head);

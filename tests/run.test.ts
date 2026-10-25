@@ -354,7 +354,7 @@ describe('drive', () => {
     expect(transition(w, waiting, getEventOutcome(w, waiting, merged)!)).toMatchObject({ status: 'done' });
   });
 
-  it('writes to the forge under the run, its step and the session that proposed the write', async () => {
+  it('writes to the forge under the run, its step, the session that proposed the write and its operation', async () => {
     const where = world();
     const { marks, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
@@ -364,16 +364,17 @@ describe('drive', () => {
     ]);
     await run(drive(w, fresh(), hub));
     const at = (step: string, session?: string) => ({ run: 'run-7', step, ...(session && { session }) });
+    const landed = (step: string, session: string) => ({ ...at(step, session), operation: expect.any(String) });
     expect(marks).toEqual([
       ['label', at('triage')],
       ['comment', at('triage')],
-      ['comment', at('triage', 't1')],
+      ['comment', landed('triage', 't1')],
       ['comment', at('implement')],
-      ['push', at('implement', 'i1')],
-      ['pull_request', at('implement', 'i1')],
+      ['push', landed('implement', 'i1')],
+      ['pull_request', landed('implement', 'i1')],
       ['comment', at('review')],
       ['comment', at('implement', 'i1')],
-      ['comment', at('implement', 'i1')],
+      ['comment', landed('implement', 'i1')],
       ['label', at('implement', 'i1')],
       ['comment', at('implement', 'i1')],
     ]);

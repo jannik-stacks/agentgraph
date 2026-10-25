@@ -1,10 +1,11 @@
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Chunk, Effect, Layer, Stream } from 'effect';
+import { Chunk, Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { fileForge, Forge } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
+import type { Proposal } from '../src/proposal.ts';
 import { loadHub } from '../src/hub.ts';
 import type { Sandbox } from '../src/sandbox.ts';
 import type { Session } from '../src/session.ts';
@@ -64,6 +65,15 @@ const follow = (title: string) => ({
   title,
   body: `Change ${title}.\n\n## Done when\n\n- it is changed`,
 });
+
+const splitIntoPartsAndDocsFollowUp = () => [
+  turn(
+    { kind: 'label', add: ['size/XL'] },
+    part('the parser', 'M'),
+    part('the printer', 'L', { stacks_on: 1 }),
+    follow('the docs')
+  ),
+];
 
 const run = <A, E>(
   where: ReturnType<typeof world>,
@@ -131,6 +141,52 @@ describe('triage', () => {
     expect(swept.value.map(r => r.issue)).toEqual([]);
     const rest = await run(where, [turn({ kind: 'label', add: ['size/S'] })], tick(hub));
     expect(rest.value.map(r => r.issue)).toEqual([2]);
+  });
+
+  it('posts each part and follow-up once when the runner stopped after posting and before recording it', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+    ]);
+    writeFileSync(
+      join(where.forge, '2.md'),
+      '---\ntitle: the docs\nstate: open\nauthor: morgan\nlabels: []\n---\n\nDocs.\n'
+    );
+    where.label(1);
+    const crash = (after: (p: Proposal) => boolean) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const posted = yield* Deferred.make<'posted'>();
+          const stopping = Layer.effect(
+            Forge,
+            Effect.map(Forge, f => ({
+              ...f,
+              apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
+                f
+                  .apply(n, p, work)
+                  .pipe(
+                    Effect.tap(() =>
+                      after(p) ? Effect.andThen(Deferred.succeed(posted, 'posted'), Effect.never) : Effect.void
+                    )
+                  ),
+            }))
+          ).pipe(Layer.provide(fileForge(where.forge)));
+          const layer = Layer.mergeAll(
+            stopping,
+            fileStore(where.data),
+            hostSandbox(where.origin),
+            replaySession(splitIntoPartsAndDocsFollowUp())
+          );
+          return yield* Effect.raceFirst(Effect.provide(tick(unbounded), layer), Deferred.await(posted));
+        })
+      );
+    expect(await crash(p => p.kind === 'issue' && p.title === 'the printer')).toBe('posted');
+    expect(await crash(p => p.kind === 'comment' && p.body.startsWith('Change the docs'))).toBe('posted');
+    await run(where, splitIntoPartsAndDocsFollowUp(), tick(unbounded));
+    const children = (await issues(where)).filter(t => t.parent === 1);
+    expect(children.map(t => t.title)).toEqual(['the parser', 'the printer']);
+    const docs = (await issue(where, 2)).events.flatMap(m => (m.comment ? [m.comment.body] : []));
+    expect(docs.filter(b => b.startsWith('Change the docs'))).toHaveLength(1);
   });
 
   it('splits an XL issue into stacked children with labels, lines and a task list, and triages the XL child again', async () => {

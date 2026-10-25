@@ -614,6 +614,34 @@ describe('githubForge', () => {
     );
   });
 
+  it('finds the comment, review reply or issue an operation already posted, by the operation in its marker', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues/7/comments': [
+        { id: 31, html_url: 'u31', body: 'Done.\n\n<!-- agentgraph run=r step=s operation=aa at=t -->' },
+      ],
+      'GET /repos/o/r/pulls/8/comments': [
+        { id: 32, html_url: 'u32', body: 'Done.\n\n<!-- agentgraph run=r step=s operation=bb at=t -->' },
+      ],
+      'GET /repos/o/r/issues': [
+        { id: 1, number: 12, html_url: 'u12', body: 'Done.\n\n<!-- agentgraph run=r step=s operation=cc at=t -->' },
+      ],
+    });
+    const find = (n: number, p: Proposal, operation: string) =>
+      run(
+        f,
+        Effect.flatMap(Forge, forge => forge.findPost(n, p, operation))
+      );
+    const comment: Proposal = { kind: 'comment', body: 'Done.' };
+    expect(await find(7, comment, 'aa')).toMatchObject({ ok: true, id: '31', url: 'u31' });
+    expect(await find(7, comment, 'a')).toBeUndefined();
+    expect(await find(8, { ...comment, under: '5' }, 'bb')).toMatchObject({ id: '32', url: 'u32' });
+    expect(await find(7, { kind: 'issue', title: 'Part', body: 'Done.' }, 'cc')).toMatchObject({
+      id: '12',
+      url: 'u12',
+    });
+    expect(await find(7, { ...comment, edit: '31' }, 'aa')).toBeUndefined();
+  });
+
   it('posts only the hidden marker without a studio URL, and nothing extra outside a run', async () => {
     const f = fake({ 'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' } });
     const say = (body: string) => Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'comment', body }));

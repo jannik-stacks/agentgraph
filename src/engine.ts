@@ -210,25 +210,33 @@ const operation = (run: Run, issue: number, proposal: Proposal, slot: string, tr
     )
     .digest('hex');
 
-const appliedBefore = (run: Run, key: string) =>
-  Effect.flatMap(Store, store =>
-    Effect.map(Stream.runCollect(store.read(run.id)), lines =>
-      Chunk.toArray(lines).findLast(t => 'applied' in t && t.applied.operation === key && t.applied.ok)
-    )
-  ).pipe(Effect.map(t => (t && 'applied' in t ? t.applied : undefined)));
+const writeApplied = (run: Run, issue: number, key: string, applied: Applied) =>
+  Effect.flatMap(Store, store => {
+    const recorded = { ...applied, operation: key, issue };
+    return Effect.as(store.trace(run.id, { at: now(), step: run.step, applied: recorded }), recorded);
+  });
+
+const findAppliedBefore = (run: Run, issue: number, key: string, proposal?: Proposal) =>
+  Effect.gen(function* () {
+    const lines = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id)));
+    const traced = lines.findLast(t => 'applied' in t && t.applied.operation === key && t.applied.ok);
+    if (traced && 'applied' in traced) return traced.applied;
+    const posted = proposal && (yield* (yield* Forge).findPost(issue, proposal, key));
+    return posted && (yield* writeApplied(run, issue, key, posted));
+  });
 
 const once = (
   run: Run,
   issue: number,
   key: string,
-  write: Effect.Effect<Applied, ForgeError | StoreError, Forge | Store>
+  write: Effect.Effect<Applied, ForgeError | StoreError, Forge | Store>,
+  proposal?: Proposal
 ) =>
   Effect.gen(function* () {
-    const before = yield* appliedBefore(run, key);
+    const before = yield* findAppliedBefore(run, issue, key, proposal);
     if (before) return before;
-    const applied = { ...(yield* write), operation: key, issue };
-    yield* Effect.flatMap(Store, store => store.trace(run.id, { at: now(), step: run.step, applied }));
-    return applied;
+    const marked = Effect.locallyWith(write, currentRunLinkRef, link => link && { ...link, operation: key });
+    return yield* writeApplied(run, issue, key, yield* marked);
   });
 
 const file = (w: Workflow, run: Run, children: Child[]) =>
@@ -239,7 +247,12 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     const depth = yield* depthOf(run.issue);
     const open = new Map((yield* forge.issues({ state: 'open' })).map(t => [t.title.trim().toLowerCase(), t.number]));
     const cached = yield* Effect.forEach(children, (p, i) =>
-      appliedBefore(run, operation(run, run.issue, p, `file:${i}`))
+      findAppliedBefore(
+        run,
+        run.issue,
+        operation(run, run.issue, p, `file:${i}`),
+        isPart(p) ? { kind: 'issue', title: p.title, body: p.body } : undefined
+      )
     );
     const refusal = (p: Child, i: number) => {
       if (issue.body === withheld(issue.author, 'issue text')) return `#${run.issue} is withheld text from an outsider`;
@@ -276,44 +289,32 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
         : [`Found while working on #${run.issue}`];
       const same = isPart(p) ? undefined : open.get(p.title.trim().toLowerCase());
       if (same !== undefined) {
-        applied.push(
-          yield* once(run, same, key, forge.apply(same, { kind: 'comment', body: [p.body, ...lines].join('\n\n') }))
-        );
+        const comment: Proposal = { kind: 'comment', body: [p.body, ...lines].join('\n\n') };
+        applied.push(yield* once(run, same, key, forge.apply(same, comment), comment));
         numbers.push(same);
         continue;
       }
-      const a = yield* once(
-        run,
-        run.issue,
-        key,
-        forge.apply(run.issue, {
-          kind: 'issue',
-          title: p.title,
-          body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
-          ...(isPart(p)
-            ? {
-                parent: run.issue,
-                labels: [`size/${p.size}`],
-              }
-            : { labels: [p.relation] }),
-        })
-      );
+      const filed: Proposal = {
+        kind: 'issue',
+        title: p.title,
+        body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
+        ...(isPart(p) ? { parent: run.issue, labels: [`size/${p.size}`] } : { labels: [p.relation] }),
+      };
+      const a = yield* once(run, run.issue, key, forge.apply(run.issue, filed), filed);
       applied.push(a);
       if (!a.ok) break;
       numbers.push(Number(a.id));
     }
     const parts = numbers.filter((_, i) => isPart(children[i]!));
     if (parts.length === 0) return applied;
-    const list = parts.map(n => `- [ ] #${n}`).join('\n');
+    const summary: Proposal = { kind: 'comment', body: `Split into:\n\n${parts.map(n => `- [ ] #${n}`).join('\n')}` };
     applied.push(
       yield* once(
         run,
         run.issue,
-        operation(run, run.issue, { kind: 'comment', body: `Split into:\n\n${list}` }, 'file-summary'),
-        forge.apply(run.issue, {
-          kind: 'comment',
-          body: `Split into:\n\n${list}`,
-        })
+        operation(run, run.issue, summary, 'file-summary'),
+        forge.apply(run.issue, summary),
+        summary
       )
     );
     const store = yield* Store;
@@ -1294,7 +1295,7 @@ const attempt = (
       (p, i) =>
         Effect.gen(function* () {
           const key = operation(tried, p.issue, p, `tell:${i}`);
-          const prior = yield* appliedBefore(tried, key);
+          const prior = yield* findAppliedBefore(tried, p.issue, key);
           const to = prior?.id ? yield* store.get(prior.id) : yield* recipient(p.issue, run.id);
           return { p, to, key };
         })
@@ -1497,7 +1498,8 @@ const land = (
               run,
               issue,
               work ? operation(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
-              forge.apply(issue, p, work)
+              forge.apply(issue, p, work),
+              work && p
             );
         applied.push(a);
         if (p.kind === 'push' && !a.ok) refused = true;

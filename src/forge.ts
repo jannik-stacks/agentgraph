@@ -42,6 +42,8 @@ export const makePostableProposal = (p: Proposal, studio?: string) =>
     return { posted: { ...p, body: stamp(p.body, mark, at, studio) }, at };
   });
 
+export const isPostedBy = (body: string, operation: string) => body.includes(` operation=${operation} `);
+
 export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string; moved?: true }> {}
 
 /** The repo as the state: GitHub in production, a JSON file in tests. */
@@ -52,6 +54,7 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
     issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, ForgeError>;
     since: (cursor: string) => Stream.Stream<Event, ForgeError>;
     apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, ForgeError>;
+    findPost: (number: number, proposal: Proposal, operation: string) => Effect.Effect<Applied | undefined, ForgeError>;
     /** The login people mention to talk to the bot, when the forge has one. */
     slug?: Effect.Effect<string, ForgeError>;
     /** The studio's URL that bodies link back to, when set. */
@@ -178,7 +181,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       /** The issue as an agent may read it: an outsider's title and text withheld. */
       const shown = (t: Issue): Issue =>
         t.author === me || (trust ? trust.includes(t.author) : !t.author?.endsWith('[bot]'))
-          ? t
+          ? { ...t, body: removeRunLink(t.body) }
           : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text') };
       const write = async ({ number, body, url: _url, pull, ...front }: Issue) => {
         await mkdir(dir, { recursive: true });
@@ -188,12 +191,16 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           await writeFile(pullFile(number), `${JSON.stringify(pull, null, 2)}\n`);
         }
       };
-      const eventsOf = async (n: number) =>
+      const readTimeline = async (n: number) =>
         ((await optional(readFile(timeline(n), 'utf8'))) ?? '')
           .split('\n')
           .filter(Boolean)
-          .map(line => JSON.parse(line) as Event)
-          .map(m => (m.comment ? { ...m, comment: addressed(m.comment) } : m))
+          .map(line => JSON.parse(line) as Event);
+      const eventsOf = async (n: number) =>
+        (await readTimeline(n))
+          .map(m =>
+            m.comment ? { ...m, comment: addressed({ ...m.comment, body: removeRunLink(m.comment.body) }) } : m
+          )
           .map(m => (trust && !trust.includes(m.actor) ? { ...m, trusted: false } : m))
           .map(m => {
             if (!m.comment || m.trusted || m.actor === me) return m;
@@ -241,7 +248,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         const t = await must(n);
         switch (p.kind) {
           case 'comment': {
-            const all = await eventsOf(n);
+            const all = await readTimeline(n);
             if (p.edit !== undefined) {
               const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === who);
               if (at < 0) return no(`no comment ${p.edit} of ours on #${n}`);
@@ -422,7 +429,22 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
                 .sort((a, b) => a.at.localeCompare(b.at))
             )
           ),
-        apply: (n, p, work) => lock.withPermits(1)(io(() => apply(n, p, work))),
+        apply: (n, p, work) =>
+          Effect.flatMap(makePostableProposal(p), ({ posted }) =>
+            lock.withPermits(1)(io(() => apply(n, posted, work)))
+          ).pipe(Effect.map(a => ({ ...a, proposal: p }))),
+        findPost: (n, p, operation) =>
+          io(async (): Promise<Applied | undefined> => {
+            if (p.kind === 'comment' && p.edit === undefined) {
+              const c = (await readTimeline(n)).find(m => m.comment && isPostedBy(m.comment.body, operation))?.comment;
+              return c && { proposal: p, ok: true, id: c.id, url: `${md(n)}#${c.id}` };
+            }
+            if (p.kind !== 'issue') return undefined;
+            for (const k of await numbers())
+              if (isPostedBy((await read(k))?.body ?? '', operation))
+                return { proposal: p, ok: true, url: md(k), id: String(k) };
+            return undefined;
+          }),
       };
     })
   );
