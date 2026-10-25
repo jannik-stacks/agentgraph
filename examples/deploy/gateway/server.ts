@@ -25,7 +25,7 @@ export const startGateway = (env: Record<string, string | undefined>, port = 400
   createServer(async (message, response) => {
     try {
       const request = await readRequest(message);
-      if (!request) return void response.writeHead(413, { connection: 'close' }).end('gateway: request too large\n');
+      if (!request) return void response.writeHead(413).end('gateway: request too large\n');
       const answer = await forwardToGateway(request, env.GATEWAY_URL, env.GATEWAY_HEADERS, send);
       const headers = [...answer.headers].filter(([name]) => !decoded.has(name));
       response.writeHead(answer.status, Object.fromEntries(headers));
