@@ -125,14 +125,14 @@ The package has no entry point yet, so a plugin imports its types from `src/harn
 - `volumes` maps container paths to docker volumes that outlive the session. Sessions of harnesses sharing a volume run one at a time.
 - `check` returns what the harness cannot do, phrased to follow its name, such as `takes no tools`. The hub reports it as `harness: echo takes no tools`.
 
-An agent without a `harness` gets `AGENTGRAPH_HARNESS`, else the first harness in the config. A hub loads only when every agent's harness is in the config and its `check` finds nothing. A config that does not load fails every hub with its problem. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/hub.ts#loadHub -->
+`AGENTGRAPH_HARNESS` runs every agent on that harness. Otherwise an agent without a `harness` gets the first harness `AGENTGRAPH_PROVIDER` serves, else the first in the config. A hub loads only when every agent's harness is in the config and its `check` finds nothing. A config that does not load fails every hub with its problem. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/hub.ts#loadHub -->
 
 | Harness | Tool permissions | Aside fork |
 | --- | --- | --- |
 | `opencode` | Allowlists with patterns, such as `bash(git diff*)` | `--session <id> --fork` |
 | `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` fails the hub check, so best for read-only agents | `--fork <id>` |
 | `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work, a tool Claude Code lacks fails the hub check | `--resume <id> --fork-session` |
-| `codex` | Codex runs every tool it has and ignores the agent's list; its login and sessions live in the docker volume `agentgraph-codex` | none |
+| `codex` | An agent with `edit`, `write` or `bash` gets every tool Codex has; any other runs in Codex's read-only sandbox. Login and sessions live in the docker volume `agentgraph-codex`, one session at a time | none; an aside starts a fresh session |
 
 Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnessSession -->
 

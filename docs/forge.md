@@ -38,14 +38,14 @@ A provider is where model calls go and how they authenticate. `agentgraph.config
 
 | Provider | Harness | Ready when |
 | --- | --- | --- |
-| `claude` | `claude` | `~/.config/agentgraph/claude-token` exists or `CLAUDE_CODE_OAUTH_TOKEN` is set |
+| `claude` | `claude` | its token is in the macOS Keychain or `~/.config/agentgraph/claude-token`, or `CLAUDE_CODE_OAUTH_TOKEN` is set |
 | `chatgpt` | `codex` | the device login in the docker volume `agentgraph-codex` was made |
 | `anthropic` | `claude` | `ANTHROPIC_API_KEY` is set |
 | `litellm` | any | `AGENTGRAPH_PROXY_KEYS` is set, for `AGENTGRAPH_PROXY_URL` |
 
-`--provider` picks one, else `provider` in instance.yaml, else the only ready one. When several are ready the CLI asks in a terminal and saves the answer, and fails without one. When none is ready it lists how to get one, and files nothing. `--harness` picks among the provider's harnesses for agents that name none, and `--model` replaces every agent's model for that command. An agent whose harness the provider does not serve fails before anything is filed. <!-- code: bin/run.ts#pickProvider -->
+`--provider` picks one, else `provider` in instance.yaml, else the only ready one. When several are ready the CLI asks in a terminal and saves the answer, and fails without one. When none is ready it lists how to get one, and files nothing. Agents that name no harness get the provider's first. `--harness` runs every agent on one of the provider's harnesses, and `--model` replaces every agent's model, for that command only. An agent whose harness the provider does not serve fails before anything is filed. <!-- code: bin/run.ts#pickProvider -->
 
-A subscription logs in once per machine, the first time it is picked. `claude` runs `claude setup-token` on the host and asks for the token it prints, then keeps it in a file only you can read; each Claude Code session gets it as `CLAUDE_CODE_OAUTH_TOKEN`. `chatgpt` runs `codex login --device-auth` in a sandbox container, so the login lives in the docker volume and never in your `~/.codex`. Either credential is inside the session's container while it runs.
+A subscription logs in once per machine, the first time it is picked. `claude` runs `claude setup-token` on the host and asks for the token it prints, then keeps it in the macOS Keychain, or elsewhere in a file only you can read; each Claude Code session gets it as `CLAUDE_CODE_OAUTH_TOKEN`. `chatgpt` runs `codex login --device-auth` in a sandbox container, so the login lives in the docker volume and never in your `~/.codex`. Codex sessions take turns on that volume, and their output masks its tokens. Either credential is inside the session's container while it runs.
 
 ## Who drives
 

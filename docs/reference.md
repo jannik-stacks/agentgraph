@@ -76,7 +76,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 | Field     | Type                         | Default                                 | Meaning                                                                                          |
 | --------- | ---------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `harness` | a harness name from the config | `AGENTGRAPH_HARNESS`, else the config's first | The program that runs the session; see [Harnesses](sandbox.md#harnesses)                 |
+| `harness` | a harness name from the config | the provider's first, else the config's first | The program that runs the session; see [Harnesses](sandbox.md#harnesses)                 |
 | `model`   | model alias                  | `default`, or Claude Code's own default | Proxy model alias                                                                                |
 | `tools`   | list of tool names           | none                                    | Allowed tools                                                                                    |
 | `returns` | list of proposal kinds       | `[comment]`                             | The kinds it may propose, see [Proposals](proposals.md)                                          |
