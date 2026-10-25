@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
@@ -166,14 +166,18 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       const read = async (n: number): Promise<Issue | undefined> => {
         const text = await optional(readFile(md(n), 'utf8'));
         if (text === undefined) return undefined;
-        const [, head = '', body = ''] = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text) ?? [];
-        const front = parse(head) as Omit<Issue, 'number' | 'body' | 'url' | 'pull'>;
+        const [, head = '', body = text] = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text) ?? [];
+        const front = (parse(head) ?? {}) as Partial<Issue>;
+        const [, first = '', rest = ''] = /^#*\s*(.*)\n?([\s\S]*)$/.exec(body.trim()) ?? [];
         const pull = await optional(readFile(pullFile(n), 'utf8'));
         return {
           number: n,
+          state: 'open',
+          author: '',
           ...front,
+          title: front.title ?? first,
           labels: front.labels ?? [],
-          body: body.trim(),
+          body: (front.title === undefined ? rest : body).trim(),
           ...(pull !== undefined && { pull: JSON.parse(pull) as NonNullable<Issue['pull']> }),
           url: md(n),
         };
@@ -191,11 +195,25 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           await writeFile(pullFile(number), `${JSON.stringify(pull, null, 2)}\n`);
         }
       };
-      const readTimeline = async (n: number) =>
-        ((await optional(readFile(timeline(n), 'utf8'))) ?? '')
+      const adopt = async (n: number) => {
+        if (await optional(stat(timeline(n)))) return;
+        const [t, file] = await Promise.all([read(n), optional(stat(md(n)))]);
+        if (!t?.author || t.author === me || t.labels.length === 0 || !file) return;
+        const draft = `${timeline(n)}.${process.pid}.${Date.now()}`;
+        const at = file.mtime.toISOString();
+        const trusted = !t.author.endsWith('[bot]');
+        const events = t.labels.map(label => ({ issue: n, kind: 'label', label, actor: t.author, trusted, at }));
+        await writeFile(draft, events.map(m => `${JSON.stringify(m)}\n`).join(''));
+        await link(draft, timeline(n)).catch((e: NodeJS.ErrnoException) => e.code === 'EEXIST' || Promise.reject(e));
+        await unlink(draft);
+      };
+      const readTimeline = async (n: number) => {
+        await adopt(n);
+        return ((await optional(readFile(timeline(n), 'utf8'))) ?? '')
           .split('\n')
           .filter(Boolean)
           .map(line => JSON.parse(line) as Event);
+      };
       const eventsOf = async (n: number) =>
         (await readTimeline(n))
           .map(m =>
@@ -246,6 +264,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           ...(away && { moved: away }),
         });
         const t = await must(n);
+        await adopt(n);
         switch (p.kind) {
           case 'comment': {
             const all = await readTimeline(n);

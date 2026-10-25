@@ -119,6 +119,37 @@ describe('bin/forge.ts with run --forge', () => {
     );
   });
 
+  it('starts a run on a dropped issue file once, and reads one without frontmatter', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    writeFileSync(join(w.dir, '1.md'), '# Fix the typo\n\nIn the readme.\n');
+    writeFileSync(
+      join(w.dir, '2.md'),
+      '---\ntitle: Add a greeting\nauthor: morgan\nlabels: [agent:ready]\n---\n\nAdd hello.txt.\n'
+    );
+    expect(w.forge('show')).toBe('#1 open Fix the typo\n#2 open Add a greeting [agent:ready]');
+    expect(w.forge('show', '2')).toMatch(/morgan label agent:ready/);
+    const pull: Proposal = {
+      kind: 'pull_request',
+      branch: 'agentgraph/2',
+      base: 'main',
+      title: 'Add hello',
+      body: 'Adds it.',
+    };
+    const first = await w.run([
+      [
+        start('i'),
+        wrote('hello.txt', 'hello\n'),
+        reply({ kind: 'push', branch: 'agentgraph/2', message: 'feat: add hello' }, pull),
+      ],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    expect(first.map(r => [r.issue, r.step, r.status])).toEqual([[2, 'merge', 'waiting']]);
+    expect(w.forge('show', '3')).toContain('+hello');
+    expect(await w.run([])).toEqual([]);
+    expect(readdirSync(join(w.root, 'data')).filter(d => d.startsWith('issue-'))).toHaveLength(1);
+  });
+
   it('sends a pull request back with the line comments posted just before the review in its reason', async () => {
     const w = world();
     w.forge('init', w.seed);
