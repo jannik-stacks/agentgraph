@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
+import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
 import { parse, stringify } from 'yaml';
@@ -96,7 +96,7 @@ export const findInstances = (root: string) =>
 export const ensureInstance = async (root: string, repo: string, base?: string) => {
   const real = realpathSync(repo);
   const inside = relative(real, readRealPath(root));
-  if (!inside.startsWith('..') && !isAbsolute(inside))
+  if (inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside))
     throw new Error(
       `the data dir ${root} is inside ${real}; pass --data or set AGENTGRAPH_DATA to a folder outside it`
     );

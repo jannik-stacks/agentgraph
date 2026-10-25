@@ -65,7 +65,7 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 | `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, see [Models](sandbox.md#models); `AGENTGRAPH_PROXY_KEYS_FILE` names a file holding them |
 | `AGENTGRAPH_SESSION_ENV` | Engine variables every session gets, such as a harness login token; empty by default |
 | `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json` |
-| `AGENTGRAPH_CONFIG` | The [harness plugins](sandbox.md#harnesses) file, `agentgraph.config.ts` |
+| `AGENTGRAPH_CONFIG` | The [harness plugins](sandbox.md#harnesses) file; the CLI uses `config.ts` in the data root when it exists, else the package's `agentgraph.config.ts` |
 | `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`, also set by `--logs`; see [Check logs](runs.md#check-logs) |
 | `AGENTGRAPH_CACHE_VOLUME` | [Toolchain cache](sandbox.md#toolchains) volume, `agentgraph-cache` |
 | `AGENTGRAPH_IMAGE` | Base image when the hub sets none, `agentgraph-sandbox:local` |

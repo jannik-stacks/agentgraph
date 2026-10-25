@@ -122,7 +122,10 @@ const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
   const ready: Provider[] = [];
   for (const p of providers) if ((await p.ready()) || p.detect?.()) ready.push(p);
   if (ready.length === 0) fail(`${noModel}\n${after}`, 1);
-  if (ready.length === 1) return ready[0]!;
+  if (ready.length === 1) {
+    writeInstanceProvider(i, ready[0]!.name);
+    return ready[0]!;
+  }
   const names = ready.map(p => p.name);
   if (!process.stdin.isTTY) fail(`${names.join(' and ')} are ready; pass --provider ${names.join(' or --provider ')}`);
   const lines = createInterface({ input: process.stdin, output: process.stdout });
@@ -266,6 +269,8 @@ async function prune(data: string) {
 
 async function runOnInstance() {
   const root = resolve(values.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
+  if (!process.env.AGENTGRAPH_CONFIG && existsSync(join(root, 'config.ts')))
+    process.env.AGENTGRAPH_CONFIG = join(root, 'config.ts');
   const repo = await findRepo(resolve(values.repo ?? '.'));
   if (!repo) {
     if (verb !== 'show') fail(`${verb || 'agentgraph'} runs inside a git repo, or pass --repo <dir>\n${usage}`);
@@ -335,10 +340,14 @@ async function runOnInstance() {
       console.log(`${result.stat}\nPatch: ${result.ref}    git am ${result.ref}`);
       return;
     }
-    case 'close':
-      writeClosed(i.forge, i.owner, numbered());
-      console.log(`closed #${n}`);
+    case 'close': {
+      const pull = await findPull(i.forge, numbered());
+      const open = pull?.state === 'open' ? [pull.number] : [];
+      const closed = [...new Set([n, await findIssueOf(i, n), ...open])];
+      for (const k of closed) writeClosed(i.forge, i.owner, k);
+      console.log(`closed #${closed.join(' and #')}`);
       return;
+    }
     case 'show':
       return rest[0] ? showIssue(await forgeOf(), numbered(), i) : showAll(i, await forgeOf());
     case 'check':

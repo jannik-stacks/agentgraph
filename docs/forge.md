@@ -22,7 +22,7 @@ The issue number is the handle. Each issue has at most one open pull request, on
 | `review <n> changes "<why>"` | Requests changes, with the line comments made before it, then drives the issue. |
 | `merge <n>` | Moves the forge's base to the pull request's head, retargets pull requests stacked on it, closes the issue and writes the branch into your repo. Fails if the base moved past it. <!-- code: src/instance.ts#mergePull --> |
 | `export <n>` | Writes the branch into your repo again; `--as <branch>` under another name, `--patch <file>` as a patch file instead. |
-| `close <n>` | Closes the issue; a live run stops on its next look. |
+| `close <n>` | Closes the issue and its open pull request; a live run stops on its next look. |
 | `show [n]` | What needs you and every issue, or one issue's timeline and diff. Outside a repo it lists every instance and what needs you there. |
 | `loop` | Drives every open issue, then again when the forge changes or after `AGENTGRAPH_EVERY` minutes. `--once` makes one pass. |
 
