@@ -184,7 +184,8 @@ export const harnessSession = (s: {
             const { cmd, args, env = {} } = harness.command(spec, route);
             const hidden = Object.values(secrets)
               .map(secret => Redacted.value(secret))
-              .filter(secret => secret.length >= 8);
+              .filter(secret => secret.length >= 8)
+              .flatMap(secret => [JSON.stringify(secret).slice(1, -1), secret]);
             const parse = harness.parse();
             let session: string | undefined;
             let model = route.model;

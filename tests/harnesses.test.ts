@@ -177,6 +177,11 @@ describe('the session loop', () => {
     expect(Redacted.value(fallback.command.secrets!.AGENTGRAPH_LLM_API_KEY!)).toBe(key);
     expect(fallback.command.env.AGENTGRAPH_LLM_BASE_URL).toBe('http://gateway:4000/v1');
     expect(JSON.stringify(fallback.exit)).toContain('leaked ***');
+    const quoted = 'quoted"token\\123';
+    const escaped = await session({ ...spec, agent: 'gardener' }, [`leaked ${JSON.stringify(quoted)}`], {
+      passed: { CLAUDE_CODE_OAUTH_TOKEN: Redacted.make(quoted) },
+    });
+    expect(JSON.stringify(escaped.exit)).not.toContain('token');
   });
 
   it('stops before the harness starts when the config has no harness by that name', async () => {

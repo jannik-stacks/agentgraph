@@ -36,6 +36,7 @@ The engine runs as uid 1000 and starts one container per command through the hos
 The engine image alone, with the host's docker:
 
 ```sh
+sudo install -d -o 1000 -g 1000 /var/lib/agentgraph
 docker build -t agentgraph-engine -f examples/deploy/engine/Dockerfile .
 docker run -d --restart unless-stopped --env-file .env \
   --group-add "$(stat -c %g /var/run/docker.sock)" \
