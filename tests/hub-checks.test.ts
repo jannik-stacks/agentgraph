@@ -139,6 +139,7 @@ describe('agentgraph hub checks', () => {
           '  ref,',
           '  head,',
           ']);',
+          "await inRepo(i.repo, ['update-ref', '-m', 'it\\'s moved', ref, head, old]);",
           "await git(work, 'push', `--force-with-lease=refs/heads/${b}:${was}`, 'origin', b);",
           "await git(work, 'push', '--force', 'origin', b);",
           '',
@@ -155,7 +156,7 @@ describe('agentgraph hub checks', () => {
       'CLAUDE.md:1: a CLAUDE.md file; agent instructions live in AGENTS.md only',
       'docs/a.md:4: a unicode arrow in a fenced block; diagram arrow heads are ASCII > < v ^',
       'examples/agentgraph/skills/review.md:1: a two-dot range to HEAD; review a branch with base...HEAD',
-      'src/a.ts:11: a force push',
+      'src/a.ts:12: a force push',
       'src/a.ts:2: update-ref without the expected old sha; pass it so a concurrent move fails',
       'src/a.ts:6: update-ref without the expected old sha; pass it so a concurrent move fails',
     ]);

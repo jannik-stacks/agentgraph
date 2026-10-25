@@ -160,7 +160,7 @@ one without that check.
     `bin/commit-msg.mjs` checks it.
 58. Never commit secrets. Agents don't sign or push.
 59. A one-off review diffs the branch against its merge-base, `base...HEAD` with three dots; two dots
-    are fine between two recorded shas. Anything
-    persisted or rerun (end checks, exports, baselines, patches) uses the sha recorded when the work
-    settled, never a merge-base or tip recomputed against a live branch. A ref update names the old sha it
-    expects: `update-ref <ref> <new> <old>`, `--force-with-lease=<ref>:<sha>`.
+    are fine between two recorded shas. Anything persisted or rerun (end checks, exports, baselines,
+    patches) uses the sha recorded when the work settled, never a merge-base or tip recomputed against a
+    live branch. An engine ref update names the old sha it expects: `update-ref <ref> <new> <old>`,
+    `--force-with-lease=<ref>:<sha>`.

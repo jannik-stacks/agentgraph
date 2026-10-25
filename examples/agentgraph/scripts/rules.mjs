@@ -115,40 +115,38 @@ const uncalibrated = ({ path, text, lines }) => {
 };
 
 const readArrayItems = (text, from) => {
+  const token = /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`|[^]/y;
+  token.lastIndex = from;
   const items = [];
   let depth = 0;
   let item = '';
-  for (let i = from; i < text.length; i++) {
-    const c = text[i];
-    if (`'"\``.includes(c)) {
-      const end = text.indexOf(c, i + 1);
-      item += text.slice(i, end + 1);
-      i = end;
-    } else if ('([{'.includes(c)) {
-      depth++;
-      item += c;
-    } else if (depth === 0 && (c === ',' || c === ']')) {
+  for (let match = token.exec(text); match; match = token.exec(text)) {
+    const [part] = match;
+    if (depth === 0 && (part === ',' || part === ']')) {
       items.push(item.trim());
       item = '';
-      if (c === ']') return items.filter(Boolean);
-    } else {
-      if (')]}'.includes(c)) depth--;
-      item += c;
+      if (part === ']') return { items: items.filter(Boolean), end: token.lastIndex };
+      continue;
     }
+    if ('([{'.includes(part)) depth++;
+    if (')]}'.includes(part)) depth--;
+    item += part;
   }
 };
 
+const lineAt = (text, offset) => text.slice(0, offset).split('\n').length;
+
 const unguardedRefUpdates = ({ path, text, lines }) => {
   if (!/^src\/.*\.ts$/.test(path)) return [];
-  const added = new Set(lines.map(({ line }) => line));
+  const added = lines.map(({ line }) => line);
   return [...text.matchAll(/'update-ref'\s*,/g)].flatMap(match => {
-    const line = text.slice(0, match.index).split('\n').length;
-    const items = readArrayItems(text, match.index + match[0].length);
-    if (!added.has(line) || !items || items.some(item => item.startsWith('...'))) return [];
-    const operands = items.filter((item, i) => !item.startsWith("'-") && items[i - 1] !== "'-m'");
-    const needed = items.includes("'-d'") ? 2 : 3;
-    if (operands.length >= needed) return [];
-    return [`${path}:${line}: update-ref without the expected old sha; pass it so a concurrent move fails`];
+    const array = readArrayItems(text, match.index + match[0].length);
+    if (!array || array.items.some(item => item.startsWith('...'))) return [];
+    const [first, last] = [lineAt(text, match.index), lineAt(text, array.end)];
+    if (!added.some(line => line >= first && line <= last)) return [];
+    const operands = array.items.filter((item, i) => !item.startsWith("'-") && array.items[i - 1] !== "'-m'");
+    if (operands.length >= (array.items.includes("'-d'") ? 2 : 3)) return [];
+    return [`${path}:${first}: update-ref without the expected old sha; pass it so a concurrent move fails`];
   });
 };
 
