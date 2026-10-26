@@ -269,6 +269,7 @@ describe('the human verbs on a forge folder', () => {
     );
     expect(runs.map(r => [r.workflow, r.step, r.status])).toEqual([['issue', 'merge', 'waiting']]);
     expect(await w.forge('show', '2')).toContain('+hello');
+    expect(await w.forge('show', '1')).toMatch(/, edited \S+ \S+ comment\nWaiting for a human at merge\./);
   });
 
   it('sends a pull request back with the line comments posted just before the review in its reason', async () => {

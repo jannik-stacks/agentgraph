@@ -23,6 +23,7 @@ export type Comment = {
   author: string;
   body: string;
   at: string;
+  edited?: string;
   agentRequest?: string;
   path?: string;
   line?: number;

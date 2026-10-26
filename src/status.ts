@@ -40,7 +40,8 @@ export const formatIssueTimeline = (t: Issue & { events: Event[] }, diff: string
     ...t.events.map(m => {
       const on = m.comment?.path ? ` on ${m.comment.path}${m.comment.line ? `:${m.comment.line}` : ''}` : '';
       const body = m.comment?.body ? `\n${m.comment.body}\n` : '';
-      return `${m.at} ${m.actor} ${m.kind}${m.label ? ` ${m.label}` : ''}${on}${body}`;
+      const when = m.comment?.edited ? `${m.at}, edited ${m.comment.edited}` : m.at;
+      return `${when} ${m.actor} ${m.kind}${m.label ? ` ${m.label}` : ''}${on}${body}`;
     }),
     ...(t.pull ? [`\n${t.pull.branch} into ${t.pull.base} at ${t.pull.head}\n\n${diff}`] : []),
   ].join('\n');

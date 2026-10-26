@@ -310,7 +310,10 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             if (p.edit !== undefined) {
               const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === who);
               if (at < 0) return no(`no comment ${p.edit} of ours on #${n}`);
-              all[at] = { ...all[at]!, comment: { ...all[at]!.comment!, body: p.body } };
+              all[at] = {
+                ...all[at]!,
+                comment: { ...all[at]!.comment!, body: p.body, edited: new Date().toISOString() },
+              };
               await writeFile(timelinePath(dir, n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
               return { proposal: p, ok: true, id: p.edit, url: `${md(n)}#${p.edit}` };
             }
