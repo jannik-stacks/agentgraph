@@ -14,6 +14,6 @@ forward: a run left in this value is picked up again by a retry, a restart, a ne
 label or a merge, and does not sit there forever? Is a human told: when the value needs a person, a
 reply, a label or the dashboard says so?
 
-FAIL with the value, the question it fails, one sequence of events through agentgraph's own inputs that
-shows it and the line it goes wrong on. PASS when all three hold for the lines shown, with any
-doubts as notes after the verdict.
+Fail with the value, the question it fails, one sequence of events through agentgraph's own inputs that
+shows it and the line it goes wrong on. Pass when all three hold for the lines shown, with any
+doubts as notes in why.

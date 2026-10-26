@@ -8,6 +8,6 @@ Nothing the change removes from src/ or the hub scripts is still relied on, one 
 
 The item is one kind of removal in one file: the removed lines, where they were, and the hunks that
 replace them. Does anything in the change still provide this behavior? Grep for the callers and
-inputs of the removed line. If nothing does, FAIL and name the caller or input that relied on it.
-PASS only when the task or the brief names this very behavior as one to drop; a broader goal such as
-"start fresh" does not name it. PASS when the replacing hunk carries it.
+inputs of the removed line. If nothing does, fail and name the caller or input that relied on it.
+Pass only when the task or the brief names this very behavior as one to drop; a broader goal such as
+"start fresh" does not name it. Pass when the replacing hunk carries it.

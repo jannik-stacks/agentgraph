@@ -6,4 +6,4 @@ The studio type-checks and builds, and no browser code reaches a Node builtin.
 
 The studio imports schemas and helpers straight from `src/`. Its build fails when a module the
 browser loads imports `node:crypto`, `node:fs` or any other Node builtin, directly or through
-another module. A pass prints one line; the build's chunk-size report stays out of the verdict.
+another module. A pass prints one line; the build's chunk-size report stays out of the result.

@@ -23,7 +23,7 @@ on the one in front of you.
   with the same name. The cheapest home for a rule an agent must apply while working.
 - `checks/<name>.md`: front matter `mode` (block fails the try, warn reports, stop ends the run), and `run`
   (a shell command run at the repo root in the sandbox; exit 0 passes, its output is shown to the
-  implementor on the next try) and/or `agent` (a reply starting PASS or FAIL). Body: what it checks.
+  implementor on the next try) and/or `agent` (a judge that records pass or fail with the result tool). Body: what it checks.
   `$AGENTGRAPH_HUB` is the hub dir, `$AGENTGRAPH_BASE` the base commit, so `git diff "$AGENTGRAPH_BASE"` is the change.
   A check only runs when a step lists it under `checks`.
 - `scripts/<name>.mjs` or `.sh`: what a check or `each` runs, as `node "$AGENTGRAPH_HUB/scripts/<name>.mjs"`.

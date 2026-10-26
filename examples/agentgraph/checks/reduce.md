@@ -16,8 +16,8 @@ Under `helpers`, each new function comes with existing exports whose names share
 Should the change call one of them instead? When one already does the new function's job, name the
 new function and the export to use. A new function not listed there is never a finding for this.
 
-FAIL listing each as `file:line`, with what to delete. PASS when nothing can go.
+Fail listing each as `file:line`, with what to delete. Pass when nothing can go.
 
-From attempt 2 on (the prompt says so), FAIL only on a whole test, function or file that can go. From
-attempt 3 on, PASS and list the rest as notes. Without an attempt line in the prompt, this paragraph
+From attempt 2 on (the prompt says so), fail only on a whole test, function or file that can go. From
+attempt 3 on, pass and list the rest as notes. Without an attempt line in the prompt, this paragraph
 does not apply.

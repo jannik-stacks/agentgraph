@@ -9,5 +9,5 @@ steps:
 ---
 A maintainer adds the `crosscheck` label. The implementor works until the tests pass. Then two
 reviewers on different harnesses read each try side by side: Claude Code judges correctness and
-opencode judges the tests. Both checks start in warn mode and record their verdicts. Once a replay
+opencode judges the tests. Both checks start in warn mode and record their results. Once a replay
 shows they judge well, block mode sends what fails back to the implementor's session.
