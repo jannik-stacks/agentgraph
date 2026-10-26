@@ -2,8 +2,8 @@
 // routes loaded lazily, schema unions told apart by `type`, and the studio's UI rules on its TSX. Softer hints, state
 // copied in an effect and type unions told apart by another field, are printed without failing the check. In the hub
 // scripts, a field an item sends to a model that gathers text with no clip or limit fails.
-import { makeOffsetToLineLookup, parseSourceFileToAst, reporter, sources, walk } from './ast.mjs';
-import { report } from './changes.mjs';
+import { makeOffsetToLineLookup, parseSourceFileToAst, reporter, walk } from './ast.mjs';
+import { readCheckInputFiles, report } from './changes.mjs';
 import { studioFile, studioUi } from './studio-ui.mjs';
 
 const code = path => /^(src|studio\/src)\/.*\.(ts|tsx|mts)$/.test(path) && !path.startsWith('studio/src/lab/');
@@ -34,7 +34,7 @@ const valueImports = program =>
     return [];
   });
 
-const gathers = /\b(readFileSync|execFileSync|sources)\(|Text\(/;
+const gathers = /\b(readFileSync|execFileSync|readCheckInputFiles)\(|Text\(/;
 const bounded = /slice\(|clip|max|limit/i;
 
 /** Fields of the items a script prints that gather text with no clip or limit, in their value or its declaration. */
@@ -64,12 +64,12 @@ const unbounded = (program, text, getLineAt) => {
 
 const { findings, add } = reporter();
 const hinted = reporter();
-for (const source of sources(path => code(path) || slicer(path))) {
-  const { path, code: text } = source;
+for (const source of readCheckInputFiles(path => code(path) || slicer(path))) {
+  const { path, text } = source;
   const { program, error } = parseSourceFileToAst(path, text);
   const getLineAt = makeOffsetToLineLookup(text);
   if (error) {
-    add({ ...source, lines: null }, 1, `does not parse: ${error}`);
+    add({ ...source, lines: undefined }, 1, `does not parse: ${error}`);
     continue;
   }
 

@@ -44,7 +44,7 @@ const isTilde = text => /^\s*[~≈]\s*$/.test(text) || /[~≈]\s*\$/.test(text);
 
 /** Reports every studio UI rule a source breaks through `add(source, line, message)`. */
 export const studioUi = (source, program, getLineAt, add) => {
-  const { path, code } = source;
+  const { path, text: code } = source;
   walk(program, (node, parents) => {
     const line = getLineAt(node.start);
 

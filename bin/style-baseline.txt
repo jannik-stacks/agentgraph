@@ -14,7 +14,7 @@ no-comment bin/run.ts 1
 no-comment bin/setup-app.ts 3
 no-comment bin/traces.mjs 6
 no-comment bin/tune.ts 31
-no-comment examples/agentgraph/scripts/ast.mjs 11
+no-comment examples/agentgraph/scripts/ast.mjs 9
 no-comment examples/agentgraph/scripts/bounds.mjs 5
 no-comment examples/agentgraph/scripts/brief.mjs 14
 no-comment examples/agentgraph/scripts/calibrate.mjs 11
@@ -28,7 +28,7 @@ no-comment examples/agentgraph/scripts/enum-copy.mjs 4
 no-comment examples/agentgraph/scripts/exports.mjs 3
 no-comment examples/agentgraph/scripts/fast.mjs 4
 no-comment examples/agentgraph/scripts/hunks.mjs 6
-no-comment examples/agentgraph/scripts/line-rules.mjs 5
+no-comment examples/agentgraph/scripts/line-rules.mjs 4
 no-comment examples/agentgraph/scripts/lint.mjs 6
 no-comment examples/agentgraph/scripts/neighbours.mjs 4
 no-comment examples/agentgraph/scripts/note-pairs.mjs 7

@@ -1,6 +1,6 @@
 // The files a change touches against $AGENTGRAPH_BASE, and the lines it adds, read with git in the worktree.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
@@ -152,3 +152,17 @@ export const ownLines = (sha, path) => {
   return lines.filter(({ line }) => !renamedAt.has(line));
 };
 
+export const readCheckInputFiles = (wanted = () => true) => {
+  if (process.argv.includes('--all'))
+    return git('ls-files', '--cached', '--others', '--exclude-standard')
+      .split('\n')
+      .filter(path => path && wanted(path) && existsSync(path))
+      .map(path => {
+        const text = readFileSync(path, 'utf8');
+        return { path, text, lines: text.split('\n').map((row, i) => ({ line: i + 1, text: row })) };
+      });
+  const sha = readBaseShaFromEnv();
+  return changedFiles(sha)
+    .filter(({ path, deleted }) => !deleted && wanted(path))
+    .map(({ path }) => ({ path, text: readFileSync(path, 'utf8'), lines: addedLines(sha, path) }));
+};

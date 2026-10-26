@@ -1,11 +1,7 @@
-// TypeScript and TSX sources a change touches, parsed with the parser the studio already installs, and the lines it
-// adds. With `--all` every tracked source counts, for auditing the whole tree.
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+// TypeScript and TSX parsed with the parser the studio already installs, and helpers over the tree it gives.
 import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { addedLines, readBaseShaFromEnv, changedFiles } from './changes.mjs';
 
 const resolveParser = () => {
   for (const from of [join(process.cwd(), 'studio/package.json'), new URL('../../../studio/package.json', import.meta.url)])
@@ -17,27 +13,7 @@ const resolveParser = () => {
 
 const { parseAst } = await import(pathToFileURL(resolveParser()).href);
 
-export const all = process.argv.includes('--all');
-
 const pickParserLang = path => ({ '.tsx': 'tsx', '.ts': 'ts', '.mts': 'ts', '.jsx': 'jsx' })[extname(path)] ?? 'js';
-
-/** Sources matching `wanted`, each with its text and the line numbers that count, or `null` when every line does. */
-export const sources = wanted => {
-  if (all) {
-    const tracked = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8' }).split('\n').filter(Boolean);
-    return tracked
-      .filter(path => wanted(path) && existsSync(path))
-      .map(path => ({ path, code: readFileSync(path, 'utf8'), lines: null }));
-  }
-  const sha = readBaseShaFromEnv();
-  return changedFiles(sha)
-    .filter(({ path, deleted }) => !deleted && wanted(path))
-    .map(({ path }) => ({
-      path,
-      code: readFileSync(path, 'utf8'),
-      lines: new Set(addedLines(sha, path).map(({ line }) => line)),
-    }));
-};
 
 /** The program of `code`, or the parse error message. */
 export const parseSourceFileToAst = (path, code) => {
@@ -117,7 +93,7 @@ export const meaningful = children =>
 export const reporter = () => {
   const findings = [];
   const add = (source, line, message) => {
-    if (source.lines && !source.lines.has(line)) return;
+    if (source.lines && !source.lines.some(l => l.line === line)) return;
     findings.push(`${source.path}:${line}: ${message}`);
   };
   return { findings, add };

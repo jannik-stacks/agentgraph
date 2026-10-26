@@ -4,8 +4,8 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { files, scan } from './line-rules.mjs';
-import { report } from './changes.mjs';
+import { scan } from './line-rules.mjs';
+import { readCheckInputFiles, report } from './changes.mjs';
 
 const retiredPaths = [
   join(process.cwd(), 'src/retired.ts'),
@@ -162,6 +162,6 @@ const unguardedRefUpdates = ({ path, text, lines }) => {
 const claudeFile = ({ path }) =>
   kept(path) && /(^|\/)CLAUDE\.md$/.test(path) ? [`${path}:1: a CLAUDE.md file; agent instructions live in AGENTS.md only`] : [];
 
-const scanned = files(path => codePath.test(path) || /\.(mdx?|ya?ml|sh)$/.test(path));
+const scanned = readCheckInputFiles(path => codePath.test(path) || /\.(mdx?|ya?ml|sh)$/.test(path));
 const fileRules = [longBlocks, uncalibrated, unguardedRefUpdates, claudeFile];
 report('rules', [...scan(rules, scanned), ...fileRules.flatMap(rule => scanned.flatMap(rule))]);
