@@ -102,41 +102,43 @@ export const CheckMeans = ({ groups }: { groups: { key: string; label: string; n
   if (!names.length) return null;
   return (
     <Disclosure summary="Check values per point" className="text-xs text-zinc-500">
-      <table className="mt-1 text-left whitespace-nowrap tabular-nums">
-        <thead>
-          <tr>
-            {['point', ...names].map(h => (
-              <th key={h} className="pr-4 font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="text-zinc-700 dark:text-zinc-300">
-          {groups.map(g => {
-            const byName = new Map(groupByName(g.numbers));
-            return (
-              <tr key={g.key}>
-                <td className="pr-4 font-mono">{g.label}</td>
-                {names.map(name => {
-                  const values = byName.get(name);
-                  return (
-                    <td key={name} className="pr-4">
-                      {values ? (
-                        <Tooltip tip={`mean over ${values.length} runs`}>
-                          <span>{formatNumber(getMean(values))}</span>
-                        </Tooltip>
-                      ) : (
-                        ''
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="mt-1 overflow-x-auto">
+        <table className="text-left whitespace-nowrap tabular-nums">
+          <thead>
+            <tr>
+              {['point', ...names].map(h => (
+                <th key={h} className="pr-4 font-medium">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="text-zinc-700 dark:text-zinc-300">
+            {groups.map(g => {
+              const byName = new Map(groupByName(g.numbers));
+              return (
+                <tr key={g.key}>
+                  <td className="pr-4 font-mono">{g.label}</td>
+                  {names.map(name => {
+                    const values = byName.get(name);
+                    return (
+                      <td key={name} className="pr-4">
+                        {values ? (
+                          <Tooltip tip={`mean over ${values.length} runs`}>
+                            <span>{formatNumber(getMean(values))}</span>
+                          </Tooltip>
+                        ) : (
+                          ''
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Disclosure>
   );
 };
