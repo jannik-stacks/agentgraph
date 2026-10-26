@@ -17,7 +17,7 @@ A repo keeps its graph in `.agentgraph/`, a folder of Markdown files with frontm
   workflows/issue.md       triggers and steps
 ```
 
-`npx agentgraph check --dir <dir>` validates one; [Graph files](reference.md) lists every field. <!-- code: src/folder.ts#loadGraph -->
+`agi check --dir <dir>` validates one; [Graph files](reference.md) lists every field. <!-- code: src/folder.ts#loadGraph -->
 
 ## Guide
 

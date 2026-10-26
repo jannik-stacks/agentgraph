@@ -152,7 +152,7 @@ A workflow's `checks` run once when its run ends, done or stopped, on a throwawa
 
 Every result, from a step, the run's end or a later check, goes to the run's [check record](runs.md#the-check-record) with the check's version and what judging it cost. Judging never adds sessions to the run's trace, so a run's cost and its checking cost stay apart.
 
-`npx agentgraph check <name>... --runs` checks runs that already ended the same way, `info` checks as `info` and the rest as `warn`. `--workflow` and `--issue` narrow the runs. It skips a check that already has a result from after the run ended under the check's current version, so running it again does nothing until the check changes. The studio marks these results "checked later" with their date. <!-- code: src/engine.ts#runEndChecks -->
+`agi check <name>... --runs` checks runs that already ended the same way, `info` checks as `info` and the rest as `warn`. `--workflow` and `--issue` narrow the runs. It skips a check that already has a result from after the run ended under the check's current version, so running it again does nothing until the check changes. The studio marks these results "checked later" with their date. <!-- code: src/engine.ts#runEndChecks -->
 
 ## Tries and going back
 

@@ -16,7 +16,7 @@ Prompts, descriptions, scripts and extra folders are free to change. Scripts rea
 
 These are the entry points:
 
-- `npx agentgraph` with `start`, `say`, `review`, `merge`, `export`, `close`, `show`, `loop`, `check`, `dispatch` and `prune-logs`, and the flags `--data`, `--repo`, `--base`, `--dir`, `--forge` and `--logs`; see [Verbs](forge.md#verbs) and [the CLI](local.md#the-cli).
+- `agi` with `start`, `say`, `review`, `merge`, `export`, `close`, `show`, `loop`, `check`, `dispatch` and `prune-logs`, and the flags `--data`, `--repo`, `--base`, `--dir`, `--forge` and `--logs`; see [Verbs](forge.md#verbs) and [the CLI](local.md#the-cli).
 - `node bin/setup-app.ts`; see [App setup](../infra/github/README.md).
 
 ## Tuning inside it

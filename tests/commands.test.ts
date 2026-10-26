@@ -17,7 +17,7 @@ describe('commands', () => {
         '`node bin/run.ts say 1 hi --line a:1` and `node bin/run.ts dispatch 1 --workflow triage`.\n',
       'infra/github/README.md': '',
       'docs/local.md':
-        'Run `node bin/run.ts serve`, `node bin/sim.ts`, `npm run retro` and `npx agentgraph sim`.\nUse `node bin/run.ts --dir x --watch`; `--dir` and `--nope` are flags.\n',
+        'Run `node bin/run.ts serve`, `node bin/sim.ts`, `npm run retro` and `agi sim`.\nUse `node bin/run.ts --dir x --watch`; `--dir` and `--nope` are flags.\n',
       'examples/agentgraph/README.md': '`npm run -s check`\n',
     });
     const { status, stderr } = spawnSync('node', [join(dir, 'bin/commands.mjs')], { encoding: 'utf8' });

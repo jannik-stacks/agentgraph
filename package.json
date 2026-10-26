@@ -1,13 +1,13 @@
 {
-  "name": "agentgraph",
+  "name": "@jannik-stacks/agi",
   "version": "0.2.0",
   "license": "MIT",
   "bin": {
-    "agentgraph": "bin/agentgraph.js"
+    "agi": "bin/agi.js"
   },
   "files": [
     "src",
-    "bin/agentgraph.js",
+    "bin/agi.js",
     "bin/run.ts",
     "default",
     "harnesses",
@@ -18,6 +18,9 @@
     "infra/local/aliases.json"
   ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "up": "docker build -q -t agentgraph-sandbox:local infra/local/sandbox && docker compose -p agentgraph -f infra/local/docker-compose.yml --profile sandbox up -d --wait",
     "down": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile '*' down",

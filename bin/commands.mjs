@@ -1,5 +1,5 @@
 // Fails when the README, the docs, a graph README or a usage header in bin/ names a command that does not exist: a
-// `node bin/` file, its subcommand, a flag it does not read, or an npm script. `npx agentgraph` stands for
+// `node bin/` file, its subcommand, a flag it does not read, or an npm script. `agi` stands for
 // `node bin/run.ts`. Usage: node bin/commands.mjs
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -49,8 +49,8 @@ const everyFlag = new Set(Object.values(known).flatMap(k => [...k.flags]));
 
 const bad = [];
 const check = (at, line, own) => {
-  for (const [, path, rest] of line.matchAll(/(node bin\/[\w.-]+|npx agentgraph)([^`]*)/g)) {
-    const file = path === 'npx agentgraph' ? 'run.ts' : path.slice('node bin/'.length);
+  for (const [, path, rest] of line.matchAll(/(node bin\/[\w.-]+|\bagi(?= ))([^`]*)/g)) {
+    const file = path === 'agi' ? 'run.ts' : path.slice('node bin/'.length);
     if (!known[file]) {
       bad.push(`${at}: bin/${file} does not exist`);
       continue;
@@ -62,7 +62,7 @@ const check = (at, line, own) => {
   }
   if (own)
     for (const [, flag] of line.matchAll(/(?:^|[\s`(])--([a-z][\w-]*)/g))
-      if (!known[own].flags.has(flag) && !/node bin\/|npx agentgraph/.test(line))
+      if (!known[own].flags.has(flag) && !/node bin\/|\bagi /.test(line))
         bad.push(`${at}: bin/${own} has no --${flag} option`);
 };
 
