@@ -1,14 +1,12 @@
 # agentgraph-setup
 
 An [Agent Skills](https://agentskills.io/specification) skill that sets up agentgraph for a repo. It writes a
-minimal `.agentgraph/` that passes `agi check`, then offers optional steps that each run only on a yes: it mines the repo's CI, scripts, configs, commit and
-review history, and with the user's consent their Claude Code or Codex transcripts, and proposes checks backed
-by that evidence. It never commits or pushes on its own. It runs agentgraph as `agi`, or `npx @jannik-stacks/agi`
-without installing; the unscoped `agentgraph` npm package is unrelated.
+minimal `.agentgraph/` that passes `agi check`, then proposes checks backed by evidence from the repo's CI,
+scripts, configs, history and, with consent, the user's Claude Code or Codex transcripts. It never commits or
+pushes on its own.
 
-`SKILL.md` is the skill. `references/` holds the format, the optional steps, the mining playbook, check patterns and the transcript
-rules, loaded when a step needs them. `scripts/` slice the repo into JSON lines with Node and git alone, and
-`gh` when it is logged in; `assets/` holds check scripts to copy into a graph.
+`SKILL.md` is the skill, `references/` hold the details each step loads, `scripts/` slice the repo into JSON
+lines with Node, git and optionally `gh`, and `assets/` hold check scripts to copy into a graph.
 
 ## Install
 
@@ -19,9 +17,7 @@ npx skills add jannik-stacks/agentgraph --skill agentgraph-setup            # th
 npx skills add jannik-stacks/agentgraph --skill agentgraph-setup -g -a claude-code codex cursor
 ```
 
-`npx skills add` clones the repo, so it works once the repo is public. Until then, or offline:
-
-Copy the folder by hand:
+Offline, copy the folder by hand:
 
 | Agent       | Project                                                                  | User                                 |
 | ----------- | ------------------------------------------------------------------------ | ------------------------------------ |
@@ -33,7 +29,7 @@ Then ask the agent to set up agentgraph for the repo.
 
 ## Try the scripts alone
 
-From a repo root, read only:
+From a repo root; they only read:
 
 ```sh
 node <skill>/scripts/slice-repo.mjs | head

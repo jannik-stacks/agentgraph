@@ -1,24 +1,16 @@
 # Mining agent transcripts
 
-Ask exactly once, and accept no as the answer:
-
-> I can also read the messages you typed to Claude Code and Codex in this repo over the last 90 days, to find
-> rules you keep repeating to agents. A local script picks out only your own typed messages; I then read
-> them, which sends them to the model I run on, like anything else I read. Nothing from them is copied into
-> the repo; I turn repeated corrections into rules in my own words. Should I?
-
-Run the rest only after a yes. A yes covers this repo and this setup only. Add what it finds to the tiers in
-[mining.md](mining.md) and present it with them.
+Run this only after the user said yes to the question in SKILL.md step 5. The yes covers this repo and this
+setup only.
 
 ## Where they are
 
-| Agent       | Folder                                                                   | What the script keeps                                                                                                                           |
-| ----------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Code | `~/.claude/projects/<folder>/<session>.jsonl`                            | `user` records with typed text whose `cwd` is the repo or inside it; no tool results, injected context, subagents or `claude -p` runs           |
-| Codex       | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`, `~/.codex` by default | sessions whose `session_meta` `cwd` is the repo or inside it, started by a person (not `codex exec`, not a subagent); the `user_message` events |
+| Agent       | Folder                                                   | What the script keeps                                                                                     |
+| ----------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Claude Code | `~/.claude/projects/<folder>/<session>.jsonl`            | Typed `user` text whose `cwd` is in the repo; no tool results, injected context, subagents or `claude -p` |
+| Codex       | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`        | `user_message` events of sessions a person started in the repo; no `codex exec` or subagents              |
 
-Other agents (Cursor, opencode) keep history in formats this script does not read. Say so if the user mentions
-them; do not go looking.
+The script reads no other agents. Say so if the user mentions one; do not go looking.
 
 ## Run it
 
@@ -26,36 +18,30 @@ them; do not go looking.
 node "$SKILL/scripts/slice-transcripts.mjs" --days 90 > "$NOTES/transcripts.jsonl"
 ```
 
-It prints one JSON line per typed message: `source`, a hashed `session`, the date and the text, clipped to 800
-characters, with emails, home paths and key-like strings replaced. A summary line on stderr counts the sessions.
-Never write its output inside the repo. Messages are filtered by their own date, so an old message in a
-resumed session stays out. Delete the file when the setup is done unless the user wants it
-kept.
+One JSON line per typed message: `source`, a hashed `session`, the date and the text, clipped to 800
+characters, with emails, home paths and key-like strings replaced. Messages are filtered by their own date.
+Never write the output inside the repo, and delete it at the end unless the user wants it kept.
 
 ## Read it
 
-Read about 50 lines at a time. Look for corrections: the user telling an agent to stop doing something, to undo
-it, or to do it the way they said before. Phrases like "don't", "never", "always", "again", "I said", "why
-did you", "remove", "instead" are good signs; questions and plain task requests are not.
-
-Write each correction as a general rule in your own words, with a count:
+Read about 50 lines at a time and look for corrections: the user telling an agent to stop, undo, or do it the
+way they said before. Write each as a general rule in your own words, with counts:
 
 ```
 rule: keep commit subjects to one conventional line | corrections: 7 | sessions: 4
 ```
 
-Merge rules that say the same thing. A rule corrected in two or more sessions is a candidate. Then rank it with
-the others in [mining.md](mining.md): which tool decides it, which tier.
+Merge rules that say the same thing. Two or more sessions makes a candidate; rank it with the others in
+[mining.md](mining.md).
 
-Many corrections are about how the agent works with the person (ask before pushing, keep replies short), not
-about the change. Those belong in the user's own agent instructions, not in a check. List them separately in
-your summary as notes for the user.
+Corrections about how the agent works with the person, such as asking before pushing, belong in the user's own
+agent instructions, not in a check. List them apart as notes.
 
 ## Privacy
 
-- Nothing from a transcript goes into `.agentgraph/` verbatim. A check body states the rule; it never quotes
-  the user, names them, dates the correction or says it came from a transcript.
+- Nothing from a transcript goes into `.agentgraph/` verbatim. A check states the rule; it never quotes or names
+  the user, dates the correction or says where it came from.
 - Leave out anything that names a person, a customer, a private repo, a host or a path, even as a rule.
-- In your summary, give counts and your paraphrase, not quotes, unless the user asks to see a source line.
-- `node "$SKILL/scripts/scan-private.mjs" .agentgraph` runs before hand-over and must pass. Pass `--deny <file>` with
-  names or hosts the user wants kept out, one per line.
+- In your summary give counts and paraphrases, not quotes, unless the user asks for a source line.
+- `node "$SKILL/scripts/scan-private.mjs" .agentgraph` must pass before hand-over. `--deny <file>` adds names
+  or hosts to keep out, one per line.

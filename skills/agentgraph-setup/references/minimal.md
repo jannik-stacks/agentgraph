@@ -1,7 +1,10 @@
 # The minimal graph
 
-The smallest `.agentgraph/` that works has five files. No agent names a harness or a model, so it runs on any
-provider. Write them only when `.agentgraph/` does not exist yet.
+The smallest working `.agentgraph/` is the default graph with the repo's install and test commands filled in.
+Copy it from the package (`cp -R "$AGI_PKG/default" .agentgraph`) so it stays in step with the engine. It
+names no harness or model, so it runs on any provider.
+
+## What the default holds
 
 ```
 .agentgraph/
@@ -65,13 +68,12 @@ command from `checks/tests.md`.
 repo: owner/name
 ```
 
-Take it from the GitHub remote (`git remote get-url origin`). Leave it out for a repo without one; the local
-CLI does not need it.
+From `git remote get-url origin`; leave it out without a GitHub remote.
 
 ### setup
 
-`setup` is a shell script each checkout runs once, with network, before the first step. The sandbox caches
-what it installs, keyed on the lockfiles. Use the frozen install for the lockfile `slice-repo.mjs` reported:
+`setup` runs once per checkout, with network, before the first step; its installs are cached by lockfile.
+Use the frozen install for the lockfile `slice-repo.mjs` reported:
 
 | Lockfile                | setup                                                                                                      |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -85,8 +87,8 @@ what it installs, keyed on the lockfiles. Use the frozen install for the lockfil
 | `go.sum`                | `go mod download`                                                                                          |
 | `Cargo.lock`            | none; a root `Cargo.toml` makes the sandbox install Rust and fetch crates                                  |
 
-Prefer the command CI uses when it differs, such as extra flags or a workspace filter. Tools the sandbox lacks
-(a Rust target, `cargo-nextest`, a Python version) go in `toolchain`, not `setup`:
+Prefer CI's command when it differs. Tools the sandbox lacks (a Rust target, `cargo-nextest`, a Python
+version) go in `toolchain`:
 
 ```yaml
 toolchain: rustup target add wasm32-unknown-unknown
@@ -103,21 +105,15 @@ run: npm test
 The test suite passes, as CI runs it in .github/workflows/ci.yml.
 ```
 
-Copy the command from the CI step that runs the tests, as CI runs it, including flags and the working folder
-(`cd packages/core && npm test`). Leave out steps that need a service CI starts (a database, a browser
-download, a secret). If the suite cannot run without one, run the part that can (`npm run test:unit`) and tell
-the user what the check leaves out.
+Copy CI's test command with its flags and folder (`cd packages/core && npm test`). Leave out steps that need a
+service CI starts (a database, a browser, a secret); run the part that can (`npm run test:unit`) and tell the
+user what is left out. The body is what the implementor sees on failure, so say plainly what passes.
 
-The body is the check's description; the implementor sees it when the check fails, so say plainly what passes.
-
-CI often runs the tests on a matrix of versions and systems. The sandbox is one Linux machine with one version
-of each tool, so the check runs the command once. Tell the user the matrix stays CI's job. When the repo needs
-a tool version the sandbox lacks, install it through `toolchain`.
+The sandbox is one Linux machine with one version of each tool, so a CI matrix stays CI's job; say so.
 
 ### base
 
-The default workflow opens pull requests against `main`. When pull requests merge into another branch, add it
-under `branch:` in `workflows/issue.md`:
+When pull requests merge into a branch other than `main`, add it in `workflows/issue.md`:
 
 ```yaml
 branch: agentgraph/{issue}
@@ -152,5 +148,4 @@ limits:
   parallel: 1
 ```
 
-`checks/tests.md` keeps `mode: block` with `run: npm test`. `npm run lint` becomes a tier 1 candidate in the
-mining pass; it is not part of the minimal graph.
+`checks/tests.md` keeps `mode: block` with `run: npm test`. `npm run lint` becomes a tier 1 candidate later.
