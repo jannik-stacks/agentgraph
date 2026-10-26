@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.2
+
+### Patch Changes
+
+- f5ad38e: Add a `chatgpt` provider: codex sessions run on a ChatGPT subscription through agentgraph's own `codex login`, with no gateway.
+
 ## 0.0.1
 
 ### Patch Changes
