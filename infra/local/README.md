@@ -1,6 +1,6 @@
 # Local model stack
 
-LiteLLM in front of every model, Ollama for local models, and an egress proxy. Every port binds to 127.0.0.1. The CLI builds the sandbox image itself, and uses this stack with `--provider litellm` and the local key loaded: `set -a; . infra/local/.keys.env.local; set +a`.
+LiteLLM in front of every model, Ollama for local models, and an egress proxy, every port on 127.0.0.1. Only the `litellm` provider needs it; [Install](../../docs/local.md#models) shows how to point the CLI at it.
 
 ## Commands
 
@@ -12,13 +12,12 @@ npm run up       # start LiteLLM, Postgres, egress and the Ollama relay, wait un
 npm run keys -- local   # one proxy key for every agent, in infra/local/.keys.env.local
 npm run keys     # one proxy key per bot of the example graphs, in infra/local/.keys.env
 npm run down     # stop everything, keep volumes
+npm run prices   # fetch prices.json.gz again, LiteLLM's price table pinned to its release
 ```
 
-Run `npm run up` again after changing `.env` or `litellm.config.yaml`. `e2e.sh` turns `.keys.env` into `AGENTGRAPH_PROXY_KEYS` for a data folder; see [Running on GitHub](../../docs/github.md#start-the-runner).
+Run `npm run up` again after changing `.env` or `litellm.config.yaml`, and `npm run keys` again to converge key limits; `ROTATE=1` replaces every key. Subscription models spend $0, so their limits are rpm and tpm. `e2e.sh` turns `.keys.env` into `AGENTGRAPH_PROXY_KEYS` for a data folder; see [Running on GitHub](../../docs/github.md#start-the-runner).
 
 Ollama runs natively on macOS (`brew install ollama`, then `ollama serve`). On Linux, start it with `docker compose -f infra/local/docker-compose.yml --profile ollama up -d` and set the two Linux values in `.env`. Pull `qwen3.5:4b` and `tev1:0.8b`; Ollama must be 0.35 or later.
-
-The compose project is always `agentgraph`, and its volumes, networks and stateful containers have fixed `agentgraph-` names, so a second project fails at create instead of sharing the login.
 
 Fully offline: set `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `npm run up`.
 
@@ -42,9 +41,3 @@ A `codex login` imports instead: `CODEX_HOME=$(mktemp -d) codex login`, then `./
 1. Add `OPENROUTER_API_KEY=sk-or-...` to `.env`.
 2. `npm run up`, then `npm run keys` so existing keys may use the new aliases.
 3. Check with the curl above, using `glm-flash`.
-
-## Keys
-
-`npm run keys -- local` writes one key for every agent to `.keys.env.local` as `AGENTGRAPH_PROXY_KEYS=*=...`, the form the CLI reads. `npm run keys` creates one key per bot of the example graphs, or updates existing limits, and appends `AGENTGRAPH_LLM_API_KEY_<BOT>=...` to `.keys.env`. Subscription models spend $0, so their limits are rpm and tpm. `ROTATE=1 npm run keys` replaces every key. Keys never show in a process list.
-
-`prices.json.gz` is LiteLLM's price table, pinned to a release, and `npm run prices` fetches it again; see [Models](../../docs/sandbox.md#models).
