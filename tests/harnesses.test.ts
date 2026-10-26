@@ -21,6 +21,7 @@ import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import { harnesses } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const sample = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8').split('\n');
 
@@ -583,7 +584,6 @@ describe('codex', () => {
     expect(args.at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
     expect(command.volumes).toEqual({ '/codex': 'agentgraph-codex' });
     expect(command.env.CODEX_HOME).toBe('/tmp/codex');
-    expect(command.env.AGENTGRAPH_CODEX).toContain('/tmp/codex/auth.json');
     expect(command.secrets).toEqual({});
     const { model: _, ...bare } = codex;
     const { command: unnamed } = await session({ ...bare, resume: resumable() }, [], { proxy });
@@ -591,9 +591,26 @@ describe('codex', () => {
     expect(codexArgs(unnamed)[codexArgs(unnamed).indexOf('--model') + 1]).toBe('gpt-x');
   });
 
+  it('masks every token its login held, reading the login again only when it changes', async () => {
+    const { command } = await session(codex, [], { proxy });
+    const root = tmp('codex');
+    const auth = join(root, 'auth.json');
+    writeFileSync(auth, '{"token":"old-token-0123456789"}');
+    writeFileSync(
+      join(root, 'codex'),
+      `#!/bin/sh\necho old-token-0123456789\necho '{"token":"new-token-0123456789"}' > ${auth}\necho new-token-0123456789 old-token-0123456789\n`,
+      { mode: 0o755 }
+    );
+    const ran = spawnSync(process.execPath, ['-e', command.env.AGENTGRAPH_CODEX!, '--'], {
+      env: { PATH: `${root}:${process.env.PATH}`, CODEX_HOME: root },
+      encoding: 'utf8',
+    });
+    expect(ran.stdout).toBe('***\n*** ***\n');
+  });
+
   it('holds the login lock only to copy the login in and a refreshed one back, not while codex runs', async () => {
     const { command } = await session(codex, [], { proxy });
-    const root = mkdtempSync(join(tmpdir(), 'agentgraph-codex-'));
+    const root = tmp('codex');
     const bin = join(root, 'bin');
     mkdirSync(join(root, 'volume'), { recursive: true });
     mkdirSync(bin);

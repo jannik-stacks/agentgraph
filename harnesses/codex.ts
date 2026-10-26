@@ -19,12 +19,17 @@ const CodexLine = Struct({
 
 const masked = `
 const { spawn } = require('node:child_process');
-const { readFileSync } = require('node:fs');
+const { readFileSync, statSync } = require('node:fs');
 const { createInterface } = require('node:readline');
+const auth = process.env.CODEX_HOME && process.env.CODEX_HOME + '/auth.json';
 const seen = new Set();
+let read;
 const secrets = () => {
-  for (const file of ['/codex/auth.json', '/tmp/codex/auth.json'])
-    try { JSON.parse(readFileSync(file, 'utf8'), (k, v) => (typeof v === 'string' && v.length >= 16 && seen.add(v), v)); } catch {}
+  const changed = auth && statSync(auth, { throwIfNoEntry: false })?.mtimeMs;
+  if (changed && changed !== read) {
+    read = changed;
+    try { JSON.parse(readFileSync(auth, 'utf8'), (k, v) => (typeof v === 'string' && v.length >= 16 && seen.add(v), v)); } catch {}
+  }
   return seen;
 };
 secrets();
