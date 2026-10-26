@@ -24,7 +24,7 @@ export type Instance = {
   provider?: string;
 };
 
-export const defaultHub = fileURLToPath(new URL('../hub', import.meta.url));
+export const defaultDir = fileURLToPath(new URL('../default', import.meta.url));
 
 const git = (env: Record<string, string>, args: string[], codes: number[] = []) =>
   Effect.runPromise(hostGit(env, args, { codes })).then(out => out.toString('utf8').trim());
@@ -140,11 +140,11 @@ export const ensureBase = async (i: Instance): Promise<string | undefined> => {
   ].join('\n');
 };
 
-export const ensureHub = async (i: Instance, flag?: string) => {
+export const ensureGraph = async (i: Instance, flag?: string) => {
   if (flag) return resolve(flag);
   const tree = await inForge(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
-  if (!tree) return defaultHub;
-  const dir = join(i.dir, 'hubs', tree);
+  if (!tree) return defaultDir;
+  const dir = join(i.dir, 'graphs', tree);
   if (existsSync(dir)) return dir;
   const linked = (await inForge(i, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
   if (linked.length)

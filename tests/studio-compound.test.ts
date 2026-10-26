@@ -33,7 +33,7 @@ const step = (iteration: number, verdict: Step['verdict'], q: number, at = `${it
   iteration,
   parent: 'p',
   proposer: 'retro',
-  hub: 'h',
+  graph: 'h',
   rationale: '',
   diff: '',
   evals: [evalOf('fit', 4, q)],
@@ -66,7 +66,7 @@ describe('compound climb', () => {
     expect(c.score({ ...s, evals: [] })).toBeUndefined();
   });
 
-  it('holds the kept hub per iteration, also when a cheaper keep scores lower', () => {
+  it('holds the kept graph per iteration, also when a cheaper keep scores lower', () => {
     const [s] = c.seriesOf([
       tune('me/a', 't1', [
         step(0, 'kept', 0.5),
@@ -96,7 +96,7 @@ describe('compound climb', () => {
     ]);
   });
 
-  it('averages the kept hub over repos per iteration, holding a tune that stopped early', () => {
+  it('averages the kept graph over repos per iteration, holding a tune that stopped early', () => {
     const series = c.seriesOf([
       tune('me/a', 't1', [step(0, 'kept', 0.4), step(1, 'kept', 0.6), step(2, 'kept', 0.8)]),
       tune('me/b', 't1', [step(0, 'kept', 0.6), step(1, 'discarded', 0.9)]),

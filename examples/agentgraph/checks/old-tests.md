@@ -1,6 +1,6 @@
 ---
 mode: warn
-run: node "$AGENTGRAPH_HUB/scripts/old-tests.mjs"
+run: node "$AGENTGRAPH_DIR/scripts/old-tests.mjs"
 ---
 The base's version of every test file the change edits still passes against the change's code, criterion tests of the brief aside.
 

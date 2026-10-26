@@ -13,13 +13,13 @@ import type { SessionEvent } from '../src/trace.ts';
 import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { harnesses, makeTestHub, reply, start, wrote } from './fixtures.ts';
+import { harnesses, makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
   foot,
   replyHint,
-  hub,
+  graph,
   w,
   world,
   push,
@@ -35,7 +35,7 @@ import {
 describe('drive', () => {
   it.each(['docker', 'host'])('preserves the checkout and index when saving work fails: %s', async kind => {
     const where = world();
-    const small = makeTestHub('hub');
+    const small = makeTestGraph('graph');
     const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
     let work: Checkout | undefined;
     const sandbox = Layer.effect(
@@ -93,7 +93,7 @@ describe('drive', () => {
 
   it('cleans a partially acquired checkout after index setup fails', async () => {
     const where = world();
-    const small = makeTestHub('hub');
+    const small = makeTestGraph('graph');
     const flow = {
       ...small.workflows.issue!,
       steps: small.workflows.issue!.steps.map(step => ({ ...step, checks: [] })),
@@ -131,7 +131,7 @@ describe('drive', () => {
 
   it('waits for host git and its helpers to stop before releasing a cancelled drive', async () => {
     const where = world();
-    const small = makeTestHub('hub');
+    const small = makeTestGraph('graph');
     const flow = {
       ...small.workflows.issue!,
       steps: small.workflows.issue!.steps.map(step => ({ ...step, checks: [] })),
@@ -194,7 +194,7 @@ describe('drive', () => {
     writeFileSync(join(where.data, '.locks', 'run-7.lock'), kind === 'empty' ? '' : `${process.pid}:other`);
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
     try {
-      await expect(run(drive(w, fresh(), hub))).rejects.toThrow();
+      await expect(run(drive(w, fresh(), graph))).rejects.toThrow();
       expect(specs).toEqual([]);
     } finally {
       if (previous === undefined) delete process.env.AGENTGRAPH_STATE;
@@ -208,7 +208,7 @@ describe('drive', () => {
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]], undefined, () => {
       writeFileSync(lock, 'replacement');
     });
-    await run(drive(w, fresh(), hub));
+    await run(drive(w, fresh(), graph));
     expect(readFileSync(lock, 'utf8')).toBe('replacement');
   });
 
@@ -217,7 +217,7 @@ describe('drive', () => {
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
     const advanced: Run = { ...fresh(), step: 'review', status: 'waiting', reason: 'Ready?', usd: 2 };
     await run(Effect.flatMap(Store, s => s.put(advanced)));
-    const driven = await run(drive(w, fresh(), hub));
+    const driven = await run(drive(w, fresh(), graph));
     expect(driven).toMatchObject({ step: 'review', status: 'waiting', reason: 'Ready?', usd: 2 });
     expect(specs).toEqual([]);
     expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({ step: 'review', usd: 2 });
@@ -241,7 +241,7 @@ describe('drive', () => {
       [start('r4'), reply({ kind: 'comment', body: 'Ready to merge.' })],
     ]);
 
-    const asked = await run(drive(w, fresh(), hub));
+    const asked = await run(drive(w, fresh(), graph));
     expect(asked).toMatchObject({ step: 'review', status: 'waiting', reason: 'still not right', usd: 0.5 + 4 * 0.25 });
     expect(asked.rounds).toEqual({ review: 2 });
     expect(asked.sessions.implement).toMatchObject({ id: 'i1', home: '/homes/i1', seen: { at: expect.any(String) } });
@@ -327,7 +327,7 @@ describe('drive', () => {
     );
     const answer = said.flatMap(m => getEventOutcome(w, asked, m) ?? [])[0]!;
     expect(answer).toEqual({ kind: 'answer', text: 'it is fine, ship it' });
-    const waiting = await run(driveStored(w, transition(w, asked, answer), hub));
+    const waiting = await run(driveStored(w, transition(w, asked, answer), graph));
     expect(waiting).toMatchObject({ step: 'merge', status: 'waiting', rounds: { review: 1 } });
     expect(specs.at(-1)!.prompt).toContain('it is fine, ship it');
 
@@ -349,7 +349,7 @@ describe('drive', () => {
       judged,
       [start('r1'), reply({ kind: 'back', why: 'say hello world' })],
     ]);
-    await run(drive(w, fresh(), hub));
+    await run(drive(w, fresh(), graph));
     const at = (step: string, session?: string) => ({ run: 'run-7', step, ...(session && { session }) });
     const landed = (step: string, session: string) => ({ ...at(step, session), operation: expect.any(String) });
     expect(marks).toEqual([
@@ -370,7 +370,7 @@ describe('drive', () => {
   it('shows how to reply under a review comment', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);
-    await run(drive(w, begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), hub));
+    await run(drive(w, begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph));
     expect(specs[0]!.prompt).toContain('"under":"<id of the review comment you answer>"');
   });
 
@@ -381,7 +381,9 @@ describe('drive', () => {
       ...w,
       steps: [{ name: 'review', does: { agent: 'reviewer' }, checks: [], tries: 1, each: { run: 'seq 21' } }],
     };
-    const done = await run(drive(fan, begin(fan, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), hub));
+    const done = await run(
+      drive(fan, begin(fan, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph)
+    );
     expect(done.status).toBe('done');
     expect(specs).toHaveLength(1);
     expect(specs[0]!.prompt).toContain('1\n\n2\n\n');
@@ -396,7 +398,7 @@ describe('drive', () => {
       judged,
       [start('r1'), reply({ kind: 'ask', question: 'Done?' })],
     ]);
-    await run(drive(w, fresh(), hub));
+    await run(drive(w, fresh(), graph));
     expect(specs[2]!.agent).toBe('claim-checker');
     expect(specs[2]!.prompt).toContain('+hello');
     expect(specs[2]!.prompt).not.toContain('Binary files');
@@ -409,7 +411,7 @@ describe('drive', () => {
       [start('i1'), wrote('hello.txt', 'hello\n'), wrote('secret.txt', 'key\n'), reply(push, pull)],
       judged,
     ]);
-    const stopped = await run(drive(w, fresh(), hub));
+    const stopped = await run(drive(w, fresh(), graph));
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', tries: 0 });
     expect(stopped.reason).toMatch(/^safety: /);
     expect(specs).toHaveLength(3);
@@ -428,7 +430,7 @@ describe('drive', () => {
       [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
     ]);
-    const loud = makeTestHub('kit', {
+    const loud = makeTestGraph('kit', {
       types: { run: 'echo types ok' },
       safety: { run: 'echo secret.txt found; exit 1' },
       claims: { agent: 'claim-checker' },
@@ -467,7 +469,7 @@ describe('drive', () => {
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
       [start('i1'), wrote('hello.txt', 'hello\n'), reply({ ...push, branch: 'agentgraph/8' })],
     ]);
-    const scoped = makeTestHub('kit', {
+    const scoped = makeTestGraph('kit', {
       safety: { run: '! git diff --name-only $AGENTGRAPH_BASE | grep -qx CHAT.md' },
     });
     const stopped = await run(drive(w, begin(w, { id: 'run-8', issue: 8, started: fresh().started }), scoped));
@@ -481,7 +483,7 @@ describe('drive', () => {
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
       [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
     ]);
-    const reads = makeTestHub('kit', {
+    const reads = makeTestGraph('kit', {
       safety: { run: 'cat "$AGENTGRAPH_CONTEXT"; echo "issue $AGENTGRAPH_ISSUE"; cat "$AGENTGRAPH_REPLY"; exit 1' },
     });
     const stopped = await run(drive(w, fresh(), reads));
@@ -496,8 +498,8 @@ describe('drive', () => {
     const where = world();
     const { specs, run } = services(where, [[start('t1'), reply({ kind: 'ask', question: 'Which file?' })]]);
     const rules = { name: 'rules', path: 'skills/rules.md', body: 'Keep it small.' };
-    const uses = { ...hub.skills.triage!, uses: ['rules', 'implement'] };
-    await run(drive(w, fresh(), { ...hub, skills: { ...hub.skills, rules, triage: uses } }));
+    const uses = { ...graph.skills.triage!, uses: ['rules', 'implement'] };
+    await run(drive(w, fresh(), { ...graph, skills: { ...graph.skills, rules, triage: uses } }));
     expect(specs[0]!.prompt).toContain('You are triage.\n\nKeep it small.\n\nYou are implement.');
   });
 
@@ -508,7 +510,7 @@ describe('drive', () => {
       [start('i1'), reply({ kind: 'comment', body: 'This already appears to be implemented.' })],
       [start('i1'), reply({ kind: 'ask', question: 'Is it done already?' })],
     ]);
-    const asked = await run(drive(w, fresh(), hub));
+    const asked = await run(drive(w, fresh(), graph));
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Is it done already?' });
     expect(specs[2]!.prompt).toContain('no change was made');
     const outcomes = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
@@ -522,10 +524,10 @@ describe('drive', () => {
     const { specs, run } = services(where, [
       [start('t1'), { type: 'usage', input: 1, output: 1, usd: 0.5 }, reply({ kind: 'comment', body: 'Brief' })],
     ]);
-    const capped = { ...hub, limits: { ...hub.limits, usdPerRun: 0.1 } };
+    const capped = { ...graph, limits: { ...graph.limits, usdPerRun: 0.1 } };
     const stopped = await run(drive(w, fresh(), capped));
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', usd: 0.5 });
-    expect(stopped.reason).toBe("Spent $0.50, over the hub's usd-per-run of 0.1.");
+    expect(stopped.reason).toBe("Spent $0.50, over the graph's usd-per-run of 0.1.");
     expect(specs).toHaveLength(1);
   });
 
@@ -541,7 +543,7 @@ describe('drive', () => {
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), missing, replaySession([]));
-    const parked = await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
+    const parked = await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
     expect(parked).toMatchObject({
       status: 'waiting',
       reason: `Stopped by a runner error (SandboxError): ${detail}\nThen reply to try triage again.`,
@@ -552,7 +554,7 @@ describe('drive', () => {
   it('parks the run at its step when a session cannot run, and an answer tries that step again', async () => {
     const where = world();
     const { run } = services(where, []);
-    const parked = await run(drive(w, { ...fresh(), feedback: 'fix the typo' }, hub));
+    const parked = await run(drive(w, { ...fresh(), feedback: 'fix the typo' }, graph));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', feedback: 'fix the typo' });
     expect(parked.reason).toBe(
       'Stopped by a runner error (SessionStop). The details are in the trace of run run-7. Reply to try triage again from where it was.'
@@ -562,7 +564,7 @@ describe('drive', () => {
     const sessions = readTrace(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions[0]).toEqual({ resumed: false, ended: 'provider', usd: 0 });
     const again = services(where, [[start('t1'), reply({ kind: 'ask', question: 'Which file?' })]]);
-    const resumed = await again.run(driveStored(w, transition(w, parked, { kind: 'answer', text: 'go on' }), hub));
+    const resumed = await again.run(driveStored(w, transition(w, parked, { kind: 'answer', text: 'go on' }), graph));
     expect(resumed).toMatchObject({ step: 'triage', status: 'waiting', reason: 'Which file?' });
     expect(again.specs[0]!.prompt).toContain('go on');
     expect(again.specs[0]!.prompt).toContain('fix the typo');
@@ -594,7 +596,7 @@ describe('drive', () => {
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
     const keys = Redacted.make(
-      Object.keys(hub.agents)
+      Object.keys(graph.agents)
         .map(agent => `${agent}=${key}`)
         .join(',')
     );
@@ -602,7 +604,7 @@ describe('drive', () => {
       Layer.provide(sandbox)
     );
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, session);
-    await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
+    await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
     const text = readFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'utf8');
     expect(text).toContain('"prompt"');
     expect(text).toContain('AGENTGRAPH_LLM_API_KEY=***');
@@ -619,7 +621,7 @@ describe('setup', () => {
   it('runs once per checkout with network before the first step', async () => {
     const where = world();
     const { order, commands, run } = services(where, stopping());
-    await run(drive(w, fresh(), { ...hub, setup: 'test -e README.md' }));
+    await run(drive(w, fresh(), { ...graph, setup: 'test -e README.md' }));
     const setups = commands.filter(c => c.args.includes('test -e README.md'));
     expect(setups).toHaveLength(1);
     expect(order[0]).toBe(setups[0]);
@@ -641,7 +643,7 @@ describe('setup', () => {
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, replaySession(stopping()));
-    await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
+    await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
     const cache = readTrace(where.data, 'run-7').flatMap(t => ('cache' in t ? [t.cache] : []));
     expect(cache).toEqual([{ files: 2 }]);
   });
@@ -649,7 +651,7 @@ describe('setup', () => {
   it('parks the run as infra with the output when setup fails, before any step', async () => {
     const where = world();
     const { specs, run } = services(where, []);
-    const failing = { ...hub, setup: 'echo registry unreachable; exit 3' };
+    const failing = { ...graph, setup: 'echo registry unreachable; exit 3' };
     const parked = await run(Effect.flatMap(drive(w, fresh(), failing), r => drive(w, r, failing)));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', tries: 0 });
     expect(specs).toHaveLength(0);
@@ -658,10 +660,10 @@ describe('setup', () => {
     expect(readTrace(where.data, 'run-7').some(t => 'setup' in t && t.setup.exit === 3)).toBe(true);
   });
 
-  it('runs nothing with network when the hub has no setup', async () => {
+  it('runs nothing with network when the graph has no setup', async () => {
     const where = world();
     const { commands, run } = services(where, stopping());
-    await run(drive(w, fresh(), hub));
+    await run(drive(w, fresh(), graph));
     expect(commands.length).toBeGreaterThan(0);
     expect(commands.some(c => c.network === 'proxy')).toBe(false);
   });

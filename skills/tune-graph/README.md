@@ -1,6 +1,6 @@
 # tune-graph
 
-A Claude Code skill that tunes a agentgraph hub on one repo. `SKILL.md` is the skill; it reads a tune
+A Claude Code skill that tunes a agentgraph graph on one repo. `SKILL.md` is the skill; it reads a tune
 on one screen with `node bin/tune.ts status`: the incumbent's scores, the last 5 steps and the budget
 used. Copy the folder into `~/.claude/skills/` or a repo's `.claude/skills/` to install it.
 
@@ -9,7 +9,7 @@ used. Copy the folder into `~/.claude/skills/` or a repo's `.claude/skills/` to 
 The skill is measured against the plain tune loop (`node bin/tune.ts run`) on the same data, so the
 only difference is who proposes the candidates.
 
-- `tune/skill.ts` runs it. It copies the loop tune's `tune.json`, cases and starting hub into
+- `tune/skill.ts` runs it. It copies the loop tune's `tune.json`, cases and starting graph into
   `skill@<version>` beside it, so cases, splits, point, engine and keep rule are the same, and the
   starting score comes from the bench cache.
 - Each round is one `claude -p --restricted` session with the skill loaded as the plugin
@@ -17,7 +17,7 @@ only difference is who proposes the candidates.
   cases, the incumbent's fit runs, `tried.md` with held-out ids redacted, and `out/d1` to `out/d<k>`.
   File tools cannot reach outside it and there is no shell. Tool calls that name a held-out case
   or a tune path outside the folder are listed in `round.json` as `leaks`.
-- The harness checks each slot's hub, queues it with `tune propose --as skill`, then runs
+- The harness checks each slot's graph, queues it with `tune propose --as skill`, then runs
   `tune step --proposers manual`. The loop's stop rules apply: the round count, 3 flat rounds, no
   proposal, the caps.
 - Usage: Codex per step from `step` as in the loop, Claude 5h points of the session shared by the
@@ -36,7 +36,7 @@ node tune/skill.ts ~/.agentgraph/tune/stacks.js/t1 --version 1 --rounds 6 --k 4 
 `--stop-claude-5h` and `--stop-claude-week` also stop at an absolute reading, in percent.
 
 The Compound tab shows each tune as a series, `<repo>/<name>`. Pick "average" and the series `skill@1`
-and the loop's tune: per iteration, the mean over repos of the kept hub's score, with the per-repo range as
+and the loop's tune: per iteration, the mean over repos of the kept graph's score, with the per-repo range as
 a band. Compare at equal iterations and at equal spend (toggle the x axis to cumulative usd).
 
 What counts: the select score after 6 rounds, the test score at the last checkpoint, and the spend to

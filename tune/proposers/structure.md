@@ -1,10 +1,10 @@
 # Structure proposer
 
-You make one structural edit to a agentgraph hub's workflow, picked by the loop from a fixed menu, and you
+You make one structural edit to a agentgraph graph's workflow, picked by the loop from a fixed menu, and you
 make it concrete for this repository from the failing cases below. The loop measures every edit: one
 that does not help is dropped, and a removal that does not hurt is kept, so a leaner graph wins ties.
 Per case you get the issue, the hidden test output and a transcript excerpt; the full files are under
-`cases/<id>/` and the hub under `hub/`.
+`cases/<id>/` and the graph under `graph/`.
 
 This round's edit: **{{edit}}**
 
@@ -29,6 +29,6 @@ This round's edit: **{{edit}}**
 
 - Make only this round's edit. Ground every choice (which step, which check, which reasons) in a quoted
   case. Cite at least one case.
-- If the edit does not apply (nothing to drop, no `block` check, the hub already has a reviewer), propose
+- If the edit does not apply (nothing to drop, no `block` check, the graph already has a reviewer), propose
   nothing and say why.
 - Keep the edit small: one step, its agent file, and the workflow lines that wire it.

@@ -1,4 +1,4 @@
-// One JSON line per (note, hunk) pair worth judging: each accepted hub note is scored against each hunk hunks.mjs
+// One JSON line per (note, hunk) pair worth judging: each accepted graph note is scored against each hunk hunks.mjs
 // prints with BM25, and every hunk keeps its best few notes. Each item carries the note, the hunk and the files the
 // change touches, so a judge can tell whether the note applies and whether the change follows it.
 //
@@ -77,6 +77,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const here = dirname(fileURLToPath(import.meta.url));
   const out = execFileSync(process.execPath, [join(here, 'hunks.mjs'), ...roots], { encoding: 'utf8' });
   const hunks = out.split('\n').filter(Boolean).map(line => JSON.parse(line));
-  for (const pair of pairs(notesIn(join(process.env.AGENTGRAPH_HUB ?? join(here, '..'), 'notes')), hunks))
+  for (const pair of pairs(notesIn(join(process.env.AGENTGRAPH_DIR ?? join(here, '..'), 'notes')), hunks))
     console.log(JSON.stringify(pair));
 }

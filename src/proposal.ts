@@ -76,7 +76,7 @@ const { kind, title, body } = Filed.fields;
 
 /**
  * A proposal as an agent writes it. An issue is a `part` of the run's issue, a `follow-up` found while working on it,
- * or a `hub` change to the bot's own workflows, agents or checks. A part's `stacks_on` and `depends_on` name earlier
+ * or a `graph` change to the bot's own workflows, agents or checks. A part's `stacks_on` and `depends_on` name earlier
  * issues in the same block by position, from 1.
  */
 export const Said = Schema.Union(
@@ -94,7 +94,7 @@ export const Said = Schema.Union(
     stacks_on: Schema.optionalWith(Schema.Int, { exact: true }),
     depends_on: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Int)), { exact: true }),
   }),
-  Schema.Struct({ kind, relation: Schema.Literal('follow-up', 'hub'), title, body }),
+  Schema.Struct({ kind, relation: Schema.Literal('follow-up', 'graph'), title, body }),
   Ask,
   Back,
   Run,

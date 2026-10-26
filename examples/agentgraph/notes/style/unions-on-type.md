@@ -5,7 +5,7 @@ source: schema review
 check: code-shape
 human: user feedback type enum
 ---
-Every hub file kind is an Effect `Schema.Union` of structs tagged by `type`, and TypeScript narrows it with
+Every graph file kind is an Effect `Schema.Union` of structs tagged by `type`, and TypeScript narrows it with
 `switch (x.type)`. New unions use the same key, so one reading habit covers the schema, the
 types and the code that matches on them.
 

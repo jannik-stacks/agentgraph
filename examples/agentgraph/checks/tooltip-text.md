@@ -1,6 +1,6 @@
 ---
 mode: warn
-each: node "$AGENTGRAPH_HUB/scripts/tooltips.mjs"
+each: node "$AGENTGRAPH_DIR/scripts/tooltips.mjs"
 agent: checker
 max: 30
 ---

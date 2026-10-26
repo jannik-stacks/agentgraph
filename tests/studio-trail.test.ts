@@ -37,15 +37,15 @@ describe('findCheckVerdicts', () => {
   it('folds item lines into one verdict per time it ran, newest first, in the one fixture', () => {
     const verdicts = findCheckVerdicts(
       [
-        run('a', 'hub/issue', [
+        run('a', 'graph/issue', [
           line('1', 'review', true),
           line('2', 'review', false, 'x'),
           line('2', 'review', true, 'y'),
           line('2', 'other', false),
         ]),
-        run('b', 'hub/plan', [line('3', 'review', false)]),
+        run('b', 'graph/plan', [line('3', 'review', false)]),
       ],
-      'hub/issue',
+      'graph/issue',
       'implement',
       'review'
     );

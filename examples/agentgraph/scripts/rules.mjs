@@ -1,5 +1,5 @@
 // The written rules as one table over the lines a change adds: timeless comments and docs prose, words instead of
-// symbols, headings that are names, ASCII diagram arrows, safe git ranges and refs, no way around the hub's guards,
+// symbols, headings that are names, ASCII diagram arrows, safe git ranges and refs, no way around the graph's guards,
 // nothing unfinished in shipped code, current names and no CLAUDE.md. With `--all` every tracked line counts.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { makeWorkflowGraph } from '../src/graph.ts';
 import { begin, type Run } from '../src/workflow.ts';
-import { fixture, hubs } from './fixtures.ts';
+import { fixture, graphs } from './fixtures.ts';
 
 describe('makeWorkflowGraph', () => {
-  it.each(hubs)(
+  it.each(graphs)(
     'draws every workflow of the %s fixture with one node per step and a next edge between each pair',
-    hub => {
-      const { workflows, checks } = fixture(hub);
+    graph => {
+      const { workflows, checks } = fixture(graph);
       for (const w of Object.values(workflows)) {
         const g = makeWorkflowGraph(w, checks);
         expect(g.nodes.map(n => n.step)).toEqual(w.steps.map(s => s.name));
@@ -97,7 +97,7 @@ describe('makeWorkflowGraph', () => {
     expect(implement!.asides).toBeUndefined();
     expect(makeWorkflowGraph(workflows.merge!, checks).nodes[0]!.doer).toBe('script');
     expect(makeWorkflowGraph(fixture('agentgraph').workflows.retro!, {}).nodes[0]!.each).toBe(
-      'node "$AGENTGRAPH_HUB/scripts/retro-items.mjs"'
+      'node "$AGENTGRAPH_DIR/scripts/retro-items.mjs"'
     );
   });
 

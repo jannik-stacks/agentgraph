@@ -12,10 +12,10 @@ import {
   harnessSession,
   parseModelUrls,
   splitNames,
-  readConfiguredHub,
+  readConfiguredGraph,
   readHarnessSettings,
 } from './harnesses.ts';
-import { HubError } from './hub.ts';
+import { GraphError } from './folder.ts';
 import { remoteSandbox } from './remote.ts';
 import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
@@ -23,7 +23,7 @@ import { checkLogs, fileStore } from './store.ts';
 /** Everything the runner reads from the environment. */
 export type Settings = {
   repo: string;
-  hub: string;
+  graph: string;
   data: string;
   every: number;
   proxy: { url: string; keys: Redacted.Redacted; models: string };
@@ -31,7 +31,7 @@ export type Settings = {
   prices: string;
   /** The docker volume toolchains and package caches live in; empty for none. */
   cache: string;
-  /** The image commands start in when a hub names none. */
+  /** The image commands start in when a graph names none. */
   image: string;
   sandbox: string;
   checkLogs: (typeof checkLogs)[number];
@@ -77,7 +77,7 @@ export const readHostSettings = async (flags: Partial<Record<'data' | 'forge', s
 export const settings = Config.all({
   ...hostSettings,
   repo: Config.string('AGENTGRAPH_REPO'),
-  hub: Config.string('AGENTGRAPH_HUB').pipe(Config.withDefault('.agentgraph')),
+  graph: Config.string('AGENTGRAPH_DIR').pipe(Config.withDefault('.agentgraph')),
   proxy: Config.all({
     url: Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1')),
     keys: Config.redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
@@ -113,15 +113,15 @@ const where = (s: Settings) => {
 };
 
 /**
- * The hub at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
+ * The graph at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
  * default branch, so only a merged pull request changes it.
  */
-export const hubAt = (path: string) =>
+export const graphAt = (path: string) =>
   isAbsolute(path)
-    ? readConfiguredHub(path)
+    ? readConfiguredGraph(path)
     : Effect.flatMap(Sandbox, s => s.checkout('origin/HEAD')).pipe(
-        Effect.mapError(e => new HubError({ problems: [{ path, message: e.detail }] })),
-        Effect.flatMap(work => readConfiguredHub(join(work.dir, path)))
+        Effect.mapError(e => new GraphError({ problems: [{ path, message: e.detail }] })),
+        Effect.flatMap(work => readConfiguredGraph(join(work.dir, path)))
       );
 
 const findLocalModelHosts = (url: string) =>
@@ -129,7 +129,7 @@ const findLocalModelHosts = (url: string) =>
     .flatMap(at => (URL.canParse(at) ? [new URL(at).hostname] : []))
     .filter(host => !host.includes('.') || host.endsWith('.internal'));
 
-/** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
+/** The production services. The graph is read once for its trust list. Tests build their own from the file and host layers. */
 export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
   const sandbox = s.sandbox
@@ -141,10 +141,10 @@ export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
         direct: findLocalModelHosts(s.proxy.url),
         ...origin,
       });
-  // a hub that does not load trusts no one; every tick reports why it does not load
+  // a graph that does not load trusts no one; every tick reports why it does not load
   const trust = s.trust.length
     ? Effect.succeed(s.trust)
-    : Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
+    : Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
         Effect.provide(sandbox),
         Effect.catchAll(() => Effect.succeed<string[]>([]))
       );

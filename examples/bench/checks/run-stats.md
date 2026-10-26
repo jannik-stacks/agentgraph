@@ -10,6 +10,6 @@ returns:
     steps: { type: integer, description: 'step outcomes, so a retried step counts again' }
     minutes: { type: number, description: 'from the first session event to the last step outcome' }
     tokens: { type: integer, description: 'input, output and cached tokens across all sessions' }
-run: node "$AGENTGRAPH_HUB/scripts/run-stats.mjs"
+run: node "$AGENTGRAPH_DIR/scripts/run-stats.mjs"
 ---
 What the run spent, read from its trace. It never fails; the studio compares it across runs and arms.

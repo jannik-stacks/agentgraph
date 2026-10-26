@@ -6,4 +6,4 @@ steps:
   merge: { wait: human }
 ---
 
-The bench floor: one plain session on the issue, no checks and no review, in the hub's own sandbox.
+The bench floor: one plain session on the issue, no checks and no review, in the graph's own sandbox.

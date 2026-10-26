@@ -16,19 +16,19 @@ const id = 'virtual:fixtures';
 const root = new URL('../', import.meta.url);
 const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 
-/** The served hub as the engine loads it: the hub, or the problems that stop it loading. */
-const servedHub = async () => {
-  const dir = process.env.VITE_AGI_HUB;
+/** The served graph as the engine loads it: the graph, or the problems that stop it loading. */
+const servedGraph = async () => {
+  const dir = process.env.VITE_AGI_DIR;
   if (!dir) return;
   const { Effect, Either } = await import('effect');
-  const { makeHarnessConfigProvider, readConfiguredHub }: typeof HarnessesModule = await from('src/harnesses.ts');
+  const { makeHarnessConfigProvider, readConfiguredGraph }: typeof HarnessesModule = await from('src/harnesses.ts');
   const choice = JSON.parse(process.env.VITE_AGI_HARNESS_CHOICE ?? '{}');
   const loaded = await Effect.runPromise(
-    Effect.either(readConfiguredHub(dir).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(choice))))
+    Effect.either(readConfiguredGraph(dir).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(choice))))
   );
   return Either.isRight(loaded)
-    ? { name: basename(dir), hub: loaded.right, problems: [] }
-    : { name: basename(dir), hub: undefined, problems: loaded.left.problems };
+    ? { name: basename(dir), graph: loaded.right, problems: [] }
+    : { name: basename(dir), graph: undefined, problems: loaded.left.problems };
 };
 
 const json = (res: ServerResponse, value: unknown, status = 200) => {
@@ -74,7 +74,7 @@ const bodies = (docs: Record<string, { body: string }>) =>
 
 /**
  * Serves the fixture workflows, each with runs replayed through the engine's begin and transition, as
- * `virtual:fixtures`, plus the served hub's workflows. `GET /api/runs` answers that hub's runs in the data dir with
+ * `virtual:fixtures`, plus the served graph's workflows. `GET /api/runs` answers that graph's runs in the data dir with
  * their traces, every text in them cut short; `GET /api/runs/<id>` answers one run with every trace line, and
  * `GET /api/logs/<hash>` the full output of a check, and `GET /api/locate?gh=<link or comment id>` what `locate` finds.
  * `GET /api/bench` answers the rows of every bench out dir under the dirs `VITE_AGI_BENCH` names, where each driven
@@ -142,7 +142,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       json(res, found.right ?? null, found.right ? 200 : 404);
     });
     server.middlewares.use('/api/runs', async (req, res) => {
-      const served = await servedHub();
+      const served = await servedGraph();
       const data = process.env.VITE_AGI_DATA;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
@@ -157,7 +157,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
               Effect.map(Chunk.toArray),
               Effect.map(trace => ({
                 fixture: `${served.name}/${run.workflow}`,
-                repo: served.hub?.repo ?? '',
+                repo: served.graph?.repo ?? '',
                 run,
                 trace: all ? trace : trace.map(line => cut(line) as typeof line),
                 ...findTraceLinks(trace),
@@ -173,28 +173,28 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
   },
   async load(source) {
     if (source !== `\0${id}`) return;
-    const { hubs, fixture }: typeof FixturesModule = await from('tests/fixtures.ts');
+    const { graphs, fixture }: typeof FixturesModule = await from('tests/fixtures.ts');
     const engine: typeof WorkflowModule = await from('src/workflow.ts');
-    const all: Fixture[] = hubs.flatMap(hub => {
-      const { checks, workflows } = fixture(hub);
+    const all: Fixture[] = graphs.flatMap(graph => {
+      const { checks, workflows } = fixture(graph);
       return Object.values(workflows).map(workflow => ({
-        id: `${hub}/${workflow.name}`,
-        workflow: { ...workflow, path: `${hub}/workflows/${workflow.name}.md` },
+        id: `${graph}/${workflow.name}`,
+        workflow: { ...workflow, path: `${graph}/workflows/${workflow.name}.md` },
         checks,
         runs: scenarios(workflow, checks).map(({ label, next }) => ({ label, ...simulate(workflow, next, engine) })),
       }));
     });
-    const served = await servedHub();
-    const hub = served?.hub;
-    const real: Fixture[] = Object.values(hub?.workflows ?? {}).map(workflow => ({
+    const served = await servedGraph();
+    const graph = served?.graph;
+    const real: Fixture[] = Object.values(graph?.workflows ?? {}).map(workflow => ({
       id: `${served!.name}/${workflow.name}`,
       workflow,
-      checks: hub!.checks,
+      checks: graph!.checks,
       runs: [],
-      agents: bodies(hub!.agents),
-      skills: bodies(hub!.skills),
+      agents: bodies(graph!.agents),
+      skills: bodies(graph!.skills),
       roles: Object.fromEntries(
-        Object.entries(hub!.agents).map(([name, a]) => [
+        Object.entries(graph!.agents).map(([name, a]) => [
           name,
           { returns: a.returns, ...(a.reads && { reads: a.reads }), ...(a.model !== undefined && { model: a.model }) },
         ])

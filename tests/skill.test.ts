@@ -25,7 +25,7 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) =>
           case: j.case,
           repeat: j.repeat ?? 1,
           strata: {},
-          hidden: +readFileSync(join(dir, 'cands', id, 'hub/agents/implementor.md'), 'utf8').includes(
+          hidden: +readFileSync(join(dir, 'cands', id, 'graph/agents/implementor.md'), 'utf8').includes(
             `Mind ${j.case}.`
           ) as 0 | 1,
           vsHuman: {},
@@ -49,9 +49,9 @@ process.stdin.on('end', () => {
   fs.appendFileSync(process.env.STUB_LOG, JSON.stringify({ cwd: process.cwd(), args, prompt }) + '\\n');
   const resumed = args.includes('--resume');
   if (!resumed) {
-    fs.appendFileSync('out/d1/hub/agents/implementor.md', 'Mind f1.\\n');
+    fs.appendFileSync('out/d1/graph/agents/implementor.md', 'Mind f1.\\n');
     fs.writeFileSync('out/d1/why.md', 'f1 fails the hidden tests; a skill line on it.\\n');
-    fs.appendFileSync('out/d2/hub/agents/implementor.md', 'Mind nothing.\\n');
+    fs.appendFileSync('out/d2/graph/agents/implementor.md', 'Mind nothing.\\n');
   } else fs.writeFileSync('out/d2/why.md', 'f2 too.\\n');
   const window = u => ({ utilization: u, resetsAt: 0 });
   for (const e of [

@@ -29,7 +29,7 @@ A run id is the workflow name, the issue number and a timestamp.
 | `answers` | Human answers, each with its question |
 | `comment`, `said` | The status comment, and where people last spoke |
 | `base`, `onto` | The stacked parent's pull request, and the base a conflicted follow lands on |
-| `hub`, `by` | Hub version last checked, and the run that dispatched this one |
+| `graph`, `by` | Graph version last checked, and the run that dispatched this one |
 | `started`, `ended`, `usd` | Times and session cost, judges of end checks included |
 | `startCommit` | The commit the run's change is measured from, as its last checkout had it |
 | `owed` | [End checks](loop.md#at-run-end-and-later) the ended run has yet to run |
@@ -46,7 +46,7 @@ Each `trace.jsonl` line has `at`, `step` and one kind: <!-- code: src/trace.ts#T
 | `event` | A start with the harness, the provider when one was picked and the model asked for after aliases; harness text, tool calls with `ms` where the harness reports it, usage and end |
 | `session` | End reason, whether it resumed, and cost |
 | `check` | Result and short findings, a number check's `value` or `empty`, the fan-out item, `end` for an end check, and `log`, the hash and size of the full output |
-| `setup` | `ms` and `exit` of the hub setup in a checkout |
+| `setup` | `ms` and `exit` of the graph setup in a checkout |
 | `env`, `cache` | The [environment](sandbox.md#environments) a checkout started from, and how many files it wrote to the cache |
 | `applied` | A proposal with its URL or failure reason |
 | `outcome` | Pass, failure, back, ask, answer or stop, and the next state |

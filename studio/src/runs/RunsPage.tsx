@@ -95,7 +95,7 @@ const Runs = () => {
   );
 };
 
-/** The served hub's runs as rows, at `/runs`; one run opened with every trace line at `/runs/<id>`. */
+/** The served graph's runs as rows, at `/runs`; one run opened with every trace line at `/runs/<id>`. */
 export const RunsPage = () => {
   const { id } = useAtomValue(pageAtom);
   return (

@@ -23,10 +23,10 @@ The issue number is the handle. Each issue has at most one open pull request, on
 | `merge <n>` | Moves the forge's base to the pull request's head, retargets pull requests stacked on it, closes the issue and writes the branch into your repo. Fails if the base moved past it. <!-- code: src/instance.ts#mergePull --> |
 | `export <n>` | Writes the branch into your repo again; `--as <branch>` under another name, `--patch <file>` as a patch file instead. |
 | `close <n>` | Closes the issue and its pull request, whichever are open; a merged pull request stays merged. A live run stops on its next look. |
-| `show [n]`, `show hub` | What needs you and every issue, or one issue's timeline and diff; `show hub` prints the hub in use, its path and files. Outside a repo it lists every instance and what needs you there. |
+| `show [n]`, `show graph` | What needs you and every issue, or one issue's timeline and diff; `show graph` prints the graph in use, its path and files. Outside a repo it lists every instance and what needs you there. |
 | `loop` | Drives every open issue, then again when the forge changes or after `AGENTGRAPH_EVERY` minutes. `--once` makes one pass. |
 
-`check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--hub` and `--logs`, and the commands it prints carry the `--repo` and `--data` it was given. `check --hub` inside a repo checks against the instance's saved provider. Comments, reviews and issues are by the instance owner, `git config user.name`, the only login the instance trusts. <!-- code: src/services.ts#settings -->
+`check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--dir` and `--logs`, and the commands it prints carry the `--repo` and `--data` it was given. `check --dir` inside a repo checks against the instance's saved provider. Comments, reviews and issues are by the instance owner, `git config user.name`, the only login the instance trusts. <!-- code: src/services.ts#settings -->
 
 ## The sandbox
 
@@ -66,15 +66,15 @@ The base is the branch checked out on first use, or `origin`'s default branch on
 
 Workflows that name no `base` start from the instance's base. <!-- code: src/main.ts#start -->
 
-## The hub
+## The graph
 
-1. `--hub <dir>`. `--hub .agentgraph` uses your working tree, uncommitted edits included.
+1. `--dir <dir>`. `--dir .agentgraph` uses your working tree, uncommitted edits included.
 2. Else `.agentgraph/` in your repo at the committed base, as the GitHub runner reads it. Each version is checked out once under the instance.
-3. Else the default hub in the package: implement, review, then a human merge, with a check that runs the repo's `test` script when there is one.
+3. Else the default graph in the package: implement, review, then a human merge, with a check that runs the repo's `test` script when there is one.
 
-<!-- code: src/instance.ts#ensureHub src/instance.ts#defaultHub -->
+<!-- code: src/instance.ts#ensureGraph src/instance.ts#defaultDir -->
 
-A committed hub with symlinks or submodules is refused. To change the default hub, copy the folder `show hub` prints to `.agentgraph/` in your repo, edit it and commit it.
+A committed graph with symlinks or submodules is refused. To change the default graph, copy the folder `show graph` prints to `.agentgraph/` in your repo, edit it and commit it.
 
 ## The data dir
 
@@ -84,7 +84,7 @@ A committed hub with symlinks or submodules is refused. To change the default hu
     instance.yaml                   repo, base, owner, the refs written into the repo
     forge/                          issues, timelines, origin.git
     data/                           runs, traces, mirror
-    hubs/                           committed hub versions
+    graphs/                           committed graph versions
 ```
 
 A data dir inside the repo is refused. A moved repo is a new instance; `show` outside a repo marks instances whose repo is gone. See [instance.yaml](reference.md#instanceyaml). <!-- code: src/instance.ts#ensureInstance -->

@@ -6,12 +6,12 @@ import { describe, expect, it } from 'vitest';
 import type { Proposal } from '../src/proposal.ts';
 
 const examples = join(import.meta.dirname, '..', 'examples');
-const hubs = readdirSync(examples).filter(hub => existsSync(join(examples, hub, 'scripts', 'sized.mjs')));
+const graphs = readdirSync(examples).filter(graph => existsSync(join(examples, graph, 'scripts', 'sized.mjs')));
 
-const check = (hub: string, proposals: object[]) => {
+const check = (graph: string, proposals: object[]) => {
   const file = join(mkdtempSync(join(tmpdir(), 'sized-')), 'proposals.json');
   writeFileSync(file, JSON.stringify(proposals));
-  const out = spawnSync('node', [join(examples, hub, 'scripts', 'sized.mjs')], {
+  const out = spawnSync('node', [join(examples, graph, 'scripts', 'sized.mjs')], {
     env: { ...process.env, AGENTGRAPH_PROPOSALS: file },
     encoding: 'utf8',
   });
@@ -27,23 +27,23 @@ const part = (title: string, size: string) => ({
 });
 const label = (size: string): Proposal => ({ kind: 'label', add: [`size/${size}`] });
 
-describe.each(hubs)('sized in %s', hub => {
+describe.each(graphs)('sized in %s', graph => {
   it('still passes a size label alone', () => {
-    expect(check(hub, [label('S')]).code).toBe(0);
+    expect(check(graph, [label('S')]).code).toBe(0);
   });
 
   it('still fails a block with no size', () => {
-    expect(check(hub, [{ kind: 'comment', body: 'x' }]).out).toMatch(/No size label/);
+    expect(check(graph, [{ kind: 'comment', body: 'x' }]).out).toMatch(/No size label/);
   });
 
   it('fails parts as large as the issue', () => {
-    const { code, out } = check(hub, [label('XL'), part('a', 'L'), part('b', 'XL')]);
+    const { code, out } = check(graph, [label('XL'), part('a', 'L'), part('b', 'XL')]);
     expect(code).toBe(1);
     expect(out).toContain('"b" is XL');
     expect(out).not.toContain('"a"');
   });
 
   it('still passes parts smaller than the issue', () => {
-    expect(check(hub, [label('XL'), part('a', 'L'), part('b', 'M')]).code).toBe(0);
+    expect(check(graph, [label('XL'), part('a', 'L'), part('b', 'M')]).code).toBe(0);
   });
 });

@@ -119,7 +119,7 @@ networks:
   sandbox:
     name: agentgraph-sandbox
     internal: true
-  # For hubs with network: models. The model proxy is the only thing on it.
+  # For graphs with network: models. The model proxy is the only thing on it.
   models:
     name: agentgraph-models
     internal: true

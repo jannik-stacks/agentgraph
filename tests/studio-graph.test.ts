@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeWorkflowGraph, type WorkflowGraph } from '../src/graph.ts';
 import type { Workflow } from '../src/workflow.ts';
-import { fixture, hubs as fixtureHubs } from './fixtures.ts';
+import { fixture, graphs as fixtureGraphs } from './fixtures.ts';
 import { studioModule } from './studio.ts';
 
 type Fixture = { workflow: Workflow; checks: Parameters<typeof makeWorkflowGraph>[1] };
@@ -23,9 +23,9 @@ const { makeStepChips, splitStepChips } = await studioModule<{
   splitStepChips: (chips: Chip[], width: number) => { title?: Chip; rows: Chip[][] };
 }>('graph/chips.ts');
 
-const SHOWN = fixtureHubs.map(hub => {
-  const { workflows, checks } = fixture(hub);
-  return [hub, Object.values(workflows).map(workflow => ({ workflow, checks }))] as const;
+const SHOWN = fixtureGraphs.map(graph => {
+  const { workflows, checks } = fixture(graph);
+  return [graph, Object.values(workflows).map(workflow => ({ workflow, checks }))] as const;
 });
 
 const overlaps = (a: Box, b: Box) =>

@@ -420,7 +420,7 @@ const tools: Record<string, { summary: (input: Input) => string; Body: Component
   notes_add: { summary: i => str(i.title), Body: NoteAdd },
 };
 
-/** A tool's name as the transcript shows it: without the hub's prefix. */
+/** A tool's name as the transcript shows it: without the graph's prefix. */
 export const toolName = (tool: string) => tool.replace(/^agentgraph_/, '');
 
 const known = (tool: string) => tools[toolName(tool).toLowerCase()];

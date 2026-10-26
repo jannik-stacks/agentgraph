@@ -1,4 +1,4 @@
-// A schema a change adds to src/hub.ts that no docs page names, so the reference falls behind the code.
+// A schema a change adds to src/folder.ts that no docs page names, so the reference falls behind the code.
 import { execFileSync } from 'node:child_process';
 import { addedLines, readBaseShaFromEnv, changedFiles, report } from './changes.mjs';
 
@@ -16,11 +16,11 @@ const mentioned = name => {
 const sha = readBaseShaFromEnv();
 const findings = [];
 for (const { path, deleted } of changedFiles(sha)) {
-  if (deleted || path !== 'src/hub.ts') continue;
+  if (deleted || path !== 'src/folder.ts') continue;
   for (const { line, text } of addedLines(sha, path)) {
     const name = declaration.exec(text)?.[1];
     if (name && !mentioned(name)) {
-      findings.push(`${path}:${line}: ${name} is in no docs page; name it where it belongs, as "See \`${name}\` in src/hub.ts"`);
+      findings.push(`${path}:${line}: ${name} is in no docs page; name it where it belongs, as "See \`${name}\` in src/folder.ts"`);
     }
   }
 }

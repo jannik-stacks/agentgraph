@@ -1,6 +1,6 @@
 # Compound engineering
 
-A retro reads human feedback for recurring misses and proposes hub or docs changes, which people review and merge.
+A retro reads human feedback for recurring misses and proposes graph or docs changes, which people review and merge.
 
 ## The retro
 
@@ -13,7 +13,7 @@ A retro never holds an issue, takes another run's answers or posts a status. It 
 It ends with one of:
 
 - Nothing, with a short reason, for taste, one-off wording or a call only a person can make.
-- A [hub change](stacks.md#hub-changes) for a recurring miss that a check, lint, prompt or docs edit would prevent, with the kind of miss, run and trace evidence, and the smallest change.
+- A [graph change](stacks.md#graph-changes) for a recurring miss that a check, lint, prompt or docs edit would prevent, with the kind of miss, run and trace evidence, and the smallest change.
 - A [follow-up](stacks.md#follow-ups) for repo work nobody covered.
 
 ## Reading traces

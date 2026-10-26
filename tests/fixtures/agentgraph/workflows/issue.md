@@ -42,7 +42,7 @@ steps:
         notes-followed,
         principle-named,
       ]
-  compound: { agent: librarian, each: { run: node "$AGENTGRAPH_HUB/scripts/signals.mjs" }, checks: [lesson-size] }
+  compound: { agent: librarian, each: { run: node "$AGENTGRAPH_DIR/scripts/signals.mjs" }, checks: [lesson-size] }
   review: { wait: human, back: implement }
 ---
 

@@ -3,28 +3,31 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { Effect } from 'effect';
-import { loadHub, retiredIn } from '../src/hub.ts';
+import { loadGraph, retiredIn } from '../src/folder.ts';
 import { harnesses } from './fixtures.ts';
 
 const examples = join(import.meta.dirname, '..', 'examples');
 const infra = join(import.meta.dirname, '..', 'infra', 'local');
-const hubDirs = readdirSync(examples)
+const graphDirs = readdirSync(examples)
   .map(name => join(examples, name))
-  .filter(dir => existsSync(join(dir, 'hub.yaml')));
-const readHubAgents = async (dir: string) => Object.values((await Effect.runPromise(loadHub(dir, harnesses))).agents);
+  .filter(dir => existsSync(join(dir, 'settings.yaml')));
+const readGraphAgents = async (dir: string) =>
+  Object.values((await Effect.runPromise(loadGraph(dir, harnesses))).agents);
 
-describe('example hubs', () => {
-  it('finds every example hub', () => {
-    expect(hubDirs.map(dir => dir.slice(examples.length + 1))).toEqual(
+describe('example graphs', () => {
+  it('finds every example graph', () => {
+    expect(graphDirs.map(dir => dir.slice(examples.length + 1))).toEqual(
       expect.arrayContaining(['agentgraph', 'sandbox'])
     );
   });
 
-  it.each(hubDirs)('%s loads with no problems', async dir => {
-    await expect(Effect.runPromise(loadHub(dir, harnesses))).resolves.toMatchObject({ workflows: expect.any(Object) });
+  it.each(graphDirs)('%s loads with no problems', async dir => {
+    await expect(Effect.runPromise(loadGraph(dir, harnesses))).resolves.toMatchObject({
+      workflows: expect.any(Object),
+    });
   });
 
-  it.each(hubDirs)('%s notes use no retired words', dir => {
+  it.each(graphDirs)('%s notes use no retired words', dir => {
     const notes = join(dir, 'notes');
     const found = (existsSync(notes) ? (readdirSync(notes, { recursive: true }) as string[]) : [])
       .filter(path => path.endsWith('.md') && !path.endsWith('retired-names.md'))
@@ -71,15 +74,15 @@ describe('models and keys', () => {
     expect([...rows.values()].flat().filter(alias => alias.includes('$'))).toEqual([]);
   });
 
-  it.each(hubDirs)('every agent in %s asks for a model alias LiteLLM serves', async dir => {
-    const unknown = (await readHubAgents(dir)).flatMap(a =>
+  it.each(graphDirs)('every agent in %s asks for a model alias LiteLLM serves', async dir => {
+    const unknown = (await readGraphAgents(dir)).flatMap(a =>
       a.model && !served.has(a.model) ? [`${a.name}: ${a.model}`] : []
     );
     expect(unknown).toEqual([]);
   });
 
-  it.each(hubDirs)('gives every agent in %s a key that allows its model', async dir => {
-    const problems = (await readHubAgents(dir)).flatMap(bot => {
+  it.each(graphDirs)('gives every agent in %s a key that allows its model', async dir => {
+    const problems = (await readGraphAgents(dir)).flatMap(bot => {
       const allowed = rows.get(bot.name);
       if (!allowed) return [`${bot.name} has no row in keys.sh`];
       if (bot.model && !allowed.includes(bot.model))
@@ -106,12 +109,12 @@ describe('models and keys', () => {
   });
 });
 
-/** Scripts several hubs may carry; a hub mounts only its own folder, so each keeps a copy. */
+/** Scripts several graphs may carry; a graph mounts only its own folder, so each keeps a copy. */
 const shared = ['pr-text.mjs'];
 
-describe('shared hub scripts', () => {
+describe('shared graph scripts', () => {
   it.each(shared)('every copy of %s is the same', name => {
-    const copies = hubDirs.flatMap(dir => {
+    const copies = graphDirs.flatMap(dir => {
       const path = join(dir, 'scripts', name);
       return existsSync(path) ? [readFileSync(path, 'utf8')] : [];
     });

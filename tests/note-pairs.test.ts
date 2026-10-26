@@ -9,8 +9,8 @@ const note = (title: string, body: string, status = 'accepted') =>
 
 describe('note-pairs', () => {
   it('pairs each hunk with the notes that share its words and carries the files the change touches', () => {
-    const hub = tmp('hub');
-    write(hub, {
+    const graph = tmp('graph');
+    write(graph, {
       'notes/caveat/ids.md': note('Ids live in a field', 'Never parse a step marker back from an issue body.'),
       'notes/style/icons.md': note('Every icon has a tooltip', 'An icon button explains itself on hover.'),
       'notes/style/old.md': note('Step markers in bodies', 'Parse the step marker from the issue body.', 'proposed'),
@@ -22,7 +22,7 @@ describe('note-pairs', () => {
           'export const stepOf = (issue: { body: string }) => /step marker: (\\S+)/.exec(issue.body)?.[1];\n',
       }
     );
-    const { ok, out } = runScript(script, repo, ['src/'], { AGENTGRAPH_HUB: hub });
+    const { ok, out } = runScript(script, repo, ['src/'], { AGENTGRAPH_DIR: graph });
     expect(ok).toBe(true);
     const items = out.split('\n').map(line => JSON.parse(line));
     expect(items.map(item => item.path)).toEqual(['src/apply.ts:1 caveat/ids']);

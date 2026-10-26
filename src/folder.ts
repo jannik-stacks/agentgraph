@@ -18,7 +18,7 @@ export const Agent = Schema.Struct({
 });
 export type Agent = typeof Agent.Type;
 
-/** The hub-wide limits block. */
+/** The limits block of settings.yaml. */
 const Limits = Schema.Struct({
   minutes: Schema.optionalWith(Schema.Number, { default: () => 30 }),
   usdPerRun: Schema.optionalWith(Schema.Number, { default: () => 10 }).pipe(Schema.fromKey('usd-per-run')),
@@ -27,8 +27,8 @@ const Limits = Schema.Struct({
 });
 type Limits = typeof Limits.Type;
 
-/** One repo's hub after `uses:` and the repo override are merged. */
-export type Hub = {
+/** One repo's graph after `uses:` and the repo override are merged. */
+export type Graph = {
   dir: string;
   repo: string;
   sha: string;
@@ -53,13 +53,13 @@ export type Hub = {
   trust?: string[];
 };
 
-export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {
+export class GraphError extends Data.TaggedError('GraphError')<{ problems: Problem[] }> {
   override get message() {
     return this.problems.map(p => `${p.path}: ${p.message}`).join('\n');
   }
 }
 
-const HubFile = Schema.Struct({
+const SettingsFile = Schema.Struct({
   repo: exact(Schema.String),
   setup: exact(Schema.String),
   toolchain: exact(Schema.String),
@@ -94,12 +94,12 @@ const SkillFile = Schema.Struct({
 });
 type SkillFile = typeof SkillFile.Type;
 
-/** The folders a hub holds besides those a hub file reads through `$AGENTGRAPH_HUB`: the four it loads, scripts and fixtures. */
+/** The folders a graph holds besides those a graph file reads through `$AGENTGRAPH_DIR`: the four it loads, scripts and fixtures. */
 const folders = new Set(['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures']);
 
-/** Whether a hub file reads the hub folder `name` through `$AGENTGRAPH_HUB`. */
+/** Whether a graph file reads the graph folder `name` through `$AGENTGRAPH_DIR`. */
 const reads = (texts: string[], name: string) =>
-  texts.some(text => new RegExp(`AGENTGRAPH_HUB[^\\n]*['"\`/]${name.replace(/\W/g, '\\$&')}['"\`/]`).test(text));
+  texts.some(text => new RegExp(`AGENTGRAPH_DIR[^\\n]*['"\`/]${name.replace(/\W/g, '\\$&')}['"\`/]`).test(text));
 
 /** Reports each `"kind"` value a body names that the engine does not know. */
 const unknownKinds = (body: string, say: (message: string) => void) => {
@@ -112,7 +112,7 @@ const unknownKinds = (body: string, say: (message: string) => void) => {
 };
 
 /**
- * Reports each retired word a hub or notes file still uses.
+ * Reports each retired word a graph or notes file still uses.
  * @internal
  */
 export const retiredIn = (text: string, say: (message: string) => void) => {
@@ -156,9 +156,9 @@ const markdown = async (dir: string, sub: string): Promise<File[]> => {
 
 const getDocName = (path: string) => (path.endsWith('/SKILL.md') ? basename(path.slice(0, -9)) : basename(path, '.md'));
 
-/** Validates the files of one hub and builds it; every problem is collected before anything fails. */
+/** Validates the files of one graph and builds it; every problem is collected before anything fails. */
 const compile = (
-  hubText: string | undefined,
+  settingsText: string | undefined,
   groups: Record<'agents' | 'skills' | 'checks' | 'workflows', File[]>,
   harnesses: readonly HarnessCheck[],
   forced = ''
@@ -173,14 +173,14 @@ const compile = (
     }
   };
 
-  const say = sayer('hub.yaml');
-  let hubData: unknown = {};
+  const say = sayer('settings.yaml');
+  let settingsData: unknown = {};
   try {
-    hubData = (hubText && parse(hubText)) ?? {};
+    settingsData = (settingsText && parse(settingsText)) ?? {};
   } catch (e) {
     say(`yaml: ${(e as Error).message}`);
   }
-  const hub = decode(HubFile, hubData, say);
+  const settings = decode(SettingsFile, settingsData, say);
 
   const docs = <T>(files: File[], read: (data: unknown, say: (m: string) => void) => T | undefined) => {
     const out: Record<string, Doc<T>> = {};
@@ -268,21 +268,21 @@ const compile = (
       if (!usedAgents.has(agent.name))
         sayer(agent.path)(`no step or check names ${agent.name} as its agent; name it in a step or remove it`);
   }
-  return { hub, agents, skills, checks, workflows, problems };
+  return { settings, agents, skills, checks, workflows, problems };
 };
 
 export type HarnessCheck = { name: string; check?: (agent: Agent) => string[] };
 
-/** Reads a hub directory, validates every file and fails with all problems at once. */
-export const loadHub = (
+/** Reads a graph directory, validates every file and fails with all problems at once. */
+export const loadGraph = (
   dir: string,
   harnesses: readonly HarnessCheck[],
   harness?: string
-): Effect.Effect<Hub, HubError> =>
+): Effect.Effect<Graph, GraphError> =>
   Effect.gen(function* () {
     const read = yield* Effect.tryPromise({
       try: async () => {
-        const hubText = await readFile(join(dir, 'hub.yaml'), 'utf8').catch(() => undefined);
+        const settingsText = await readFile(join(dir, 'settings.yaml'), 'utf8').catch(() => undefined);
         const [agents, skills, checks, workflows] = await Promise.all(
           (['agents', 'skills', 'checks', 'workflows'] as const).map(sub => markdown(dir, sub))
         );
@@ -294,26 +294,26 @@ export const loadHub = (
             .sort()
             .map(async p => ({ path: relative(dir, p), text: await readFile(p, 'utf8') }))
         );
-        const texts = [hubText ?? '', ...scripts.map(f => f.text)];
+        const texts = [settingsText ?? '', ...scripts.map(f => f.text)];
         texts.push(...Object.values(groups).flatMap(files => files.map(f => f.text)));
         const unread = (await readdir(dir, { withFileTypes: true }).catch(() => []))
           .filter(e => e.isDirectory() && !e.name.startsWith('.') && !folders.has(e.name))
           .map(e => e.name)
           .filter(name => !reads(texts, name));
-        return { hubText, groups, scripts, unread };
+        return { settingsText, groups, scripts, unread };
       },
-      catch: e => new HubError({ problems: [{ path: dir, message: `unreadable: ${String(e)}` }] }),
+      catch: e => new GraphError({ problems: [{ path: dir, message: `unreadable: ${String(e)}` }] }),
     });
-    const { hub, problems, ...parts } = compile(read.hubText, read.groups, harnesses, harness);
+    const { settings, problems, ...parts } = compile(read.settingsText, read.groups, harnesses, harness);
     for (const name of read.unread)
       problems.push({
         path: name,
-        message: `nothing reads ${name}/; the engine loads agents, skills, checks and workflows, and a hub script reads a folder through $AGENTGRAPH_HUB`,
+        message: `nothing reads ${name}/; the engine loads agents, skills, checks and workflows, and a graph script reads a folder through $AGENTGRAPH_DIR`,
       });
-    if (problems.length > 0 || !hub) return yield* new HubError({ problems });
+    if (problems.length > 0 || !settings) return yield* new GraphError({ problems });
     const sha = createHash('sha256');
     for (const file of [
-      { path: 'hub.yaml', text: read.hubText ?? '' },
+      { path: 'settings.yaml', text: read.settingsText ?? '' },
       ...Object.values(read.groups).flat(),
       ...read.scripts,
     ]) {
@@ -321,16 +321,16 @@ export const loadHub = (
     }
     return {
       dir: resolve(dir),
-      repo: hub.repo ?? '',
+      repo: settings.repo ?? '',
       sha: sha.digest('hex'),
-      limits: hub.limits,
-      ...(hub.setup !== undefined && { setup: hub.setup }),
-      ...(hub.toolchain !== undefined && { toolchain: hub.toolchain }),
-      ...(hub.image !== undefined && { image: hub.image }),
-      ...(hub.network !== undefined && { network: hub.network }),
-      ...(hub.stacks !== undefined && { stacks: hub.stacks }),
-      ...(hub.milestone !== undefined && { milestone: hub.milestone }),
-      ...(hub.trust !== undefined && { trust: hub.trust }),
+      limits: settings.limits,
+      ...(settings.setup !== undefined && { setup: settings.setup }),
+      ...(settings.toolchain !== undefined && { toolchain: settings.toolchain }),
+      ...(settings.image !== undefined && { image: settings.image }),
+      ...(settings.network !== undefined && { network: settings.network }),
+      ...(settings.stacks !== undefined && { stacks: settings.stacks }),
+      ...(settings.milestone !== undefined && { milestone: settings.milestone }),
+      ...(settings.trust !== undefined && { trust: settings.trust }),
       ...parts,
     };
   });

@@ -1,10 +1,10 @@
-# Hub files
+# Graph files
 
-Every hub field with its type and default. `check` fails on an unknown key, a missing agent, check or skill, a duplicate name, an agent, check or skill nothing uses, an end check that is not `warn`, an unknown proposal kind in a body, and retired words. Besides these files a hub may hold `scripts/` and `fixtures/`; other folders must be read through `$AGENTGRAPH_HUB`. <!-- code: src/hub.ts#loadHub -->
+Every graph field with its type and default. `check` fails on an unknown key, a missing agent, check or skill, a duplicate name, an agent, check or skill nothing uses, an end check that is not `warn`, an unknown proposal kind in a body, and retired words. Besides these files a graph may hold `scripts/` and `fixtures/`; other folders must be read through `$AGENTGRAPH_DIR`. <!-- code: src/folder.ts#loadGraph -->
 
-## hub.yaml
+## settings.yaml
 
-<!-- code: src/hub.ts#HubFile -->
+<!-- code: src/folder.ts#SettingsFile -->
 
 | Field       | Type                 | Default                           | Meaning                                                              |
 | ----------- | -------------------- | --------------------------------- | -------------------------------------------------------------------- |
@@ -18,7 +18,7 @@ Every hub field with its type and default. `check` fails on an unknown key, a mi
 | `trust`     | list of logins       | owners, members and collaborators | Who may steer the bot, see [The loop](loop.md#trust-and-scope)       |
 | `limits`    | map                  | the defaults below                | Caps on a run                                                        |
 
-`limits` in `hub.yaml` sets these: <!-- code: src/hub.ts#Limits -->
+`limits` in `settings.yaml` sets these: <!-- code: src/folder.ts#Limits -->
 
 | Field         | Type    | Default | Meaning                                                                               |
 | ------------- | ------- | ------- | ------------------------------------------------------------------------------------- |
@@ -37,7 +37,7 @@ Every hub field with its type and default. `check` fails on an unknown key, a mi
 | `branch`      | template                       | none, a detached checkout           | Work branch; expands `{issue}` and `{parent}`                                          |
 | `base`        | template                       | `main`                              | Pull request base                                                                      |
 | `concurrency` | `steer`, `queue` or `cancel`   | `steer`                             | Comment handling while working                                                         |
-| `agent`       | agent name                     | the hub's only agent                | Agent without `steps`                                                                  |
+| `agent`       | agent name                     | the graph's only agent                | Agent without `steps`                                                                  |
 | `steps`       | map of step name to step       | one agent step named after the file | Steps in written order                                                                 |
 | `checks`      | list of check names            | none                                | `warn` checks run once when the run ends, see [The loop](loop.md#at-run-end-and-later) |
 
@@ -68,11 +68,11 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `until`  | sentence                                 | required on an agent step with `back`                        | When the step is satisfied                                                                                                  |
 | `rounds` | positive integer                         | 3, no cap on a `wait` step                                   | Return cap                                                                                                                  |
 | `each`   | `files`, `hunks` or `{ run: <command> }` | none                                                         | One fresh session per item; past 20 items, one session over them all                                                        |
-| `follow` | `merge`, `rebase` or `none` | `merge`, on a `wait` step only | How the branch follows a moved base, see [base updates](loop.md#when-the-base-or-the-hub-moves) |
+| `follow` | `merge`, `rebase` or `none` | `merge`, on a `wait` step only | How the branch follows a moved base, see [base updates](loop.md#when-the-base-or-the-graph-moves) |
 
 ## Agents
 
-`agents/<name>.md`. The body is added to the harness's system prompt. <!-- code: src/hub.ts#Agent -->
+`agents/<name>.md`. The body is added to the harness's system prompt. <!-- code: src/folder.ts#Agent -->
 
 | Field     | Type                         | Default                                 | Meaning                                                                                          |
 | --------- | ---------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -84,7 +84,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 ## Checks
 
-`checks/<name>.md`. A check has `run`, `agent` or both. The body is its description. <!-- code: src/hub.ts#Check -->
+`checks/<name>.md`. A check has `run`, `agent` or both. The body is its description. <!-- code: src/folder.ts#Check -->
 
 | Field     | Type                                 | Default          | Meaning                                                                           |
 | --------- | ------------------------------------ | ---------------- | --------------------------------------------------------------------------------- |
@@ -101,7 +101,7 @@ The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`
 
 ## Skills
 
-`skills/<name>.md` or `skills/<name>/SKILL.md` (Agent Skills format). The body is the instruction. Other frontmatter keys are ignored. <!-- code: src/hub.ts#SkillFile -->
+`skills/<name>.md` or `skills/<name>/SKILL.md` (Agent Skills format). The body is the instruction. Other frontmatter keys are ignored. <!-- code: src/folder.ts#SkillFile -->
 
 | Field         | Type                | Default | Meaning                                           |
 | ------------- | ------------------- | ------- | ------------------------------------------------- |

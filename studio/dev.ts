@@ -3,15 +3,15 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Either } from 'effect';
 import { createServer } from 'vite';
-import { makeHarnessConfigProvider, readConfiguredHub } from '../src/harnesses.ts';
-import { ensureBase, ensureHub, ensureInstance, findRepo } from '../src/instance.ts';
+import { makeHarnessConfigProvider, readConfiguredGraph } from '../src/harnesses.ts';
+import { ensureBase, ensureGraph, ensureInstance, findRepo } from '../src/instance.ts';
 import { readHostSettings } from '../src/services.ts';
 import { formatInstanceFlags } from '../src/status.ts';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    hub: { type: 'string' },
+    dir: { type: 'string' },
     data: { type: 'string' },
     forge: { type: 'string' },
     repo: { type: 'string' },
@@ -30,21 +30,21 @@ if (values.repo && !repo) {
 }
 const instance = repo === undefined ? undefined : await ensureInstance(root, repo);
 const moved = instance && (await ensureBase(instance));
-if (moved) console.error(`${moved}\nThe studio shows the hub of agentgraph's base.`);
-const hubDir = resolve(
-  values.hub ?? (instance ? await ensureHub(instance) : join(import.meta.dirname, '..', 'examples', 'sandbox'))
+if (moved) console.error(`${moved}\nThe studio shows the graph of agentgraph's base.`);
+const graphDir = resolve(
+  values.dir ?? (instance ? await ensureGraph(instance) : join(import.meta.dirname, '..', 'examples', 'sandbox'))
 );
 const dataDir = resolve(instance?.data ?? root);
 const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;
-console.log(`hub    ${hubDir}\ndata   ${dataDir}${real !== dataDir ? ` -> ${real}` : ''}`);
+console.log(`graph  ${graphDir}\ndata   ${dataDir}${real !== dataDir ? ` -> ${real}` : ''}`);
 const choice = { config, provider: instance?.provider };
 const loaded = await Effect.runPromise(
-  Effect.either(readConfiguredHub(hubDir).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(choice))))
+  Effect.either(readConfiguredGraph(graphDir).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(choice))))
 );
 if (Either.isLeft(loaded))
-  console.error(`the hub does not load, so the studio shows no workflow:\n${loaded.left.message}`);
+  console.error(`the graph does not load, so the studio shows no workflow:\n${loaded.left.message}`);
 
-process.env.VITE_AGI_HUB = hubDir;
+process.env.VITE_AGI_DIR = graphDir;
 process.env.VITE_AGI_DATA = dataDir;
 process.env.VITE_AGI_HARNESS_CHOICE = JSON.stringify(choice);
 const forge = instance?.forge ?? values.forge;

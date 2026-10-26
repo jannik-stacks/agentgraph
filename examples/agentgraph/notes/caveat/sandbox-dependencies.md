@@ -4,7 +4,7 @@ status: accepted
 check: tests
 human: dogfood round 1 deps kinks and round 2 kink K9
 ---
-The hub installs agentgraph's and studio's locked dependencies in the sandbox, once per lockfile, and
+The graph installs agentgraph's and studio's locked dependencies in the sandbox, once per lockfile, and
 links `node_modules` and `studio/node_modules` into every worktree. The packages are read-only;
 tools can still write their caches at the top of `node_modules`, and a cache dir found in the
 install itself (`.vite-temp`, `.cache`) is never linked, so each worktree writes its own. Never run

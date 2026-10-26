@@ -6,7 +6,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
-import type { Hub } from './hub.ts';
+import type { Graph } from './folder.ts';
 import {
   dependencyDirs,
   discard,
@@ -26,11 +26,11 @@ import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { gitIdentity, hostGit, makeHostEnv } from './git.ts';
 
-/** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
+/** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
 const egress = 'http://egress:8888';
 const bypass = (direct: string[]) => [...direct, 'localhost', '127.0.0.1'].join(',');
-const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub', cache: '/cache' };
+const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', graph: '/graph', cache: '/cache' };
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
 /** The mirror takes branches and tags only, so fork code in `refs/pull/*` never reaches a session. */
@@ -64,9 +64,9 @@ const user = () => {
   return id;
 };
 
-/** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its hub and sandbox setup. */
+/** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its graph and sandbox setup. */
 export type CheckoutContainerSpec = { mounts: Mount[]; sharedMounts?: SharedMount[]; direct?: string[] } & Pick<
-  Hub,
+  Graph,
   'image' | 'network'
 >;
 
@@ -85,7 +85,7 @@ const scratch = Object.fromEntries(
 
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
- * the only routes out are the `direct` model hosts and, unless the hub's network is `models`, the egress allowlist; with
+ * the only routes out are the `direct` model hosts and, unless the graph's network is `models`, the egress allowlist; with
  * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`, read-only unless a shared
  * mount overlays it there; each shared mount is a volume at its path.
  */
@@ -125,7 +125,7 @@ export const dockerArgs = (
   size.pids,
   ...bind({ src: c.dir, dst: inside.work }),
   ...(c.home ? bind({ src: c.home, dst: inside.home }) : []),
-  ...(c.hub ? bind({ src: c.hub, dst: inside.hub, readonly: true }) : []),
+  ...(c.graph ? bind({ src: c.graph, dst: inside.graph, readonly: true }) : []),
   ...mounts.flatMap(bind),
   ...(cache && !sharedMounts.some(l => l.dst === inside.cache) ? volume(cache, inside.cache, false, true) : []),
   ...sharedMounts.flatMap(l => volume(l.name, l.dst, true)),
@@ -148,7 +148,7 @@ export const dockerArgs = (
         no_proxy: bypass(direct),
       }),
     ...c.env,
-    ...(c.hub && { AGENTGRAPH_HUB: inside.hub }),
+    ...(c.graph && { AGENTGRAPH_DIR: inside.graph }),
   }).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
   ...Object.keys(c.secrets ?? {}).flatMap(key => ['-e', key]),
   image,
@@ -302,7 +302,7 @@ const timeout = (c: Command) => () =>
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`. With
  * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
- * the volume `cache`, `agentgraph-cache` by default. A checkout for a hub starts from the hub's sandbox setup at its base, built once
+ * the volume `cache`, `agentgraph-cache` by default. A checkout for a graph starts from the graph's sandbox setup at its base, built once
  * with the toolchain and setup, and holds its dependency directories in volumes, never in the checkout. An empty cache
  * name turns the volume and sandbox setups off.
  */
@@ -398,10 +398,10 @@ export const dockerSandbox = (o: {
         ref: string,
         branch?: string,
         keep?: string,
-        hub?: Pick<Hub, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Hub, 'repo'>>
+        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
       ) =>
         Effect.gen(function* () {
-          const box = hub?.image ?? image;
+          const box = graph?.image ?? image;
           const present = yield* run('docker', ['image', 'inspect', '--format', '{{.Id}}', box]).pipe(
             Effect.as(true),
             Effect.orElseSucceed(() => false)
@@ -438,19 +438,19 @@ export const dockerSandbox = (o: {
           const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
           const base = onto ? yield* inMirror(['merge-base', rev, onto]).pipe(Effect.orElseSucceed(() => rev)) : rev;
           yield* roomy;
-          const setup = hub?.setup?.includes('AGENTGRAPH_HUB') ? undefined : hub?.setup;
+          const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
           const env =
-            hub && cache
+            graph && cache
               ? yield* Effect.tryPromise({
                   try: () =>
                     readSandboxSetup({
-                      repo: hub.repo ?? 'repo',
-                      image: hub.image ?? image,
+                      repo: graph.repo ?? 'repo',
+                      image: graph.image ?? image,
                       git: mirror,
                       base,
                       cache,
                       ...(setup && { setup }),
-                      ...(hub.toolchain && { toolchain: hub.toolchain }),
+                      ...(graph.toolchain && { toolchain: graph.toolchain }),
                     }),
                   catch: e => infra((e as Error).message),
                 })
@@ -522,11 +522,11 @@ export const dockerSandbox = (o: {
               catch: e => infra((e as Error).message),
             });
             if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
-            if (hub && cache)
+            if (graph && cache)
               sharedMounts = yield* Effect.tryPromise({
                 try: async () =>
                   createSharedMounts(
-                    env ?? { image: hub.image ?? image, outputs: [] },
+                    env ?? { image: graph.image ?? image, outputs: [] },
                     id,
                     dir,
                     await dependencyDirs(mirror, rev),
@@ -534,11 +534,11 @@ export const dockerSandbox = (o: {
                   ),
                 catch: e => infra((e as Error).message),
               });
-            const own = env?.image ?? hub?.image;
+            const own = env?.image ?? graph?.image;
             work.written = () => written(sharedMounts, own ?? image);
             made.set(dir, {
               ...(own !== undefined && { image: own }),
-              ...(hub?.network !== undefined && { network: hub.network }),
+              ...(graph?.network !== undefined && { network: graph.network }),
               sharedMounts,
               mounts: [
                 { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },

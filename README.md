@@ -1,6 +1,6 @@
 # agentgraph
 
-agentgraph runs coding agents on the issues of a repository. You describe agents, checks and workflows in a folder of Markdown files called a hub. When someone comments `/agent` on an issue or adds a label, the engine runs the matching workflow. Each agent works in its own Docker sandbox. Scripts and judge agents check the result. The engine then pushes a branch and opens a pull request, and a person reviews and merges it.
+agentgraph runs coding agents on the issues of a repository. You describe agents, checks and workflows in a folder of Markdown files called a graph. When someone comments `/agent` on an issue or adds a label, the engine runs the matching workflow. Each agent works in its own Docker sandbox. Scripts and judge agents check the result. The engine then pushes a branch and opens a pull request, and a person reviews and merges it.
 
 Agents never hold a GitHub token. They return proposals, such as a comment, a push or a new issue, and the engine applies them only after the checks pass. Every run is recorded as a trace that you can read in the studio, a local web UI.
 
@@ -12,7 +12,7 @@ Agents never hold a GitHub token. They return proposals, such as a comment, a pu
                   v
    +-----------------------------+             +-----------------------------+
    | engine, on the host         |             | sandbox, one per session    |
-   | reads the hub and drives    |-- start --->| the agent edits a worktree  |
+   | reads the graph and drives    |-- start --->| the agent edits a worktree  |
    | the workflow step by step   |<-proposals--| and calls models via proxy  |
    +-----------------------------+             +-----------------------------+
           |                ^
@@ -26,11 +26,11 @@ Agents never hold a GitHub token. They return proposals, such as a comment, a pu
    push the branch, open a pull request, wait for a person to merge
 ```
 
-A hub is plain files:
+A graph is plain files:
 
 ```
-hub/
-  hub.yaml               repo and limits
+graph/
+  settings.yaml               repo and limits
   agents/implementor.md  role, harness, model, allowed proposals
   skills/implement.md    instructions handed to an agent
   checks/tests.md        a script or a judge that passes or fails a try
@@ -65,7 +65,7 @@ npx agentgraph review 1 changes "also greet by name"  # drives it again
 npx agentgraph merge 1                                # then git merge agentgraph/1
 ```
 
-Without `.agentgraph/` in the repo it uses the packaged default hub; see [Without GitHub](docs/forge.md). `npx agentgraph check --hub examples/sandbox` validates a hub without a model or container. The studio shows the workflow graph and every run: `cd studio && npm install && npm run dev -- --repo /path/to/your/repo`.
+Without `.agentgraph/` in the repo it uses the packaged default graph; see [Without GitHub](docs/forge.md). `npx agentgraph check --dir examples/sandbox` validates a graph without a model or container. The studio shows the workflow graph and every run: `cd studio && npm install && npm run dev -- --repo /path/to/your/repo`.
 
 ## Docs
 
@@ -75,16 +75,16 @@ Without `.agentgraph/` in the repo it uses the packaged default hub; see [Withou
 - [Proposals](docs/proposals.md): what agents may ask the engine to do
 - [Running locally](docs/local.md): the model stack, the CLI, the GitHub App and the studio
 - [Without GitHub](docs/forge.md): the local verbs, instances and forge folders
-- [Hub files](docs/reference.md): every field and default
+- [Graph files](docs/reference.md): every field and default
 - [Architecture](docs/architecture.md)
 
 ## Examples
 
-| Hub | Repo or purpose |
+| Graph | Repo or purpose |
 | --- | --- |
 | `examples/sandbox` | A small JavaScript package; the place to start |
 | `examples/agentgraph` | agentgraph itself |
-| `examples/bench` | The hub the bench replays pull requests with |
+| `examples/bench` | The graph the bench replays pull requests with |
 
 ## Development
 
@@ -92,7 +92,7 @@ Without `.agentgraph/` in the repo it uses the packaged default hub; see [Withou
 npm test
 npm run lint
 npm run format
-npm run check         # everything: formatting, lint, unused code, docs, hubs, types, coverage, studio build
+npm run check         # everything: formatting, lint, unused code, docs, graphs, types, coverage, studio build
 ```
 
 `npm run check:docs` checks that docs references and documented commands match the code. `npm run hooks` enables the git hooks in `bin/hooks`, which run `npm run check` and the commit message rules. Undo with `git config --unset core.hooksPath`.

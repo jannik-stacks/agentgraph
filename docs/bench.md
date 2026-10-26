@@ -12,9 +12,9 @@ SHA=<sha> POINTS=opencode:luna REPEATS=3 KEYS=<keys file> node bench/drive.ts <d
 
 A bench dir holds `set.json` (the list of cases) and the set's case dirs under `cases/`. The driver runs validity, v2, floor, scoring and judging for every case at each point and repeat with the engine checked out at `<dir>/<sha>/engine`, and writes `report.md` in each run dir `<dir>/<sha>/<harness>-<model>/r<k>`. Points take aliases such as `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)). [Long runs](#long-runs) covers settings, budgets, pause and resume.
 
-Each run dir's `point.json` records harness, model, engine, hub trees, set and repeat. For arm commands run by hand, `BENCH_POINT` selects the model and `BENCH_HUB=<dir>` replaces the v2 hub and joins its cache key. `BENCH_EXCLUDE=<repo>,<repo>` names repos a bench never runs or reports. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key.
+Each run dir's `point.json` records harness, model, engine, graph trees, set and repeat. For arm commands run by hand, `BENCH_POINT` selects the model and `BENCH_DIR=<dir>` replaces the v2 graph and joins its cache key. `BENCH_EXCLUDE=<repo>,<repo>` names repos a bench never runs or reports. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key.
 
-Shared results live in `<dir>/.cache` (`BENCH_CACHE`): validity keys include case, scoring code and sandbox image; arm keys include case, arm, hub, engine `src` tree (except floor), point and repeat; judge keys include judge and the ordered diff prompt. Existing outputs are skipped; `BENCH_FRESH=1` ignores the cache.
+Shared results live in `<dir>/.cache` (`BENCH_CACHE`): validity keys include case, scoring code and sandbox image; arm keys include case, arm, graph, engine `src` tree (except floor), point and repeat; judge keys include judge and the ordered diff prompt. Existing outputs are skipped; `BENCH_FRESH=1` ignores the cache.
 
 ## Cases
 
@@ -38,7 +38,7 @@ A tested case is valid only if its hidden tests fail on base and pass on the hum
 | Arm | What runs |
 | --- | --- |
 | `human` | The merged change |
-| `v2` | The example hub named after the repo (`examples/<repo>`, `examples/sandbox` for `agentgraph-sandbox`), else `examples/bench`: implement, check tests, review with one return, then a human merge |
+| `v2` | The example graph named after the repo (`examples/<repo>`, `examples/sandbox` for `agentgraph-sandbox`), else `examples/bench`: implement, check tests, review with one return, then a human merge |
 | `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
 
 Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers the first question with "No more information. Use your judgment."; a second question ends the arm where it waits. Answers are counted.
@@ -55,7 +55,7 @@ node bin/bench.ts judge <case> <out>
 node bin/bench.ts report <out>
 ```
 
-- `run` writes the forge, data, hub copy, `diff.patch`, `meta.json` and `usage.json` under `<out>/<case>/<arm>`. Usage sums cost, tokens and time over every attempt. A model without a list price stops `run` before it spends.
+- `run` writes the forge, data, graph copy, `diff.patch`, `meta.json` and `usage.json` under `<out>/<case>/<arm>`. Usage sums cost, tokens and time over every attempt. A model without a list price stops `run` before it spends.
 - `score` applies each diff to a base checkout, runs the suite and typecheck, then adds the human test files and runs the hidden tests. It also counts lines, files, overlap with the human change, added tests, sessions, cost and answers. `--drop-env` removes the scoring environments afterward.
 - `judge` compares pairs blind, with names and issue numbers masked, using Opus and Sonnet through `claude -p` on the host (so it needs a logged-in Claude CLI) and sol through the `smart` alias. The default `--judges opus:1,sonnet:2` gives each judge one or both diff orders; add `sol:2`, or replace the panel with `--judges sol:1`. A judge from the contestant's maker is swapped for another maker. `bench/judge.md` puts correctness first, then scope, and does not reward size.
 - `report` writes valid, invalid and infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables. Cost is recorded, or estimated at list price, and each row says which.

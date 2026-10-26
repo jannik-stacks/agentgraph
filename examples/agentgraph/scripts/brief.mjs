@@ -70,10 +70,10 @@ const issueNumber = () => {
   return n && Number(n);
 };
 
-/** The local issue files under `$AGENTGRAPH_HUB/issues`. */
+/** The local issue files under `$AGENTGRAPH_DIR/issues`. */
 const issueFiles = () => {
-  if (!process.env.AGENTGRAPH_HUB) return [];
-  const dir = join(process.env.AGENTGRAPH_HUB, 'issues');
+  if (!process.env.AGENTGRAPH_DIR) return [];
+  const dir = join(process.env.AGENTGRAPH_DIR, 'issues');
   try {
     return readdirSync(dir)
       .filter(name => /^\d+-.*\.md$/.test(name))
@@ -115,7 +115,7 @@ const briefIn = source => {
 /**
  * Finds the brief for this run: the file `AGENTGRAPH_BRIEF` names, or the last comment holding one in the context file
  * `AGENTGRAPH_CONTEXT` names, or the local issue `AGENTGRAPH_ISSUE` (or the `agentgraph/<n>` branch) names under
- * `$AGENTGRAPH_HUB/issues`, or else the one open local issue labeled `ready`.
+ * `$AGENTGRAPH_DIR/issues`, or else the one open local issue labeled `ready`.
  */
 export const findBrief = () => {
   if (process.env.AGENTGRAPH_BRIEF) return readFileSync(process.env.AGENTGRAPH_BRIEF, 'utf8');

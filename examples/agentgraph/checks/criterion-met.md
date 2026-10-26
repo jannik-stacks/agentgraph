@@ -1,10 +1,10 @@
 ---
 mode: block
-each: node "$AGENTGRAPH_HUB/scripts/criteria.mjs"
+each: node "$AGENTGRAPH_DIR/scripts/criteria.mjs"
 agent: reviewer
 max: 5
 ---
-The change to src/, studio/src/ and the hub scripts meets each acceptance criterion, one criterion per run.
+The change to src/, studio/src/ and the graph scripts meets each acceptance criterion, one criterion per run.
 
 The item is the task, one acceptance criterion, the test that proves it, the change to the files under
 `src/`, `studio/src/` and `examples/agentgraph/scripts/` that its test file names, and what the brief leaves

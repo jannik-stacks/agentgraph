@@ -93,11 +93,11 @@ const bots = ['v2', 'floor'];
 /** Repos a bench never runs or reports. */
 const benched = (repo = '') => !process.env.BENCH_EXCLUDE?.split(',').includes(repo.split('/').pop() ?? '');
 const arms = ['human', ...bots, 'control'];
-const hubAliases: Record<string, string> = { 'agentgraph-sandbox': 'sandbox' };
-const findExampleHubName = (repo: string) => {
+const graphAliases: Record<string, string> = { 'agentgraph-sandbox': 'sandbox' };
+const findExampleGraphName = (repo: string) => {
   const name = repo.split('/').pop() ?? '';
-  const hub = hubAliases[name] ?? name;
-  return existsSync(join(engine, 'examples', hub, 'hub.yaml')) ? hub : 'bench';
+  const graph = graphAliases[name] ?? name;
+  return existsSync(join(engine, 'examples', graph, 'settings.yaml')) ? graph : 'bench';
 };
 const strataKeys = ['repo', 'tests', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/agent No more information. Use your judgment.';
@@ -391,12 +391,12 @@ const guard = (out: string, claude: boolean) => {
 };
 
 /**
- * Points every agent of a hub at `harness:model`, by the two lines of its front matter. Every agent gets the point's
+ * Points every agent of a graph at `harness:model`, by the two lines of its front matter. Every agent gets the point's
  * key, else its own, else the implementor's, so an agent a tune adds still has one.
  */
-export const repoint = (hub: string, point: string) => {
+export const repoint = (graph: string, point: string) => {
   const [harness, model] = point.split(':');
-  const dir = join(hub, 'agents');
+  const dir = join(graph, 'agents');
   const names = existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.md')) : [];
   for (const name of names)
     writeFileAtomic(
@@ -431,33 +431,34 @@ export const repoint = (hub: string, point: string) => {
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
   const { start } = (await import(join(engine, 'src/main.ts'))) as typeof MainModule;
   if (resolve(engine) !== resolve(agentgraphDir)) Object.assign(process.env, keys);
-  const own = process.env.BENCH_HUB ?? `examples/${findExampleHubName(c.repo)}`;
-  const hub = join(at, 'hub');
-  cpSync(resolve(engine, own), hub, { recursive: true });
+  const own = process.env.BENCH_DIR ?? `examples/${findExampleGraphName(c.repo)}`;
+  const graph = join(at, 'graph');
+  cpSync(resolve(engine, own), graph, { recursive: true });
   if (own === 'examples/bench' && c.runner) {
     writeFileAtomic(
-      join(hub, 'scripts/tests.sh'),
+      join(graph, 'scripts/tests.sh'),
       `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n[ -z "$files" ] || ${c.runner} $files\n`
     );
     writeFileAtomic(
-      join(hub, 'checks/tests.md'),
-      readFileOrEmpty(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
+      join(graph, 'checks/tests.md'),
+      readFileOrEmpty(join(graph, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_DIR/scripts/tests.sh"')
     );
     if (c.setup)
       writeFileAtomic(
-        join(hub, 'hub.yaml'),
-        `setup: ${JSON.stringify(c.setup)}\n${readFileOrEmpty(join(hub, 'hub.yaml'))}`
+        join(graph, 'settings.yaml'),
+        `setup: ${JSON.stringify(c.setup)}\n${readFileOrEmpty(join(graph, 'settings.yaml'))}`
       );
   }
   if (own === 'examples/bench' && !c.runner) {
-    rmSync(join(hub, 'checks'), { recursive: true });
+    rmSync(join(graph, 'checks'), { recursive: true });
     writeFileAtomic(
-      join(hub, 'workflows/issue.md'),
-      readFileOrEmpty(join(hub, 'workflows/issue.md')).replace(/^ {4}checks: \[tests\]\n/m, '')
+      join(graph, 'workflows/issue.md'),
+      readFileOrEmpty(join(graph, 'workflows/issue.md')).replace(/^ {4}checks: \[tests\]\n/m, '')
     );
   }
-  const raw = readFileOrEmpty(join(hub, 'hub.yaml'));
-  if (/^setup: pnpm install/m.test(raw)) writeFileAtomic(join(hub, 'hub.yaml'), raw.replace(/^setup: .*\n/m, ''));
+  const raw = readFileOrEmpty(join(graph, 'settings.yaml'));
+  if (/^setup: pnpm install/m.test(raw))
+    writeFileAtomic(join(graph, 'settings.yaml'), raw.replace(/^setup: .*\n/m, ''));
   const limit = (yaml: string, key: string, value: number) =>
     new RegExp(`^ {2}${key}:`, 'm').test(yaml)
       ? yaml.replace(new RegExp(`^( {2}${key}:).*$`, 'm'), `$1 ${value}`)
@@ -465,16 +466,16 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
         ? yaml.replace(/^limits:/m, `limits:\n  ${key}: ${value}`)
         : `${yaml}limits:\n  ${key}: ${value}\n`;
   writeFileAtomic(
-    join(hub, 'hub.yaml'),
-    limit(limit(readFileOrEmpty(join(hub, 'hub.yaml')), 'parallel', 1), 'sessions', 3)
+    join(graph, 'settings.yaml'),
+    limit(limit(readFileOrEmpty(join(graph, 'settings.yaml')), 'parallel', 1), 'sessions', 3)
   );
   if (arm === 'floor') {
-    rmSync(join(hub, 'workflows'), { recursive: true });
-    for (const d of ['agents', 'skills']) rmSync(join(hub, d), { recursive: true, force: true });
-    rmSync(join(hub, 'checks'), { recursive: true, force: true });
-    cpSync(join(agentgraphDir, 'bench/floor'), hub, { recursive: true });
+    rmSync(join(graph, 'workflows'), { recursive: true });
+    for (const d of ['agents', 'skills']) rmSync(join(graph, d), { recursive: true, force: true });
+    rmSync(join(graph, 'checks'), { recursive: true, force: true });
+    cpSync(join(agentgraphDir, 'bench/floor'), graph, { recursive: true });
   }
-  if (options.point) repoint(hub, options.point);
+  if (options.point) repoint(graph, options.point);
   const dir = join(at, 'forge');
   sh('git', ['init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git')]);
   sh('git', ['-C', repo, 'push', '-q', join(dir, 'origin.git'), `${c.base}:refs/heads/main`]);
@@ -485,7 +486,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   let status: string | undefined;
   let reason: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
-    const [run] = await start({ hub, issue: 1, data: join(at, 'data') }, undefined, keys);
+    const [run] = await start({ graph, issue: 1, data: join(at, 'data') }, undefined, keys);
     status = run?.status;
     reason = run?.reason;
     if (!run || run.status === 'done' || run.status === 'stopped') break;
@@ -518,11 +519,11 @@ export const infra = (s: { infra?: string; setup?: { ok: boolean }; status?: str
   (s.infra === 'empty diff' ? undefined : s.infra) ??
   (s.setup?.ok === false ? 'setup fails' : s.status === 'running' ? 'run did not finish' : undefined);
 
-/** The hub an arm of the case starts from: `BENCH_HUB` when set, else the example hub of its repo. */
-const findCaseHubDir = (c: Pick<Case, 'repo'>) =>
-  process.env.BENCH_HUB ?? join(engine, 'examples', findExampleHubName(c.repo));
+/** The graph an arm of the case starts from: `BENCH_DIR` when set, else the example graph of its repo. */
+const findCaseGraphDir = (c: Pick<Case, 'repo'>) =>
+  process.env.BENCH_DIR ?? join(engine, 'examples', findExampleGraphName(c.repo));
 
-/** Where an arm run is kept: by case, arm, engine, hub (`BENCH_HUB` when set) and commands, and the point and repeat when given. */
+/** Where an arm run is kept: by case, arm, engine, graph (`BENCH_DIR` when set) and commands, and the point and repeat when given. */
 export const armSlot = (
   c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup' | 'toolchain'>,
   arm: string,
@@ -538,7 +539,7 @@ export const armSlot = (
     c.base,
     arm,
     tree,
-    treeText(findCaseHubDir(c)),
+    treeText(findCaseGraphDir(c)),
     arm === 'floor' ? treeText(join(agentgraphDir, 'bench/floor')) : '',
     c.runner,
     c.setup,
@@ -581,7 +582,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   const at = join(out, c.id, arm);
   if (!benched(c.repo)) throw new Error(`${c.repo} is never benched`);
   if (existsSync(join(at, 'diff.patch'))) return;
-  const missing = unpriced(arm, findCaseHubDir(c));
+  const missing = unpriced(arm, findCaseGraphDir(c));
   if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to prices.json with its source`);
   if (!keys.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   const log = logger(out, { case: c.id, arm });
@@ -827,7 +828,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
 };
 /**
  * Sessions, reported cost and tokens by model of an arm's traces; input counts only uncached tokens. `split` is session,
- * tool, hub setup and check time in ms; sessions running at once each count.
+ * tool, graph setup and check time in ms; sessions running at once each count.
  */
 const effort = (data: string) => {
   const traces = existsSync(data) ? readdirSync(data).flatMap(id => readJsonl(join(data, id, 'trace.jsonl'))) : [];
@@ -923,10 +924,10 @@ const usage = (at: string): Partial<ReturnType<typeof readArmUsageOverAttempts>>
         ReturnType<typeof readArmUsageOverAttempts>
       >);
 
-/** Writes an arm's usage beside it, then copies it to `kept` without its data, forge, hub or attic dirs. */
+/** Writes an arm's usage beside it, then copies it to `kept` without its data, forge, graph or attic dirs. */
 export const keep = (at: string, kept: string | undefined) => {
   if (!existsSync(join(at, 'usage.json'))) writeFileAtomic(join(at, 'usage.json'), readArmUsageOverAttempts(at));
-  if (kept) copyDirIfAbsentAtomic(at, kept, p => !/\/(data|forge|hub|\.attic)$/.test(p));
+  if (kept) copyDirIfAbsentAtomic(at, kept, p => !/\/(data|forge|graph|\.attic)$/.test(p));
 };
 
 const scoreArms = async (c: Case & Commands, out: string, repo: string, which: string[]) => {
@@ -1293,8 +1294,8 @@ const priceTable = JSON.parse(readFileOrEmpty(join(agentgraphDir, 'infra/local/p
 const upstream = priceTable.aliases;
 
 /** The models an arm's agents run on, at `point` when given, that the engine's price table has no list price for. */
-export const unpriced = (arm: string, hub: string, point = options.point) => {
-  const dir = join(arm === 'floor' ? join(agentgraphDir, 'bench/floor') : hub, 'agents');
+export const unpriced = (arm: string, graph: string, point = options.point) => {
+  const dir = join(arm === 'floor' ? join(agentgraphDir, 'bench/floor') : graph, 'agents');
   const named = (existsSync(dir) ? readdirSync(dir) : [])
     .filter(n => n.endsWith('.md'))
     .map(n => /^model: *(\S+)/m.exec(readFileOrEmpty(join(dir, n)))?.[1] ?? 'default');
@@ -1516,7 +1517,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
     engine: 'unknown',
     set: basename(resolve(out)),
     repeat: 1,
-    hubs: {} as Record<string, string>,
+    graphs: {} as Record<string, string>,
     ...(JSON.parse(readFileOrEmpty(join(out, 'point.json')) || '{}') as object),
   };
   const ok = (v: unknown) => (v && typeof v === 'object' && 'ok' in v ? (+Boolean(v.ok) as 0 | 1) : undefined);
@@ -1557,7 +1558,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
         );
         return [
           {
-            point: `${p.harness}:${p.model}/${arm}@${p.engine}/${p.hubs[arm] ?? ''}/${p.set}`,
+            point: `${p.harness}:${p.model}/${arm}@${p.engine}/${p.graphs[arm] ?? ''}/${p.set}`,
             case: c.id,
             repeat: p.repeat,
             strata: c.strata,

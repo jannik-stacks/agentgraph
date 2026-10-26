@@ -16,14 +16,14 @@ backends, never by forking code. Each milestone ends with something you can run.
 
 ## Milestones
 
-1. **Real local run.** `node bin/run.ts` on a local hub, an `/agent` comment in an issue file, triage
+1. **Real local run.** `node bin/run.ts` on a local graph, an `/agent` comment in an issue file, triage
    on local qwen, implement with opencode on the subscription inside the sandbox, checks, review,
    result on a branch in a throwaway origin, live in the dashboard.
 2. **Hardened core.** Enforced or warned config, explicit job closure, fail-closed checks, branch
    and PR handoff, journaled idempotent apply, event dedupe, crash reconciliation, branch locks,
    resolved model per run, fault scenarios in the test doubles.
 3. **One-command stack.** agentgraph itself as a container (serve, API, AGI), added to the compose
-   stack; config only through env and the hub repo; `agentgraph doctor` checks every dependency.
+   stack; config only through env and the graph repo; `agentgraph doctor` checks every dependency.
 4. **GitHub mode.** GitHub App, webhook receiver with signature check, tunnel for local testing,
    a test repository, the same workflows as local mode.
 5. **Portable sandbox.** A `Sandbox` interface with docker, docker plus gVisor and remote

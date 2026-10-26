@@ -4,6 +4,6 @@ status: accepted
 skill: principles
 human: pstack principle
 ---
-A rule about one hub's workflow goes in a skill or a check, never in `src/` or a prompt every agent sees.
+A rule about one graph's workflow goes in a skill or a check, never in `src/` or a prompt every agent sees.
 Bad: triage close policy written into the engine prompt.
 Good: the same rule in `skills/triage.md`.

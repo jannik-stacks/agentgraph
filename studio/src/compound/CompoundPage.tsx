@@ -35,11 +35,11 @@ const verdicts: Record<Step['verdict'], string> = {
   kept: 'Cleared the keep rule against the incumbent on the select cases, so it became the incumbent.',
   discarded: 'Ran on every select case but did not clear the keep rule.',
   'screened-out': 'Lost clearly on the screen cases, so it never ran on the rest.',
-  infra: 'The run broke on infrastructure, so it says nothing about the hub.',
+  infra: 'The run broke on infrastructure, so it says nothing about the graph.',
 };
 const proposers: Record<Step['proposer'], string> = {
   retro: 'Read the incumbent’s traces on fit cases below 1 and named a shared miss.',
-  history: 'Read merged PRs and their reviews and turned a standing rule into the hub.',
+  history: 'Read merged PRs and their reviews and turned a standing rule into the graph.',
   manual: 'A patch dropped in by hand.',
   skill: 'Written by a subagent of the tune skill.',
   structure:
@@ -52,19 +52,19 @@ const metrics = {
 };
 
 const help = {
-  view: 'Pick one repo or every repo. The x axis shows hours since the starting hub, the iteration count, or the usd spent on bench runs so far.',
+  view: 'Pick one repo or every repo. The x axis shows hours since the starting graph, the iteration count, or the usd spent on bench runs so far.',
   series:
     'Each tune name, such as t1 or t2, has a chip that hides or shows it. A tune is one climb on one repo, and the same name on several repos means the same setup.',
   iteration:
-    'One round of the climb: proposers write up to k candidate hubs, each runs on the select cases, and at most one is kept.',
+    'One round of the climb: proposers write up to k candidate graphs, each runs on the select cases, and at most one is kept.',
   verdict:
-    'Kept means the candidate beat the current hub, by winning more cases than it lost or by costing less per run without dropping a case. Discarded means it ran on every select case and did neither. Screened out means it dropped two of its four screen cases and lifted none. Infra means its runs broke for reasons outside the hub.',
+    'Kept means the candidate beat the current graph, by winning more cases than it lost or by costing less per run without dropping a case. Discarded means it ran on every select case and did neither. Screened out means it dropped two of its four screen cases and lifted none. Infra means its runs broke for reasons outside the graph.',
   split:
     'Fit cases are the ones proposers may study. Validate cases count toward keeping a candidate but proposers never see them. Together they are the select cases. Test cases stay held out and run only at checkpoints, with judges.',
   quality:
     "Each run gets 0.87 of its score when the hidden tests from the human's merged change pass, plus 0.13 when the repo's own test suite still passes. Averaged over cases, so the human scores 1.",
-  delta: "The candidate's average quality minus the current hub's, compared case by case.",
-  pUp: 'The share of 2000 resampled sets of the cases (bootstrap resamples) where the candidate came out ahead of the current hub.',
+  delta: "The candidate's average quality minus the current graph's, compared case by case.",
+  pUp: 'The share of 2000 resampled sets of the cases (bootstrap resamples) where the candidate came out ahead of the current graph.',
   bars: 'Each bar totals one iteration: usd spent on bench runs, the minutes those runs took, or Codex and Claude five-hour window points used.',
 };
 
@@ -168,9 +168,9 @@ const Detail = ({ series, point, onClose }: { series: Series; point: Point; onCl
         </Field>
         <Field name="select">{fmt(point.y)}</Field>
         <Field name="why">{step.why}</Field>
-        <Field name="hub">
+        <Field name="graph">
           <span className="font-mono">
-            {step.parent.slice(0, 7)} → {step.hub.slice(0, 7)}
+            {step.parent.slice(0, 7)} → {step.graph.slice(0, 7)}
           </span>
         </Field>
         <Field name="cost">
@@ -225,7 +225,7 @@ const Detail = ({ series, point, onClose }: { series: Series; point: Point; onCl
       {step.diff ? (
         <DiffText diff={step.diff} />
       ) : (
-        <p className="text-zinc-500">No hub diff: this is the starting hub.</p>
+        <p className="text-zinc-500">No graph diff: this is the starting graph.</p>
       )}
     </aside>
   );
@@ -237,7 +237,7 @@ const axes = [
   { key: 'minutes', label: 'minutes per run, mean over cases', of: (p: Point) => p.run.minutes },
 ] as const;
 
-/** Quality, usd and minutes per run over hours since the starting hub, one line per tune: the incumbent's value. */
+/** Quality, usd and minutes per run over hours since the starting graph, one line per tune: the incumbent's value. */
 const TimeCharts = ({
   series,
   tone,
@@ -283,7 +283,7 @@ const TimeCharts = ({
           }))}
           levels={a.key === 'quality' ? [{ y: 1, label: 'human' }] : []}
           xTick={t => `${t}h`}
-          xLabel="hours since the starting hub"
+          xLabel="hours since the starting graph"
           yLabel={a.label}
           picked={picked}
           onPick={onPick}
@@ -291,7 +291,7 @@ const TimeCharts = ({
       </section>
     ))}
     <p className="max-w-3xl text-[11px] text-zinc-500">
-      Each line is the kept hub of one tune; it steps when a candidate is kept, for better quality or for the same
+      Each line is the kept graph of one tune; it steps when a candidate is kept, for better quality or for the same
       quality at less usd or fewer minutes. Filled points were kept, hollow ones discarded. Cost is the mean over the
       select cases of one run that was not infra.
     </p>
@@ -491,8 +491,8 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
               />
               <p className="mt-1 text-[11px] text-zinc-500">
                 {repo === 'average'
-                  ? 'Each line is the mean over repos of the kept hub; the band runs from the lowest repo to the highest. Pick a repo to see its candidates.'
-                  : 'Filled points were kept, hollow ones discarded, small grey ones screened out. The line is the kept hub, the dotted line the kept hubs on validate alone. Diamonds are test checkpoints, scored with judges. Click a point for its diff.'}
+                  ? 'Each line is the mean over repos of the kept graph; the band runs from the lowest repo to the highest. Pick a repo to see its candidates.'
+                  : 'Filled points were kept, hollow ones discarded, small grey ones screened out. The line is the kept graph, the dotted line the kept graphs on validate alone. Diamonds are test checkpoints, scored with judges. Click a point for its diff.'}
               </p>
             </section>
             <section className="max-w-3xl space-y-1">

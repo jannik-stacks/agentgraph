@@ -11,22 +11,22 @@ import { Sandbox, type Command } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
-import type { Hub } from '../src/hub.ts';
+import type { Graph } from '../src/folder.ts';
 import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { makeTestHub, result, seeded, start } from './fixtures.ts';
+import { makeTestGraph, result, seeded, start } from './fixtures.ts';
 import { git } from './kit.ts';
 
 export const foot = (...lines: string[]) =>
   `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
 export const replyHint = answerWith;
-export const hub = makeTestHub('kit', {
+export const graph = makeTestGraph('kit', {
   types: { run: '! grep -q TODO hello.txt' },
   safety: { run: '! test -e secret.txt' },
   claims: { agent: 'claim-checker' },
 });
-export const w = hub.workflows.issue!;
+export const w = graph.workflows.issue!;
 
 export const removeAfter = (dir: string) => onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -124,7 +124,7 @@ export const reactions = (data: string, id: string) =>
 export const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m.comment.body] : []));
 
 /** Drives `r` as tick does: from the store, so a run the test changed in memory is saved first. */
-export const driveStored = (flow: typeof w, r: Run, h: Hub) =>
+export const driveStored = (flow: typeof w, r: Run, h: Graph) =>
   Effect.zipRight(
     Effect.flatMap(Store, s => s.put(r)),
     drive(flow, r, h)

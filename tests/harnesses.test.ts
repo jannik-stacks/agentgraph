@@ -203,7 +203,7 @@ describe('the session loop', () => {
     expect(String(exit)).toContain('no harness goose in the config');
   });
 
-  it.each(BAD_SETTINGS)('refuses harness settings %s as a hub problem', async (text, message) => {
+  it.each(BAD_SETTINGS)('refuses harness settings %s as a graph problem', async (text, message) => {
     const file = join(mkdtempSync(join(tmpdir(), 'agentgraph-config-')), 'config.mjs');
     writeFileSync(file, text);
     const provider = ConfigProvider.fromMap(new Map([['AGENTGRAPH_CONFIG', file]]));

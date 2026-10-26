@@ -20,12 +20,12 @@ import type { SessionEvent } from '../src/trace.ts';
 import { begin, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { makeTestHub, reply, start, wrote } from './fixtures.ts';
+import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { world, push, pull, services, readTrace, bodies, driveStored, fresh, pullRequest } from './world.ts';
 
 describe('a run branch that moved', () => {
-  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
   const flow = {
     ...small.workflows.issue!,
     steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: ['types'] })),

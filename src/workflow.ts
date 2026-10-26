@@ -20,7 +20,7 @@ export type CheckResult = {
   ms: number;
 };
 
-/** A hub file after parsing: its name, where it lives and its markdown body. */
+/** A graph file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };
 
 export type Problem = { path: string; message: string };
@@ -104,8 +104,8 @@ export type Run = {
    * applied and conflict markers left, and the push replaces the branch, or merges into it with `merge`.
    */
   onto?: { sha: string; merge?: true };
-  /** The version of the hub the run was last checked under. */
-  hub?: string;
+  /** The version of the graph the run was last checked under. */
+  graph?: string;
   /** The run whose `run` proposal started this one. */
   by?: string;
   startCommit?: string;

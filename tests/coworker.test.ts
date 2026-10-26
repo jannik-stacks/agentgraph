@@ -13,7 +13,7 @@ import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
 import { begin, cancelled, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { makeTestHub, reply, result, start, stop, wrote } from './fixtures.ts';
+import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import {
   foot,
@@ -34,7 +34,7 @@ import {
 } from './world.ts';
 
 describe('stacks', () => {
-  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
   const issue = small.workflows.issue!;
   const merging = {
     ...small,
@@ -217,7 +217,7 @@ describe('stacks', () => {
 });
 
 describe('coworker', () => {
-  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
   const flow = small.workflows.issue!;
   const begun = () => begin(flow, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
@@ -658,7 +658,7 @@ describe('compound engineering', () => {
     writeFileSync(join(where.data, 'run-7', 'run.json'), JSON.stringify(fresh()));
     writeFileSync(join(where.data, 'run-7', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
     const seen = join(where.root, 'seen.md');
-    const kit = makeTestHub('kit', {
+    const kit = makeTestGraph('kit', {
       types: { run: `cp "$AGENTGRAPH_TRACES" ${seen}` },
       claims: { agent: 'claim-checker' },
     });
@@ -693,7 +693,7 @@ describe('compound engineering', () => {
     expect(prompts[0]).toContain(`\`${join(where.root, 'news', 'traces.md')}\`, an absolute path outside the checkout`);
   });
 
-  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
   const { branch: _branch, ...unbranched } = small.workflows.issue!;
   const looking = {
     ...small,

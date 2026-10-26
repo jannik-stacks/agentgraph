@@ -1,7 +1,7 @@
 /**
- * Proposers: turn a tune's failing fit cases or its mined history into one candidate hub.
+ * Proposers: turn a tune's failing fit cases or its mined history into one candidate graph.
  *
- *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <hub> [--runs <dir>] [--iteration n]
+ *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--runs <dir>] [--iteration n]
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -11,8 +11,8 @@ import { Effect } from 'effect';
 import { failureClass, infra } from '../bin/bench.ts';
 import { parseJsonl, readFileOrEmpty, readJsonl } from '../bin/resume.ts';
 import { transcript } from '../src/context.ts';
-import { readConfiguredHub } from '../src/harnesses.ts';
-import type { Hub } from '../src/hub.ts';
+import { readConfiguredGraph } from '../src/harnesses.ts';
+import type { Graph } from '../src/folder.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import type { Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
@@ -28,11 +28,11 @@ type Answer = {
   cases: { id: string; evidence: string }[];
   changes: Change[];
 };
-/** A proposer's answer; `hub` is set only when the answer is a change and the patched hub passes the hub check. */
+/** A proposer's answer; `graph` is set only when the answer is a change and the patched graph passes the graph check. */
 type Proposal = Answer & {
   id: string;
   proposer: Proposer;
-  hub?: string;
+  graph?: string;
   usd: number;
   usage?: Usage;
   problems: string[];
@@ -41,18 +41,18 @@ type Proposal = Answer & {
 /** The structure proposer's menu, taken round-morgan by iteration. */
 const edits = ['reviewer', 'drop', 'tries', 'scout', 'warn'] as const;
 
-/** The edits of the menu that can change this hub: nothing added twice, nothing dropped or softened that is not there. */
-export const fitting = (hub: Hub) => {
-  const steps = Object.values(hub.workflows).flatMap(w => w.steps);
+/** The edits of the menu that can change this graph: nothing added twice, nothing dropped or softened that is not there. */
+export const fitting = (graph: Graph) => {
+  const steps = Object.values(graph.workflows).flatMap(w => w.steps);
   const work = steps.filter(s => !('wait' in s.does));
   const has = (name: string) => steps.some(s => s.name === name);
-  const extra = Object.keys(hub.checks).some(c => c !== 'tests') || Object.keys(hub.skills).length > 0;
+  const extra = Object.keys(graph.checks).some(c => c !== 'tests') || Object.keys(graph.skills).length > 0;
   const fits = {
     reviewer: !has('review'),
     drop: work.length > 1 || extra,
     tries: work.some(s => s.checks.length > 0 && s.tries < 4),
     scout: !has('scout'),
-    warn: Object.values(hub.checks).some(
+    warn: Object.values(graph.checks).some(
       c => c.name !== 'tests' && c.mode === 'block' && steps.some(s => s.checks.includes(c.name))
     ),
   };
@@ -91,7 +91,7 @@ const schema = {
   },
 };
 const minCases: Record<Proposer, number> = { retro: 2, history: 2, structure: 1 };
-const hubPath = /^(hub\.yaml|(agents|skills|checks|workflows|scripts)(\/[\w-][\w.-]*)+)$/;
+const graphPath = /^(graph\.yaml|(agents|skills|checks|workflows|scripts)(\/[\w-][\w.-]*)+)$/;
 const here = (path: string) => join(import.meta.dirname, path);
 const head = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max)}\n... ${text.length - max} more characters`;
@@ -184,7 +184,7 @@ const shuffle = <T>(xs: T[], seed: number) => {
   return out;
 };
 
-/** How the hub did on cases the proposer never sees: counts per failure class, no ids or content. */
+/** How the graph did on cases the proposer never sees: counts per failure class, no ids or content. */
 const unseen = (runs: string, ids: string[]) => {
   const ran = ids.filter(id => existsSync(join(runs, id)));
   const classes = ids.flatMap(id => failing(runs, id).map(f => f.hidden.class ?? failureClass(f.hidden.tail)));
@@ -239,10 +239,10 @@ const history = (cases: string, ids: string[], seed: number): Material[] => {
   });
 };
 
-const hubText = (hub: string) =>
-  files(hub)
+const graphText = (graph: string) =>
+  files(graph)
     .sort()
-    .map(f => `### ${f}\n\n${formatCodeFence(head(readFileOrEmpty(join(hub, f)), 4000))}`)
+    .map(f => `### ${f}\n\n${formatCodeFence(head(readFileOrEmpty(join(graph, f)), 4000))}`)
     .join('\n\n');
 
 export type ClaudeStreamEvent = {
@@ -356,7 +356,7 @@ const problemsOf = (a: Answer, ids: string[], min: number) => {
     ...a.changes.flatMap(c => {
       const kinds = [c.content !== undefined, c.old !== undefined && c.new !== undefined, c.delete === true];
       return [
-        ...(hubPath.test(c.path) ? [] : [`${c.path}: not a hub file you may change`]),
+        ...(graphPath.test(c.path) ? [] : [`${c.path}: not a graph file you may change`]),
         ...(kinds.filter(Boolean).length === 1
           ? []
           : [`${c.path}: give exactly one of content, old with new, or delete`]),
@@ -365,12 +365,12 @@ const problemsOf = (a: Answer, ids: string[], min: number) => {
   ];
 };
 
-const apply = (hub: string, changes: Change[]) => {
+const apply = (graph: string, changes: Change[]) => {
   const problems: string[] = [];
   for (const c of changes) {
-    const path = join(hub, c.path);
+    const path = join(graph, c.path);
     if (c.content !== undefined) writeFileAtomic(path, c.content);
-    else if (!existsSync(path)) problems.push(`${c.path}: no such file in the hub`);
+    else if (!existsSync(path)) problems.push(`${c.path}: no such file in the graph`);
     else if (c.delete) rmSync(path);
     else {
       const found = readFileOrEmpty(path).split(c.old!).length - 1;
@@ -385,21 +385,21 @@ const apply = (hub: string, changes: Change[]) => {
   return problems;
 };
 
-/** The hub check's problems, empty when the hub loads. */
-export const hubProblems = (hub: string) =>
+/** The graph check's problems, empty when the graph loads. */
+export const graphProblems = (graph: string) =>
   Effect.runPromise(
-    readConfiguredHub(hub).pipe(
+    readConfiguredGraph(graph).pipe(
       Effect.map(() => [] as string[]),
-      Effect.catchTag('HubError', e => Effect.succeed(e.problems.map(p => `${p.path}: ${p.message}`)))
+      Effect.catchTag('GraphError', e => Effect.succeed(e.problems.map(p => `${p.path}: ${p.message}`)))
     )
   );
 
 const diffOf = (cwd: string) =>
-  spawnSync('git', ['diff', '--no-index', '--no-color', 'input/hub', 'hub'], { cwd, encoding: 'utf8' }).stdout;
+  spawnSync('git', ['diff', '--no-index', '--no-color', 'input/graph', 'graph'], { cwd, encoding: 'utf8' }).stdout;
 
 /**
- * Runs one proposer on a tune dir and writes `cands/<id>/hub` (when valid), `proposal.md`, the prompt and the raw
- * stream. `from` is the incumbent hub, `runs` the incumbent's bench out dir with the fit cases' arm runs.
+ * Runs one proposer on a tune dir and writes `cands/<id>/graph` (when valid), `proposal.md`, the prompt and the raw
+ * stream. `from` is the incumbent graph, `runs` the incumbent's bench out dir with the fit cases' arm runs.
  */
 export const propose = async (o: {
   tune: string;
@@ -424,7 +424,7 @@ export const propose = async (o: {
       ? history(cases, split('mine'), iteration)
       : failures(cases, o.runs!, split('fit'), o.proposer === 'structure');
   const ids = material.map(m => m.id);
-  const menu = await Effect.runPromise(readConfiguredHub(o.from).pipe(Effect.map(fitting))).catch(() => [...edits]);
+  const menu = await Effect.runPromise(readConfiguredGraph(o.from).pipe(Effect.map(fitting))).catch(() => [...edits]);
   const turn = iteration % edits.length;
   const edit = [...edits.slice(turn), ...edits.slice(0, turn)].find(e => menu.includes(e));
   const before = tried(o.tune);
@@ -436,7 +436,7 @@ export const propose = async (o: {
   const skip = !ids.length
     ? 'no cases to learn from'
     : o.proposer === 'structure' && !edit
-      ? 'no edit of the menu fits the hub'
+      ? 'no edit of the menu fits the graph'
       : again
         ? 'the same question was answered with nothing before'
         : undefined;
@@ -454,7 +454,7 @@ export const propose = async (o: {
     };
   }
   const input = join(dir, 'input');
-  cpSync(o.from, join(input, 'hub'), { recursive: true });
+  cpSync(o.from, join(input, 'graph'), { recursive: true });
   for (const m of material)
     for (const [name, text] of Object.entries(m.files)) writeFileAtomic(join(input, 'cases', m.id, name), text);
   const instructions = readFileOrEmpty(here(`proposers/${o.proposer}.md`)).replace('{{edit}}', edit ?? '');
@@ -463,14 +463,14 @@ export const propose = async (o: {
   const prompt = [
     instructions,
     readFileOrEmpty(here('proposers/patch.md')),
-    `## The hub\n\n${hubText(o.from)}`,
+    `## The graph\n\n${graphText(o.from)}`,
     `## ${heading}\n\n${material.map(m => m.text).join('\n\n') || '(none)'}`,
-    ...(others ? [`## Held-out cases\n\nOn the held-out cases this hub is scored on, ${others}`] : []),
+    ...(others ? [`## Held-out cases\n\nOn the held-out cases this graph is scored on, ${others}`] : []),
     ...(before.length ? [`## Tried before\n\n${before.join('\n')}`] : []),
   ].join('\n\n');
   writeFileAtomic(join(input, 'prompt.md'), prompt);
 
-  const hub = join(dir, 'hub');
+  const graph = join(dir, 'graph');
   const base = [
     '-p',
     '--output-format',
@@ -516,11 +516,11 @@ export const propose = async (o: {
       : ['the answer was not the structured output asked for'];
     if (got) answer = { ...got, cases: got.cases ?? [], changes: got.changes ?? [] };
     if (!problems.length && answer.verdict === 'change') {
-      rmSync(hub, { recursive: true, force: true });
-      cpSync(o.from, hub, { recursive: true });
-      problems = apply(hub, answer.changes);
-      if (!problems.length) problems = await hubProblems(hub);
-      if (!problems.length && !diffOf(dir)) problems = ['the changes leave the hub as it was'];
+      rmSync(graph, { recursive: true, force: true });
+      cpSync(o.from, graph, { recursive: true });
+      problems = apply(graph, answer.changes);
+      if (!problems.length) problems = await graphProblems(graph);
+      if (!problems.length && !diffOf(dir)) problems = ['the changes leave the graph as it was'];
     }
     if (!problems.length) break;
     ask = `Your proposal has these problems:\n\n${problems.map(p => `- ${p}`).join('\n')}\n\nFix them and answer again in full.`;
@@ -532,7 +532,7 @@ export const propose = async (o: {
     ...answer,
     id: o.id,
     proposer: o.proposer,
-    ...(valid && { hub }),
+    ...(valid && { graph }),
     usd,
     ...(usage && { usage }),
     problems,
@@ -570,7 +570,7 @@ if (import.meta.main) {
   const [tune, proposer] = positionals;
   if (!tune || !['retro', 'history', 'structure'].includes(proposer ?? '') || !values.id || !values.from) {
     console.error(
-      'usage: node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <hub> [--runs <dir>]'
+      'usage: node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--runs <dir>]'
     );
     process.exit(2);
   }
@@ -584,5 +584,5 @@ if (import.meta.main) {
     ...(values.cases && { cases: resolve(values.cases) }),
     ...(values.model && { model: values.model }),
   });
-  console.log(JSON.stringify({ ...p, hub: p.hub && relative(process.cwd(), p.hub) }, null, 2));
+  console.log(JSON.stringify({ ...p, graph: p.graph && relative(process.cwd(), p.graph) }, null, 2));
 }

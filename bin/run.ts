@@ -8,19 +8,19 @@ import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { ensureDocker } from '../src/docker.ts';
 import type { Instruction } from '../src/engine.ts';
-import type { Hub } from '../src/hub.ts';
+import type { Graph } from '../src/folder.ts';
 import { fileForge, Forge } from '../src/forge.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
-  readConfiguredHub,
+  readConfiguredGraph,
   readHarnessSettings,
   splitNames,
   type Provider,
 } from '../src/harnesses.ts';
 import {
-  defaultHub,
-  ensureHub,
+  defaultDir,
+  ensureGraph,
   ensureInstance,
   writePullToRepo,
   findInstances,
@@ -51,16 +51,16 @@ import type { Run } from '../src/workflow.ts';
 const usage = `usage: npx agentgraph <verb> [flags]
   start "<title>[\\n<body>]" [--workflow <name>]   files an issue and drives it until it waits or ends
   loop [--once]                                   drives every open issue, again every AGENTGRAPH_EVERY minutes
-  show [<n>|hub]                                  what needs you and every issue, one issue in full, or the hub
+  show [<n>|graph]                                  what needs you and every issue, one issue in full, or the graph
   say <n> "<text>" [--line <path>:<line>]         an /agent comment on issue n, then drives it
   review <n> approve|changes ["<text>"]           a review of issue n's pull request; changes drives it
   merge <n>                                       merges issue n's pull request and closes the issue
   export <n> [--as <branch>] [--patch <file>]     writes issue n's branch into your repo again
   close <n>                                       closes issue n
-  check [<check>... --runs [--issue <n>]]        validates the hub, or runs checks again on ended runs
+  check [<check>... --runs [--issue <n>]]        validates the graph, or runs checks again on ended runs
   dispatch <n> --workflow <name> [--step <step>]  starts a workflow that takes dispatch on issue n
   prune-logs [--apply]                            counts the check logs no trace names, or deletes them
-flags: --data <dir> --repo <dir> --base <branch> --hub <dir> --forge github|<dir> --logs all|failed|off
+flags: --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
        --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...`;
 
 const { values, positionals } = parseArgs({
@@ -68,7 +68,7 @@ const { values, positionals } = parseArgs({
     data: { type: 'string' },
     repo: { type: 'string' },
     base: { type: 'string' },
-    hub: { type: 'string' },
+    dir: { type: 'string' },
     forge: { type: 'string' },
     logs: { type: 'string' },
     workflow: { type: 'string' },
@@ -112,14 +112,14 @@ const makeHarnessChoice = (provider: string | undefined) => ({
 });
 const formatUnserved = (provider: Provider, harness: string) =>
   `${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.`;
-const checkHub = async (hub: string, i: Pick<Instance, 'provider'> | undefined) => {
+const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefined) => {
   const problems = await Effect.runPromise(
-    Effect.zip(readHarnessSettings, readConfiguredHub(hub)).pipe(
+    Effect.zip(readHarnessSettings, readConfiguredGraph(graph)).pipe(
       Effect.map(([{ providers = [], provider: named }, loaded]) => {
         const provider = providers.find(p => p.name === named);
         return provider ? findUnserved(provider, loaded) : [];
       }),
-      Effect.catchTag('HubError', e => Effect.succeed(e.problems)),
+      Effect.catchTag('GraphError', e => Effect.succeed(e.problems)),
       Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i?.provider)))
     )
   );
@@ -167,15 +167,15 @@ const pickProvider = async (i: Instance, after: string): Promise<{ provider: Pro
   return picked;
 };
 
-const findUnserved = (provider: Provider, hub: Hub) =>
-  Object.values(hub.agents)
+const findUnserved = (provider: Provider, graph: Graph) =>
+  Object.values(graph.agents)
     .filter(a => !provider.harnesses.includes(a.harness))
     .map(a => ({
       path: a.path,
       message: formatUnserved(provider, a.harness),
     }));
 
-const connect = async (i: Instance, hub: string, after: string) => {
+const connect = async (i: Instance, graph: string, after: string) => {
   if (!host.sandbox) {
     const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`), host.image)).catch(
       (e: Error) => fail(`${e.message}\n${after}`, 1)
@@ -187,7 +187,7 @@ const connect = async (i: Instance, hub: string, after: string) => {
   const harness = values.harness ?? provider.harnesses[0]!;
   if (!provider.harnesses.includes(harness)) fail(`${formatUnserved(provider, harness)}\n${after}`);
   console.log(
-    `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
+    `agentgraph ${version}: ${harness} on ${provider.name}, ${graph === defaultDir ? 'default graph' : `graph ${graph}`}, local forge`
   );
   console.log(`repo     ${i.repo}, base ${i.base}`);
   if (!(ready ?? (await provider.ready(host))))
@@ -201,9 +201,11 @@ const connect = async (i: Instance, hub: string, after: string) => {
   return { provider, ...(values.model && { model: aliases.get(values.model) ?? values.model }) };
 };
 
-const loadServedHub = async ({ provider, model }: Awaited<ReturnType<typeof connect>>, hub: string) => {
+const loadServedGraph = async ({ provider, model }: Awaited<ReturnType<typeof connect>>, graph: string) => {
   const loaded = await Effect.runPromise(
-    readConfiguredHub(hub).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(provider.name))))
+    readConfiguredGraph(graph).pipe(
+      Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(provider.name)))
+    )
   );
   if (model)
     process.env.AGENTGRAPH_MODELS = ['*', ...Object.values(loaded.agents).flatMap(a => a.model ?? [])]
@@ -214,9 +216,9 @@ const loadServedHub = async ({ provider, model }: Awaited<ReturnType<typeof conn
   return loaded;
 };
 
-const prepare = async (i: Instance, hub: string, after: string) => {
-  const connection = await connect(i, hub, after);
-  const loaded = await loadServedHub(connection, hub).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+const prepare = async (i: Instance, graph: string, after: string) => {
+  const connection = await connect(i, graph, after);
+  const loaded = await loadServedGraph(connection, graph).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   return { loaded, provider: connection.provider.name };
 };
 
@@ -233,29 +235,29 @@ const { onForge, data: root } = host;
 
 const selected = formatInstanceFlags(values.repo && resolve(values.repo), values.data && root);
 
-if (verb === 'check' && values.hub && !values.runs) {
+if (verb === 'check' && values.dir && !values.runs) {
   const repo = onForge ? undefined : await findRepo(resolve(values.repo ?? '.'));
   const saved = repo ? findInstances(root).find(i => i.repo === realpathSync(repo)) : undefined;
-  await checkHub(resolve(values.hub), saved);
+  await checkGraph(resolve(values.dir), saved);
 }
 if (onForge) await runOnForge();
 else await runOnInstance();
 
 async function runOnForge() {
   if (values.provider || values.harness || values.model || values.save)
-    fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the hub and its env');
+    fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the graph and its env');
   const folder = values.forge && values.forge !== 'github' ? resolve(values.forge) : undefined;
   if (folder) process.env.AGENTGRAPH_FORGE = folder;
-  const hub = values.hub && resolve(values.hub);
-  const needHub = () => hub ?? fail(`${verb} on a forge needs --hub`);
+  const graph = values.dir && resolve(values.dir);
+  const needGraph = () => graph ?? fail(`${verb} on a forge needs --dir`);
   switch (verb) {
     case 'loop': {
-      if (values.once) return printRuns(await start({ hub: needHub(), issue: 'all', data: root }));
+      if (values.once) return printRuns(await start({ graph: needGraph(), issue: 'all', data: root }));
       process.env.AGENTGRAPH_DATA = root;
-      if (hub)
+      if (graph)
         Object.assign(process.env, {
-          AGENTGRAPH_HUB: hub,
-          AGENTGRAPH_REPO: (await Effect.runPromise(readConfiguredHub(hub))).repo,
+          AGENTGRAPH_DIR: graph,
+          AGENTGRAPH_REPO: (await Effect.runPromise(readConfiguredGraph(graph))).repo,
         });
       await start();
       return;
@@ -264,7 +266,7 @@ async function runOnForge() {
       const env = await readEngineEnv();
       const { AGENTGRAPH_APP_ID: id, AGENTGRAPH_APP_KEY: key } = env;
       if (!folder && (!id || !key)) fail('set AGENTGRAPH_APP_ENV to the App env file');
-      const { repo } = await Effect.runPromise(readConfiguredHub(needHub()));
+      const { repo } = await Effect.runPromise(readConfiguredGraph(needGraph()));
       const lines = [
         ...(folder ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
         ...findRunsWaitingOnPeople(await listRuns(root)).flatMap(run =>
@@ -276,7 +278,7 @@ async function runOnForge() {
     }
     case 'check':
     case 'dispatch':
-      return printRuns(await start({ hub: needHub(), issue: 'all', data: root, instruction: instructed() }));
+      return printRuns(await start({ graph: needGraph(), issue: 'all', data: root, instruction: instructed() }));
     case 'prune-logs':
       return prune(root);
     default:
@@ -324,14 +326,14 @@ async function runOnInstance() {
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);
-    return ensureHub(i, values.hub).catch((e: Error) => fail(e.message, 1));
+    return ensureGraph(i, values.dir).catch((e: Error) => fail(e.message, 1));
   };
   switch (verb) {
     case 'start': {
       const text = rest.join(' ').trim();
       if (!text) fail(`start takes the issue text\n${usage}`);
-      const hub = await synced();
-      const { loaded, provider } = await prepare(i, hub, 'Nothing was filed.');
+      const graph = await synced();
+      const { loaded, provider } = await prepare(i, graph, 'Nothing was filed.');
       const issue = await writeTriggeringIssue(
         { ...loaded, trust: [i.owner] },
         i.forge,
@@ -341,16 +343,16 @@ async function runOnInstance() {
         values.label
       ).catch((e: Error) => fail(e.message));
       console.log(`#${issue} ${text.split('\n')[0]}`);
-      return drive(i, issue, hub, provider);
+      return drive(i, issue, graph, provider);
     }
     case 'say': {
       if (!said()) fail(`say takes text\n${usage}`);
       const issue = await findPullIssue(i, numbered());
-      const hub = await synced();
-      const { provider } = await prepare(i, hub, 'Nothing was posted.');
+      const graph = await synced();
+      const { provider } = await prepare(i, graph, 'Nothing was posted.');
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
       if (values.label) await writeLabels(i.forge, i.owner, issue, values.label).catch((e: Error) => fail(e.message));
-      return drive(i, issue, hub, provider);
+      return drive(i, issue, graph, provider);
     }
     case 'review': {
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
@@ -359,10 +361,10 @@ async function runOnInstance() {
       if (!verdict) fail('review takes approve or changes');
       const text = rest.slice(2).join(' ').trim();
       const issue = await findPullIssue(i, numbered());
-      const hub = await synced();
-      const prepared = verdict === 'changes_requested' && (await prepare(i, hub, 'Nothing was posted.'));
+      const graph = await synced();
+      const prepared = verdict === 'changes_requested' && (await prepare(i, graph, 'Nothing was posted.'));
       await writeReview(i.forge, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
-      if (prepared) return drive(i, issue, hub, prepared.provider);
+      if (prepared) return drive(i, issue, graph, prepared.provider);
       console.log(`approved #${n}`);
       return;
     }
@@ -394,23 +396,24 @@ async function runOnInstance() {
       return;
     }
     case 'show':
-      if (rest[0] === 'hub') {
-        const hub = await synced();
+      if (rest[0] === 'graph') {
+        const graph = await synced();
         console.log(
-          `hub ${hub}${hub === defaultHub ? ' (default; copy it to .agentgraph/ in your repo to change it)' : ''}`
+          `graph ${graph}${graph === defaultDir ? ' (default; copy it to .agentgraph/ in your repo to change it)' : ''}`
         );
-        for (const file of readdirSync(hub, { recursive: true, encoding: 'utf8' }).toSorted()) console.log(`  ${file}`);
+        for (const file of readdirSync(graph, { recursive: true, encoding: 'utf8' }).toSorted())
+          console.log(`  ${file}`);
         return;
       }
       return rest[0] ? showIssue(await getForge(), numbered(), i) : showAll(i, await getForge());
     case 'check':
     case 'dispatch': {
-      if (verb === 'check' && !values.runs) return checkHub(await synced(), i);
-      const hub = await synced();
-      const { provider } = await prepare(i, hub, 'Nothing was run.');
+      if (verb === 'check' && !values.runs) return checkGraph(await synced(), i);
+      const graph = await synced();
+      const { provider } = await prepare(i, graph, 'Nothing was run.');
       const choice = makeHarnessChoice(provider);
       return printRuns(
-        await start({ hub, issue: 'all', data: i.data, base: i.base, instruction: instructed(), choice })
+        await start({ graph, issue: 'all', data: i.data, base: i.base, instruction: instructed(), choice })
       );
     }
     case 'loop':
@@ -443,7 +446,7 @@ async function findPullIssue(i: Instance, n: number) {
   return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 }
 
-async function drive(i: Instance, issue: number, hub: string, provider: string) {
+async function drive(i: Instance, issue: number, graph: string, provider: string) {
   trapInterrupt();
   if (await isLoopHeld(i.data)) {
     console.log(
@@ -453,7 +456,7 @@ async function drive(i: Instance, issue: number, hub: string, provider: string) 
   }
   const stop = watchRuns(i, issue);
   const runs = await start(
-    { hub, issue, data: i.data, marked: true, base: i.base, choice: makeHarnessChoice(provider) },
+    { graph, issue, data: i.data, marked: true, base: i.base, choice: makeHarnessChoice(provider) },
     undefined,
     {},
     stopping.signal
@@ -495,17 +498,17 @@ async function report(i: Instance, issue: number, merged = false) {
 async function loop(i: Instance) {
   const moved = await ensureBase(i);
   if (moved) fail(moved, 1);
-  const first = await ensureHub(i, values.hub).catch((e: Error) => fail(e.message, 1));
+  const first = await ensureGraph(i, values.dir).catch((e: Error) => fail(e.message, 1));
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
   trapInterrupt();
   try {
     while (!stopping.signal.aborted) {
-      let hub = '';
+      let graph = '';
       const why =
         (await ensureBase(i)) ||
-        (await ensureHub(i, values.hub)
-          .then(dir => loadServedHub(connection, (hub = dir)))
+        (await ensureGraph(i, values.dir)
+          .then(dir => loadServedGraph(connection, (graph = dir)))
           .then(
             () => '',
             (e: Error) => e.message
@@ -513,7 +516,7 @@ async function loop(i: Instance) {
       if (why) console.error(why);
       else {
         const runs = await start(
-          { hub, issue: 'all', data: i.data, base: i.base, choice: makeHarnessChoice(connection.provider.name) },
+          { graph, issue: 'all', data: i.data, base: i.base, choice: makeHarnessChoice(connection.provider.name) },
           undefined,
           {},
           stopping.signal

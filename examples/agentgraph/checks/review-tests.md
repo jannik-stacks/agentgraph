@@ -1,6 +1,6 @@
 ---
 mode: warn
-each: node "$AGENTGRAPH_HUB/scripts/hunks.mjs" tests/
+each: node "$AGENTGRAPH_DIR/scripts/hunks.mjs" tests/
 agent: reviewer
 max: 10
 ---

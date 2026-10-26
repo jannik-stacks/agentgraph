@@ -99,18 +99,18 @@ export const CheckDetails = ({ fixture, path, name }: { fixture: Fixture; path: 
 
 export const AgentDetails = ({
   fixture,
-  hub,
+  graph,
   path,
   name,
 }: {
   fixture: Fixture;
-  hub: Fixture[];
+  graph: Fixture[];
   path: string;
   name: string;
 }) => {
   const role = fixture.roles?.[name];
   const body = fixture.agents?.[name];
-  const uses = findAgentUses(hub, name);
+  const uses = findAgentUses(graph, name);
   const several = new Set(uses.steps.map(s => s.workflow)).size > 1;
   return (
     <div className="space-y-5 p-4 text-xs">

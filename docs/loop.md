@@ -19,7 +19,7 @@ A run walks a workflow on one issue. Each agent step works in a session, checks 
 
 ## Workflows
 
-A workflow is `workflows/<name>.md` in the hub. Its frontmatter holds triggers and steps; [Hub files](reference.md#workflows) lists every field.
+A workflow is `workflows/<name>.md` in the graph. Its frontmatter holds triggers and steps; [Graph files](reference.md#workflows) lists every field.
 
 ```yaml
 on: issue_comment
@@ -68,7 +68,7 @@ The child starts with `by` set to the parent's id, and the parent waits with `wa
 
 ### Routing
 
-An `issue_comment` workflow whose agent may `tell` is a router, and it runs beside another workflow's live run. In a hub with a router, only `issue_comment` workflows hear people's `/agent` comments; the others hear what the router tells them. Its `returns` decides what it can do: reply with `comment`, file an `issue`, dispatch with `run`, or forward text with `tell`. <!-- code: src/engine.ts#heardBy -->
+An `issue_comment` workflow whose agent may `tell` is a router, and it runs beside another workflow's live run. In a graph with a router, only `issue_comment` workflows hear people's `/agent` comments; the others hear what the router tells them. Its `returns` decides what it can do: reply with `comment`, file an `issue`, dispatch with `run`, or forward text with `tell`. <!-- code: src/engine.ts#heardBy -->
 
 ```json
 {"kind": "tell", "issue": 12, "text": "stop"}
@@ -80,7 +80,7 @@ In `examples/sandbox` the router triages, forwards, files follow-ups or replies,
 
 ## Trust and scope
 
-Owners, members and collaborators steer the bot by default; label actors need write access. `trust` in `hub.yaml` narrows this to a list of logins. Outsiders' comments and labels start nothing, and their text is withheld from agents. The trust list is read at startup, and a hub that fails to load trusts nobody until restart. <!-- code: src/github.ts#githubForge -->
+Owners, members and collaborators steer the bot by default; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins. Outsiders' comments and labels start nothing, and their text is withheld from agents. The trust list is read at startup, and a graph that fails to load trusts nobody until restart. <!-- code: src/github.ts#githubForge -->
 
 The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels. The one exception is an `XL` split part, which the engine [triages again](stacks.md#filing-sub-issues). <!-- code: src/engine.ts#runStepChecks -->
 
@@ -129,7 +129,7 @@ Scripts run in the checkout with these variables: <!-- code: src/engine.ts#runOn
 | Variable | Contents | Given to |
 | --- | --- | --- |
 | `AGENTGRAPH_BASE` | The change's starting commit, or the branch fork point | Everything, agent sessions too |
-| `AGENTGRAPH_HUB` | The hub folder, read only | Everything |
+| `AGENTGRAPH_DIR` | The graph folder, read only | Everything |
 | `AGENTGRAPH_ISSUE` | Issue number | Checks |
 | `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals | Checks |
 | `AGENTGRAPH_CONTEXT` | Issue, pull request and human answers | Checks |
@@ -138,7 +138,7 @@ Scripts run in the checkout with these variables: <!-- code: src/engine.ts#runOn
 | `AGENTGRAPH_RUN_TRACE` | This run's raw trace, one JSON event per line | Checks |
 | `AGENTGRAPH_ITEM` | The fan-out item | Checks |
 
-"Everything" means checks, `run` steps, step slicers and hub setup.
+"Everything" means checks, `run` steps, step slicers and graph setup.
 
 ### Values
 
@@ -186,24 +186,24 @@ A trusted `/agent` comment reaches a working run according to the workflow's `co
 
 Several comments in a row become one answer, and the first `stop` or `cancel` wins. The loop waits for 30 seconds of quiet before it starts or wakes a run. A comment that was used never starts a later run. <!-- code: src/workflow.ts#fold src/engine.ts#issueDebounceMs src/engine.ts#told -->
 
-## A hub in the repo
+## A graph in the repo
 
-`AGENTGRAPH_HUB` is a folder in the repo (`.agentgraph` by default) or an absolute local path, as `--hub <dir>` gives. Inside the sandbox the same variable names the read-only hub copy. <!-- code: src/services.ts#hubAt -->
+`AGENTGRAPH_DIR` is a folder in the repo (`.agentgraph` by default) or an absolute local path, as `--dir <dir>` gives. Inside the sandbox the same variable names the read-only graph copy. <!-- code: src/services.ts#graphAt -->
 
-A repo hub reloads on every poll from the head of the default branch, so changes in a pull request apply only after merging. <!-- code: src/main.ts#start -->
+A repo graph reloads on every poll from the head of the default branch, so changes in a pull request apply only after merging. <!-- code: src/main.ts#start -->
 
-## When the base or the hub moves
+## When the base or the graph moves
 
-Every pass compares runs waiting at a human step with their pull request's base and the hub version. Stacked runs follow their parent instead, as [Stacks](stacks.md#stacks-on-and-depends-on) describes.
+Every pass compares runs waiting at a human step with their pull request's base and the graph version. Stacked runs follow their parent instead, as [Stacks](stacks.md#stacks-on-and-depends-on) describes.
 
 The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, keeping branch commits; `rebase` replays them and force-pushes; `none` leaves the branch behind. <!-- code: src/workflow.ts#Step src/engine.ts#catchUp -->
 
 After an update the engine compares the change with `git patch-id`:
 
 - Same change: rerun the wait step's `checks`. Judges run only after scripts pass and get the base changes in `AGENTGRAPH_REPLY`.
-- Different change or new hub: run every check of the `back` target under the current hub.
+- Different change or new graph: run every check of the `back` target under the current graph.
 
-A wait step without `back` runs no checks. Passing leaves the run waiting; failed checks send it back with the findings. The hub version hashes `hub.yaml`, agents, skills, checks, workflows and scripts. <!-- code: src/engine.ts#catchUp -->
+A wait step without `back` runs no checks. Passing leaves the run waiting; failed checks send it back with the findings. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts. <!-- code: src/engine.ts#catchUp -->
 
 A conflict also sends the run back. Its checkout starts at the new base with the change applied and conflict markers left for the agent. The engine does the git work: the next push is one commit on the base for `rebase`, or a merge for `merge`. Leftover markers fail the try. A second conflict at the same base asks for a manual update. <!-- code: src/engine.ts#following -->
 

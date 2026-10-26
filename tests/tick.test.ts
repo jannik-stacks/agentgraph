@@ -17,10 +17,10 @@ import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import { begin, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { makeTestHub, reply, start, wrote } from './fixtures.ts';
+import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import {
-  hub,
+  graph,
   removeAfter,
   world,
   push,
@@ -37,7 +37,7 @@ import {
 } from './world.ts';
 
 describe('tick', () => {
-  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 
   it.each(['event', 'cli'])('leaves a locked run to its driver when another tick sees stop: %s', async source => {
     const where = world();
@@ -784,7 +784,7 @@ describe('tick', () => {
     const { specs, run } = services(where, [[start('i'), reply({ kind: 'ask', question: 'Which file?' })]]);
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped', answers })));
     where.human('/agent restart implement', '2026-10-16T00:01:00.000Z');
-    const touched = await run(tick(hub));
+    const touched = await run(tick(graph));
     expect(touched.map(r => [r.id, r.step, r.status, r.answers])).toEqual([
       ['issue-7-20261016000100000', 'implement', 'waiting', answers],
     ]);
@@ -801,7 +801,7 @@ describe('tick', () => {
       )
     );
     where.human('/agent restart', '2026-10-16T00:01:00.000Z');
-    await run(tick(hub));
+    await run(tick(graph));
     const stored = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored.map(r => [r.id, r.step, r.status, r.reason]).sort()).toEqual([
       ['issue-7-20261016000100000', 'triage', 'waiting', 'Which file?'],
@@ -827,7 +827,7 @@ describe('tick', () => {
 });
 
 describe('start with one issue', () => {
-  it('reads the App env file, loads the hub, drives the issue to the merge wait, then reenters on the merge', async () => {
+  it('reads the App env file, loads the graph, drives the issue to the merge wait, then reenters on the merge', async () => {
     const where = world();
     const key = join(where.root, 'app.pem');
     writeFileSync(key, 'PEM');
@@ -839,7 +839,7 @@ describe('start with one issue', () => {
     const env = {
       AGENTGRAPH_APP_ENV: join(where.root, 'app.env'),
       AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2',
-      AGENTGRAPH_HUB: sandbox,
+      AGENTGRAPH_DIR: sandbox,
     };
     Object.assign(process.env, env);
     const seen: Settings[] = [];
@@ -853,7 +853,7 @@ describe('start with one issue', () => {
       seen.push(s);
       return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), hostSandbox(where.origin), replaySession(turns));
     };
-    const one = { hub: sandbox, issue: 7, data: where.data };
+    const one = { graph: sandbox, issue: 7, data: where.data };
     writeFileSync(join(where.forge, '7.jsonl'), '');
     say(where, {
       issue: 7,
@@ -990,7 +990,7 @@ describe('readEngineEnv', () => {
 });
 
 describe('scanIssuesAndRunningRuns', () => {
-  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 
   it('drives a commanded issue and a parked one with a new answer, and skips an unmarked one and one waiting with nothing new', async () => {
     const where = world();

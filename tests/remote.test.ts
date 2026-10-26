@@ -89,10 +89,10 @@ describe('remote sandbox', () => {
     expect(Exit.map(exit, Chunk.toArray)).toEqual(Exit.succeed(['one', 'two', 'three', { code: 3 }]));
   });
 
-  it('brings the session home, the hub and the news to the box, on the network of its hub', async () => {
-    const hub = tmp('hub');
-    writeFileSync(join(hub, 'rules.md'), 'rules\n');
-    writeFileSync(join(hub, '..odd'), 'odd\n');
+  it('brings the session home, the graph and the news to the box, on the network of its graph', async () => {
+    const graph = tmp('graph');
+    writeFileSync(join(graph, 'rules.md'), 'rules\n');
+    writeFileSync(join(graph, '..odd'), 'odd\n');
     const home = join(tmp('homes'), 'session-1');
     mkdirSync(join(home, '.cache'), { recursive: true });
     writeFileSync(join(home, 'state'), 'one\n');
@@ -104,10 +104,10 @@ describe('remote sandbox', () => {
         return yield* s.exec(
           sh(
             work.dir,
-            'cat "$HOME/state" "$AGENTGRAPH_HUB/rules.md" "$AGENTGRAPH_HUB/..odd" "$NEWS"; ls -A "$HOME"; echo two > "$HOME/state"',
+            'cat "$HOME/state" "$AGENTGRAPH_DIR/rules.md" "$AGENTGRAPH_DIR/..odd" "$NEWS"; ls -A "$HOME"; echo two > "$HOME/state"',
             {
               home,
-              hub,
+              graph,
               env: { NEWS: work.news },
               network: 'proxy',
             }
@@ -158,18 +158,18 @@ describe('remote sandbox', () => {
     expect(exit).toEqual(Exit.succeed({ code: 0, output: 'quick\n' }));
   });
 
-  it('fails rather than send a hub that tar could not read whole', async () => {
-    const hub = tmp('hub');
-    writeFileSync(join(hub, 'secret.md'), 'x\n');
-    chmodSync(join(hub, 'secret.md'), 0);
+  it('fails rather than send a graph that tar could not read whole', async () => {
+    const graph = tmp('graph');
+    writeFileSync(join(graph, 'secret.md'), 'x\n');
+    chmodSync(join(graph, 'secret.md'), 0);
     const exit = await use(layer(), s =>
-      Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true', { hub })))
+      Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true', { graph })))
     );
-    chmodSync(join(hub, 'secret.md'), 0o600);
+    chmodSync(join(graph, 'secret.md'), 0o600);
     expect(String(exit)).toContain('tar');
   });
 
-  it('refuses a hub image and a dir it did not check out', async () => {
+  it('refuses a graph image and a dir it did not check out', async () => {
     const image = await use(layer(), s => s.checkout('main', undefined, undefined, { image: 'other' }));
     const stray = await use(layer(), s => s.exec(sh(tmp('stray'), 'true')));
     expect(String(image)).toContain('one image');

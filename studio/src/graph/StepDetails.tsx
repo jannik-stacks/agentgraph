@@ -228,7 +228,7 @@ export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
   </div>
 );
 
-/** The served hub's runs that stand at a step now. */
+/** The served graph's runs that stand at a step now. */
 const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
   const { value: runs = [] } = useAtomValue(runsAtom);
   const here = runs.filter(

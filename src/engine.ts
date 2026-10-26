@@ -15,7 +15,7 @@ import {
 import { Forge, ForgeError, currentRunLinkRef, withheld } from './forge.ts';
 import type { Applied, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
-import type { Check, Hub } from './hub.ts';
+import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
 import { Session } from './session.ts';
@@ -72,7 +72,7 @@ const shapes: Record<Said['kind'], string> = {
   issue: [
     '{"kind":"issue","relation":"part","title":"...","body":"...\\n\\n## Done when\\n...","size":"XS|S|M|L|XL","stacks_on":1,"depends_on":[1]}',
     '{"kind":"issue","relation":"follow-up","title":"...","body":"...\\n\\n## Done when\\n..."}',
-    '{"kind":"issue","relation":"hub","title":"...","body":"<the class of miss and the check that would catch it>\\n\\n## Done when\\n..."}',
+    '{"kind":"issue","relation":"graph","title":"...","body":"<the class of miss and the check that would catch it>\\n\\n## Done when\\n..."}',
   ].join('\n'),
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
@@ -135,8 +135,8 @@ const squeeze = (text: string, max = 1500) =>
 const expand = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
 
-/** Whether a new run may start on an issue: always without a hub milestone, else only in it. */
-const inScope = (hub: Hub, issue?: Issue) => hub.milestone === undefined || issue?.milestone === hub.milestone;
+/** Whether a new run may start on an issue: always without a graph milestone, else only in it. */
+const inScope = (graph: Graph, issue?: Issue) => graph.milestone === undefined || issue?.milestone === graph.milestone;
 
 /** The open pull request on the branch a run of `w` on `issue` works on. */
 const findPullNumber = (w: Workflow, issue: number, open: Issue[]) =>
@@ -188,7 +188,7 @@ const findIssueDepth = (n: number, above = 0): Effect.Effect<number, ForgeError,
 /**
  * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size label and
  * its "Stacks on" and "Depends on" lines; the parts are listed on the issue and each XL part begins the workflow
- * again. A follow-up or a hub change becomes a plain issue labelled with its relation that names the run's issue and
+ * again. A follow-up or a graph change becomes a plain issue labelled with its relation that names the run's issue and
  * starts nothing; one with the title of an open issue is added there as a comment. One refusal files none.
  */
 /** Forge writes made for `run` at its step by `session`; a mark set for the same run and step outside is kept. */
@@ -340,15 +340,15 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     return applied;
   }).pipe(writing(run));
 
-/** The open follow-up and hub issues, so an agent adds to one by its title instead of filing it again. */
+/** The open follow-up and graph issues, so an agent adds to one by its title instead of filing it again. */
 const filed = () =>
   Effect.map(
     Effect.flatMap(Forge, f => f.issues({ state: 'open' })),
     open => {
-      const listed = open.filter(t => t.labels.some(l => l === 'follow-up' || l === 'hub'));
+      const listed = open.filter(t => t.labels.some(l => l === 'follow-up' || l === 'graph'));
       return (
         listed.length > 0 &&
-        `Open follow-up and hub issues. To add to one, propose an issue with its exact title:\n${listed.map(t => `- #${t.number} ${t.title}`).join('\n')}`
+        `Open follow-up and graph issues. To add to one, propose an issue with its exact title:\n${listed.map(t => `- #${t.number} ${t.title}`).join('\n')}`
       );
     }
   );
@@ -357,11 +357,11 @@ const filed = () =>
 const waitingOn = (child: Run) => `waiting on ${child.id}`;
 
 /** Why the run's `run` proposals may not start: one at a time, of a dispatch workflow, on an open issue in scope that no other live run holds. */
-const undispatchable = (hub: Hub, run: Pick<Run, 'id'>, asked: Extract<Proposal, { kind: 'run' }>[]) =>
+const undispatchable = (graph: Graph, run: Pick<Run, 'id'>, asked: Extract<Proposal, { kind: 'run' }>[]) =>
   Effect.gen(function* () {
     const [p] = asked;
     if (!p) return [];
-    const w = hub.workflows[p.workflow];
+    const w = graph.workflows[p.workflow];
     const issue = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).find(t => t.number === p.issue);
     const held = (yield* Effect.flatMap(Store, s => s.list({ issue: p.issue }))).some(
       r => !isRunDone(r) && r.id !== run.id
@@ -373,8 +373,8 @@ const undispatchable = (hub: Hub, run: Pick<Run, 'id'>, asked: Extract<Proposal,
           ? `${p.workflow} is not a workflow with on: dispatch`
           : !issue || issue.pull
             ? `#${p.issue} is not an open issue`
-            : !inScope(hub, issue)
-              ? `#${p.issue} is outside the hub milestone`
+            : !inScope(graph, issue)
+              ? `#${p.issue} is outside the graph milestone`
               : held
                 ? `a live run holds #${p.issue}`
                 : undefined;
@@ -382,10 +382,10 @@ const undispatchable = (hub: Hub, run: Pick<Run, 'id'>, asked: Extract<Proposal,
   });
 
 /** Begins the workflow a `run` proposal names, as a run `by` the run that proposed it. */
-const dispatch = (hub: Hub, run: Pick<Run, 'id'>, p: Extract<Proposal, { kind: 'run' }>) =>
+const dispatch = (graph: Graph, run: Pick<Run, 'id'>, p: Extract<Proposal, { kind: 'run' }>) =>
   Effect.gen(function* () {
     const at = now();
-    const w = hub.workflows[p.workflow]!;
+    const w = graph.workflows[p.workflow]!;
     const child: Run = {
       ...begin(
         w,
@@ -416,25 +416,28 @@ export type Instruction =
   | { kind: 'check'; checks: string[]; workflow?: string; issue?: number };
 
 /** CLI instructions use the event handling and dispatch checks of router proposals. */
-export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+export const instruct = (
+  graph: Graph,
+  instruction: Instruction
+): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     if (instruction.kind === 'check') {
       const { checks, kind: _kind, ...where } = instruction;
-      const unknown = checks.filter(name => !(name in hub.checks));
-      if (unknown.length) return yield* new ForgeError({ message: `the hub has no check ${unknown.join(', ')}` });
+      const unknown = checks.filter(name => !(name in graph.checks));
+      if (unknown.length) return yield* new ForgeError({ message: `the graph has no check ${unknown.join(', ')}` });
       const ended = (yield* Effect.flatMap(Store, s => s.list(where))).filter(isRunDone);
-      const runs = yield* Effect.forEach(ended, r => runEndChecks(hub, r.id, checks), {
-        concurrency: hub.limits.parallel,
+      const runs = yield* Effect.forEach(ended, r => runEndChecks(graph, r.id, checks), {
+        concurrency: graph.limits.parallel,
       });
       return runs.filter(r => r !== undefined);
     }
     if (instruction.kind === 'dispatch') {
       const p = { ...instruction, kind: 'run' as const };
-      const refused = yield* undispatchable(hub, { id: 'cli' }, [p]);
+      const refused = yield* undispatchable(graph, { id: 'cli' }, [p]);
       if (refused.length) return yield* new ForgeError({ message: refused[0]!.reason! });
-      return [yield* dispatch(hub, { id: 'cli' }, p)];
+      return [yield* dispatch(graph, { id: 'cli' }, p)];
     }
-    if (!router(hub)) return yield* new ForgeError({ message: 'hub has no router workflow' });
+    if (!router(graph)) return yield* new ForgeError({ message: 'graph has no router workflow' });
     const forge = yield* Forge;
     const issue = yield* forge.issue(instruction.issue);
     const parent =
@@ -463,16 +466,17 @@ export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[
     const runs = yield* Effect.flatMap(Store, s => s.list());
     const open = yield* forge.issues({ state: 'open' });
     const owner = runs.find(
-      r => hub.workflows[r.workflow] && findPullNumber(hub.workflows[r.workflow]!, r.issue, open) === issue.number
+      r => graph.workflows[r.workflow] && findPullNumber(graph.workflows[r.workflow]!, r.issue, open) === issue.number
     );
     const target = runs
       .filter(
-        r => !isRunDone(r) && r.issue === (owner?.issue ?? issue.number) && hub.workflows[r.workflow]?.on.issue_comment
+        r =>
+          !isRunDone(r) && r.issue === (owner?.issue ?? issue.number) && graph.workflows[r.workflow]?.on.issue_comment
       )
       .sort((a, b) => a.started.localeCompare(b.started))
       .at(-1);
     if (target) yield* Effect.flatMap(Store, store => store.trace(target.id, { at, step: target.step, spoken: event }));
-    return yield* tick(hub, owner?.issue ?? issue.number, true).pipe(
+    return yield* tick(graph, owner?.issue ?? issue.number, true).pipe(
       Effect.provideService(Forge, {
         ...forge,
         since: () => Stream.make(event),
@@ -542,25 +546,25 @@ const readRunEvents = (run: Run) =>
   );
 
 /** The comment workflow whose agent may `tell`, which then hears every `/agent` on behalf of the other runs. */
-const router = (hub: Hub) =>
-  Object.values(hub.workflows).find(
+const router = (graph: Graph) =>
+  Object.values(graph.workflows).find(
     w =>
-      w.on.issue_comment && w.steps.some(s => 'agent' in s.does && hub.agents[s.does.agent]?.returns.includes('tell'))
+      w.on.issue_comment && w.steps.some(s => 'agent' in s.does && graph.agents[s.does.agent]?.returns.includes('tell'))
   );
 
 /** The event as a run of `w` hears it: with a router, only the router hears `/agent` from people, the others hear what it tells them. */
-const heardBy = (hub: Hub, w: Workflow, m: Event): Event => {
-  if (!router(hub) || w.on.issue_comment || m.comment?.agentRequest === undefined) return m;
+const heardBy = (graph: Graph, w: Workflow, m: Event): Event => {
+  if (!router(graph) || w.on.issue_comment || m.comment?.agentRequest === undefined) return m;
   const { agentRequest: _agentRequest, ...comment } = m.comment;
   return { ...m, comment };
 };
 
 /** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
-const told = (hub: Hub, w: Workflow, run: Run, t: IssueWithPull) =>
+const told = (graph: Graph, w: Workflow, run: Run, t: IssueWithPull) =>
   Effect.map(readRunEvents(run), tells => {
     if (w.on.feedback) return undefined;
     const since = run.seen ?? run.started;
-    const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => heardBy(hub, w, m)), ...tells]
+    const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => heardBy(graph, w, m)), ...tells]
       .filter(m => m.at > since)
       .flatMap(m => {
         const o = getEventOutcome(w, run, { ...m, issue: run.issue });
@@ -585,7 +589,7 @@ const lastHeard = (t: IssueWithPull) =>
 
 const sh = (
   script: string,
-  hub: string,
+  graph: string,
   dir: string,
   env: Record<string, string>,
   minutes: number,
@@ -597,7 +601,7 @@ const sh = (
         cmd: 'sh',
         args: ['-c', script],
         dir,
-        hub,
+        graph,
         env,
         network,
         minutes,
@@ -605,13 +609,20 @@ const sh = (
     )
   );
 
-/** Runs the hub's setup in a checkout, so its checks find what it installs, and traces how long it took. */
-const setUp = (hub: Hub, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
+/** Runs the graph's setup in a checkout, so its checks find what it installs, and traces how long it took. */
+const setUp = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
   Effect.gen(function* () {
     if (work.env) yield* Effect.flatMap(Store, s => s.trace(run.id, { at: now(), step: run.step, env: work.env! }));
-    if (!hub.setup || work.ready) return;
+    if (!graph.setup || work.ready) return;
     const started = Date.now();
-    const out = yield* sh(hub.setup, hub.dir, work.dir, { AGENTGRAPH_BASE: work.base }, hub.limits.minutes, 'proxy');
+    const out = yield* sh(
+      graph.setup,
+      graph.dir,
+      work.dir,
+      { AGENTGRAPH_BASE: work.base },
+      graph.limits.minutes,
+      'proxy'
+    );
     const setup = { ms: Date.now() - started, exit: out.code };
     yield* Effect.flatMap(Store, s => s.trace(run.id, { at: now(), step: run.step, setup }));
     if (out.code !== 0)
@@ -652,7 +663,7 @@ class EachFailed extends Data.TaggedError('EachFailed')<{ detail: string }> {}
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
 const findFanOutItems = (
   each: string | { run: string },
-  hub: string,
+  graph: string,
   work: Checkout,
   minutes: number,
   env: Record<string, string> = { AGENTGRAPH_BASE: work.base }
@@ -670,7 +681,7 @@ const findFanOutItems = (
     );
   if (each === 'files') return Effect.map(changes(work, '--name-only'), lines);
   const script = typeof each === 'string' ? each : each.run;
-  return Effect.flatMap(sh(script, hub, work.dir, env, minutes), out =>
+  return Effect.flatMap(sh(script, graph, work.dir, env, minutes), out =>
     out.code === 0 ? Effect.succeed(lines(out.output)) : Effect.fail(new EachFailed({ detail: out.output.trim() }))
   );
 };
@@ -686,12 +697,12 @@ type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'ex
 const gates = new Map<string, { size: number; gate: Effect.Semaphore }>();
 
 /** The one semaphore every session on a repo starts behind, so containers never exceed `limits.sessions`. */
-const getSessionGate = (hub: Hub) => {
-  const size = hub.limits.sessions;
-  const kept = gates.get(hub.repo);
+const getSessionGate = (graph: Graph) => {
+  const size = graph.limits.sessions;
+  const kept = gates.get(graph.repo);
   if (kept?.size === size) return kept.gate;
   const gate = Effect.unsafeMakeSemaphore(size);
-  gates.set(hub.repo, { size, gate });
+  gates.set(graph.repo, { size, gate });
   return gate;
 };
 
@@ -700,7 +711,7 @@ const getSessionGate = (hub: Hub) => {
  * permit only while the harness runs. When `until` ends first, the session is cut short and its result comes back as `cut`.
  */
 const converse = <A = never, R = never>(
-  hub: Hub,
+  graph: Graph,
   run: string,
   step: string,
   spec: SessionSpec,
@@ -755,7 +766,7 @@ const converse = <A = never, R = never>(
         return store.trace(run, { at: now(), step, event, key });
       }),
       Effect.scoped,
-      getSessionGate(hub).withPermits(1),
+      getSessionGate(graph).withPermits(1),
       Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
       Effect.as(undefined)
     );
@@ -783,9 +794,9 @@ const converse = <A = never, R = never>(
  * stops cleanly without a valid result is resumed once and told to record it. Without a result after that the check
  * could not be judged.
  */
-const askJudge = (hub: Hub, run: string, step: string, spec: SessionSpec, item?: string) => {
+const askJudge = (graph: Graph, run: string, step: string, spec: SessionSpec, item?: string) => {
   const judge = (s: SessionSpec) =>
-    converse(hub, run, step, s, item).pipe(
+    converse(graph, run, step, s, item).pipe(
       Effect.flatMap(j =>
         j.ended === 'stop'
           ? Effect.succeed(j)
@@ -849,14 +860,14 @@ const checkFiles = (work: Checkout) => ({
 });
 
 /** Whether a run is a retro, a run of a workflow that feedback starts. */
-const retro = (hub: Hub, r: Pick<Run, 'workflow'>) => !!hub.workflows[r.workflow]?.on.feedback;
+const retro = (graph: Graph, r: Pick<Run, 'workflow'>) => !!graph.workflows[r.workflow]?.on.feedback;
 
 /** Writes the traces of the runs on `issue` that are not retros, oldest first, and the raw trace of `run` beside the news file. */
-const traced = (hub: Hub, issue: number, run: string, work: Checkout) =>
+const traced = (graph: Graph, issue: number, run: string, work: Checkout) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const runs = (yield* store.list({ issue }))
-      .filter(r => !retro(hub, r))
+      .filter(r => !retro(graph, r))
       .sort((a, b) => a.started.localeCompare(b.started));
     const read = yield* Effect.forEach(runs, run =>
       Effect.map(Stream.runCollect(store.read(run.id)), lines => ({ run, lines: Chunk.toArray(lines) }))
@@ -915,7 +926,7 @@ const passes = new WeakMap<object, Set<string>>();
  * itself when it has its own `returns`. Per-item results are traced, with `end` once the run ended; judging
  * sessions' cost comes back as `usd`.
  */
-const runOneCheck = (step: string, check: Doc<Check>, work: Left, hub: Hub, end?: true) =>
+const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, end?: true) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const passed = passes.get(store) ?? new Set<string>();
@@ -924,14 +935,14 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, hub: Hub, end?
     const returns = check.returns ?? defaultReturns;
     const info = check.mode === 'info';
     const started = Date.now();
-    const minutes = hub.limits.minutes;
+    const minutes = graph.limits.minutes;
     const base = {
       AGENTGRAPH_BASE: work.base,
       AGENTGRAPH_ISSUE: String(work.issue),
       ...checkFiles(work),
     };
     const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
-      ? findFanOutItems(check.each, hub.dir, work, minutes, base)
+      ? findFanOutItems(check.each, graph.dir, work, minutes, base)
       : Effect.succeed([undefined]);
     const listed = yield* all.pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
     const items: (string | undefined)[] = listed instanceof EachFailed ? [] : listed;
@@ -967,7 +978,7 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, hub: Hub, end?
           ...base,
           ...(item !== undefined && { AGENTGRAPH_ITEM: item }),
         };
-        const out = check.run ? yield* sh(check.run, hub.dir, work.dir, env, minutes) : undefined;
+        const out = check.run ? yield* sh(check.run, graph.dir, work.dir, env, minutes) : undefined;
         if (out?.code === 127)
           return yield* new SandboxError({
             reason: 'infra',
@@ -978,7 +989,7 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, hub: Hub, end?
           const value = check.returns ? readScriptResult(output) : { pass: (out?.code ?? 0) === 0, why: output };
           return settle(item, value, out?.code, output);
         }
-        const agent = hub.agents[check.agent]!;
+        const agent = graph.agents[check.agent]!;
         const reads = agent.reads ?? check.reads;
         const prompt = [
           check.body,
@@ -996,7 +1007,7 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, hub: Hub, end?
           .digest('hex');
         if (!reads && !check.returns && passed.has(key)) return settle(item, { pass: true });
         const judged = yield* askJudge(
-          hub,
+          graph,
           run,
           step,
           {
@@ -1004,7 +1015,7 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, hub: Hub, end?
             agent: check.agent,
             check: check.name,
             returns,
-            minutes: hub.limits.minutes,
+            minutes: graph.limits.minutes,
             ...(agent.model !== undefined && { model: agent.model }),
             system: agent.body,
             prompt,
@@ -1095,16 +1106,16 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, hub: Hub, end?
 const attempt = (
   w: Workflow,
   run: Run,
-  hub: Hub,
+  graph: Graph,
   work: Checkout,
   own?: string
 ): Effect.Effect<{ outcome: Outcome; run: Run }, SandboxError | SessionStop | ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const step = w.steps.find(s => s.name === run.step)!;
-    const minutes = hub.limits.minutes;
+    const minutes = graph.limits.minutes;
     const done = (outcome: Outcome, next = run) => ({ outcome, run: next });
-    const returns = 'agent' in step.does ? (hub.agents[step.does.agent]?.returns ?? []) : [];
+    const returns = 'agent' in step.does ? (graph.agents[step.does.agent]?.returns ?? []) : [];
     /** The first session of a run a comment started, which may answer that comment. */
     const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
     const before = asked ? yield* writeCheckoutTree(work) : undefined;
@@ -1133,7 +1144,7 @@ const attempt = (
             continue;
           }
           yield* refresh(run, work, seen, now.right);
-          const cut = yield* Effect.orElseSucceed(told(hub, w, by, now.right), () => undefined);
+          const cut = yield* Effect.orElseSucceed(told(graph, w, by, now.right), () => undefined);
           if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
         }
       });
@@ -1147,7 +1158,7 @@ const attempt = (
     const answering = asked && held;
     if ('run' in step.does) {
       const started = Date.now();
-      const out = yield* sh(step.does.run, hub.dir, work.dir, { AGENTGRAPH_BASE: work.base }, minutes);
+      const out = yield* sh(step.does.run, graph.dir, work.dir, { AGENTGRAPH_BASE: work.base }, minutes);
       const result: CheckResult = {
         check: step.name,
         pass: out.code === 0,
@@ -1172,16 +1183,16 @@ const attempt = (
       replies.push(out.output);
     } else {
       const name = step.does.agent;
-      const agent = hub.agents[name]!;
+      const agent = graph.agents[name]!;
       const issue = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
       const reads = agent.tools.includes('read');
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       /** A step that judges the change, and does not fan out over it, opens on the whole of it. */
       const diff = step.back && !step.each && !kept ? yield* readCheckoutDiff(work) : '';
-      if (agent.reads) yield* traced(hub, run.issue, run.id, work);
+      if (agent.reads) yield* traced(graph, run.issue, run.id, work);
       const prompt = [
-        ...[step.does.skill, ...(hub.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && hub.skills[s]?.body),
+        ...[step.does.skill, ...(graph.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && graph.skills[s]?.body),
         w.body,
         context(t),
         diff && `## The change on the branch\n\n\`\`\`\`diff\n${squeeze(diff, 20_000)}\n\`\`\`\``,
@@ -1190,7 +1201,7 @@ const attempt = (
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         step.checks.length > 0 &&
           `When you stop, the runner checks the change: ${step.checks
-            .map(n => (hub.checks[n]?.run ? `${n} runs \`${hub.checks[n].run}\`` : n))
+            .map(n => (graph.checks[n]?.run ? `${n} runs \`${graph.checks[n].run}\`` : n))
             .join(', ')}.`,
         answering &&
           'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run.',
@@ -1208,7 +1219,7 @@ const attempt = (
         .filter(Boolean)
         .join('\n\n');
       const listed: (string | undefined)[] = step.each
-        ? yield* findFanOutItems(step.each, hub.dir, work, minutes).pipe(
+        ? yield* findFanOutItems(step.each, graph.dir, work, minutes).pipe(
             Effect.catchTag('EachFailed', e =>
               Effect.fail(
                 new SandboxError({
@@ -1225,7 +1236,7 @@ const attempt = (
       const talk = (prompt: string, seen: Seen, resume?: Run['sessions'][string], item?: string) =>
         Effect.gen(function* () {
           const r = yield* converse(
-            hub,
+            graph,
             run.id,
             step.name,
             {
@@ -1277,7 +1288,7 @@ const attempt = (
       }
       const session = step.each === undefined ? tried.sessions[step.name] : undefined;
       const now = session && Option.getOrUndefined(yield* Effect.option(readIssueWithPull(w, run)));
-      const late = now ? yield* told(hub, w, tried, now) : undefined;
+      const late = now ? yield* told(graph, w, tried, now) : undefined;
       if (late && late.outcome.kind !== 'answer') return done(late.outcome, { ...tried, seen: late.at });
       if (now && late && w.concurrency === 'steer') {
         const since = news(now, caught.seen);
@@ -1375,7 +1386,7 @@ const attempt = (
               proposals: world,
               ...(run.answers && { answers: run.answers }),
             },
-            hub
+            graph
           ),
           Effect.map(watch(tried, { at: tried.seen ?? run.started }), cut => ({ cut }))
         );
@@ -1407,7 +1418,7 @@ const attempt = (
         })
     );
     const refused = [
-      ...(yield* undispatchable(hub, run, runs)),
+      ...(yield* undispatchable(graph, run, runs)),
       ...tells.flatMap(({ p, to }): Applied[] =>
         to ? [] : [{ proposal: p, ok: false, reason: `no live run on #${p.issue} to tell` }]
       ),
@@ -1449,7 +1460,7 @@ const attempt = (
       const { onto: _landed, ...rest } = tried;
       tried = rest;
     }
-    const child = runs[0] && !failed.length ? yield* dispatch(hub, tried, runs[0]) : undefined;
+    const child = runs[0] && !failed.length ? yield* dispatch(graph, tried, runs[0]) : undefined;
     const applied = [...landed.right, ...delivered, ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : [])];
     yield* store.trace(
       run.id,
@@ -1465,7 +1476,7 @@ const attempt = (
     );
   });
 
-const prepare = (hub: Hub, left: Left, traces: boolean) =>
+const prepare = (graph: Graph, left: Left, traces: boolean) =>
   Effect.gen(function* () {
     const files = checkFiles(left);
     yield* Effect.promise(() =>
@@ -1475,7 +1486,7 @@ const prepare = (hub: Hub, left: Left, traces: boolean) =>
         writeFile(files.AGENTGRAPH_REPLY, left.reply),
       ])
     );
-    if (traces) yield* traced(hub, left.issue, left.run, left);
+    if (traces) yield* traced(graph, left.issue, left.run, left);
   });
 
 /**
@@ -1485,16 +1496,16 @@ const prepare = (hub: Hub, left: Left, traces: boolean) =>
 export const runStepChecks = (
   step: Step,
   left: Left,
-  hub: Hub
+  graph: Graph
 ): Effect.Effect<
   { outcome: Outcome; usd: number },
   SandboxError | SessionStop | StoreError,
   Sandbox | Session | Store
 > =>
   Effect.gen(function* () {
-    const checks = step.checks.map(name => ({ ...hub.checks[name]!, name }));
-    yield* prepare(hub, left, checks.length > 0);
-    const settled = yield* Effect.forEach(checks, c => Effect.either(runOneCheck(step.name, c, left, hub)), {
+    const checks = step.checks.map(name => ({ ...graph.checks[name]!, name }));
+    yield* prepare(graph, left, checks.length > 0);
+    const settled = yield* Effect.forEach(checks, c => Effect.either(runOneCheck(step.name, c, left, graph)), {
       concurrency: 'unbounded',
     });
     const results = settled.flatMap(r => (Either.isRight(r) ? [r.right] : []));
@@ -1514,8 +1525,8 @@ export const runStepChecks = (
       };
     const error = settled.find(Either.isLeft);
     if (error) return yield* error.left;
-    const returns = 'agent' in step.does ? hub.agents[step.does.agent]?.returns : undefined;
-    const marks = new Set(Object.values(hub.workflows).flatMap(w => w.on.issues?.label ?? []));
+    const returns = 'agent' in step.does ? graph.agents[step.does.agent]?.returns : undefined;
+    const marks = new Set(Object.values(graph.workflows).flatMap(w => w.on.issues?.label ?? []));
     const refusal = (p: Proposal) =>
       returns && !returns.some(k => k === p.kind)
         ? `${step.name} may not propose ${p.kind}`
@@ -1540,18 +1551,18 @@ const explain = (e: SandboxError | SessionStop | ForgeError) =>
 const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeError | StoreError, R>) =>
   Effect.catchAll(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
 
-const reopen = (hub: Hub, w: Workflow, run: Run, traces: boolean) =>
+const reopen = (graph: Graph, w: Workflow, run: Run, traces: boolean) =>
   Effect.gen(function* () {
     const t = yield* readIssueWithPull(w, run);
     const kept = `refs/agentgraph/runs/${run.id}`;
     const target = run.base?.branch ?? expand(w.base ?? 'main', { number: run.issue });
     const made = yield* Effect.flatMap(Sandbox, s =>
-      s.checkout(traces ? (run.startCommit ?? target) : kept, undefined, undefined, hub)
+      s.checkout(traces ? (run.startCommit ?? target) : kept, undefined, undefined, graph)
     );
     const base = run.startCommit ?? (traces ? made.base : undefined);
     if (!base) return yield* new SandboxError({ reason: 'infra', detail: 'the run kept no start commit' });
     const work = { ...made, base };
-    if (!traces) yield* setUp(hub, work, run);
+    if (!traces) yield* setUp(graph, work, run);
     const ready = yield* writeCheckoutTree(work);
     const left: Left = {
       ...work,
@@ -1562,13 +1573,13 @@ const reopen = (hub: Hub, w: Workflow, run: Run, traces: boolean) =>
       proposals: [],
       ...(run.answers && { answers: run.answers }),
     };
-    yield* prepare(hub, left, true);
+    yield* prepare(graph, left, true);
     const restore = Effect.zipRight(text(work, ['read-tree', '-u', '--reset', ready]), text(work, ['clean', '-fdq']));
     return { left, restore };
   });
 
 const runEndChecks = (
-  hub: Hub,
+  graph: Graph,
   id: string,
   adding: string[] = []
 ): Effect.Effect<Run | undefined, StoreError, Services> =>
@@ -1581,13 +1592,13 @@ const runEndChecks = (
     const ended: Run = { ...stored, owed };
     if (owed.length > (stored.owed?.length ?? 0)) yield* store.put(ended);
     let run = ended;
-    const w = hub.workflows[ended.workflow];
-    const traces = owed.every(name => hub.checks[name]?.reads === 'traces');
-    const opened = w ? yield* caught(reopen(hub, w, ended, traces)) : `the hub has no workflow ${ended.workflow}`;
+    const w = graph.workflows[ended.workflow];
+    const traces = owed.every(name => graph.checks[name]?.reads === 'traces');
+    const opened = w ? yield* caught(reopen(graph, w, ended, traces)) : `the graph has no workflow ${ended.workflow}`;
     for (const name of owed) {
-      const check = hub.checks[name];
+      const check = graph.checks[name];
       const got = !check
-        ? `the hub has no check ${name}`
+        ? `the graph has no check ${name}`
         : typeof opened === 'string'
           ? opened
           : yield* caught(
@@ -1597,7 +1608,7 @@ const runEndChecks = (
                   ended.step,
                   { ...check, mode: check.mode === 'info' ? 'info' : 'warn' },
                   opened.left,
-                  hub,
+                  graph,
                   true
                 )
               )
@@ -1707,11 +1718,11 @@ const unthreaded = (run: Run): Run =>
   run.said ? { ...run, said: run.said.slice(0, 1).map(s => ({ issue: s.issue })) } : run;
 
 /**
- * Runs the hub's setup, then tries until the run stops running. A runner error is retried once, then parks the run at its step, so an
+ * Runs the graph's setup, then tries until the run stops running. A runner error is retried once, then parks the run at its step, so an
  * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
  * @internal
  */
-export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, StoreError, Services> =>
+export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;
@@ -1755,10 +1766,10 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         ...current,
         title: issue.title,
         body: issue.body,
-        hub: hub.sha,
+        graph: graph.sha,
       });
       yield* store.put(current);
-      const stacked = hub.stacks && !current.base && findStackBase(w, issue, yield* forge.issues({ state: 'open' }));
+      const stacked = graph.stacks && !current.base && findStackBase(w, issue, yield* forge.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const named = w.branch && expand(w.branch, issue);
       const old = named && named.replace(/^agentgraph\//, 'bothub/');
@@ -1769,7 +1780,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
-      const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, hub));
+      const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, graph));
       if (own && made.saved) {
         const message = yield* text(made, ['log', '-1', '--format=%B', made.saved]);
         const from =
@@ -1797,9 +1808,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
       current = { ...current, startCommit: work.base };
 
-      if (!w.on.feedback) yield* setUp(hub, work, current);
+      if (!w.on.feedback) yield* setUp(graph, work, current);
       while (current.status === 'running') {
-        const tried = yield* attempt(w, current, hub, work, own);
+        const tried = yield* attempt(w, current, graph, work, own);
         if (
           tried.outcome.kind === 'failed' &&
           tried.outcome.proposals.some(a => !a.ok && a.proposal.kind === 'push' && a.moved)
@@ -1810,12 +1821,12 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         }
 
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
-        if (current.status === 'running' && current.usd > hub.limits.usdPerRun) {
-          const why = `Spent $${current.usd.toFixed(2)}, over the hub's usd-per-run of ${hub.limits.usdPerRun}.`;
+        if (current.status === 'running' && current.usd > graph.limits.usdPerRun) {
+          const why = `Spent $${current.usd.toFixed(2)}, over the graph's usd-per-run of ${graph.limits.usdPerRun}.`;
           yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
         }
         const t = !isRunDone(current) ? yield* Effect.option(readIssueWithPull(w, current)) : Option.none();
-        const queued = Option.isSome(t) ? yield* told(hub, w, current, t.value) : undefined;
+        const queued = Option.isSome(t) ? yield* told(graph, w, current, t.value) : undefined;
         if (queued) yield* settle(queued.outcome, { ...transition(w, current, queued.outcome), seen: queued.at });
       }
       const files = made.written && (yield* Effect.promise(made.written));
@@ -1903,28 +1914,28 @@ const follow = (w: Workflow, given: Run, known: NonNullable<Run['base']>, head: 
   }).pipe(Effect.scoped);
 
 /**
- * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the hub. A branch
+ * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the graph. A branch
  * behind its base follows it with no model, by a merge or a rebase as the step's `follow` says, or stays where it is
  * when that says none. When the change stays the same, the step's own checks run again, scripts first and judged ones
- * only once those pass; a changed change or a new hub runs every check of the step it goes back to. A failed check
+ * only once those pass; a changed change or a new graph runs every check of the step it goes back to. A failed check
  * sends the run back as a request for changes would. A conflict sends it back too, to start on the new base with
  * markers left; when that already happened for this base head, it is said on the issue once. Undefined when nothing
  * moved.
  */
-const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull']>) =>
+const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
-    const made = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, undefined, undefined, hub));
+    const made = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, undefined, undefined, graph));
     const work = { ...made, head: pull.head };
     const onto = work.base;
     const from = yield* text(work, ['merge-base', pull.head, onto]);
     const moved = step.follow !== 'none' && !run.base && from !== onto;
-    const renewed = (run.hub ?? hub.sha) !== hub.sha;
-    const current = { ...unthreaded(run), hub: hub.sha };
-    if (!moved && !renewed) return run.hub ? undefined : { run: current };
+    const renewed = (run.graph ?? graph.sha) !== graph.sha;
+    const current = { ...unthreaded(run), graph: graph.sha };
+    if (!moved && !renewed) return run.graph ? undefined : { run: current };
     let same = false;
     if (moved) {
       const merge = step.follow !== 'rebase';
@@ -1975,7 +1986,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       same = before === after;
     } else yield* hostGit(work.git, ['read-tree', '-u', '--reset', pull.head]);
     if (!to) return { run: current };
-    yield* setUp(hub, work, run);
+    yield* setUp(graph, work, run);
     const t = yield* readIssueWithPull(w, run);
     const left = {
       run: run.id,
@@ -1987,10 +1998,10 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       answers: run.answers,
     };
     const own = same && !renewed;
-    const judged = (name: string) => hub.checks[name]?.agent !== undefined;
+    const judged = (name: string) => graph.checks[name]?.agent !== undefined;
     const scripts = step.checks.filter(c => !judged(c));
     const later = own ? step.checks.filter(judged) : [];
-    let { outcome, usd } = yield* runStepChecks(own ? { ...step, checks: scripts } : to, left, hub);
+    let { outcome, usd } = yield* runStepChecks(own ? { ...step, checks: scripts } : to, left, graph);
     if (outcome.kind === 'pass' && later.length > 0) {
       const log = yield* text(work, ['log', '--oneline', '--no-decorate', `${from}..${onto}`]);
       const stat = yield* text(work, ['diff', '--stat', from, onto]);
@@ -2002,7 +2013,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       ]
         .filter(Boolean)
         .join('\n\n');
-      const second = yield* runStepChecks({ ...step, checks: later }, { ...left, reply }, hub);
+      const second = yield* runStepChecks({ ...step, checks: later }, { ...left, reply }, graph);
       outcome = second.outcome;
       usd += second.usd;
     }
@@ -2019,7 +2030,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
  * throwaway checkout of the pull request head. Its comments land under the thread and the run keeps waiting; a `back`
  * comes back as the outcome, with the fork as that step's session.
  */
-const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<Issue['pull']>) =>
+const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;
@@ -2027,9 +2038,9 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
     const to = w.steps.find(s => s.name === step.back?.to);
     if (!to || !('agent' in to.does))
       return yield* new SessionStop({ reason: 'provider', detail: 'this wait step has no answering session' });
-    const agent = hub.agents[to.does.agent]!;
+    const agent = graph.agents[to.does.agent]!;
     const kept = run.sessions[to.name];
-    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, hub));
+    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, graph));
     const prompt = [
       !kept && [w.body, context(yield* readIssueWithPull(w, run))].join('\n\n'),
       `A human said this on the pull request while it waits at ${step.name}:\n\n${said}`,
@@ -2040,13 +2051,13 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
       .filter(Boolean)
       .join('\n\n');
     const r = yield* converse(
-      hub,
+      graph,
       run.id,
       step.name,
       {
         harness: agent.harness,
         agent: to.does.agent,
-        minutes: hub.limits.minutes,
+        minutes: graph.limits.minutes,
         ...(agent.model !== undefined && { model: agent.model }),
         system: agent.body,
         prompt,
@@ -2092,7 +2103,7 @@ export const issueDebounceMs = 30_000;
  * trusted command or label. An issue with a trusted event younger than `debounce` ms is left for a later look.
  */
 export const tick = (
-  hub: Hub,
+  graph: Graph,
   only?: number,
   marked = false,
   debounce = 0
@@ -2102,7 +2113,7 @@ export const tick = (
     const forge = yield* Forge;
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const all = yield* store.list();
-    const runs = all.filter(mine).filter(r => !retro(hub, r));
+    const runs = all.filter(mine).filter(r => !retro(graph, r));
     const waiting = runs.filter(r => !isRunDone(r)).map(run => ({ run, at: run.seen ?? run.started }));
     const started = runs
       .map(r => r.started)
@@ -2120,8 +2131,8 @@ export const tick = (
       const r = runs.find(
         r =>
           r.issue !== m.issue &&
-          hub.workflows[r.workflow] &&
-          findPullNumber(hub.workflows[r.workflow]!, r.issue, [...issues, ...merged]) === m.issue
+          graph.workflows[r.workflow] &&
+          findPullNumber(graph.workflows[r.workflow]!, r.issue, [...issues, ...merged]) === m.issue
       );
       if (!r) return m;
       const moved = { ...m, issue: r.issue };
@@ -2186,8 +2197,8 @@ export const tick = (
         Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${asked.id}`, e), moved))
       );
     };
-    const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment);
-    const routed = router(hub) !== undefined;
+    const triggered = Object.values(graph.workflows).filter(w => w.on.issue_comment);
+    const routed = router(graph) !== undefined;
     /** Whether a trusted event on the issue is younger than `debounce`, so a burst still coming starts nothing yet. */
     const young = (issue: number) =>
       debounce > 0 &&
@@ -2222,7 +2233,7 @@ export const tick = (
         if (!run || isRunDone(run)) return;
         const at = run.seen ?? run.started;
 
-        const w = hub.workflows[run.workflow];
+        const w = graph.workflows[run.workflow];
         const tells = w ? yield* readRunEvents(run) : [];
         const spoken = Chunk.toArray(yield* Stream.runCollect(store.read(run.id))).flatMap(t =>
           'spoken' in t ? [t.spoken] : []
@@ -2246,7 +2257,7 @@ export const tick = (
 
         /** A working run takes only a stop here; what else people say reaches it where it works. */
         const taken = (m: Event, lined: Event[] = []) => {
-          const o = w && getEventOutcome(w, run, tells.includes(m) ? m : heardBy(hub, w, m), lined);
+          const o = w && getEventOutcome(w, run, tells.includes(m) ? m : heardBy(graph, w, m), lined);
           return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
         };
         const answers =
@@ -2277,7 +2288,7 @@ export const tick = (
             ? undefined
             : yield* (
                 pull
-                  ? aside(w, seen, hub, outcome.text, pull)
+                  ? aside(w, seen, graph, outcome.text, pull)
                   : step.back
                     ? Effect.succeed({ run: seen, outcome: { kind: 'back', why: outcome.text } as const })
                     : Effect.fail(
@@ -2326,7 +2337,7 @@ export const tick = (
         if (Either.isLeft(yield* Effect.either(store.lock(before.id)))) return;
         const parent = yield* store.get(before.id);
         if (!parent || parent.status !== 'waiting') return;
-        const w = hub.workflows[parent.workflow];
+        const w = graph.workflows[parent.workflow];
         const child = all.find(c => c.by === parent.id && parent.reason === waitingOn(c) && c.status !== 'running');
         if (!w || !child) return;
         const outcome: Outcome = { kind: 'answer', text: settled(child) };
@@ -2339,8 +2350,8 @@ export const tick = (
         .filter(r => !isRunDone(r))
         .map(r => `${r.workflow}#${r.issue}`)
     );
-    const open = new Set(issues.filter(t => inScope(hub, t)).map(t => t.number));
-    const labelled = Object.values(hub.workflows).filter(w => w.on.issues?.label);
+    const open = new Set(issues.filter(t => inScope(graph, t)).map(t => t.number));
+    const labelled = Object.values(graph.workflows).filter(w => w.on.issues?.label);
     /** The label workflow whose label an issue carries, when a maintainer put it there last. */
     const assigned = (issue: number) =>
       Effect.map(forge.issue(issue), t =>
@@ -2391,7 +2402,7 @@ export const tick = (
       const restart = /^restart$/i.test(verb) ? step : undefined;
       if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || young(m.issue)) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
-      const concerns = (name: string) => m.kind !== 'comment' || !routed || !!hub.workflows[name]?.on.issue_comment;
+      const concerns = (name: string) => m.kind !== 'comment' || !routed || !!graph.workflows[name]?.on.issue_comment;
       if (
         /^(stop|cancel)$/i.test(verb) &&
         !runs.some(r => r.issue === m.issue && !isRunDone(r) && !concerns(r.workflow))
@@ -2413,7 +2424,7 @@ export const tick = (
       if (
         w &&
         inScope(
-          hub,
+          graph,
           issues.find(t => t.number === only)
         )
       )
@@ -2424,19 +2435,19 @@ export const tick = (
     const pulls = new Map<number, number | undefined>();
     const workedOn = (m: Event) =>
       Effect.gen(function* () {
-        if (all.some(r => r.issue === m.issue && !retro(hub, r))) return m.issue;
+        if (all.some(r => r.issue === m.issue && !retro(graph, r))) return m.issue;
         if (issues.some(t => t.number === m.issue)) return undefined;
         if (!pulls.has(m.issue)) {
           const branch = Option.getOrUndefined(yield* Effect.option(forge.issue(m.issue)))?.pull?.branch;
           const by = all.find(r => {
-            const w = hub.workflows[r.workflow];
-            return !retro(hub, r) && w?.branch !== undefined && branch === expand(w.branch, { number: r.issue });
+            const w = graph.workflows[r.workflow];
+            return !retro(graph, r) && w?.branch !== undefined && branch === expand(w.branch, { number: r.issue });
           });
           pulls.set(m.issue, by?.issue);
         }
         return pulls.get(m.issue);
       });
-    for (const w of Object.values(hub.workflows).filter(w => w.on.feedback)) {
+    for (const w of Object.values(graph.workflows).filter(w => w.on.feedback)) {
       const heardOn = new Map<number, Event[]>();
       for (const m of latest.map(onRun).filter(feedback)) {
         const issue = yield* workedOn(m);
@@ -2446,7 +2457,7 @@ export const tick = (
         const before = all.filter(r => r.issue === issue && r.workflow === w.name);
         if (young(issue)) continue;
         const first = all
-          .filter(r => r.issue === issue && !retro(hub, r))
+          .filter(r => r.issue === issue && !retro(graph, r))
           .map(r => r.started)
           .sort()[0];
         const since = newest(first, ...before.map(r => r.started))!;
@@ -2467,7 +2478,7 @@ export const tick = (
     }
 
     for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => !isRunDone(r))) {
-      const w = hub.workflows[r.workflow];
+      const w = graph.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
       if (
         !w ||
@@ -2485,11 +2496,11 @@ export const tick = (
         if (Either.isLeft(yield* Effect.either(store.lock(before.id)))) return;
         const r = yield* store.get(before.id);
         if (!r || r.status !== 'waiting') return;
-        const w = hub.workflows[r.workflow];
+        const w = graph.workflows[r.workflow];
         const step = w?.steps.find(s => s.name === r.step);
         const pull = w && issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull;
         if (!w || !step || !isHumanWaitStep(step) || !pull) return;
-        const caught = yield* catchUp(w, r, hub, pull).pipe(
+        const caught = yield* catchUp(w, r, graph, pull).pipe(
           Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
         );
         const next = caught?.outcome && transition(w, caught.run, caught.outcome);
@@ -2500,19 +2511,19 @@ export const tick = (
 
     const running = (yield* store.list({ status: 'running' }))
       .filter(mine)
-      .filter(r => hub.workflows[r.workflow] && pending(hub.workflows[r.workflow]!, r.issue, issues).length === 0)
+      .filter(r => graph.workflows[r.workflow] && pending(graph.workflows[r.workflow]!, r.issue, issues).length === 0)
       .toSorted((a, b) => a.started.localeCompare(b.started));
     const driven = yield* Effect.forEach(
       running,
       r =>
-        drive(hub.workflows[r.workflow]!, r, hub).pipe(
+        drive(graph.workflows[r.workflow]!, r, graph).pipe(
           Effect.catchAll(e => Effect.as(Effect.logError(`run ${r.id}`, e), r))
         ),
-      { concurrency: hub.limits.parallel }
+      { concurrency: graph.limits.parallel }
     );
     const owing = (yield* store.list()).filter(r => r.owed && mine(r));
-    const ended = (yield* Effect.forEach(owing, r => runEndChecks(hub, r.id), {
-      concurrency: hub.limits.parallel,
+    const ended = (yield* Effect.forEach(owing, r => runEndChecks(graph, r.id), {
+      concurrency: graph.limits.parallel,
     })).filter(r => r !== undefined);
     const moved = [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
     return [...moved.filter(r => !ended.some(e => e.id === r.id)), ...ended];
@@ -2524,16 +2535,16 @@ export const tick = (
  * look has passed. `debounce` is as for `tick`.
  */
 export const scanIssuesAndRunningRuns = (
-  hub: Hub,
+  graph: Graph,
   debounce = 0
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(
-      t => !t.pull && inScope(hub, t)
+      t => !t.pull && inScope(graph, t)
     );
     const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(r => !isRunDone(r) || r.owed);
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
-    return (yield* Effect.forEach(issues, n => tick(hub, n, true, debounce), {
-      concurrency: hub.limits.parallel,
+    return (yield* Effect.forEach(issues, n => tick(graph, n, true, debounce), {
+      concurrency: graph.limits.parallel,
     })).flat();
   });

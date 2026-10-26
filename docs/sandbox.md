@@ -6,28 +6,28 @@ Sessions, script steps, checks and checkout setup run in throwaway Docker contai
 
 A container has a read-only root, a tmpfs `/tmp`, the operator's non-root uid, no capabilities, `no-new-privileges`, 4g of memory, 1.5 CPUs, 512 pids and a timeout watchdog. Images are never pulled.
 
-`/work` (the checkout) and the session home `/home/agent` are writable. The mirror is read only, and so is `/hub` (`AGENTGRAPH_HUB`), which scripts and setup get but sessions do not. The shared cache is at `/cache`, where a checkout's writes stay with that checkout. No Docker socket or GitHub token enters a session; it gets only its agent's model key. <!-- code: src/docker.ts#dockerArgs -->
+`/work` (the checkout) and the session home `/home/agent` are writable. The mirror is read only, and so is `/graph` (`AGENTGRAPH_DIR`), which scripts and setup get but sessions do not. The shared cache is at `/cache`, where a checkout's writes stay with that checkout. No Docker socket or GitHub token enters a session; it gets only its agent's model key. <!-- code: src/docker.ts#dockerArgs -->
 
 `infra/local/sandbox` builds the image, and its `smoke.sh` checks how containers behave. Tests use a host sandbox instead, which runs in a clone without network rules. <!-- code: tests/doubles/sandbox.ts#hostSandbox -->
 
 ## The network
 
-Sessions and checkout setup use the hub's `network`:
+Sessions and checkout setup use the graph's `network`:
 
 | `network` | Docker network | Reachable |
 | --- | --- | --- |
 | `egress` (default) | `agentgraph-sandbox` | Model proxy, the optional Ollama relay, an HTTPS allowlist |
 | `models` | `agentgraph-models` | Model proxy only |
 
-The local compose stack creates both internal networks. The allowlist in `infra/local/egress/allowlist` has `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org` for GitHub downloads and npm installs, and `api.anthropic.com`, `chatgpt.com` and `auth.openai.com` for harnesses on their own login and for LiteLLM. No PyPI, crates.io, Docker Hub, SSH or browsing. Scripts and checks get no network at all. Environment builds use Docker's default network.
+The local compose stack creates both internal networks. The allowlist in `infra/local/egress/allowlist` has `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org` for GitHub downloads and npm installs, and `api.anthropic.com`, `chatgpt.com` and `auth.openai.com` for harnesses on their own login and for LiteLLM. No PyPI, crates.io, Docker Graph, SSH or browsing. Scripts and checks get no network at all. Environment builds use Docker's default network.
 
-Hub `setup` installs dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. With `models`, they must already be in the image or the environment. A failed checkout setup retries, then parks the run; an answer retries setup and the step. <!-- code: src/engine.ts#setUp -->
+Graph `setup` installs dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. With `models`, they must already be in the image or the environment. A failed checkout setup retries, then parks the run; an answer retries setup and the step. <!-- code: src/engine.ts#setUp -->
 
 ## Environments
 
-An environment caches a repo's dependencies so checkouts do not install them again. Its files live in the volume `agentgraph-lower-<key>`, and the image `agentgraph-env/<repo>:<key>` carries its labels. To build one, a container takes the files package managers read from the base commit (lockfiles, manifests and the like), installs [toolchains](#toolchains), runs hub `setup`, and keeps the ignored dependency folders such as `node_modules` and `target`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton -->
+An environment caches a repo's dependencies so checkouts do not install them again. Its files live in the volume `agentgraph-lower-<key>`, and the image `agentgraph-env/<repo>:<key>` carries its labels. To build one, a container takes the files package managers read from the base commit (lockfiles, manifests and the like), installs [toolchains](#toolchains), runs graph `setup`, and keeps the ignored dependency folders such as `node_modules` and `target`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton -->
 
-The key covers the base image, the toolchain commands, `setup` and those files, so bases that differ only in source share an environment. If setup fails on those files alone, the build retries with the whole base. A setup that reads `$AGENTGRAPH_HUB` runs per checkout instead. A run's trace says which environment each checkout used and how it was built.
+The key covers the base image, the toolchain commands, `setup` and those files, so bases that differ only in source share an environment. If setup fails on those files alone, the build retries with the whole base. A setup that reads `$AGENTGRAPH_DIR` runs per checkout instead. A run's trace says which environment each checkout used and how it was built.
 
 Each checkout mounts private overlays over the cached dependency folders, so its writes stay its own, and the overlays go when the checkout closes. Checkouts skip setup when the environment holds everything setup produced; resumed checkouts and incomplete environments run it again. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox src/env.ts#unlogged -->
 
@@ -53,7 +53,7 @@ A pin holds what its globs name until it expires. `collect` without `--dry-run` 
 
 The sandbox has toolchain managers and a C compiler. The `agentgraph-cache` volume at `/cache` shares rustup, cargo and npm, pnpm and yarn downloads across runs. Only environment builds write it; everything else writes to an overlay that goes with the checkout, and the trace counts those files (`cache`).
 
-A root `rust-toolchain` or `rust-toolchain.toml` pins Rust, and `Cargo.toml` alone selects stable, with clippy, rustfmt and the crates fetched. Hub `toolchain` adds anything else:
+A root `rust-toolchain` or `rust-toolchain.toml` pins Rust, and `Cargo.toml` alone selects stable, with clippy, rustfmt and the crates fetched. Graph `toolchain` adds anything else:
 
 ```yaml
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
@@ -61,9 +61,9 @@ toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked ca
 
 A failed toolchain install is a runner error with its output. `AGENTGRAPH_CACHE_VOLUME` names another volume, and an empty value turns off the cache and environments. `docker volume rm agentgraph-cache` clears it. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#written src/docker.ts#dockerArgs -->
 
-## A hub's own image
+## A graph's own image
 
-Hub `image` names a local image for every run command and environment build, instead of `AGENTGRAPH_IMAGE` or `agentgraph-sandbox:local`. Build it yourself with the harnesses and any dependencies; agentgraph never builds or pulls it, and a checkout without it fails with the command to run.
+Graph `image` names a local image for every run command and environment build, instead of `AGENTGRAPH_IMAGE` or `agentgraph-sandbox:local`. Build it yourself with the harnesses and any dependencies; agentgraph never builds or pulls it, and a checkout without it fails with the command to run.
 
 ```dockerfile
 FROM agentgraph-sandbox:local
@@ -83,7 +83,7 @@ network: models
 
 ## Harnesses
 
-An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a hub never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces, and an optional `check` that lists what it cannot do for an agent. The built-in four live in `harnesses/` and are written the way your own would be. Say a harness prints one JSON object per line:
+An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a graph never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces, and an optional `check` that lists what it cannot do for an agent. The built-in four live in `harnesses/` and are written the way your own would be. Say a harness prints one JSON object per line:
 
 ```jsonl
 {"kind":"start","id":"s1"}
@@ -122,16 +122,16 @@ The package has no entry point yet, so a plugin imports its types from `src/harn
 - The first `session` piece starts the session; later ones are ignored. A session that ends without a `done` piece ends in `error`.
 - `command` and `home` get the model from the route only. The route also holds the proxy URL, and the loop puts the agent's key in the `key` env var.
 - `home` paths are relative to the session home and cannot leave it.
-- `check` returns what the harness cannot do, phrased to follow its name, such as `takes no tools`. The hub reports it as `harness: echo takes no tools`.
+- `check` returns what the harness cannot do, phrased to follow its name, such as `takes no tools`. The graph reports it as `harness: echo takes no tools`.
 
-`AGENTGRAPH_HARNESS` runs every agent on that harness. Otherwise an agent without a `harness` gets the first harness `AGENTGRAPH_PROVIDER` serves, else the first in the config. A hub loads only when every agent's harness is in the config and its `check` finds nothing. A config that does not load fails every hub with its problem. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/hub.ts#loadHub -->
+`AGENTGRAPH_HARNESS` runs every agent on that harness. Otherwise an agent without a `harness` gets the first harness `AGENTGRAPH_PROVIDER` serves, else the first in the config. A graph loads only when every agent's harness is in the config and its `check` finds nothing. A config that does not load fails every graph with its problem. A graph names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/folder.ts#loadGraph -->
 
 | Harness | Tool permissions | Aside fork |
 | --- | --- | --- |
 | `opencode` | Allowlists with patterns, such as `bash(git diff*)` | `--session <id> --fork` |
-| `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` fails the hub check, so best for read-only agents | `--fork <id>` |
-| `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work, a tool Claude Code lacks fails the hub check | `--resume <id> --fork-session` |
-| `codex` | An agent with `edit`, `write` and `bash` gets every tool Codex has; any other runs in Codex's read-only sandbox, so `bash(git diff*)` means read-only shell. Granting only some of the three, or a pattern on any tool but `bash`, fails the hub check. Codex always talks to the gateway as its own model provider (`wire_api = "responses"`) with the agent's key, so a ChatGPT subscription works only behind a gateway that holds the login, such as LiteLLM's `chatgpt/` models. Sessions live in the session home | none; an aside starts a fresh session |
+| `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` fails the graph check, so best for read-only agents | `--fork <id>` |
+| `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work, a tool Claude Code lacks fails the graph check | `--resume <id> --fork-session` |
+| `codex` | An agent with `edit`, `write` and `bash` gets every tool Codex has; any other runs in Codex's read-only sandbox, so `bash(git diff*)` means read-only shell. Granting only some of the three, or a pattern on any tool but `bash`, fails the graph check. Codex always talks to the gateway as its own model provider (`wire_api = "responses"`) with the agent's key, so a ChatGPT subscription works only behind a gateway that holds the login, such as LiteLLM's `chatgpt/` models. Sessions live in the session home | none; an aside starts a fresh session |
 
 Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnessSession -->
 
@@ -151,7 +151,7 @@ A session gets only its agent's model key. On the host, these keep long-lived ke
 - Host git, docker and environment builds get a short list of variables: `PATH`, `HOME`, `USER`, `TMPDIR`, the locale, `TZ` and the Docker settings. They never get the runner's whole environment. <!-- code: src/git.ts#makeHostEnv -->
 - `infra/local/keys.sh` unexports every name in `.env` and every inherited name with a `KEY`, `KEYS`, `TOKEN`, `SECRET` or `PASSWORD` part. curl reads the key from a header file and the request body from stdin, so neither shows in a process list.
 - npm runs no install scripts. The `.npmrc` in `agentgraph/` and in `studio/` sets `ignore-scripts=true`, and `min-release-age=7` skips versions published in the last week. The sandbox image installs with `--ignore-scripts` and runs one postinstall by hand, opencode's, which links its platform binary.
-- The studio dev server serves files only from `studio/`, `src/` and `node_modules/`, and refuses env, key, certificate and `.npmrc` files even there. Its fixture APIs still read the hub and data you point it at. <!-- code: studio/vite.config.ts#deny -->
+- The studio dev server serves files only from `studio/`, `src/` and `node_modules/`, and refuses env, key, certificate and `.npmrc` files even there. Its fixture APIs still read the graph and data you point it at. <!-- code: studio/vite.config.ts#deny -->
 - On macOS, `bin/setup-app.ts` keeps the App key in the login Keychain, which asks before every read. [App setup](../infra/github/README.md#create-the-app) has the start command.
 
 ### The leak probe

@@ -1,10 +1,10 @@
 ---
 mode: block
-each: node "$AGENTGRAPH_HUB/scripts/hunks.mjs" src/ studio/src/ examples/agentgraph/scripts/
+each: node "$AGENTGRAPH_DIR/scripts/hunks.mjs" src/ studio/src/ examples/agentgraph/scripts/
 agent: reviewer
 max: 30
 ---
-Each code hunk in src/, studio/src/ and the hub scripts handles every input that reaches it, breaks no caller, and adds no second path beside the owner of its behaviour and no hub rule in src/.
+Each code hunk in src/, studio/src/ and the graph scripts handles every input that reaches it, breaks no caller, and adds no second path beside the owner of its behaviour and no graph rule in src/.
 
 Hunks that only change comments are left out; the rules check covers them. So are hunks that only
 make the change-wide rename; the types and tests checks cover those.
@@ -14,7 +14,7 @@ tests, the scope and duplicated code, so ask only this: is there an input that r
 a caller of what it changes, that it now handles wrongly? Read the callers when the hunk changes a
 signature or a return value.
 
-An input counts when it reaches the hunk through agentgraph's own inputs and documented use: a hub file,
+An input counts when it reaches the hunk through agentgraph's own inputs and documented use: a graph file,
 an event, a model reply, a stored run, a config value, at any size the API returns (more than one
 page of results is ordinary). A human acting through the forge (labels, comments, closing) is
 documented use; a human hand-editing text agentgraph wrote (a marker in an issue body, a stored file),
@@ -32,10 +32,10 @@ would fix the cause: name the smaller change. The same goes for a hunk that scan
 (a recursive directory walk, or one scan per input token) where an existing file list or index
 already answers it, such as `git ls-files`.
 
-Ask too whether the behaviour the hunk adds already has an owner: a hub skill, `apply` (every write
+Ask too whether the behaviour the hunk adds already has an owner: a graph skill, `apply` (every write
 to the forge), an agent's `returns` (what it may propose) or an existing proposal kind. A second path
 beside the owner, such as a direct forge call next to `apply`, is a fail: name the owner to
-extend. So is a hub rule in `src/`: policy for one hub's workflow (when triage closes, what a task
+extend. So is a graph rule in `src/`: policy for one graph's workflow (when triage closes, what a task
 should return) written into engine code or a prompt every agent sees, or a reorder of logic every run
 goes through to serve that one case. Name the skill or check it belongs in. So is a shared function
 changed for every caller when one call site needed it, such as a removed cap that other callers

@@ -267,7 +267,7 @@ if (import.meta.main) {
       BENCH_ENGINE: engine,
       BENCH_CACHE: join(dir, '.cache'),
     };
-    for (const v of ['BENCH_PATH', 'BENCH_FRESH', 'BENCH_HUB', 'BENCH_POINT']) delete env[v];
+    for (const v of ['BENCH_PATH', 'BENCH_FRESH', 'BENCH_DIR', 'BENCH_POINT']) delete env[v];
     const bench = (args: string[], logFile: string) =>
       runLogged([join(engine, 'bin/bench.ts'), ...args, ...(s.KEYS ? ['--keys', s.KEYS] : [])], logFile, env, log);
 
@@ -342,7 +342,7 @@ if (import.meta.main) {
 
     const tree = (path: string) =>
       spawnSync('git', ['-C', engine, 'rev-parse', `HEAD:./${path}`], { encoding: 'utf8' }).stdout.trim();
-    const hubs = { v2: tree('examples'), floor: tree('bench/floor') };
+    const graphs = { v2: tree('examples'), floor: tree('bench/floor') };
     for (const j of jobs) {
       const at = runDir(dir, s, j);
       if (existsSync(join(at, 'point.json'))) continue;
@@ -351,7 +351,7 @@ if (import.meta.main) {
         harness,
         model,
         engine: s.SHA,
-        hubs,
+        graphs,
         set: s.SET,
         repeat: j.k,
         at: new Date().toISOString(),

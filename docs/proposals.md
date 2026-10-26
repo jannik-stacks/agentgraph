@@ -20,7 +20,7 @@ A reply ends with a fenced `agentgraph` block. The engine reads the last one as 
 | `push` | `branch`, `message` | [Commit and push](#pushes) the checkout |
 | `pull_request` | `branch`, `base`, `title`, `body` | Open a pull request, or update the open one for that branch |
 | `merge` | `number`, `head` | Merge the run's pull request if its head still matches |
-| `issue` | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | File a [part, follow-up or hub change](stacks.md) |
+| `issue` | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | File a [part, follow-up or graph change](stacks.md) |
 | `ask` | `question` | Post a question and wait |
 | `back` | `why` | [Return to an earlier step](loop.md#tries-and-going-back) |
 | `run` | `workflow`, `issue`, optional `step` | [Dispatch](loop.md#dispatch) a workflow and wait |
@@ -49,7 +49,7 @@ A comment goes where the person started or woke the run: the issue, the pull req
 
 ## Pushes
 
-`push` and `pull_request` must name the run's own branch, which starts with `agentgraph/`. The branch must still be where the checkout started or last pushed; if it moved, the push is refused. Pushes never force, except the one push that finishes a [rebase](loop.md#when-the-base-or-the-hub-moves).
+`push` and `pull_request` must name the run's own branch, which starts with `agentgraph/`. The branch must still be where the checkout started or last pushed; if it moved, the push is refused. Pushes never force, except the one push that finishes a [rebase](loop.md#when-the-base-or-the-graph-moves).
 
 While no pull request is open for the run's branch, a try of an agent that may return `pull_request` passes only with a `pull_request`, an `ask`, a `back`, an `issue` with `"relation":"part"`, or comments that answer a finished run. A pull request from a failed try never applied, so the next try has to send it again. <!-- code: src/engine.ts#attempt -->
 

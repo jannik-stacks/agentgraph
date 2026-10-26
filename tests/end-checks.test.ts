@@ -4,17 +4,17 @@ import { join } from 'node:path';
 import { Effect, Either } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { instruct, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
-import type { Check, Hub } from '../src/hub.ts';
+import type { Check, Graph } from '../src/folder.ts';
 import { Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { transition, type Run } from '../src/workflow.ts';
 import { result, start } from './fixtures.ts';
-import { fresh, hub, pullRequest, say, services, readTrace, w, world } from './world.ts';
+import { fresh, graph, pullRequest, say, services, readTrace, w, world } from './world.ts';
 
-const ending = (checks: Record<string, Partial<Check>>): Hub => ({
-  ...hub,
+const ending = (checks: Record<string, Partial<Check>>): Graph => ({
+  ...graph,
   checks: {
-    ...hub.checks,
+    ...graph.checks,
     ...Object.fromEntries(
       Object.entries(checks).map(([name, c]) => [
         name,
@@ -345,7 +345,7 @@ describe('end checks', () => {
     expect(results(where.data)).toEqual([expect.objectContaining({ check: 'lines', value: { n: 3 }, end: true })]);
   });
 
-  it('give a check gone from the hub, or a run without kept files, an empty result naming why', async () => {
+  it('give a check gone from the graph, or a run without kept files, an empty result naming why', async () => {
     const where = world();
     const h = ending({ lines: measure('echo 3') });
     const { run } = services(where, []);
@@ -358,7 +358,7 @@ describe('end checks', () => {
         check: 'gone',
         pass: false,
         empty: true,
-        findings: 'the hub has no check gone',
+        findings: 'the graph has no check gone',
         end: true,
       }),
       expect.objectContaining({
@@ -369,7 +369,7 @@ describe('end checks', () => {
     ]);
   });
 
-  it('run again later on stored runs that ended, each on the files setup left, and refuse a check the hub lacks', async () => {
+  it('run again later on stored runs that ended, each on the files setup left, and refuse a check the graph lacks', async () => {
     const where = world();
     const h = ending({ wipe: { run: 'rm README.md' }, lines: measure('wc -l < README.md') });
     const { run } = services(where, []);
@@ -383,7 +383,7 @@ describe('end checks', () => {
       expect.objectContaining({ check: 'lines', value: { n: 1 }, end: true }),
     ]);
     const refused = await run(Effect.either(instruct(h, { kind: 'check', checks: ['nope'] })));
-    expect(Either.isLeft(refused) && refused.left.message).toBe('the hub has no check nope');
+    expect(Either.isLeft(refused) && refused.left.message).toBe('the graph has no check nope');
   });
 
   it('run checks that read only traces on the target branch when the run kept no files or start commit', async () => {

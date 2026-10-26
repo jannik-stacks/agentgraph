@@ -17,9 +17,9 @@ export const retiredWords: { word: string; example?: string; text?: RegExp }[] =
   { word: '`over:`', example: '`each:`', text: /^\s*over:/m },
   { word: '`can:`', example: '`returns:`', text: /^\s*can:/m },
   { word: 'extra prompt', example: 'prompt', text: /\bextra[ -]prompt\b/i },
-  { word: 'a per-hub run limit', example: 'limits in hub.yaml', text: /\bruns-per-day\b|\bmax-turns\b/ },
+  { word: 'a per-repo run limit', example: 'limits in settings.yaml', text: /\bruns-per-day\b|\bmax-turns\b/ },
   { word: 'a convention or pattern note kind', example: 'notes/style', text: /\bnotes\/(convention|pattern)s?\b/ },
-  { word: 'a removed feature', text: /## Resuming|main-worktree|\/hub\/scripts|criteria table|adds the Closes/ },
+  { word: 'a removed feature', text: /## Resuming|main-worktree|criteria table|adds the Closes/ },
 ];
 
 export const formatRetiredAdvice = ({ example }: Pick<(typeof retiredWords)[number], 'example'>) =>

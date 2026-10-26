@@ -25,7 +25,7 @@ One or two sentences on the outcome.
 
 Each criterion is one line with one observable result, never two joined by "and", and at most five
 of them. It ends with the exact title of the test that proves it and the test file it goes in; the
-hub checks that the change adds that test, that it passes, and that it fails on the code before
+graph checks that the change adds that test, that it passes, and that it fails on the code before
 the change. A criterion that keeps behavior which already works gets a title starting with
 `still `, such as `it('still replays comments written while serve was stopped')`. When two criteria
 touch the same input or function, add a criterion for how they interact.
@@ -62,7 +62,7 @@ read the code: one plain sentence on what needs deciding, then each option in pl
 `ask` has only a `question`; its first line becomes the issue title, so make that line a short
 question under 80 characters.
 
-The change may touch only the paths the safety check allows. The hub keeps them in its own
+The change may touch only the paths the safety check allows. The graph keeps them in its own
 `scripts/bounds.mjs`, which is not in this repository. The files section names at most 8 files outside `tests/`, the
 size check's file cap; test files never count. For a rename, name the files that do more than the
 rename and say in the task that the rename reaches every use.

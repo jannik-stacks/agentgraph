@@ -41,7 +41,7 @@ export const change = (before: Record<string, string>, after: Record<string, str
   return { dir, base };
 };
 
-/** Runs a hub script with node in `dir`, with `AGENTGRAPH_BASE` set to `base`; `env` extends `PATH`, `HOME` and the base. */
+/** Runs a graph script with node in `dir`, with `AGENTGRAPH_BASE` set to `base`; `env` extends `PATH`, `HOME` and the base. */
 export const runScript = (
   path: string,
   { dir, base }: { dir: string; base?: string },

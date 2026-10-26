@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
 import type { Proposal } from '../src/proposal.ts';
 import {
-  ensureHub,
+  ensureGraph,
   ensureInstance,
   writePullToRepo,
   writeLabels,
@@ -18,7 +18,7 @@ import {
 } from '../src/instance.ts';
 import { formatIssueList, formatIssueTimeline } from '../src/status.ts';
 import { scanIssuesAndRunningRuns, tick, type Instruction, type Services } from '../src/engine.ts';
-import { loadHub } from '../src/hub.ts';
+import { loadGraph } from '../src/folder.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { createLoopLock, isLoopHeld, start as main, writeTriggeringIssue } from '../src/main.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
@@ -30,7 +30,7 @@ import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
 
 const runTs = join(import.meta.dirname, '..', 'bin', 'run.ts');
-const sandboxHub = join(import.meta.dirname, '..', 'examples', 'sandbox');
+const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -137,7 +137,7 @@ const world = () => {
       );
     };
     return main(
-      { hub: sandboxHub, issue, data, ...(instruction && { instruction }), ...(marked && { marked }) },
+      { graph: sandboxGraph, issue, data, ...(instruction && { instruction }), ...(marked && { marked }) },
       services
     );
   };
@@ -231,18 +231,18 @@ describe('the human verbs on a forge folder', () => {
   it('goes from text to a run to a diff with no GitHub', async () => {
     const w = world();
     await w.forge('init', w.seed);
-    const hub = await Effect.runPromise(loadHub(sandboxHub, harnesses));
-    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'morgan', 'router')).rejects.toThrow(
+    const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
+    await expect(writeTriggeringIssue(graph, w.dir, 'Add a greeting', 'morgan', 'router')).rejects.toThrow(
       'name one workflow with a label: --workflow <name>'
     );
-    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'morgan')).rejects.toThrow('issue|triage');
-    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'x[bot]', 'issue')).rejects.toThrow(
+    await expect(writeTriggeringIssue(graph, w.dir, 'Add a greeting', 'morgan')).rejects.toThrow('issue|triage');
+    await expect(writeTriggeringIssue(graph, w.dir, 'Add a greeting', 'x[bot]', 'issue')).rejects.toThrow(
       'x[bot] may not'
     );
     await expect(
-      writeTriggeringIssue({ ...hub, trust: ['ann'] }, w.dir, 'Add a greeting', 'morgan', 'issue')
+      writeTriggeringIssue({ ...graph, trust: ['ann'] }, w.dir, 'Add a greeting', 'morgan', 'issue')
     ).rejects.toThrow('morgan may not');
-    expect(await writeTriggeringIssue(hub, w.dir, 'Add a greeting\n\nAdd hello.txt.', 'morgan', 'issue')).toBe(1);
+    expect(await writeTriggeringIssue(graph, w.dir, 'Add a greeting\n\nAdd hello.txt.', 'morgan', 'issue')).toBe(1);
     expect(await w.forge('show', '1')).toMatch(/^#1 open Add a greeting by morgan \[agent:ready\]\n\nAdd hello.txt.\n/);
     const pull: Proposal = {
       kind: 'pull_request',
@@ -508,8 +508,8 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
         runTs,
         'dispatch',
         '1',
-        '--hub',
-        sandboxHub,
+        '--dir',
+        sandboxGraph,
         '--data',
         join(w.root, 'data'),
         '--forge',
@@ -555,7 +555,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     await w.forge('comment', '2', '/agent explain this line', '--line', 'hello.txt:1');
-    const hub = await Effect.runPromise(loadHub(sandboxHub, harnesses));
+    const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
       Effect.runPromise(
         effect.pipe(
@@ -584,8 +584,8 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
         )
       )
     );
-    expect(await run(tick(hub, undefined, false, 30_000))).toEqual([]);
-    const recovered = await run(scanIssuesAndRunningRuns(hub));
+    expect(await run(tick(graph, undefined, false, 30_000))).toEqual([]);
+    const recovered = await run(scanIssuesAndRunningRuns(graph));
     expect(recovered.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
     expect(await w.forge('show', '2')).toContain('Here is why.');
   });
@@ -626,20 +626,20 @@ describe('an instance', () => {
     expect(i).toMatchObject({ base: 'main', owner: 'morgan', made: true });
     expect((await ensureInstance(root, w.seed)).made).toBe(false);
     expect(await ensureBase(i)).toBeUndefined();
-    expect(await ensureHub(i)).toBe(join(import.meta.dirname, '..', 'hub'));
-    const hub = await Effect.runPromise(loadHub(sandboxHub, harnesses));
-    expect(await writeTriggeringIssue({ ...hub, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue')).toBe(
-      1
-    );
-    const shownHub = cli('show', 'hub').out;
-    expect(shownHub).toContain('(default; copy it to .agentgraph/');
-    expect(shownHub).toContain('agents/reviewer.md');
+    expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'default'));
+    const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
+    expect(
+      await writeTriggeringIssue({ ...graph, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue')
+    ).toBe(1);
+    const shownGraph = cli('show', 'graph').out;
+    expect(shownGraph).toContain('(default; copy it to .agentgraph/');
+    expect(shownGraph).toContain('agents/reviewer.md');
     await writeLabels(i.forge, i.owner, 1, ['urgent']);
     expect(readFileSync(join(i.forge, '1.md'), 'utf8')).toContain('urgent');
 
     Object.assign(process.env, { AGENTGRAPH_FORGE: i.forge, AGENTGRAPH_TRUST: i.owner });
     const run = (turns: SessionEvent[][], issue: number | 'all' = 1) =>
-      main({ hub: sandboxHub, issue, data: i.data, marked: true, base: i.base }, s =>
+      main({ graph: sandboxGraph, issue, data: i.data, marked: true, base: i.base }, s =>
         Layer.mergeAll(
           fileForge(s.forge as string, undefined, s.trust),
           fileStore(s.data),
@@ -657,7 +657,7 @@ describe('an instance', () => {
     const shown = cli('show');
     expect(shown.out).toContain('npx agentgraph merge 1');
     expect(shown.out).toContain('#2 open Add hello (agentgraph/1 into main)');
-    expect(cli('check', '--hub', sandboxHub).out).toBe('ok');
+    expect(cli('check', '--dir', sandboxGraph).out).toBe('ok');
 
     expect(await writePullToRepo(i, 1)).toMatchObject({ ref: 'agentgraph/1', base: 'main' });
     expect(git(w.seed, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
@@ -697,24 +697,26 @@ describe('an instance', () => {
     expect(git(join(i.forge, 'origin.git'), 'rev-parse', 'main')).toBe(git(w.seed, 'rev-parse', 'HEAD'));
   });
 
-  it('reads the committed .agentgraph hub, and holds one loop per data dir', async () => {
+  it('reads the committed .agentgraph graph, and holds one loop per data dir', async () => {
     const w = world();
-    cpSync(sandboxHub, join(w.seed, '.agentgraph'), { recursive: true });
+    cpSync(sandboxGraph, join(w.seed, '.agentgraph'), { recursive: true });
     const i = await ensureInstance(join(w.root, 'agentgraph-data'), w.seed);
     await ensureBase(i);
-    expect(await ensureHub(i)).toBe(join(import.meta.dirname, '..', 'hub'));
+    expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'default'));
     git(w.seed, 'add', '.agentgraph');
-    git(w.seed, 'commit', '-q', '-m', 'hub');
+    git(w.seed, 'commit', '-q', '-m', 'graph');
     await ensureBase(i);
-    const hub = await ensureHub(i);
-    expect(hub.startsWith(join(i.dir, 'hubs'))).toBe(true);
-    expect(readFileSync(join(hub, 'hub.yaml'), 'utf8')).toBe(readFileSync(join(sandboxHub, 'hub.yaml'), 'utf8'));
-    expect(await ensureHub(i, sandboxHub)).toBe(sandboxHub);
+    const graph = await ensureGraph(i);
+    expect(graph.startsWith(join(i.dir, 'graphs'))).toBe(true);
+    expect(readFileSync(join(graph, 'settings.yaml'), 'utf8')).toBe(
+      readFileSync(join(sandboxGraph, 'settings.yaml'), 'utf8')
+    );
+    expect(await ensureGraph(i, sandboxGraph)).toBe(sandboxGraph);
     symlinkSync('/etc/hosts', join(w.seed, '.agentgraph', 'agents', 'leak.md'));
     git(w.seed, 'add', '.agentgraph');
     git(w.seed, 'commit', '-q', '-m', 'link');
     await ensureBase(i);
-    await expect(ensureHub(i)).rejects.toThrow('.agentgraph holds links or submodules: agents/leak.md');
+    await expect(ensureGraph(i)).rejects.toThrow('.agentgraph holds links or submodules: agents/leak.md');
 
     const release = await createLoopLock(i.data);
     expect(await isLoopHeld(i.data)).toBe(true);
@@ -735,7 +737,7 @@ describe('the CLI flags', () => {
   it.each(BAD_FLAGS)('fails %o %o before it runs anything', (env, args, message) => {
     const root = tmp('cli-flags');
     dirs.push(root);
-    const ran = spawnSync(process.execPath, [runTs, ...args, '--data', root, '--forge', root, '--hub', sandboxHub], {
+    const ran = spawnSync(process.execPath, [runTs, ...args, '--data', root, '--forge', root, '--dir', sandboxGraph], {
       cwd: root,
       env: { ...process.env, NODE_OPTIONS: '', ...env },
       encoding: 'utf8',

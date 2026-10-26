@@ -26,7 +26,7 @@ The engine is the runner code in `src/`.
 │               │ model calls    └──────────────┬──────────────┘  │
 │               v                               │                 │
 │  ┌──────────────────────────┐                 v                 │
-│  │ LiteLLM proxy            │  studio reads the hub,            │
+│  │ LiteLLM proxy            │  studio reads the graph,            │
 │  │ aliases, one key per     │  run.json and trace               │
 │  │ agent, spend logs        │                                   │
 │  └────────────┬─────────────┘                                   │
@@ -59,4 +59,4 @@ Models supply proposals and verdicts; engine code decides the transitions, and a
 
 ## Hosting
 
-`infra/local/docker-compose.yml` runs the proxy and its database, the egress proxy and the Ollama relay. The runner and the studio are Node processes on the host. The runner needs Docker and the App credentials. The studio is optional and needs only read access to the hub and the data directory. An existing proxy works through `AGENTGRAPH_PROXY_URL` and per-agent keys.
+`infra/local/docker-compose.yml` runs the proxy and its database, the egress proxy and the Ollama relay. The runner and the studio are Node processes on the host. The runner needs Docker and the App credentials. The studio is optional and needs only read access to the graph and the data directory. An existing proxy works through `AGENTGRAPH_PROXY_URL` and per-agent keys.

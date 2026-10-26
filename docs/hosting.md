@@ -106,7 +106,7 @@ AGENTGRAPH_SESSION_ENV=CLAUDE_CODE_OAUTH_TOKEN
 CLAUDE_CODE_OAUTH_TOKEN_FILE=/run/secrets/claude-token
 ```
 
-The sandbox image in `infra/local/sandbox/Dockerfile` installs Claude Code and Codex beside opencode and pi. The session calls `api.anthropic.com` itself, so the hub needs `network: egress`, whose allowlist has that host. The token is inside the sandbox, like any key the harness holds.
+The sandbox image in `infra/local/sandbox/Dockerfile` installs Claude Code and Codex beside opencode and pi. The session calls `api.anthropic.com` itself, so the graph needs `network: egress`, whose allowlist has that host. The token is inside the sandbox, like any key the harness holds.
 
 Vercel AI Gateway:
 

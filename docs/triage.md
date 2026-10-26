@@ -1,6 +1,6 @@
 # Triage
 
-`examples/sandbox` sizes and splits issues with hub config alone. Copy it and change it freely.
+`examples/sandbox` sizes and splits issues with graph config alone. Copy it and change it freely.
 
 | File | Role |
 | --- | --- |

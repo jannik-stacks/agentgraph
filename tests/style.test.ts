@@ -31,7 +31,7 @@ describe('style lint', () => {
     write(dir, {
       '.oxlintrc.json': config,
       'src/a.ts': [
-        'export const readHub = (dir: string) => dir;',
+        'export const readGraph = (dir: string) => dir;',
         'export const trees = () => [];',
         'export const graphOf = () => 1;',
         'export const fileForge = () => 1;',
@@ -43,8 +43,8 @@ describe('style lint', () => {
         'export type CoreRun = { id: string };',
         'export const isAlive = () => true;',
         'export const makeTimestamp = () => 1;',
-        'export type Hub = { dir: string };',
-        'export const Hub = 1;',
+        'export type Graph = { dir: string };',
+        'export const Graph = 1;',
         'export const readItems = () => { const itemsOf = [1]; return itemsOf; };',
         'export function readNext() { function stepFrom() { return 1; } return stepFrom(); }',
         'export const readKey = (keyOf: () => string) => keyOf();',
@@ -75,8 +75,8 @@ describe('style lint', () => {
     write(dir, {
       '.oxlintrc.json': config,
       'src/a.ts': [
-        '/** Reads the hub. */',
-        'export const readHub = (dir: string) => dir;',
+        '/** Reads the graph. */',
+        'export const readGraph = (dir: string) => dir;',
         '// UNEXPECTED: git answers 1 for a clean diff here',
         '// oxlint-disable-next-line no-unused-vars',
         'const x = 1;',

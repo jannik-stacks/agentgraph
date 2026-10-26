@@ -7,7 +7,7 @@ import { runStepChecks } from '../src/engine.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
-import { makeTestHub, result, stop } from './fixtures.ts';
+import { makeTestGraph, result, stop } from './fixtures.ts';
 import { git } from './kit.ts';
 
 const dirs: string[] = [];
@@ -24,8 +24,8 @@ const findPeakSessions = async (sessions: number) => {
   mkdirSync(join(root, 'news'));
   git(work, 'init', '-q');
   git(work, 'commit', '-q', '--allow-empty', '-m', 'base');
-  const hub = makeTestHub('hub', { review: { agent: 'reviewer', each: 'seq 10' } });
-  const small = { ...hub, dir: root, limits: { ...hub.limits, sessions } };
+  const graph = makeTestGraph('graph', { review: { agent: 'reviewer', each: 'seq 10' } });
+  const small = { ...graph, dir: root, limits: { ...graph.limits, sessions } };
   const step = small.workflows.issue!.steps.find(s => s.checks.includes('review'))!;
   let live = 0;
   let peak = 0;

@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileS
 import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
 import settings from '../agentgraph.config.ts';
-import type { Check, Hub } from '../src/hub.ts';
+import type { Check, Graph } from '../src/folder.ts';
 import type { Result } from '../src/result.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { compileWorkflow, type Problem, type Workflow } from '../src/workflow.ts';
@@ -45,12 +45,12 @@ export const plant = (dir: string, admin?: string) => {
 
 const root = join(import.meta.dirname, 'fixtures');
 
-export const hubs = ['agentgraph', 'clarinet', 'kit', 'hub', 'loop'];
+export const graphs = ['agentgraph', 'clarinet', 'kit', 'graph', 'loop'];
 
-/** A fixture hub: the names its workflows may use, each check's mode and agent, and every workflow loaded. */
-export const fixture = (hub: string) => {
-  const dir = join(root, hub);
-  const file = parse(readFileSync(join(dir, 'hub.yaml'), 'utf8')) as {
+/** A fixture graph: the names its workflows may use, each check's mode and agent, and every workflow loaded. */
+export const fixture = (graph: string) => {
+  const dir = join(root, graph);
+  const file = parse(readFileSync(join(dir, 'settings.yaml'), 'utf8')) as {
     agents: string[];
     skills: string[];
     checks: Record<string, Check['mode'] | Pick<Check, 'mode' | 'agent'>>;
@@ -78,12 +78,12 @@ export const fixture = (hub: string) => {
 const kinds = ['comment', 'label', 'push', 'pull_request', 'merge', 'issue', 'ask', 'back'] as const;
 const doc = <T>(name: string, fields: T) => ({ ...fields, name, path: `${name}.md`, body: `You are ${name}.` });
 
-/** A fixture as a whole hub: every agent on opencode may propose anything, only an implementor code, and `checks` fills in commands and agents. */
-export const makeTestHub = (hub: string, checks: Record<string, Omit<Check, 'mode'>> = {}): Hub => {
-  const f = fixture(hub);
+/** A fixture as a whole graph: every agent on opencode may propose anything, only an implementor code, and `checks` fills in commands and agents. */
+export const makeTestGraph = (graph: string, checks: Record<string, Omit<Check, 'mode'>> = {}): Graph => {
+  const f = fixture(graph);
   return {
-    dir: '/hub',
-    repo: `local/${hub}`,
+    dir: '/graph',
+    repo: `local/${graph}`,
     sha: 'fixture',
     agents: Object.fromEntries(
       f.names.agents.map(b => [

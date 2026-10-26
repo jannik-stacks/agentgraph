@@ -79,7 +79,7 @@ const unexpired = () => {
   });
 };
 
-const skipped = new Set(['data', 'forge', 'hub', 'engine', 'cases', 'done', 'logs', 'node_modules']);
+const skipped = new Set(['data', 'forge', 'graph', 'engine', 'cases', 'done', 'logs', 'node_modules']);
 
 /**
  * Score trees beside a `case.json` and `target-shared` dirs holding `CACHEDIR.TAG`, at most `depth` levels under

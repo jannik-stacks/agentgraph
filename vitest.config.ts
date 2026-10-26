@@ -2,7 +2,7 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 const toolTestTimeout = 60_000;
 const toolTests = [
-  'tests/agentgraph-hub.test.ts',
+  'tests/agentgraph-example.test.ts',
   'tests/agentgraph-ui-checks.test.ts',
   'tests/base-moved.test.ts',
   'tests/bench.test.ts',
@@ -13,8 +13,8 @@ const toolTests = [
   'tests/drive-durable.test.ts',
   'tests/forge-cli.test.ts',
   'tests/github.test.ts',
-  'tests/hub-checks.test.ts',
-  'tests/hub.test.ts',
+  'tests/example-checks.test.ts',
+  'tests/folder.test.ts',
   'tests/precommit.test.ts',
   'tests/remote.test.ts',
   'tests/run.test.ts',

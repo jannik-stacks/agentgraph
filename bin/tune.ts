@@ -1,11 +1,11 @@
 /**
- * Hill-climbs a hub on one repo's replayed pull requests: each step evaluates candidate hubs with the bench and keeps
+ * Hill-climbs a graph on one repo's replayed pull requests: each step evaluates candidate graphs with the bench and keeps
  * one only when it beats the incumbent on the select cases (fit plus validate).
  * Usage: node bin/tune.ts init <repo> --cases <dir> --splits <file> --repos <dir> --point opencode:luna [--name t1]
  *        node bin/tune.ts step <tune dir> [--k 3] [--proposers retro,history,manual] [--parallel 6] [--proposer-model gpt-6.1-sol]
  *        node bin/tune.ts run <tune dir> --iterations 8 [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  *        node bin/tune.ts checkpoint <tune dir>
- *        node bin/tune.ts propose <tune dir> --from <hub dir> --why <text> [--as manual|skill]
+ *        node bin/tune.ts propose <tune dir> --from <graph dir> --why <text> [--as manual|skill]
  *        node bin/tune.ts status <tune dir or root> [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  * Tunes live in <root>/<repo>/<name>; the root is AGENTGRAPH_TUNE, by default ~/.agentgraph/tune.
  */
@@ -54,7 +54,7 @@ type Candidate = {
   iteration: number;
   parent: string;
   proposer: Proposer;
-  hub: string;
+  graph: string;
   rationale: string;
   diff: string;
 };
@@ -277,7 +277,7 @@ const bench = {
             stdio: ['ignore', 'inherit', 'inherit'],
             env: {
               ...process.env,
-              BENCH_HUB: join(dir, 'cands', id, 'hub'),
+              BENCH_DIR: join(dir, 'cands', id, 'graph'),
               BENCH_CACHE: join(tuneRoot(), '.cache'),
               BENCH_ENGINE: engine,
               BENCH_POINT: t.point,
@@ -330,10 +330,10 @@ const engineAt = (t: Tune) => {
   return dir;
 };
 
-const git = (dir: string, args: string[], o: { hub?: string; index?: string } = {}) =>
-  execFileSync('git', ['--git-dir', join(dir, 'hub.git'), ...(o.hub ? ['--work-tree', o.hub] : []), ...args], {
+const git = (dir: string, args: string[], o: { graph?: string; index?: string } = {}) =>
+  execFileSync('git', ['--git-dir', join(dir, 'graph.git'), ...(o.graph ? ['--work-tree', o.graph] : []), ...args], {
     encoding: 'utf8',
-    cwd: o.hub ?? dir,
+    cwd: o.graph ?? dir,
     env: {
       ...process.env,
       ...(o.index && { GIT_INDEX_FILE: o.index }),
@@ -344,16 +344,16 @@ const git = (dir: string, args: string[], o: { hub?: string; index?: string } = 
     },
   }).trim();
 
-/** Commits `cands/<id>/hub` on `parent` as `refs/cand/<id>` and records it as a pending candidate. */
-const enqueue = (dir: string, c: Omit<Candidate, 'hub' | 'diff'>) => {
-  const hub = join(dir, 'cands', c.id, 'hub');
-  const index = join(dir, 'hub.git', `index.${c.id}`);
-  git(dir, ['add', '-A', '.'], { hub, index });
-  const tree = git(dir, ['write-tree'], { hub, index });
+/** Commits `cands/<id>/graph` on `parent` as `refs/cand/<id>` and records it as a pending candidate. */
+const enqueue = (dir: string, c: Omit<Candidate, 'graph' | 'diff'>) => {
+  const graph = join(dir, 'cands', c.id, 'graph');
+  const index = join(dir, 'graph.git', `index.${c.id}`);
+  git(dir, ['add', '-A', '.'], { graph, index });
+  const tree = git(dir, ['write-tree'], { graph, index });
   rmSync(index, { force: true });
   const sha = git(dir, ['commit-tree', tree, ...(c.parent ? ['-p', c.parent] : []), '-m', c.id]);
   git(dir, ['update-ref', `refs/cand/${c.id}`, sha]);
-  const cand: Candidate = { ...c, hub: sha, diff: c.parent ? git(dir, ['diff', c.parent, sha]) : '' };
+  const cand: Candidate = { ...c, graph: sha, diff: c.parent ? git(dir, ['diff', c.parent, sha]) : '' };
   writeFileAtomic(join(dir, 'cands', c.id, 'candidate.json'), cand);
   if (!existsSync(join(dir, 'cands', c.id, 'proposal.md')))
     writeFileAtomic(join(dir, 'cands', c.id, 'proposal.md'), `${c.rationale}\n`);
@@ -368,14 +368,14 @@ const freeId = (dir: string, iteration: number, proposer: string) => {
     if (!existsSync(join(dir, 'cands', n === 1 ? base : `${base}-${n}`))) return n === 1 ? base : `${base}-${n}`;
 };
 
-/** Queues a hub dir as a candidate on the incumbent; the next step evaluates it. */
+/** Queues a graph dir as a candidate on the incumbent; the next step evaluates it. */
 export const propose = (dir: string, from: string, why: string, proposer: Proposer = 'manual') => {
   const { steps } = tuneRows(dir);
   const parent = incumbentOf(steps);
   if (!parent) throw new Error(`no incumbent in ${dir} yet: run init first`);
   const id = freeId(dir, nextIteration(steps), proposer);
-  cpSync(resolve(from), join(dir, 'cands', id, 'hub'), { recursive: true });
-  return enqueue(dir, { id, iteration: nextIteration(steps), parent: parent.hub, proposer, rationale: why });
+  cpSync(resolve(from), join(dir, 'cands', id, 'graph'), { recursive: true });
+  return enqueue(dir, { id, iteration: nextIteration(steps), parent: parent.graph, proposer, rationale: why });
 };
 
 /** Candidates written but not evaluated yet, after turning each `manual/*.patch` into one. */
@@ -386,16 +386,19 @@ const pending = (dir: string, steps: Step[]) => {
     : [];
   for (const name of patches) {
     const patch = join(dir, 'manual', name);
-    const hub = join(dir, 'cands', freeId(dir, nextIteration(steps), 'manual'), 'hub');
-    cpSync(join(dir, 'cands', parent.id, 'hub'), hub, { recursive: true });
-    execFileSync('git', ['apply', patch], { cwd: hub, env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(hub) } });
+    const graph = join(dir, 'cands', freeId(dir, nextIteration(steps), 'manual'), 'graph');
+    cpSync(join(dir, 'cands', parent.id, 'graph'), graph, { recursive: true });
+    execFileSync('git', ['apply', patch], {
+      cwd: graph,
+      env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(graph) },
+    });
     const rationale = readFileOrEmpty(patch)
       .split(/\n\s*\n/)[0]!
       .trim();
     enqueue(dir, {
-      id: basename(dirname(hub)),
+      id: basename(dirname(graph)),
       iteration: nextIteration(steps),
-      parent: parent.hub,
+      parent: parent.graph,
       proposer: 'manual',
       rationale,
     });
@@ -454,7 +457,7 @@ const spent = (before: Budget, after: Budget, k: 'codex' | 'fiveHour') => {
 
 const append = (dir: string, s: Step) => appendJsonl(join(dir, 'iterations.jsonl'), s);
 
-/** Writes tune.json, the cases and the minimal hub, then evaluates that hub as the first incumbent. */
+/** Writes tune.json, the cases and the minimal graph, then evaluates that graph as the first incumbent. */
 export const init = async (
   repo: string,
   o: {
@@ -507,19 +510,19 @@ export const init = async (
       (['setup', 'runner'] as const).flatMap(k => (typeof first[k] === 'string' ? [[k, first[k]]] : []))
     );
     minimal(
-      join(dir, 'cands', 'i000-init', 'hub'),
+      join(dir, 'cands', 'i000-init', 'graph'),
       { ...pickBenchTestCommands(t.repo, (first.tests as string[]) ?? []), ...mined },
-      readFileOrEmpty(join(agentgraphDir, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
+      readFileOrEmpty(join(agentgraphDir, 'examples', short, 'settings.yaml')).match(/^toolchain: .*$/m)?.[0]
     );
-    execFileSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
+    execFileSync('git', ['init', '-q', '--bare', join(dir, 'graph.git')]);
     writeFileAtomic(join(dir, 'tune.json'), t);
   }
   const { tune: t, steps } = tuneRows(dir);
   if (steps.length) return dir;
   const cand = existsSync(join(dir, 'cands/i000-init/candidate.json'))
     ? (JSON.parse(readFileOrEmpty(join(dir, 'cands/i000-init/candidate.json'))) as Candidate)
-    : enqueue(dir, { id: 'i000-init', iteration: 0, parent: '', proposer: 'manual', rationale: 'The minimal hub.' });
-  git(dir, ['update-ref', 'refs/heads/main', cand.hub]);
+    : enqueue(dir, { id: 'i000-init', iteration: 0, parent: '', proposer: 'manual', rationale: 'The minimal graph.' });
+  git(dir, ['update-ref', 'refs/heads/main', cand.graph]);
   const select = ids(t, 'fit', 'validate');
   const before = guard(dir, io, o.limits ?? limitsDefault);
   await io.run(
@@ -534,22 +537,22 @@ export const init = async (
   const evals = (['fit', 'validate'] as const)
     .filter(s => ids(t, s).length)
     .map((s, i) => evalOf(cand.id, s, ids(t, s), mine, i ? { codex: 0, claude5h: 0 } : usage));
-  append(dir, { ...cand, evals, verdict: 'kept', why: 'the starting hub', at: new Date().toISOString() });
+  append(dir, { ...cand, evals, verdict: 'kept', why: 'the starting graph', at: new Date().toISOString() });
   return dir;
 };
 
 /**
- * The bench hub with no reviewer and no end checks: implement with two tries against a tests check, then a human merge. A repo with a
+ * The bench graph with no reviewer and no end checks: implement with two tries against a tests check, then a human merge. A repo with a
  * toolchain line builds through the toolchain step, so the case plan's host setup is left out.
  */
-const minimal = (hub: string, commands: ReturnType<typeof pickBenchTestCommands>, toolchain?: string) => {
-  cpSync(join(agentgraphDir, 'examples/bench'), hub, { recursive: true });
-  rmSync(join(hub, 'agents/reviewer.md'), { force: true });
-  rmSync(join(hub, 'scripts/review.mjs'), { force: true });
+const minimal = (graph: string, commands: ReturnType<typeof pickBenchTestCommands>, toolchain?: string) => {
+  cpSync(join(agentgraphDir, 'examples/bench'), graph, { recursive: true });
+  rmSync(join(graph, 'agents/reviewer.md'), { force: true });
+  rmSync(join(graph, 'scripts/review.mjs'), { force: true });
   for (const check of ['run-stats', 'tool-budget', 'tests-share'])
-    rmSync(join(hub, `checks/${check}.md`), { force: true });
+    rmSync(join(graph, `checks/${check}.md`), { force: true });
   writeFileAtomic(
-    join(hub, 'workflows/issue.md'),
+    join(graph, 'workflows/issue.md'),
     `---
 on: issue_comment
 branch: agentgraph/{issue}
@@ -564,8 +567,8 @@ One issue becomes one pull request. The implementor changes the repo until the t
 `
   );
   writeFileAtomic(
-    join(hub, 'checks/tests.md'),
-    readFileOrEmpty(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
+    join(graph, 'checks/tests.md'),
+    readFileOrEmpty(join(graph, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_DIR/scripts/tests.sh"')
   );
   const each = commands.runner
     ? `[ -z "$files" ] || ${commands.runner} $files`
@@ -576,14 +579,15 @@ One issue becomes one pull request. The implementor changes the repo until the t
   else (cd "$d" && npx vitest run "\${f#"$d"/}") || exit 1; fi
 done`;
   writeFileAtomic(
-    join(hub, 'scripts/tests.sh'),
+    join(graph, 'scripts/tests.sh'),
     `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n${each}\n`
   );
-  if (toolchain) writeFileAtomic(join(hub, 'hub.yaml'), `${toolchain}\n${readFileOrEmpty(join(hub, 'hub.yaml'))}`);
+  if (toolchain)
+    writeFileAtomic(join(graph, 'settings.yaml'), `${toolchain}\n${readFileOrEmpty(join(graph, 'settings.yaml'))}`);
   else if (commands.setup)
     writeFileAtomic(
-      join(hub, 'hub.yaml'),
-      `setup: ${JSON.stringify(commands.setup)}\n${readFileOrEmpty(join(hub, 'hub.yaml'))}`
+      join(graph, 'settings.yaml'),
+      `setup: ${JSON.stringify(commands.setup)}\n${readFileOrEmpty(join(graph, 'settings.yaml'))}`
     );
 };
 
@@ -620,16 +624,16 @@ export const step = async (
         tune: dir,
         id,
         proposer,
-        from: join(dir, 'cands', inc.id, 'hub'),
+        from: join(dir, 'cands', inc.id, 'graph'),
         runs,
         iteration,
         ...(o.model && { model: o.model }),
       })
       .catch((e: unknown) => void failed.push(`${id}: ${String(e)}`));
-    if (!made?.hub) continue;
+    if (!made?.graph) continue;
     const after = guard(dir, io, limits, made.usage);
     claude[id] = spent(before, after, 'fiveHour');
-    queued.push(enqueue(dir, { id, iteration, parent: inc.hub, proposer, rationale: made.rationale }));
+    queued.push(enqueue(dir, { id, iteration, parent: inc.graph, proposer, rationale: made.rationale }));
   }
   for (const f of failed) console.error(f);
   if (!queued.length && failed.length) throw new Error(`every proposer failed; rerun to resume\n${failed.join('\n')}`);
@@ -730,7 +734,7 @@ export const step = async (
     at: new Date().toISOString(),
   }));
   for (const s of out) append(dir, s);
-  if (best) git(dir, ['update-ref', 'refs/heads/main', best.c.hub]);
+  if (best) git(dir, ['update-ref', 'refs/heads/main', best.c.graph]);
   return out;
 };
 

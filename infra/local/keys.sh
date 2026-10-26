@@ -28,7 +28,7 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 # bot | allowed aliases | USD per day | requests per minute | tokens per minute
 # Subscription models report $0 spend, so for smart, writer and luna the rpm/tpm limits and
 # agentgraph's runs-per-day budget are what actually bite; the dollar budget covers API-key models.
-# Every bot may use the OpenRouter aliases, since a bench point moves every agent of a hub to one model.
+# Every bot may use the OpenRouter aliases, since a bench point moves every agent of a graph to one model.
 OPENROUTER=glm,glm-flash,deepseek,deepseek-flash,minimax,gemini,gemini-flash,grok,grok-build,qwen,qwen-flash,kimi,muse,muse-flash
 BOTS=(
   "implementor   smart,writer,fast,local,luna,$OPENROUTER   10  30  400000"
@@ -44,7 +44,7 @@ BOTS=(
   "auditor       smart,fast,local,luna,$OPENROUTER           1  30  400000"
 )
 
-# Every bot in the example hubs needs a row.
+# Every bot in the example graphs needs a row.
 for file in ../../examples/*/agents/*.md; do
   bot=$(basename "$file" .md)
   printf '%s\n' "${BOTS[@]}" | grep -q "^$bot " || echo "warn: $bot (${file#../../}) has no row in keys.sh" >&2

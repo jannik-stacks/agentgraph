@@ -69,7 +69,7 @@ Fully offline: `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `npm run up
 ## A full local run
 
 `e2e.sh` writes the agents' keys from `.keys.env` into a data directory and prints the commands
-that run a hub against its GitHub repo: one look at one issue, or a loop over every open issue.
+that run a graph against its GitHub repo: one look at one issue, or a loop over every open issue.
 It needs `AGENTGRAPH_APP_ENV` set to the App env file from `bin/setup-app.ts`. Every agent runs
 in a sandbox container; without `npm run up`, runs fail and nothing falls back to the host.
 

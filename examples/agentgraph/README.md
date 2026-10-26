@@ -1,6 +1,6 @@
-# agentgraph hub
+# agentgraph graph
 
-The hub agentgraph runs on its own code. Scripts slice the change and decide everything a rule can
+The graph agentgraph runs on its own code. Scripts slice the change and decide everything a rule can
 decide; an agent only gets the judgement that is left, one question per item.
 
 A `/agent` comment on an issue starts `workflows/issue.md`. The triager replies with a brief. The

@@ -102,7 +102,7 @@ describe('lint check', () => {
   });
 });
 
-describe('agentgraph hub checks', () => {
+describe('agentgraph graph checks', () => {
   const at = (script: string) => join(scripts, script);
 
   it('flags dated or historical comments and symbol-laden docs lines a change adds', () => {

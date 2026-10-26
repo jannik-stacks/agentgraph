@@ -126,7 +126,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(workflow|trace|git|hub|context|graph|env|disk|forge|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(workflow|trace|git|folder|context|graph|env|disk|forge|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
                 "message": "values import values only"
               }
             ]
@@ -135,7 +135,7 @@
       }
     },
     {
-      "files": ["src/workflow.ts", "src/hub.ts", "src/context.ts", "src/graph.ts", "src/trace.ts"],
+      "files": ["src/workflow.ts", "src/folder.ts", "src/context.ts", "src/graph.ts", "src/trace.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",

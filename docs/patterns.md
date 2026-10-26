@@ -2,7 +2,7 @@
 
 ## Schemas first
 
-Effect schemas define hub files and infer TypeScript types. Derive variants at use sites rather than duplicating types. <!-- code: src/hub.ts#Agent -->
+Effect schemas define graph files and infer TypeScript types. Derive variants at use sites rather than duplicating types. <!-- code: src/folder.ts#Agent -->
 
 ## Proposals are the only write path
 
@@ -14,7 +14,7 @@ Agents request writes through the [proposal protocol](proposals.md). <!-- code: 
 
 ## Fail closed
 
-Bad hub references fail before execution. Missing required proposals fail the try; unavailable checks cannot pass. <!-- code: src/hub.ts#loadHub -->
+Bad graph references fail before execution. Missing required proposals fail the try; unavailable checks cannot pass. <!-- code: src/folder.ts#loadGraph -->
 
 ## Services with doubles
 
@@ -24,9 +24,9 @@ The engine reaches the outside only through the [four services](architecture.md#
 
 `src` holds only production code. A test double lives in `tests/doubles/` under the name of the `src` file it stands in for. `npm run knip` includes `knip --production`, which fails on a `src` export only tests use; an export kept for a unit test says so with `@internal`. <!-- code: tests/doubles/sandbox.ts#hostSandbox tests/doubles/session.ts#replaySession -->
 
-## Hub files decode strictly
+## Graph files decode strictly
 
-An unknown or removed key fails `check` with its path, except in skill frontmatter, where keys other than `description` and `uses` are ignored. Nothing reads an older hub shape. <!-- code: src/hub.ts#loadHub -->
+An unknown or removed key fails `check` with its path, except in skill frontmatter, where keys other than `description` and `uses` are ignored. Nothing reads an older graph shape. <!-- code: src/folder.ts#loadGraph -->
 
 ## Secrets stay out of argv and logs
 
@@ -64,6 +64,6 @@ Docs pages say what code does and why; code says it with names and types. The ru
 
 ## Before you commit
 
-`npm run check` is what CI and the commit hook run: formatting, lint, unused code, docs checks, example hubs, types, tests with coverage and the studio build. Part of it is `sh bin/precommit.sh`, which runs the agentgraph hub's fast checks over the uncommitted change against `HEAD`, or `AGENTGRAPH_BASE` when set. `npm run hooks` turns the hook on.
+`npm run check` is what CI and the commit hook run: formatting, lint, unused code, docs checks, example graphs, types, tests with coverage and the studio build. Part of it is `sh bin/precommit.sh`, which runs the agentgraph graph's fast checks over the uncommitted change against `HEAD`, or `AGENTGRAPH_BASE` when set. `npm run hooks` turns the hook on.
 
-Docs tie claims to code with hidden comments such as `<!-- code: src/engine.ts#land -->`. `node bin/refs.mjs` fails when one names a missing file or symbol. `node bin/refs.mjs --coverage` fails when a user-facing name (a hub field or value, a status, a proposal kind, a CLI flag or an `AGENTGRAPH_` variable) appears in no docs code span. `node bin/refs.mjs --diff main` lists the other side of each pair that changed on one side only. `node bin/commands.mjs` fails on documented commands, flags or npm scripts that do not exist.
+Docs tie claims to code with hidden comments such as `<!-- code: src/engine.ts#land -->`. `node bin/refs.mjs` fails when one names a missing file or symbol. `node bin/refs.mjs --coverage` fails when a user-facing name (a graph field or value, a status, a proposal kind, a CLI flag or an `AGENTGRAPH_` variable) appears in no docs code span. `node bin/refs.mjs --diff main` lists the other side of each pair that changed on one side only. `node bin/commands.mjs` fails on documented commands, flags or npm scripts that do not exist.

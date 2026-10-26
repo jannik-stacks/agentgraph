@@ -1,6 +1,6 @@
 ---
 mode: warn
-each: node "$AGENTGRAPH_HUB/scripts/scope.mjs"
+each: node "$AGENTGRAPH_DIR/scripts/scope.mjs"
 agent: reviewer
 max: 10
 ---

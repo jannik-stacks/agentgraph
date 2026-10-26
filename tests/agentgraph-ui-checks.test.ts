@@ -217,7 +217,7 @@ export const App = () => {
     const repo = studioChange(
       {},
       {
-        'src/hub.ts': "export const Check = z.discriminatedUnion('type', [script, bot]);\n",
+        'src/folder.ts': "export const Check = z.discriminatedUnion('type', [script, bot]);\n",
         'studio/src/App.tsx': `import type { Route } from './state.ts';
 const DashboardView = lazy(() => import('./dashboard/DashboardView.tsx'));
 const Row = ({ n }: { n: number }) => <li>{n}</li>;
@@ -251,7 +251,7 @@ type Item = { kind: 'text'; text: string } | { kind: 'tool'; name: string };
     expect(out.split('\n').at(-1)).toBe('code-shape: ok');
   });
 
-  it('fails a hub script field that sends the whole repository to a model, and passes a clipped one', () => {
+  it('fails a graph script field that sends the whole repository to a model, and passes a clipped one', () => {
     const repo = studioChange(
       {},
       {
@@ -277,8 +277,8 @@ describe('rules check, guards', () => {
     const repo = studioChange(
       {},
       {
-        'src/hub.ts': 'export const Workflow = z.strictObject({ allowSkip: z.boolean().optional() });\n',
-        'examples/hub/hub.yaml': 'sandbox: none\n',
+        'src/folder.ts': 'export const Workflow = z.strictObject({ allowSkip: z.boolean().optional() });\n',
+        'examples/graph/settings.yaml': 'sandbox: none\n',
         'src/harnesses/pi.ts': "export const args = ['--dangerously-skip-permissions'];\n",
         'src/queue.ts': `// ${silenced}\nexport const q = (x ${loose}).y;\n`,
         'src/workspace.ts': "await run(['push', '--force', 'origin', branch]);\n",
@@ -287,8 +287,8 @@ describe('rules check, guards', () => {
     );
     const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
-    expect(out).toContain('src/hub.ts:1: a way to skip checks');
-    expect(out).toContain('examples/hub/hub.yaml:1: the sandbox switched off');
+    expect(out).toContain('src/folder.ts:1: a way to skip checks');
+    expect(out).toContain('examples/graph/settings.yaml:1: the sandbox switched off');
     expect(out).toContain('src/harnesses/pi.ts:1: a harness that approves its own tool calls');
     expect(out).toContain('src/queue.ts:1: a silenced type error');
     expect(out).toContain('src/queue.ts:2: an `any` that hides a type');
@@ -342,20 +342,20 @@ describe('rules check, unfinished code', () => {
 });
 
 describe('rules check, retired names', () => {
-  it('fails replaced names in code, docs and hub files', () => {
+  it('fails replaced names in code, docs and graph files', () => {
     const repo = studioChange(
       {},
       {
         'src/executors/pi.ts': 'export const executor = 1;\n',
-        'examples/hub/agents/triager.md': '---\nsoul: careful\ncan: [comment]\n---\n',
+        'examples/graph/agents/triager.md': '---\nsoul: careful\ncan: [comment]\n---\n',
         'docs/loop.md': 'Each check runs for-each changed file.\n',
       }
     );
     const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('src/executors/pi.ts:1: executor; find a clearer word, for example harness');
-    expect(out).toContain('examples/hub/agents/triager.md:2: soul; find a clearer word, for example agent');
-    expect(out).toContain('examples/hub/agents/triager.md:3: `can:`; find a clearer word, for example `returns:`');
+    expect(out).toContain('examples/graph/agents/triager.md:2: soul; find a clearer word, for example agent');
+    expect(out).toContain('examples/graph/agents/triager.md:3: `can:`; find a clearer word, for example `returns:`');
     expect(out).toContain('docs/loop.md:1: for-each; find a clearer word, for example `each:`');
   });
 
@@ -363,7 +363,7 @@ describe('rules check, retired names', () => {
     const repo = studioChange(
       {},
       {
-        'src/hub.ts': `issue.input === 'open-pr'\n  ? 'there is no "open-pr"; a request to merge a branch is "pull_request"'\n`,
+        'src/folder.ts': `issue.input === 'open-pr'\n  ? 'there is no "open-pr"; a request to merge a branch is "pull_request"'\n`,
         'tests/schema.test.ts': "expect(parse({ soul: 'x' })).toThrow();\n",
       }
     );
@@ -375,20 +375,20 @@ describe('rules check, new checks', () => {
   const checkFile = (mode: string, body: string) => `---\nmode: ${mode}\nrun: node x.mjs\n---\n${body}\n`;
 
   it.each(['block', 'stop'])('fails a new check in %s mode whose body names no calibration', mode => {
-    const repo = change({}, { 'examples/hub/checks/new.md': checkFile(mode, 'Issue 3.') });
+    const repo = change({}, { 'examples/graph/checks/new.md': checkFile(mode, 'Issue 3.') });
     expect(check('rules.mjs', repo)).toEqual({
       ok: false,
-      out: 'examples/hub/checks/new.md:1: a new check in block or stop mode with no calibration; start it in warn mode, or say in its body which replay calibrated it\nrules: 1 finding',
+      out: 'examples/graph/checks/new.md:1: a new check in block or stop mode with no calibration; start it in warn mode, or say in its body which replay calibrated it\nrules: 1 finding',
     });
   });
 
   it('passes a calibrated or warn new check and an existing block check', () => {
     const repo = change(
-      { 'examples/hub/checks/old.md': checkFile('block', 'Seed hub.') },
+      { 'examples/graph/checks/old.md': checkFile('block', 'Seed graph.') },
       {
-        'examples/hub/checks/old.md': checkFile('block', 'Seed hub, tightened.'),
-        'examples/hub/checks/calibrated.md': checkFile('block', 'A replay of 60 commits flagged 3, all real.'),
-        'examples/hub/checks/warned.md': checkFile('warn', 'Issue 3.'),
+        'examples/graph/checks/old.md': checkFile('block', 'Seed graph, tightened.'),
+        'examples/graph/checks/calibrated.md': checkFile('block', 'A replay of 60 commits flagged 3, all real.'),
+        'examples/graph/checks/warned.md': checkFile('warn', 'Issue 3.'),
       }
     );
     expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
@@ -437,16 +437,16 @@ describe('docs-sync check', () => {
   it('fails a new schema no docs page names, and passes once one does', () => {
     const schema = 'export const Budget = Schema.Struct({ usd: Schema.Number });\n';
     const missing = studioChange(
-      { 'docs/reference/config.md': 'See `Bot` in src/hub.ts.\n' },
-      { 'src/hub.ts': schema }
+      { 'docs/reference/config.md': 'See `Bot` in src/folder.ts.\n' },
+      { 'src/folder.ts': schema }
     );
     const { ok, out } = check('docs-sync.mjs', missing);
     expect(ok).toBe(false);
-    expect(out).toContain('src/hub.ts:1: Budget is in no docs page');
+    expect(out).toContain('src/folder.ts:1: Budget is in no docs page');
 
     const named = studioChange(
-      { 'docs/reference/config.md': 'See `Bot` in src/hub.ts.\n' },
-      { 'src/hub.ts': schema, 'docs/reference/config.md': 'See `Budget` in src/hub.ts.\n' }
+      { 'docs/reference/config.md': 'See `Bot` in src/folder.ts.\n' },
+      { 'src/folder.ts': schema, 'docs/reference/config.md': 'See `Budget` in src/folder.ts.\n' }
     );
     expect(check('docs-sync.mjs', named)).toEqual({ ok: true, out: 'docs-sync: ok' });
   });

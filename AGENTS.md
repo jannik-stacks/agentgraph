@@ -14,7 +14,7 @@ The full rules are in [STYLE.md](STYLE.md). The ones that matter most:
 - **Derive types, never copy them.** Use `Pick`, `Omit`, `Partial`, indexed access or `typeof X.Type` at
   the use site.
   Before: `type Made = { mounts: Mount[]; image: string; network?: string }`.
-  After: `type Made = { mounts: Mount[] } & Pick<Hub, 'image' | 'network'>`. ([rule 1](STYLE.md#types))
+  After: `type Made = { mounts: Mount[] } & Pick<Graph, 'image' | 'network'>`. ([rule 1](STYLE.md#types))
 - **Search before adding a function.** `rg` the verb and the noun, check Node and Effect built-ins, and
   reuse what exists. ([rule 26](STYLE.md#simplicity-and-reuse))
 - **Names lint does not check:** predicates start with `is`, reason functions with `why`
@@ -25,13 +25,13 @@ The full rules are in [STYLE.md](STYLE.md). The ones that matter most:
 - **No code comments.** The one exception is `// UNEXPECTED: <what and why>` for something the code cannot
   say. ([rule 18](STYLE.md#comments-and-docs-links))
 
-What lint and the hub's checks enforce, and the baseline for old violations, is
+What lint and the graph's checks enforce, and the baseline for old violations, is
 [STYLE.md#lint-and-enforcement](STYLE.md#lint-and-enforcement). After a rename, run `node bin/style.mjs --write`.
 
 ## Working on this repo
 
 The agentgraph bot works here beside humans and Claude Code, and all three meet one bar: the rules above, the
-checks of the [agentgraph hub](examples/agentgraph/README.md), and small linear commits with conventional one-line
+checks of the [agentgraph graph](examples/agentgraph/README.md), and small linear commits with conventional one-line
 subjects. `npm run hooks` installs the hooks that hold your commits to it.
 
 - The bot works on `agentgraph/<n>` branches, one per issue, and opens a pull request from each. It never pushes
@@ -39,5 +39,5 @@ subjects. `npm run hooks` installs the hooks that hold your commits to it.
 - Before you work, fetch and rebase your unpushed commits onto `origin/main`: `git fetch origin && git rebase origin/main`.
 - Pull requests merge by rebase only, so `main` stays linear.
 - The repo is public. Commits, pull requests and comments name no home folder, no email other than a noreply one, and
-  nothing on the operator's deny list; the hub's hygiene check blocks them. Point `AGENTGRAPH_DENY` at the list, or
+  nothing on the operator's deny list; the graph's hygiene check blocks them. Point `AGENTGRAPH_DENY` at the list, or
   put it at `examples/agentgraph/deny.txt`, which git ignores.

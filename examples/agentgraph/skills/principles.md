@@ -17,7 +17,7 @@ Good: each body clipped and the count capped where they are collected.
 
 ## Policy at the edge
 
-A rule about one hub's workflow goes in a skill or a check, never in `src/` or a prompt every agent sees.
+A rule about one graph's workflow goes in a skill or a check, never in `src/` or a prompt every agent sees.
 Bad: triage close policy written into the engine prompt.
 Good: the same rule in `skills/triage.md`.
 
@@ -30,7 +30,7 @@ Good: one more case inside `apply`.
 ## Reach only what the row needs
 
 The brief names one case: touch one case. Grep every match only when the brief says every.
-Bad: a marker every check script must print, so every hub blocked unmarked failures.
+Bad: a marker every check script must print, so every graph blocked unmarked failures.
 Good: the marker for the one check the row names.
 
 ## Attack the premise

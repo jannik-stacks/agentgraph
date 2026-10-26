@@ -73,7 +73,7 @@ export const seriesOf = (tunes: TuneRows[]) =>
 
 export type Series = ReturnType<typeof seriesOf>[number];
 
-/** Per iteration: the kept hub's score by its end, undefined before the first, and the usd spent by then. */
+/** Per iteration: the kept graph's score by its end, undefined before the first, and the usd spent by then. */
 export const byIteration = (s: Series) => {
   const last = Math.max(0, ...s.points.map(p => p.step.iteration));
   let kept: number | undefined;
@@ -94,8 +94,8 @@ export const byIteration = (s: Series) => {
 };
 
 /**
- * Per tune name, per iteration: the mean over repos of the kept hub's score, the lowest and highest repo, and the mean
- * usage. A tune that stopped early holds its last kept hub; a repo with no kept score yet counts in none of them, and
+ * Per tune name, per iteration: the mean over repos of the kept graph's score, the lowest and highest repo, and the mean
+ * usage. A tune that stopped early holds its last kept graph; a repo with no kept score yet counts in none of them, and
  * an iteration where no repo has one has no `kept`.
  */
 export const average = (series: Series[]) =>

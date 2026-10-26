@@ -221,9 +221,9 @@ describe('findBuildDirs', () => {
   it('never enters the results, cache, engine, cases or logs of a bench dir', () => {
     const root = tmp('bench');
     const run = 'sha/opencode-luna/r1/c1';
-    for (const f of ['case.json', 'v2/diff.patch', 'v2/score.json', 'v2/hub/case.json', 'valid.json'])
+    for (const f of ['case.json', 'v2/diff.patch', 'v2/score.json', 'v2/graph/case.json', 'valid.json'])
       write(root, { [`${run}/${f}`]: '' });
-    for (const d of [`${run}/tree`, `${run}/v2/hub/tree`]) mkdirSync(join(root, d), { recursive: true });
+    for (const d of [`${run}/tree`, `${run}/v2/graph/tree`]) mkdirSync(join(root, d), { recursive: true });
     for (const d of ['.cache/slot', 'sha/engine/agentgraph/x', 'cases/c1', 'done/x', 'logs/x']) {
       write(root, { [`${d}/case.json`]: '' });
       mkdirSync(join(root, d, 'tree'));

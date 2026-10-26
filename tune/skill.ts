@@ -1,6 +1,6 @@
 /**
  * Benchmarks the tune-graph skill against the tune loop. The skill tune starts from the loop tune's cases, point,
- * engine and minimal hub; each round a `claude -p` session with the skill proposes hubs in a workspace that holds only
+ * engine and minimal graph; each round a `claude -p` session with the skill proposes graphs in a workspace that holds only
  * the incumbent, the fit and mine cases and the tune's history, and `step` evaluates them as the loop does.
  *
  *   node tune/skill.ts <loop tune dir> --version 1 [--name skill@1] [--rounds 6] [--k 4] [--parallel 6] [--keys f]
@@ -27,7 +27,7 @@ import {
 import { agentgraphDir, parseJsonl, readFileOrEmpty } from '../bin/resume.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { getRounded } from '../src/stats.ts';
-import { claudeUsed, type ClaudeStreamEvent, formatCodeFence, hubProblems, type Usage } from './propose.ts';
+import { claudeUsed, type ClaudeStreamEvent, formatCodeFence, graphProblems, type Usage } from './propose.ts';
 
 type Io = Parameters<typeof step>[2];
 type Limits = { codex: number; claude5h: number; claudeWeek: number };
@@ -68,22 +68,22 @@ const skillSha = () =>
     .digest('hex')
     .slice(0, 12);
 
-/** Copies the loop tune's settings, cases and minimal hub into `skill@<version>` and scores that hub as the start. */
+/** Copies the loop tune's settings, cases and minimal graph into `skill@<version>` and scores that graph as the start. */
 const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parallel' | 'keys' | 'limits'>, io?: Io) => {
   const { tune: t, steps } = tuneRows(like);
   const first = steps.find(s => s.iteration === 0);
-  if (!first) throw new Error(`${like} has no starting hub yet`);
+  if (!first) throw new Error(`${like} has no starting graph yet`);
   const name = o.name ?? `skill@${o.version}`;
   const dir = join(dirname(like), name);
   if (!existsSync(join(dir, 'tune.json'))) {
     cpSync(join(like, 'cases'), join(dir, 'cases'), { recursive: true });
-    cpSync(join(like, 'cands', first.id, 'hub'), join(dir, 'cands/i000-init/hub'), { recursive: true });
+    cpSync(join(like, 'cands', first.id, 'graph'), join(dir, 'cands/i000-init/graph'), { recursive: true });
     for (const id of idsOf(t.cases, 'fit', 'validate').filter(id => existsSync(join(like, 'runs', first.id, id))))
       cpSync(join(like, 'runs', first.id, id), join(dir, 'runs/i000-init', id), {
         recursive: true,
         filter: src => !skipped.has(basename(src)),
       });
-    spawnSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
+    spawnSync('git', ['init', '-q', '--bare', join(dir, 'graph.git')]);
     writeFileAtomic(join(dir, 'tune.json'), t);
   }
   const made = await init(
@@ -106,14 +106,14 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
 
 const skipped = new Set(['tree', 'forge', 'homes', 'mirror.git', 'work', 'index', '.locks', 'news', 'logs']);
 
-/** The round's workspace: the incumbent hub, fit and mine cases, the incumbent's fit runs, the history and `k` slots. */
+/** The round's workspace: the incumbent graph, fit and mine cases, the incumbent's fit runs, the history and `k` slots. */
 const workspace = (dir: string, w: string, k: number) => {
   const { tune: t, steps } = tuneRows(dir);
   const inc = steps.filter(s => s.verdict === 'kept').at(-1)!;
   const seen = idsOf(t.cases, 'mine', 'fit');
   const hidden = idsOf(t.cases, 'validate', 'test');
   const redact = (text: string) => hidden.reduce((s, id) => s.replaceAll(id, 'a held-out case'), text);
-  cpSync(join(dir, 'cands', inc.id, 'hub'), join(w, 'hub'), { recursive: true });
+  cpSync(join(dir, 'cands', inc.id, 'graph'), join(w, 'graph'), { recursive: true });
   for (const id of seen) cpSync(join(dir, 'cases', id), join(w, 'cases', id), { recursive: true });
   writeFileAtomic(join(w, 'cases.json'), Object.fromEntries(seen.map(id => [id, t.cases[id]])));
   for (const id of idsOf(t.cases, 'fit')) {
@@ -135,28 +135,28 @@ const workspace = (dir: string, w: string, k: number) => {
     join(w, 'tried.md'),
     `# Tried before\n\nThe incumbent is ${inc.id}.\n\n${tried.join('\n\n') || 'Nothing yet.'}\n`
   );
-  for (let n = 1; n <= k; n++) cpSync(join(w, 'hub'), join(w, 'out', `d${n}`, 'hub'), { recursive: true });
+  for (let n = 1; n <= k; n++) cpSync(join(w, 'graph'), join(w, 'out', `d${n}`, 'graph'), { recursive: true });
 };
 
 /** Each slot with a why and a change, and the problems that keep a slot from being queued. */
 const slotsOf = async (w: string) =>
   Promise.all(
     readdirSync(join(w, 'out'))
-      .filter(n => existsSync(join(w, 'out', n, 'hub')))
+      .filter(n => existsSync(join(w, 'out', n, 'graph')))
       .sort()
       .map(async slot => {
         const at = join(w, 'out', slot);
         const why = readFileOrEmpty(join(at, 'why.md')).trim();
-        const diff = spawnSync('git', ['diff', '--no-index', '--stat', join(w, 'hub'), join(at, 'hub')], {
+        const diff = spawnSync('git', ['diff', '--no-index', '--stat', join(w, 'graph'), join(at, 'graph')], {
           encoding: 'utf8',
         }).stdout;
-        if (!why && !diff) return { slot, hub: join(at, 'hub'), why, problems: [], empty: true };
+        if (!why && !diff) return { slot, graph: join(at, 'graph'), why, problems: [], empty: true };
         const problems = [
           ...(why ? [] : ['no why.md']),
-          ...(diff ? [] : ['the hub is unchanged']),
-          ...(diff ? await hubProblems(join(at, 'hub')) : []),
+          ...(diff ? [] : ['the graph is unchanged']),
+          ...(diff ? await graphProblems(join(at, 'graph')) : []),
         ];
-        return { slot, hub: join(at, 'hub'), why, problems, empty: false };
+        return { slot, graph: join(at, 'graph'), why, problems, empty: false };
       })
   );
 
@@ -245,7 +245,7 @@ const stopOf = (dir: string, o: Options) => (u: Usage) => {
   return overOf({ claude }, o.limits);
 };
 
-/** One round: the skill session in a fresh workspace, its hubs checked and queued as `skill` candidates. */
+/** One round: the skill session in a fresh workspace, its graphs checked and queued as `skill` candidates. */
 const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise<Round> => {
   const budget = guard(dir, { codex: io?.codex ?? codexUsed }, o.limits);
   const before =
@@ -322,7 +322,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
       r.slots.push({ slot: s.slot, problems: s.problems });
       continue;
     }
-    const c = propose(dir, s.hub, s.why, 'skill');
+    const c = propose(dir, s.graph, s.why, 'skill');
     r.slots.push({ slot: s.slot, id: c.id });
   }
   if (after) guard(dir, { codex: io?.codex ?? codexUsed }, o.limits, after);

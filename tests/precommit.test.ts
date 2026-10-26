@@ -6,7 +6,7 @@ import { commit, git, tmp, write } from './kit.ts';
 
 const root = resolve(import.meta.dirname, '..');
 
-/** A repository holding the precommit script, the retired-word list and the agentgraph hub, with `files` committed and `after` written on top. */
+/** A repository holding the precommit script, the retired-word list and the agentgraph graph, with `files` committed and `after` written on top. */
 const repo = (files: Record<string, string>, after: Record<string, string>) => {
   const dir = tmp('precommit');
   for (const path of [
@@ -36,11 +36,11 @@ describe('precommit', () => {
   });
 
   it('prints the findings of a warn check and passes', () => {
-    const before = { 'src/a.ts': "export const mode = 'fastPath';\n", 'examples/hub/skill.md': 'Use `fastPath`.\n' };
+    const before = { 'src/a.ts': "export const mode = 'fastPath';\n", 'examples/graph/skill.md': 'Use `fastPath`.\n' };
     const { status, stdout } = precommit(repo(before, { 'src/a.ts': "export const mode = 'quickPath';\n" }));
     expect(status).toBe(0);
     expect(stdout).toContain(
-      'fastPath: the change takes it out of src/a.ts, but examples/hub/skill.md:1 still says it\npropagation: 1 finding\npropagation: the findings above are warn'
+      'fastPath: the change takes it out of src/a.ts, but examples/graph/skill.md:1 still says it\npropagation: 1 finding\npropagation: the findings above are warn'
     );
   });
 });

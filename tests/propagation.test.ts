@@ -9,19 +9,19 @@ const status = (name: string) => `export type Status = 'running' | '${name}';\n`
 const docs = 'A run ends `merged` once a human merges it.\n';
 
 describe('propagation', () => {
-  it('reports the copies a renamed literal leaves in docs and hubs', () => {
+  it('reports the copies a renamed literal leaves in docs and graphs', () => {
     const repo = change(
       {
         'src/status.ts': status('merged'),
         'docs/runs.md': docs,
-        'examples/hub/skills/land.md': "Wait for 'merged'.\n",
+        'examples/graph/skills/land.md': "Wait for 'merged'.\n",
       },
       { 'src/status.ts': status('landed') }
     );
     expect(run(repo)).toEqual({
       ok: false,
       out: [
-        'merged: the change takes it out of src/status.ts, but docs/runs.md:1, examples/hub/skills/land.md:1 still say it',
+        'merged: the change takes it out of src/status.ts, but docs/runs.md:1, examples/graph/skills/land.md:1 still say it',
         'propagation: 1 finding',
       ].join('\n'),
     });
@@ -31,16 +31,16 @@ describe('propagation', () => {
     const repo = change(
       {
         'src/config.ts': 'export type Config = {\n  maxAttempts: number;\n  retryLimit: number;\n};\n',
-        'infra/local/hub.yaml': 'retryLimit: 3\n',
-        'examples/hub/checks/old-check.md': '---\ntype: script\n---\n',
-        'examples/hub/workflows/issue.md': 'checks: [old-check]\n',
+        'infra/local/settings.yaml': 'retryLimit: 3\n',
+        'examples/graph/checks/old-check.md': '---\ntype: script\n---\n',
+        'examples/graph/workflows/issue.md': 'checks: [old-check]\n',
       },
       { 'src/config.ts': 'export type Config = {\n  maxAttempts: number;\n};\n' },
-      ['examples/hub/checks/old-check.md']
+      ['examples/graph/checks/old-check.md']
     );
     expect(run(repo).out.split('\n')).toEqual([
-      'old-check: the change takes it out of examples/hub/checks/old-check.md, but examples/hub/workflows/issue.md:1 still says it',
-      'retryLimit: the change takes it out of src/config.ts, but infra/local/hub.yaml:1 still says it',
+      'old-check: the change takes it out of examples/graph/checks/old-check.md, but examples/graph/workflows/issue.md:1 still says it',
+      'retryLimit: the change takes it out of src/config.ts, but infra/local/settings.yaml:1 still says it',
       'propagation: 2 findings',
     ]);
   });

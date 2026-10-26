@@ -16,7 +16,7 @@ const spawned = (command: Command) =>
     env: {
       ...process.env,
       ...command.env,
-      ...(command.hub !== undefined && { AGENTGRAPH_HUB: command.hub }),
+      ...(command.graph !== undefined && { AGENTGRAPH_DIR: command.graph }),
       ...(command.home !== undefined && { HOME: command.home }),
       ...Object.fromEntries(Object.entries(command.secrets ?? {}).map(([k, v]) => [k, Redacted.value(v)])),
     },

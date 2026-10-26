@@ -11,7 +11,7 @@ returns:
     minutes: { type: number }
     tokens: { type: integer }
 pass: { properties: { tools: { maximum: 300 }, usd: { maximum: 2 } } }
-run: node "$AGENTGRAPH_HUB/scripts/run-stats.mjs"
+run: node "$AGENTGRAPH_DIR/scripts/run-stats.mjs"
 ---
 The run stayed under 300 tool calls and 2 dollars. It warns, so a run over budget is recorded and
 goes on.

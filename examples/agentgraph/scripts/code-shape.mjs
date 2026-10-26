@@ -1,6 +1,6 @@
 // Structure rules on the TypeScript a change adds under src/ and studio/src: components defined at module level,
 // routes loaded lazily, schema unions told apart by `type`, and the studio's UI rules on its TSX. Softer hints, state
-// copied in an effect and type unions told apart by another field, are printed without failing the check. In the hub
+// copied in an effect and type unions told apart by another field, are printed without failing the check. In the graph
 // scripts, a field an item sends to a model that gathers text with no clip or limit fails.
 import { makeOffsetToLineLookup, parseSourceFileToAst, reporter, walk } from './ast.mjs';
 import { readCheckInputFiles, report } from './changes.mjs';

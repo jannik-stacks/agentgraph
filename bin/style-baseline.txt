@@ -58,7 +58,7 @@ no-comment src/git.ts 3
 no-comment src/github.ts 20
 no-comment src/graph.ts 3
 no-comment src/harnesses.ts 7
-no-comment src/hub.ts 18
+no-comment src/folder.ts 18
 no-comment src/main.ts 2
 no-comment src/proposal.ts 3
 no-comment src/sandbox.ts 8
@@ -97,7 +97,7 @@ no-comment studio/src/state.ts 8
 no-comment studio/src/ui.tsx 14
 no-comment studio/src/virtual.d.ts 1
 no-comment studio/vite.config.ts 1
-no-comment tests/agentgraph-hub.test.ts 6
+no-comment tests/agentgraph-example.test.ts 6
 no-comment tests/agentgraph-ui-checks.test.ts 1
 no-comment tests/base-moved.test.ts 3
 no-comment tests/bench.test.ts 1
@@ -114,7 +114,7 @@ no-comment tests/fixtures.ts 7
 no-comment tests/github.test.ts 3
 no-comment tests/graph.test.ts 1
 no-comment tests/harnesses.test.ts 1
-no-comment tests/hub.test.ts 2
+no-comment tests/folder.test.ts 2
 no-comment tests/kit.ts 5
 no-comment tests/overnight.test.ts 1
 no-comment tests/precommit.test.ts 1
@@ -240,10 +240,10 @@ verb-first src/forge.ts unpushable
 verb-first src/forge.ts withheld
 verb-first src/git.ts hostGit
 verb-first src/github.ts appToken
-verb-first src/hub.ts loadHub
-verb-first src/hub.ts retiredIn
+verb-first src/folder.ts loadGraph
+verb-first src/folder.ts retiredIn
 verb-first src/main.ts temporary
-verb-first src/services.ts hubAt
+verb-first src/services.ts graphAt
 verb-first src/store.ts locate
 verb-first src/store.ts pruneLogs
 verb-first src/workflow.ts begin
@@ -278,5 +278,5 @@ verb-first studio/src/state.ts queryParam
 verb-first studio/src/ui.tsx cx
 verb-first tune/propose.ts claudeUsed
 verb-first tune/propose.ts fitting
-verb-first tune/propose.ts hubProblems
+verb-first tune/propose.ts graphProblems
 verb-first tune/skill.ts skill

@@ -32,15 +32,15 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
 
 const base = (dir: string | undefined, parts = 1) => dir?.split('/').filter(Boolean).slice(-parts).join('/');
 
-/** The hub and data directory the dev server reads, by folder name; the full paths on hover. */
+/** The graph and data directory the dev server reads, by folder name; the full paths on hover. */
 const Where = () => {
-  const { VITE_AGI_HUB: hub, VITE_AGI_DATA: data } = import.meta.env as Record<string, string | undefined>;
-  if (!hub && !data) return null;
+  const { VITE_AGI_DIR: graph, VITE_AGI_DATA: data } = import.meta.env as Record<string, string | undefined>;
+  if (!graph && !data) return null;
   return (
-    <Tooltip tip={[hub && `Hub: ${hub}`, data && `Data: ${data}`].filter(Boolean).join('\n')} focusable>
+    <Tooltip tip={[graph && `Graph: ${graph}`, data && `Data: ${data}`].filter(Boolean).join('\n')} focusable>
       <dl className="flex min-w-0 items-center gap-3 text-xs text-zinc-500">
         {[
-          ['hub', base(hub)],
+          ['graph', base(graph)],
           ['data', base(data, 2)],
         ].map(([name, dir]) =>
           dir ? (

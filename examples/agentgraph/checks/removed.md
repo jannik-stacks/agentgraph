@@ -1,10 +1,10 @@
 ---
 mode: block
-each: node "$AGENTGRAPH_HUB/scripts/removed.mjs"
+each: node "$AGENTGRAPH_DIR/scripts/removed.mjs"
 agent: reviewer
 max: 6
 ---
-Nothing the change removes from src/ or the hub scripts is still relied on, one removed argument, field, branch, fallback or export per run.
+Nothing the change removes from src/ or the graph scripts is still relied on, one removed argument, field, branch, fallback or export per run.
 
 The item is one kind of removal in one file: the removed lines, where they were, and the hunks that
 replace them. Does anything in the change still provide this behavior? Grep for the callers and

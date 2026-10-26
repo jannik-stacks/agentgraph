@@ -145,7 +145,7 @@ const tips = {
     push: 'Commits agentgraph pushed to the run branch.',
     pull: 'A pull request agentgraph opened.',
     merge: 'A pull request agentgraph merged.',
-    issue: 'An issue agentgraph filed: a part, a follow-up or a hub change.',
+    issue: 'An issue agentgraph filed: a part, a follow-up or a graph change.',
     ask: 'A question agentgraph posted. The run waits for your answer.',
     back: 'The agent sent the run back to an earlier step.',
     run: 'Another workflow this run started by name.',

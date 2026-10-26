@@ -8,7 +8,7 @@ steps:
     checks: [tests]
   review:
     agent: reviewer
-    each: { run: node "$AGENTGRAPH_HUB/scripts/review.mjs" }
+    each: { run: node "$AGENTGRAPH_DIR/scripts/review.mjs" }
     back: implement
     rounds: 1
     until: the change does everything the issue asks and nothing it does not need

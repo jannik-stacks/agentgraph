@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Prepares a data directory for a real local run of a hub against its GitHub repo, and prints the commands.
+# Prepares a data directory for a real local run of a graph against its GitHub repo, and prints the commands.
 #
-#   e2e.sh <data-dir> [hub]     hub defaults to examples/sandbox
+#   e2e.sh <data-dir> [graph]     graph defaults to examples/sandbox
 #
 # Needs the local stack up (README), the sandbox image built, .keys.env from keys.sh, and AGENTGRAPH_APP_ENV naming
 # the App env file that bin/setup-app.ts wrote. Nothing runs here.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 agentgraph="$(cd "$here/../.." && pwd -P)"
-data="${1:?usage: e2e.sh <data-dir> [hub]}"
-hub="$(cd "${2:-$agentgraph/examples/sandbox}" && pwd -P)"
+data="${1:?usage: e2e.sh <data-dir> [graph]}"
+graph="$(cd "${2:-$agentgraph/examples/sandbox}" && pwd -P)"
 
 [[ -f "$here/.keys.env" ]] || { echo "no $here/.keys.env; run keys.sh first" >&2; exit 1; }
 [[ -n "${AGENTGRAPH_APP_ENV:-}" ]] || { echo "set AGENTGRAPH_APP_ENV to the App env file" >&2; exit 1; }
-node "$agentgraph/bin/run.ts" check --hub "$hub" >/dev/null
+node "$agentgraph/bin/run.ts" check --dir "$graph" >/dev/null
 mkdir -p "$data"
 data="$(cd "$data" && pwd -P)"
 
@@ -24,10 +24,10 @@ chmod 600 "$data/.env"
 
 cat <<EOF
 ready: $data
-  hub   $hub
+  graph   $graph
 
 load the keys:  set -a; . $data/.env; set +a
-one issue:      node $agentgraph/bin/run.ts --hub $hub --issue <n> --data $data
-every issue:    node $agentgraph/bin/run.ts loop --hub $hub --data $data
-needs you:      node $agentgraph/bin/run.ts status --hub $hub --data $data
+one issue:      node $agentgraph/bin/run.ts --dir $graph --issue <n> --data $data
+every issue:    node $agentgraph/bin/run.ts loop --dir $graph --data $data
+needs you:      node $agentgraph/bin/run.ts status --dir $graph --data $data
 EOF

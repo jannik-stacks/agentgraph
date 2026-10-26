@@ -17,7 +17,7 @@ these checks once.
 Bad:
 
 ```ts
-if (url.pathname === '/api/comments') return Response.json(await comment(hub, await req.json()));
+if (url.pathname === '/api/comments') return Response.json(await comment(graph, await req.json()));
 ```
 
 Good:
@@ -25,5 +25,5 @@ Good:
 ```ts
 const body = await localJson(req);
 if ('response' in body) return body.response;
-return Response.json(await comment(hub, body.input), { status: 201 });
+return Response.json(await comment(graph, body.input), { status: 201 });
 ```

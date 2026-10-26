@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileWorkflow } from '../src/workflow.ts';
-import { fixture, hubs } from './fixtures.ts';
+import { fixture, graphs } from './fixtures.ts';
 
 const names = { agents: ['implementor', 'reviewer'], skills: ['implement'], checks: ['types', 'tests'] };
 const file = (front: string, body = 'The prose.') => `---\n${front}\n---\n${body}\n`;
@@ -8,8 +8,8 @@ const messages = (text: string, n = names) =>
   compileWorkflow('workflows/issue.md', text, n).problems.map(p => p.message);
 
 describe('compileWorkflow', () => {
-  it.each(hubs)('loads every workflow of the %s fixture without problems', hub => {
-    const { workflows, problems } = fixture(hub);
+  it.each(graphs)('loads every workflow of the %s fixture without problems', graph => {
+    const { workflows, problems } = fixture(graph);
     expect(problems).toEqual([]);
     expect(Object.keys(workflows).length).toBeGreaterThan(0);
   });
@@ -66,7 +66,7 @@ describe('compileWorkflow', () => {
     expect(w.steps).toEqual([
       {
         name: 'merge',
-        does: { run: 'node "$AGENTGRAPH_HUB/scripts/merge-next.mjs"' },
+        does: { run: 'node "$AGENTGRAPH_DIR/scripts/merge-next.mjs"' },
         checks: ['types', 'tests'],
         tries: 3,
       },
@@ -74,7 +74,7 @@ describe('compileWorkflow', () => {
   });
 
   it('turns a workflow without steps into one step named after the file, prompted by the body', () => {
-    const w = fixture('hub').workflows.review!;
+    const w = fixture('graph').workflows.review!;
     expect(w.on).toEqual({ pull_request: {} });
     expect(w.steps).toEqual([{ name: 'review', does: { agent: 'reviewer', skill: 'review' }, checks: [], tries: 1 }]);
     expect(w.body).toMatch(/^Review this pull request/);
@@ -85,7 +85,7 @@ describe('compileWorkflow', () => {
     expect(workflow!.steps[0]!.does).toEqual({ agent: 'helper' });
   });
 
-  it('asks for an agent when a workflow without steps names none and the hub has several', () => {
+  it('asks for an agent when a workflow without steps names none and the graph has several', () => {
     expect(messages(file('on: issues'))).toEqual(['agent: a workflow without steps names its agent']);
   });
 

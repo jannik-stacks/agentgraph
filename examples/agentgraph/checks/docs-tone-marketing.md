@@ -1,6 +1,6 @@
 ---
 mode: warn
-each: node "$AGENTGRAPH_HUB/scripts/hunks.mjs" docs/
+each: node "$AGENTGRAPH_DIR/scripts/hunks.mjs" docs/
 agent: checker
 max: 10
 ---

@@ -1,6 +1,6 @@
 ---
 mode: block
-run: node "$AGENTGRAPH_HUB/scripts/tests.mjs"
+run: node "$AGENTGRAPH_DIR/scripts/tests.mjs"
 ---
 The agentgraph test suite passes, the live stream and harness usage tests among them, and every module it loads loads.
 

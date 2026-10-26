@@ -7,7 +7,7 @@ const home =
 const email =
   /(?<![\w.%+-])(?!git@|[\w.%+-]*no-?reply[\w.%+-]*@)[\w.%+-]+@(?!(?:[\w-]+\.)*(?:example\.(?:com|org|net)|noreply\.github\.com)\b)(?![\w.-]+\.(?:invalid|internal|test|example|localhost|local)\b)[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b/i;
 
-const listed = process.env.AGENTGRAPH_DENY || join(process.env.AGENTGRAPH_HUB ?? join(import.meta.dirname, '..'), 'deny.txt');
+const listed = process.env.AGENTGRAPH_DENY || join(process.env.AGENTGRAPH_DIR ?? join(import.meta.dirname, '..'), 'deny.txt');
 const findings = [];
 if (process.env.AGENTGRAPH_DENY && !existsSync(listed)) findings.push('AGENTGRAPH_DENY names no file');
 const deny = existsSync(listed)

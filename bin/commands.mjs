@@ -1,4 +1,4 @@
-// Fails when the README, the docs, a hub README or a usage header in bin/ names a command that does not exist: a
+// Fails when the README, the docs, a graph README or a usage header in bin/ names a command that does not exist: a
 // `node bin/` file, its subcommand, a flag it does not read, or an npm script. `npx agentgraph` stands for
 // `node bin/run.ts`. Usage: node bin/commands.mjs
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -14,8 +14,8 @@ const docs = ['README.md', ...names('docs').flatMap(f => (f.endsWith('.md') ? [`
 const pages = [
   ...docs,
   'infra/github/README.md',
-  ...names('examples').flatMap(hub =>
-    existsSync(join(root, `examples/${hub}/README.md`)) ? [`examples/${hub}/README.md`] : []
+  ...names('examples').flatMap(graph =>
+    existsSync(join(root, `examples/${graph}/README.md`)) ? [`examples/${graph}/README.md`] : []
   ),
   ...bins.map(f => `bin/${f}`),
 ];

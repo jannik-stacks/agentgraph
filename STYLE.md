@@ -30,10 +30,10 @@ at that level first.
    `ReturnType`/`Parameters` or `typeof X.Type` at the use site.
    ```ts
    type Made = { mounts: Mount[]; image: string; network?: string }; // bad
-   type Made = { mounts: Mount[] } & Pick<Hub, 'image' | 'network'>; // good
+   type Made = { mounts: Mount[] } & Pick<Graph, 'image' | 'network'>; // good
    ```
 2. Anything handwritten twice is a red flag: types, schemas, helpers.
-3. Schemas first: Effect schemas define hub files and types are inferred.
+3. Schemas first: Effect schemas define graph files and types are inferred.
 4. No early names. A one-field variation stays inline; a pair is `{ harness, model }`, not a `Point`.
 5. A new type name needs a reason. If only one place uses it, inline it.
 6. Options that apply to one case belong to that case: a union on `kind`, not a bag of optional fields.
@@ -53,10 +53,10 @@ at that level first.
     Options), `Point` a position, `Lookup` a value for a key, and `XWithY` a pair. There is no `Index` or
     `Map` suffix.
 14. Core code in `src/` uses the short words from `docs/vocabulary.md`. Edge code (bench, tune, studio,
-    `bin/`, hub scripts, test doubles) uses long, self-explaining names.
+    `bin/`, graph scripts, test doubles) uses long, self-explaining names.
 15. Edge types never take a core word: `TuneProposerResult`, not `Proposal`.
 16. One word per concept, one export per name. Retired words, each with a clearer word to start from, are
-    listed once in [src/retired.ts](src/retired.ts); lint, the hub loader and the hub's checks read that
+    listed once in [src/retired.ts](src/retired.ts); lint, the graph loader and the graph's checks read that
     list. The lint asks for a clearer word rather than a one-for-one swap. A word without a `text` pattern
     is retired for names only, since text keeps other meanings of it (git's `core.bare`, `stacks-core`, a `timestamp`).
 17. Don't overload taken words: session is a harness session, run is one workflow execution, no `core`,
@@ -98,7 +98,7 @@ at that level first.
     replace. Tests assert outside loops and branches: one `it.each` row per case, or collect the results
     and assert once.
 35. Layer folders; imports only go down; no cycles.
-36. The engine repo holds the engine and one minimal example. A repo's hub lives in that repo or in a
+36. The engine repo holds the engine and one minimal example. A repo's graph lives in that repo or in a
     `<repo>-agentgraph` repo.
 37. The engine is the SDK; the runner is where it runs. Keep them apart.
 38. Everything runs through plain npm scripts and the CLI. Agent instructions live in `AGENTS.md`; there
@@ -120,8 +120,8 @@ at that level first.
 46. If a tool can check a rule, a tool checks it. This is the one list of what tools enforce:
     - `bin/style.mjs` (oxlint) fails `verb-first` (rule 7), `no-of-for` (9), `unique-export` (16),
       `retired-word` (16) and `no-comment` (18).
-    - The hub's [rules check](examples/agentgraph/scripts/rules.mjs), over the lines a change adds, fails
-      the prose bans (55), unicode diagram arrows (55), retired hub terms (16), a two-dot range to
+    - The graph's [rules check](examples/agentgraph/scripts/rules.mjs), over the lines a change adds, fails
+      the prose bans (55), unicode diagram arrows (55), retired graph terms (16), a two-dot range to
       `HEAD`, a force push and an `update-ref` without its old sha (59), and a `CLAUDE.md` (38).
     - `test-guards` fails assertions in loops and branches (34); `bin/refs.mjs` fails dead docs links (20).
 47. Old violations sit in `bin/style-baseline.txt`; after a rename batch run `node bin/style.mjs --write`.

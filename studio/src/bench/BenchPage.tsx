@@ -52,14 +52,14 @@ const presetHelp: Record<string, string> = {
   'judges only': 'Only judges count.',
 };
 const arm =
-  'How the change is made. v2 uses the engine and repo’s hub, with checks and one chance for a reviewer to send it back. floor is one plain agent session with the same sandbox and budget, without checks or review. human is the merged pull request. Circles show v2, squares show floor.';
+  'How the change is made. v2 uses the engine and repo’s graph, with checks and one chance for a reviewer to send it back. floor is one plain agent session with the same sandbox and budget, without checks or review. human is the merged pull request. Circles show v2, squares show floor.';
 const set =
   'A pinned list of cases. Compare points on the same set. core uses real merged pull requests from the org’s repos. smoke uses three small, fast core cases for quick checks.';
 const terms: [string, ReactNode][] = [
   ['arm', arm],
   ['case set', set],
   ['base', 'The repo at the pull request’s parent commit, before any change.'],
-  ['tree', 'The git tree hash of the hub’s files, part of a point’s key. Changing the hub creates a new point.'],
+  ['tree', 'The git tree hash of the graph’s files, part of a point’s key. Changing the graph creates a new point.'],
   [
     'case',
     'One merged pull request. It is valid, and kept, only when the human diff applies to base, setup works, the hidden tests fail on base and pass on the human, and the human passes the suite.',
@@ -215,7 +215,7 @@ export const BenchPage = () => {
     const p = parse(key);
     return [
       `${p.harness}:${p.model} on ${p.arm}, set ${p.set}`,
-      `engine ${p.engine.slice(0, 10)}${p.tree ? `, hub tree ${p.tree.slice(0, 10)}` : ''}`,
+      `engine ${p.engine.slice(0, 10)}${p.tree ? `, graph tree ${p.tree.slice(0, 10)}` : ''}`,
     ].join('\n');
   };
   const xLabel = minutes ? 'minutes per task' : `notional USD per task${cache === 'off' ? ', cache off' : ''}, log`;
@@ -231,7 +231,7 @@ export const BenchPage = () => {
   const all: [string, string, (p: Point) => number | string, (p: Point) => ReactNode][] = [
     [
       'point',
-      'Each dot is one harness and model on one arm, with an engine commit, hub tree and case set. Labels show the arm and case set, plus the harness and model when there are several.',
+      'Each dot is one harness and model on one arm, with an engine commit, graph tree and case set. Labels show the arm and case set, plus the harness and model when there are several.',
       p => label(p.key),
       p => (
         <Tooltip tip={describe(p.key)}>

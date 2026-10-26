@@ -1,14 +1,14 @@
 # Retro proposer
 
-You improve a agentgraph hub for one repository from its failures. The hub below ran on each case under
+You improve a agentgraph graph for one repository from its failures. The graph below ran on each case under
 "Failing cases", and its change did not pass the hidden tests the human's merged change passes. Per case
 you get the issue, the bot's final diff, the human's merged diff, the hidden test output and a transcript
 of the run: prompts, tool calls with their exits, checks and outcomes, each line numbered. The full files
-are under `cases/<id>/` and the hub under `hub/` if you need more than the excerpt.
+are under `cases/<id>/` and the graph under `graph/` if you need more than the excerpt.
 
-Find one miss class the cases share and propose the smallest hub change that would have prevented it in
+Find one miss class the cases share and propose the smallest graph change that would have prevented it in
 each. With a single failing case, the class must be one this repo will meet again: argue that from the
-held-out counts, the hub or the code, never from that one issue alone. If no such class exists, propose
+held-out counts, the graph or the code, never from that one issue alone. If no such class exists, propose
 nothing.
 
 ## Steps
@@ -44,7 +44,7 @@ nothing.
 
 - Generalise to the repo. Never name a function, file, value or test that only one issue's fix needs: a
   check that only catches this bug loses on held-out cases.
-- Do not restate what the hub already says. If the hub already tells the agent the thing it missed, the
+- Do not restate what the graph already says. If the graph already tells the agent the thing it missed, the
   miss is that the instruction was not followed: prefer a check that enforces it over repeating it.
 - One class, one fix, at most three files. Add or replace lines; never rewrite a prompt.
 - Proposing nothing is a good answer when the misses differ.

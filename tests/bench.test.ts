@@ -406,7 +406,7 @@ describe('bin/bench.ts score and report', () => {
     expect(rows[2]).toMatchObject({ outcome: 'no-change', hidden: 0, vsHuman: {} });
     expect(rows[2]).not.toHaveProperty('infra');
     expect(rows[1]).not.toHaveProperty('outcome');
-    const point = { harness: 'pi', model: 'luna', engine: 'abc', hubs: { v2: 'h2' }, set: 'core@1', repeat: 2 };
+    const point = { harness: 'pi', model: 'luna', engine: 'abc', graphs: { v2: 'h2' }, set: 'core@1', repeat: 2 };
     writeFileSync(join(out, 'point.json'), JSON.stringify(point));
     expect(readBenchRows(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);
     writeFileSync(join(out, 'demo', 'base', 'score.json'), JSON.stringify({ ...score('base'), suite: { ok: false } }));
@@ -465,39 +465,39 @@ describe('bin/bench.ts typecheck', () => {
 
 describe('points', () => {
   it('rewrites only the harness and model of each agent front matter', () => {
-    const hub = tmp('hub');
-    dirs.push(hub);
-    mkdirSync(join(hub, 'agents'));
+    const graph = tmp('graph');
+    dirs.push(graph);
+    mkdirSync(join(graph, 'agents'));
     const agent = '---\nharness: opencode\nmodel: smart\n---\nmodel: keep this line\n';
-    writeFileSync(join(hub, 'agents', 'implementor.md'), agent);
-    repoint(hub, 'pi:luna');
-    expect(readFileSync(join(hub, 'agents', 'implementor.md'), 'utf8')).toBe(
+    writeFileSync(join(graph, 'agents', 'implementor.md'), agent);
+    repoint(graph, 'pi:luna');
+    expect(readFileSync(join(graph, 'agents', 'implementor.md'), 'utf8')).toBe(
       '---\nharness: pi\nmodel: luna\n---\nmodel: keep this line\n'
     );
   });
 
   it('keeps only the plain tools of an agent it points at pi, which takes no patterns', () => {
-    const hub = tmp('hub');
-    dirs.push(hub);
-    mkdirSync(join(hub, 'agents'));
+    const graph = tmp('graph');
+    dirs.push(graph);
+    mkdirSync(join(graph, 'agents'));
     const agent = "---\nharness: opencode\ntools:\n  [\n    read,\n    grep,\n    'bash(git diff*)',\n  ]\n---\n";
-    writeFileSync(join(hub, 'agents', 'reviewer.md'), agent);
-    repoint(hub, 'opencode:luna');
-    expect(readFileSync(join(hub, 'agents', 'reviewer.md'), 'utf8')).toContain("'bash(git diff*)'");
-    repoint(hub, 'pi:luna');
-    expect(readFileSync(join(hub, 'agents', 'reviewer.md'), 'utf8')).toBe(
+    writeFileSync(join(graph, 'agents', 'reviewer.md'), agent);
+    repoint(graph, 'opencode:luna');
+    expect(readFileSync(join(graph, 'agents', 'reviewer.md'), 'utf8')).toContain("'bash(git diff*)'");
+    repoint(graph, 'pi:luna');
+    expect(readFileSync(join(graph, 'agents', 'reviewer.md'), 'utf8')).toBe(
       '---\nharness: pi\ntools: [read, grep]\n---\n'
     );
   });
 
   it('gives an agent with no key of its own the implementor key', () => {
-    const hub = tmp('hub');
-    dirs.push(hub);
-    mkdirSync(join(hub, 'agents'));
-    for (const name of ['implementor', 'scout']) writeFileSync(join(hub, 'agents', `${name}.md`), '---\n---\n');
-    writeFileSync(join(hub, 'keys.env'), 'AGENTGRAPH_PROXY_KEYS=implementor=ki,reviewer=kr\n');
-    const keys = readBenchKeys(join(hub, 'keys.env'));
-    repoint(hub, 'opencode:none');
+    const graph = tmp('graph');
+    dirs.push(graph);
+    mkdirSync(join(graph, 'agents'));
+    for (const name of ['implementor', 'scout']) writeFileSync(join(graph, 'agents', `${name}.md`), '---\n---\n');
+    writeFileSync(join(graph, 'keys.env'), 'AGENTGRAPH_PROXY_KEYS=implementor=ki,reviewer=kr\n');
+    const keys = readBenchKeys(join(graph, 'keys.env'));
+    repoint(graph, 'opencode:none');
     expect(keys.AGENTGRAPH_PROXY_KEYS).toBe('implementor=ki,reviewer=kr,scout=ki');
   });
 
@@ -543,19 +543,19 @@ describe('points', () => {
     expect(JSON.parse(readFileSync(join(at, 'meta.json'), 'utf8'))).toEqual({ ms: 5, reusedFrom: a });
   });
 
-  it('keys an arm by the BENCH_HUB content, so an unchanged hub hits the cache', () => {
-    const [cache, hub] = [tmp('cache'), tmp('hub')];
-    dirs.push(cache, hub);
-    writeFileSync(join(hub, 'hub.yaml'), 'repo: me/demo\n');
+  it('keys an arm by the BENCH_DIR content, so an unchanged graph hits the cache', () => {
+    const [cache, graph] = [tmp('cache'), tmp('graph')];
+    dirs.push(cache, graph);
+    writeFileSync(join(graph, 'settings.yaml'), 'repo: me/demo\n');
     process.env.BENCH_CACHE = cache;
     const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
     const plain = armSlot(c, 'v2');
-    process.env.BENCH_HUB = hub;
+    process.env.BENCH_DIR = graph;
     const tuned = armSlot(c, 'v2');
     const again = armSlot(c, 'v2');
-    writeFileSync(join(hub, 'hub.yaml'), 'repo: me/demo\nlimits: { minutes: 5 }\n');
+    writeFileSync(join(graph, 'settings.yaml'), 'repo: me/demo\nlimits: { minutes: 5 }\n');
     const changed = armSlot(c, 'v2');
-    delete process.env.BENCH_HUB;
+    delete process.env.BENCH_DIR;
     delete process.env.BENCH_CACHE;
     expect(tuned).not.toBe(plain);
     expect(again).toBe(tuned);
@@ -622,15 +622,15 @@ describe('points', () => {
 
 describe('prices', () => {
   it('names the models of an arm that have no list price, so a bench stops before it spends', () => {
-    const hub = tmp('hub');
-    dirs.push(hub);
-    mkdirSync(join(hub, 'agents'));
-    writeFileSync(join(hub, 'agents', 'implementor.md'), '---\nharness: opencode\nmodel: smart\n---\n');
-    writeFileSync(join(hub, 'agents', 'scout.md'), '---\nharness: opencode\nmodel: mystery\n---\n');
-    expect(unpriced('v2', hub, undefined)).toEqual(['mystery']);
-    expect(unpriced('v2', hub, 'opencode:deepseek-flash')).toEqual([]);
-    expect(unpriced('v2', hub, 'opencode:nope')).toEqual(['nope']);
-    expect(unpriced('floor', hub, undefined)).toEqual([]);
+    const graph = tmp('graph');
+    dirs.push(graph);
+    mkdirSync(join(graph, 'agents'));
+    writeFileSync(join(graph, 'agents', 'implementor.md'), '---\nharness: opencode\nmodel: smart\n---\n');
+    writeFileSync(join(graph, 'agents', 'scout.md'), '---\nharness: opencode\nmodel: mystery\n---\n');
+    expect(unpriced('v2', graph, undefined)).toEqual(['mystery']);
+    expect(unpriced('v2', graph, 'opencode:deepseek-flash')).toEqual([]);
+    expect(unpriced('v2', graph, 'opencode:nope')).toEqual(['nope']);
+    expect(unpriced('floor', graph, undefined)).toEqual([]);
   });
 
   it('reprices tokens when a run recorded no cost, and marks subscription cost as an estimate', () => {

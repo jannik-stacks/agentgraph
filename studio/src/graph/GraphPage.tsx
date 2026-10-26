@@ -26,7 +26,7 @@ import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
 import { splitSelection } from './trail.ts';
 import { makeRunStory, makeRunTrail, makeWorkflowRunVisits } from './visits.ts';
 
-const hubParam = queryParam('hub');
+const graphParam = queryParam('graph');
 const runParam = queryParam('run');
 const hideParam = queryParam('hide');
 
@@ -93,7 +93,7 @@ const WorkflowGraph = ({
             {opened?.kind === 'check' ? (
               <CheckDetails fixture={fixture} path={path!} name={opened.name} />
             ) : opened?.kind === 'agent' ? (
-              <AgentDetails fixture={fixture} hub={shown} path={path!} name={opened.name} />
+              <AgentDetails fixture={fixture} graph={shown} path={path!} name={opened.name} />
             ) : step ? (
               <StepDetails fixture={fixture} step={step} run={picked?.fixture === fixture ? picked : undefined} />
             ) : (
@@ -122,7 +122,7 @@ const placed = (box: { x: number; y: number; width: number; height: number }) =>
   style: { width: box.width, height: box.height },
 });
 
-/** How many of the served hub's runs stand at each step and are not done, keyed `fixture/step`. */
+/** How many of the served graph's runs stand at each step and are not done, keyed `fixture/step`. */
 const useHere = () => {
   const { value: runs = [] } = useAtomValue(runsAtom);
   return useMemo(() => {
@@ -288,8 +288,8 @@ const Canvas = ({
   );
 };
 
-/** The hubs the graph can show: the live hub first, then every example hub the fixtures carry. */
-const hubs = (() => {
+/** The graphs the Graph page can show: the live graph first, then every example graph the fixtures carry. */
+const graphs = (() => {
   const groups = new Map<string, Fixture[]>();
   for (const f of fixtures) {
     const key = f.id.slice(0, f.id.indexOf('/'));
@@ -302,18 +302,18 @@ const hubs = (() => {
   }));
 })();
 
-/** Every workflow of a hub as one graph: the main path as arrows, ways back as arcs, the common moves as badges. */
+/** Every workflow of a graph in one drawing: the main path as arrows, ways back as arcs, the common moves as badges. */
 export const GraphPage = () => {
-  const [hubKey, setHub] = useAtom(hubParam);
+  const [graphKey, setGraph] = useAtom(graphParam);
   const [runKey, setRun] = useAtom(runParam);
   const { value: real = [] } = useAtomValue(runsAtom);
   const [hide, setHide] = useAtom(hideParam);
   const hidden = useMemo(() => new Set(hide?.split(',')), [hide]);
 
-  const hub = hubs.find(h => h.key === hubKey) ?? hubs[0];
+  const graph = graphs.find(h => h.key === graphKey) ?? graphs[0];
   const runs = useMemo(
     () =>
-      (hub?.fixtures ?? []).flatMap(fixture => [
+      (graph?.fixtures ?? []).flatMap(fixture => [
         ...real
           .filter(r => r.fixture === fixture.id)
           .map(r => ({
@@ -332,24 +332,24 @@ export const GraphPage = () => {
           trail: s.trail,
         })),
       ]),
-    [hub, real]
+    [graph, real]
   );
   const picked = runs.find(r => r.key === runKey);
 
-  if (!hub || !hub.fixtures.length) return <Muted>This hub has no workflows.</Muted>;
+  if (!graph || !graph.fixtures.length) return <Muted>This graph has no workflows.</Muted>;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Problems />
       <AutoHeight className="flex flex-wrap items-center gap-4 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
-        {hubs.length > 1 && (
+        {graphs.length > 1 && (
           <Select
-            label="Hub"
-            value={hub.key}
-            options={hubs.map(h => ({ value: h.key, label: h.label }))}
+            label="Graph"
+            value={graph.key}
+            options={graphs.map(h => ({ value: h.key, label: h.label }))}
             onChange={key => {
               setRun(null);
-              setHub(key);
+              setGraph(key);
             }}
           />
         )}
@@ -377,14 +377,14 @@ export const GraphPage = () => {
                 )
               )}
             </>
-          ) : hub.key === served?.name ? (
+          ) : graph.key === served?.name ? (
             'The workflows as written. A blue step holds runs that are running now.'
           ) : (
-            'The workflows as written. An example hub, with no runs of its own.'
+            'The workflows as written. An example graph, with no runs of its own.'
           )}
         </p>
       </AutoHeight>
-      <WorkflowGraph shown={hub.fixtures} picked={picked} hidden={hidden} />
+      <WorkflowGraph shown={graph.fixtures} picked={picked} hidden={hidden} />
       <Legend
         hidden={hidden}
         onToggle={kind =>

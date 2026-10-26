@@ -19,7 +19,7 @@
 {"at": "2026-01-02T17:18:37.391Z", "step": "implement", "event": {"type": "text", "text": "PASS"}}
 {"at": "2026-01-02T17:18:37.391Z", "step": "implement", "event": {"type": "usage", "input": 3633, "output": 1, "usd": 0}}
 {"at": "2026-01-02T17:18:38.184Z", "step": "implement", "event": {"type": "end", "final": "PASS", "ended": "stop", "exit": 0}}
-{"at": "2026-01-02T17:18:44.699Z", "step": "implement", "check": {"check": "scope", "pass": false, "findings": "The change edits a file this hub keeps out of pull requests...", "ms": 60620}, "exit": 1}
+{"at": "2026-01-02T17:18:44.699Z", "step": "implement", "check": {"check": "scope", "pass": false, "findings": "The change edits a file this graph keeps out of pull requests...", "ms": 60620}, "exit": 1}
 {"at": "2026-01-02T17:18:45.515Z", "step": "implement", "check": {"check": "pr-text", "pass": true, "ms": 61436}, "exit": 0}
 {"at": "2026-01-02T17:18:46.344Z", "step": "implement", "check": {"check": "typecheck", "pass": false, "findings": "> @example/kit@0.0.0 typecheck\n> tsc --noEmit\n\nsh: 1: tsc: no...", "ms": 62266}, "exit": 127}
 {"at": "2026-01-02T17:18:46.350Z", "step": "implement", "check": {"check": "tsdoc", "pass": true, "ms": 62271}, "exit": 0}
@@ -27,7 +27,7 @@
 {"at": "2026-01-02T17:18:59.838Z", "step": "implement", "session": {"id": "ses_audit0001", "resumed": false, "ended": "stop", "exit": 0, "usd": 0}}
 {"at": "2026-01-02T17:18:59.838Z", "step": "implement", "check": {"check": "claims", "pass": true, "ms": 75726}}
 {"at": "2026-01-02T17:18:59.881Z", "step": "merge", "outcome": {"kind": "back", "why": "typecheck: > @example/kit@0.0.0 typecheck\n> tsc --noEmit\n\nsh:..."}, "run": {"step": "implement", "status": "running", "tries": 0, "rounds": {"review": 1, "merge": 1}}}
-{"at": "2026-01-02T17:18:59.881Z", "step": "implement", "saved": {"step": "implement", "status": "running", "rounds": {"review": 1, "merge": 1}, "hub": "00000000000000000000000000000000000000000000000000000...", "feedback": "the merge step sent this back: typecheck: > @example/kit@0.0...."}}
+{"at": "2026-01-02T17:18:59.881Z", "step": "implement", "saved": {"step": "implement", "status": "running", "rounds": {"review": 1, "merge": 1}, "graph": "00000000000000000000000000000000000000000000000000000...", "feedback": "the merge step sent this back: typecheck: > @example/kit@0.0...."}}
 {"at": "2026-01-02T16:57:40.197Z", "step": "implement", "prompt": {"harness": "opencode", "agent": "auditor", "minutes": 20, "model": "fast", "system": "You check one claim about how an agent worked on Example Kit ...", "prompt": "Did the implementor do what its reply says it did?\n\nRead the...", "dir": "/tmp/agentgraph/checkouts/kit-14/work...", "tools": ["read", "grep"], "read": ["/tmp/agentgraph/checkouts/kit-14/work..."]}}
 {"at": "2026-01-02T16:57:40.198Z", "step": "implement", "session": {"resumed": false, "ended": "provider", "usd": 0}}
 {"at": "2026-01-02T16:57:40.200Z", "step": "implement", "prompt": {"harness": "opencode", "agent": "auditor", "minutes": 20, "model": "fast", "system": "You check one claim about how an agent worked on Example Kit ...", "prompt": "Did the implementor do what its reply says it did?\n\nRead the...", "dir": "/tmp/agentgraph/checkouts/kit-14/work...", "tools": ["read", "grep"], "read": ["/tmp/agentgraph/checkouts/kit-14/work..."]}}

@@ -82,8 +82,8 @@ describe('paired, flips and decide', () => {
     expect(decide(t, evalOf(), full({ a: 'win', b: 'loss' }, saved(0.3, 0.99)))).toBe('discarded');
   });
 
-  /** Equal hubs whose per-run cost varies by a lognormal factor of about 35% must almost never pass as cheaper. */
-  it('rarely calls an equal hub cheaper on noisy run costs', () => {
+  /** Equal graphs whose per-run cost varies by a lognormal factor of about 35% must almost never pass as cheaper. */
+  it('rarely calls an equal graph cheaper on noisy run costs', () => {
     let seed = 7;
     const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
     const noise = () => Math.exp(0.35 * Math.sqrt(-2 * Math.log(rnd() || 1e-9)) * Math.cos(2 * Math.PI * rnd()));
@@ -152,7 +152,7 @@ describe('paired, flips and decide', () => {
   });
 });
 
-/** A bench stand-in: a case passes when the candidate hub has `skills/<case>.md` or `skills/all.md`. */
+/** A bench stand-in: a case passes when the candidate graph has `skills/<case>.md` or `skills/all.md`. */
 const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) => ({
   run: async (_dir: string, _t: unknown, jobs: typeof ran) => void ran.push(...jobs),
   rows: (dir: string, id: string) =>
@@ -163,7 +163,7 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) => ({
         case: j.case,
         repeat: j.repeat ?? 1,
         strata: {},
-        hidden: +['all', j.case].some(n => existsSync(join(dir, 'cands', id, 'hub/skills', `${n}.md`))) as 0 | 1,
+        hidden: +['all', j.case].some(n => existsSync(join(dir, 'cands', id, 'graph/skills', `${n}.md`))) as 0 | 1,
         vsHuman: {},
         findings: { critical: 0, high: 0 },
         answers: 0,
@@ -173,12 +173,12 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) => ({
       })),
   codex: () => 10,
   propose: async (o: { tune: string; proposer: string; id: string; from: string }) => {
-    const hub = join(o.tune, 'cands', o.id, 'hub');
+    const graph = join(o.tune, 'cands', o.id, 'graph');
     mkdirSync(join(o.tune, 'cands', o.id));
-    spawnSync('cp', ['-R', o.from, hub]);
-    mkdirSync(join(hub, 'skills'), { recursive: true });
-    writeFileSync(join(hub, 'skills', o.proposer === 'retro' ? 'all.md' : 'none.md'), 'Run the tests.\n');
-    return { hub, rationale: `${o.proposer} idea`, usage: { fiveHour: 10, week: 50 } };
+    spawnSync('cp', ['-R', o.from, graph]);
+    mkdirSync(join(graph, 'skills'), { recursive: true });
+    writeFileSync(join(graph, 'skills', o.proposer === 'retro' ? 'all.md' : 'none.md'), 'Run the tests.\n');
+    return { graph, rationale: `${o.proposer} idea`, usage: { fiveHour: 10, week: 50 } };
   },
 });
 
@@ -212,11 +212,11 @@ const setup = () => {
 };
 
 describe('tune loop', () => {
-  it('starts from the minimal hub, keeps a gain, drops a loss and resumes', async () => {
+  it('starts from the minimal graph, keeps a gain, drops a loss and resumes', async () => {
     const ran: Parameters<typeof fakeBench>[0] = [];
     const io = fakeBench(ran) as unknown as Parameters<typeof step>[2];
     const dir = await init('demo', setup(), io);
-    const check = spawnSync(process.execPath, ['bin/run.ts', 'check', '--hub', join(dir, 'cands/i000-init/hub')], {
+    const check = spawnSync(process.execPath, ['bin/run.ts', 'check', '--dir', join(dir, 'cands/i000-init/graph')], {
       encoding: 'utf8',
       env: { ...process.env, NODE_OPTIONS: '' },
     });
@@ -237,11 +237,11 @@ describe('tune loop', () => {
     ]);
     expect(ran.map(j => j.case).sort()).toEqual(['f1', 'f2', 'f3', 'f4', 'v1', 'v2']);
 
-    const fromHub = join(tuneRoot(dir), 'draft');
-    spawnSync('cp', ['-R', join(dir, 'cands/i000-init/hub'), fromHub]);
-    mkdirSync(join(fromHub, 'skills'));
-    writeFileSync(join(fromHub, 'skills', 'f1.md'), 'Mind f1.\n');
-    expect(propose(dir, fromHub, 'f1 needs care').id).toBe('i001-manual');
+    const fromGraph = join(tuneRoot(dir), 'draft');
+    spawnSync('cp', ['-R', join(dir, 'cands/i000-init/graph'), fromGraph]);
+    mkdirSync(join(fromGraph, 'skills'));
+    writeFileSync(join(fromGraph, 'skills', 'f1.md'), 'Mind f1.\n');
+    expect(propose(dir, fromGraph, 'f1 needs care').id).toBe('i001-manual');
     await step(dir, { k: 1, proposers: ['manual'] }, io);
     expect(tuneRows(dir).steps.map(s => [s.id, s.verdict])).toEqual([
       ['i000-init', 'kept'],
@@ -272,7 +272,7 @@ describe('tune loop', () => {
     expect(JSON.parse(readFileSync(join(dir, 'budget.json'), 'utf8')).claude.week).toEqual({ now: 50, used: 0 });
 
     mkdirSync(join(dir, 'manual'));
-    const patch = spawnSync('git', ['--git-dir', join(dir, 'hub.git'), 'diff', retro.hub, retro.parent], {
+    const patch = spawnSync('git', ['--git-dir', join(dir, 'graph.git'), 'diff', retro.graph, retro.parent], {
       encoding: 'utf8',
     }).stdout;
     writeFileSync(join(dir, 'manual', 'undo.patch'), `Undo the all skill.\n\n${patch}`);
@@ -281,12 +281,12 @@ describe('tune loop', () => {
     expect(third[0]!.rationale).toBe('Undo the all skill.');
     expect(existsSync(join(dir, 'manual', 'applied', 'undo.patch'))).toBe(true);
 
-    const refs = spawnSync('git', ['--git-dir', join(dir, 'hub.git'), 'for-each-ref', '--format=%(refname)'], {
+    const refs = spawnSync('git', ['--git-dir', join(dir, 'graph.git'), 'for-each-ref', '--format=%(refname)'], {
       encoding: 'utf8',
     }).stdout;
     for (const s of tuneRows(dir).steps) expect(refs).toContain(`refs/cand/${s.id}`);
-    const main = spawnSync('git', ['--git-dir', join(dir, 'hub.git'), 'rev-parse', 'main'], { encoding: 'utf8' });
-    expect(main.stdout.trim()).toBe(retro.hub);
+    const main = spawnSync('git', ['--git-dir', join(dir, 'graph.git'), 'rev-parse', 'main'], { encoding: 'utf8' });
+    expect(main.stdout.trim()).toBe(retro.graph);
 
     const before = ran.length;
     expect(await step(dir, { k: 1, proposers: ['manual'] }, io)).toEqual([]);
@@ -316,7 +316,7 @@ describe('tune loop', () => {
     await step(dir, { k: 1, proposers: ['retro'], model: 'gpt-6.1-sol' }, watched);
     expect(models).toEqual(['gpt-6.1-sol']);
 
-    propose(dir, fromHub, 'f1 needs care, on a broken bench');
+    propose(dir, fromGraph, 'f1 needs care, on a broken bench');
     const broken = {
       ...silent,
       rows: (d: string, id: string) =>
@@ -357,11 +357,11 @@ describe('usage', () => {
         .flatMap(s => s.evals)
         .reduce((a, e) => a + e.codex, 0);
     expect(spent('i000-init')).toBe(4);
-    const hub = join(dir, '..', 'draft');
-    spawnSync('cp', ['-R', join(dir, 'cands/i000-init/hub'), hub]);
-    mkdirSync(join(hub, 'skills'));
-    writeFileSync(join(hub, 'skills', 'f1.md'), 'Mind f1.\n');
-    propose(dir, hub, 'f1 needs care');
+    const graph = join(dir, '..', 'draft');
+    spawnSync('cp', ['-R', join(dir, 'cands/i000-init/graph'), graph]);
+    mkdirSync(join(graph, 'skills'));
+    writeFileSync(join(graph, 'skills', 'f1.md'), 'Mind f1.\n');
+    propose(dir, graph, 'f1 needs care');
     const limits = { codex: 100, claude5h: 100, claudeWeek: 100 };
     await step(dir, { k: 1, proposers: ['manual'], limits }, io);
     expect(spent('i001-manual')).toBe(12);

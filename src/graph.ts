@@ -1,4 +1,4 @@
-import type { Agent, Check } from './hub.ts';
+import type { Agent, Check } from './folder.ts';
 import type { Run, Step, Workflow } from './workflow.ts';
 
 /**

@@ -1,4 +1,4 @@
-// Fails when a field of a hub or workflow schema is never read in src. Usage: node bin/fields.mjs
+// Fails when a field of a graph or workflow schema is never read in src. Usage: node bin/fields.mjs
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -23,7 +23,7 @@ for (const [file, s] of Object.entries(text)) {
   for (const m of s.matchAll(/Schema\.Struct\(\{/g)) {
     const [from, to] = balanced(s, m.index + m[0].length - 1);
     rest = rest.slice(0, from) + ' '.repeat(to - from + 1) + rest.slice(to + 1);
-    if (file !== 'hub.ts' && file !== 'workflow.ts') continue;
+    if (file !== 'folder.ts' && file !== 'workflow.ts') continue;
     const body = s.slice(from + 1, to);
     let depth = 0;
     let piece = '';

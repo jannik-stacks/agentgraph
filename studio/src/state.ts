@@ -60,12 +60,12 @@ export const makeLiveJsonAtom = <T>(path: string) => {
   return value;
 };
 
-/** Every run of the served hub, with its trace, every text in it cut short. */
+/** Every run of the served graph, with its trace, every text in it cut short. */
 export const runsAtom = makeLiveJsonAtom<ServedRun[]>('/api/runs');
 
 const opened = new Map<string, ReturnType<typeof makeLiveJsonAtom<ServedRun | null>>>();
 
-/** One run of the served hub with its whole trace, or null when the data dir has no such run. */
+/** One run of the served graph with its whole trace, or null when the data dir has no such run. */
 export const runAtom = (id: string) => {
   if (!opened.has(id)) opened.set(id, makeLiveJsonAtom<ServedRun | null>(`/api/runs/${encodeURIComponent(id)}`));
   return opened.get(id)!;

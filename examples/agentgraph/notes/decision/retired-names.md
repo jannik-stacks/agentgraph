@@ -5,7 +5,7 @@ source: agentgraph sessions
 check: rules
 human: user feedback on current names, user rename of executor to harness
 ---
-The names below were replaced; the new one is used in code, comments, docs and hub files.
+The names below were replaced; the new one is used in code, comments, docs and graph files.
 
 - executor became harness: the program that runs an agent session (opencode, pi) is its harness,
   `harness:` in an agent file and `src/harnesses.ts` for the adapters

@@ -1,6 +1,6 @@
 ---
 mode: block
-each: node "$AGENTGRAPH_HUB/scripts/reduce.mjs"
+each: node "$AGENTGRAPH_DIR/scripts/reduce.mjs"
 agent: reviewer
 max: 1
 ---

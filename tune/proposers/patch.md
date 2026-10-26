@@ -1,16 +1,16 @@
-## How the hub is scored
+## How the graph is scored
 
-The loop runs the hub on issues of this repository, one sandbox per issue, and scores the final change by
-whether the hidden tests pass: the tests the human's merged change added or touched. A candidate hub is kept
+The loop runs the graph on issues of this repository, one sandbox per issue, and scores the final change by
+whether the hidden tests pass: the tests the human's merged change added or touched. A candidate graph is kept
 only if it scores higher on cases you never see. So a change has to help on the next issue of this repo, not
 on the one in front of you.
 
 - The bench rewrites the `run:` line of `checks/tests.md` per case and drops that check where a case has no
   test runner it knows. Leave `checks/tests.md` alone; add a new check if tests need running differently.
 - The loop sets every agent's `harness` and `model`. Never change them.
-- Never change the `merge` step or `on:`. The engine itself is fixed; only hub files change.
+- Never change the `merge` step or `on:`. The engine itself is fixed; only graph files change.
 
-## Hub files you may change
+## Graph files you may change
 
 - `workflows/issue.md`: front matter `steps:`, a map run in order. A step names one of `agent`, `run` or
   `wait`, and may set `checks` (list of check names that must pass), `tries` (default 3 with checks, else 1),
@@ -24,11 +24,11 @@ on the one in front of you.
 - `checks/<name>.md`: front matter `mode` (block fails the try, warn reports, stop ends the run), and `run`
   (a shell command run at the repo root in the sandbox; exit 0 passes, its output is shown to the
   implementor on the next try) and/or `agent` (a judge that records pass or fail with the result tool). Body: what it checks.
-  `$AGENTGRAPH_HUB` is the hub dir, `$AGENTGRAPH_BASE` the base commit, so `git diff "$AGENTGRAPH_BASE"` is the change.
+  `$AGENTGRAPH_DIR` is the graph dir, `$AGENTGRAPH_BASE` the base commit, so `git diff "$AGENTGRAPH_BASE"` is the change.
   A check only runs when a step lists it under `checks`.
-- `scripts/<name>.mjs` or `.sh`: what a check or `each` runs, as `node "$AGENTGRAPH_HUB/scripts/<name>.mjs"`.
+- `scripts/<name>.mjs` or `.sh`: what a check or `each` runs, as `node "$AGENTGRAPH_DIR/scripts/<name>.mjs"`.
   Node 22, no dependencies. Print one actionable line per finding and exit 1 when there is one.
-- `hub.yaml`: `setup` (shell, runs once per checkout with network) and `limits`.
+- `settings.yaml`: `setup` (shell, runs once per checkout with network) and `limits`.
 
 ## Your answer
 
@@ -42,9 +42,9 @@ Return the structured output:
 - `rationale`: at most five plain sentences: the class, why it repeats, why this fix and not a cheaper one.
 - `changes`: at most three, each `{ path, content }` for a new or rewritten file, `{ path, old, new }` to
   replace one exact, unique snippet of an existing file, or `{ path, delete: true }`. Prefer `old`/`new`.
-  Paths are relative to the hub. Keep the whole change under 60 added lines.
+  Paths are relative to the graph. Keep the whole change under 60 added lines.
 
-Under "Held-out cases" you may find how the hub did on cases you never see, as counts per failure class
+Under "Held-out cases" you may find how the graph did on cases you never see, as counts per failure class
 (coupled: the hidden tests call names or types only the human's change adds; behaviour: they run and
 fail). Use it to judge whether a class repeats. Under "Tried before" are this tune's earlier candidates
 with their verdicts: never propose one again; give a discarded idea a different mechanism or leave it.

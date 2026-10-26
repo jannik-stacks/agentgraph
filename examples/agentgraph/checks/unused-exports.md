@@ -1,6 +1,6 @@
 ---
 mode: block
-run: node "$AGENTGRAPH_HUB/scripts/unused-exports.mjs"
+run: node "$AGENTGRAPH_DIR/scripts/unused-exports.mjs"
 ---
 Everything the change adds is wired in, every new export used by another file, every new file imported outside tests, every new optional field set and every new event type read outside tests.
 

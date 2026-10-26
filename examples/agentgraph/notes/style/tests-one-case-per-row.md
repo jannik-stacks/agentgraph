@@ -11,7 +11,7 @@ expects something else is its own test. A loop that only sets things up, or coll
 one `expect(` checks after it, is fine.
 
 A test checks what the code does with data, not the data. When a change edits example or fixture
-files, the test that loads them, such as compiling the example hub, covers them; a new test that
+files, the test that loads them, such as compiling the example graph, covers them; a new test that
 re-reads the files and lists their keys only restates the edit. Leave out casts the types do not
 need, such as `as { … }` on parsed data or `as const` on a table; `!` on a lookup the test controls
 is fine, since a missing value throws there anyway.

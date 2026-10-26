@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { dirname, join } from 'node:path';
 import { Effect, Either } from 'effect';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadHub } from '../src/hub.ts';
+import { loadGraph } from '../src/folder.ts';
 import { claudeUsed, fitting, propose, type Proposer } from '../tune/propose.ts';
 import { tmp } from './kit.ts';
 import { harnesses } from './fixtures.ts';
@@ -26,7 +26,7 @@ const answers = {
       {
         path: 'checks/ran-tests.md',
         content:
-          '---\nmode: block\nrun: node "$AGENTGRAPH_HUB/scripts/ran-tests.mjs"\n---\nThe tests the change adds ran.\n',
+          '---\nmode: block\nrun: node "$AGENTGRAPH_DIR/scripts/ran-tests.mjs"\n---\nThe tests the change adds ran.\n',
       },
       { path: 'scripts/ran-tests.mjs', content: 'process.exit(0);\n' },
       { path: 'workflows/issue.md', old: 'checks: [tests]', new: 'checks: [tests, ran-tests]' },
@@ -128,7 +128,7 @@ beforeEach(() => {
     );
     save(join(arm, 'data', 'issue-1-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
   }
-  cpSync(join(root, 'examples', 'bench'), join(dir, 'hub'), { recursive: true });
+  cpSync(join(root, 'examples', 'bench'), join(dir, 'graph'), { recursive: true });
   save(join(dir, 'claude'), stub);
   spawnSync('chmod', ['+x', join(dir, 'claude')]);
   process.env.AGENTGRAPH_CLAUDE = join(dir, 'claude');
@@ -141,15 +141,15 @@ afterEach(() => {
 });
 
 const run = (proposer: Proposer, id = `i1-${proposer}`) =>
-  propose({ tune, id, proposer, from: join(dir, 'hub'), runs: join(tune, 'runs', 'inc'), iteration: 2 });
-const hubOk = (hub: string) => Effect.runPromise(Effect.either(loadHub(hub, harnesses))).then(Either.isRight);
+  propose({ tune, id, proposer, from: join(dir, 'graph'), runs: join(tune, 'runs', 'inc'), iteration: 2 });
+const graphOk = (graph: string) => Effect.runPromise(Effect.either(loadGraph(graph, harnesses))).then(Either.isRight);
 
 describe('propose', () => {
-  it.each(['retro', 'history', 'structure'] as const)('%s writes a valid hub and a rationale', async proposer => {
+  it.each(['retro', 'history', 'structure'] as const)('%s writes a valid graph and a rationale', async proposer => {
     const p = await run(proposer);
     expect(p.problems).toEqual([]);
-    expect(p.hub).toBe(join(tune, 'cands', `i1-${proposer}`, 'hub'));
-    expect(await hubOk(p.hub!)).toBe(true);
+    expect(p.graph).toBe(join(tune, 'cands', `i1-${proposer}`, 'graph'));
+    expect(await graphOk(p.graph!)).toBe(true);
     expect(p.usd).toBe(0.25);
     expect(p.usage).toEqual({ fiveHour: 4, week: 54 });
     const md = readFileSync(join(tune, 'cands', p.id, 'proposal.md'), 'utf8');
@@ -173,7 +173,7 @@ describe('propose', () => {
   it('structure applies the edit the iteration picks', async () => {
     await run('structure');
     expect(readFileSync(join(tune, 'cands', 'i1-structure', 'input', 'prompt.md'), 'utf8')).toContain('**tries**');
-    expect(readFileSync(join(tune, 'cands', 'i1-structure', 'hub', 'workflows', 'issue.md'), 'utf8')).toContain(
+    expect(readFileSync(join(tune, 'cands', 'i1-structure', 'graph', 'workflows', 'issue.md'), 'utf8')).toContain(
       'tries: 4'
     );
   });
@@ -192,9 +192,9 @@ describe('propose', () => {
     process.env.STUB_ANSWER = 'one';
     const p = await run('retro');
     expect(p.problems).toEqual([]);
-    expect(p.hub).toBeDefined();
+    expect(p.graph).toBeDefined();
     const prompt = readFileSync(join(tune, 'cands', p.id, 'input', 'prompt.md'), 'utf8');
-    expect(prompt).toContain('## Held-out cases\n\nOn the held-out cases this hub is scored on, 1 of 1 fail');
+    expect(prompt).toContain('## Held-out cases\n\nOn the held-out cases this graph is scored on, 1 of 1 fail');
     expect(prompt).not.toContain('v-1');
   });
 
@@ -222,9 +222,9 @@ describe('propose', () => {
     expect(prompt).toContain('## Tried before\n\n- i1-retro, retro, discarded: Run it.');
   });
 
-  it('offers only the structure edits that can change the hub', async () => {
-    const hub = await Effect.runPromise(loadHub(join(dir, 'hub'), harnesses));
-    expect(fitting(hub)).toEqual(['drop', 'tries', 'scout']);
+  it('offers only the structure edits that can change the graph', async () => {
+    const graph = await Effect.runPromise(loadGraph(join(dir, 'graph'), harnesses));
+    expect(fitting(graph)).toEqual(['drop', 'tries', 'scout']);
   });
 
   it('refuses a candidate id that already has a proposal', async () => {

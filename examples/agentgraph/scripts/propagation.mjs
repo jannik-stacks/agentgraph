@@ -1,5 +1,5 @@
 // Copies a rename or removal leaves behind. A name the change takes out of every file it touches, by swapping it for
-// another, by deleting the line that declares it or by deleting its file, is looked up in the rest of the code, hubs
+// another, by deleting the line that declares it or by deleting its file, is looked up in the rest of the code, graphs
 // and docs, and each place that still says it is a finding.
 import { execFileSync } from 'node:child_process';
 import { basename, extname } from 'node:path';
@@ -46,11 +46,11 @@ const gone = (path, diff) => {
   return names;
 };
 
-/** A deleted hub file's or module's name, when it reads as a name: a check, bot, skill, script or `foo-bar.ts`. */
+/** A deleted graph file's or module's name, when it reads as a name: a check, bot, skill, script or `foo-bar.ts`. */
 const stem = path => {
   const name = basename(path, extname(path));
-  const hubFile = /^examples\/[^/]+\//.test(path) || named(name, '');
-  return /\.(md|ts|tsx|mjs)$/.test(path) && hubFile ? [name] : [];
+  const graphFile = /^examples\/[^/]+\//.test(path) || named(name, '');
+  return /\.(md|ts|tsx|mjs)$/.test(path) && graphFile ? [name] : [];
 };
 
 const grep = token => {

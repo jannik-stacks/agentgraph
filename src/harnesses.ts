@@ -4,7 +4,7 @@ import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Config, ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
-import { type HarnessCheck, HubError, loadHub } from './hub.ts';
+import { type HarnessCheck, GraphError, loadGraph } from './folder.ts';
 import { type Command, type Exit, Sandbox, type SandboxError } from './sandbox.ts';
 import { Session } from './session.ts';
 import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
@@ -60,16 +60,16 @@ export const readHarnessSettings = Effect.gen(function* () {
       const harnesses = settings.harnesses.toSorted((a, b) => rank(a.name) - rank(b.name));
       return { ...settings, harnesses, ...(harness && { harness }), ...(named && { provider: named }) };
     },
-    catch: e => new HubError({ problems: [{ path, message: (e as Error).message }] }),
+    catch: e => new GraphError({ problems: [{ path, message: (e as Error).message }] }),
   });
 });
 
-export const readConfiguredHub = (dir: string) =>
+export const readConfiguredGraph = (dir: string) =>
   Effect.gen(function* () {
     const settings = yield* readHarnessSettings;
-    const hub = yield* loadHub(dir, settings.harnesses, settings.harness);
+    const graph = yield* loadGraph(dir, settings.harnesses, settings.harness);
     const repo = yield* Effect.orDie(Config.string('AGENTGRAPH_REPO').pipe(Config.withDefault('')));
-    return { ...hub, repo: repo || hub.repo };
+    return { ...graph, repo: repo || graph.repo };
   });
 
 export const makeHarnessConfigProvider = (

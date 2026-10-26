@@ -51,7 +51,7 @@ describe('leak-probe', () => {
         PROBE_PATHS: home,
         PROBE_STUDIO: studio,
         AGENTGRAPH_APP_KEY: canary,
-        AGENTGRAPH_HUB: '.agentgraph',
+        AGENTGRAPH_DIR: '.agentgraph',
       });
       expect(code).toBe(1);
       expect(out.split('\n').filter(Boolean).sort()).toEqual(

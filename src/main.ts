@@ -12,10 +12,10 @@ import {
   type Services,
 } from './engine.ts';
 import { writeIssueFile } from './forge.ts';
-import { makeHarnessConfigProvider, splitNames, readConfiguredHub } from './harnesses.ts';
+import { makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
-import type { Hub } from './hub.ts';
-import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
+import type { Graph } from './folder.ts';
+import { graphAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import { fileStore, Store } from './store.ts';
 import type { Run } from './workflow.ts';
 
@@ -37,23 +37,25 @@ export const readEngineEnv = async (defaults: Record<string, string> = {}): Prom
 };
 
 export const writeTriggeringIssue = async (
-  hub: Hub,
+  graph: Graph,
   forge: string,
   text: string,
   author: string,
   workflow?: string,
   more: string[] = []
 ): Promise<number> => {
-  const labelled = Object.values(hub.workflows).flatMap(w => (w.on.issues?.label ? [[w.name, w.on.issues.label]] : []));
+  const labelled = Object.values(graph.workflows).flatMap(w =>
+    w.on.issues?.label ? [[w.name, w.on.issues.label]] : []
+  );
   const picked = labelled.filter(([name]) => (workflow ?? name) === name);
   const label = picked.length === 1 ? picked[0]![1]! : undefined;
   if (!label)
     throw new Error(`name one workflow with a label: --workflow ${picked.map(([name]) => name).join('|') || '<name>'}`);
   if (labelled.filter(([, l]) => l === label).length > 1) throw new Error(`${label} starts more than one workflow`);
-  if (author.endsWith('[bot]') || (hub.trust && !hub.trust.includes(author)))
-    throw new Error(`${author} may not start runs on this hub`);
+  if (author.endsWith('[bot]') || (graph.trust && !graph.trust.includes(author)))
+    throw new Error(`${author} may not start runs on this graph`);
   const [title = '', ...body] = text.split('\n');
-  const milestone = hub.milestone && { milestone: hub.milestone };
+  const milestone = graph.milestone && { milestone: graph.milestone };
   return writeIssueFile(
     forge,
     { title, author, labels: [...new Set([label, ...more])], ...milestone },
@@ -100,7 +102,7 @@ export const isLoopHeld = (data: string) =>
  */
 export const start = (
   one?: {
-    hub: string;
+    graph: string;
     issue: number | 'all';
     data: string;
     instruction?: Instruction;
@@ -120,9 +122,9 @@ export const start = (
         const env = yield* read;
         const choose = (fallback: ConfigProvider.ConfigProvider) =>
           Effect.withConfigProvider(makeHarnessConfigProvider(one.choice ?? {}, fallback));
-        const loaded = yield* readConfiguredHub(one.hub).pipe(choose(configured(env)));
+        const loaded = yield* readConfiguredGraph(one.graph).pipe(choose(configured(env)));
         const base = one.base;
-        const hub = base
+        const graph = base
           ? {
               ...loaded,
               workflows: Object.fromEntries(
@@ -131,17 +133,17 @@ export const start = (
             }
           : loaded;
         const provider = configured(env, {
-          AGENTGRAPH_REPO: hub.repo,
-          AGENTGRAPH_HUB: one.hub,
+          AGENTGRAPH_REPO: graph.repo,
+          AGENTGRAPH_DIR: one.graph,
           AGENTGRAPH_DATA: one.data,
         });
         yield* warnTemporary(one.data);
         return yield* provided(
           one.instruction
-            ? instruct(hub, one.instruction)
+            ? instruct(graph, one.instruction)
             : one.issue === 'all'
-              ? scanIssuesAndRunningRuns(hub)
-              : tick(hub, one.issue, one.marked)
+              ? scanIssuesAndRunningRuns(graph)
+              : tick(graph, one.issue, one.marked)
         ).pipe(choose(provider));
       })
     : Effect.gen(function* () {
@@ -150,17 +152,17 @@ export const start = (
           const s = yield* settings;
           yield* Effect.flatMap(Store, store => store.lock('loop'));
           yield* warnTemporary(s.data);
-          const look = (pass: (hub: Hub) => Effect.Effect<Run[], unknown, Services>) =>
-            hubAt(s.hub).pipe(
+          const look = (pass: (graph: Graph) => Effect.Effect<Run[], unknown, Services>) =>
+            graphAt(s.graph).pipe(
               Effect.flatMap(pass),
               Effect.scoped,
               Effect.catchAll(e => Effect.logError(e))
             );
-          yield* look(hub => scanIssuesAndRunningRuns(hub, issueDebounceMs));
+          yield* look(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs));
           return yield* Effect.forever(
             Effect.zipRight(
               Effect.sleep(`${s.every} minutes`),
-              look(hub => scanIssuesAndRunningRuns(hub, issueDebounceMs))
+              look(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs))
             )
           );
         });

@@ -15,4 +15,4 @@ printf 'add-generic-password -U -T "" -a agentgraph -s %s -w %s\n' "$item" "$key
 sed -i.bak 's|^AGENTGRAPH_APP_KEY_FILE=.*|AGENTGRAPH_APP_KEY_FILE=/dev/fd/3|' "$home/app.env"
 rm -f "$home/app.env.bak" "$home/key.pem"
 chmod 600 "$home/app.env"
-echo "key in the Keychain as $item; start with: npm run with-key -- $slug loop --hub <dir> --data <dir>"
+echo "key in the Keychain as $item; start with: npm run with-key -- $slug loop --dir <dir> --data <dir>"

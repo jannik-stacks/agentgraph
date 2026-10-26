@@ -8,12 +8,12 @@ import { type Command } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
-import type { Hub } from '../src/hub.ts';
+import type { Graph } from '../src/folder.ts';
 import { type Step } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
-import { makeTestHub, reply, result, start, stop, wrote } from './fixtures.ts';
+import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
-import { hub, w, world, push, pull, judged, services, readTrace, fresh, say, comment } from './world.ts';
+import { graph, w, world, push, pull, judged, services, readTrace, fresh, say, comment } from './world.ts';
 
 describe('a base that moved', () => {
   /** Run 7 waiting at merge on pull request #8. */
@@ -25,7 +25,11 @@ describe('a base that moved', () => {
       judged,
       [start('r1'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
-    expect(await first.run(drive(w, fresh(), hub))).toMatchObject({ step: 'merge', status: 'waiting', hub: 'fixture' });
+    expect(await first.run(drive(w, fresh(), graph))).toMatchObject({
+      step: 'merge',
+      status: 'waiting',
+      graph: 'fixture',
+    });
     return where;
   };
   /** Run 7 parked, then `main` gets one commit that writes each file. */
@@ -44,8 +48,8 @@ describe('a base that moved', () => {
     readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
     );
-  /** The hub with the merge step's fields replaced. */
-  const merging = (fields: Partial<Step>, base = hub) => ({
+  /** The graph with the merge step's fields replaced. */
+  const merging = (fields: Partial<Step>, base = graph) => ({
     ...base,
     workflows: { issue: { ...w, steps: w.steps.map(s => (s.name === 'merge' ? { ...s, ...fields } : s)) } },
   });
@@ -78,7 +82,7 @@ describe('a base that moved', () => {
     git(mover, 'commit', '-qm', 'Upstream');
     git(mover, 'push', '-q', 'origin', 'HEAD:main');
     const { run } = services(where, []);
-    await run(tick(hub, 7));
+    await run(tick(graph, 7));
     expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(tip);
     expect(git(where.origin, 'show', 'agentgraph/7:resolution.txt')).toBe('merge-only');
     expect(rebases(where)).toContain(false);
@@ -106,7 +110,7 @@ describe('a base that moved', () => {
     git(mover, 'commit', '-qm', 'Upstream');
     git(mover, 'push', '-q', 'origin', 'HEAD:main');
     const { run } = services(where, []);
-    await run(tick(hub, 7));
+    await run(tick(graph, 7));
     expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(tip);
     expect(rebases(where)).toContain(false);
   });
@@ -115,7 +119,7 @@ describe('a base that moved', () => {
     const where = await moved('other.txt');
     expect(behind(where)).toBe('1');
     const { specs, commands, run } = services(where, []);
-    await run(tick(hub));
+    await run(tick(graph));
     expect(behind(where)).toBe('0');
     expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('upstream');
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
@@ -161,7 +165,7 @@ describe('a base that moved', () => {
 
     const red = await moved('other.txt');
     const failing = services(red, [[start('i2'), reply({ kind: 'ask', question: 'Why red?' })]]);
-    const strict = { ...hub, checks: { ...hub.checks, types: { ...hub.checks.types!, run: 'exit 1' } } };
+    const strict = { ...graph, checks: { ...graph.checks, types: { ...graph.checks.types!, run: 'exit 1' } } };
     await failing.run(tick(merging({ checks: ['types', 'claims'] }, strict)));
     expect(failing.specs.map(s => s.prompt)[0]).toMatch(/^the merge step sent this back: types/);
   });
@@ -173,9 +177,9 @@ describe('a base that moved', () => {
     const where = await moved('other.txt');
     const { specs, run } = services(where, []);
     const checked = {
-      ...hub,
+      ...graph,
       ...(setup && { setup }),
-      checks: { ...hub.checks, types: { ...hub.checks.types!, run: script } },
+      checks: { ...graph.checks, types: { ...graph.checks.types!, run: script } },
     };
     await run(tick(merging({ checks: ['types'] }, checked)));
     expect(behind(where)).toBe('0');
@@ -205,7 +209,7 @@ describe('a base that moved', () => {
       undefined,
       spec => existsSync(join(spec.dir, 'hello.txt')) && seen.push(readFileSync(join(spec.dir, 'hello.txt'), 'utf8'))
     );
-    await run(tick(hub));
+    await run(tick(graph));
     expect(specs[0]!.prompt).toMatch(
       /^the merge step sent this back: agentgraph\/7 no longer rebases onto main at \w+: conflicts in hello.txt/
     );
@@ -230,7 +234,7 @@ describe('a base that moved', () => {
       judged,
       [start('i1'), reply({ kind: 'ask', question: 'Which side?' })],
     ]);
-    await run(tick(hub));
+    await run(tick(graph));
     expect(specs[2]!.prompt).toContain('conflict markers left in hello.txt');
     expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(before);
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
@@ -242,12 +246,12 @@ describe('a base that moved', () => {
     const where = await moved('hello.txt');
     const before = git(where.origin, 'rev-parse', 'agentgraph/7');
     const { run } = services(where, [[start('i1'), reply({ kind: 'ask', question: 'Stuck.' })]]);
-    await run(tick(hub));
+    await run(tick(graph));
     const [asked] = await run(Effect.flatMap(Store, s => s.list()));
     const { onto: _onto, ...back } = asked!;
     await run(Effect.flatMap(Store, s => s.put({ ...back, step: 'merge', status: 'waiting' })));
-    await run(tick(hub));
-    await run(tick(hub));
+    await run(tick(graph));
+    await run(tick(graph));
     expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(before);
     expect(rebases(where)).toEqual([false, false]);
     expect(
@@ -261,7 +265,7 @@ describe('a base that moved', () => {
     const line = { id: 'r1', author: 'morgan', body: '/agent why hello?', at, path: 'hello.txt', line: 1 };
     say(where, { ...comment(8, 'morgan', true, '/agent why hello?', at), comment: line });
     const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Asked for.' })]]);
-    await run(tick(hub));
+    await run(tick(graph));
     const mover = join(where.root, 'mover');
     git(where.root, 'clone', '-q', where.origin, mover);
     writeFileSync(join(mover, 'hello.txt'), 'upstream\n');
@@ -272,7 +276,7 @@ describe('a base that moved', () => {
       const { back: _back, ...kept } = s;
       return s.name === 'merge' ? kept : s;
     });
-    await run(tick({ ...hub, workflows: { issue: { ...w, steps } } }));
+    await run(tick({ ...graph, workflows: { issue: { ...w, steps } } }));
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body.split(':')[0], c.under])).toEqual([
       ['Looks right.', undefined],
@@ -288,7 +292,10 @@ describe('a base that moved', () => {
       [start('i2'), reply({ kind: 'ask', question: 'Which claim?' })],
     ]);
     const [was] = await run(Effect.flatMap(Store, s => s.list()));
-    const strict = { ...hub, checks: { ...hub.checks, claims: { ...hub.checks.claims!, mode: 'block' as const } } };
+    const strict = {
+      ...graph,
+      checks: { ...graph.checks, claims: { ...graph.checks.claims!, mode: 'block' as const } },
+    };
     await run(tick(merging({ checks: ['types', 'claims'] }, strict)));
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which claim?' });
@@ -300,28 +307,28 @@ describe('a base that moved', () => {
     git(where.origin, 'update-ref', 'refs/heads/main', git(where.origin, 'rev-parse', 'main~1'));
     const before = git(where.origin, 'rev-parse', 'agentgraph/7');
     const { specs, run } = services(where, []);
-    await run(tick(hub));
+    await run(tick(graph));
     expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(before);
     expect(specs).toHaveLength(0);
     expect(rebases(where)).toEqual([]);
   });
 
-  it('checks a waiting run again under a new hub and keeps it waiting when the checks pass', async () => {
+  it('checks a waiting run again under a new graph and keeps it waiting when the checks pass', async () => {
     const where = await parked();
     const { specs, run } = services(where, [judged]);
-    await run(tick({ ...hub, sha: 'next' }));
+    await run(tick({ ...graph, sha: 'next' }));
     expect(specs).toHaveLength(1);
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
-    expect(stored).toMatchObject({ step: 'merge', status: 'waiting', hub: 'next' });
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting', graph: 'next' });
     expect(rebases(where)).toEqual([]);
   });
 
-  it('sends a waiting run back to implement when a check of the new hub fails', async () => {
+  it('sends a waiting run back to implement when a check of the new graph fails', async () => {
     const where = await parked();
     const stricter = {
-      ...hub,
+      ...graph,
       sha: 'stricter',
-      checks: { ...hub.checks, types: { ...hub.checks.types!, run: '! test -e hello.txt' } },
+      checks: { ...graph.checks, types: { ...graph.checks.types!, run: '! test -e hello.txt' } },
     };
     const { specs, run } = services(where, [
       judged,
@@ -330,7 +337,12 @@ describe('a base that moved', () => {
     await run(tick(stricter));
     expect(specs[1]!.prompt).toMatch(/^the merge step sent this back: types: /);
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
-    expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Drop hello.txt?', hub: 'stricter' });
+    expect(stored).toMatchObject({
+      step: 'implement',
+      status: 'waiting',
+      reason: 'Drop hello.txt?',
+      graph: 'stricter',
+    });
   });
 });
 
@@ -340,7 +352,7 @@ describe('runStepChecks', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = makeTestHub('hub', { types: { run: 'cat "$AGENTGRAPH_PROPOSALS"; exit 1' } });
+    const small = makeTestGraph('graph', { types: { run: 'cat "$AGENTGRAPH_PROPOSALS"; exit 1' } });
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -364,7 +376,7 @@ describe('runStepChecks', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = makeTestHub('hub', { types: { each: 'true', run: 'exit 1' } });
+    const small = makeTestGraph('graph', { types: { each: 'true', run: 'exit 1' } });
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -399,7 +411,7 @@ describe('runStepChecks', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = makeTestHub('kit', { claims: { each: 'seq 21', agent: 'claim-checker' } });
+    const small = makeTestGraph('kit', { claims: { each: 'seq 21', agent: 'claim-checker' } });
     const kit = { ...small, checks: { ...small.checks, claims: { ...small.checks.claims!, mode: 'block' as const } } };
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const { specs, run } = services(where, []);
@@ -427,7 +439,9 @@ describe('runStepChecks', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = makeTestHub('hub', { types: { each: 'echo at x.js:1 >&2; echo boom >&2; exit 1', run: 'exit 0' } });
+    const small = makeTestGraph('graph', {
+      types: { each: 'echo at x.js:1 >&2; echo boom >&2; exit 1', run: 'exit 0' },
+    });
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -451,17 +465,17 @@ describe('runStepChecks', () => {
     ]);
   });
 
-  it('lets a check read the hub directory through AGENTGRAPH_HUB', async () => {
+  it('lets a check read the graph directory through AGENTGRAPH_DIR', async () => {
     const where = world();
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const hubDir = join(where.root, 'hubdir');
-    mkdirSync(join(hubDir, 'scripts'), { recursive: true });
-    writeFileSync(join(hubDir, 'scripts', 'x.sh'), 'echo from hub\n');
+    const graphDir = join(where.root, 'graphdir');
+    mkdirSync(join(graphDir, 'scripts'), { recursive: true });
+    writeFileSync(join(graphDir, 'scripts', 'x.sh'), 'echo from graph\n');
     const small = {
-      ...makeTestHub('hub', { types: { run: 'sh "$AGENTGRAPH_HUB/scripts/x.sh"; exit 1' } }),
-      dir: hubDir,
+      ...makeTestGraph('graph', { types: { run: 'sh "$AGENTGRAPH_DIR/scripts/x.sh"; exit 1' } }),
+      dir: graphDir,
     };
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
@@ -478,7 +492,7 @@ describe('runStepChecks', () => {
     };
     const { outcome } = await run(runStepChecks(step, left, small));
     const findings = outcome.kind === 'failed' ? outcome.checks[0]!.findings : undefined;
-    expect(findings?.trim()).toBe('from hub');
+    expect(findings?.trim()).toBe('from graph');
   });
 
   it('lets two agents on different harnesses and models review one try side by side', async () => {
@@ -488,8 +502,12 @@ describe('runStepChecks', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const base = makeTestHub('hub');
-    const agent = (name: string, harness: Hub['agents'][string]['harness'], model: string): Hub['agents'][string] => ({
+    const base = makeTestGraph('graph');
+    const agent = (
+      name: string,
+      harness: Graph['agents'][string]['harness'],
+      model: string
+    ): Graph['agents'][string] => ({
       name,
       path: `${name}.md`,
       body: `You are ${name}.`,
@@ -554,7 +572,7 @@ describe('runStepChecks', () => {
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
     const seen = join(where.root, 'seen.md');
-    const small = makeTestHub('kit', {
+    const small = makeTestGraph('kit', {
       types: { run: `cp "$AGENTGRAPH_CONTEXT" ${seen}` },
       claims: { agent: 'claim-checker' },
     });
@@ -593,7 +611,7 @@ describe('runStepChecks', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const kit = makeTestHub('kit', {
+    const kit = makeTestGraph('kit', {
       types: { run: 'echo x.ts:1 error; exit 1' },
       claims: { agent: 'claim-checker' },
     });
@@ -631,7 +649,7 @@ describe('runStepChecks', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const small = makeTestHub('kit', { claims: { each: 'echo a; echo b', agent: 'claim-checker' } });
+    const small = makeTestGraph('kit', { claims: { each: 'echo a; echo b', agent: 'claim-checker' } });
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const judgedItems: string[] = [];
     const judges = Layer.succeed(Session, {
@@ -682,7 +700,7 @@ describe('runStepChecks', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const small = makeTestHub('kit', { claims: { agent: 'claim-checker' } });
+    const small = makeTestGraph('kit', { claims: { agent: 'claim-checker' } });
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const specs: SessionSpec[] = [];
     const judges = Layer.succeed(Session, {
@@ -708,7 +726,7 @@ describe('runStepChecks', () => {
       ...small,
       agents: { ...small.agents, 'claim-checker': { ...judge, ...agent } },
     });
-    const once = (h: Hub) => Effect.runPromise(runStepChecks(step, left, h).pipe(Effect.provide(layer)));
+    const once = (h: Graph) => Effect.runPromise(runStepChecks(step, left, h).pipe(Effect.provide(layer)));
     await once(small);
     await once(small);
     expect(specs).toHaveLength(1);
@@ -724,7 +742,7 @@ describe('runStepChecks', () => {
     const judged = async (
       ends: (SessionEvent | SessionEvent[])[],
       mode: 'block' | 'warn' | 'stop' = 'block',
-      more: Hub['checks'] = {}
+      more: Graph['checks'] = {}
     ) => {
       const where = world();
       const dir = join(where.root, 'work');
@@ -732,8 +750,8 @@ describe('runStepChecks', () => {
       mkdirSync(join(where.root, 'news'));
       git(dir, 'init', '-q');
       git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-      const base = makeTestHub('hub');
-      const critic: Hub['agents'][string] = {
+      const base = makeTestGraph('graph');
+      const critic: Graph['agents'][string] = {
         name: 'critic',
         path: 'critic.md',
         body: 'critic',
@@ -741,7 +759,7 @@ describe('runStepChecks', () => {
         tools: [],
         returns: [],
       };
-      const hub = {
+      const graph = {
         ...base,
         agents: { ...base.agents, critic },
         checks: { correct: { name: 'correct', path: 'c.md', body: 'c', mode, agent: 'critic' }, ...more },
@@ -769,7 +787,7 @@ describe('runStepChecks', () => {
         news: join(where.root, 'news', 'news.md'),
         proposals: [],
       };
-      const exit = await Effect.runPromiseExit(runStepChecks(step, left, hub).pipe(Effect.provide(layer)));
+      const exit = await Effect.runPromiseExit(runStepChecks(step, left, graph).pipe(Effect.provide(layer)));
       return { exit, opened, data: where.data };
     };
     const killed: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: 'Killed', ended: 'error', exit: 137 };

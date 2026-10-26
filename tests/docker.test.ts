@@ -131,12 +131,12 @@ describe('docker with a stand-in docker client', () => {
     expect(readFileSync(`${log}.rm`, 'utf8')).toContain(`rm -f ${name}\n`);
   });
 
-  it('mounts the hub read-only at /hub and names it in AGENTGRAPH_HUB', async () => {
-    const hub = tmp('hub');
-    await use(layer, s => s.exec(command(tmp('work'), { hub })));
+  it('mounts the graph read-only at /graph and names it in AGENTGRAPH_DIR', async () => {
+    const graph = tmp('graph');
+    await use(layer, s => s.exec(command(tmp('work'), { graph })));
     const args = logged();
-    expect(args).toContain(`type=bind,src=${hub},dst=/hub,readonly`);
-    expect(args).toContain('AGENTGRAPH_HUB=/hub');
+    expect(args).toContain(`type=bind,src=${graph},dst=/graph,readonly`);
+    expect(args).toContain('AGENTGRAPH_DIR=/graph');
   });
 
   it('has no network without the proxy and returns any exit code', async () => {
@@ -193,7 +193,7 @@ describe('docker with a stand-in docker client', () => {
     expect(binds[3]).toMatch(new RegExp(`^type=bind,src=${data}/news/(\\w+),dst=${data}/news/\\1,readonly$`));
   });
 
-  it('runs every command of a checkout in its hub image and, with network models, on the proxy-only network', async () => {
+  it('runs every command of a checkout in its graph image and, with network models, on the proxy-only network', async () => {
     const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main', undefined, undefined, {
@@ -228,7 +228,7 @@ describe('docker with a stand-in docker client', () => {
     expect(JSON.stringify(exit)).toContain('volume name not allowed');
   });
 
-  it("builds a hub's sandbox setup once on the base's files with open network and starts every checkout from it", async () => {
+  it("builds a graph's sandbox setup once on the base's files with open network and starts every checkout from it", async () => {
     const repo = origin();
     writeFileSync(join(repo, 'Cargo.toml'), '[workspace]\n');
     git(repo, 'add', '.');
@@ -240,9 +240,9 @@ describe('docker with a stand-in docker client', () => {
     const before = existsSync(`${log}.all`) ? builds() : 0;
     const exit = await use(dockerSandbox({ data: tmp('data'), origin: repo }), s =>
       Effect.gen(function* () {
-        const hub = { toolchain: 'rustup target add wasm32-unknown-unknown' };
-        const work = yield* s.checkout('main', undefined, undefined, hub);
-        yield* s.checkout('main', undefined, undefined, hub);
+        const graph = { toolchain: 'rustup target add wasm32-unknown-unknown' };
+        const work = yield* s.checkout('main', undefined, undefined, graph);
+        yield* s.checkout('main', undefined, undefined, graph);
         yield* s.checkout('main');
         return work.base;
       })
@@ -639,15 +639,15 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
     expect(Exit.isSuccess(exit) && exit.value.output).toMatch(/^inside\n\d+\nread-only\n$/);
   }, 60_000);
 
-  it('reads the hub at AGENTGRAPH_HUB and cannot write it', async () => {
-    const hub = tmp('hub');
-    writeFileSync(join(hub, 'x.sh'), 'hub script\n');
-    const script = 'cat "$AGENTGRAPH_HUB/x.sh"; touch "$AGENTGRAPH_HUB/y" 2>/dev/null || echo read-only';
+  it('reads the graph at AGENTGRAPH_DIR and cannot write it', async () => {
+    const graph = tmp('graph');
+    writeFileSync(join(graph, 'x.sh'), 'graph script\n');
+    const script = 'cat "$AGENTGRAPH_DIR/x.sh"; touch "$AGENTGRAPH_DIR/y" 2>/dev/null || echo read-only';
     const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere' }), s =>
-      s.exec(command(tmp('work'), { args: ['-c', script], hub }))
+      s.exec(command(tmp('work'), { args: ['-c', script], graph }))
     );
-    expect(Exit.isSuccess(exit) && exit.value.output).toBe('hub script\nread-only\n');
-    expect(existsSync(join(hub, 'y'))).toBe(false);
+    expect(Exit.isSuccess(exit) && exit.value.output).toBe('graph script\nread-only\n');
+    expect(existsSync(join(graph, 'y'))).toBe(false);
   }, 60_000);
 
   it("keeps one copy of a sandbox setup's dependencies however many checkouts use it, each with only its own writes", async () => {
@@ -656,7 +656,7 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
     writeFileSync(join(repo, '.gitignore'), 'node_modules\n');
     git(repo, 'add', '.');
     git(repo, 'commit', '-q', '-m', 'deps');
-    const hub = {
+    const graph = {
       repo: 'agentgraph-disk-test',
       setup: 'mkdir -p node_modules/x && head -c 5000000 /dev/urandom > node_modules/x/blob',
     };
@@ -665,7 +665,7 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
     const exit = await use(dockerSandbox({ data: tmp('data'), origin: repo, cache: 'agentgraph-disk-test-cache' }), s =>
       Effect.gen(function* () {
         const works = yield* Effect.all(
-          [1, 2, 3].map(() => s.checkout('main', undefined, undefined, hub)),
+          [1, 2, 3].map(() => s.checkout('main', undefined, undefined, graph)),
           {
             concurrency: 3,
           }

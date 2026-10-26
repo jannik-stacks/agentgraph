@@ -6,7 +6,7 @@ human: audit of the dogfood round 5 migration pull request
 ---
 A reference page in `docs/` describes the fields as they are now. It never mentions
 a removed or renamed field, not even to say what replaced it. An old field just fails as unknown,
-and the hubs get updated in the same change.
+and the graphs get updated in the same change.
 
 Bad:
 

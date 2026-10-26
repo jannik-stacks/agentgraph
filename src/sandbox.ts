@@ -1,13 +1,13 @@
 import { Context, Data, type Effect, type Redacted, type Stream, type Scope } from 'effect';
-import type { Hub } from './hub.ts';
+import type { Graph } from './folder.ts';
 
 /** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given. */
 export type Command = {
   cmd: string;
   args: string[];
   dir: string;
-  /** The hub directory, readable by the command as `$AGENTGRAPH_HUB`, never writable. */
-  hub?: string;
+  /** The graph directory, readable by the command as `$AGENTGRAPH_DIR`, never writable. */
+  graph?: string;
   home?: string;
   env: Record<string, string>;
   secrets?: Record<string, Redacted.Redacted>;
@@ -31,7 +31,7 @@ export type Checkout = {
   head?: string;
   saved?: string;
   published?: string;
-  /** The checkout starts from a sandbox setup that already ran the hub's setup on these files. */
+  /** The checkout starts from a sandbox setup that already ran the graph's setup on these files. */
   ready?: boolean;
   /** The sandbox setup the checkout starts from, how it was built, and whether it was built from the checkout's own files. */
   env?: { key: string; mode: 'deps' | 'tree'; match: boolean };
@@ -50,7 +50,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
  * Where a run's checkout lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
  * checkout starts from the files last kept under that ref, on the run branch when it exists, else on their base.
  * It keeps its own files there as one local commit when its scope closes. Every command in a checkout runs in the
- * `image` and on the `network` of the `hub` it was made for, starting from that hub's sandbox setup at the base when there is one.
+ * `image` and on the `network` of the `graph` it was made for, starting from that graph's sandbox setup at the base when there is one.
  */
 export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
   Sandbox,
@@ -59,7 +59,7 @@ export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
       ref: string,
       branch?: string,
       keep?: string,
-      hub?: Pick<Hub, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Hub, 'repo'>>
+      graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
     ) => Effect.Effect<Checkout, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
     lines: (command: Command) => Stream.Stream<string | Pick<Exit, 'code'>, SandboxError, Scope.Scope>;

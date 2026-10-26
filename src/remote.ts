@@ -9,7 +9,7 @@ import { dockerSandbox } from './docker.ts';
 import { makeToolchainSetupCommands } from './env.ts';
 import type { ForgeError } from './forge.ts';
 import { hostGit, indexLock, makeHostEnv } from './git.ts';
-import type { Hub } from './hub.ts';
+import type { Graph } from './folder.ts';
 import { type Checkout, type Command, type Exit, Sandbox, SandboxError } from './sandbox.ts';
 
 const exitFrame = '\u0000agentgraph-exit ';
@@ -23,11 +23,11 @@ type SyncedDir = { box: string; git: Record<string, string>; tracked?: Record<st
 type BoxEntry = {
   url: string;
   work: Checkout;
-  network: NonNullable<Hub['network']>;
+  network: NonNullable<Graph['network']>;
   trees: Map<string, string>;
   sync: Effect.Semaphore;
   provisioning: Effect.Semaphore;
-  hub?: string;
+  graph?: string;
   toolchain?: Command;
   ready?: true;
   roots?: string;
@@ -168,7 +168,7 @@ export const remoteSandbox = (o: {
               const lost = box.unfinished.size > 0;
               box.unfinished.clear();
               box.trees.clear();
-              delete box.hub;
+              delete box.graph;
               delete box.ready;
               if (lost)
                 return yield* infra(
@@ -182,9 +182,9 @@ export const remoteSandbox = (o: {
             yield* push(box, workDir(box), roots);
             box.roots = roots.join(' ');
             if (home) yield* push(box, home);
-            if (c.hub && box.hub !== c.hub) {
-              yield* putDir(box, c.hub, '/hub');
-              box.hub = c.hub;
+            if (c.graph && box.graph !== c.graph) {
+              yield* putDir(box, c.graph, '/graph');
+              box.graph = c.graph;
             }
           })
         );
@@ -210,7 +210,7 @@ export const remoteSandbox = (o: {
               GIT_CONFIG_KEY_0: 'safe.directory',
               GIT_CONFIG_VALUE_0: '*',
               ...c.env,
-              ...(c.hub && { AGENTGRAPH_HUB: '/hub' }),
+              ...(c.graph && { AGENTGRAPH_DIR: '/graph' }),
             };
             const secrets = Object.fromEntries(Object.entries(c.secrets ?? {}).map(([k, v]) => [k, Redacted.value(v)]));
             const network = c.network === 'proxy' ? box.network : c.network;
@@ -285,15 +285,15 @@ export const remoteSandbox = (o: {
         ref: string,
         branch?: string,
         keep?: string,
-        hub?: Pick<Hub, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Hub, 'repo'>>
+        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
       ) =>
         Effect.gen(function* () {
-          if (hub?.image) return yield* infra(`a remote sandbox runs one image; the hub names ${hub.image}`);
-          const work = yield* host.checkout(ref, branch, keep, hub);
+          if (graph?.image) return yield* infra(`a remote sandbox runs one image; the graph names ${graph.image}`);
+          const work = yield* host.checkout(ref, branch, keep, graph);
           const box: BoxEntry = {
             url: `${o.url}/${basename(work.dir)}`,
             work,
-            network: hub?.network ?? 'egress',
+            network: graph?.network ?? 'egress',
             trees: new Map(),
             sync: yield* Effect.makeSemaphore(1),
             provisioning: yield* Effect.makeSemaphore(1),
@@ -317,11 +317,11 @@ export const remoteSandbox = (o: {
                 );
               })
           );
-          if (!hub) return work;
+          if (!graph) return work;
           const files = yield* hostGit(work.git, ['ls-tree', '--name-only', work.head ?? work.base]);
           const toolchain = [
             ...makeToolchainSetupCommands(files.toString('utf8').split('\n')),
-            ...(hub.toolchain ? [hub.toolchain] : []),
+            ...(graph.toolchain ? [graph.toolchain] : []),
           ];
           if (toolchain.length === 0) return work;
           box.toolchain = {

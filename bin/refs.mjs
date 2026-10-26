@@ -161,11 +161,11 @@ const topLevel = body => {
 };
 const strings = text => [...text.matchAll(/'([^']+)'/g)].map(m => m[1]);
 
-/** What a hub author, an agent or an operator writes or reads: schema keys and values, proposal kinds, statuses, CLI flags, env vars. */
+/** What a graph author, an agent or an operator writes or reads: schema keys and values, proposal kinds, statuses, CLI flags, env vars. */
 const userFacing = () => {
   const items = [];
   const add = (what, from, names) => names.forEach(name => items.push({ what, from, name }));
-  for (const file of ['src/hub.ts', 'src/workflow.ts']) {
+  for (const file of ['src/folder.ts', 'src/workflow.ts']) {
     const text = read(file);
     for (const m of text.matchAll(/Schema\.Struct\(\{/g)) {
       for (const piece of topLevel(balanced(text, m.index + m[0].length - 1))) {
