@@ -86,14 +86,18 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 `checks/<name>.md`. A check has `run`, `agent` or both. The body is its description. <!-- code: src/hub.ts#Check -->
 
-| Field   | Type                          | Default  | Meaning                                             |
-| ------- | ----------------------------- | -------- | --------------------------------------------------- |
-| `mode`  | `warn`, `block` or `stop`     | required | What a failure does, see [The loop](loop.md#checks) |
-| `run`   | shell command                 | none     | A script; alone, exit 0 passes                      |
-| `agent` | agent name                    | none     | Judge replies `PASS` or `FAIL` first                |
-| `each`  | `files`, `hunks` or a command | none     | Judges each item on its own                         |
-| `max`   | positive integer              | 20       | Fan-out item cap; exceeding fails                   |
-| `returns` | `verdict` or `number`       | `verdict` | A number check also traces a value, see [Numbers](loop.md#numbers) |
+| Field     | Type                                 | Default          | Meaning                                                                           |
+| --------- | ------------------------------------ | ---------------- | --------------------------------------------------------------------------------- |
+| `mode`    | `info`, `warn`, `block` or `stop`    | required         | What a failure does, see [The loop](loop.md#checks)                               |
+| `run`     | shell command                        | none             | A script; without its own `returns`, exit 0 passes                               |
+| `agent`   | agent name                           | none             | Judge; records its result with the `result` tool                                  |
+| `each`    | `files`, `hunks` or a command        | none             | Judges each item on its own                                                       |
+| `max`     | positive integer                     | 20               | Fan-out item cap; exceeding fails                                                 |
+| `returns` | JSON Schema subset                   | `{pass, why}`    | The result's shape, see [Values](loop.md#values)                                  |
+| `pass`    | JSON Schema subset                   | `pass` is true   | The results that pass; not on `info`                                              |
+| `reads`   | `traces`                             | none             | Needs only the run's traces, so it runs on old runs without their kept files      |
+
+The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`, `minimum`, `maximum` and `description`.
 
 ## Skills
 

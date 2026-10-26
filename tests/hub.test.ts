@@ -138,22 +138,44 @@ describe('loadHub', () => {
     expect(await problems(dir)).toEqual(['agents/a.md: reads: traces needs read in tools']);
   });
 
+  it('refuses a pass that could never decide, a pass on an info check and an unknown schema word', async () => {
+    const counted = 'returns: { type: object, required: [n], properties: { n: { type: number } } }';
+    const dir = hubDir({
+      'agents/a.md': '---\nharness: opencode\n---\n',
+      'checks/gate.md': `---\nmode: block\n${counted}\nrun: "true"\n---\n`,
+      'checks/note.md': `---\nmode: info\n${counted}\npass: { properties: { n: { maximum: 2 } } }\nrun: "true"\n---\n`,
+      'checks/cap.md': `---\nmode: warn\n${counted}\npass: { properties: { n: { maximum: 2 } } }\nrun: "true"\n---\n`,
+      'checks/odd.md': '---\nmode: warn\nreturns: { type: object, pattern: x }\nrun: "true"\n---\n',
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a, checks: [gate, cap] }\nchecks: [note]\n---\n',
+    });
+    expect(await problems(dir)).toEqual([
+      'checks/gate.md: pass: result.pass is not a required field of returns; give the check a pass that reads it, or make it info',
+      'checks/note.md: pass: an info check never fails, so it takes no pass',
+      expect.stringMatching(/^checks\/odd.md: returns.pattern: /),
+    ]);
+  });
+
   it('loads end checks that warn, and fails on one that blocks or that the hub lacks', async () => {
     const files = {
       'agents/a.md': '---\nharness: opencode\n---\n',
-      'checks/lines.md': '---\nmode: warn\nreturns: number\nrun: wc -l < a.txt\n---\n',
+      'checks/lines.md':
+        '---\nmode: info\nreturns: { type: object, required: [n], properties: { n: { type: number } } }\nrun: wc -l < a.txt\n---\n',
       'checks/gate.md': '---\nmode: block\nrun: "true"\n---\n',
       'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a, checks: [gate] }\nchecks: [lines]\n---\n',
     };
     const hub = await Effect.runPromise(loadHub(hubDir(files), harnesses));
     expect(hub.workflows.w!.checks).toEqual(['lines']);
-    expect(hub.checks.lines!.returns).toBe('number');
+    expect(hub.checks.lines!.returns).toEqual({
+      type: 'object',
+      required: ['n'],
+      properties: { n: { type: 'number' } },
+    });
     const dir = hubDir({
       ...files,
       'workflows/w.md': files['workflows/w.md'].replace('[lines]', '[lines, gate, nope]'),
     });
     expect(await problems(dir)).toEqual([
-      'workflows/w.md: checks: gate runs at the end, so its mode is warn',
+      'workflows/w.md: checks: gate runs at the end, so its mode is info or warn',
       'workflows/w.md: checks: unknown check nope',
     ]);
   });

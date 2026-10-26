@@ -3,6 +3,7 @@ import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
 import settings from '../agentgraph.config.ts';
 import type { Check, Hub } from '../src/hub.ts';
+import type { Result } from '../src/result.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { compileWorkflow, type Problem, type Workflow } from '../src/workflow.ts';
 import { git, tmp, write } from './kit.ts';
@@ -157,6 +158,16 @@ export const wrote = (path: string, content: string): SessionEvent => ({
   input: { path, content },
   ok: true,
 });
+
+export const result = (input: Result): SessionEvent => ({
+  type: 'tool',
+  id: 'result',
+  name: 'mcp__agentgraph__result',
+  input,
+  ok: true,
+});
+
+export const stop: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: '', ended: 'stop', exit: 0 };
 
 /** A session ending with `proposals` in its agentgraph block. */
 export const reply = (...proposals: unknown[]): SessionEvent => ({

@@ -15,7 +15,7 @@ import type { Hub } from '../src/hub.ts';
 import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { makeTestHub, seeded, start } from './fixtures.ts';
+import { makeTestHub, result, seeded, start } from './fixtures.ts';
 import { git } from './kit.ts';
 
 export const foot = (...lines: string[]) =>
@@ -64,7 +64,7 @@ export const pull = {
 export const judged: SessionEvent[] = [
   start('j'),
   { type: 'usage', input: 4, output: 2, usd: 0.25 },
-  { type: 'text', text: 'PASS, no claims' },
+  result({ pass: true, why: 'no claims' }),
 ];
 
 /** The file doubles, with every session spec and every sandbox command recorded, both also in `order`. */

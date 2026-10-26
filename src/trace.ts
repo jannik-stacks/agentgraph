@@ -1,6 +1,6 @@
 import { Data } from 'effect';
 import type { Applied, Event } from './event.ts';
-import type { Agent } from './hub.ts';
+import type { Agent, Check } from './hub.ts';
 import type { Checkout } from './sandbox.ts';
 import type { CheckResult, Outcome, Run } from './workflow.ts';
 
@@ -17,6 +17,7 @@ export type SessionSpec = {
   agent: string;
   /** The check this session judges, when it judges one. */
   check?: string;
+  returns?: NonNullable<Check['returns']>;
   minutes: number;
   resume?: Run['sessions'][string];
   /** Opens a copy of `resume` in a new home, leaving the resumed session as it was. */

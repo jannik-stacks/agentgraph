@@ -1,6 +1,7 @@
 import { Schema } from 'effect';
 import type { Harness, Piece } from '../src/harnesses.ts';
-import { makeCacheCounts, makeLineParser, some, splitToolPattern } from './helpers.ts';
+import { makeResultServer } from '../src/result.ts';
+import { getBlockText, makeCacheCounts, makeLineParser, some, splitToolPattern } from './helpers.ts';
 
 const { String: Str, Number: Num, Unknown, Struct, optional: opt } = Schema;
 
@@ -8,9 +9,11 @@ const CodexLine = Struct({
   ...some(Str, 'type', 'thread_id', 'message'),
   item: opt(
     Struct({
-      ...some(Str, 'id', 'type', 'text', 'command', 'aggregated_output', 'status'),
+      ...some(Str, 'id', 'type', 'text', 'command', 'aggregated_output', 'status', 'server', 'tool'),
       ...some(Num, 'exit_code'),
-      ...some(Unknown, 'changes'),
+      ...some(Unknown, 'changes', 'arguments'),
+      result: opt(Schema.NullOr(Struct({ content: Unknown }))),
+      error: opt(Schema.NullOr(Struct(some(Str, 'message')))),
     })
   ),
   usage: opt(Struct(some(Num, 'input_tokens', 'cached_input_tokens', 'output_tokens'))),
@@ -33,6 +36,7 @@ export const makeCodexHarness = (): Harness => ({
   ],
   command: (spec, route) => {
     const resume = !spec.fork && spec.resume;
+    const server = spec.returns && makeResultServer(spec.returns);
     return {
       cmd: 'codex',
       args: [
@@ -48,6 +52,12 @@ export const makeCodexHarness = (): Harness => ({
           'model_providers.agentgraph.env_key="AGENTGRAPH_LLM_API_KEY"',
           'model_providers.agentgraph.wire_api="responses"',
         ].flatMap(setting => ['-c', setting]),
+        ...(server
+          ? [
+              `mcp_servers.agentgraph.command=${JSON.stringify(server.command)}`,
+              `mcp_servers.agentgraph.args=${JSON.stringify(server.args)}`,
+            ].flatMap(setting => ['-c', setting])
+          : []),
         ...(route.model === 'default' ? [] : ['--model', route.model]),
         '--',
         resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
@@ -71,6 +81,17 @@ export const makeCodexHarness = (): Harness => ({
               input: item.type === 'file_change' ? item.changes : item.command,
               ok: item.status !== 'failed' && (item.exit_code ?? 0) === 0,
               output: item.aggregated_output ?? '',
+            },
+          ];
+        if (item.type === 'mcp_tool_call')
+          return [
+            {
+              type: 'tool',
+              id: item.id ?? '',
+              name: `mcp__${item.server}__${item.tool}`,
+              input: item.arguments,
+              ok: item.status === 'completed',
+              output: item.error?.message ?? getBlockText(item.result?.content),
             },
           ];
       }

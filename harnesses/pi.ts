@@ -1,5 +1,6 @@
 import { Schema } from 'effect';
 import type { Harness } from '../src/harnesses.ts';
+import { makeResultServer, resultTool } from '../src/result.ts';
 import { getBlockText, makeCacheCounts, makeLineParser, modelTimeouts, some, splitToolPattern } from './helpers.ts';
 
 const { String: Str, Number: Num, Boolean: Bool, Unknown, Struct, optional: opt } = Schema;
@@ -27,8 +28,13 @@ export const pi = (): Harness => ({
     agent.tools.flatMap(tool =>
       splitToolPattern(tool)[2] === undefined ? [] : [`cannot limit a tool to a pattern such as ${tool}`]
     ),
-  home: (_, route) => ({
+  home: (spec, route) => ({
     files: {
+      ...(spec.returns && {
+        '.pi/agent/mcp.json': JSON.stringify({
+          mcpServers: { agentgraph: { ...makeResultServer(spec.returns), exposure: 'direct' } },
+        }),
+      }),
       '.pi/agent/models.json': JSON.stringify({
         providers: {
           agentgraph: {
@@ -42,30 +48,34 @@ export const pi = (): Harness => ({
       '.pi/agent/settings.json': JSON.stringify({ httpIdleTimeoutMs: modelTimeouts.idleMs }),
     },
   }),
-  command: (spec, route) => ({
-    cmd: 'pi',
-    args: [
-      '--print',
-      '--mode',
-      'json',
-      '--offline',
-      '--no-approve',
-      '--no-context-files',
-      '--no-extensions',
-      '--no-skills',
-      '--no-prompt-templates',
-      '--no-themes',
-      ...(spec.tools.length ? ['--tools', spec.tools.join(',')] : ['--no-tools']),
-      '--model',
-      `agentgraph/${route.model}`,
-      ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
-      '--append-system-prompt',
-      spec.system,
-      '--',
-      spec.prompt,
-    ],
-    env: { PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' },
-  }),
+  command: (spec, route) => {
+    const tools = [...spec.tools, ...(spec.returns ? [resultTool] : [])];
+    return {
+      cmd: 'pi',
+      args: [
+        '--print',
+        '--mode',
+        'json',
+        '--offline',
+        '--no-approve',
+        '--no-context-files',
+        '--no-extensions',
+        ...(spec.returns ? ['-e', 'builtin:mcp'] : []),
+        '--no-skills',
+        '--no-prompt-templates',
+        '--no-themes',
+        ...(tools.length ? ['--tools', tools.join(',')] : ['--no-tools']),
+        '--model',
+        `agentgraph/${route.model}`,
+        ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
+        '--append-system-prompt',
+        spec.system,
+        '--',
+        spec.prompt,
+      ],
+      env: { PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' },
+    };
+  },
   parse: () => {
     const calls = new Map<string, { name: string; input: unknown }>();
     return makeLineParser(PiLine, line => {

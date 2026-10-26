@@ -1,5 +1,6 @@
 import { Schema } from 'effect';
 import type { Harness, Piece } from '../src/harnesses.ts';
+import { makeResultServer, resultTool } from '../src/result.ts';
 import {
   getBlockText,
   makeCacheCounts,
@@ -60,6 +61,7 @@ export const claude = (): Harness => ({
     }),
   command: (spec, route) => {
     const list = claudeTools(spec.tools);
+    const allowed = [...list, ...(spec.returns ? [resultTool] : [])];
     return {
       cmd: 'claude',
       args: [
@@ -67,14 +69,16 @@ export const claude = (): Harness => ({
         '--output-format',
         'stream-json',
         '--verbose',
-        '--safe-mode',
+        ...(spec.returns
+          ? ['--mcp-config', JSON.stringify({ mcpServers: { agentgraph: makeResultServer(spec.returns) } })]
+          : ['--safe-mode']),
         '--restricted',
         '--strict-mcp-config',
         '--permission-mode',
         'dontAsk',
         '--tools',
         [...new Set(list.map(tool => tool.replace(/\(.*$/, '')))].join(','),
-        ...(list.length ? ['--allowedTools', list.join(',')] : []),
+        ...(allowed.length ? ['--allowedTools', allowed.join(',')] : []),
         ...(spec.read ?? []).flatMap(dir => ['--add-dir', dir]),
         '--model',
         route.model,

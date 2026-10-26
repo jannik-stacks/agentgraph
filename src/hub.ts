@@ -5,6 +5,7 @@ import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import { Kind } from './proposal.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
+import { defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
 import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 /** An agent file's frontmatter. */
@@ -70,10 +71,15 @@ const HubFile = Schema.Struct({
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
-/** A check is items, a command and an agent that judges; it returns a verdict or a number. `stop` ends the run when it fails. */
+/**
+ * A check is items, a command and an agent that judges. Each gives a result `returns` describes, which passes when it
+ * matches `pass`. `info` only records it, `warn` records a failure, `block` fails the try and `stop` the run.
+ */
 export const Check = Schema.Struct({
-  mode: Schema.Literal('warn', 'block', 'stop'),
-  returns: exact(Schema.Literal('verdict', 'number')),
+  mode: Schema.Literal('info', 'warn', 'block', 'stop'),
+  returns: exact(ResultType),
+  pass: exact(ResultType),
+  reads: exact(Schema.Literal('traces')),
   each: exact(Schema.String),
   run: exact(Schema.String),
   agent: exact(Schema.String),
@@ -217,6 +223,10 @@ const compile = (
     if (!check) return;
     if (check.run === undefined && check.agent === undefined) say('name run, agent or both');
     if (check.agent !== undefined && !(check.agent in agents)) say(`agent: unknown agent ${check.agent}`);
+    if (check.mode === 'info' && check.pass) say('pass: an info check never fails, so it takes no pass');
+    const undecided = whyPassUndecided(check.returns ?? defaultReturns, check.pass ?? defaultPass);
+    if (check.mode !== 'info' && undecided)
+      say(`pass: ${undecided}; give the check a pass that reads it, or make it info`);
     return check;
   });
 
@@ -229,7 +239,7 @@ const compile = (
     skills: Object.keys(skills),
     checks: Object.keys(checks),
     judged: Object.values(checks).flatMap(c => (c.agent === undefined ? [] : [c.name])),
-    warned: Object.values(checks).flatMap(c => (c.mode === 'warn' ? [c.name] : [])),
+    warned: Object.values(checks).flatMap(c => (c.mode === 'warn' || c.mode === 'info' ? [c.name] : [])),
   };
   const workflows: Record<string, Workflow> = {};
   for (const file of groups.workflows) {

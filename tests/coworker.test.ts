@@ -13,7 +13,7 @@ import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
 import { begin, cancelled, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { makeTestHub, reply, start, wrote } from './fixtures.ts';
+import { makeTestHub, reply, result, start, stop, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import {
   foot,
@@ -671,10 +671,7 @@ describe('compound engineering', () => {
       open: (spec: SessionSpec) => (
         prompts.push(spec.prompt),
         read.push(...(spec.read ?? []).map(d => readFileSync(join(d, 'traces.md'), 'utf8'))),
-        Stream.fromIterable<SessionEvent>([
-          start('j'),
-          { type: 'end', final: 'FAIL no test run', ended: 'stop', exit: 0 },
-        ])
+        Stream.fromIterable<SessionEvent>([start('j'), result({ pass: false, why: 'no test run' }), stop])
       ),
     });
     const left = {

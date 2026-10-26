@@ -100,17 +100,29 @@ After a session, all the step's checks run in parallel. All findings come back t
 
 | Mode | On failure |
 | --- | --- |
+| `info` | Never fails; the result is only recorded |
 | `warn` | Record it and go on |
 | `block` | Fail the try; the output is feedback |
 | `stop` | Stop the run |
 
-A check has a `run` script, an `agent` judge or both. A script alone passes on exit 0; with a judge, the judge decides. A judge reads the diff, the fan-out item or the script output and answers `PASS` or `FAIL` first.
+A check has a `run` script, an `agent` judge or both. Each gives a result, a JSON object the check's `returns` describes. Without `returns` the result is `{pass, why}`: `pass` is a boolean and `why` the findings.
 
-A judge that crashes, times out or gives no verdict is retried. If it keeps failing, a `block` or `stop` check parks the run as a runner error, not as review feedback, and a `warn` check records it. <!-- code: src/engine.ts#verdictOf -->
+A result passes when it matches `returns`, matches the check's `pass`, and, when a script gave it, the script exited 0. `pass` is written like `returns` and defaults to `{ properties: { pass: { const: true } } }`, so a threshold is a `minimum` or `maximum` on a field. `why` never decides; it becomes the findings. An `info` check takes no `pass`.
 
-A check's `each` judges every item on its own, and any failed item fails the check. No items passes with "Judged nothing". More than `max` items fail as one finding, and a failing slicer command fails once with its output.
+```yaml
+mode: block
+returns: { type: object, required: [calls], properties: { calls: { type: integer } } }
+pass: { properties: { calls: { maximum: 40 } } }
+run: jq -cs '{calls: map(select(.event.type == "tool")) | length}' "$AGENTGRAPH_RUN_TRACE"
+```
 
-Judges always start fresh. Within a run, a passed item is reused while the diff and the judge prompt are the same; failed items, changed checks, new human answers and a runner restart judge again. Judges that read traces are never reused. <!-- code: src/engine.ts#passes src/graph.ts#makeWorkflowGraph -->
+A script without its own `returns` is plain Unix: exit 0 passes and its output is the findings. With `returns`, the last line it prints is the result.
+
+A judge reads the diff, the fan-out item or the script output and records its result by calling the `result` tool, whose input is `returns`. A call that does not match is refused with the reason, and the judge calls again. A judge that stops without a result is resumed once and asked for it; one that crashes or times out is tried once more. If it still gives none, a `block` or `stop` check parks the run as a runner error, not as review feedback, and an `info` or `warn` check records it. <!-- code: src/engine.ts#askJudge src/result.ts#makeResultServer -->
+
+A check's `each` judges every item on its own, and any failed item fails the check. The check records the `share` of items that passed. No items passes with "Judged nothing". More than `max` items fail as one finding, and a failing slicer command fails once with its output.
+
+Judges always start fresh. Within a run, a passed item is reused while the diff and the judge prompt are the same; failed items, changed checks, new human answers and a runner restart judge again. Judges that read traces or have their own `returns` are never reused. <!-- code: src/engine.ts#passes src/graph.ts#makeWorkflowGraph -->
 
 Scripts run in the checkout with these variables: <!-- code: src/engine.ts#runOneCheck -->
 
@@ -123,21 +135,22 @@ Scripts run in the checkout with these variables: <!-- code: src/engine.ts#runOn
 | `AGENTGRAPH_CONTEXT` | Issue, pull request and human answers | Checks |
 | `AGENTGRAPH_REPLY` | The try's reply | Checks |
 | `AGENTGRAPH_TRACES` | [Run traces](compound.md#reading-traces) | Checks |
+| `AGENTGRAPH_RUN_TRACE` | This run's raw trace, one JSON event per line | Checks |
 | `AGENTGRAPH_ITEM` | The fan-out item | Checks |
 
 "Everything" means checks, `run` steps, step slicers and hub setup.
 
-### Numbers
+### Values
 
-A check with `returns: number` measures instead of only passing. With a judge or `each`, its value is the share of items that passed. A script alone gives the number its output ends with, on its own line. `pass` keeps its meaning either way. <!-- code: src/engine.ts#lastNumber -->
+A check with its own `returns` keeps its result as `value`, without `why`, so a measure is just a result: `{calls: 12}`, `{usd: 0.4}`. A check with `each` keeps the `share` instead. A result that does not match `returns`, an item without a judge's result, or a failed `each` makes the check `empty`, with the reason in its findings. Readers skip an empty result; it never counts as 0. <!-- code: src/engine.ts#runOneCheck -->
 
-A number check without a value is `empty`, with the reason in its findings: no items, no number in the output, or a `warn` judge without a verdict on an item. Readers skip an empty result; it never counts as 0.
+A check with `reads: traces` needs no change, only the run's traces. At run end and on `--runs` it gets a checkout of the run's start commit, or of the target branch when the run kept none, without setup, so it works on runs whose kept files are gone.
 
 ### At run end and later
 
-A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the run's kept files, with the change measured from the run's `startCommit` and an empty reply. Each check starts from the files as setup left them. They must be `warn` and never change the run's status. The run keeps them in `owed` until each result is traced, so a runner killed partway runs only the rest on its next pass. A check that cannot run there, missing kept files included, gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
+A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the run's kept files, with the change measured from the run's `startCommit` and an empty reply. Each check starts from the files as setup left them. They must be `info` or `warn` and never change the run's status. The run keeps them in `owed` until each result is traced, so a runner killed partway runs only the rest on its next pass. A check that cannot run there, missing kept files included, gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
 
-`npx agentgraph check <name>... --runs` runs checks the same way on runs that already ended, as `warn`. `--workflow` and `--issue` narrow the runs.
+`npx agentgraph check <name>... --runs` runs checks the same way on runs that already ended, `info` checks as `info` and the rest as `warn`. `--workflow` and `--issue` narrow the runs.
 
 ## Tries and going back
 

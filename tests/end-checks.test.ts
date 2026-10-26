@@ -8,7 +8,7 @@ import type { Check, Hub } from '../src/hub.ts';
 import { Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { transition, type Run } from '../src/workflow.ts';
-import { start } from './fixtures.ts';
+import { result, start } from './fixtures.ts';
 import { fresh, hub, pullRequest, say, services, readTrace, w, world } from './world.ts';
 
 const ending = (checks: Record<string, Partial<Check>>): Hub => ({
@@ -66,79 +66,227 @@ const keep = (where: ReturnType<typeof world>, branch?: string) => {
 const results = (data: string, id = 'run-7') =>
   readTrace(data, id).flatMap(t => ('check' in t && t.item === undefined ? [{ ...t.check, end: t.end }] : []));
 
-const verdict = (text: string): SessionEvent[] => [start('j'), { type: 'text', text }];
+const judge = (pass: boolean, why = pass ? 'fine' : 'wrong'): SessionEvent[] => [start('j'), result({ pass, why })];
+const silent: SessionEvent[] = [start('j'), { type: 'text', text: 'maybe' }];
+const count = { type: 'object', required: ['n'], properties: { n: { type: 'number' } } } as const;
+const measure = (command: string) => ({
+  mode: 'info' as const,
+  returns: count,
+  run: `echo "{\\"n\\": $(${command})}"`,
+});
+const implement = (...checks: string[]) => ({ name: 'implement', does: { agent: 'implementor' }, checks, tries: 1 });
 
-describe('a check that returns a number', () => {
-  it('takes the last line a script prints, and is empty without a number there', async () => {
+describe('a check result', () => {
+  it('is the exit and output of a plain script, and the JSON object a script with its own returns prints last', async () => {
     const where = world();
     const h = ending({
-      share: { returns: 'number', run: 'echo measuring; echo 0.7' },
-      hours: { returns: 'number', run: 'echo 26; exit 1' },
-      words: { returns: 'number', run: 'echo done' },
-      blank: { returns: 'number', run: 'true' },
-      hex: { returns: 'number', run: 'echo 0x10' },
+      plain: { run: 'echo fine' },
+      failing: { run: 'echo broken; exit 1' },
+      counted: { mode: 'info', returns: count, run: 'echo measuring; echo \'{"n": 3, "why": "three"}\'' },
+      text: { mode: 'info', returns: count, run: 'echo 3' },
+      broken: { mode: 'info', returns: count, run: 'echo "{n: 3"' },
+      exited: { returns: count, pass: { properties: { n: { minimum: 0 } } }, run: 'echo \'{"n": 3}\'; exit 1' },
     });
-    const step = {
-      name: 'implement',
-      does: { agent: 'implementor' },
-      checks: Object.keys(h.workflows.issue!.checks),
-      tries: 1,
-    };
     const { run } = services(where, []);
-    const { outcome } = await run(runStepChecks({ ...step, checks: h.workflows.issue!.checks }, left(where), h));
-    expect(outcome).toEqual({ kind: 'pass' });
+    await run(runStepChecks(implement('plain', 'failing', 'counted', 'text', 'broken', 'exited'), left(where), h));
     const by = Object.fromEntries(results(where.data).map(r => [r.check, r]));
-    expect(by.share).toMatchObject({ pass: true, value: 0.7 });
-    expect(by.share).not.toHaveProperty('empty');
-    expect(by.hours).toMatchObject({ pass: false, value: 26 });
-    const unmeasured = ['words', 'blank', 'hex'].map(name => by[name]);
-    expect(unmeasured).toEqual(
-      unmeasured.map(() => expect.objectContaining({ empty: true, findings: 'Its output ends in no number.' }))
-    );
-    expect(unmeasured.filter(r => r && 'value' in r)).toEqual([]);
+    expect(by.plain).toMatchObject({ pass: true });
+    expect(by.plain).not.toHaveProperty('value');
+    expect(by.failing).toMatchObject({ pass: false, findings: 'broken' });
+    expect(by.counted).toMatchObject({ pass: true, value: { n: 3 } });
+    expect(by.counted).not.toHaveProperty('empty');
+    expect(by.text).toMatchObject({ pass: true, empty: true, findings: 'unreadable: its last line is no JSON object' });
+    expect(by.broken).toMatchObject({ pass: true, empty: true, findings: expect.stringContaining('no JSON object') });
+    expect(by.exited).toMatchObject({ pass: false, value: { n: 3 }, findings: 'exit 1' });
   });
 
-  it('gives the share of items its judge passed, a real 0 when it fails them all, and empty when nothing was judged', async () => {
+  it('passes when it matches pass, so a threshold fails a valid result', async () => {
+    const where = world();
+    const cheap = { properties: { n: { maximum: 2 } } };
+    const h = ending({
+      under: { returns: count, pass: cheap, run: 'echo \'{"n": 1}\'' },
+      over: { returns: count, pass: cheap, run: 'echo \'{"n": 5, "why": "five calls"}\'' },
+    });
+    const { run } = services(where, []);
+    await run(runStepChecks(implement('under', 'over'), left(where), h));
+    const by = Object.fromEntries(results(where.data).map(r => [r.check, r]));
+    expect(by.under).toMatchObject({ pass: true, value: { n: 1 } });
+    expect(by.over).toMatchObject({ pass: false, value: { n: 5 }, findings: 'result.n must be at most 2\nfive calls' });
+  });
+
+  it('gives a judge the result tool typed by returns, and keeps the value it records', async () => {
+    const where = world();
+    const h = ending({ wasted: { mode: 'info', returns: count, agent: 'claim-checker' } });
+    const { run, specs } = services(where, [[start('j'), result({ n: 2, why: 'two redid work' })]]);
+    await run(runStepChecks(implement('wasted'), left(where), h));
+    expect(results(where.data)[0]).toMatchObject({ pass: true, value: { n: 2 } });
+    expect(specs[0]).toMatchObject({ returns: count });
+    expect(specs[0]?.prompt).toContain('Call the result tool');
+  });
+});
+
+describe('a check with items', () => {
+  it('gives the share of items that passed, a real 0 when all fail, and empty when there were none', async () => {
     const where = world();
     const h = ending({
-      most: { returns: 'number', each: 'seq 4', agent: 'claim-checker' },
-      none: { returns: 'number', each: 'true', agent: 'claim-checker' },
+      most: { each: 'seq 4', agent: 'claim-checker' },
+      none: { each: 'true', agent: 'claim-checker' },
     });
-    const turns = [verdict('PASS'), verdict('PASS'), verdict('FAIL, wrong'), verdict('PASS')];
-    const { run } = services(where, turns);
-    const step = { name: 'implement', does: { agent: 'implementor' }, checks: ['most', 'none'], tries: 1 };
-    await run(runStepChecks(step, left(where), h));
+    const { run } = services(where, [judge(true), judge(true), judge(false), judge(true)]);
+    await run(runStepChecks(implement('most', 'none'), left(where), h));
     const by = Object.fromEntries(results(where.data).map(r => [r.check, r]));
-    expect(by.most).toMatchObject({ pass: false, value: 0.75 });
+    expect(by.most).toMatchObject({ pass: false, share: 0.75 });
     expect(by.none).toMatchObject({ pass: true, empty: true });
-    expect(by.none).not.toHaveProperty('value');
+    expect(by.none).not.toHaveProperty('share');
 
     const zero = world();
-    const all = services(zero, [verdict('FAIL, no'), verdict('FAIL, no')]);
+    const all = services(zero, [judge(false), judge(false)]);
     await all.run(
-      runStepChecks({ ...step, checks: ['most'] }, left(zero), {
+      runStepChecks(implement('most'), left(zero), {
         ...h,
         checks: { ...h.checks, most: { ...h.checks.most!, each: 'seq 2' } },
       })
     );
-    expect(results(zero.data)[0]).toMatchObject({ pass: false, value: 0 });
+    expect(results(zero.data)[0]).toMatchObject({ pass: false, share: 0 });
   });
 
-  it('is empty, never a share, when a judge gives no verdict on an item', async () => {
+  it('applies pass to each item and keeps item values on the item lines', async () => {
     const where = world();
-    const h = ending({ most: { returns: 'number', each: 'seq 2', agent: 'claim-checker' } });
-    const { run } = services(where, [verdict('PASS'), verdict('maybe'), verdict('maybe')]);
-    const step = { name: 'implement', does: { agent: 'implementor' }, checks: ['most'], tries: 1 };
-    await run(runStepChecks(step, left(where), h));
+    const h = ending({
+      sizes: {
+        returns: count,
+        pass: { properties: { n: { maximum: 2 } } },
+        each: 'seq 3',
+        run: 'echo "{\\"n\\": $AGENTGRAPH_ITEM}"',
+      },
+    });
+    const { run } = services(where, []);
+    await run(runStepChecks(implement('sizes'), left(where), h));
+    const items = readTrace(where.data, 'run-7').flatMap(t => ('check' in t && t.item ? [t.check] : []));
+    expect(items.map(i => [i.pass, i.value])).toEqual([
+      [true, { n: 1 }],
+      [true, { n: 2 }],
+      [false, { n: 3 }],
+    ]);
+    expect(results(where.data)[0]).toMatchObject({ pass: false, share: 2 / 3 });
+  });
+
+  it('gives no share and fails when a judge gives no result on an item', async () => {
+    const where = world();
+    const h = ending({ most: { each: 'seq 2', agent: 'claim-checker' } });
+    const { run } = services(where, [judge(true), silent, silent]);
+    await run(runStepChecks(implement('most'), left(where), h));
     const [result] = results(where.data);
-    expect(result).toMatchObject({ pass: false, empty: true });
-    expect(result).not.toHaveProperty('value');
+    expect(result).toMatchObject({
+      pass: false,
+      empty: true,
+      findings: expect.stringContaining('could not be judged'),
+    });
+    expect(result).not.toHaveProperty('share');
+  });
+});
+
+describe('a judge', () => {
+  const step = {
+    name: 'implement',
+    does: { agent: 'implementor' },
+    checks: ['claims'],
+    tries: 1,
+  };
+  const h = ending({ claims: { agent: 'claim-checker' } });
+
+  it('decides with the result tool, its why as the findings, and its last valid call counts', async () => {
+    const where = world();
+    const { run, specs } = services(where, [
+      [
+        start('j'),
+        result({ pass: true, why: 'fine' }),
+        {
+          type: 'tool',
+          id: 'v2',
+          name: 'agentgraph_result',
+          input: { pass: false, why: 'off by one' },
+          ok: true,
+        },
+        result({ pass: 'yes', why: 'bad' }),
+      ],
+    ]);
+    await run(runStepChecks(step, left(where), h));
+    expect(results(where.data)[0]).toMatchObject({
+      check: 'claims',
+      pass: false,
+      findings: 'off by one',
+    });
+    expect(specs[0]).toMatchObject({ returns: { required: ['pass'] } });
+    expect(specs[0]?.prompt).toContain('Call the result tool');
+  });
+
+  it('is resumed once and told to call the tool when it stops without a result', async () => {
+    const where = world();
+    const { run, specs } = services(where, [silent, [result({ pass: true, why: 'fine' })]]);
+    await run(runStepChecks(step, left(where), h));
+    expect(results(where.data)[0]).toMatchObject({
+      check: 'claims',
+      pass: true,
+    });
+    expect(specs[1]).toMatchObject({
+      resume: { id: 'j', home: '/homes/j' },
+      check: 'claims',
+    });
+    expect(specs[1]?.prompt).toMatch(/^You ended without calling the result tool/);
+  });
+
+  it('starts fresh, not resumed, when a session fails even after recording a result', async () => {
+    const where = world();
+    const failed: SessionEvent[] = [
+      start('j'),
+      result({ pass: true, why: 'fine' }),
+      { type: 'end', final: '', ended: 'error', exit: 1 },
+    ];
+    const { run, specs } = services(where, [failed, judge(false, 'off by one')]);
+    await run(runStepChecks(step, left(where), h));
+    expect(specs.map(s => s.resume)).toEqual([undefined, undefined]);
+    expect(results(where.data)[0]).toMatchObject({
+      pass: false,
+      findings: 'off by one',
+    });
+  });
+
+  it('reads this run trace, written beside the news file', async () => {
+    const where = world();
+    const traced = ending({
+      lines: measure('wc -l < $AGENTGRAPH_RUN_TRACE'),
+    });
+    const { run } = services(where, []);
+    await run(runStepChecks({ ...step, checks: ['lines'] }, left(where), traced));
+    expect(results(where.data)[0]).toMatchObject({
+      pass: true,
+      value: { n: expect.any(Number) },
+    });
+  });
+
+  it('could not be judged when the resumed session still gives none, counting a refused call as none', async () => {
+    const where = world();
+    const refused: SessionEvent = {
+      type: 'tool',
+      id: 'v',
+      name: 'mcp__agentgraph__result',
+      input: { pass: true, why: 'fine' },
+      ok: false,
+    };
+    const { run, specs } = services(where, [[start('j'), refused], silent]);
+    await run(runStepChecks(step, left(where), h));
+    expect(specs).toHaveLength(2);
+    expect(results(where.data)[0]).toMatchObject({
+      pass: false,
+      findings: expect.stringContaining('could not be judged'),
+    });
   });
 });
 
 describe('end checks', () => {
   it('owe the workflow checks from the move that ends a run', () => {
-    const h = ending({ lines: { returns: 'number', run: 'echo 1' } });
+    const h = ending({ lines: measure('echo 1') });
     const running: Run = { ...fresh(), step: 'review', status: 'running' };
     expect(transition(h.workflows.issue!, running, { kind: 'stop', why: 'no' }).owed).toEqual(['lines']);
     const waiting: Run = { ...fresh(), step: 'merge', status: 'waiting' };
@@ -152,8 +300,8 @@ describe('end checks', () => {
   it('run once a merge ends the run, on its kept files, and leave its status alone', async () => {
     const where = world();
     const h = ending({
-      lines: { returns: 'number', run: 'wc -l < hello.txt' },
-      changed: { returns: 'number', each: 'files', run: 'test -s "$AGENTGRAPH_ITEM"' },
+      lines: measure('wc -l < hello.txt'),
+      changed: { each: 'files', run: 'test -s "$AGENTGRAPH_ITEM"' },
     });
     const startCommit = keep(where, 'agentgraph/7');
     const kept = git(where, 'rev-parse', 'refs/agentgraph/runs/run-7');
@@ -172,15 +320,15 @@ describe('end checks', () => {
     expect(swept.map(r => [r.id, r.status, r.owed])).toEqual([['run-7', 'done', undefined]]);
     const ends = results(where.data).filter(r => r.end);
     expect(ends).toEqual([
-      expect.objectContaining({ check: 'lines', pass: true, value: 1 }),
-      expect.objectContaining({ check: 'changed', pass: true, value: 1 }),
+      expect.objectContaining({ check: 'lines', pass: true, value: { n: 1 } }),
+      expect.objectContaining({ check: 'changed', pass: true, share: 1 }),
     ]);
     expect(git(where, 'rev-parse', 'refs/agentgraph/runs/run-7')).toBe(kept);
   });
 
   it('run only what a killed pass left owed, and nothing on the next look', async () => {
     const where = world();
-    const h = ending({ present: { run: 'echo present' }, lines: { returns: 'number', run: 'echo 3' } });
+    const h = ending({ present: { run: 'echo present' }, lines: measure('echo 3') });
     const { commands, run } = services(where, []);
     const startCommit = keep(where);
     await run(
@@ -188,16 +336,18 @@ describe('end checks', () => {
     );
     await run(tick(h, 7, true));
     await run(tick(h, 7, true));
-    expect(commands.filter(c => c.args.some(a => a.startsWith('echo'))).map(c => c.args.at(-1))).toEqual(['echo 3']);
+    expect(commands.filter(c => c.args.some(a => a.startsWith('echo'))).map(c => c.args.at(-1))).toEqual([
+      measure('echo 3').run,
+    ]);
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ status: 'done' });
     expect(stored).not.toHaveProperty('owed');
-    expect(results(where.data)).toEqual([expect.objectContaining({ check: 'lines', value: 3, end: true })]);
+    expect(results(where.data)).toEqual([expect.objectContaining({ check: 'lines', value: { n: 3 }, end: true })]);
   });
 
   it('give a check gone from the hub, or a run without kept files, an empty result naming why', async () => {
     const where = world();
-    const h = ending({ lines: { returns: 'number', run: 'echo 3' } });
+    const h = ending({ lines: measure('echo 3') });
     const { run } = services(where, []);
     await run(
       Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped', step: 'merge', owed: ['gone', 'lines'] }))
@@ -221,7 +371,7 @@ describe('end checks', () => {
 
   it('run again later on stored runs that ended, each on the files setup left, and refuse a check the hub lacks', async () => {
     const where = world();
-    const h = ending({ wipe: { run: 'rm README.md' }, lines: { returns: 'number', run: 'wc -l < README.md' } });
+    const h = ending({ wipe: { run: 'rm README.md' }, lines: measure('wc -l < README.md') });
     const { run } = services(where, []);
     const startCommit = keep(where);
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', startCommit })));
@@ -230,9 +380,20 @@ describe('end checks', () => {
     expect(after).not.toHaveProperty('owed');
     expect(results(where.data)).toEqual([
       expect.objectContaining({ check: 'wipe', pass: true, end: true }),
-      expect.objectContaining({ check: 'lines', value: 1, end: true }),
+      expect.objectContaining({ check: 'lines', value: { n: 1 }, end: true }),
     ]);
     const refused = await run(Effect.either(instruct(h, { kind: 'check', checks: ['nope'] })));
     expect(Either.isLeft(refused) && refused.left.message).toBe('the hub has no check nope');
+  });
+
+  it('run checks that read only traces on the target branch when the run kept no files or start commit', async () => {
+    const where = world();
+    const h = ending({ lines: { ...measure('wc -l < $AGENTGRAPH_RUN_TRACE'), reads: 'traces' } });
+    const { run } = services(where, []);
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge' })));
+    await run(instruct(h, { kind: 'check', checks: ['lines'] }));
+    expect(results(where.data)).toEqual([
+      expect.objectContaining({ check: 'lines', pass: true, value: { n: expect.any(Number) }, end: true }),
+    ]);
   });
 });

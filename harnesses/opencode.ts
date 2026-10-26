@@ -1,6 +1,7 @@
 import { Schema } from 'effect';
 import type { Harness, Piece } from '../src/harnesses.ts';
 import type { SessionEvent } from '../src/trace.ts';
+import { makeResultServer } from '../src/result.ts';
 import {
   makeCacheCounts,
   makeLineParser,
@@ -72,58 +73,64 @@ export const opencode = (): Harness => ({
       '.config/opencode/package-lock.json': '/opt/opencode/package-lock.json',
     },
   }),
-  command: (spec, route) => ({
-    cmd: 'opencode',
-    args: [
-      'run',
-      '--format',
-      'json',
-      '--title',
-      'agentgraph',
-      '--agent',
-      'agentgraph',
-      '--model',
-      `agentgraph/${route.model}`,
-      ...(spec.resume ? ['--session', spec.resume.id, ...(spec.fork ? ['--fork'] : [])] : []),
-      '--',
-      ...words(spec.prompt),
-    ],
-    env: {
-      AGENTGRAPH_LLM_BASE_URL: route.url,
-      OPENCODE_CONFIG_CONTENT: JSON.stringify({
-        $schema: 'https://opencode.ai/config.json',
-        autoupdate: false,
-        share: 'disabled',
-        snapshot: false,
-        compaction: { auto: false, prune: false },
-        tool_output: { max_lines: 300, max_bytes: 16_384 },
-        enabled_providers: ['agentgraph'],
-        provider: {
-          agentgraph: {
-            npm: '@ai-sdk/openai',
-            name: 'agentgraph',
-            options: {
-              baseURL: '{env:AGENTGRAPH_LLM_BASE_URL}',
-              apiKey: '{env:AGENTGRAPH_LLM_API_KEY}',
-              headerTimeout: modelTimeouts.headersMs,
-              chunkTimeout: modelTimeouts.idleMs,
+  command: (spec, route) => {
+    const server = spec.returns && makeResultServer(spec.returns);
+    return {
+      cmd: 'opencode',
+      args: [
+        'run',
+        '--format',
+        'json',
+        '--title',
+        'agentgraph',
+        '--agent',
+        'agentgraph',
+        '--model',
+        `agentgraph/${route.model}`,
+        ...(spec.resume ? ['--session', spec.resume.id, ...(spec.fork ? ['--fork'] : [])] : []),
+        '--',
+        ...words(spec.prompt),
+      ],
+      env: {
+        AGENTGRAPH_LLM_BASE_URL: route.url,
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          $schema: 'https://opencode.ai/config.json',
+          autoupdate: false,
+          share: 'disabled',
+          snapshot: false,
+          compaction: { auto: false, prune: false },
+          tool_output: { max_lines: 300, max_bytes: 16_384 },
+          enabled_providers: ['agentgraph'],
+          provider: {
+            agentgraph: {
+              npm: '@ai-sdk/openai',
+              name: 'agentgraph',
+              options: {
+                baseURL: '{env:AGENTGRAPH_LLM_BASE_URL}',
+                apiKey: '{env:AGENTGRAPH_LLM_API_KEY}',
+                headerTimeout: modelTimeouts.headersMs,
+                chunkTimeout: modelTimeouts.idleMs,
+              },
+              models: { [route.model]: {} },
             },
-            models: { [route.model]: {} },
           },
-        },
-        agent: { agentgraph: { mode: 'primary', prompt: spec.system } },
-      }),
-      OPENCODE_PERMISSION: JSON.stringify(permission(spec.tools, spec.read)),
-      OPENCODE_DISABLE_PROJECT_CONFIG: '1',
-      OPENCODE_DISABLE_CLAUDE_CODE: '1',
-      OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
-      OPENCODE_DISABLE_AUTOCOMPACT: '1',
-      OPENCODE_DISABLE_PRUNE: '1',
-      OPENCODE_DISABLE_AUTOUPDATE: '1',
-      OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
-      OPENCODE_DISABLE_MODELS_FETCH: '1',
-    },
-  }),
+          agent: { agentgraph: { mode: 'primary', prompt: spec.system } },
+          ...(server && { mcp: { agentgraph: { type: 'local', command: [server.command, ...server.args] } } }),
+        }),
+        OPENCODE_PERMISSION: JSON.stringify(
+          permission([...spec.tools, ...(server ? ['agentgraph_result'] : [])], spec.read)
+        ),
+        OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+        OPENCODE_DISABLE_CLAUDE_CODE: '1',
+        OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+        OPENCODE_DISABLE_AUTOCOMPACT: '1',
+        OPENCODE_DISABLE_PRUNE: '1',
+        OPENCODE_DISABLE_AUTOUPDATE: '1',
+        OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
+        OPENCODE_DISABLE_MODELS_FETCH: '1',
+      },
+    };
+  },
   parse: () =>
     makeLineParser(OpencodeLine, line => {
       const session: Piece[] = line.sessionID ? [{ type: 'session', id: line.sessionID }] : [];

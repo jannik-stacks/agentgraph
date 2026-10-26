@@ -7,7 +7,7 @@ import { runStepChecks } from '../src/engine.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
-import { makeTestHub } from './fixtures.ts';
+import { makeTestHub, result, stop } from './fixtures.ts';
 import { git } from './kit.ts';
 
 const dirs: string[] = [];
@@ -40,10 +40,8 @@ const findPeakSessions = async (sessions: number) => {
         () => Effect.sync(() => void live--)
       ).pipe(
         Stream.flatMap(() =>
-          Stream.fromEffect(
-            Effect.sleep(Duration.millis(10)).pipe(
-              Effect.as({ type: 'end', final: 'PASS', ended: 'stop', exit: 0 } as const)
-            )
+          Stream.fromEffect(Effect.as(Effect.sleep(Duration.millis(10)), result({ pass: true, why: 'fine' }))).pipe(
+            Stream.concat(Stream.make(stop))
           )
         )
       ),

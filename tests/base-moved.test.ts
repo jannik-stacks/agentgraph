@@ -11,7 +11,7 @@ import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import type { Hub } from '../src/hub.ts';
 import { type Step } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
-import { makeTestHub, reply, start, wrote } from './fixtures.ts';
+import { makeTestHub, reply, result, start, stop, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { hub, w, world, push, pull, judged, services, readTrace, fresh, say, comment } from './world.ts';
 
@@ -284,7 +284,7 @@ describe('a base that moved', () => {
   it('keeps what a failing judged check after a rebase cost when it sends the run back', async () => {
     const where = await moved('other.txt');
     const { run } = services(where, [
-      [start('j'), { type: 'usage', input: 1, output: 1, usd: 0.25 }, { type: 'text', text: 'FAIL a claim' }],
+      [start('j'), { type: 'usage', input: 1, output: 1, usd: 0.25 }, result({ pass: false, why: 'a claim' })],
       [start('i2'), reply({ kind: 'ask', question: 'Which claim?' })],
     ]);
     const [was] = await run(Effect.flatMap(Store, s => s.list()));
@@ -447,7 +447,7 @@ describe('runStepChecks', () => {
       'check' in t && t.check.check === 'types' ? [t.check] : []
     );
     expect(checks).toEqual([
-      { check: 'types', pass: false, findings: 'each failed: at x.js:1\nboom', ms: expect.any(Number) },
+      { check: 'types', pass: false, empty: true, findings: 'each failed: at x.js:1\nboom', ms: expect.any(Number) },
     ]);
   });
 
@@ -516,13 +516,14 @@ describe('runStepChecks', () => {
     };
     const step = { name: 'implement', does: { agent: 'critic' }, checks: ['correct', 'covered'], tries: 3 };
     const specs: SessionSpec[] = [];
-    const verdicts: Record<string, string> = { critic: 'FAIL off by one', tester: 'PASS' };
+    const results = { critic: result({ pass: false, why: 'off by one' }), tester: result({ pass: true, why: 'fine' }) };
     const judges = Layer.succeed(Session, {
       open: (spec: SessionSpec) => {
         specs.push(spec);
         return Stream.fromIterable<SessionEvent>([
           start(spec.agent),
-          { type: 'end', final: verdicts[spec.agent]!, ended: 'stop', exit: 0 },
+          results[spec.agent as keyof typeof results],
+          stop,
         ]);
       },
     });
@@ -543,7 +544,7 @@ describe('runStepChecks', () => {
       ['critic', 'claude', 'opus'],
       ['tester', 'opencode', 'smart'],
     ]);
-    expect(outcome).toMatchObject({ kind: 'failed', checks: [{ check: 'correct', findings: 'FAIL off by one' }] });
+    expect(outcome).toMatchObject({ kind: 'failed', checks: [{ check: 'correct', findings: 'off by one' }] });
   });
   it('shows every check what a human answered during the run, judges in their prompt and scripts in AGENTGRAPH_CONTEXT', async () => {
     const where = world();
@@ -562,7 +563,7 @@ describe('runStepChecks', () => {
     const judges = Layer.succeed(Session, {
       open: (spec: SessionSpec) => (
         specs.push(spec),
-        Stream.fromIterable<SessionEvent>([start('j'), { type: 'end', final: 'PASS', ended: 'stop', exit: 0 }])
+        Stream.fromIterable<SessionEvent>([start('j'), result({ pass: true, why: 'fine' }), stop])
       ),
     });
     const left = {
@@ -599,8 +600,7 @@ describe('runStepChecks', () => {
     const small = { ...kit, checks: { ...kit.checks, claims: { ...kit.checks.claims!, mode: 'block' as const } } };
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['types', 'claims'], tries: 3 };
     const judges = Layer.succeed(Session, {
-      open: () =>
-        Stream.fromIterable<SessionEvent>([start('j'), { type: 'end', final: 'FAIL a claim', ended: 'stop', exit: 0 }]),
+      open: () => Stream.fromIterable<SessionEvent>([start('j'), result({ pass: false, why: 'a claim' }), stop]),
     });
     const left = {
       run: 'run-7',
@@ -619,7 +619,7 @@ describe('runStepChecks', () => {
       kind: 'failed',
       checks: [
         { check: 'types', findings: 'x.ts:1 error' },
-        { check: 'claims', findings: 'FAIL a claim' },
+        { check: 'claims', findings: 'a claim' },
       ],
     });
   });
@@ -638,8 +638,8 @@ describe('runStepChecks', () => {
       open: (spec: SessionSpec) => {
         const item = spec.prompt.includes('\n\nb\n\n') ? 'b' : 'a';
         judgedItems.push(item);
-        const final = item === 'a' ? 'PASS' : 'FAIL b is off';
-        return Stream.fromIterable<SessionEvent>([start('j'), { type: 'end', final, ended: 'stop', exit: 0 }]);
+        const judged = item === 'a' ? result({ pass: true, why: 'fine' }) : result({ pass: false, why: 'b is off' });
+        return Stream.fromIterable<SessionEvent>([start('j'), judged, stop]);
       },
     });
     const left = {
@@ -688,7 +688,7 @@ describe('runStepChecks', () => {
     const judges = Layer.succeed(Session, {
       open: (spec: SessionSpec) => (
         specs.push(spec),
-        Stream.fromIterable<SessionEvent>([start('j'), { type: 'end', final: 'PASS', ended: 'stop', exit: 0 }])
+        Stream.fromIterable<SessionEvent>([start('j'), result({ pass: true, why: 'fine' }), stop])
       ),
     });
     const left = {
@@ -773,9 +773,9 @@ describe('runStepChecks', () => {
       return { exit, opened, data: where.data };
     };
     const killed: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: 'Killed', ended: 'error', exit: 137 };
-    const pass: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: 'PASS fine', ended: 'stop', exit: 0 };
+    const pass = [result({ pass: true, why: 'fine' }), stop];
 
-    it('retries once and takes the second verdict', async () => {
+    it('retries once and takes the second result', async () => {
       const { exit, opened } = await judged([killed, pass]);
       expect(opened).toBe(2);
       expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
@@ -810,7 +810,7 @@ describe('runStepChecks', () => {
     });
 
     it('counts a stream that ends without its end line as an error', async () => {
-      const cut: SessionEvent[] = [{ type: 'text', text: 'PASS fine' }];
+      const cut: SessionEvent[] = [result({ pass: true, why: 'fine' })];
       const { exit, data } = await judged([cut, cut]);
       expect(Exit.isFailure(exit)).toBe(true);
       const sessions = readTrace(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
@@ -818,7 +818,7 @@ describe('runStepChecks', () => {
     });
 
     it('counts a non-zero exit as an error even after a clean stop', async () => {
-      const { exit, data } = await judged([{ ...pass, exit: 1 }, pass]);
+      const { exit, data } = await judged([[result({ pass: true, why: 'fine' }), { ...stop, exit: 1 }], pass]);
       expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
       const sessions = readTrace(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
       expect(sessions).toMatchObject([
@@ -827,8 +827,8 @@ describe('runStepChecks', () => {
       ]);
     });
 
-    it('treats a clean stop without a verdict line the same way', async () => {
-      const mute = { ...pass, final: 'looks fine to me' };
+    it('treats a clean stop without a result the same way', async () => {
+      const mute = { ...stop, final: 'looks fine to me' };
       const { exit } = await judged([mute, mute]);
       expect(Exit.isFailure(exit)).toBe(true);
     });

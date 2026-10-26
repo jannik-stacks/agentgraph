@@ -438,7 +438,7 @@ describe('drive', () => {
     const texts = await run(Effect.forEach(logged, t => Effect.flatMap(Store, s => s.readLog(t.log!.hash))));
     const byName = logged.map((t, i) => [t.check.check, t.check.pass, texts[i]] as const);
     expect(byName.sort(([a], [b]) => a.localeCompare(b))).toEqual([
-      ['claims', true, 'PASS, no claims'],
+      ['claims', true, 'no claims'],
       ['safety', false, 'secret.txt found\n'],
       ['types', true, 'types ok\n'],
     ]);

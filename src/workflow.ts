@@ -3,12 +3,22 @@ import { Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import type { Applied, Event } from './event.ts';
 import type { Proposal } from './proposal.ts';
+import type { Result } from './result.ts';
 
 /**
- * A check's result: its verdict, and the `value` a number check measured. `empty` means no evidence: `each` found
- * nothing to judge, or a number check could not measure, with the reason in `findings`.
+ * A check's result: whether it passed, the `value` its result held when the check has its own `returns`, and with
+ * `each` the `share` of items that passed. `empty` means no evidence: `each` found nothing, or a result could not
+ * be read, with the reason in `findings`.
  */
-export type CheckResult = { check: string; pass: boolean; value?: number; empty?: true; findings?: string; ms: number };
+export type CheckResult = {
+  check: string;
+  pass: boolean;
+  value?: Result;
+  share?: number;
+  empty?: true;
+  findings?: string;
+  ms: number;
+};
 
 /** A hub file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };
@@ -190,7 +200,7 @@ export function compileWorkflow(
   for (const check of front.checks ?? []) {
     if (!names.checks.includes(check)) say('checks', `unknown check ${check}`);
     else if (names.warned && !names.warned.includes(check))
-      say('checks', `${check} runs at the end, so its mode is warn`);
+      say('checks', `${check} runs at the end, so its mode is info or warn`);
   }
 
   const steps = order.map((stepName, i): Step => {
