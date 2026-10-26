@@ -1,4 +1,4 @@
-# The sandbox image on Node 20, for repos whose dependencies do not install or run on Node 22.
+# The sandbox image on Node 20, for repos whose dependencies do not install or run on Node 24.
 #
 #   docker build -t agentgraph-sandbox:node20 infra/local/sandbox/node20
 FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS node20

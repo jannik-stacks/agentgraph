@@ -1,6 +1,6 @@
 # Running on Cloudflare
 
-One Worker runs the engine and its sandboxes on Cloudflare Containers. You need a Cloudflare account with Containers, Node 22.18 or later and Docker for the image builds. Commands run from `agentgraph/`.
+One Worker runs the engine and its sandboxes on Cloudflare Containers. You need a Cloudflare account with Containers, Node 24 or later and Docker for the image builds. Commands run from `agentgraph/`.
 
 ```sh
 examples/deploy/cloudflare/up
