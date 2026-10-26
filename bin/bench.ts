@@ -22,7 +22,7 @@ import {
   dependencyDirs,
   discard,
   readSandboxSetup,
-  layer,
+  createSharedMounts,
   manifest,
   removeOrphanedVolumes,
   written,
@@ -785,8 +785,8 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
         ...(c.toolchain && { toolchain: c.toolchain }),
       })
     : undefined;
-  const layers = cache
-    ? await layer(
+  const sharedMounts = cache
+    ? await createSharedMounts(
         env ?? { image: start, outputs: [] },
         randomBytes(6).toString('hex'),
         tree,
@@ -794,7 +794,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
         cache
       )
     : [];
-  const box = { mounts: [{ src: git, dst: git, readonly: true }], layers };
+  const box = { mounts: [{ src: git, dst: git, readonly: true }], sharedMounts };
   const from = env?.image ?? start;
   const scored = () => {
     const again = !env?.complete || splitUnifiedDiffByFile(diff).some(f => manifest.test(f.path));
@@ -819,10 +819,10 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   };
   try {
     const result = scored();
-    const writes = await written(layers, from);
+    const writes = await written(sharedMounts, from);
     return { ...result, ...(writes !== undefined && { cache: writes }) };
   } finally {
-    await discard(layers);
+    await discard(sharedMounts);
   }
 };
 /**

@@ -29,7 +29,7 @@ An environment caches a repo's dependencies so checkouts do not install them aga
 
 The key covers the base image, the toolchain commands, `setup` and those files, so bases that differ only in source share an environment. If setup fails on those files alone, the build retries with the whole base. A setup that reads `$AGENTGRAPH_HUB` runs per checkout instead. A run's trace says which environment each checkout used and how it was built.
 
-Each checkout mounts private overlays over the cached dependency folders, so its writes stay its own, and the overlays go when the checkout closes. Checkouts skip setup when the environment holds everything setup produced; resumed checkouts and incomplete environments run it again. <!-- code: src/env.ts#layer src/docker.ts#dockerSandbox src/env.ts#unlogged -->
+Each checkout mounts private overlays over the cached dependency folders, so its writes stay its own, and the overlays go when the checkout closes. Checkouts skip setup when the environment holds everything setup produced; resumed checkouts and incomplete environments run it again. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox src/env.ts#unlogged -->
 
 `AGENTGRAPH_STATE` (default `~/.cache/agentgraph`) holds runner heartbeats and image use times. Runners that share Docker must share it, and startup removes what stopped runners left behind.
 

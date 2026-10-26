@@ -12,8 +12,8 @@ import {
   discard,
   readSandboxSetup,
   readSetupInputKey,
-  type Layer as Deps,
-  layer,
+  createSharedMounts,
+  type SharedMount,
   writeCheckoutOwner,
   reap,
   removeOrphanedVolumes,
@@ -64,7 +64,7 @@ const user = () => {
 };
 
 /** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its hub and sandbox setup. */
-export type CheckoutContainerSpec = { mounts: Mount[]; layers?: Deps[]; direct?: string[] } & Pick<
+export type CheckoutContainerSpec = { mounts: Mount[]; sharedMounts?: SharedMount[]; direct?: string[] } & Pick<
   Hub,
   'image' | 'network'
 >;
@@ -85,14 +85,14 @@ const scratch = Object.fromEntries(
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
  * the only routes out are the `direct` model hosts and, unless the hub's network is `models`, the egress allowlist; with
- * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`, read-only unless a layer
- * overlays it there; each layer is a volume at its path.
+ * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`, read-only unless a shared
+ * mount overlays it there; each shared mount is a volume at its path.
  */
 export const dockerArgs = (
   c: Command,
   image: string,
   name: string,
-  { mounts, layers = [], network = 'egress', direct = [] }: CheckoutContainerSpec,
+  { mounts, sharedMounts = [], network = 'egress', direct = [] }: CheckoutContainerSpec,
   cache = '',
   size = limits
 ) => [
@@ -126,8 +126,8 @@ export const dockerArgs = (
   ...(c.home ? bind({ src: c.home, dst: inside.home }) : []),
   ...(c.hub ? bind({ src: c.hub, dst: inside.hub, readonly: true }) : []),
   ...mounts.flatMap(bind),
-  ...(cache && !layers.some(l => l.dst === inside.cache) ? volume(cache, inside.cache, false, true) : []),
-  ...layers.flatMap(l => volume(l.name, l.dst, true)),
+  ...(cache && !sharedMounts.some(l => l.dst === inside.cache) ? volume(cache, inside.cache, false, true) : []),
+  ...sharedMounts.flatMap(l => volume(l.name, l.dst, true)),
   ...Object.entries(c.volumes ?? {}).flatMap(([dst, name]) => volume(name, dst)),
   '--workdir',
   inside.work,
@@ -137,7 +137,7 @@ export const dockerArgs = (
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'safe.directory',
     GIT_CONFIG_VALUE_0: '*',
-    ...(cache && (layers.some(l => l.dst === inside.cache) ? packageManagerCacheEnv : scratch)),
+    ...(cache && (sharedMounts.some(l => l.dst === inside.cache) ? packageManagerCacheEnv : scratch)),
     ...(c.network === 'proxy' &&
       network === 'egress' && {
         HTTPS_PROXY: egress,
@@ -468,7 +468,7 @@ export const dockerSandbox = (o: {
               Effect.orDie
             );
           let admin = '';
-          let layers: Deps[] = [];
+          let sharedMounts: SharedMount[] = [];
           const add = Effect.gen(function* () {
             yield* Effect.try({ try: () => writeCheckoutOwner(dir), catch: e => infra((e as Error).message) });
             yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
@@ -486,9 +486,9 @@ export const dockerSandbox = (o: {
             });
             if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
             if (hub && cache)
-              layers = yield* Effect.tryPromise({
+              sharedMounts = yield* Effect.tryPromise({
                 try: async () =>
-                  layer(
+                  createSharedMounts(
                     env ?? { image: hub.image ?? image, outputs: [] },
                     id,
                     dir,
@@ -498,11 +498,11 @@ export const dockerSandbox = (o: {
                 catch: e => infra((e as Error).message),
               });
             const own = env?.image ?? hub?.image;
-            work.written = () => written(layers, own ?? image);
+            work.written = () => written(sharedMounts, own ?? image);
             made.set(dir, {
               ...(own !== undefined && { image: own }),
               ...(hub?.network !== undefined && { network: hub.network }),
-              layers,
+              sharedMounts,
               mounts: [
                 { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
                 { src: admin, dst: admin },
@@ -518,7 +518,7 @@ export const dockerSandbox = (o: {
                   if ((e as NodeJS.ErrnoException).code !== 'ENOTDIR') throw e;
                 })
               ),
-              discard(layers),
+              discard(sharedMounts),
             ]);
           });
           yield* Effect.acquireRelease(add.pipe(Effect.onError(() => remove)), () =>

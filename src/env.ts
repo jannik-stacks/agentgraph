@@ -185,7 +185,7 @@ const section = (out: string, name: string) =>
 
 export const used = () => join(readStateDir(), 'envs');
 const holds = () => join(readStateDir(), 'holds');
-const stamp = (file: string) => {
+const writeTimestampFile = (file: string) => {
   try {
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, '', { flag: 'a' });
@@ -193,9 +193,9 @@ const stamp = (file: string) => {
   } catch {}
 };
 const touch = (key: string) => {
-  stamp(join(used(), key));
+  writeTimestampFile(join(used(), key));
   startHeartbeat();
-  stamp(join(holds(), key, ownerId));
+  writeTimestampFile(join(holds(), key, ownerId));
 };
 const holdHours = () => Number(process.env.AGENTGRAPH_ENV_HOLD_HOURS || 2);
 
@@ -277,7 +277,7 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxS
   if (!existsSync(wide)) {
     const env = await one('deps');
     if (env && env !== 'setup') return env;
-    stamp(wide);
+    writeTimestampFile(wide);
   }
   const env = await one('tree');
   return env === 'setup' ? undefined : env;
@@ -404,7 +404,7 @@ const buildOf = async (
 };
 
 /** A dependency directory of a checkout: the volume `name` at `dst`, and when it is an overlay, the volume `upper` holding its writes. */
-export type Layer = { name: string; dst: string; upper?: string };
+export type SharedMount = { name: string; dst: string; upper?: string };
 
 /** Dependency directories, which setup fills and rarely deletes, so a volume can sit at their path. */
 const deps = /(^|\/)(node_modules|target)$/;
@@ -491,13 +491,13 @@ const overlays = (image: string) =>
  * owner, so a sweep finds the ones a dead runner left. The sandbox setup's other outputs are copied into `dir`, where a build may
  * delete and remake them.
  */
-export const layer = async (
+export const createSharedMounts = async (
   from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower'>,
   owner: string,
   dir: string,
   more: string[] = [],
   cache = ''
-): Promise<Layer[]> => {
+): Promise<SharedMount[]> => {
   const made = from.lower ? from.outputs.filter(o => deps.test(o)) : [];
   const paths = [...new Set([...made, ...more])];
   const rest = from.outputs.filter(o => !deps.test(o));
@@ -505,11 +505,14 @@ export const layer = async (
   const shared = over && cache ? `agentgraph-layer-${owner}-c` : '';
   if (!paths.length && !rest.length && !shared) return [];
   const label = ['--label', `agentgraph.layer=${startHeartbeat()}`, '--label', `agentgraph.owner=${owner}`];
-  const layers: Layer[] = paths.map((o, i) => ({ name: `agentgraph-layer-${owner}-${i}`, dst: `/work/${o}` }));
+  const sharedMounts: SharedMount[] = paths.map((o, i) => ({
+    name: `agentgraph-layer-${owner}-${i}`,
+    dst: `/work/${o}`,
+  }));
   const [uid, gid] = user();
   const script = [
     'set -e',
-    ...layers.map((_, i) =>
+    ...sharedMounts.map((_, i) =>
       i >= made.length
         ? `chown ${uid}:${gid} /u/${i}`
         : over
@@ -523,7 +526,7 @@ export const layer = async (
     }),
   ].join('\n');
   try {
-    for (const name of [...layers.map(l => l.name), ...(shared ? [shared] : [])])
+    for (const name of [...sharedMounts.map(l => l.name), ...(shared ? [shared] : [])])
       await runDockerCli(['volume', 'create', ...label, name]);
     await runDockerCli(
       [
@@ -547,7 +550,7 @@ export const layer = async (
         ...(from.lower && (made.length || rest.length)
           ? ['--mount', `type=volume,src=${from.lower},dst=/lower,readonly`]
           : []),
-        ...layers.flatMap((l, i) => ['--mount', `type=volume,src=${l.name},dst=/u/${i},volume-nocopy`]),
+        ...sharedMounts.flatMap((l, i) => ['--mount', `type=volume,src=${l.name},dst=/u/${i},volume-nocopy`]),
         ...(shared ? ['--mount', `type=volume,src=${shared},dst=/c,volume-nocopy`] : []),
         from.image,
         'sh',
@@ -557,9 +560,9 @@ export const layer = async (
       3_600_000
     );
     if (over && made.length) {
-      const [lower, ...uppers] = await mountpoints(from.lower!, ...layers.slice(0, made.length).map(l => l.name));
+      const [lower, ...uppers] = await mountpoints(from.lower!, ...sharedMounts.slice(0, made.length).map(l => l.name));
       for (const [i, upper] of uppers.entries()) {
-        const name = `${layers[i]!.name}-o`;
+        const name = `${sharedMounts[i]!.name}-o`;
         await runDockerCli([
           'volume',
           'create',
@@ -569,25 +572,25 @@ export const layer = async (
           ...overlayOf(`${lower}/.agentgraph-env/data/${i}`, upper),
           name,
         ]);
-        layers[i] = { ...layers[i]!, name, upper: layers[i]!.name };
+        sharedMounts[i] = { ...sharedMounts[i]!, name, upper: sharedMounts[i]!.name };
       }
     }
     if (shared) {
       await runDockerCli(['volume', 'create', cache]);
       const [lower, upper] = await mountpoints(cache, shared);
       await runDockerCli(['volume', 'create', ...label, ...overlayOf(lower!, upper!), `${shared}-o`]);
-      layers.push({ name: `${shared}-o`, dst: '/cache', upper: shared });
+      sharedMounts.push({ name: `${shared}-o`, dst: '/cache', upper: shared });
     }
   } catch (e) {
-    await discard([...layers, ...(shared ? [{ name: shared, dst: '' }] : [])]);
+    await discard([...sharedMounts, ...(shared ? [{ name: shared, dst: '' }] : [])]);
     throw e;
   }
-  return layers;
+  return sharedMounts;
 };
 
 /** Files a checkout wrote over the shared cache, from its `/cache` overlay; undefined when it has none. */
-export const written = async (layers: Layer[], image: string) => {
-  const upper = layers.find(l => l.dst === '/cache')?.upper;
+export const written = async (sharedMounts: SharedMount[], image: string) => {
+  const upper = sharedMounts.find(l => l.dst === '/cache')?.upper;
   if (!upper) return undefined;
   const out = await runDockerCli(
     [
@@ -616,10 +619,16 @@ export const written = async (layers: Layer[], image: string) => {
 };
 
 /** Removes a checkout's dependency volumes, each overlay before the volume holding its writes. */
-export const discard = (layers: Layer[], timeout?: number) =>
-  layers.length
+export const discard = (sharedMounts: SharedMount[], timeout?: number) =>
+  sharedMounts.length
     ? runDockerCli(
-        ['volume', 'rm', '-f', ...layers.map(l => l.name), ...layers.flatMap(l => (l.upper ? [l.upper] : []))],
+        [
+          'volume',
+          'rm',
+          '-f',
+          ...sharedMounts.map(l => l.name),
+          ...sharedMounts.flatMap(l => (l.upper ? [l.upper] : [])),
+        ],
         timeout
       ).then(
         () => undefined,

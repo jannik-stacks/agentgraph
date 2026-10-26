@@ -221,7 +221,6 @@ verb-first src/engine.ts tick
 verb-first src/env.ts dependencyDirs
 verb-first src/env.ts discard
 verb-first src/env.ts held
-verb-first src/env.ts layer
 verb-first src/env.ts reap
 verb-first src/env.ts used
 verb-first src/env.ts written

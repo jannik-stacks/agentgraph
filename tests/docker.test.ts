@@ -7,7 +7,7 @@ import { dockerSandbox, dockerArgs } from '../src/docker.ts';
 import {
   dependencyDirs,
   discard,
-  layer,
+  createSharedMounts,
   writeCheckoutOwner,
   reap,
   readDependencySkeleton,
@@ -771,13 +771,13 @@ describe('disk lifecycle', () => {
 
   it('layers overlays over the sandbox setup copy where it made a dependency dir and empty volumes elsewhere', async () => {
     await faked({ 'volume inspect': '/lower\\n/u0\\n' }, async log => {
-      const layers = await layer(
+      const sharedMounts = await createSharedMounts(
         { image: 'img', outputs: ['node_modules', 'dist'], lower: 'agentgraph-lower-k' },
         'own',
         tmp('work'),
         ['node_modules', 'packages/a/node_modules']
       );
-      expect(layers).toEqual([
+      expect(sharedMounts).toEqual([
         { name: 'agentgraph-layer-own-0-o', dst: '/work/node_modules', upper: 'agentgraph-layer-own-0' },
         { name: 'agentgraph-layer-own-1', dst: '/work/packages/a/node_modules' },
       ]);
@@ -790,21 +790,29 @@ describe('disk lifecycle', () => {
       expect(log()).toContain('type=volume,src=agentgraph-lower-k,dst=/lower,readonly');
       expect(log()).not.toContain('/u/1/upper');
       expect(log()).toContain(`cp -a '/lower/.agentgraph-env/rest/dist' '/dst/'/`);
-      await discard(layers);
+      await discard(sharedMounts);
       expect(log()).toContain('volume rm -f agentgraph-layer-own-0-o agentgraph-layer-own-1 agentgraph-layer-own-0');
     });
   });
 
   it('gives a checkout its own overlay over the shared cache, so run code never writes it', async () => {
     await faked({ 'volume inspect': '/m/a\\n/m/b\\n' }, async log => {
-      const layers = await layer({ image: 'img', outputs: [] }, 'own', tmp('work'), [], 'agentgraph-cache');
-      expect(layers).toEqual([{ name: 'agentgraph-layer-own-c-o', dst: '/cache', upper: 'agentgraph-layer-own-c' }]);
+      const sharedMounts = await createSharedMounts(
+        { image: 'img', outputs: [] },
+        'own',
+        tmp('work'),
+        [],
+        'agentgraph-cache'
+      );
+      expect(sharedMounts).toEqual([
+        { name: 'agentgraph-layer-own-c-o', dst: '/cache', upper: 'agentgraph-layer-own-c' },
+      ]);
       expect(log()).toContain('o=lowerdir=/m/a,upperdir=/m/b/upper,workdir=/m/b/work agentgraph-layer-own-c-o');
       const args = dockerArgs(
         { cmd: 'true', args: [], dir: '/w', env: {}, network: 'none', minutes: 1 },
         'img',
         'n',
-        { mounts: [], layers },
+        { mounts: [], sharedMounts },
         'agentgraph-cache'
       );
       expect(args).toContain('type=volume,src=agentgraph-layer-own-c-o,dst=/cache,volume-nocopy');
