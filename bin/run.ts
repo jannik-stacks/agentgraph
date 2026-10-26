@@ -130,9 +130,9 @@ const checkHub = async (hub: string, i: Pick<Instance, 'provider'> | undefined) 
 
 const noModel = `No model to use. Any one of these works:
   npx agentgraph start --provider claude "..."     Claude subscription, through claude setup-token
-  npx agentgraph start --provider chatgpt "..."    ChatGPT subscription, through a device login
   export ANTHROPIC_API_KEY=...                     Anthropic API
-  export AGENTGRAPH_PROXY_KEYS=...                 your LiteLLM at AGENTGRAPH_PROXY_URL`;
+  export AGENTGRAPH_PROXY_KEYS=...                 your LiteLLM at AGENTGRAPH_PROXY_URL, which also
+                                                   holds a ChatGPT login (infra/local/README.md)`;
 
 const pickProvider = async (i: Instance, after: string): Promise<{ provider: Provider; ready?: boolean }> => {
   const { providers = [], provider: named } = await Effect.runPromise(

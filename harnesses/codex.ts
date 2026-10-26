@@ -17,46 +17,6 @@ const CodexLine = Struct({
   error: opt(Struct(some(Str, 'message'))),
 });
 
-const masked = `
-const { spawn } = require('node:child_process');
-const { readFileSync, statSync } = require('node:fs');
-const { createInterface } = require('node:readline');
-const auth = process.env.CODEX_HOME && process.env.CODEX_HOME + '/auth.json';
-const seen = new Set();
-let read;
-const secrets = () => {
-  const changed = auth && statSync(auth, { throwIfNoEntry: false })?.mtimeMs;
-  if (changed && changed !== read) {
-    read = changed;
-    try { JSON.parse(readFileSync(auth, 'utf8'), (k, v) => (typeof v === 'string' && v.length >= 16 && seen.add(v), v)); } catch {}
-  }
-  return seen;
-};
-secrets();
-const codex = spawn('codex', process.argv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
-for (const out of [codex.stdout, codex.stderr])
-  createInterface({ input: out }).on('line', line => process.stdout.write([...secrets()].reduce((t, s) => t.replaceAll(s, '***'), line) + '\\n'));
-codex.on('close', code => process.exit(code ?? 1));
-`;
-
-const login = `mkdir -p /tmp/codex /codex/sessions && ln -s /codex/sessions /tmp/codex/sessions
-(flock 9 && cp /codex/auth.json /tmp/codex/auth.json) 9>/codex/.lock
-cp /tmp/codex/auth.json /tmp/codex/auth.start
-save() {
-  cp /tmp/codex/auth.json /tmp/codex/auth.copy
-  cmp -s /tmp/codex/auth.copy /tmp/codex/auth.start && return
-  node -e 'JSON.parse(require("fs").readFileSync("/tmp/codex/auth.copy", "utf8"))' 2>/dev/null || return
-  (flock 9 && cp /tmp/codex/auth.copy /codex/auth.next && mv /codex/auth.next /codex/auth.json) 9>/codex/.lock &&
-    mv /tmp/codex/auth.copy /tmp/codex/auth.start
-}
-(until [ -e /tmp/codex/done ]; do sleep 1; save; done) >/dev/null 2>&1 &
-node -e "$AGENTGRAPH_CODEX" -- "$@"
-code=$?
-touch /tmp/codex/done
-wait $!
-save
-exit $code`;
-
 const writing = ['edit', 'write', 'bash'];
 const writes = (tools: string[]) => tools.some(tool => writing.includes(tool));
 
@@ -74,31 +34,24 @@ export const makeCodexHarness = (): Harness => ({
   command: (spec, route) => {
     const resume = !spec.fork && spec.resume;
     return {
-      cmd: 'sh',
+      cmd: 'codex',
       args: [
-        '-c',
-        route.url ? 'exec node -e "$AGENTGRAPH_CODEX" -- "$@"' : login,
-        'sh',
         'exec',
         ...(writes(spec.tools) ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', 'read-only']),
         ...(resume ? ['resume', resume.id] : []),
         '--json',
         '--skip-git-repo-check',
-        ...(route.url
-          ? [
-              'model_provider="agentgraph"',
-              'model_providers.agentgraph.name="agentgraph"',
-              `model_providers.agentgraph.base_url=${JSON.stringify(route.url)}`,
-              'model_providers.agentgraph.env_key="AGENTGRAPH_LLM_API_KEY"',
-              'model_providers.agentgraph.wire_api="responses"',
-            ].flatMap(setting => ['-c', setting])
-          : []),
+        ...[
+          'model_provider="agentgraph"',
+          'model_providers.agentgraph.name="agentgraph"',
+          `model_providers.agentgraph.base_url=${JSON.stringify(route.url)}`,
+          'model_providers.agentgraph.env_key="AGENTGRAPH_LLM_API_KEY"',
+          'model_providers.agentgraph.wire_api="responses"',
+        ].flatMap(setting => ['-c', setting]),
         ...(route.model === 'default' ? [] : ['--model', route.model]),
         '--',
         resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
       ],
-      env: { ...(!route.url && { CODEX_HOME: '/tmp/codex' }), AGENTGRAPH_CODEX: masked },
-      ...(!route.url && { volumes: { '/codex': 'agentgraph-codex' } }),
     };
   },
   parse: () => {

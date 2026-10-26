@@ -25,7 +25,7 @@ export type Harness = HarnessCheck & {
   command: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
-  ) => Pick<Command, 'cmd' | 'args' | 'volumes'> & Partial<Pick<Command, 'env'>>;
+  ) => Pick<Command, 'cmd' | 'args'> & Partial<Pick<Command, 'env'>>;
   parse: () => (line: unknown) => Piece[];
 };
 
@@ -216,7 +216,7 @@ export const harnessSession = (
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });
-            const { cmd, args, env = {}, volumes } = harness.command(spec, route);
+            const { cmd, args, env = {} } = harness.command(spec, route);
             const hidden = Object.values(secrets)
               .map(secret => Redacted.value(secret))
               .flatMap(secret => [secret, ...secret.split('\n')])
@@ -276,7 +276,6 @@ export const harnessSession = (
                 home,
                 env: { ...env, ...(spec.base && { AGENTGRAPH_BASE: spec.base }) },
                 secrets,
-                ...(volumes && { volumes }),
                 network: 'proxy',
                 minutes: spec.minutes,
               })

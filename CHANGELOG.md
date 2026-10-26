@@ -22,11 +22,13 @@
   instance owner.
 - instance.yaml has `repo`, `base`, `owner` and `exported`; `logs` is gone, use `--logs`.
 - The studio takes `--repo` instead of `--instance`.
-- Providers in `agentgraph.config.ts` (`claude`, `chatgpt`, `anthropic`, `litellm`) set the model
+- Providers in `agentgraph.config.ts` (`claude`, `anthropic`, `litellm`) set the model
   settings for the harnesses they serve; `--provider`, `--harness` and `--model` pick, and an agent's
   harness the provider does not serve fails before filing. A subscription logs in on first use; the
   Claude token goes to the macOS Keychain.
-- The `codex` harness runs Codex with its ChatGPT login in the docker volume `agentgraph-codex`; proxy sessions do not mount it. The sandbox
+- The `codex` harness always talks to the gateway as a custom Responses provider with the agent's key;
+  a ChatGPT subscription comes from LiteLLM's `chatgpt/` models, which own the login and its refresh.
+  The `chatgpt` provider and its `agentgraph-codex` volume are gone. The sandbox
   image installs Claude Code 2.1.296 and Codex 0.162.1, and the egress allowlist has their API hosts.
   It grants all of `edit`, `write` and `bash` or runs read-only; the hub check rejects tool limits it
   cannot keep.
