@@ -406,7 +406,7 @@ const tell = (issue: number, text: string, by: string) =>
 
 export type Instruction =
   | { kind: 'say'; issue: number; text: string; comment?: string }
-  | { kind: 'dispatch'; issue: number; workflow: string; step?: string }
+  | ({ kind: 'dispatch' } & Omit<Extract<Proposal, { kind: 'run' }>, 'kind'>)
   | { kind: 'check'; checks: string[]; workflow?: string; issue?: number };
 
 /** CLI instructions use the event handling and dispatch checks of router proposals. */

@@ -9,15 +9,12 @@ export type Trail = { at: Run; outcome: Outcome }[];
 /** A run drawn over its workflow: a real one carries its trace, a simulated one only its trail. */
 export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | undefined };
 
-/** A simulated run: what happened and where it ended. */
-type Simulated = { label: string; trail: Trail; run: Run };
-
 /** A fixture workflow with its checks and the runs simulated over it; a served hub's also carries its prompts and what each agent returns and reads. */
 export type Fixture = {
   id: string;
   workflow: Workflow;
   checks: Record<string, Pick<Check, 'mode' | 'agent' | 'run'> & Partial<Pick<Doc<Check>, 'body'>>>;
-  runs: Simulated[];
+  runs: { label: string; trail: Trail; run: Run }[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;
   roles?: Record<string, Pick<Agent, 'returns' | 'reads' | 'model'>>;
@@ -71,16 +68,15 @@ const typical =
     return pass;
   };
 
-type Scenario = { label: string; next: Policy };
+const one = (when: unknown, item: () => ReturnType<typeof scenarios>[number]) => (when ? [item()] : []);
 
 /** The simulated runs that make sense for a workflow, each skipped when the workflow cannot reach it. */
-export const scenarios = (w: Workflow, checks: Fixture['checks']): Scenario[] => {
+export const scenarios = (w: Workflow, checks: Fixture['checks']): { label: string; next: Policy }[] => {
   const retried = w.steps.find(s => !waits(s) && s.tries > 1);
   const tried = retried ?? w.steps.find(s => !waits(s));
   const loop = w.steps.find(s => isAgent(s) && s.back?.rounds !== undefined);
   const human = w.steps.find(waits);
   const guarded = w.steps.find(s => s.checks.some(c => checks[c]?.mode === 'stop'));
-  const one = (when: unknown, item: () => Scenario) => (when ? [item()] : []);
   return [
     { label: 'a typical run', next: typical(w) },
     ...one(retried, () => ({

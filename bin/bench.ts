@@ -80,8 +80,12 @@ type Commands = {
   /** The image the score step starts from, in place of the sandbox image. */
   image?: string;
 };
-type Finding = { severity: string; category: string; text: string };
-type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; prefer: 'A' | 'B' | 'tie'; why?: string };
+type Verdict = {
+  A?: { findings?: { severity: string; category: string; text: string }[] };
+  B?: Verdict['A'];
+  prefer: 'A' | 'B' | 'tie';
+  why?: string;
+};
 
 const bots = ['v2', 'floor'];
 /** Repos a bench never runs or reports. */
@@ -740,10 +744,8 @@ const counts = (tail = '') => {
   return pass && fail ? { passed: +pass[1]!, total: +pass[1]! + +fail[1]! } : undefined;
 };
 
-type Run = { ok: boolean; tail?: string };
-
 /** The share of the hidden tests base fails that a run passes; pass or fail when the run printed no counts. */
-export const hiddenShare = (run?: Run, base?: Run) => {
+export const hiddenShare = (run?: Pick<ReturnType<typeof exec>, 'ok' | 'tail'>, base?: typeof run) => {
   if (!run) return undefined;
   const [r, b] = [counts(run.tail), base && counts(base.tail)];
   if (run.ok || !r) return +run.ok;
@@ -1549,7 +1551,10 @@ export const readBenchRows = (out: string, repos?: string[]) => {
         const spent = { ...s, ...usage(join(out, c.id, arm)) };
         const [hidden, typecheck] = [ok(s.hidden), ok(s.typecheck)];
         const suite = ok(base.suite) === 0 ? undefined : ok(s.suite);
-        const share = hiddenShare(s.hidden as Run | undefined, base.hidden as Run | undefined);
+        const share = hiddenShare(
+          s.hidden as Parameters<typeof hiddenShare>[0],
+          base.hidden as Parameters<typeof hiddenShare>[0]
+        );
         return [
           {
             point: `${p.harness}:${p.model}/${arm}@${p.engine}/${p.hubs[arm] ?? ''}/${p.set}`,

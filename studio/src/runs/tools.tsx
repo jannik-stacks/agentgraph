@@ -1,4 +1,5 @@
 import { type ComponentType, type ReactNode, useState } from 'react';
+import type { Issue } from '../../../src/event.ts';
 import { getFileHighlightLanguage } from '../source/lang.ts';
 import { Icon } from '../icons.tsx';
 import { Badge, cx } from '../ui.tsx';
@@ -339,10 +340,8 @@ const Task = ({ input, output, ok }: ToolProps) => (
   </>
 );
 
-type Issue = { number?: number; title?: string; state?: string; labels?: string[]; body?: string };
-
 const IssueGet = ({ output, ok }: ToolProps) => {
-  const issue = parseJson(output) as Issue | undefined;
+  const issue = parseJson(output) as Partial<Issue> | undefined;
   if (ok === false || !issue || typeof issue.body !== 'string') {
     if (output && parseJson(output) === undefined && ok !== false) return <Text text={output} />;
     return <Output output={output} ok={ok} />;
