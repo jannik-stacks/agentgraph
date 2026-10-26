@@ -21,8 +21,11 @@ const servedHub = async () => {
   const dir = process.env.VITE_AGI_HUB;
   if (!dir) return;
   const { Effect, Either } = await import('effect');
-  const { readConfiguredHub }: typeof HarnessesModule = await from('src/harnesses.ts');
-  const loaded = await Effect.runPromise(Effect.either(readConfiguredHub(dir)));
+  const { makeHarnessConfigProvider, readConfiguredHub }: typeof HarnessesModule = await from('src/harnesses.ts');
+  const choice = JSON.parse(process.env.VITE_AGI_HARNESS_CHOICE ?? '{}');
+  const loaded = await Effect.runPromise(
+    Effect.either(readConfiguredHub(dir).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(choice))))
+  );
   return Either.isRight(loaded)
     ? { name: basename(dir), hub: loaded.right, problems: [] }
     : { name: basename(dir), hub: undefined, problems: loaded.left.problems };

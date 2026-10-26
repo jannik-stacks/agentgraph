@@ -11,14 +11,19 @@ import type { Instruction } from '../src/engine.ts';
 import type { Hub } from '../src/hub.ts';
 import { fileForge, Forge } from '../src/forge.ts';
 import { readInstallationReach } from '../src/github.ts';
-import { readConfiguredHub, readHarnessSettings, splitNames, type Provider } from '../src/harnesses.ts';
+import {
+  makeHarnessConfigProvider,
+  readConfiguredHub,
+  readHarnessSettings,
+  splitNames,
+  type Provider,
+} from '../src/harnesses.ts';
 import {
   defaultHub,
   ensureHub,
   ensureInstance,
   writePullToRepo,
   findInstances,
-  findProvider,
   findPull,
   findRepo,
   mergePull,
@@ -100,22 +105,22 @@ const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {
 const printRuns = (runs: Run[]) => {
   for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
-const useProvider = (named?: string) =>
-  Object.assign(process.env, {
-    ...(named && { AGENTGRAPH_PROVIDER: named }),
-    ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
-  });
+const makeHarnessChoice = (provider: string | undefined) => ({
+  config: host.config,
+  provider,
+  harness: values.harness,
+});
 const formatUnserved = (provider: Provider, harness: string) =>
   `${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.`;
-const checkHub = async (hub: string, named: string | undefined) => {
-  useProvider(named);
+const checkHub = async (hub: string, i: Pick<Instance, 'provider'> | undefined) => {
   const problems = await Effect.runPromise(
     Effect.zip(readHarnessSettings, readConfiguredHub(hub)).pipe(
-      Effect.map(([{ providers = [] }, loaded]) => {
+      Effect.map(([{ providers = [], provider: named }, loaded]) => {
         const provider = providers.find(p => p.name === named);
         return provider ? findUnserved(provider, loaded) : [];
       }),
-      Effect.catchTag('HubError', e => Effect.succeed(e.problems))
+      Effect.catchTag('HubError', e => Effect.succeed(e.problems)),
+      Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i?.provider)))
     )
   );
   for (const p of problems) console.error(`${p.path}: ${p.message}`);
@@ -129,29 +134,36 @@ const noModel = `No model to use. Any one of these works:
   export ANTHROPIC_API_KEY=...                     Anthropic API
   export AGENTGRAPH_PROXY_KEYS=...                 your LiteLLM at AGENTGRAPH_PROXY_URL`;
 
-const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
-  const named = findProvider(values.provider, i);
-  useProvider(named);
-  const { providers = [] } = await Effect.runPromise(readHarnessSettings).catch((e: Error) => fail(e.message, 1));
+const pickProvider = async (i: Instance, after: string): Promise<{ provider: Provider; ready?: boolean }> => {
+  const { providers = [], provider: named } = await Effect.runPromise(
+    readHarnessSettings.pipe(
+      Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i.provider)))
+    )
+  ).catch((e: Error) => fail(e.message, 1));
   if (named)
-    return (
-      providers.find(p => p.name === named) ??
-      fail(`no provider ${named}; the config has ${providers.map(p => p.name).join(', ')}`)
-    );
-  const ready: Provider[] = [];
-  for (const p of providers) if ((await p.ready(host)) || p.detect?.()) ready.push(p);
-  if (ready.length === 0) fail(`${noModel}\n${after}`, 1);
-  if (ready.length === 1) {
-    writeInstanceProvider(i, ready[0]!.name);
-    return ready[0]!;
+    return {
+      provider:
+        providers.find(p => p.name === named) ??
+        fail(`no provider ${named}; the config has ${providers.map(p => p.name).join(', ')}`),
+    };
+  const found: { provider: Provider; ready: boolean }[] = [];
+  for (const provider of providers) {
+    const ready = await provider.ready(host);
+    if (ready || provider.detect?.(host)) found.push({ provider, ready });
   }
-  const names = ready.map(p => p.name);
+  if (found.length === 0) fail(`${noModel}\n${after}`, 1);
+  if (found.length === 1) {
+    writeInstanceProvider(i, found[0]!.provider.name);
+    return found[0]!;
+  }
+  const names = found.map(f => f.provider.name);
   if (!process.stdin.isTTY) fail(`${names.join(' and ')} are ready; pass --provider ${names.join(' or --provider ')}`);
   const lines = createInterface({ input: process.stdin, output: process.stdout });
   const answer = (await lines.question(`${names.join(' and ')} are ready. Use which? [${names.join('/')}] `)).trim();
   lines.close();
-  const picked = ready.find(p => p.name === answer) ?? fail(`${answer || 'nothing'} is not one of ${names.join(', ')}`);
-  writeInstanceProvider(i, picked.name);
+  const picked =
+    found.find(f => f.provider.name === answer) ?? fail(`${answer || 'nothing'} is not one of ${names.join(', ')}`);
+  writeInstanceProvider(i, picked.provider.name);
   return picked;
 };
 
@@ -164,13 +176,13 @@ const findUnserved = (provider: Provider, hub: Hub) =>
     }));
 
 const connect = async (i: Instance, hub: string, after: string) => {
-  if (!process.env.AGENTGRAPH_SANDBOX_URL) {
+  if (!host.sandbox) {
     const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`), host.image)).catch(
       (e: Error) => fail(`${e.message}\n${after}`, 1)
     );
     console.log(`sandbox  docker ${docker}`);
   }
-  const provider = await pickProvider(i, after);
+  const { provider, ready } = await pickProvider(i, after);
   if (values.save && values.provider) writeInstanceProvider(i, provider.name);
   const harness = values.harness ?? provider.harnesses[0]!;
   if (!provider.harnesses.includes(harness)) fail(`${formatUnserved(provider, harness)}\n${after}`);
@@ -178,12 +190,11 @@ const connect = async (i: Instance, hub: string, after: string) => {
     `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
   );
   console.log(`repo     ${i.repo}, base ${i.base}`);
-  if (!(await provider.ready(host)))
+  if (!(ready ?? (await provider.ready(host))))
     await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))(host).catch(
       (e: Error) => fail(`${e.message}\n${after}`, 1)
     );
   Object.assign(process.env, provider.settings?.() ?? {});
-  useProvider(provider.name);
   const aliases = new Map(
     splitNames(process.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
   );
@@ -191,7 +202,9 @@ const connect = async (i: Instance, hub: string, after: string) => {
 };
 
 const loadServedHub = async ({ provider, model }: Awaited<ReturnType<typeof connect>>, hub: string) => {
-  const loaded = await Effect.runPromise(readConfiguredHub(hub));
+  const loaded = await Effect.runPromise(
+    readConfiguredHub(hub).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(provider.name))))
+  );
   if (model)
     process.env.AGENTGRAPH_MODELS = ['*', ...Object.values(loaded.agents).flatMap(a => a.model ?? [])]
       .map(alias => `${alias}=${model}`)
@@ -201,8 +214,11 @@ const loadServedHub = async ({ provider, model }: Awaited<ReturnType<typeof conn
   return loaded;
 };
 
-const prepare = async (i: Instance, hub: string, after: string) =>
-  loadServedHub(await connect(i, hub, after), hub).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+const prepare = async (i: Instance, hub: string, after: string) => {
+  const connection = await connect(i, hub, after);
+  const loaded = await loadServedHub(connection, hub).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+  return { loaded, provider: connection.provider.name };
+};
 
 const stopping = new AbortController();
 const trapInterrupt = () =>
@@ -220,7 +236,7 @@ const selected = formatInstanceFlags(values.repo && resolve(values.repo), values
 if (verb === 'check' && values.hub && !values.runs) {
   const repo = onForge ? undefined : await findRepo(resolve(values.repo ?? '.'));
   const saved = repo ? findInstances(root).find(i => i.repo === realpathSync(repo)) : undefined;
-  await checkHub(resolve(values.hub), findProvider(values.provider, saved));
+  await checkHub(resolve(values.hub), saved);
 }
 if (onForge) await runOnForge();
 else await runOnInstance();
@@ -315,7 +331,7 @@ async function runOnInstance() {
       const text = rest.join(' ').trim();
       if (!text) fail(`start takes the issue text\n${usage}`);
       const hub = await synced();
-      const loaded = await prepare(i, hub, 'Nothing was filed.');
+      const { loaded, provider } = await prepare(i, hub, 'Nothing was filed.');
       const issue = await writeTriggeringIssue(
         { ...loaded, trust: [i.owner] },
         i.forge,
@@ -325,16 +341,16 @@ async function runOnInstance() {
         values.label
       ).catch((e: Error) => fail(e.message));
       console.log(`#${issue} ${text.split('\n')[0]}`);
-      return drive(i, issue, hub);
+      return drive(i, issue, hub, provider);
     }
     case 'say': {
       if (!said()) fail(`say takes text\n${usage}`);
       const issue = await findIssueOf(i, numbered());
       const hub = await synced();
-      await prepare(i, hub, 'Nothing was posted.');
+      const { provider } = await prepare(i, hub, 'Nothing was posted.');
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
       if (values.label) await writeLabels(i.forge, i.owner, issue, values.label).catch((e: Error) => fail(e.message));
-      return drive(i, issue, hub);
+      return drive(i, issue, hub, provider);
     }
     case 'review': {
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
@@ -344,9 +360,9 @@ async function runOnInstance() {
       const text = rest.slice(2).join(' ').trim();
       const issue = await findIssueOf(i, numbered());
       const hub = await synced();
-      if (verdict === 'changes_requested') await prepare(i, hub, 'Nothing was posted.');
+      const prepared = verdict === 'changes_requested' && (await prepare(i, hub, 'Nothing was posted.'));
       await writeReview(i.forge, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
-      if (verdict === 'changes_requested') return drive(i, issue, hub);
+      if (prepared) return drive(i, issue, hub, prepared.provider);
       console.log(`approved #${n}`);
       return;
     }
@@ -389,10 +405,13 @@ async function runOnInstance() {
       return rest[0] ? showIssue(await forgeOf(), numbered(), i) : showAll(i, await forgeOf());
     case 'check':
     case 'dispatch': {
-      if (verb === 'check' && !values.runs) return checkHub(await synced(), findProvider(values.provider, i));
+      if (verb === 'check' && !values.runs) return checkHub(await synced(), i);
       const hub = await synced();
-      await prepare(i, hub, 'Nothing was run.');
-      return printRuns(await start({ hub, issue: 'all', data: i.data, base: i.base, instruction: instructed() }));
+      const { provider } = await prepare(i, hub, 'Nothing was run.');
+      const choice = makeHarnessChoice(provider);
+      return printRuns(
+        await start({ hub, issue: 'all', data: i.data, base: i.base, instruction: instructed(), choice })
+      );
     }
     case 'loop':
       return loop(i);
@@ -424,7 +443,7 @@ async function findIssueOf(i: Instance, n: number) {
   return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 }
 
-async function drive(i: Instance, issue: number, hub: string) {
+async function drive(i: Instance, issue: number, hub: string, provider: string) {
   trapInterrupt();
   if (await isLoopHeld(i.data)) {
     console.log(
@@ -434,7 +453,7 @@ async function drive(i: Instance, issue: number, hub: string) {
   }
   const stop = watchRuns(i, issue);
   const runs = await start(
-    { hub, issue, data: i.data, marked: true, base: i.base },
+    { hub, issue, data: i.data, marked: true, base: i.base, choice: makeHarnessChoice(provider) },
     undefined,
     {},
     stopping.signal
@@ -494,7 +513,7 @@ async function loop(i: Instance) {
       if (why) console.error(why);
       else {
         const runs = await start(
-          { hub, issue: 'all', data: i.data, base: i.base },
+          { hub, issue: 'all', data: i.data, base: i.base, choice: makeHarnessChoice(connection.provider.name) },
           undefined,
           {},
           stopping.signal

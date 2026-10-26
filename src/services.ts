@@ -2,12 +2,19 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Config, Effect, Layer, Redacted } from 'effect';
+import { Config, Effect, Layer, Option, Redacted, Struct } from 'effect';
 import { fileForge } from './forge.ts';
 import { dockerSandbox, sandboxImage } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
-import { harnessSession, parseModelUrls, splitNames, readConfiguredHub, readHarnessSettings } from './harnesses.ts';
+import {
+  type HarnessSettings,
+  harnessSession,
+  parseModelUrls,
+  splitNames,
+  readConfiguredHub,
+  readHarnessSettings,
+} from './harnesses.ts';
 import { HubError } from './hub.ts';
 import { remoteSandbox } from './remote.ts';
 import { Sandbox } from './sandbox.ts';
@@ -51,17 +58,20 @@ export const hostSettings = {
     Config.withDefault(5)
   ),
   image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault(sandboxImage)),
+  sandbox: Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
 };
 
 const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
 
 export const readHostSettings = async (flags: Partial<Record<'data' | 'forge', string>>) => {
-  const s = await Effect.runPromise(Config.all(hostSettings));
+  const s = await Effect.runPromise(
+    Config.all({ ...hostSettings, config: Config.option(Config.string('AGENTGRAPH_CONFIG')) })
+  );
   const onForge = flags.forge !== undefined || app.some(name => process.env[name]);
   const data = resolve(flags.data ?? s.data);
-  const config = join(data, 'config.ts');
-  if (!onForge && !process.env.AGENTGRAPH_CONFIG && existsSync(config)) process.env.AGENTGRAPH_CONFIG = config;
-  return { ...s, data, onForge };
+  const file = join(data, 'config.ts');
+  const config = Option.getOrElse(s.config, () => (!onForge && existsSync(file) ? file : undefined));
+  return { ...s, data, onForge, config };
 };
 
 export const settings = Config.all({
@@ -75,7 +85,6 @@ export const settings = Config.all({
   }),
   prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(prices)),
   cache: Config.string('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
-  sandbox: Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
   checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
   trust: Config.array(Config.string(), 'AGENTGRAPH_TRUST').pipe(Config.withDefault<string[]>([])),
@@ -133,13 +142,16 @@ export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
         Effect.provide(sandbox),
         Effect.catchAll(() => Effect.succeed<string[]>([]))
       );
-  const config = readHarnessSettings.pipe(Effect.orElseSucceed(() => ({ harnesses: [] })));
+  const config = readHarnessSettings.pipe(Effect.orElseSucceed((): HarnessSettings => ({ harnesses: [] })));
   return Layer.unwrapEffect(
     Effect.map(Effect.all([trust, config]), ([trust, config]) =>
       Layer.mergeAll(
         forge(trust),
         fileStore(s.data, s.checkLogs),
-        harnessSession({ ...s, ...config }).pipe(Layer.provideMerge(sandbox))
+        harnessSession({
+          ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
+          ...Struct.pick(config, 'harnesses', 'provider'),
+        }).pipe(Layer.provideMerge(sandbox))
       )
     )
   );

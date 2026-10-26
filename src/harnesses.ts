@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Config, Effect, Layer, Redacted, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
 import { type HarnessCheck, HubError, loadHub } from './hub.ts';
 import { type Exit, Sandbox, type SandboxError } from './sandbox.ts';
 import { Session } from './session.ts';
@@ -32,13 +32,13 @@ export type Harness = HarnessCheck & {
 export type Provider = {
   name: string;
   harnesses: string[];
-  ready: (s: { image: string }) => boolean | Promise<boolean>;
-  detect?: () => boolean;
+  ready: (host: { image: string; sandbox: string }) => boolean | Promise<boolean>;
+  detect?: (host: Parameters<Provider['ready']>[0]) => boolean;
   settings?: () => Record<string, string>;
-  login?: (s: { image: string }) => Promise<void>;
+  login?: (host: Parameters<Provider['ready']>[0]) => Promise<void>;
 };
 
-export type HarnessSettings = { harnesses: Harness[]; providers?: Provider[]; harness?: string };
+export type HarnessSettings = { harnesses: Harness[]; providers?: Provider[]; harness?: string; provider?: string };
 
 const builtIn = fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url));
 
@@ -66,6 +66,15 @@ export const readHarnessSettings = Effect.gen(function* () {
 
 export const readConfiguredHub = (dir: string) =>
   Effect.flatMap(readHarnessSettings, settings => loadHub(dir, settings.harnesses, settings.harness));
+
+export const makeHarnessConfigProvider = (
+  choice: Partial<Record<'config' | 'provider' | 'harness', string | undefined>>,
+  fallback = ConfigProvider.fromEnv()
+) => {
+  const names = { config: 'AGENTGRAPH_CONFIG', provider: 'AGENTGRAPH_PROVIDER', harness: 'AGENTGRAPH_HARNESS' };
+  const chosen = Object.entries(choice).flatMap(([k, v]) => (v ? [[names[k as keyof typeof names], v] as const] : []));
+  return ConfigProvider.fromMap(new Map(chosen)).pipe(ConfigProvider.orElse(() => fallback));
+};
 
 /** Runs the harness with its errors on the one stream it prints to, so the lines keep their order. */
 const wrapped = (cmd: string, args: string[]) => ({ cmd: 'sh', args: ['-c', 'exec "$@" 2>&1', 'sh', cmd, ...args] });
@@ -155,14 +164,14 @@ const stopOf = (e: SandboxError) =>
  * agent) and the `passed` variables. Without a URL the harness uses its own endpoint, without a key its own login.
  * Usage the harness does not price is priced from the `prices` file.
  */
-export const harnessSession = (s: {
-  data: string;
-  proxy: { url: string; keys: Redacted.Redacted; models?: string };
-  passed?: Record<string, Redacted.Redacted>;
-  prices?: string;
-  harnesses: readonly Harness[];
-  provider?: string;
-}): Layer.Layer<Session, never, Sandbox> =>
+export const harnessSession = (
+  s: {
+    data: string;
+    proxy: { url: string; keys: Redacted.Redacted; models?: string };
+    passed?: Record<string, Redacted.Redacted>;
+    prices?: string;
+  } & Pick<HarnessSettings, 'harnesses' | 'provider'>
+): Layer.Layer<Session, never, Sandbox> =>
   Layer.effect(
     Session,
     Effect.gen(function* () {
@@ -231,9 +240,15 @@ export const harnessSession = (s: {
                   if (session) return [];
                   session = piece.id;
                   model = piece.model ?? model;
-                  const provider = s.provider && { provider: s.provider };
                   return [
-                    { type: 'start', session: piece.id, harness: harness.name, ...provider, model: route.model, home },
+                    {
+                      type: 'start',
+                      session: piece.id,
+                      harness: harness.name,
+                      ...(s.provider && { provider: s.provider }),
+                      model: route.model,
+                      home,
+                    },
                   ];
                 }
                 if (piece.type === 'done') {

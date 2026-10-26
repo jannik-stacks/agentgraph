@@ -12,7 +12,7 @@ import {
   type Services,
 } from './engine.ts';
 import { writeIssueFile } from './forge.ts';
-import { splitNames, readConfiguredHub } from './harnesses.ts';
+import { makeHarnessConfigProvider, splitNames, readConfiguredHub } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
 import type { Hub } from './hub.ts';
 import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
@@ -99,7 +99,15 @@ export const isLoopHeld = (data: string) =>
  * workflows that name none start from. An abort of `signal` interrupts it, and a run it drove resumes on the next look.
  */
 export const start = (
-  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction; marked?: true; base?: string },
+  one?: {
+    hub: string;
+    issue: number | 'all';
+    data: string;
+    instruction?: Instruction;
+    marked?: true;
+    base?: string;
+    choice?: Parameters<typeof makeHarnessConfigProvider>[0];
+  },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers,
   defaults: Record<string, string> = {},
   signal?: AbortSignal
@@ -110,7 +118,9 @@ export const start = (
   const program = one
     ? Effect.gen(function* () {
         const env = yield* read;
-        const loaded = yield* readConfiguredHub(one.hub).pipe(Effect.withConfigProvider(configured(env)));
+        const choose = (fallback: ConfigProvider.ConfigProvider) =>
+          Effect.withConfigProvider(makeHarnessConfigProvider(one.choice ?? {}, fallback));
+        const loaded = yield* readConfiguredHub(one.hub).pipe(choose(configured(env)));
         const base = one.base;
         const hub = base
           ? {
@@ -132,7 +142,7 @@ export const start = (
             : one.issue === 'all'
               ? scanIssuesAndRunningRuns(hub)
               : tick(hub, one.issue, one.marked)
-        ).pipe(Effect.withConfigProvider(provider));
+        ).pipe(choose(provider));
       })
     : Effect.gen(function* () {
         const provider = configured(yield* read);
