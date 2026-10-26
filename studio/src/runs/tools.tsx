@@ -64,7 +64,7 @@ const Output = ({ output, ok, lines = 8 }: Pick<ToolProps, 'output' | 'ok'> & { 
       code={output.replace(/^\n+|\s+$/g, '')}
       compact
       lines={lines}
-      className={cx(ok === false && 'text-sky-600 dark:text-sky-400')}
+      className={cx(ok === false && 'text-zinc-500')}
     />
   );
 };
@@ -448,7 +448,7 @@ export const ToolBody = ({
     <div
       className={cx(
         'min-w-0 space-y-1.5 text-xs',
-        ok === false && 'rounded border border-sky-200 px-2 py-1 dark:border-sky-900'
+        ok === false && 'rounded border border-zinc-200 px-2 py-1 dark:border-zinc-800'
       )}
     >
       <Body input={record(input)} output={output} ok={ok} />

@@ -182,8 +182,8 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
           <Badge>{toolName(e.name)}</Badge>
         </Tooltip>{' '}
         {toolSummary(e.name, e.input)}
-        {e.denied && flag(' denied')}
-        {e.ok === false && !e.denied && flag(' failed')}
+        {e.denied && muted(' denied')}
+        {e.ok === false && !e.denied && muted(' failed')}
         {e.exit !== undefined && muted(` exit ${e.exit}`)}
       </>
     ),
@@ -261,7 +261,7 @@ const lines: {
   check: line => ({
     summary: (
       <>
-        <Pill of="line" kind="check" /> {line.check.check} {flag(line.check.pass ? 'pass' : 'fail', !line.check.pass)}
+        <Pill of="line" kind="check" /> {line.check.check} {line.check.pass ? 'pass' : muted('fail')}
         {formatCheckValue(line.check) && ` ${formatCheckValue(line.check)}`}
         {muted(
           `${line.check.empty ? ', empty' : ''}${line.end ? ', at run end' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.exit === undefined ? '' : `, exit ${line.exit}`}`
@@ -529,26 +529,26 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Trac
       </span>
     ),
     body: <RunInfo r={r} />,
-    children: visits.map((visit, i) => ({
-      open: true,
-      summary: (
-        <span className="flex min-w-0 items-baseline gap-x-2">
-          <span className={cx('font-medium', r.run.status === 'running' && i === visits.length - 1 && accent.text)}>
-            {visit.step}
+    children: visits.map((visit, i) => {
+      const checks = new Map(
+        visit.parts.flatMap(part =>
+          'check' in part && part.item === undefined ? [[part.check.check, part.check.pass] as const] : []
+        )
+      );
+      const failed = [...checks].flatMap(([name, pass]) => (pass ? [] : [name]));
+      return {
+        open: true,
+        summary: (
+          <span className="flex min-w-0 items-baseline gap-x-2">
+            <span className={cx('font-medium', r.run.status === 'running' && i === visits.length - 1 && accent.text)}>
+              {visit.step}
+            </span>
+            {checks.size > 0 && muted(`${checks.size} checks${failed.length ? `, failed ${failed.join(', ')}` : ''}`)}
           </span>
-          {visit.parts.flatMap((part, j) =>
-            'check' in part && part.item === undefined
-              ? [
-                  <Badge key={j}>
-                    {part.check.check} {flag(part.check.pass ? '✓' : '✗', !part.check.pass)}
-                  </Badge>,
-                ]
-              : []
-          )}
-        </span>
-      ),
-      children: visit.parts.map(partRow),
-    })),
+        ),
+        children: visit.parts.map(partRow),
+      };
+    }),
   };
 };
 
