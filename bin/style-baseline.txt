@@ -89,7 +89,7 @@ no-comment studio/src/compound/CompoundPage.tsx 1
 no-comment studio/src/compound/climb.ts 7
 no-comment studio/src/docs/DocsPage.tsx 1
 no-comment studio/src/graph/GraphPage.tsx 8
-no-comment studio/src/graph/StepDetails.tsx 8
+no-comment studio/src/graph/StepDetails.tsx 7
 no-comment studio/src/graph/chips.ts 3
 no-comment studio/src/graph/layout.ts 6
 no-comment studio/src/graph/nodes.tsx 11
@@ -257,7 +257,6 @@ verb-first studio/src/compound/climb.ts seriesOf
 verb-first studio/src/graph/layout.ts layout
 verb-first studio/src/graph/scenarios.ts scenarios
 verb-first studio/src/graph/scenarios.ts simulate
-verb-first studio/src/runs/rows.tsx lineRow
 verb-first studio/src/runs/rows.tsx statusTip
 verb-first studio/src/runs/tools.tsx toolName
 verb-first studio/src/runs/tools.tsx toolSummary
