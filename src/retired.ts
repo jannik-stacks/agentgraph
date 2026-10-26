@@ -1,5 +1,6 @@
 export const retiredWords: { word: string; example?: string; text?: RegExp }[] = [
   { word: 'bothub', example: 'agentgraph' },
+  { word: 'hub', example: 'graph, or the agentgraph folder', text: /\bhubs?\b/i },
   { word: 'compound', example: 'what it does' },
   { word: 'climb', example: 'what it does' },
   { word: 'stamp', example: 'RunLink' },

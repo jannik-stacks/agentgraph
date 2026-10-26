@@ -38,7 +38,10 @@ export const findNameProblems = name => {
 
 const findRetiredWordInName = name => {
   const words = new Set(
-    name.split(/(?<=[a-z\d])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[^A-Za-z]+/).map(word => word.toLowerCase())
+    name
+      .replaceAll('GitHub', 'Github')
+      .split(/(?<=[a-z\d])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[^A-Za-z]+/)
+      .map(word => word.toLowerCase())
   );
   return retiredWords.find(({ word }) => words.has(word) || words.has(`${word}s`));
 };

@@ -26,7 +26,7 @@ const config = JSON.stringify({
 });
 
 describe('style lint', () => {
-  it('flags a verbless, an xOf, a local, parameter or destructured xOf or xFrom and a shared export name and a retired word, minus the baseline', () => {
+  it('flags a verbless, an xOf, a local, parameter or destructured xOf or xFrom and a shared export name and a retired word but not GitHub, minus the baseline', () => {
     const dir = tmp('style');
     write(dir, {
       '.oxlintrc.json': config,
@@ -42,6 +42,8 @@ describe('style lint', () => {
         'export const makeClimb = () => 1;',
         'export type CoreRun = { id: string };',
         'export const isAlive = () => true;',
+        'export const readHub = () => 1;',
+        'export const isGitHubRef = () => true;',
         'export const makeTimestamp = () => 1;',
         'export type Graph = { dir: string };',
         'export const Graph = 1;',
@@ -62,6 +64,7 @@ describe('style lint', () => {
       'error style(retired-word) CoreRun',
       'error style(retired-word) isAlive',
       'error style(retired-word) makeClimb',
+      'error style(retired-word) readHub',
       'error style(unique-export) plan',
       'error style(unique-export) plan',
       'error style(verb-first) graphOf',

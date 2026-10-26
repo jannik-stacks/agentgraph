@@ -2,25 +2,29 @@
 
 ## Unreleased
 
-- `AGENTGRAPH_REPO`, when set, is the repo a hub works on instead of its `repo`, so a public hub can keep a
+- The word hub is retired. `--hub` is `--dir`, `AGENTGRAPH_HUB` is `AGENTGRAPH_DIR`, `hub.yaml` is
+  `settings.yaml`, `show hub` is `show graph`, the `hub` issue relation and label are `graph`, and the
+  packaged default moved from `hub/` to `default/`. Sandboxes mount the folder at `/graph`. Tunes keep
+  candidates under `cands/<id>/graph` and `graph.git`, and record `graph` instead of `hub`.
+- `AGENTGRAPH_REPO`, when set, is the repo a graph works on instead of its `repo`, so a public graph can keep a
   placeholder.
 - A committed `.agentgraph/` with symlinks or submodules is refused. The studio's Inbox commands carry
   the instance's `--repo` and `--data`.
-- `start` and `say` take `--label`, repeatable; `show hub` prints the hub in use and its files.
+- `start` and `say` take `--label`, repeatable; `show graph` prints the graph in use and its files.
 - `npx agentgraph <verb>` inside any repo needs no setup: the first command makes a local instance
   under `--data`, `AGENTGRAPH_DATA` or `~/.agentgraph`. `start`, `say`, `review`, `merge`, `export`,
   `close`, `show`, `loop`, `check`, `dispatch` and `prune-logs` take the issue number as the handle.
   `bin/forge.ts`, `--instance`, `--issue <n>` as a run selector, `--all`, `status`, `tell` from the CLI
   and an instance's `keys.env` are gone. `--forge` or App credentials run the CLI as a runner, where
   `--data` stays the runs folder and `loop --once` replaces `--all`.
-- Without `.agentgraph/` in the repo the CLI uses the packaged default hub; with it, the hub at the
+- Without `.agentgraph/` in the repo the CLI uses the packaged default graph; with it, the graph at the
   committed base.
 - A finished drive writes `agentgraph/<n>` into your repo only when that ref is absent or still where
   agentgraph left it; `export --as` and `--patch` write elsewhere. The forge's base fast-forwards to
   your branch before each drive.
 - `start`, `say` and `review changes` drive the issue in the foreground; while a `loop` holds the
   instance's lock they post and return with a `show` command. Ctrl-C stops a drive, and the run resumes on the next.
-- `AGENTGRAPH_TRUST`, when set, is trusted instead of the hub's `trust`; the CLI sets it to the
+- `AGENTGRAPH_TRUST`, when set, is trusted instead of the graph's `trust`; the CLI sets it to the
   instance owner.
 - instance.yaml has `repo`, `base`, `owner` and `exported`; `logs` is gone, use `--logs`.
 - The studio takes `--repo` instead of `--instance`.
@@ -32,14 +36,14 @@
   a ChatGPT subscription comes from LiteLLM's `chatgpt/` models, which own the login and its refresh.
   The `chatgpt` provider and its `agentgraph-codex` volume are gone. The sandbox
   image installs Claude Code 2.1.296 and Codex 0.162.1, and the egress allowlist has their API hosts.
-  It grants all of `edit`, `write` and `bash` or runs read-only; the hub check rejects tool limits it
+  It grants all of `edit`, `write` and `bash` or runs read-only; the graph check rejects tool limits it
   cannot keep.
 - An agent's `harness` is optional: the first of `AGENTGRAPH_PROVIDER`'s, else the config's first.
   `AGENTGRAPH_HARNESS` runs every agent on one harness. `AGENTGRAPH_MODELS`
   maps model aliases, `*` for agents without a `model`.
 - The CLI checks docker before it files or drives, and creates the sandbox networks, the egress proxy
   and the sandbox image when missing or out of date. The package is publishable: `bin/agentgraph.js` runs the
-  TypeScript sources from `node_modules`, and `files` ships the engine, the default hub and the
+  TypeScript sources from `node_modules`, and `files` ships the engine, the default graph and the
   image sources.
 
 - A check with `returns: number` traces a `value`: the share of items passed, or the number a script prints
@@ -61,7 +65,7 @@
   environments are built once more.
 - A bench run that drops a case's environment image also drops its dependency volume, and a bench
   command removes the dependency volumes of runners that are gone when it starts.
-- `check` no longer names a replacement for a removed hub key, a retired proposal kind or a `bots/`
+- `check` no longer names a replacement for a removed graph key, a retired proposal kind or a `bots/`
   folder; each fails like any unknown key or folder.
 - The runner data dir defaults to `~/.agentgraph`, tunes to `~/.agentgraph/tune` and the bench
   driver's repos to `~/.agentgraph/tune/repos`. The cache collector no longer lists `bothub-*`
