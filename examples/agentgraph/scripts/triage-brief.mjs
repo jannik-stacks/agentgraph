@@ -7,9 +7,9 @@
 //
 //   node triage-brief.mjs [--width] [--within <root>,<root>...] [reply-file]      otherwise the reply is read from the file AGENTGRAPH_REPLY names
 import { existsSync, readFileSync } from 'node:fs';
-import { capped, maxFiles, paths } from './bounds.mjs';
+import { capped, findSafetyRejections, maxFiles, paths } from './bounds.mjs';
 import { findIssue, findReply, parseBrief } from './brief.mjs';
-import { rejects, report } from './changes.mjs';
+import { report } from './changes.mjs';
 
 const args = process.argv.slice(2);
 const width = args.includes('--width') && args.splice(args.indexOf('--width'), 1);
@@ -23,7 +23,7 @@ else {
   for (const file of files.filter(file => !inside(file)))
     problems.push(`${file} is outside what the change may touch (${roots.join(', ')}); leave it out of scope or ask`);
   for (const file of new Set(files))
-    for (const why of rejects(file, !existsSync(file))) problems.push(`${file}: the safety check would fail it: ${why}`);
+    for (const why of findSafetyRejections(file, !existsSync(file))) problems.push(`${file}: the safety check would fail it: ${why}`);
   const done = /^## Done when\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(findIssue() ?? '')?.[1] ?? '';
   for (const path of new Set(done.match(/`[\w.-]+\/[\w./-]*`/g)?.map(quoted => quoted.slice(1, -1))))
     if (!inside(path) && !outOfScope.some(line => line.includes(path)))

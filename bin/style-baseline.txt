@@ -18,7 +18,7 @@ no-comment examples/agentgraph/scripts/ast.mjs 11
 no-comment examples/agentgraph/scripts/bounds.mjs 5
 no-comment examples/agentgraph/scripts/brief.mjs 14
 no-comment examples/agentgraph/scripts/calibrate.mjs 11
-no-comment examples/agentgraph/scripts/changes.mjs 15
+no-comment examples/agentgraph/scripts/changes.mjs 13
 no-comment examples/agentgraph/scripts/code-shape.mjs 5
 no-comment examples/agentgraph/scripts/coverage.mjs 8
 no-comment examples/agentgraph/scripts/criteria.mjs 5

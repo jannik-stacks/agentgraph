@@ -5,8 +5,8 @@
 //
 // With `--markdown`, a new markdown file must sit under one of those roots. `--max-lines` caps a file's length.
 import { readFileSync, statSync } from 'node:fs';
-import { paths } from './bounds.mjs';
-import { addedLines, readBaseShaFromEnv, changedFiles, inBase, rejects, report } from './changes.mjs';
+import { findSafetyRejections, paths } from './bounds.mjs';
+import { addedLines, readBaseShaFromEnv, changedFiles, inBase, report } from './changes.mjs';
 
 const args = process.argv.slice(2);
 const flag = name => {
@@ -62,7 +62,7 @@ const findings = [];
 for (const { path, deleted } of changedFiles(sha)) {
   if (!roots.some(root => under(path, root))) findings.push(`${path}: outside the allowed paths (${roots.join(', ')})`);
   const fresh = !deleted && !inBase(sha, path);
-  const rejected = rejects(path, fresh);
+  const rejected = findSafetyRejections(path, fresh);
   for (const why of rejected) findings.push(`${path}: ${why}`);
   if (deleted) continue;
   if (fresh && statSync(path).size > maxBytes) findings.push(`${path}: a new file larger than ${maxBytes / 1024} KB`);
