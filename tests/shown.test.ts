@@ -77,6 +77,9 @@ describe('the status comment', () => {
     };
     expect(getCommentBody({ ...run, step: 'review' }, t)).toBe('Working on review.');
     expect(getCommentBody({ ...run, status: 'waiting', reason: 'Which one?' }, t)).toMatch(/^Waiting for an answer/);
+    expect(
+      getCommentBody({ ...run, status: 'waiting', reason: 'Stopped by a runner error (SessionStop).' }, t)
+    ).toMatch(/^Stopped by a runner error at implement\./);
     expect(getCommentBody(run, holding(getCommentBody(run)!, pr))).toContain(`Pull request: ${pr.url}`);
     expect(getCommentBody({ ...run, status: 'done' }, t)).toMatch(/^Done\./);
     const done = proposeStatusUpdates({ ...run, status: 'done' }, t, undefined, 2).find(p => p.kind === 'comment');

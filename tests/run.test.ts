@@ -572,6 +572,13 @@ describe('drive', () => {
     expect(resumed.retried).toBeUndefined();
   });
 
+  it('stops at once when the provider rejects the login', async () => {
+    const final = 'Failed to authenticate. API Error: 401 OAuth access token is invalid.';
+    const { run } = services(world(), [[start('t1'), { type: 'end', final, ended: 'error', exit: 1 }]]);
+    const stopped = await run(drive(w, fresh(), graph));
+    expect(stopped).toMatchObject({ status: 'stopped', reason: expect.stringContaining('rejected the login') });
+  });
+
   it('never writes a proxy key into the trace, even when the harness prints it', async () => {
     const where = world();
     const key = 'sk-bh-fake-0123456789abcdef';

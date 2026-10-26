@@ -55,7 +55,7 @@ export type SessionEvent =
   | { type: 'end'; final: string; ended: 'stop' | 'cap' | 'error'; exit: number };
 
 export class SessionStop extends Data.TaggedError('SessionStop')<{
-  reason: 'timeout' | 'stalled' | 'budget' | 'provider' | 'human' | 'sandbox';
+  reason: 'timeout' | 'stalled' | 'budget' | 'provider' | 'login' | 'human' | 'sandbox';
   detail?: string;
 }> {}
 

@@ -9,6 +9,7 @@ import {
   formatEventLine,
   news,
   proposeStatusUpdates,
+  stoppedByRunner,
   transcript,
   type IssueWithPull,
 } from './context.ts';
@@ -1309,7 +1310,7 @@ const attempt = (
           };
           if (!r.cut && r.ended !== 'stop')
             return yield* new SessionStop({
-              reason: 'provider',
+              reason: /Failed to authenticate|\b401\b/.test(r.final) ? 'login' : 'provider',
               detail: `session ended ${r.ended} (exit ${r.exit ?? 0}), final: ${squeeze(r.final, 200)}`,
             });
           return r;
@@ -1579,6 +1580,8 @@ export const runStepChecks = (
         : { kind: 'pass' };
     return { outcome };
   });
+
+const rejected = 'the model provider rejected the login. Log in again, then start a new run.';
 
 const explain = (e: SandboxError | SessionStop | ForgeError) =>
   `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;
@@ -1887,13 +1890,15 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
     });
     const halt = (e: SandboxError | SessionStop | ForgeError) => {
       const why = explain(e);
-      const said = `Stopped by a runner error (${e._tag}). The details are in the trace of run ${current.id}.`;
+      const said = `${stoppedByRunner} (${e._tag}). The details are in the trace of run ${current.id}.`;
       if (e._tag === 'SessionStop' && e.reason === 'human')
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: said }));
+      if (e._tag === 'SessionStop' && e.reason === 'login')
+        return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: rejected }));
       const host = e._tag === 'SandboxError' && e.reason === 'host';
       if (!current.retried && !host) return settle({ kind: 'ask', question: why }, { ...current, retried: true });
       const question = host
-        ? `Stopped by a runner error (${e._tag}): ${e.detail}\nThen reply to try ${current.step} again.`
+        ? `${stoppedByRunner} (${e._tag}): ${e.detail}\nThen reply to try ${current.step} again.`
         : `${said} Reply to try ${current.step} again from where it was.`;
       return settle(
         { kind: 'ask', question: why },
@@ -2238,7 +2243,9 @@ export const tick = (
       const { comment: _old, ...rest } = moved;
       const note: Proposal = {
         kind: 'comment',
-        body: `Asked the question below at ${asked.step}.`,
+        body: asked.reason?.startsWith(stoppedByRunner)
+          ? `${stoppedByRunner} at ${asked.step}.`
+          : `Asked the question below at ${asked.step}.`,
         edit: asked.comment,
       };
       return forge.apply(asked.issue, note).pipe(

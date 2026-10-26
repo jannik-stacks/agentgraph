@@ -96,6 +96,8 @@ const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required'
 export const footer = (...lines: string[]): string =>
   `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
 
+export const stoppedByRunner = 'Stopped by a runner error';
+
 export const answerWith = 'Answer with <code>/agent</code> and your reply, or <code>/agent stop</code> to end the run.';
 
 /**
@@ -117,9 +119,11 @@ export function proposeStatusUpdates(run: Run, t: IssueWithPull, studio?: string
   const body = [
     {
       running: `Working on ${run.step}.`,
-      waiting: run.reason
-        ? `Waiting for an answer to the question below, at ${run.step}.`
-        : `Waiting for a human at ${run.step}.`,
+      waiting: run.reason?.startsWith(stoppedByRunner)
+        ? `${stoppedByRunner} at ${run.step}. Reply to try again.`
+        : run.reason
+          ? `Waiting for an answer to the question below, at ${run.step}.`
+          : `Waiting for a human at ${run.step}.`,
       done: 'Done.',
       stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,
     }[run.status],
