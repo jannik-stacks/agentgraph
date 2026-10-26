@@ -40,7 +40,7 @@ One refused proposal files none of the issues and fails the try with feedback. T
 
 ## Stacks on and Depends on
 
-With `stacks: true` in `hub.yaml`, `Stacks on #n` builds on the open pull request of #n, or on its workflow branch. The new pull request targets that branch and says `Stacks on #<pull>`. <!-- code: src/engine.ts#stackOf -->
+With `stacks: true` in `hub.yaml`, `Stacks on #n` builds on the open pull request of #n, or on its workflow branch. The new pull request targets that branch and says `Stacks on #<pull>`. <!-- code: src/engine.ts#findStackBase -->
 
 The engine also registers the chain as a GitHub stack where the repo supports it; elsewhere the branches simply chain. <!-- code: src/github.ts#githubForge -->
 

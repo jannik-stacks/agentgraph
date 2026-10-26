@@ -2,7 +2,7 @@
 
 Agents have no GitHub token and are told not to run `git` or `gh`. They ask the engine for writes with proposals.
 
-A reply ends with a fenced `agentgraph` block. The engine reads the last one as a JSON array, one object, or one object per line. <!-- code: src/engine.ts#proposalsOf -->
+A reply ends with a fenced `agentgraph` block. The engine reads the last one as a JSON array, one object, or one object per line. <!-- code: src/engine.ts#parseProposals -->
 
 ```agentgraph
 [

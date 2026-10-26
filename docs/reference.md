@@ -25,7 +25,7 @@ Every hub field with its type and default. `check` fails on an unknown key, a mi
 | `minutes`     | number  | 30      | Wall-clock deadline per session, script or setup                                      |
 | `usd-per-run` | number  | 10      | Run spend cap                                                                         |
 | `parallel`    | integer | 2       | Concurrent runs                                                                       |
-| `sessions`    | integer | 4       | Concurrent sessions across runs, including judges <!-- code: src/engine.ts#gateOf --> |
+| `sessions`    | integer | 4       | Concurrent sessions across runs, including judges <!-- code: src/engine.ts#getSessionGate --> |
 
 ## Workflows
 

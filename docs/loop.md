@@ -74,7 +74,7 @@ An `issue_comment` workflow whose agent may `tell` is a router, and it runs besi
 {"kind": "tell", "issue": 12, "text": "stop"}
 ```
 
-The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. With no live run the proposal is refused. The recipient's trace records `told` with the router's id, and its replies go where the person spoke. <!-- code: src/engine.ts#tellsOf -->
+The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. With no live run the proposal is refused. The recipient's trace records `told` with the router's id, and its replies go where the person spoke. <!-- code: src/engine.ts#readRunEvents -->
 
 In `examples/sandbox` the router triages, forwards, files follow-ups or replies, and building waits for a person to add `agent:ready`.
 
@@ -112,7 +112,7 @@ A check's `each` judges every item on its own, and any failed item fails the che
 
 Judges always start fresh. Within a run, a passed item is reused while the diff and the judge prompt are the same; failed items, changed checks, new human answers and a runner restart judge again. Judges that read traces are never reused. <!-- code: src/engine.ts#passes src/graph.ts#makeWorkflowGraph -->
 
-Scripts run in the checkout with these variables: <!-- code: src/engine.ts#resultOf -->
+Scripts run in the checkout with these variables: <!-- code: src/engine.ts#runOneCheck -->
 
 | Variable | Contents | Given to |
 | --- | --- | --- |
@@ -200,6 +200,6 @@ One status comment shows the step, whether a question is open, the stop reason, 
 
 ## Order and limits
 
-`limits.parallel` caps how many issues a pass handles at once, and `limits.sessions` caps sessions, judges included. Runs that one look drives together go oldest first. <!-- code: src/engine.ts#tick src/engine.ts#gateOf -->
+`limits.parallel` caps how many issues a pass handles at once, and `limits.sessions` caps sessions, judges included. Runs that one look drives together go oldest first. <!-- code: src/engine.ts#tick src/engine.ts#getSessionGate -->
 
 `minutes` is a wall-clock deadline. After each try, a run that is still working stops if it spent more than `usd-per-run`. Runner errors (timeouts, provider faults, failed setup, a missing check command with exit 127) retry once, then park the run at its step with details in the trace. A missing image or a failed image build parks at once and says what to run on the host. Any reply retries with the session and tries kept. <!-- code: src/engine.ts#drive -->
