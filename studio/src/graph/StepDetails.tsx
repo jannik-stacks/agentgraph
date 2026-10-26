@@ -357,13 +357,17 @@ export const StepDetails = ({
         </Section>
       )}
       {lines && (
-        <Section title="In the picked run">
+        <Disclosure
+          summary={`In the picked run${lines.length ? `, ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}` : ''}`}
+          summaryClassName="font-medium text-zinc-500"
+          className="space-y-1.5"
+        >
           {lines.length ? (
             <Rows rows={lines.map(line => lineRow(line))} />
           ) : (
             <p className="text-zinc-500">The run has not been here.</p>
           )}
-        </Section>
+        </Disclosure>
       )}
       {fixture.agents && (
         <Section title="Runs here now">
