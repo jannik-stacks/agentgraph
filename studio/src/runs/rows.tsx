@@ -254,10 +254,21 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
 
 /** How each kind of trace line reads as a row. */
 const lines: {
-  [K in 'prompt' | 'event' | 'session' | 'check' | 'applied' | 'outcome' | 'saved' | 'spoken' | 'told']: (
-    l: TraceLineWithKey<K>,
-    by: string
-  ) => Row;
+  [
+    K in
+      | 'prompt'
+      | 'event'
+      | 'session'
+      | 'check'
+      | 'applied'
+      | 'outcome'
+      | 'saved'
+      | 'spoken'
+      | 'told'
+      | 'setup'
+      | 'cache'
+      | 'env'
+  ]: (l: TraceLineWithKey<K>, by: string) => Row;
 } = {
   prompt: ({ prompt: p }) => ({
     summary: (
@@ -350,6 +361,9 @@ const lines: {
       </>
     ),
   }),
+  setup: ({ setup: s }) => ({ summary: muted(`setup exited ${s.exit} in ${s.ms} ms`) }),
+  cache: ({ cache: c }) => ({ summary: muted(`cache, ${c.files} files`) }),
+  env: ({ env: e }) => ({ summary: muted(`env ${e.mode} ${e.key}${e.match ? '' : ', inputs changed'}`) }),
   told: ({ told: t }) => ({
     summary: (
       <>
@@ -361,7 +375,8 @@ const lines: {
 
 /** A trace line as a row, read through `lines`; `by` is who proposed what it applied. */
 const lineRow = (line: Line, by = 'agentgraph'): Row => {
-  const kind = (Object.keys(lines) as (keyof typeof lines)[]).find(k => k in line)!;
+  const kind = (Object.keys(lines) as (keyof typeof lines)[]).find(k => k in line);
+  if (!kind) return { at: line.at, raw: line, summary: muted(short(JSON.stringify(line), 120)) };
   return { at: line.at, raw: line, ...(lines[kind] as (l: Line, by: string) => Row)(line, by) };
 };
 
