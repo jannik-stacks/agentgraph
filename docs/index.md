@@ -37,9 +37,9 @@ Reference: [CLI](cli.md), [Proposals](proposals.md), [Sandbox and models](sandbo
 
 Working on agentgraph: [Engine and code](patterns.md), [Bench](bench.md).
 
-## Words
+## Terms
 
-| Word | Meaning |
+| Term | Meaning |
 | --- | --- |
 | **graph** | What a repo keeps in `.agentgraph/`: settings, agents, skills, checks, workflows and scripts |
 | **agent** | A role file: harness, model, tools, allowed proposals and its system prompt |
