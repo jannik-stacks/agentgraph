@@ -25,7 +25,7 @@ export type SessionSpec = {
 
 /** What a session does, as the harness reports it. `end` comes once the harness exits; with `ended: 'error'` and no reply, `final` holds the harness's error. */
 export type SessionEvent =
-  | { type: 'start'; session: string; model: string; home: string }
+  | { type: 'start'; session: string; harness: string; provider?: string; model: string; home: string }
   | { type: 'text'; text: string }
   | { type: 'thinking'; text: string }
   | {

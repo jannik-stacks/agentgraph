@@ -43,7 +43,7 @@ Each `trace.jsonl` line has `at`, `step` and one kind: <!-- code: src/trace.ts#T
 | Kind | Contents |
 | --- | --- |
 | `prompt` | Harness, model, system prompt, prompt and tools |
-| `event` | Harness text, tool calls with `ms` where the harness reports it, usage and end |
+| `event` | A start with the harness, the provider when one was picked and the model asked for after aliases; harness text, tool calls with `ms` where the harness reports it, usage and end |
 | `session` | End reason, whether it resumed, and cost |
 | `check` | Result and short findings, a number check's `value` or `empty`, the fan-out item, `end` for an end check, and `log`, the hash and size of the full output |
 | `setup` | `ms` and `exit` of the hub setup in a checkout |

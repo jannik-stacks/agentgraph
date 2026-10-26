@@ -133,15 +133,13 @@ export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
         Effect.provide(sandbox),
         Effect.catchAll(() => Effect.succeed<string[]>([]))
       );
-  const harnesses = Effect.map(readHarnessSettings, settings => settings.harnesses).pipe(
-    Effect.orElseSucceed(() => [])
-  );
+  const config = readHarnessSettings.pipe(Effect.orElseSucceed(() => ({ harnesses: [] })));
   return Layer.unwrapEffect(
-    Effect.map(Effect.all([trust, harnesses]), ([trust, harnesses]) =>
+    Effect.map(Effect.all([trust, config]), ([trust, config]) =>
       Layer.mergeAll(
         forge(trust),
         fileStore(s.data, s.checkLogs),
-        harnessSession({ ...s, harnesses }).pipe(Layer.provideMerge(sandbox))
+        harnessSession({ ...s, ...config }).pipe(Layer.provideMerge(sandbox))
       )
     )
   );

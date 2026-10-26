@@ -144,6 +144,7 @@ export const seeded = (name: string, files: Record<string, string>) => {
 export const start = (session: string): SessionEvent => ({
   type: 'start',
   session,
+  harness: 'test',
   model: 'test',
   home: `/homes/${session}`,
 });

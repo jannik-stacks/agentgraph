@@ -58,7 +58,7 @@ export const readHarnessSettings = Effect.gen(function* () {
       if (named && !provider) throw new Error(`has no provider ${named}`);
       const rank = (name: string) => (provider?.harnesses.indexOf(name) ?? -1) >>> 0;
       const harnesses = settings.harnesses.toSorted((a, b) => rank(a.name) - rank(b.name));
-      return { ...settings, harnesses, ...(harness && { harness }) };
+      return { ...settings, harnesses, ...(harness && { harness }), ...(named && { provider: named }) };
     },
     catch: e => new HubError({ problems: [{ path, message: (e as Error).message }] }),
   });
@@ -161,6 +161,7 @@ export const harnessSession = (s: {
   passed?: Record<string, Redacted.Redacted>;
   prices?: string;
   harnesses: readonly Harness[];
+  provider?: string;
 }): Layer.Layer<Session, never, Sandbox> =>
   Layer.effect(
     Session,
@@ -230,7 +231,10 @@ export const harnessSession = (s: {
                   if (session) return [];
                   session = piece.id;
                   model = piece.model ?? model;
-                  return [{ type: 'start', session: piece.id, model, home }];
+                  const provider = s.provider && { provider: s.provider };
+                  return [
+                    { type: 'start', session: piece.id, harness: harness.name, ...provider, model: route.model, home },
+                  ];
                 }
                 if (piece.type === 'done') {
                   done = piece;

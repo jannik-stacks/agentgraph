@@ -28,7 +28,7 @@ const spec = {
 };
 const lines: Trace[] = [
   { at, step: 'implement', prompt: spec },
-  { at, step: 'implement', event: { type: 'start', session: 's1', model: 'smart', home: '/h' } },
+  { at, step: 'implement', event: { type: 'start', session: 's1', harness: 'pi', model: 'smart', home: '/h' } },
   { at, step: 'implement', event: { type: 'thinking', text: 'The issue names kit/src/fee.ts.' } },
   {
     at,

@@ -74,6 +74,7 @@ const session = (
     ...(o.passed && { passed: o.passed }),
     ...(o.prices && { prices: o.prices }),
     harnesses: o.harnesses ?? harnesses,
+    provider: 'litellm',
   }).pipe(Layer.provide(sandbox));
   const run = Session.pipe(
     Effect.flatMap(({ open }) => Stream.runCollect(open(s))),
@@ -358,7 +359,14 @@ describe('opencode', () => {
   it('reads a recorded run', async () => {
     const { events: got, command } = await events(spec, sample('opencode-run.jsonl'));
     expect(got).toEqual<SessionEvent[]>([
-      { type: 'start', session: 'ses_ecfe5c55cffe3r1vZYoqdYrwvF', model: 'smart', home: command.home! },
+      {
+        type: 'start',
+        session: 'ses_ecfe5c55cffe3r1vZYoqdYrwvF',
+        harness: 'opencode',
+        provider: 'litellm',
+        model: 'smart',
+        home: command.home!,
+      },
       { type: 'text', text: 'Listing files.' },
       expect.objectContaining({
         type: 'tool',
@@ -433,14 +441,18 @@ describe('claude', () => {
     expect(Object.keys(command.secrets ?? {})).toEqual(['ANTHROPIC_AUTH_TOKEN']);
   });
 
-  it('reads a recorded run', async () => {
-    const { events: got } = await events(claude, sample('claude-run.jsonl'));
+  it('reads a recorded run, starting with the model its alias names', async () => {
+    const proxy = { url: 'claude=', keys: Redacted.make(''), models: 'smart=haiku' };
+    const { exit } = await session(claude, sample('claude-run.jsonl'), { proxy });
+    const got = Exit.isSuccess(exit) ? exit.value : [];
     const final = '`add.js` is buggy: `add` returns `a - b` instead of `a + b`.';
     expect(got).toEqual([
       expect.objectContaining({
         type: 'start',
         session: 'e47727a3-ac6e-4f15-8327-b47a312c26d1',
-        model: 'claude-haiku-5-5',
+        harness: 'claude',
+        provider: 'litellm',
+        model: 'haiku',
       }),
       expect.objectContaining({
         type: 'tool',
