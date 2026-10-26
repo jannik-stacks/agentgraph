@@ -69,7 +69,7 @@ const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; class
 );
 
 /** The moving dashed outline on the selected step, the one the side panel shows; it sits on the card's border. */
-const Selected = ({ round = 6, dashes = 140 }: { round?: number; dashes?: number }) => (
+const Selected = ({ round = 6, dashes = 140, still }: { round?: number; dashes?: number; still?: true }) => (
   <svg aria-hidden className="pointer-events-none absolute -inset-[2px] size-[calc(100%+4px)] overflow-visible">
     <rect
       x="1.5"
@@ -77,7 +77,7 @@ const Selected = ({ round = 6, dashes = 140 }: { round?: number; dashes?: number
       rx={round + 0.5}
       pathLength={dashes}
       className="agi-march fill-none stroke-sky-700 stroke-3 [stroke-linecap:round] dark:stroke-sky-400"
-      style={{ width: 'calc(100% - 3px)', height: 'calc(100% - 3px)' }}
+      style={{ width: 'calc(100% - 3px)', height: 'calc(100% - 3px)', ...(still && { animation: 'none' }) }}
     />
   </svg>
 );
@@ -465,8 +465,8 @@ export const Legend = ({ hidden, onToggle }: { hidden: ReadonlySet<string>; onTo
     </LegendItem>
     <LegendItem
       mark={
-        <span className="relative size-2.5 [&_rect]:animate-none">
-          <Selected round={2} dashes={16} />
+        <span className="relative size-2.5">
+          <Selected round={2} dashes={16} still />
         </span>
       }
     >
