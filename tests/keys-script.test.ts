@@ -71,3 +71,22 @@ process.exit(r.status ?? 1);
     }
   }, 30_000);
 });
+
+it('writes one key for every agent in the form the CLI reads', () => {
+  const dir = tmp('keys-local');
+  write(dir, { 'bin/curl': `#!/bin/sh\ncat >/dev/null\necho '{"total_count":0}'\n` });
+  chmodSync(join(dir, 'bin', 'curl'), 0o755);
+  const out = execFileSync('bash', [script, 'local'], {
+    encoding: 'utf8',
+    env: {
+      PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
+      ENV_FILE: join(dir, 'none.env'),
+      KEYS_FILE: join(dir, 'keys.env'),
+      LITELLM_MASTER_KEY: master,
+    },
+  });
+  expect([out, readFileSync(join(dir, 'keys.env'), 'utf8')]).toEqual([
+    expect.stringContaining('created agentgraph-local'),
+    expect.stringMatching(/^AGENTGRAPH_PROXY_KEYS=\*=sk-agentgraph-local-[0-9a-f]{32}\n$/),
+  ]);
+});

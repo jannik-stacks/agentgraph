@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Creates one LiteLLM virtual key per bot, or updates the limits of keys that already exist.
-# New key values are appended to $KEYS_FILE as AGENTGRAPH_LLM_API_KEY_<BOT>=...; the runner hands
-# each bot only its own key, as AGENTGRAPH_LLM_API_KEY.
+# New key values are appended to $KEYS_FILE as AGENTGRAPH_LLM_API_KEY_<BOT>=...; e2e.sh hands
+# them to a data dir as AGENTGRAPH_PROXY_KEYS.
 #
 #   ./keys.sh             create missing keys, converge budgets and limits on existing ones
+#   ./keys.sh local       one key for every agent, as AGENTGRAPH_PROXY_KEYS=*=... in .keys.env.local
 #   ROTATE=1 ./keys.sh    delete and recreate every key (old values stop working)
 set -euo pipefail
 [[ "$0" != */* ]] || cd "${0%/*}"
@@ -22,7 +23,9 @@ done
 export -n LITELLM_MASTER_KEY $names
 : "${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in infra/local/.env}"
 BASE="${LITELLM_URL:-http://127.0.0.1:4000}"
-KEYS_FILE="${KEYS_FILE:-.keys.env}"
+local="${1:-}"
+KEYS_FILE="${KEYS_FILE:-$([[ "$local" == local ]] && echo .keys.env.local || echo .keys.env)}"
+[[ "$KEYS_FILE" == /* ]] || KEYS_FILE="$PWD/$KEYS_FILE"
 command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 
 # bot | allowed aliases | USD per day | requests per minute | tokens per minute
@@ -44,8 +47,10 @@ BOTS=(
   "auditor       smart,fast,local,luna,$OPENROUTER           1  30  400000"
 )
 
+[[ "$local" != local ]] || BOTS=("local smart,writer,fast,local,luna,$OPENROUTER 10 30 400000")
+
 # Every bot in the example graphs needs a row.
-for file in ../../examples/*/agents/*.md; do
+[[ "$local" == local ]] || for file in ../../examples/*/agents/*.md; do
   bot=$(basename "$file" .md)
   printf '%s\n' "${BOTS[@]}" | grep -q "^$bot " || echo "warn: $bot (${file#../../}) has no row in keys.sh" >&2
 done
@@ -62,6 +67,7 @@ for row in "${BOTS[@]}"; do
   read -r bot models budget rpm tpm <<<"$row"
   alias="bh-$bot"
   var="AGENTGRAPH_LLM_API_KEY_$(tr 'a-z-' 'A-Z_' <<<"$bot")"
+  [[ "$local" != local ]] || { alias=agentgraph-local; var=AGENTGRAPH_PROXY_KEYS; }
   limits=$(jq -nc --arg a "$alias" --arg m "$models" --arg bot "$bot" --argjson b "$budget" --argjson r "$rpm" --argjson t "$tpm" \
     '{key_alias: $a, models: ($m | split(",")), max_budget: $b, budget_duration: "1d", rpm_limit: $r, tpm_limit: $t,
       metadata: {bot: $bot, source: "agentgraph-keys.sh"}}')
@@ -81,10 +87,14 @@ for row in "${BOTS[@]}"; do
   fi
 
   # LiteLLM only accepts custom key values that start with sk-.
-  value="sk-bh-$bot-$(openssl rand -hex 16)"
+  value="sk-$alias-$(openssl rand -hex 16)"
   api POST /key/generate "$(jq -Rc --argjson limits "$limits" '$limits + {key: .}' <<<"$value")" >/dev/null
-  echo "$var=$value" >>"$KEYS_FILE"
+  echo "$var=$([[ "$local" == local ]] && echo '*=')$value" >>"$KEYS_FILE"
   echo "created $alias ($models, \$$budget/day, $rpm rpm, $tpm tpm)"
 done
 
-echo "keys in $KEYS_FILE (mode 600); copy the lines you need into \$AGENTGRAPH_DATA/.env"
+if [[ "$local" == local ]]; then
+  echo "key in $KEYS_FILE (mode 600); load it before agentgraph start: set -a; . $KEYS_FILE; set +a"
+else
+  echo "keys in $KEYS_FILE (mode 600); infra/local/e2e.sh writes them into a data dir as AGENTGRAPH_PROXY_KEYS"
+fi

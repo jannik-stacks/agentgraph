@@ -9,12 +9,15 @@ From `agentgraph/`:
 
 ```sh
 cp infra/local/.env.example infra/local/.env   # once: set LITELLM_MASTER_KEY and provider keys
-npm run up       # build the sandbox image, start LiteLLM, Postgres, egress and the Ollama relay, wait until healthy
-npm run keys     # one proxy key per agent, in infra/local/.keys.env
+npm run up       # start LiteLLM, Postgres, egress and the Ollama relay, wait until healthy
+npm run keys -- local   # one proxy key for every agent, in infra/local/.keys.env.local
+npm run keys     # one proxy key per bot of the example graphs, in infra/local/.keys.env
 npm run down     # stop everything, keep volumes
 ```
 
-`npm run up` again after changing `.env` or `litellm.config.yaml` recreates what changed.
+`npm run up` again after changing `.env` or `litellm.config.yaml` recreates what changed. The CLI builds the sandbox image itself on its first run.
+
+The CLI uses this stack with `--provider litellm` and the local key loaded: `set -a; . infra/local/.keys.env.local; set +a`.
 
 Ollama runs natively on macOS (`brew install ollama` or the app, then `ollama serve`). On Linux,
 start it with `docker compose -f infra/local/docker-compose.yml --profile ollama up -d` and set the
@@ -28,9 +31,13 @@ create instead of sharing the login.
 
 ## ChatGPT login for smart, writer and luna
 
-The admin UI has no ChatGPT login, so it runs once from the CLI, before the proxy starts: with
-`chatgpt/` models configured and no token, LiteLLM startup waits for the login. The tokens
-persist in the `agentgraph-chatgpt-auth` volume. From `infra/local`:
+The default config routes `smart` and `writer` to a ChatGPT login and `luna` always does. Without
+the login LiteLLM still starts, and each call to those models fails. To route `smart` and `writer`
+to an API key instead, set `AGENTGRAPH_MODEL_SMART` and `AGENTGRAPH_MODEL_WRITER` in `.env` to a
+LiteLLM model id such as `openai/<model>`, and set `OPENAI_API_KEY`.
+
+The admin UI has no ChatGPT login, so it runs once from the CLI. The tokens persist in the
+`agentgraph-chatgpt-auth` volume. From `infra/local`:
 
 1. `docker compose run --rm --no-deps --entrypoint python3 litellm -c "from litellm.llms.chatgpt.authenticator import Authenticator; Authenticator().get_access_token()"`
 2. Open the URL it prints, sign in to ChatGPT, enter the code. Device-code login must be enabled
@@ -58,8 +65,10 @@ and only these aliases fail.
 
 ## Keys
 
-`npm run keys` creates one virtual key per bot (or updates limits on existing ones) and appends
-`AGENTGRAPH_LLM_API_KEY_<BOT>=...` to `.keys.env`. Subscription models report $0 spend, so their
+`npm run keys -- local` creates one virtual key for every agent and writes it to `.keys.env.local`
+as `AGENTGRAPH_PROXY_KEYS=*=...`, the form the CLI reads. `npm run keys` creates one virtual key per
+bot of the example graphs (or updates limits on existing ones) and appends
+`AGENTGRAPH_LLM_API_KEY_<BOT>=...` to `.keys.env`, which `e2e.sh` turns into `AGENTGRAPH_PROXY_KEYS`. Subscription models report $0 spend, so their
 real limits are the per-key rpm/tpm and agentgraph's runs-per-day budget. `ROTATE=1 npm run keys`
 replaces every key. The script sends the master key as a header file and new keys on stdin, so neither
 shows in a process list.

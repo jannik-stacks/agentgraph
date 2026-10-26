@@ -22,7 +22,7 @@
     "access": "public"
   },
   "scripts": {
-    "up": "docker build -q -t agentgraph-sandbox:local infra/local/sandbox && docker compose -p agentgraph -f infra/local/docker-compose.yml --profile sandbox up -d --wait",
+    "up": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile sandbox up -d --wait",
     "down": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile '*' down",
     "keys": "bash infra/local/keys.sh",
     "prices": "curl -sfL https://raw.githubusercontent.com/BerriAI/litellm/v1.106.2/litellm/model_prices_and_context_window_backup.json | gzip -9n > infra/local/prices.json.gz",

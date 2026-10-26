@@ -3,7 +3,7 @@
 #
 #   e2e.sh <data-dir> [graph]     graph defaults to examples/sandbox
 #
-# Needs the local stack up (README), the sandbox image built, .keys.env from keys.sh, and AGENTGRAPH_APP_ENV naming
+# Needs the local stack up (README), .keys.env from keys.sh, and AGENTGRAPH_APP_ENV naming
 # the App env file that bin/setup-app.ts wrote. Nothing runs here.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
@@ -27,7 +27,7 @@ ready: $data
   graph   $graph
 
 load the keys:  set -a; . $data/.env; set +a
-one issue:      node $agentgraph/bin/run.ts --dir $graph --issue <n> --data $data
+one pass:       node $agentgraph/bin/run.ts loop --once --dir $graph --data $data
 every issue:    node $agentgraph/bin/run.ts loop --dir $graph --data $data
-needs you:      node $agentgraph/bin/run.ts status --dir $graph --data $data
+needs you:      node $agentgraph/bin/run.ts show --dir $graph --data $data
 EOF

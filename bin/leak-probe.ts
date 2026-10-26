@@ -86,7 +86,7 @@ const findSecretFiles = () =>
   ));
 
 const isKeyAtRest = (file: string) =>
-  [join(repo, 'infra/local/.env'), join(repo, 'infra/local/.keys.env')].includes(file) ||
+  ['.env', '.keys.env', '.keys.env.local'].map(name => join(repo, 'infra/local', name)).includes(file) ||
   (file.startsWith(join(homedir(), '.config', 'agentgraph') + '/') && basename(file) === 'key.pem');
 
 const listProcesses = (args: string[]) =>
