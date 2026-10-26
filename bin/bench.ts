@@ -17,7 +17,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { dockerArgs, type CheckoutContainerSpec } from '../src/docker.ts';
-import { getModelPrice, type Prices } from '../src/harnesses.ts';
+import { getModelPrice, sumTokenCost, type Prices } from '../src/harnesses.ts';
 import {
   dependencyDirs,
   discard,
@@ -1312,16 +1312,7 @@ export const getBenchUsageCost = (
     return { usd: u.usd ?? 0, usdSource: estimate ? 'list-price estimate' : 'recorded' } as const;
   const listed = models.map(m => [getModelPrice(prices, [m]), u.tokens![m]!] as const);
   if (listed.some(([p]) => !p)) return { usd: 0, usdSource: 'unpriced' } as const;
-  const usd = listed.reduce(
-    (sum, [p, t]) =>
-      sum +
-      (t.input * p!.input +
-        t.cacheRead * (p!.cached ?? p!.input) +
-        t.cacheWrite * (p!.cacheWrite ?? p!.input) +
-        t.output * p!.output) /
-        1e6,
-    0
-  );
+  const usd = listed.reduce((sum, [p, t]) => sum + sumTokenCost(p!, t), 0);
   return { usd: getRounded(usd), usdSource: estimate ? 'list-price estimate' : 'list price' } as const;
 };
 

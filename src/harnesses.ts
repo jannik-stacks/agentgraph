@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Config, ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
 import { type HarnessCheck, HubError, loadHub } from './hub.ts';
-import { type Exit, Sandbox, type SandboxError } from './sandbox.ts';
+import { type Command, type Exit, Sandbox, type SandboxError } from './sandbox.ts';
 import { Session } from './session.ts';
 import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
 
@@ -25,7 +25,7 @@ export type Harness = HarnessCheck & {
   command: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
-  ) => { cmd: string; args: string[]; env?: Record<string, string>; volumes?: Record<string, string> };
+  ) => Pick<Command, 'cmd' | 'args' | 'volumes'> & Partial<Pick<Command, 'env'>>;
   parse: () => (line: unknown) => Piece[];
 };
 
@@ -112,19 +112,26 @@ export const getModelPrice = (prices: Prices, models: string[]) => {
     .find(Boolean);
 };
 
+export const sumTokenCost = (
+  price: NonNullable<ReturnType<typeof getModelPrice>>,
+  t: Record<'input' | 'cacheRead' | 'cacheWrite' | 'output', number>
+) =>
+  (t.input * price.input +
+    t.cacheRead * (price.cached ?? price.input) +
+    t.cacheWrite * (price.cacheWrite ?? price.input) +
+    t.output * price.output) /
+  1e6;
+
 /** The usage's list price when the harness reports none, as a subscription through the proxy does; else what is unpriced. */
 const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
   if (u.usd) return u;
   const price = getModelPrice(prices, models);
   if (!price) return { ...u, unpriced: models[0] ?? 'unknown' };
-  const [read, write] = [u.cacheRead ?? 0, u.cacheWrite ?? 0];
-  const usd =
-    ((u.input - read - write) * price.input +
-      read * (price.cached ?? price.input) +
-      write * (price.cacheWrite ?? price.input) +
-      u.output * price.output) /
-    1e6;
-  return { ...u, usd };
+  const [cacheRead, cacheWrite] = [u.cacheRead ?? 0, u.cacheWrite ?? 0];
+  return {
+    ...u,
+    usd: sumTokenCost(price, { input: u.input - cacheRead - cacheWrite, cacheRead, cacheWrite, output: u.output }),
+  };
 };
 
 const makeHomePath = async (home: string, path: string) => {
