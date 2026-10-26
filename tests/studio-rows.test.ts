@@ -116,7 +116,7 @@ describe("a run's pull request and branch", () => {
 });
 
 /** Lines from two runs, cut short and scrubbed: an aside, a rebase, a judged check, then two judges that failed to start. */
-const real = readFileSync(join(import.meta.dirname, 'fixtures', 'interleaved-trace.jsonl'), 'utf8')
+const real = readFileSync(join(import.meta.dirname, 'fixtures', 'two-runs-trace.jsonl'), 'utf8')
   .trim()
   .split('\n')
   .map(line => JSON.parse(line) as Trace);
@@ -138,7 +138,7 @@ describe('sessions in a trace', () => {
     ]);
     expect(text(sessions[0])).toMatch(/aside .*implementor [^,]*smart .*ended stop, exit 0, \$0\.05/);
     expect(text(sessions[2])).toContain('ended before it started: provider');
-    expect(text(sessions[0]).match(/ses_eaad525edffeCrrVWpaqdOtFbY/g)).toHaveLength(1);
+    expect(text(sessions[0]).match(/ses_aside0001/g)).toHaveLength(1);
     expect(sessions[0]?.raw).toBe(real.find(l => 'session' in l));
   });
 
@@ -146,7 +146,7 @@ describe('sessions in a trace', () => {
     const old = await Effect.runPromise(
       Effect.flatMap(Store, store => Stream.runCollect(store.read('issue-6'))).pipe(
         Effect.map(Chunk.toArray),
-        Effect.provide(fileStore(join(import.meta.dirname, 'fixtures', 'old-trace')))
+        Effect.provide(fileStore(join(import.meta.dirname, 'fixtures', 'brief-trace')))
       )
     );
     const [session] = findSessionRows(old);
