@@ -5,7 +5,6 @@ no-comment bin/commands.mjs 5
 no-comment bin/commit-msg.mjs 1
 no-comment bin/diagrams.mjs 8
 no-comment bin/env.ts 1
-no-comment bin/export-public.ts 4
 no-comment bin/fields.mjs 2
 no-comment bin/lsp.ts 1
 no-comment bin/refs.mjs 18
@@ -48,15 +47,6 @@ no-comment examples/agentgraph/scripts/transitions.mjs 4
 no-comment examples/agentgraph/scripts/triage-brief.mjs 8
 no-comment examples/agentgraph/scripts/unused-exports.mjs 5
 no-comment examples/bench/scripts/review.mjs 2
-no-comment examples/clarinet/scripts/bounds.mjs 4
-no-comment examples/clarinet/scripts/cargo.mjs 10
-no-comment examples/clarinet/scripts/conventions.mjs 10
-no-comment examples/clarinet/scripts/items.mjs 5
-no-comment examples/clarinet/scripts/lib.mjs 15
-no-comment examples/clarinet/scripts/limits.mjs 2
-no-comment examples/clarinet/scripts/reach.mjs 3
-no-comment examples/clarinet/scripts/triage-brief.mjs 6
-no-comment examples/acme-app/scripts/surface.mjs 6
 no-comment src/context.ts 12
 no-comment src/disk.ts 14
 no-comment src/docker.ts 10
