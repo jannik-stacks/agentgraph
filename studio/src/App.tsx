@@ -69,7 +69,7 @@ export const App = () => {
           <AgentgraphLogo className="size-5" />
           agentgraph
         </Link>
-        <nav className="inline-flex gap-0.5 rounded-lg bg-zinc-100 p-0.5 text-[13px] leading-5 dark:bg-zinc-900">
+        <nav className="inline-flex min-w-0 gap-0.5 overflow-x-auto rounded-lg bg-zinc-100 p-0.5 text-[13px] leading-5 dark:bg-zinc-900">
           {routes.map(r => (
             <Link
               key={r}
