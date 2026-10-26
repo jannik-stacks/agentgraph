@@ -516,7 +516,7 @@ const relogin = `Claude rejected the token. ${process.platform === 'darwin' ? 'R
 function openStudio(i: Instance) {
   const dir = join(import.meta.dirname, '..', 'studio');
   if (!existsSync(join(dir, 'dev.ts')))
-    fail('the studio comes with a clone of agentgraph, not the npm package; see From source in its README', 1);
+    fail('the studio runs from a clone of agentgraph, not the npm package; see The studio in docs/local.md', 1);
   if (!existsSync(join(dir, 'node_modules'))) {
     console.log(`studio   installing its dependencies once: npm ci --prefix ${dir}`);
     if (spawnSync('npm', ['ci', '--prefix', dir, '--no-audit', '--no-fund'], { stdio: 'inherit' }).status !== 0)
