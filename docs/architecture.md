@@ -26,7 +26,7 @@ The engine is the runner code in `src/`.
 │               │ model calls    └──────────────┬──────────────┘  │
 │               v                               │                 │
 │  ┌──────────────────────────┐                 v                 │
-│  │ LiteLLM proxy            │  studio reads the graph,            │
+│  │ LiteLLM proxy            │  studio reads the graph,          │
 │  │ aliases, one key per     │  run.json and trace               │
 │  │ agent, spend logs        │                                   │
 │  └────────────┬─────────────┘                                   │

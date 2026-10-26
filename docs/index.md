@@ -4,12 +4,12 @@ agentgraph runs coding agents on a repository's issues. People start and steer w
 
 The runner on the host polls GitHub, starts sandbox sessions and records each run. Sessions reach models through a proxy and return [proposals](proposals.md). Only the runner holds a GitHub token, and it applies proposals after the checks pass. The studio shows the graph and the recorded runs. [Architecture](architecture.md) has the diagram.
 
-## The graph
+## The agentgraph folder
 
-A graph is a folder of Markdown files with frontmatter. The engine reads the frontmatter, and agents read the prose.
+A repo keeps its graph in `.agentgraph/`, a folder of Markdown files with frontmatter. The engine reads the frontmatter, and agents read the prose.
 
 ```
-graph/
+.agentgraph/
   settings.yaml
   agents/implementor.md    role, harness, model, allowed proposals
   skills/implement.md      instructions

@@ -1,6 +1,6 @@
 # agentgraph
 
-agentgraph runs coding agents on the issues of a repository. You describe agents, checks and workflows in a folder of Markdown files called a graph. When someone comments `/agent` on an issue or adds a label, the engine runs the matching workflow. Each agent works in its own Docker sandbox. Scripts and judge agents check the result. The engine then pushes a branch and opens a pull request, and a person reviews and merges it.
+agentgraph runs coding agents on the issues of a repository. You describe agents, checks and workflows in `.agentgraph/`, a folder of Markdown files in the repo. When someone comments `/agent` on an issue or adds a label, the engine runs the matching workflow. Each agent works in its own Docker sandbox. Scripts and judge agents check the result. The engine then pushes a branch and opens a pull request, and a person reviews and merges it.
 
 Agents never hold a GitHub token. They return proposals, such as a comment, a push or a new issue, and the engine applies them only after the checks pass. Every run is recorded as a trace that you can read in the studio, a local web UI.
 
@@ -12,7 +12,7 @@ Agents never hold a GitHub token. They return proposals, such as a comment, a pu
                   v
    +-----------------------------+             +-----------------------------+
    | engine, on the host         |             | sandbox, one per session    |
-   | reads the graph and drives    |-- start --->| the agent edits a worktree  |
+   | reads the graph and drives  |-- start --->| the agent edits a worktree  |
    | the workflow step by step   |<-proposals--| and calls models via proxy  |
    +-----------------------------+             +-----------------------------+
           |                ^
@@ -26,11 +26,11 @@ Agents never hold a GitHub token. They return proposals, such as a comment, a pu
    push the branch, open a pull request, wait for a person to merge
 ```
 
-A graph is plain files:
+The folder is plain files:
 
 ```
-graph/
-  settings.yaml               repo and limits
+.agentgraph/
+  settings.yaml          repo and limits
   agents/implementor.md  role, harness, model, allowed proposals
   skills/implement.md    instructions handed to an agent
   checks/tests.md        a script or a judge that passes or fails a try
@@ -80,7 +80,7 @@ Without `.agentgraph/` in the repo it uses the packaged default graph; see [With
 
 ## Examples
 
-| Graph | Repo or purpose |
+| Example | Repo or purpose |
 | --- | --- |
 | `examples/sandbox` | A small JavaScript package; the place to start |
 | `examples/agentgraph` | agentgraph itself |

@@ -4,7 +4,7 @@
 
 | Term | Meaning |
 | --- | --- |
-| **graph** | Config folder: `settings.yaml`, agents, skills, checks, workflows and scripts |
+| **graph** | What a repo keeps in `.agentgraph/`: `settings.yaml`, agents, skills, checks, workflows and scripts |
 | **agent** | Role file defining harness, model, tools, proposals and system instructions |
 | **harness** | Session program: Claude Code, opencode or pi |
 | **workflow** | Ordered steps on an issue, started by an `on` trigger |
@@ -14,7 +14,7 @@
 | **back** | Return to an earlier step with feedback, at most `rounds` times |
 | **proposal** | Requested engine action; see [kinds](proposals.md#kinds) |
 | **follow-up** | Issue for work outside the current issue's scope |
-| **graph change** | Follow-up about bot config, labelled `graph` |
+| **graph change** | Follow-up about the graph, labelled `graph` |
 | **run** | One workflow on one issue, until it is done or stopped |
 | **aside** | Session fork answering a human at a wait step; can send work back |
 | **dispatch** | A `run` proposal starting a child and waiting for its result |

@@ -1,10 +1,10 @@
 # The graph contract
 
-Nothing here is stable yet: names and abstractions change whenever we find better ones, graph calls such as `say` and `dispatch` included. Every rename or removal is listed in `CHANGELOG.md`, and `check` fails on any key it does not know. <!-- code: src/folder.ts#loadGraph -->
+Nothing here is stable yet: names and abstractions change whenever we find better ones, CLI verbs such as `say` and `dispatch` included. Every rename or removal is listed in `CHANGELOG.md`, and `check` fails on any key it does not know. <!-- code: src/folder.ts#loadGraph -->
 
 ## Engine
 
-The engine is `src/`, `bin/run.ts`, `bin/setup-app.ts`, the default `graph/` and the sandbox and proxy setup in `infra/`. Bench, tune and studio code read the engine and its data, and change on their own schedule.
+The engine is `src/`, `bin/run.ts`, `bin/setup-app.ts`, the packaged `default/` folder and the sandbox and proxy setup in `infra/`. Bench, tune and studio code read the engine and its data, and change on their own schedule.
 
 ## Graph
 
