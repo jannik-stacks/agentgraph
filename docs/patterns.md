@@ -64,6 +64,6 @@ Docs pages say what code does and why; code says it with names and types. The ru
 
 ## Before you commit
 
-`npm run check` is what CI and the commit hook run: formatting, lint, unused code, docs checks, example graphs, types, tests with coverage and the studio build. Part of it is `sh bin/precommit.sh`, which runs the agentgraph graph's fast checks over the uncommitted change against `HEAD`, or `AGENTGRAPH_BASE` when set. `npm run hooks` turns the hook on.
+`npm run check` is what CI and the commit hook run: formatting, lint, unused code, docs checks, example graphs, types, tests with coverage and the studio build. Part of it is `sh bin/precommit.sh`, which runs the agentgraph example's fast checks over the uncommitted change against `HEAD`, or `AGENTGRAPH_BASE` when set. `npm run hooks` turns the hook on.
 
 Docs tie claims to code with hidden comments such as `<!-- code: src/engine.ts#land -->`. `node bin/refs.mjs` fails when one names a missing file or symbol. `node bin/refs.mjs --coverage` fails when a user-facing name (a graph field or value, a status, a proposal kind, a CLI flag or an `AGENTGRAPH_` variable) appears in no docs code span. `node bin/refs.mjs --diff main` lists the other side of each pair that changed on one side only. `node bin/commands.mjs` fails on documented commands, flags or npm scripts that do not exist.
