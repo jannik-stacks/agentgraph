@@ -203,13 +203,13 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
     if (!key || !tags.length || isData(labels)) continue;
     const why = gone(labels, JSON.parse(layers) as string[]);
     const unique = (await df).images.get(id) ?? 0;
-    const stamp = existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
+    const lastUsedMs = existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
     keys.add(key);
     items.push({
       kind: 'env',
       refs: [...tags, ...(names.has(makeSetupVolumeName(key)) ? [makeSetupVolumeName(key)] : [])],
       bytes: unique + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
-      used: stamp,
+      used: lastUsedMs,
       ...(why && { always: true, gone: why }),
       ...((tags.some(t => runImages.has(t)) || runImages.has(id)) && { held: 'container' }),
       ...(overlaid(key) && { held: 'live checkout' }),

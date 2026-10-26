@@ -61,9 +61,13 @@ export const readJsonl = <T = Record<string, unknown>>(path: string) => parseJso
 export const moveDirToAttic = (path: string) => {
   if (!existsSync(path)) return undefined;
   for (const copy of ['data/work', 'tree']) rmSync(join(path, copy), { recursive: true, force: true });
-  const stamp = join(dirname(path), '.attic', `${basename(path)}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
-  let to = stamp;
-  for (let n = 2; existsSync(to); n++) to = `${stamp}-${n}`;
+  const atticPath = join(
+    dirname(path),
+    '.attic',
+    `${basename(path)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
+  );
+  let to = atticPath;
+  for (let n = 2; existsSync(to); n++) to = `${atticPath}-${n}`;
   mkdirSync(dirname(to), { recursive: true });
   renameSync(path, to);
   return to;
