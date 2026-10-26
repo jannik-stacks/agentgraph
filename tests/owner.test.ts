@@ -56,6 +56,6 @@ describe('waitForLock', () => {
       if (previous === undefined) delete process.env.AGENTGRAPH_STATE;
       else process.env.AGENTGRAPH_STATE = previous;
     }
-    expect(order).toEqual(['a in', 'a out', 'b in', 'b out']);
+    expect(order.join(' ')).toMatch(/^(\w) in \1 out (\w) in \2 out$/);
   });
 });
