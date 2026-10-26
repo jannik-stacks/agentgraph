@@ -357,9 +357,8 @@ const sessionRow = (
     repo && aside?.issue !== undefined && aside.comment !== undefined
       ? `https://github.com/${repo}/issues/${aside.issue}#${aside.review ? 'discussion_r' : 'issuecomment-'}${aside.comment}`
       : undefined;
-  const started = events.find(e => e.event.type === 'start')?.event;
-  const id = end?.session.id ?? spec?.resume?.id ?? (started?.type === 'start' ? started.session : undefined);
-  const model = spec?.model ?? (started?.type === 'start' ? started.model : undefined);
+  const started = events.flatMap(e => (e.event.type === 'start' ? [e.event] : []))[0];
+  const id = end?.session.id ?? spec?.resume?.id ?? started?.session;
   const usage = events.flatMap(e => (e.event.type === 'usage' ? [e.event] : []));
   const first = (prompt ?? events[0])?.at;
   const how = end && `${end.session.ended}${end.session.exit === undefined ? '' : `, exit ${end.session.exit}`}`;
@@ -373,7 +372,7 @@ const sessionRow = (
         <Pill of="line" kind={aside || end?.session.aside ? 'aside' : 'session'} />
         {spec && <span className="font-medium">{spec.agent}</span>}
         {heard && <Url url={heard} text="the comment" />}
-        {(spec || model) && muted([spec?.harness, model].filter(Boolean).join(', '))}
+        {started && muted([started.harness, started.provider, started.model].filter(Boolean).join(', '))}
         {spec?.check && muted(`judges ${spec.check}`)}
         {prompt?.item && muted(`on ${short(prompt.item, 60)}`)}
         {id && muted(id)}

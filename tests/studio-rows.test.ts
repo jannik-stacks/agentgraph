@@ -47,7 +47,11 @@ const run: Run = {
   usd: 0.1,
 } as Run;
 const trace = [
-  { at, step: 'implement', event: { type: 'start', session: 's1', model: 'smart' } },
+  {
+    at,
+    step: 'implement',
+    event: { type: 'start', session: 's1', harness: 'pi', provider: 'litellm', model: 'gpt-6.1-sol' },
+  },
   { at, step: 'implement', event: { type: 'text', text: 'done' } },
   { at, step: 'implement', session: { id: 's1', resumed: false, ended: 'stop', usd: 0.1 } },
   { at, step: 'implement', check: { check: 'tests', pass: true, ms: 5 } },
@@ -76,6 +80,10 @@ describe('a run as rows', () => {
     const [, review] = row.children!;
     expect(review?.children?.[1]?.open).toBe(true);
     expect(row.children?.[0]?.children?.slice(1).map(c => c.raw)).toEqual(trace.slice(3, 5));
+  });
+
+  it('names the harness, provider and model a session started on', () => {
+    expect(text(row.children?.[0]?.children?.[0])).toContain('pi, litellm, gpt-6.1-sol');
   });
 });
 
@@ -128,7 +136,7 @@ describe('sessions in a trace', () => {
       ['prompt'],
       ['prompt'],
     ]);
-    expect(text(sessions[0])).toMatch(/aside .*implementor .*opencode, smart .*ended stop, exit 0, \$0\.05/);
+    expect(text(sessions[0])).toMatch(/aside .*implementor [^,]*smart .*ended stop, exit 0, \$0\.05/);
     expect(text(sessions[2])).toContain('ended before it started: provider');
     expect(text(sessions[0]).match(/ses_eaad525edffeCrrVWpaqdOtFbY/g)).toHaveLength(1);
     expect(sessions[0]?.raw).toBe(real.find(l => 'session' in l));
@@ -148,7 +156,7 @@ describe('sessions in a trace', () => {
     expect(session?.children?.filter(c => (c.raw as { event?: { type: string } }).event?.type === 'tool')).toHaveLength(
       10
     );
-    expect(text(session)).toMatch(/implementor .*opencode, smart .*10 tool calls .*ended stop, exit 0, \$0\.04/);
+    expect(text(session)).toMatch(/implementor [^,]*smart .*10 tool calls .*ended stop, exit 0, \$0\.04/);
   });
 
   it('keeps sessions that ran at once apart by their key', () => {
