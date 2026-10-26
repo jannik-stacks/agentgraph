@@ -105,6 +105,8 @@ const CheckItem = ({
             ? `The script runs and its output goes to ${check.agent}, whose reply must start with PASS; FAIL is a finding.`
             : `${check.agent} judges the diff; a reply starting with PASS passes, with FAIL fails.`,
         };
+  const resultText = result && `${result.pass ? '✓' : '✕'} ${formatCheckTime(result.ms)}`;
+  const resultLook = cx('px-1 text-[11px] tabular-nums', result?.pass ? 'text-zinc-500' : accent.text);
   const toggles = [
     ...(check?.run ? ['script' as const] : []),
     ...(check?.agent ? ['judge' as const] : []),
@@ -118,30 +120,26 @@ const CheckItem = ({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="font-mono">{name}</span>
-          {result && (
-            <span
-              className={cx(
-                'rounded-sm px-1 text-[11px]',
-                result.pass
-                  ? 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
-                  : cx('bg-sky-50 font-medium dark:bg-sky-950', accent.text)
-              )}
-            >
-              {result.pass ? 'passed' : 'failed'} in {formatCheckTime(result.ms)}
-            </span>
-          )}
           <span className="text-zinc-500">
             <Term tip={kind.tip}>{kind.label}</Term>, <Term tip={gates[mode]}>{mode}</Term>
           </span>
           {lines && !result && <span className="text-zinc-400">not run yet</span>}
           <span className="ml-auto flex items-baseline gap-1">
-            {source && (
-              <Link
-                href={atLink(run!, source.at)}
-                className="rounded px-1.5 text-[11px] text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            {result && (
+              <Tooltip
+                tip={`${result.pass ? 'Passed' : 'Failed'} last in this run.${source ? ' Click for the trace that produced it.' : ''}`}
               >
-                {'check' in source ? 'trace' : 'session'}
-              </Link>
+                {source ? (
+                  <Link
+                    href={atLink(run!, source.at)}
+                    className={cx(resultLook, 'rounded hover:bg-zinc-100 dark:hover:bg-zinc-800')}
+                  >
+                    {resultText}
+                  </Link>
+                ) : (
+                  <span className={resultLook}>{resultText}</span>
+                )}
+              </Tooltip>
             )}
             {toggles.map(key => (
               <button
