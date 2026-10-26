@@ -4,8 +4,8 @@ useDefault = true
 [allowlist]
 description = "Fake keys in leak and redaction tests, and placeholder config"
 paths = [
-  '''(^|/)tests/(leak-probe|transcript|keychain-scripts|setup-app|apply|github-setup|webhook|harnesses|run|pipeline)\.test\.ts$''',
+  '''(^|/)tests/(leak-probe|transcript|keychain-scripts|setup-app|apply|github-setup|webhook|harnesses|run|pipeline|bothub-hub|agentgraph-hub)\.test\.ts$''',
   '''(^|/)infra/local/\.env\.example$''',
   '''(^|/)infra/local/docker-compose\.yml$''',
 ]
-regexes = ['''^implementor=k1$''']
+regexes = ['''^implementor=k1$''', '''-----BEGIN PRIVATE KEY-----\(\[\\s\\S\]\+\?\)-----END PRIVATE KEY-----''']
