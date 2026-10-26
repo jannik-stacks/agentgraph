@@ -1,11 +1,6 @@
-# Local agentgraph stack. Every published port binds to 127.0.0.1.
-#
-#   default   litellm (model proxy, virtual keys, admin UI at /ui) + postgres (keys, spend, UI login)
-#   sandbox   egress allowlist proxy and Ollama relay on the internal network run containers join
-#   ollama    Ollama in a container (Linux; on macOS run Ollama natively for the GPU)
-#
-# Images are pinned by digest; the tag is informational. Re-pin with
-#   docker buildx imagetools inspect <image>:<tag>
+# Local agentgraph stack. Every published port binds to 127.0.0.1. Profiles: default (litellm + postgres),
+# sandbox (egress allowlist proxy, Ollama relay), ollama (Ollama in a container, for Linux).
+# Images are pinned by digest; re-pin with docker buildx imagetools inspect <image>:<tag>.
 
 name: agentgraph
 
@@ -13,8 +8,7 @@ services:
   # Fixed container names make a second project on the same volumes fail at create.
   litellm:
     container_name: agentgraph-litellm
-    # The PyPI releases 1.82.7 and 1.82.8 were malicious (2026-03-24); the official image was
-    # reported unaffected. Only ever run the image, pinned by digest.
+    # PyPI releases 1.82.7 and 1.82.8 were malicious; only ever run the image, pinned by digest.
     image: ghcr.io/berriai/litellm-database:v1.106.2@sha256:35f2cec3a14bb297e08bfab56c1fc377432bc4071aaf71978fdff043a5d91e79
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     ports: ["127.0.0.1:4000:4000"]
@@ -31,8 +25,7 @@ services:
       AGENTGRAPH_MODEL_WRITER: ${AGENTGRAPH_MODEL_WRITER:-chatgpt/gpt-6.1-sol}
       AGENTGRAPH_MODEL_LOCAL: ${AGENTGRAPH_MODEL_LOCAL:-ollama_chat/qwen3.5:4b}
       OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
-      # ChatGPT device-login tokens. The refresh token is single-use: never point two LiteLLM
-      # instances at the same token store.
+      # The ChatGPT refresh token is single use: never point two LiteLLM instances at this store.
       CHATGPT_TOKEN_DIR: /var/lib/litellm/chatgpt
     volumes:
       - ./${LITELLM_CONFIG:-litellm.config.yaml}:/app/config.yaml:ro
@@ -70,36 +63,29 @@ services:
     networks: [db]
     restart: unless-stopped
 
-  egress:
+  egress: &egress
     profiles: [sandbox]
     build: ./egress
     image: agentgraph-egress:local
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
     mem_limit: 128m
     pids_limit: 512
     networks: [sandbox, egress]
-    restart: unless-stopped
 
-  # Gives run containers the Ollama decision API (/v1/systemone) on the host, port 11434 only. Run containers
-  # reach it as ollama.internal: Ollama answers 403 to host names outside localhost, private addresses and
-  # .internal, .local or .localhost names.
+  # Gives run containers the Ollama decision API (/v1/systemone) on the host, port 11434 only, as ollama.internal:
+  # Ollama answers 403 to host names outside localhost, private addresses and .internal, .local or .localhost names.
   ollama-relay:
-    profiles: [sandbox]
-    build: ./egress
-    image: agentgraph-egress:local
+    <<: *egress
     entrypoint: ["socat", "TCP-LISTEN:11434,fork,reuseaddr", "TCP:${OLLAMA_HOST_ADDR:-host.docker.internal:11434}"]
     extra_hosts: ["host.docker.internal:host-gateway"]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
     mem_limit: 32m
     pids_limit: 64
     networks:
       sandbox: { aliases: [ollama.internal] }
       egress: {}
-    restart: unless-stopped
 
   ollama:
     profiles: [ollama]
