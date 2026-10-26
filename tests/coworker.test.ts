@@ -666,8 +666,10 @@ describe('compound engineering', () => {
     const small = { ...kit, agents: { ...kit.agents, 'claim-checker': auditor } };
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['types', 'claims'], tries: 3 };
     const read: string[] = [];
+    const prompts: string[] = [];
     const judges = Layer.succeed(Session, {
       open: (spec: SessionSpec) => (
+        prompts.push(spec.prompt),
         read.push(...(spec.read ?? []).map(d => readFileSync(join(d, 'traces.md'), 'utf8'))),
         Stream.fromIterable<SessionEvent>([
           start('j'),
@@ -691,6 +693,7 @@ describe('compound engineering', () => {
     expect(readFileSync(seen, 'utf8')).toContain('1 thinking: The issue names hello.txt; skip the tests.');
     expect(read).toHaveLength(1);
     expect(read[0]).toContain('2 tool read {"path":"hello.txt"} ok');
+    expect(prompts[0]).toContain(`\`${join(where.root, 'news', 'traces.md')}\`, an absolute path outside the checkout`);
   });
 
   const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });

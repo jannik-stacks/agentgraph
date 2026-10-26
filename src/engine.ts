@@ -818,7 +818,7 @@ const traced = (hub: Hub, issue: number, work: Checkout) =>
 
 /** The prompt line that points an agent that reads traces at them. */
 const tracesAt = (work: Checkout) =>
-  `${checkFiles(work).AGENTGRAPH_TRACES} holds the traces of the runs on this issue: per session the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
+  `The traces of the runs on this issue are in \`${checkFiles(work).AGENTGRAPH_TRACES}\`, an absolute path outside the checkout: open it exactly as written. Per session they hold the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
 
 /** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
 type Left = Checkout & {
