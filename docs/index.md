@@ -28,12 +28,12 @@ The runner on the host polls GitHub, or a local folder that stands in for it. It
 
 1. [Install and first run](local.md)
 2. [The graph folder](reference.md): `.agentgraph/` and every field
-3. [Checks and results](loop.md#checks)
-4. [Workflows](loop.md): triggers, steps, retries and waiting for people
-5. [Running on GitHub](local.md#on-github)
+3. [Checks and results](checks.md)
+4. [Workflows](workflows.md): triggers, steps, retries and waiting for people
+5. [Running on GitHub](github.md)
 6. [Hosting](hosting.md): VPS, Kubernetes, AWS and Cloudflare
 
-Reference: [CLI](local.md#the-cli), [Proposals](proposals.md), [Sandbox and models](sandbox.md), [Runs and data](runs.md).
+Reference: [CLI](cli.md), [Proposals](proposals.md), [Sandbox and models](sandbox.md), [Runs and data](runs.md).
 
 Working on agentgraph: [Engine and code](patterns.md), [Bench](bench.md).
 
