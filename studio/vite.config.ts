@@ -28,6 +28,7 @@ export default defineConfig({
   appType: 'spa',
   plugins: [noNodeInBrowser(), makeStudioDevApiPlugin(), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
+  optimizeDeps: { entries: ['index.html', 'src/**/*.tsx'], include: ['agentation', 'fumadocs-core/highlight'] },
   server: { ...server, fs: { allow, deny }, warmup: { clientFiles: ['./src/main.tsx'] } },
   preview: server,
 });
