@@ -450,7 +450,7 @@ export const RunLine = ({ r }: { r: ServedRun }) => (
     className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono transition-colors text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
   >
     <Col className="w-[4ch]">#{r.run.issue}</Col>
-    <Col className="w-[8ch]">{flag(r.run.status, r.run.status === 'running')}</Col>
+    <Col className="w-[8ch]">{flag(r.run.status, r.run.status === 'running' || r.run.status === 'waiting')}</Col>
     <Col className="text-zinc-500">{took(r.run.started, undefined)}</Col>
   </Link>
 );
