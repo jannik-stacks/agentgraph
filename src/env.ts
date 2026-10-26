@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { makeHostEnv } from './git.ts';
-import { isOwnerRunning, ownerId, readStateDir, startHeartbeat } from './owner.ts';
+import { isOwnerRunning, ownerId, readStateDir, startHeartbeat, waitForLock } from './owner.ts';
 
 /**
  * A repo's environment: what the toolchain step and setup made of a base's files. `outputs` are the ignored directories
@@ -269,7 +269,9 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxS
     const tag = makeImageTag(spec.repo, key);
     const pending = building.get(tag);
     if (pending) return pending;
-    const made = createSandboxSetup(spec, { key, tag, mode, inputs, lines, skeleton });
+    const made = waitForLock(`env-${key}`).then(release =>
+      createSandboxSetup(spec, { key, tag, mode, inputs, lines, skeleton }).finally(release)
+    );
     building.set(tag, made);
     made.catch(() => building.delete(tag));
     return made;
@@ -360,11 +362,7 @@ const createSandboxSetup = async (
       })
     );
     if (/Conflict\. The container name/.test(out.output)) {
-      const running = await runDockerCli(['container', 'inspect', '--format', '{{.State.Running}}', name]).catch(
-        () => ''
-      );
-      if (running === 'true') await new Promise(r => setTimeout(r, 5000));
-      else await runDockerCli(['rm', '-f', name]).catch(() => '');
+      await runDockerCli(['rm', '-f', name]).catch(() => '');
       continue;
     }
     if (out.code !== 0) await runDockerCli(['volume', 'rm', '-f', makeSetupVolumeName(key)]).catch(() => '');

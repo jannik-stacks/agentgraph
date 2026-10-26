@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';
-import { open, mkdir, link, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { open, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
-import { startHeartbeat, isOwnerRunning } from './owner.ts';
+import { createLock } from './owner.ts';
 import type { Log, Trace } from './trace.ts';
 import type { Run } from './workflow.ts';
 
@@ -100,54 +100,6 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
         e => (missing(e) ? undefined : Promise.reject(e))
       )
     );
-  const exists = (e: unknown) => (e as NodeJS.ErrnoException).code === 'EEXIST';
-  /** Replaces the stale lock `before` with `candidate` when this process wins the one claim on `before`; a dead claimer passes its claim on. */
-  const succeed = async (path: string, before: string, candidate: string) => {
-    let claim = `${path}.${createHash('sha256').update(before).digest('hex')}.next`;
-    for (;;) {
-      try {
-        await link(candidate, claim);
-        break;
-      } catch (e) {
-        if (!exists(e)) throw e;
-        const other = await readFile(claim, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
-        if (other === undefined || isOwnerRunning(other)) return false;
-        claim = `${path}.${createHash('sha256').update(`${claim}\0${other}`).digest('hex')}.next`;
-      }
-    }
-    try {
-      if ((await readFile(path, 'utf8').catch(() => undefined)) !== before) return false;
-      await rename(candidate, path);
-      return true;
-    } finally {
-      await rm(claim, { force: true });
-    }
-  };
-  const take = async (path: string) => {
-    const holder = `${startHeartbeat()}:${randomUUID()}`;
-    const candidate = `${path}.${randomUUID()}`;
-    await writeFile(candidate, holder, { flag: 'wx' });
-    try {
-      for (let tries = 0; tries < 2; tries++) {
-        try {
-          await link(candidate, path);
-          return holder;
-        } catch (e) {
-          if (!exists(e)) throw e;
-          const before = await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
-          if (before === undefined) continue;
-          if (before ? isOwnerRunning(before) : Date.now() - (await stat(path)).mtimeMs < 120_000)
-            throw new Error(`held by ${before || 'an initializing owner'}`, { cause: e });
-          if (await succeed(path, before, candidate)) return holder;
-          break;
-        }
-      }
-      throw new Error('lock contended');
-    } finally {
-      await rm(candidate, { force: true });
-    }
-  };
-
   const writers = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
   const trace = (id: string, ...lines: Trace[]) => {
     const writer = writers.get(id) ?? Effect.unsafeMakeSemaphore(1);
@@ -239,12 +191,11 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       ),
     lock: name => {
       const path = join(dir, '.locks', `${name.replaceAll('/', '_')}.lock`);
-      return Effect.acquireRelease(
-        io(path, () => mkdir(join(dir, '.locks'), { recursive: true }).then(() => take(path))),
-        holder =>
-          Effect.promise(async () => {
-            if ((await readFile(path, 'utf8').catch(() => undefined)) === holder) await rm(path, { force: true });
-          })
+      return Effect.asVoid(
+        Effect.acquireRelease(
+          io(path, () => mkdir(join(dir, '.locks'), { recursive: true }).then(() => createLock(path))),
+          release => Effect.promise(release)
+        )
       );
     },
     log,

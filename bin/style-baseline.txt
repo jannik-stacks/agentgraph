@@ -74,7 +74,7 @@ no-comment src/proposal.ts 3
 no-comment src/sandbox.ts 8
 no-comment src/services.ts 9
 no-comment src/session.ts 1
-no-comment src/store.ts 9
+no-comment src/store.ts 8
 no-comment src/trace.ts 10
 no-comment src/workflow.ts 27
 no-comment studio/fixtures.ts 5

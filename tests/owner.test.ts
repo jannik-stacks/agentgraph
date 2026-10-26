@@ -3,7 +3,7 @@ import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { uptime } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isLockedByOtherProcess, isOwnerRunning } from '../src/owner.ts';
+import { isLockedByOtherProcess, isOwnerRunning, waitForLock } from '../src/owner.ts';
 import { tmp } from './kit.ts';
 
 const lock = (pid: number, at?: Date) => {
@@ -35,5 +35,27 @@ describe('isOwnerRunning', () => {
   it('trusts a running pid only when its label was written since boot', () => {
     expect(isOwnerRunning(String(process.ppid))).toBe(true);
     expect(isOwnerRunning(String(process.ppid), Date.now() - uptime() * 1000 - 3_600_000)).toBe(false);
+  });
+});
+
+describe('waitForLock', () => {
+  it('lets one holder in at a time and hands the lock over on release', async () => {
+    const previous = process.env.AGENTGRAPH_STATE;
+    process.env.AGENTGRAPH_STATE = tmp('state');
+    const order: string[] = [];
+    const hold = async (name: string) => {
+      const release = await waitForLock('images');
+      order.push(`${name} in`);
+      await new Promise(done => setTimeout(done, 50));
+      order.push(`${name} out`);
+      await release();
+    };
+    try {
+      await Promise.all([hold('a'), hold('b')]);
+    } finally {
+      if (previous === undefined) delete process.env.AGENTGRAPH_STATE;
+      else process.env.AGENTGRAPH_STATE = previous;
+    }
+    expect(order).toEqual(['a in', 'a out', 'b in', 'b out']);
   });
 });
