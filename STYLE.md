@@ -5,24 +5,19 @@ Don't quietly work around it.
 
 ## Philosophy
 
-**Small tools, plain data between them.** This is the Unix philosophy: a program does one thing, and
-programs talk through text or JSON. The engine runs workflows and nothing else. Scripts slice and score,
-and write JSON that the studio only reads. Experiments such as tune loops live in a workflow instance or
-an example, not in the engine. Every piece runs from the CLI on its own. See Layout and Simplicity.
+**Small tools, plain data between them** (the Unix philosophy). The engine runs workflows and nothing
+else. Scripts slice and score, and write JSON the studio only reads. Every piece runs from the CLI on its own.
 
-**Simple is not the same as easy.** Rich Hickey's "Simple Made Easy" splits the two. Simple means
-untangled: one concept, one role, nothing braided together. Easy means familiar or close at hand. A
-copied type, an extra option or a compat shim is easy today and tangles the code tomorrow. Keep lines of
-code and complexity low; a good abstraction is a simple one. When a part underperforms, fix its
-abstraction instead of cutting it or wrapping it. See Types and the reduce pass.
+**Simple, not easy** (Rich Hickey, "Simple Made Easy"). Simple means one concept, one role, nothing braided
+together. A copied type, an extra option or a compat shim is easy today and tangles the code tomorrow. When a
+part underperforms, fix its abstraction instead of cutting or wrapping it.
 
-**Deep modules.** From John Ousterhout's _A Philosophy of Software Design_, popularized by Matt Pocock: a
-module hides a lot of functionality behind a small interface. Storage, git, the sandbox and the harnesses
-are each one opinionated module with few entry points, and tests sit at that interface. A shallow wrapper
-that only renames its callee has to earn its place. Replaceable parts plug in through a small typed seam.
+**Deep modules** (John Ousterhout, _A Philosophy of Software Design_). Storage, git, the sandbox and the
+harnesses each hide a lot behind a small interface, and tests sit at that interface. A wrapper that only
+renames its callee has to earn its place.
 
-Good code reads well from its types and signatures alone, with bodies that are plain composition. Design
-at that level first.
+Good code reads well from its types and signatures alone, with bodies that are plain composition. Design at
+that level first.
 
 ## Types
 
