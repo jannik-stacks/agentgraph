@@ -20,7 +20,7 @@ const noNodeInBrowser = (): Plugin => ({
   },
 });
 
-const server = { port: Number(process.env.AGI_PORT) || 5182, strictPort: true };
+const server = { host: '127.0.0.1', port: Number(process.env.AGI_PORT) || 5182, strictPort: true };
 const allow = ['./', '../src/', '../node_modules/'].map(dir => fileURLToPath(new URL(dir, import.meta.url)));
 const deny = ['.env', '.env.*', '*.env', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**'];
 
