@@ -27,3 +27,17 @@ The full rules are in [STYLE.md](STYLE.md). The ones that matter most:
 
 What lint and the hub's checks enforce, and the baseline for old violations, is
 [STYLE.md#lint-and-enforcement](STYLE.md#lint-and-enforcement). After a rename, run `node bin/style.mjs --write`.
+
+## Working on this repo
+
+The agentgraph bot works here beside humans and Claude Code, and all three meet one bar: the rules above, the
+checks of the [agentgraph hub](examples/agentgraph/README.md), and small linear commits with conventional one-line
+subjects. `npm run hooks` installs the hooks that hold your commits to it.
+
+- The bot works on `agentgraph/<n>` branches, one per issue, and opens a pull request from each. It never pushes
+  `main`.
+- Before you work, fetch and rebase your unpushed commits onto `origin/main`: `git fetch origin && git rebase origin/main`.
+- Pull requests merge by rebase only, so `main` stays linear.
+- The repo is public. Commits, pull requests and comments name no home folder, no email other than a noreply one, and
+  nothing on the operator's deny list; the hub's hygiene check blocks them. Point `AGENTGRAPH_DENY` at the list, or
+  put it at `examples/agentgraph/deny.txt`, which git ignores.
