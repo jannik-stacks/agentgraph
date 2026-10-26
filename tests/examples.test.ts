@@ -16,7 +16,7 @@ const readHubAgents = async (dir: string) => Object.values((await Effect.runProm
 describe('example hubs', () => {
   it('finds every example hub', () => {
     expect(hubDirs.map(dir => dir.slice(examples.length + 1))).toEqual(
-      expect.arrayContaining(['agentgraph', 'clarinet', 'sandbox'])
+      expect.arrayContaining(['agentgraph', 'sandbox'])
     );
   });
 

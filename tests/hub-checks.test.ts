@@ -1,8 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { rmSync, symlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { context } from '../src/context.ts';
 import { change, runScript, tmp } from './kit.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
@@ -218,49 +217,5 @@ describe('safety check, repository hygiene', () => {
       'kit/src/wallet.ts:1: adds a seed phrase',
     ]);
     expect(out).not.toContain('legal winner');
-  });
-});
-
-describe('clarinet reach check', () => {
-  it('reads the brief from the issue context and the excuses from the reply, the files the engine writes', () => {
-    const dir = tmp('engine-files');
-    const brief = '## Title\nfeat(cli): x\n\n## Reach\n- CLI: `components/a.rs`';
-    const at = '2026-10-13T09:01:00.000Z';
-    const comment = { id: at, author: 'agentgraph[bot]', body: brief, at };
-    const issue = {
-      number: 1,
-      title: 'X',
-      body: 'Do x.',
-      state: 'open' as const,
-      labels: [],
-      author: 'morgan',
-      url: '',
-    };
-    const events = [{ issue: 1, kind: 'comment' as const, actor: 'agentgraph[bot]', trusted: true, at, comment }];
-    writeFileSync(join(dir, 'context.md'), context({ issue: { ...issue, events } }));
-    writeFileSync(join(dir, 'reply.md'), 'Done.\n\nNot reached: `components/a.rs`: a follow-up does it');
-    const repo = change({ 'README.md': 'x\n' });
-    const out = runScript(resolve(import.meta.dirname, '../examples/clarinet/scripts/reach.mjs'), repo, [], {
-      AGENTGRAPH_CONTEXT: join(dir, 'context.md'),
-      AGENTGRAPH_REPLY: join(dir, 'reply.md'),
-    });
-    expect(out.out.split('\n')[0]).toBe('components/a.rs (CLI) not reached: a follow-up does it');
-  });
-});
-
-describe('clarinet toolchain checks', () => {
-  const scripts = resolve(import.meta.dirname, '../examples/clarinet/scripts');
-  const bare = { PATH: '/usr/bin:/bin', HOME: tmp('bare-home'), TMPDIR: tmp('bare-tmp') };
-
-  it('exits 127 with the spawn error when cargo cannot start, so the run stops as an environment fault', () => {
-    const r = spawnSync(process.execPath, [join(scripts, 'cargo.mjs'), 'fmt'], { encoding: 'utf8', env: bare });
-    expect(r.status).toBe(127);
-    expect(r.stdout).toMatch(/cargo could not start: .*ENOENT/);
-  });
-
-  it('exits 127 naming the missing tool before the SDK build starts', () => {
-    const r = spawnSync('sh', [join(scripts, 'sdk.sh')], { encoding: 'utf8', env: bare, cwd: tmp('sdk-tree') });
-    expect(r.status).toBe(127);
-    expect(r.stdout).toMatch(/^sdk: \S+ not found$/m);
   });
 });

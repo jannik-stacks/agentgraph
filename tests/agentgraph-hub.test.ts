@@ -948,12 +948,12 @@ const contextWith = (text: string) => {
         body: 'Labels are lost.\n\n## Done when\n\n- `src/labels.ts` replays them.',
         state: 'open',
         labels: [],
-        author: 'morgan',
+        author: 'robin',
         url: '',
         events: [
-          said('morgan', '/agent', '2026-10-13T09:00:00.000Z'),
+          said('robin', '/agent', '2026-10-13T09:00:00.000Z'),
           said('agentgraph[bot]', text, '2026-10-13T09:01:00.000Z'),
-          said('morgan', 'Looks right.', '2026-10-13T09:02:00.000Z'),
+          said('robin', 'Looks right.', '2026-10-13T09:02:00.000Z'),
         ],
       },
     })
@@ -981,7 +981,7 @@ const hubWith = (text: string) => {
       '',
       'Labels are lost.',
       '',
-      '## @morgan at 2026-10-13T09:00:00.000Z',
+      '## @robin at 2026-10-13T09:00:00.000Z',
       '',
       '/agent',
       '',
@@ -1343,7 +1343,7 @@ describe('principles', () => {
 
   it('every hub with a principles skill carries the same one', () => {
     const hubs = readdirSync(examples).filter(hub => existsSync(join(examples, hub, 'skills/principles.md')));
-    expect(hubs).toEqual(expect.arrayContaining(['agentgraph', 'clarinet']));
+    expect(hubs).toContain('agentgraph');
     for (const hub of hubs) expect(skill(hub)).toBe(skill('agentgraph'));
   });
 
