@@ -15,7 +15,8 @@ import { dirname, join } from 'node:path';
 import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { makeCodexHarness } from '../harnesses/codex.ts';
-import { type Harness, harnessSession, getModelPrice, readHarnessSettings } from '../src/harnesses.ts';
+import { type Harness, harnessSession, readHarnessSettings } from '../src/harnesses.ts';
+import { getListPriceUsd, isModelPriced, readPrices } from '../src/prices.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
@@ -100,25 +101,23 @@ const LEAKY_PATHS = ['../escape', '/escape', 'a/../../escape', 'a//b', './a'];
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 
 describe('the session loop', () => {
-  it('prices usage the harness reports at $0 from the price table, cached input at its own rate', async () => {
+  it('prices usage at list price from the price table, cached input at its own rate', async () => {
     const prices = join(mkdtempSync(join(tmpdir(), 'agentgraph-prices-')), 'prices.json');
     writeFileSync(
       prices,
       JSON.stringify({
-        aliases: { smart: 'chatgpt/gpt-6.1-sol' },
-        models: { 'gpt-6.1-sol': { input: 1.25, cached: 0.125, output: 10 } },
+        'chatgpt/gpt-6.1-sol': {
+          input_cost_per_token: 1.25e-6,
+          cache_read_input_token_cost: 0.125e-6,
+          output_cost_per_token: 10e-6,
+        },
       })
     );
     const { exit } = await session(spec, sample('opencode-denied.jsonl'), { prices });
     const usage = Exit.isSuccess(exit) ? exit.value.filter(e => e.type === 'usage') : [];
-    expect(usage[0]).toEqual({ type: 'usage', input: 3201, output: 19, usd: (3201 * 1.25 + 19 * 10) / 1e6 });
-    expect(usage[1]).toEqual({
-      type: 'usage',
-      input: 3263,
-      output: 19,
-      cacheRead: 3072,
-      usd: (191 * 1.25 + 3072 * 0.125 + 19 * 10) / 1e6,
-    });
+    expect(usage[0]).toMatchObject({ type: 'usage', input: 3201, output: 19 });
+    expect(usage[0]?.type === 'usage' && usage[0].usd).toBeCloseTo((3201 * 1.25 + 19 * 10) / 1e6);
+    expect(usage[1]?.type === 'usage' && usage[1].usd).toBeCloseTo((191 * 1.25 + 3072 * 0.125 + 19 * 10) / 1e6);
     const { events: unpriced } = await events(spec, sample('opencode-denied.jsonl'));
     expect(unpriced.filter(e => e.type === 'usage').every(e => e.type === 'usage' && e.usd === undefined)).toBe(true);
     expect(unpriced.filter(e => e.type === 'usage').every(e => e.type === 'usage' && e.unpriced === 'smart')).toBe(
@@ -129,25 +128,31 @@ describe('the session loop', () => {
   it('finds a list price by alias, upstream or bare name, and none for an unknown model', () => {
     const prices = {
       aliases: { luna: 'chatgpt/gpt-6-luna' },
-      models: { 'gpt-6-luna': { input: 0.1, output: 0.5 } },
+      table: { 'gpt-6-luna': { input_cost_per_token: 1e-7, output_cost_per_token: 5e-7 } },
     };
+    const tokens = { input: 1e6, cacheRead: 0, cacheWrite: 0, output: 1e6 };
     for (const model of ['luna', 'litellm/luna', 'chatgpt/gpt-6-luna', 'gpt-6-luna'])
-      expect(getModelPrice(prices, [model])).toEqual({ input: 0.1, output: 0.5 });
-    expect(getModelPrice(prices, ['mystery'])).toBeUndefined();
-    expect(getModelPrice(prices, ['mystery', 'luna'])).toEqual({ input: 0.1, output: 0.5 });
+      expect(getListPriceUsd(prices, [model], tokens), model).toBeCloseTo(0.6);
+    expect(isModelPriced(prices, 'mystery')).toBe(false);
+    expect(getListPriceUsd(prices, ['mystery', 'luna'], tokens)).toBeCloseTo(0.6);
   });
 
-  it('prices the OpenRouter bench models at their OpenRouter list prices', () => {
-    const prices = JSON.parse(readFileSync(join(import.meta.dirname, '../infra/local/prices.json'), 'utf8'));
-    const list = {
-      'glm-flash': [0.15, 0.03, 0.5],
-      'qwen-flash': [0.15, 0.016, 0.47],
-      'deepseek-flash': [0.3, 0.006, 1.2],
-      minimax: [0.3, 0.06, 1.2],
-      'grok-build': [1, 0.2, 2],
+  it('prices a model the table lists only under other providers at the price most of them list', () => {
+    const prices = {
+      aliases: { flash: 'openrouter/acme/flash-1' },
+      table: {
+        'a/flash-1': { input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 },
+        'b/flash-1': { input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 },
+        'c.flash-1': { input_cost_per_token: 9e-6, output_cost_per_token: 9e-6 },
+      },
     };
-    for (const [model, [input, cached, output]] of Object.entries(list))
-      expect(getModelPrice(prices, [model]), model).toMatchObject({ input, cached, output, source: 'openrouter' });
+    expect(getListPriceUsd(prices, ['flash'], { input: 1e6, cacheRead: 0, cacheWrite: 0, output: 1e6 })).toBeCloseTo(3);
+  });
+
+  it('reads the pinned LiteLLM table and prices every bench model or names it', () => {
+    const prices = readPrices();
+    expect(Object.keys(prices.table).length).toBeGreaterThan(1000);
+    expect(isModelPriced(prices, 'claude-opus')).toBe(true);
   });
 
   it('runs the harness with its errors in its output, with only the agent key, by name', async () => {

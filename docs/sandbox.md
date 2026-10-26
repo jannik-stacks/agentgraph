@@ -141,7 +141,7 @@ An agent's `model` is the name its endpoint expects, such as a gateway alias. `A
 
 `AGENTGRAPH_PROXY_URL` is the base URL, one for every harness or `harness=url` pairs, and `AGENTGRAPH_PROXY_KEYS` holds `agent=key` pairs, with `*` for any other agent; both are separated by commas or spaces. A harness without a URL uses its own endpoint, and an agent without a key runs on its harness's own login. Inside the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code; opencode also gets `AGENTGRAPH_LLM_BASE_URL`. `AGENTGRAPH_SESSION_ENV` names engine variables every session gets as well. Keys pass by environment name, never in arguments, and are masked in output. [Hosting](hosting.md#models) has the settings for each kind of gateway. <!-- code: src/harnesses.ts#harnessSession -->
 
-Usage the harness does not price, subscriptions included, is priced from `AGENTGRAPH_PRICES` (default `infra/local/prices.json`), with its source. A model missing from the table is marked `unpriced` in the trace, never $0. <!-- code: src/harnesses.ts#priced -->
+Every session's usage is priced at the public list price of its model, whatever the harness reports and on subscriptions too, so runs compare across providers. The table is LiteLLM's price list, pinned and gzipped at `infra/local/prices.json.gz` (`AGENTGRAPH_PRICES` names another); `infra/local/aliases.json` maps the proxy's aliases to the models it lists. A model the table lacks is marked `unpriced` in the trace, never $0. <!-- code: src/harnesses.ts#priced src/prices.ts#readPrices -->
 
 ## Secrets on the host
 

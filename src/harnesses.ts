@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
+import { cp, lstat, mkdir, open as openFile, rm, symlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Config, ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
 import { type HarnessCheck, GraphError, loadGraph } from './folder.ts';
 import { type Command, type Exit, Sandbox, type SandboxError } from './sandbox.ts';
+import { getListPriceUsd, type Prices, readPrices } from './prices.ts';
 import { Session } from './session.ts';
 import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
 
@@ -98,45 +99,16 @@ export const splitNames = (text: string) => text.split(/[\s,]+/).filter(Boolean)
 export const parseModelUrls = (url: string): Record<string, string> =>
   /^[\w*-]+=/.test(url) ? parseNamePairs(url) : { '*': url };
 
-/**
- * List prices in USD per million tokens, keyed by upstream model, the proxy's aliases for them, and the upstream
- * prefixes a subscription pays for, whose list price is only an estimate.
- */
-export type Prices = {
-  aliases?: Record<string, string>;
-  models?: Record<string, { input: number; output: number; cached?: number; cacheWrite?: number }>;
-  subscriptions?: string[];
-};
-
-/** The list price of the first of `models` the table knows, by its own name, its alias's upstream or a bare name. */
-export const getModelPrice = (prices: Prices, models: string[]) => {
-  const bare = (model: string) => model.split('/').at(-1) ?? model;
-  return models
-    .flatMap(model => [model, prices.aliases?.[model] ?? model, prices.aliases?.[bare(model)] ?? model])
-    .map(model => prices.models?.[model] ?? prices.models?.[bare(model)])
-    .find(Boolean);
-};
-
-export const sumTokenCost = (
-  price: NonNullable<ReturnType<typeof getModelPrice>>,
-  t: Record<'input' | 'cacheRead' | 'cacheWrite' | 'output', number>
-) =>
-  (t.input * price.input +
-    t.cacheRead * (price.cached ?? price.input) +
-    t.cacheWrite * (price.cacheWrite ?? price.input) +
-    t.output * price.output) /
-  1e6;
-
-/** The usage's list price when the harness reports none, as a subscription through the proxy does; else what is unpriced. */
+/** The usage at the list price of the session's model; a model the table lacks is marked `unpriced`, keeping what the harness reported. */
 const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
-  if (u.usd) return u;
-  const price = getModelPrice(prices, models);
-  if (!price) return { ...u, unpriced: models[0] ?? 'unknown' };
   const [cacheRead, cacheWrite] = [u.cacheRead ?? 0, u.cacheWrite ?? 0];
-  return {
-    ...u,
-    usd: sumTokenCost(price, { input: u.input - cacheRead - cacheWrite, cacheRead, cacheWrite, output: u.output }),
-  };
+  const usd = getListPriceUsd(prices, models, {
+    input: u.input - cacheRead - cacheWrite,
+    cacheRead,
+    cacheWrite,
+    output: u.output,
+  });
+  return usd === undefined ? { ...u, unpriced: models[0] ?? 'unknown' } : { ...u, usd };
 };
 
 const makeHomePath = async (home: string, path: string) => {
@@ -174,7 +146,7 @@ const makeSessionStop = (e: SandboxError) =>
  * Runs the harness of `harnesses` that `spec.harness` names. Each session gets its own home under
  * `data/homes`, reused on resume, its harness's URL from `proxy.url`, its agent's key from `proxy.keys` (`*` for any
  * agent) and the `passed` variables. Without a URL the harness uses its own endpoint, without a key its own login.
- * Usage the harness does not price is priced from the `prices` file.
+ * Usage is priced at list price from the `prices` table, and without one is unpriced.
  */
 export const harnessSession = (
   s: {
@@ -191,9 +163,9 @@ export const harnessSession = (
       const keys = parseNamePairs(Redacted.value(s.proxy.keys));
       const urls = parseModelUrls(s.proxy.url);
       const models = parseNamePairs(s.proxy.models ?? '');
-      const prices: Prices = s.prices
-        ? yield* Effect.tryPromise(() => readFile(s.prices!, 'utf8').then(JSON.parse)).pipe(Effect.orDie)
-        : {};
+      const prices = s.prices
+        ? yield* Effect.try(() => readPrices(s.prices)).pipe(Effect.orDie)
+        : { table: {}, aliases: {} };
 
       const open = (spec: SessionSpec) =>
         Stream.unwrapScoped(

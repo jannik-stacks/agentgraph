@@ -79,7 +79,7 @@ infra/local/e2e.sh /tmp/agentgraph-e2e examples/sandbox
 
 ## Prices
 
-The dashboard shows billed cost as the harness reports it and, separately, an estimate at list
-prices. Prices come from the proxy's `/model/info` when it has them, then from `prices.json`
-(USD per million tokens, aliases mapped to models). The ChatGPT login bills nothing per token, so
-smart and writer runs show $0 billed and their list-price estimate.
+Runs record what their tokens cost at the public list price, also on a subscription such as the
+ChatGPT login, which bills nothing per token. `prices.json.gz` is LiteLLM's price table, pinned to a
+release; `npm run prices` fetches it again. `aliases.json` maps each proxy alias to a model the table
+lists. A model with no price shows as unpriced, never as $0.

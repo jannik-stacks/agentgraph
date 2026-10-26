@@ -1,7 +1,6 @@
 import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Config, Effect, Layer, Option, Redacted, Struct } from 'effect';
 import { fileForge } from './forge.ts';
 import { dockerSandbox, sandboxImage } from './docker.ts';
@@ -17,6 +16,7 @@ import {
 } from './harnesses.ts';
 import { GraphError } from './folder.ts';
 import { remoteSandbox } from './remote.ts';
+import { priceTable } from './prices.ts';
 import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
 
@@ -41,8 +41,6 @@ export type Settings = {
   /** A forge folder with its git remote in `origin.git`, or the GitHub App that acts on `repo`. */
   forge: string | { id: string; key: Redacted.Redacted };
 };
-
-const prices = fileURLToPath(new URL('../infra/local/prices.json', import.meta.url));
 
 const passed = Effect.flatMap(Config.string('AGENTGRAPH_SESSION_ENV').pipe(Config.withDefault('')), names =>
   Effect.map(
@@ -83,7 +81,7 @@ export const settings = Config.all({
     keys: Config.redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
     models: Config.string('AGENTGRAPH_MODELS').pipe(Config.withDefault('')),
   }),
-  prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(prices)),
+  prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(priceTable)),
   cache: Config.string('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
   checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
