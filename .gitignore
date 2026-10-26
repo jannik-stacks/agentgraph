@@ -10,3 +10,4 @@ coverage/
 auth.json
 .bothub-data/
 examples/*/deny.txt
+.claude/
