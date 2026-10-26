@@ -38,7 +38,7 @@ type Proposal = Answer & {
   problems: string[];
 };
 
-/** The structure proposer's menu, taken round-robin by iteration. */
+/** The structure proposer's menu, taken round-morgan by iteration. */
 const edits = ['reviewer', 'drop', 'tries', 'scout', 'warn'] as const;
 
 /** The edits of the menu that can change this hub: nothing added twice, nothing dropped or softened that is not there. */

@@ -274,22 +274,22 @@ describe('getEventOutcome', () => {
   const said = (kind: Event['kind'], more: Partial<Event> = {}): Event => ({
     issue: 7,
     kind,
-    actor: 'robin',
+    actor: 'morgan',
     trusted: true,
     at: '2026-10-16T01:00:00Z',
     ...more,
   });
   const comment = (body: string) =>
     said('comment', {
-      comment: makeCommentWithAgentRequest({ id: 'c1', author: 'robin', body, at: '2026-10-16T01:00:00Z' }),
+      comment: makeCommentWithAgentRequest({ id: 'c1', author: 'morgan', body, at: '2026-10-16T01:00:00Z' }),
     });
   const waiting = at('merge', { status: 'waiting' });
   const asked = at('implement', { status: 'waiting', reason: 'which API?' });
 
   it('changes requested carries the review body and its line comments', () => {
     const line = (path: string, line: number, body: string) =>
-      said('comment', { comment: { id: 'l', author: 'robin', body, at: '', path, line } });
-    const review = said('changes_requested', { comment: { id: 'r', author: 'robin', body: 'fix these', at: '' } });
+      said('comment', { comment: { id: 'l', author: 'morgan', body, at: '', path, line } });
+    const review = said('changes_requested', { comment: { id: 'r', author: 'morgan', body: 'fix these', at: '' } });
     const lined = [line('a.ts', 3, 'rename'), line('b.ts', 9, 'drop')];
     expect(getEventOutcome(w, waiting, review, lined)).toEqual({
       kind: 'back',

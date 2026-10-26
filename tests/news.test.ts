@@ -23,7 +23,7 @@ const pull = (events: Event[]): IssueWithPull => {
   };
   return { issue: { ...issue, events } };
 };
-const asked = said('robin', '2026-10-19T16:54:25Z', {
+const asked = said('morgan', '2026-10-19T16:54:25Z', {
   id: '1',
   body: "is 'read: ' a convention?",
   path: 'kit/src/client.ts',
@@ -38,7 +38,7 @@ describe('news', () => {
       path: 'kit/src/client.ts',
       under: '1',
     });
-    const other = said('robin', '2026-10-19T17:20:00Z', { id: '3', body: 'and this?', path: 'kit/src/a.ts' });
+    const other = said('morgan', '2026-10-19T17:20:00Z', { id: '3', body: 'and this?', path: 'kit/src/a.ts' });
     const { text } = news(pull([asked, reply, other]), { at: '2026-10-16T00:00:00Z' });
     expect(text).not.toContain('convention');
     expect(text).toContain('and this?');
@@ -51,7 +51,7 @@ describe('news', () => {
       path: 'kit/src/client.ts',
       under: '1',
     });
-    const again = said('robin', '2026-10-19T17:20:00Z', {
+    const again = said('morgan', '2026-10-19T17:20:00Z', {
       id: '4',
       body: 'why though?',
       path: 'kit/src/client.ts',

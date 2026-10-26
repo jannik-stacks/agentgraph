@@ -94,7 +94,7 @@ describe('bench helpers', () => {
   });
 
   it('drops lockfiles and index lines and masks issue numbers and names', () => {
-    const out = scrub(diff, ['robin']);
+    const out = scrub(diff, ['morgan']);
     expect(out).not.toMatch(/package-lock|^index |#12|agentgraph/m);
     expect(out).toContain('+// see #N from someone');
   });
@@ -696,9 +696,9 @@ describe('pickBenchTestCommands', () => {
       setup: expect.stringContaining('build.mjs'),
       test: "(cd components/clarinet-sdk/node && npx vitest run 'tests/a.test.ts')",
     });
-    expect(
-      pickBenchTestCommands('acme/explorer', ['src/a/__tests__/__snapshots__/B.test.tsx.snap']).test
-    ).toContain("'src/a/__tests__/B.test.tsx'");
+    expect(pickBenchTestCommands('acme/explorer', ['src/a/__tests__/__snapshots__/B.test.tsx.snap']).test).toContain(
+      "'src/a/__tests__/B.test.tsx'"
+    );
     expect(pickBenchTestCommands('acme/stacks.js', [])).toEqual({
       hasTests: false,
       setup: 'npm ci --no-audit --no-fund --ignore-scripts',
@@ -766,9 +766,7 @@ describe('pickBenchTestCommands', () => {
         'npm ci --no-audit --no-fund --ignore-scripts && if [ -f client/package-lock.json ]; then (cd client && npm ci --no-audit --no-fund --ignore-scripts); fi',
       test: "services && npm run test -- --coverage=false --runTestsByPath 'src/tests/tx-tests.ts' && npm run test:api -- --coverage=false --runTestsByPath 'tests/api/a.test.ts'",
     });
-    expect(
-      pickBenchTestCommands('acme/stacks-blockchain-api', ['tests/utils/b.ts', 'tests/2.5/c.test.ts'])
-    ).toEqual({
+    expect(pickBenchTestCommands('acme/stacks-blockchain-api', ['tests/utils/b.ts', 'tests/2.5/c.test.ts'])).toEqual({
       hasTests: false,
     });
     expect(pickBenchTestCommands('acme/token-metadata-api', ['tests/a.test.ts'])).toMatchObject({
@@ -791,9 +789,7 @@ describe('pickBenchTestCommands', () => {
     expect(pickBenchTestCommands('acme/api-toolkit', ['src/__tests__/a.test.ts']).test).toBe(
       "node_modules/.bin/jest --runInBand --runTestsByPath 'src/__tests__/a.test.ts'"
     );
-    expect(
-      pickBenchTestCommands('acme/clarinet', ['components/clarinet-sdk/vitest-helpers/tests/a.test.ts'])
-    ).toEqual({
+    expect(pickBenchTestCommands('acme/clarinet', ['components/clarinet-sdk/vitest-helpers/tests/a.test.ts'])).toEqual({
       setup: '(cd components/clarinet-sdk && npm ci --no-audit --no-fund --ignore-scripts)',
       test: "(cd components/clarinet-sdk && npx vitest run 'vitest-helpers/tests/a.test.ts')",
       typecheck: 'cargo check --tests',

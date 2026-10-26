@@ -334,7 +334,7 @@ describe('drive', () => {
     const merged = {
       issue: 7,
       kind: 'merged',
-      actor: 'robin',
+      actor: 'morgan',
       trusted: true,
       at: '2026-10-18T00:00:00.000Z',
     } as const;

@@ -165,8 +165,8 @@ describe('end checks', () => {
       const file = join(where.forge, `${n}.md`);
       writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${n === 7 ? 'closed' : 'merged'}`));
     }
-    say(where, { issue: 7, kind: 'closed', actor: 'robin', trusted: true, at });
-    say(where, { issue: 8, kind: 'merged', actor: 'robin', trusted: true, at });
+    say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });
+    say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at });
     git(where, 'update-ref', 'refs/heads/main', 'refs/heads/agentgraph/7');
     const swept = await run(scanIssuesAndRunningRuns(h));
     expect(swept.map(r => [r.id, r.status, r.owed])).toEqual([['run-7', 'done', undefined]]);

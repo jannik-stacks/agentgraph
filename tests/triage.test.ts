@@ -29,7 +29,7 @@ afterEach(() => {
 const at = (s: number) => `2026-10-16T00:00:${String(s).padStart(2, '0')}.000Z`;
 
 /** A bare origin with main, and a forge holding `issues` as `[number, author, parent?]`, #1 labelled triage by a maintainer. */
-const world = (issues: [number, string, number?][] = [[1, 'robin']]) => {
+const world = (issues: [number, string, number?][] = [[1, 'morgan']]) => {
   const { root, seed, data } = seeded('triage', { 'README.md': 'demo\n' });
   dirs.push(root);
   git(root, 'clone', '-q', '--bare', seed, 'origin.git');
@@ -43,7 +43,7 @@ const world = (issues: [number, string, number?][] = [[1, 'robin']]) => {
   const label = (issue: number) =>
     appendFileSync(
       join(forge, `${issue}.jsonl`),
-      `${JSON.stringify({ issue, kind: 'label', label: 'triage', actor: 'robin', trusted: true, at: at(issue) } satisfies Event)}\n`
+      `${JSON.stringify({ issue, kind: 'label', label: 'triage', actor: 'morgan', trusted: true, at: at(issue) } satisfies Event)}\n`
     );
   return { origin: join(root, 'origin.git'), forge, data, label };
 };
@@ -114,21 +114,21 @@ describe('triage', () => {
   });
 
   it('treats an actor outside the trust list as untrusted in the forge folder', async () => {
-    const where = world([[1, 'robin']]);
+    const where = world([[1, 'morgan']]);
     where.label(1);
     const read = (trust: string[]) =>
       Effect.runPromise(
         Effect.flatMap(Forge, f => f.issue(1)).pipe(Effect.provide(fileForge(where.forge, undefined, trust)))
       );
-    expect((await read(['robin'])).events[0]).toMatchObject({ trusted: true });
+    expect((await read(['morgan'])).events[0]).toMatchObject({ trusted: true });
     expect((await read(['ana'])).events[0]).toMatchObject({ trusted: false });
     expect((await read(['ana'])).title).toMatch(/withheld/);
   });
 
   it('starts runs only on issues in the hub milestone', async () => {
     const where = world([
-      [1, 'robin'],
-      [2, 'robin'],
+      [1, 'morgan'],
+      [2, 'morgan'],
     ]);
     const file = join(where.forge, '1.md');
     writeFileSync(file, readFileSync(file, 'utf8').replace('labels: []', 'labels: []\nmilestone: v1'));
@@ -145,12 +145,12 @@ describe('triage', () => {
 
   it('posts each part and follow-up once when the runner stopped after posting and before recording it', async () => {
     const where = world([
-      [1, 'robin'],
-      [2, 'robin'],
+      [1, 'morgan'],
+      [2, 'morgan'],
     ]);
     writeFileSync(
       join(where.forge, '2.md'),
-      '---\ntitle: the docs\nstate: open\nauthor: robin\nlabels: []\n---\n\nDocs.\n'
+      '---\ntitle: the docs\nstate: open\nauthor: morgan\nlabels: []\n---\n\nDocs.\n'
     );
     where.label(1);
     const crash = (after: (p: Proposal) => boolean) =>
@@ -257,8 +257,8 @@ describe('triage', () => {
 
   it('adds a follow-up or hub change to the open issue of its title, which the agent sees listed', async () => {
     const where = world([
-      [1, 'robin'],
-      [2, 'robin'],
+      [1, 'morgan'],
+      [2, 'morgan'],
     ]);
     where.label(1);
     const two = join(where.forge, '2.md');
@@ -285,10 +285,10 @@ describe('triage', () => {
 
   it('files no children from an issue three levels deep, and begins no triage on an XL child at the cap', async () => {
     const where = world([
-      [1, 'robin'],
-      [2, 'robin', 1],
-      [3, 'robin', 2],
-      [4, 'robin', 3],
+      [1, 'morgan'],
+      [2, 'morgan', 1],
+      [3, 'morgan', 2],
+      [4, 'morgan', 3],
     ]);
     where.label(4);
     const { value } = await run(where, Array(3).fill(turn(part('a part', 'S'))), tick(unbounded, 4));
@@ -308,7 +308,7 @@ describe('triage', () => {
   it('files nothing from an outsider issue, whatever the agent proposes, and refuses positions that are not earlier', async () => {
     const where = world([
       [1, 'mallory[bot]'],
-      [2, 'robin'],
+      [2, 'morgan'],
     ]);
     where.label(1);
     const { value } = await run(where, Array(3).fill(turn(part('spam', 'S'))), tick(hub, 1));
@@ -325,8 +325,8 @@ describe('triage', () => {
 describe('ordering', () => {
   it('does not drive a run while an issue it stacks on or depends on is open without a pull request', async () => {
     const where = world([
-      [1, 'robin'],
-      [2, 'robin'],
+      [1, 'morgan'],
+      [2, 'morgan'],
     ]);
     appendFileSync(join(where.forge, '2.md'), '\nStacks on #1\n');
     const implement = hub.workflows.issue!;
@@ -338,7 +338,7 @@ describe('ordering', () => {
       ['issue-2', 'implement', 'running', 0],
     ]);
 
-    writeFileSync(join(where.forge, '1.md'), '---\ntitle: Issue 1\nstate: closed\nauthor: robin\n---\n\nDone.\n');
+    writeFileSync(join(where.forge, '1.md'), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
     const question = 'The dependency is closed; which implementation should I use?';
     const after = await run(where, [turn({ kind: 'ask', question })], tick(hub, 2, true));
     expect(after.value.map(r => [r.id, r.step, r.status, r.reason, r.tries])).toEqual([
@@ -349,8 +349,8 @@ describe('ordering', () => {
 
   it('waits on a "Depends on" issue until it is closed, even once it has a pull request', async () => {
     const where = world([
-      [1, 'robin'],
-      [2, 'robin'],
+      [1, 'morgan'],
+      [2, 'morgan'],
     ]);
     appendFileSync(join(where.forge, '2.md'), '\nDepends on #1\n');
     writeFileSync(
@@ -375,7 +375,7 @@ describe('dispatch', () => {
   const mention = (where: ReturnType<typeof world>, body: string) =>
     appendFileSync(
       join(where.forge, '1.jsonl'),
-      `${JSON.stringify({ issue: 1, kind: 'comment', actor: 'robin', trusted: true, at: at(1), comment: { id: 'c1', author: 'robin', body, at: at(1) } } satisfies Event)}\n`
+      `${JSON.stringify({ issue: 1, kind: 'comment', actor: 'morgan', trusted: true, at: at(1), comment: { id: 'c1', author: 'morgan', body, at: at(1) } } satisfies Event)}\n`
     );
 
   it('starts triage from the router, which waits on it quietly and decides once it is done', async () => {
