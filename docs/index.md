@@ -1,49 +1,58 @@
 # What agentgraph is
 
-agentgraph runs coding agents on a repository's issues. People start and steer workflows with `/agent` comments or labels. Agents work on branches in sandboxes, scripts and judge agents check the result, and people merge.
+agentgraph runs coding agents on a repository's issues. People start and steer work with `/agent` comments or labels. Agents work on branches in Docker sandboxes, scripts and judge agents check the work, and people merge it.
 
-The runner on the host polls GitHub, starts sandbox sessions and records each run. Sessions reach models through a proxy and return [proposals](proposals.md). Only the runner holds a GitHub token, and it applies proposals after the checks pass. The studio shows the graph and the recorded runs. [Architecture](architecture.md) has the diagram.
-
-## The agentgraph folder
-
-A repo keeps its graph in `.agentgraph/`, a folder of Markdown files with frontmatter. The engine reads the frontmatter, and agents read the prose.
+The runner on the host polls GitHub, or a local folder that stands in for it. It starts sandbox sessions and records each run. Sessions reach models through a proxy and return [proposals](proposals.md). Only the runner holds a GitHub token, and it applies proposals after the checks pass. The studio, a local web UI, shows the graph and every run.
 
 ```
-.agentgraph/
-  settings.yaml
-  agents/implementor.md    role, harness, model, allowed proposals
-  skills/implement.md      instructions
-  checks/tests.md          a script or a judge
-  workflows/issue.md       triggers and steps
+   /agent comment or label on an issue
+                  |
+                  v
+   +-----------------------------+             +-----------------------------+
+   | engine, on the host         |             | sandbox, one per session    |
+   | reads the graph and drives  |-- start --->| the agent edits a worktree  |
+   | the workflow step by step   |<-proposals--| and calls models via proxy  |
+   +-----------------------------+             +-----------------------------+
+          |                ^
+          v                | failed: feedback, next try
+   +-----------------------------+
+   | checks: scripts, then judge |
+   | agents, in parallel         |
+   +-----------------------------+
+          |
+          v passed
+   push the branch, open a pull request, wait for a person to merge
 ```
 
-`agi check --dir <dir>` validates one; [Graph files](reference.md) lists every field. <!-- code: src/folder.ts#loadGraph -->
+## Read in this order
 
-## Guide
+1. [Install and first run](local.md)
+2. [The graph folder](reference.md): `.agentgraph/` and every field
+3. [Checks and results](loop.md#checks)
+4. [Workflows](loop.md): triggers, steps, retries and waiting for people
+5. [Running on GitHub](local.md#on-github)
+6. [Hosting](hosting.md): VPS, Kubernetes, AWS and Cloudflare
 
-1. [Vocabulary](vocabulary.md)
-2. [The loop](loop.md)
-3. [Proposals](proposals.md)
-4. [Running locally](local.md)
-5. [Without GitHub](forge.md)
-6. [Hosting](hosting.md)
-7. [On Cloudflare](cloudflare.md)
+Reference: [CLI](local.md#the-cli), [Proposals](proposals.md), [Sandbox and models](sandbox.md), [Runs and data](runs.md).
 
-## Reference
+Working on agentgraph: [Engine and code](patterns.md), [Bench](bench.md).
 
-- [Graph files](reference.md): fields and defaults.
-- [Graph contract](contract.md): what stays stable and what tunes may change.
-- [Sub-issues and stacks](stacks.md): splitting work and dependencies.
-- [Runs](runs.md): records, traces and debugging.
-- [Sandbox and models](sandbox.md): containers, networks, caches and harnesses.
-- [Compound engineering](compound.md): retros and agents that read traces.
+## Words
 
-## Examples
+| Word | Meaning |
+| --- | --- |
+| **graph** | What a repo keeps in `.agentgraph/`: settings, agents, skills, checks, workflows and scripts |
+| **agent** | A role file: harness, model, tools, allowed proposals and its system prompt |
+| **skill** | Instructions a step hands to its agent |
+| **harness** | The program that runs a session: Claude Code, Codex, opencode or pi |
+| **session** | One harness conversation and its history |
+| **workflow** | Ordered steps on an issue, started by an `on` trigger |
+| **step** | An agent with a skill, a script, or a wait for a person |
+| **check** | A script or judge agent run on a try or an ended run; its mode says whether a failed result blocks, warns or is only recorded |
+| **result** | What a check gives, a JSON object its `returns` describes, kept in the run's [check record](runs.md#the-check-record) |
+| **try** | One attempt at a step; a retry resumes its session |
+| **proposal** | A write an agent asks the engine to make, such as a comment or a push |
+| **run** | One workflow on one issue, until it is done or stopped |
+| **trace** | A run's event log |
 
-- [Triage](triage.md): sizing and splitting issues with graph config only.
-
-## Meta
-
-- [Architecture](architecture.md): services and the state machine.
-- [Patterns](patterns.md): code conventions and checks before committing.
-- [Bench](bench.md): replaying and scoring merged pull requests.
+"Agent" is the role file, "agentgraph" the system, and "bot" the GitHub account that posts its writes. Issue, pull request, label, review and base keep their GitHub meanings.

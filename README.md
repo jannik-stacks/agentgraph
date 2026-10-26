@@ -148,7 +148,6 @@ This puts the `agi` of your clone on your PATH. If `npm link` fails with `EACCES
 ## Docs
 
 - [What agentgraph is](docs/index.md)
-- [Vocabulary](docs/vocabulary.md)
 - [The loop](docs/loop.md): workflows, checks, retries and waiting for people
 - [Proposals](docs/proposals.md): what agents may ask the engine to do
 - [Running locally](docs/local.md): the CLI, the model stack, the GitHub App and the studio

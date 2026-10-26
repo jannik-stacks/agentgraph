@@ -52,7 +52,7 @@ at that level first.
     hands back, `Entry` one keyed record of a cache, store or log, `Settings` configuration (never Config or
     Options), `Point` a position, `Lookup` a value for a key, and `XWithY` a pair. There is no `Index` or
     `Map` suffix.
-14. Core code in `src/` uses the short words from `docs/vocabulary.md`. Edge code (bench, tune, studio,
+14. Core code in `src/` uses the short words from `docs/index.md#words`. Edge code (bench, tune, studio,
     `bin/`, graph scripts, test doubles) uses long, self-explaining names.
 15. Edge types never take a core word: `TuneProposerResult`, not `Proposal`.
 16. One word per concept, one export per name. Retired words, each with a clearer word to start from, are
