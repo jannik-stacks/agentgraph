@@ -124,7 +124,7 @@ export const hubAt = (path: string) =>
         Effect.flatMap(work => readConfiguredHub(join(work.dir, path)))
       );
 
-const hostsOf = (url: string) =>
+const findLocalModelHosts = (url: string) =>
   Object.values(parseModelUrls(url))
     .flatMap(at => (URL.canParse(at) ? [new URL(at).hostname] : []))
     .filter(host => !host.includes('.') || host.endsWith('.internal'));
@@ -134,7 +134,13 @@ export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
   const sandbox = s.sandbox
     ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
-    : dockerSandbox({ data: s.data, cache: s.cache, image: s.image, direct: hostsOf(s.proxy.url), ...origin });
+    : dockerSandbox({
+        data: s.data,
+        cache: s.cache,
+        image: s.image,
+        direct: findLocalModelHosts(s.proxy.url),
+        ...origin,
+      });
   // a hub that does not load trusts no one; every tick reports why it does not load
   const trust = s.trust.length
     ? Effect.succeed(s.trust)

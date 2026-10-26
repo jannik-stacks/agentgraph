@@ -148,7 +148,7 @@ const markdown = async (dir: string, sub: string): Promise<File[]> => {
   return files.filter(f => f !== undefined);
 };
 
-const nameOf = (path: string) => (path.endsWith('/SKILL.md') ? basename(path.slice(0, -9)) : basename(path, '.md'));
+const getDocName = (path: string) => (path.endsWith('/SKILL.md') ? basename(path.slice(0, -9)) : basename(path, '.md'));
 
 /** Validates the files of one hub and builds it; every problem is collected before anything fails. */
 const compile = (
@@ -181,7 +181,7 @@ const compile = (
     for (const file of files) {
       const parsed = front(file);
       const value = parsed && read(parsed.data, sayer(file.path));
-      const name = nameOf(file.path);
+      const name = getDocName(file.path);
       if (name in out) sayer(file.path)(`${name} is defined twice`);
       if (value !== undefined) out[name] = { ...value, name, path: file.path, body: parsed!.body };
     }

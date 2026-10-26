@@ -171,16 +171,9 @@ no-of-for src/engine.ts stackOf
 no-of-for src/engine.ts tellsOf
 no-of-for src/engine.ts treeOf
 no-of-for src/engine.ts verdictOf
-no-of-for src/forge.ts eventsOf
-no-of-for src/forge.ts problemOf
-no-of-for src/harnesses.ts pairsOf
-no-of-for src/harnesses.ts stopOf
-no-of-for src/hub.ts nameOf
-no-of-for src/services.ts hostsOf
 no-of-for studio/src/bench/score.ts humanOf
 no-of-for studio/src/compound/CompoundPage.tsx xOf
 no-of-for studio/src/compound/climb.ts seriesOf
-no-of-for studio/src/graph/StepDetails.tsx traceOf
 no-of-for tests/studio-compound.test.ts evalOf
 no-of-for tests/tune.test.ts evalOf
 no-of-for tune/propose.ts answerOf

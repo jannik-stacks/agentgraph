@@ -186,7 +186,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             e => new ForgeError({ message: e.detail })
           )
         ).then(out => out.toString('utf8').trim());
-      const problemOf = async (work: Checkout, from: string, to: string) => {
+      const findPushProblem = async (work: Checkout, from: string, to: string) => {
         const fields = (await git(work, 'diff-tree', '-r', '-z', '--no-renames', from, to)).split('\0');
         if ((fields.length - 1) / 2 > pushLimits.files) return `at most ${pushLimits.files} files can be pushed`;
         for (let i = 0; i + 1 < fields.length; i += 2) {
@@ -252,7 +252,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           .filter(Boolean)
           .map(line => JSON.parse(line) as Event);
       };
-      const eventsOf = async (n: number) =>
+      const readIssueEvents = async (n: number) =>
         (await readTimeline(n))
           .map(m =>
             m.comment
@@ -339,7 +339,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             const parents = onto ? (p.merge ? [parent, onto] : [onto]) : [parent];
             await git(work, 'add', '-A');
             const tree = await git(work, 'write-tree');
-            const problem = await problemOf(work, `${parent}^{tree}`, tree);
+            const problem = await findPushProblem(work, `${parent}^{tree}`, tree);
             if (problem) return no(problem);
             const head =
               !onto && tree === (await git(work, 'rev-parse', `${parent}^{tree}`))
@@ -381,7 +381,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
                 tree = next;
                 continue;
               }
-              const problem = await problemOf(work, tree, next);
+              const problem = await findPushProblem(work, tree, next);
               if (problem) return no(problem);
               const message = await git(work, 'log', '-1', '--format=%B', commit);
               head = await git(work, 'commit-tree', next, '-p', head, '-m', message);
@@ -471,7 +471,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         issue: n =>
           io(async () => ({
             ...shown(await must(n)),
-            events: (await eventsOf(n)).map(m =>
+            events: (await readIssueEvents(n)).map(m =>
               m.comment && !m.trusted && m.actor !== me
                 ? { ...m, comment: { ...m.comment, body: withheld(m.actor) } }
                 : m
@@ -480,7 +480,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         since: cursor =>
           Stream.fromIterableEffect(
             io(async () =>
-              (await Promise.all((await numbers()).map(eventsOf)))
+              (await Promise.all((await numbers()).map(readIssueEvents)))
                 .flat()
                 .filter(m => m.at > cursor)
                 .sort((a, b) => a.at.localeCompare(b.at))

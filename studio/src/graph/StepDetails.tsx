@@ -18,7 +18,7 @@ const Prompt = ({ title, text }: { title: string; text: string }) => (
 );
 
 /** A simulated trail as the outcome lines a real run would have traced. */
-const traceOf = (trail: Trail, run: Run): Trace[] =>
+const makeTrailTrace = (trail: Trail, run: Run): Trace[] =>
   trail.map(({ at, outcome }, i) => {
     const { step, status, tries, rounds } = trail[i + 1]?.at ?? run;
     return { at: '', step: at.step, outcome, run: { step, status, tries, rounds } };
@@ -255,7 +255,7 @@ export const StepDetails = ({
 }) => {
   const { workflow, checks } = fixture;
   const { does } = step;
-  const lines = run && (run.trace ?? traceOf(run.trail, run.run)).filter(line => line.step === step.name);
+  const lines = run && (run.trace ?? makeTrailTrace(run.trail, run.run)).filter(line => line.step === step.name);
   const graph = makeWorkflowGraph(workflow, checks, undefined, fixture.roles);
   const { trigger } = graph;
   const { writes, model } = graph.nodes.find(n => n.step === step.name) ?? {};

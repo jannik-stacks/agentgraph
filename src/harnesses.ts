@@ -80,7 +80,7 @@ export const makeHarnessConfigProvider = (
 const wrapped = (cmd: string, args: string[]) => ({ cmd: 'sh', args: ['-c', 'exec "$@" 2>&1', 'sh', cmd, ...args] });
 
 /** `name=value` pairs, separated by commas or white space. */
-const pairsOf = (text: string) =>
+const parseNamePairs = (text: string) =>
   Object.fromEntries(
     splitNames(text).flatMap(pair => {
       const at = pair.indexOf('=');
@@ -91,7 +91,7 @@ const pairsOf = (text: string) =>
 export const splitNames = (text: string) => text.split(/[\s,]+/).filter(Boolean);
 
 export const parseModelUrls = (url: string): Record<string, string> =>
-  /^[\w*-]+=/.test(url) ? pairsOf(url) : { '*': url };
+  /^[\w*-]+=/.test(url) ? parseNamePairs(url) : { '*': url };
 
 /**
  * List prices in USD per million tokens, keyed by upstream model, the proxy's aliases for them, and the upstream
@@ -162,7 +162,7 @@ const writeHome = async (home: string, path: string, text: string) => {
   await file.writeFile(text).finally(() => file.close());
 };
 
-const stopOf = (e: SandboxError) =>
+const makeSessionStop = (e: SandboxError) =>
   new SessionStop({ reason: e.reason === 'infra' ? 'sandbox' : e.reason, detail: e.detail });
 
 /**
@@ -183,9 +183,9 @@ export const harnessSession = (
     Session,
     Effect.gen(function* () {
       const sandbox = yield* Sandbox;
-      const keys = pairsOf(Redacted.value(s.proxy.keys));
+      const keys = parseNamePairs(Redacted.value(s.proxy.keys));
       const urls = parseModelUrls(s.proxy.url);
-      const models = pairsOf(s.proxy.models ?? '');
+      const models = parseNamePairs(s.proxy.models ?? '');
       const prices: Prices = s.prices
         ? yield* Effect.tryPromise(() => readFile(s.prices!, 'utf8').then(JSON.parse)).pipe(Effect.orDie)
         : {};
@@ -280,7 +280,7 @@ export const harnessSession = (
                 network: 'proxy',
                 minutes: spec.minutes,
               })
-              .pipe(Stream.mapError(stopOf), Stream.mapConcat(step));
+              .pipe(Stream.mapError(makeSessionStop), Stream.mapConcat(step));
           })
         );
 
