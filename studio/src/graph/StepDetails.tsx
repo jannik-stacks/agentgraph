@@ -105,7 +105,7 @@ const CheckItem = ({
                 type="button"
                 aria-pressed={shown === key}
                 onClick={() => setShown(shown === key ? undefined : key)}
-                className="rounded px-1 text-[11px] text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 aria-pressed:bg-zinc-100 aria-pressed:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:aria-pressed:bg-zinc-800 dark:aria-pressed:text-zinc-200"
+                className="rounded px-1.5 text-[11px] text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 aria-pressed:bg-zinc-100 aria-pressed:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:aria-pressed:bg-zinc-800 dark:aria-pressed:text-zinc-200"
               >
                 {key}
               </button>
