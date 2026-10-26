@@ -245,7 +245,7 @@ export const ensureDocker = (say: (line: string) => void, image: string) =>
               ...(internal ? ['--internal'] : []),
               name,
             ]);
-        if (builds[image]) yield* ensureImage(image, true, say);
+        if (image === sandboxImage) yield* ensureImage(image, true, say);
         if (yield* ensureImage('agentgraph-egress:local', true, say)) yield* has(['rm', '-f', 'agentgraph-egress']);
         const members = yield* run('docker', [
           'network',
