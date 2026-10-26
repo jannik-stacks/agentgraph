@@ -373,7 +373,7 @@ async function runOnInstance() {
       const pull = await findPull(i.forge, numbered());
       const open = new Set((await Effect.runPromise((await forgeOf()).issues({ state: 'open' }))).map(t => t.number));
       const closed = [...new Set([n, await findIssueOf(i, n), pull?.number ?? n])].filter(k => open.has(k));
-      for (const k of closed) writeClosed(i.forge, i.owner, k);
+      for (const k of closed) await writeClosed(i.forge, i.owner, k);
       console.log(closed.length ? `closed #${closed.join(' and #')}` : `nothing open on #${n}`);
       return;
     }

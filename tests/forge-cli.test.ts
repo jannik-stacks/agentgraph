@@ -87,7 +87,7 @@ const world = () => {
         );
         return '';
       case 'close':
-        writeClosed(dir, as, n);
+        await writeClosed(dir, as, n);
         return '';
       case 'merge': {
         const pull = await mergePull({ forge: dir, owner: as }, n);
@@ -452,7 +452,8 @@ describe('the human verbs on a forge folder', () => {
     dirs.push(dir);
     const forgeTs = join(import.meta.dirname, '..', 'src', 'forge.ts');
     const writer = `import { writeTimelineEvent } from ${JSON.stringify(forgeTs)};
-for (let i = 0; i < 50; i++) writeTimelineEvent(process.argv[1], { issue: 1, kind: 'comment', actor: 'a', trusted: true, comment: { body: String(i) } });`;
+const comment = i => ({ issue: 1, kind: 'comment', actor: 'a', trusted: true, comment: { body: String(i) } });
+await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(process.argv[1], comment(i))));`;
     const write = () =>
       new Promise<number | null>(done =>
         spawn('node', ['--input-type=module', '-e', writer, dir], { stdio: 'inherit' }).on('close', done)

@@ -184,19 +184,19 @@ const apply = async (dir: string, as: string, n: number, p: Proposal) => {
   if (!applied.ok) throw new Error(applied.reason);
 };
 
+const writeTrustedEvent = (
+  dir: string,
+  as: string,
+  m: Omit<Parameters<typeof writeTimelineEvent>[1], 'actor' | 'trusted'>
+) => writeTimelineEvent(dir, { ...m, actor: as, trusted: true });
+
 export const writeComment = async (dir: string, as: string, n: number, body: string, line?: string) => {
   if (!line) return apply(dir, as, n, { kind: 'comment', body });
   const [, path, at] = /^(.+):(\d+)$/.exec(line) ?? [];
   if (!path) throw new Error('--line takes <path>:<line>');
   const pull = await findPull(dir, n);
   if (!pull) throw new Error(`#${n} has no pull request`);
-  writeTimelineEvent(dir, {
-    issue: pull.number,
-    kind: 'comment',
-    actor: as,
-    trusted: true,
-    comment: { body, path, line: Number(at) },
-  });
+  await writeTrustedEvent(dir, as, { issue: pull.number, kind: 'comment', comment: { body, path, line: Number(at) } });
 };
 
 export const writeReview = async (
@@ -208,24 +208,18 @@ export const writeReview = async (
 ) => {
   const pull = await findPull(dir, n);
   if (!pull || pull.state !== 'open') throw new Error(`#${n} has no open pull request`);
-  writeTimelineEvent(dir, {
-    issue: pull.number,
-    kind: verdict,
-    actor: as,
-    trusted: true,
-    comment: { body: text },
-  });
+  await writeTrustedEvent(dir, as, { issue: pull.number, kind: verdict, comment: { body: text } });
 };
 
 export const writeLabels = (dir: string, as: string, n: number, add: string[]) =>
   apply(dir, as, n, { kind: 'label', add, remove: [] });
 
-export const writeClosed = (dir: string, as: string, n: number) => {
+export const writeClosed = async (dir: string, as: string, n: number) => {
   const md = join(dir, `${n}.md`);
   if (!existsSync(md)) throw new Error(`no issue #${n}`);
   const { front, body } = parseIssueFile(readFileSync(md, 'utf8'));
   writeFileAtomic(md, formatIssueFile({ ...front, state: 'closed' }, body.trim()));
-  writeTimelineEvent(dir, { issue: n, kind: 'closed', actor: as, trusted: true });
+  await writeTrustedEvent(dir, as, { issue: n, kind: 'closed' });
 };
 
 export const mergePull = async (i: Pick<Instance, 'forge' | 'owner'>, n: number) => {
@@ -242,7 +236,7 @@ export const mergePull = async (i: Pick<Instance, 'forge' | 'owner'>, n: number)
       writeFileAtomic(join(i.forge, String(t.number), 'pull.json'), { ...t.pull, base });
   const issue = Number(/(\d+)$/.exec(branch)?.[1]);
   const named = (await readIssues(i.forge)).find(t => t.number === issue);
-  if (named?.state === 'open') writeClosed(i.forge, i.owner, issue);
+  if (named?.state === 'open') await writeClosed(i.forge, i.owner, issue);
   return pr.pull;
 };
 

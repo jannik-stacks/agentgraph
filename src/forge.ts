@@ -1,6 +1,5 @@
 import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
@@ -148,15 +147,16 @@ export const writeIssueFile = async (
 
 const me = 'agentgraph[bot]';
 
-export const writeTimelineEvent = (
+const timelinePath = (dir: string, n: number) => join(dir, `${n}.jsonl`);
+
+export const writeTimelineEvent = async (
   dir: string,
   m: Omit<Event, 'at' | 'comment'> & { comment?: Pick<Comment, 'body' | 'path' | 'line' | 'under'> }
 ) => {
-  const file = join(dir, `${m.issue}.jsonl`);
   const at = new Date().toISOString();
   const id = `${m.issue}-${randomUUID().slice(0, 8)}`;
   const comment = m.comment && { comment: { id, author: m.actor, at, ...m.comment } };
-  appendFileSync(file, `${JSON.stringify({ ...m, at, ...comment })}\n`);
+  await appendFile(timelinePath(dir, m.issue), `${JSON.stringify({ ...m, at, ...comment })}\n`);
   return id;
 };
 
@@ -172,7 +172,6 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
     Forge,
     Effect.map(Effect.makeSemaphore(1), lock => {
       const md = (n: number) => join(dir, `${n}.md`);
-      const timeline = (n: number) => join(dir, `${n}.jsonl`);
       const pullFile = (n: number) => join(dir, String(n), 'pull.json');
       const optional = <A>(p: Promise<A>) =>
         p.catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? undefined : Promise.reject(e)));
@@ -243,17 +242,17 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         await writePull(number, pull);
       };
       const adopt = async (n: number) => {
-        if (await optional(stat(timeline(n)))) return;
+        if (await optional(stat(timelinePath(dir, n)))) return;
         const [t, file] = await Promise.all([read(n), optional(stat(md(n)))]);
         if (!t?.author || t.author === me || t.labels.length === 0 || !file) return;
         const at = file.mtime.toISOString();
         const trusted = !t.author.endsWith('[bot]');
         const events = t.labels.map(label => ({ issue: n, kind: 'label', label, actor: t.author, trusted, at }));
-        await publish(timeline(n), events.map(m => `${JSON.stringify(m)}\n`).join(''));
+        await publish(timelinePath(dir, n), events.map(m => `${JSON.stringify(m)}\n`).join(''));
       };
       const readTimeline = async (n: number) => {
         await adopt(n);
-        return ((await optional(readFile(timeline(n), 'utf8'))) ?? '')
+        return ((await optional(readFile(timelinePath(dir, n), 'utf8'))) ?? '')
           .split('\n')
           .filter(Boolean)
           .map(line => JSON.parse(line) as Event);
@@ -315,7 +314,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === who);
               if (at < 0) return no(`no comment ${p.edit} of ours on #${n}`);
               all[at] = { ...all[at]!, comment: { ...all[at]!.comment!, body: p.body } };
-              await writeFile(timeline(n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
+              await writeFile(timelinePath(dir, n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
               return { proposal: p, ok: true, id: p.edit, url: `${md(n)}#${p.edit}` };
             }
             const parent = p.under === undefined ? undefined : all.find(m => m.comment?.id === p.under)?.comment;
