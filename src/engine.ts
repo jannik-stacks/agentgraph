@@ -1290,6 +1290,16 @@ const attempt = (
         },
         tried
       );
+    if (
+      !back &&
+      !answered &&
+      returns.includes('pull_request') &&
+      w.branch !== undefined &&
+      t.issue.pull === undefined &&
+      t.pull === undefined &&
+      !proposals.some(p => p.kind === 'pull_request' || (p.kind === 'issue' && isPart(p)))
+    )
+      problems.push('a pass needs a pull request or an ask');
     const idle = back || world.some(p => p.kind === 'issue') ? undefined : unchanged(returns, held);
     if (idle && !(yield* diffOf(work)).trim())
       return done({ kind: 'failed', checks: [], proposals: [], problems: [idle] }, tried);

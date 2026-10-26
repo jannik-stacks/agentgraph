@@ -109,7 +109,7 @@ describe('tick', () => {
       comment: { id: 'x', author: 'mallory[bot]', body: '/agent', at },
     });
     const { specs, run } = services(where, [
-      [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       [start('b'), reply({ kind: 'comment', body: 'Nothing left to do.' })],
     ]);
     const first = await run(tick(small));
@@ -149,6 +149,17 @@ describe('tick', () => {
       expect(specs[1]!.prompt).toContain(why);
     }
   );
+
+  it('fails a retry that pushes without the pull request its failed first try proposed', async () => {
+    const where = world();
+    const { run } = services(where, [
+      [start('a'), wrote('hello.txt', 'TODO\n'), reply(push, pull)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Dropped the TODO.' })],
+    ]);
+    const [parked] = await run(tick(small));
+    expect(parked).toMatchObject({ status: 'waiting', reason: 'a pass needs a pull request or an ask' });
+    expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))).not.toContain('Dropped the TODO.');
+  });
 
   it('goes on past a commanded first step that may only comment while no pull request holds the work', async () => {
     const where = world();
@@ -192,7 +203,7 @@ describe('tick', () => {
     const flow = small.workflows.issue!;
     const { run } = services(where, [
       [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Hello or hi?' })],
-      [start('a'), wrote('bye.txt', 'bye\n'), reply(push)],
+      [start('a'), wrote('bye.txt', 'bye\n'), reply(push, pull)],
     ]);
     const kept = 'refs/agentgraph/runs/run-7';
     const [asked, done, saved] = await run(
@@ -437,7 +448,7 @@ describe('tick', () => {
       failing,
       fileStore(where.data),
       hostSandbox(where.origin),
-      replaySession([[start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push)]])
+      replaySession([[start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push, pull)]])
     );
     const asked = await Effect.runPromise(
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
@@ -459,7 +470,7 @@ describe('tick', () => {
       at: '2026-10-16T00:00:05.000Z',
       comment: { id: 'review', author: 'morgan', body: 'Trusted request', at: '2026-10-16T00:00:05.000Z' },
     });
-    const { specs, run } = services(where, [[start('i'), wrote('hello.txt', 'hello\n'), reply(push)]]);
+    const { specs, run } = services(where, [[start('i'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     await run(waiting(where));
     await run(tick(merging, 7));
     expect(specs[0]!.prompt).toContain('Trusted request');
@@ -491,7 +502,7 @@ describe('tick', () => {
       at: '2026-10-16T00:00:05.000Z',
       comment: { id: 'review', author: 'morgan', body: 'rename bar', at: '2026-10-16T00:00:05.000Z' },
     });
-    const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
+    const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     await run(waiting(where));
     await run(
       Effect.flatMap(Store, s =>
@@ -833,8 +844,8 @@ describe('start with one issue', () => {
     const seen: Settings[] = [];
     const fix: Proposal = { ...push, message: 'feat: add hello' };
     const turns = [
-      [start('i'), wrote('hello.txt', 'TODO\n'), reply(fix)],
-      [start('i'), wrote('hello.txt', 'hello\n'), reply(fix)],
+      [start('i'), wrote('hello.txt', 'TODO\n'), reply(fix, pull)],
+      [start('i'), wrote('hello.txt', 'hello\n'), reply(fix, pull)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ];
     const doubles = (s: Settings) => {

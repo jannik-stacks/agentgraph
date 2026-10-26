@@ -51,4 +51,6 @@ A comment goes where the person started or woke the run: the issue, the pull req
 
 `push` and `pull_request` must name the run's own branch, which starts with `agentgraph/`. The branch must still be where the checkout started or last pushed; if it moved, the push is refused. Pushes never force, except the one push that finishes a [rebase](loop.md#when-the-base-or-the-hub-moves).
 
+While no pull request is open for the run's branch, a try of an agent that may return `pull_request` passes only with a `pull_request`, an `ask`, a `back`, an `issue` with `"relation":"part"`, or comments that answer a finished run. A pull request from a failed try never applied, so the next try has to send it again. <!-- code: src/engine.ts#attempt -->
+
 A push takes regular files outside `.git/`, at most 200 files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer to push. GitHub's Git API writes and signs the commits. <!-- code: src/forge.ts#unpushable -->

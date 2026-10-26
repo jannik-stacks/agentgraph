@@ -52,7 +52,7 @@ describe('a run branch that moved', () => {
       let before = '';
       const next = services(
         where,
-        [[start('a'), ...(conflict ? [wrote('hello.txt', 'resolved\n')] : []), reply(push)]],
+        [[start('a'), ...(conflict ? [wrote('hello.txt', 'resolved\n')] : []), reply(push, pull)]],
         undefined,
         spec => {
           before = readFileSync(join(spec.dir, 'hello.txt'), 'utf8');
@@ -92,8 +92,8 @@ describe('a run branch that moved', () => {
       fileStore(where.data),
       hostSandbox(where.origin),
       replaySession([
-        [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
-        [start('a'), reply(push)],
+        [start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
+        [start('a'), reply(push, pull)],
       ])
     );
     const done = await Effect.runPromise(
@@ -123,7 +123,7 @@ describe('a run branch that moved', () => {
     git(seed, 'push', '-q', where.origin, 'HEAD:main');
     const onto = git(seed, 'rev-parse', 'HEAD');
     let pending = false;
-    const next = services(where, [[start('a'), reply(push)]], undefined, spec => {
+    const next = services(where, [[start('a'), reply(push, pull)]], undefined, spec => {
       pending = existsSync(join(spec.dir, 'pending.txt'));
     });
     const done = await next.run(
@@ -168,7 +168,7 @@ describe('a run branch that moved', () => {
       )
     );
     const tip = git(where.origin, 'rev-parse', 'agentgraph/7');
-    const next = services(where, [[start('a'), reply(push)]], undefined, spec => {
+    const next = services(where, [[start('a'), reply(push, pull)]], undefined, spec => {
       expect(readFileSync(join(spec.dir, 'other.txt'), 'utf8')).toBe('upstream\n');
       expect(readFileSync(join(spec.dir, 'pending.txt'), 'utf8')).toBe('pending\n');
     });
@@ -242,7 +242,7 @@ describe('a run branch that moved', () => {
     const { run } = services(
       where,
       [
-        [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
+        [start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
         [start('a'), reply({ kind: 'ask', question: 'Cannot publish?' })],
       ],
       undefined,
@@ -262,7 +262,7 @@ describe('a run branch that moved', () => {
 
   it.each(['error', 'cap', 'nonzero'])('does not publish a proposal from an unsuccessful session: %s', async kind => {
     const where = world();
-    const complete = reply(push);
+    const complete = reply(push, pull);
     const ended: SessionEvent = {
       type: 'end',
       final: complete.type === 'end' ? complete.final : '',
@@ -288,8 +288,8 @@ describe('a run branch that moved', () => {
     const { specs, run } = services(
       where,
       [
-        [start('a'), wrote('hello.txt', 'pending\n'), reply(push)],
-        [start('a'), reply(push)],
+        [start('a'), wrote('hello.txt', 'pending\n'), reply(push, pull)],
+        [start('a'), reply(push, pull)],
       ],
       undefined,
       spec => {
@@ -338,6 +338,7 @@ describe('a run branch that moved', () => {
     const proposals: Proposal[] = [
       { kind: 'tell', issue: 8, text: 'Remember this' },
       push,
+      pull,
       { kind: 'comment', body: 'First' },
       { kind: 'comment', body: 'Second' },
     ];
@@ -376,10 +377,11 @@ describe('a run branch that moved', () => {
     expect(done.status).toBe('done');
     expect(readTrace(where.data, 'target-8').filter(t => 'told' in t)).toHaveLength(1);
     expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'First')).toHaveLength(1);
-    expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'Second')).toHaveLength(1);
-    expect(
-      readTrace(where.data, 'run-7').filter(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'push')
-    ).toHaveLength(1);
+    const applied = readTrace(where.data, 'run-7').flatMap(t =>
+      'applied' in t && t.applied.ok ? [t.applied.proposal] : []
+    );
+    expect(applied.filter(p => p.kind === 'comment' && p.body === 'Second')).toHaveLength(1);
+    expect(applied.filter(p => p.kind === 'push')).toHaveLength(1);
   });
 
   it('posts a repeated runner question after a new human answer', async () => {
@@ -479,7 +481,7 @@ describe('a run branch that moved', () => {
       fileForge(where.forge),
       fileStore(where.data),
       sandbox,
-      replaySession([[start('a'), wrote('hello.txt', 'hi'), reply({ kind: 'comment', body: 'Checked.' })]])
+      replaySession([[start('a'), wrote('hello.txt', 'hi'), reply(push, pull)]])
     );
     const done = await Effect.runPromise(
       drive(checked, begin(checked, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
@@ -503,7 +505,7 @@ describe('a run branch that moved', () => {
     const good = readFileSync(path, 'utf8');
     const fragment = '{"at":"unfinished';
     writeFileSync(path, partial ? good + fragment : good.trimEnd());
-    const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
+    const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     const done = await run(drive(flow, current, small));
     expect(done.status).toBe('done');
     expect(readTrace(where.data, 'run-7').some(t => 'outcome' in t)).toBe(true);
@@ -536,15 +538,15 @@ describe('a run branch that moved', () => {
     const current = begin(flow, { id: 'run-7', issue: 7, started: fresh().started });
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(current)).pipe(Effect.provide(fileStore(where.data))));
     appendFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'broken record\n');
-    const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
+    const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     await expect(run(drive(flow, current, small))).rejects.toThrow();
   });
 
   it('keeps the human answer in a fresh session after a failed try', async () => {
     const where = world();
     const { specs, run } = services(where, [
-      [wrote('hello.txt', 'TODO\n'), reply(push)],
-      [wrote('hello.txt', 'hello\n'), reply(push)],
+      [wrote('hello.txt', 'TODO\n'), reply(push, pull)],
+      [wrote('hello.txt', 'hello\n'), reply(push, pull)],
     ]);
     const current = {
       ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }),
@@ -581,7 +583,7 @@ describe('a run branch that moved', () => {
       { kind: 'issue', title: 'Follow up', body: '## Done when\nDetails', relation: 'follow-up' } as Proposal,
     ];
     const session = replaySession([
-      [start('a'), wrote('hello.txt', 'hello\n'), reply(...skipped, push)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(...skipped, push, pull)],
       [start('a'), reply({ kind: 'ask', question: 'Retry later' })],
     ]);
     const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), session);
@@ -593,7 +595,7 @@ describe('a run branch that moved', () => {
     const failed = readTrace(where.data, 'run-7').flatMap(t =>
       'outcome' in t && t.outcome.kind === 'failed' ? [t.outcome] : []
     );
-    expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped]);
+    expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped.slice(0, 3), pull, skipped[3]]);
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Changes landed');
   });
 });

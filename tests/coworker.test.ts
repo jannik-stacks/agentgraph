@@ -20,6 +20,7 @@ import {
   replyHint,
   world,
   push,
+  pull,
   services,
   readTrace,
   reactions,
@@ -225,7 +226,7 @@ describe('coworker', () => {
     pullRequest(where);
     say(where, comment(8, 'ana', true, 'mind the edge case', '2026-10-16T00:00:02.000Z'));
     say(where, check(8, 'test', 'failure', '2026-10-16T00:00:03.000Z'));
-    const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
+    const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     await run(drive(flow, begun(), small));
     expect(specs[0]!.prompt).toContain('## Pull request #8 Add hello');
     expect(specs[0]!.prompt).toContain('#7 @morgan: /agent');
@@ -317,7 +318,7 @@ describe('coworker', () => {
             rmSync(join(spec.dir, '.agentgraph'), { recursive: true });
             rmSync(join(spec.dir, 'news'));
           })
-        ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push)]))),
+        ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push, pull)]))),
     });
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), session);
     const agents = Object.fromEntries(Object.entries(small.agents).map(([k, a]) => [k, { ...a, tools: ['read'] }]));
@@ -366,11 +367,11 @@ describe('coworker', () => {
     return { specs, go };
   };
   const bye = comment(7, 'ana', true, '/agent say bye too', later(1));
-  const greet = [start('a'), wrote('hello.txt', 'hello\n'), reply(push)];
+  const greet = [start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)];
 
   it('steer: a comment made while the session works reaches it in one more turn of the same session', async () => {
     const where = world();
-    const { specs, go } = during(where, bye, [greet, [start('a'), reply(push)]]);
+    const { specs, go } = during(where, bye, [greet, [start('a'), reply(push, pull)]]);
     const done = await go(flow);
     expect(done).toMatchObject({ status: 'done', seen: later(1) });
     expect(specs).toHaveLength(2);
@@ -493,7 +494,7 @@ describe('coworker', () => {
   it('keeps one status comment through two tries and an ask, with the question in its own comment', async () => {
     const where = world();
     const { run } = services(where, [
-      [start('a'), wrote('hello.txt', 'TODO\n'), reply(push)],
+      [start('a'), wrote('hello.txt', 'TODO\n'), reply(push, pull)],
       [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
     ]);
     const asked = await run(drive(flow, begun(), small));
@@ -529,9 +530,9 @@ describe('coworker', () => {
       steps: [{ name: 'implement', does: { agent: 'implementor' }, checks: ['types'], tries: 3 }],
     };
     const { specs, run } = services(where, [
-      [start('a'), wrote('hello.txt', 'TODO\n'), reply(push)],
-      [start('a'), reply(push)],
-      [start('a'), ...(fixed ? [wrote('hello.txt', 'hello\n')] : []), reply(push)],
+      [start('a'), wrote('hello.txt', 'TODO\n'), reply(push, pull)],
+      [start('a'), reply(push, pull)],
+      [start('a'), ...(fixed ? [wrote('hello.txt', 'hello\n')] : []), reply(push, pull)],
     ]);
     const done = await run(drive(typed, begin(typed, { id: 'run-7', issue: 7, started: fresh().started }), checked));
     expect(specs).toHaveLength(3);
@@ -559,7 +560,7 @@ describe('coworker', () => {
       ],
     };
     const { specs, run } = services(where, [
-      [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       [start('r'), reply({ kind: 'comment', body: 'Fine.' })],
     ]);
     await run(drive(reviewed, begin(reviewed, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), small));
