@@ -6,8 +6,8 @@ is worth.
 
 ## Sources, in order
 
-| Source                              | Lines                                          | What to take                                                       |
-| ----------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
+| Source | Lines | What to take |
+| --- | --- | --- |
 | CI config                           | `ci` lines of `slice-repo.mjs`, then the files | Commands every change must pass. Tier 1                            |
 | Package scripts, Makefile, justfile | `package-scripts`, `targets`                   | Lint, format, type and build commands CI may not run. Tier 2       |
 | Hooks                               | `hook`                                         | What runs before a commit. Tier 2                                  |
@@ -35,13 +35,10 @@ Skip one-off bugs, questions, praise and bots. Then merge lines that state the s
 pull requests. Two or more makes a candidate; one is a note for the user. `OWNER`, `MEMBER` and
 `COLLABORATOR` weigh more.
 
-For each rule, find what decides it, in this order:
-
-1. A tool the repo has, such as a lint rule that is off. Turn it on in the check's command, or name the setting
-   for the user. Never edit the repo's configs.
-2. A regular expression over added lines. Tier 3, `assets/rules.mjs`.
-3. A yes-or-no question per script-listed item (each new export, each new dependency). Tier 4 with `each:`.
-4. Only a reading of the whole change. A whole-diff judge, last, with evidence from three or more pull requests.
+For each rule, find the cheapest thing that decides it: a tool the repo has (turn the rule on in the check's
+command, or name the setting for the user; never edit the repo's configs), then a regular expression over
+added lines, then a question per script-listed item. A whole-diff judge comes last, and needs evidence from
+three or more pull requests. [checks.md](checks.md) has the tiers.
 
 ## Evidence per candidate
 

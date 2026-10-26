@@ -64,11 +64,7 @@ command from `checks/tests.md`.
 
 ### repo
 
-```yaml
-repo: owner/name
-```
-
-From `git remote get-url origin`; leave it out without a GitHub remote.
+`repo: owner/name`, from `git remote get-url origin`; leave it out without a GitHub remote.
 
 ### setup
 
@@ -126,26 +122,16 @@ base: develop
 agi check --dir .agentgraph
 ```
 
-It prints each problem with its file, or `ok`. Common problems:
+It prints `ok`, or each problem with its file:
 
 - `no step or workflow names <check>`: every check must be in some step's `checks:` list.
 - `no step or check names <agent>`: an agent nothing uses must go.
-- `<field>: is unexpected`: an unknown key; fields are listed in the
+- `<field>: is unexpected`: an unknown key; see the
   [graph reference](https://github.com/jannik-stacks/agentgraph/blob/main/docs/reference.md).
 - `says "..." which is retired`: a word the engine renamed; use the word it suggests.
 
 ## Worked example
 
-A TypeScript library with `package-lock.json`, and CI that runs `npm ci`, `npm run lint` and `npm test`:
-
-```yaml
-# settings.yaml
-repo: acme/left-pad
-setup: npm ci --no-audit --no-fund
-limits:
-  minutes: 30
-  usd-per-run: 5
-  parallel: 1
-```
-
-`checks/tests.md` keeps `mode: block` with `run: npm test`. `npm run lint` becomes a tier 1 candidate later.
+A TypeScript library with `package-lock.json` whose CI runs `npm ci`, `npm run lint` and `npm test` adds two
+lines to `settings.yaml`, `repo: acme/left-pad` and `setup: npm ci --no-audit --no-fund`, and keeps
+`checks/tests.md` at `run: npm test`. `npm run lint` becomes a tier 1 candidate later.

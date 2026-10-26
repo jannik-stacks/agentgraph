@@ -3,16 +3,10 @@
 A check is `checks/<name>.md`: frontmatter that says how it decides, and a body the implementor reads when it
 fails, so write the rule in one or two plain sentences. A check runs only when a step lists it in `checks:`.
 
-| Field   | Meaning                                                                                                                           |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`  | `block` fails the try and sends the findings back; `warn` records a failure and goes on; `info` only records; `stop` ends the run |
-| `run`   | A shell command in the checkout. Exit 0 passes; its output is the findings                                                        |
-| `agent` | A judge agent that reads the change and records pass or fail with a reason                                                        |
-| `each`  | `files`, `hunks`, or a command whose output lines (or JSON array) are the items; the judge rules on each one                      |
-| `max`   | The most items `each` may give, 20 by default; more fails the check                                                               |
+`mode` is `block` (fail the try, send findings back), `warn` (record and go on), `info` or `stop`. `run` is a
+shell command, exit 0 passes. `agent` is a judge. `each` and `max` fan a judge out over items.
 
-Keep `run:` to one plain command; YAML breaks on an unquoted `: `, so anything with quotes, colons or logic
-goes in a script file. On the host you may try your own git-reading scripts, never the repo's code.
+Keep `run:` to one plain command; anything with quotes, colons or logic goes in a script file. On the host you may try your own git-reading scripts, never the repo's code.
 
 A one-line git command is often enough:
 
@@ -30,9 +24,10 @@ only). Put them in `.agentgraph/scripts/` and call them as `node "$AGENTGRAPH_DI
 field and variable is in the [graph reference](https://github.com/jannik-stacks/agentgraph/blob/main/docs/reference.md)
 and [Checks and results](https://github.com/jannik-stacks/agentgraph/blob/main/docs/checks.md).
 
-## Tier 1: a tool CI already runs
+## Tiers 1 and 2: a repo tool
 
-The exact command from CI, run on the whole repo the way CI runs it.
+Tier 1 is a tool CI runs on every change, with CI's exact command, as `block`. Tier 2 is a tool the repo has
+but CI does not gate, same shapes, as `warn`, with the body naming where the command comes from.
 
 ```markdown
 ---
@@ -43,8 +38,7 @@ run: npx tsc --noEmit
 The whole repo typechecks with its own tsconfig, as CI's `typecheck` job runs it.
 ```
 
-When the tool is slow, or the repo already fails it elsewhere, run it on touched files only. `setup` installs
-the dependencies, so `node_modules/.bin` is there:
+When the tool is slow or already fails elsewhere, run it on touched files only:
 
 ```js
 // .agentgraph/scripts/lint.mjs
@@ -58,14 +52,11 @@ if (result.status !== 0) console.log(`${result.stdout}${result.stderr}`.trim());
 process.exit(result.status ?? 1);
 ```
 
-Copy `assets/changes.mjs` to `.agentgraph/scripts/` for `existingFiles`, `touchedFiles` and `lineChanges`.
-Format checks use the formatter's check flag (`prettier --check`, `cargo fmt --check`).
-
-## Tier 2: a tool the repo has that CI does not gate
-
-Same shapes, with `mode: warn`, and the body names where the command comes from.
+`assets/changes.mjs` goes to `.agentgraph/scripts/` for `existingFiles`, `touchedFiles` and `lineChanges`.
 
 ## Tier 3: a reviewer rule a script decides
+
+A rule reviewers enforced at least twice that a script decides on added lines, as `warn`.
 
 Copy `assets/rules.mjs` next to `changes.mjs`, with one rule per enforced review habit. It fails only when a
 change adds more hits than it removes, so moved lines and old code pass.
@@ -90,8 +81,7 @@ Pull request numbers go in your summary, not the message; the message is for the
 
 ## Tier 4: a judgement over script-listed items
 
-A script lists the items; a judge answers one narrow question per item, so a small model will do. Add a judge
-agent with read-only tools:
+A script lists items; a judge with read-only tools answers one narrow question each:
 
 ```markdown
 ---
@@ -116,9 +106,9 @@ max: 30
 Does this hunk add a public function without a doc comment that says what it returns? Pass when it adds none.
 ```
 
-`each: files` gives one item per changed file, `each: hunks` one per hunk. For narrower items, a script prints
-one JSON line per item: `each: node "$AGENTGRAPH_DIR/scripts/<name>.mjs"`. A judge over the whole change is
-the last resort, with one question, not a checklist.
+`each: files` gives one item per changed file, `each: hunks` one per hunk, and
+`each: node "$AGENTGRAPH_DIR/scripts/<name>.mjs"` one per JSON line it prints. A judge over the whole change
+is the last resort, with one question.
 
 ## Modes and evidence
 

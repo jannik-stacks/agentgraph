@@ -34,15 +34,14 @@ Run everything from the repo root. Set `SKILL` to this skill's absolute path and
 
 ## 1. Find the CLI
 
-`agi check --dir .agentgraph` validates a graph without a model, a container or a GitHub login. If
-`command -v agi` finds nothing, ask before installing it:
+`agi check --dir .agentgraph` validates a graph offline. If `command -v agi` finds nothing, ask before
+installing it:
 
 ```sh
 npm install -g @jannik-stacks/agi
 ```
 
-This installs agentgraph, not the repo's dependencies. `AGI_PKG="$(npm root -g)/@jannik-stacks/agi"` is the
-installed package.
+`AGI_PKG="$(npm root -g)/@jannik-stacks/agi"` is the installed package.
 
 If `.agentgraph/` already exists, run `agi check --dir .agentgraph` and show the result. Skip step 3's copy;
 in step 6 add only what the user picks, without changing what is there.
@@ -56,24 +55,22 @@ gh pr list --state merged --limit 30 --json baseRefName --jq '.[].baseRefName' |
 ```
 
 Without `gh`, take it from the contributing guide, else the default branch. Call it `BASE`. The slicers read
-`origin/BASE`, so the checkout stays put. Without a remote use `BASE`; if `origin/BASE` is missing or stale,
-ask before `git fetch origin BASE`. Then:
+`origin/BASE` (or `BASE` without a remote); if it is missing or stale, ask before `git fetch origin BASE`:
 
 ```sh
 node "$SKILL/scripts/slice-repo.mjs" --ref origin/BASE > "$NOTES/repo.jsonl"
 ```
 
-One JSON line per fact: `install`, `manifest`, `package-scripts`, `targets`, `ci` (each `run:` line with file
-and line), `hook`, `config`, `guide`, `tests` and `layout`. Read it, then the CI files and guides it lists
-(`git show origin/BASE:<path>`). They say what the maintainers already hold every change to.
+One JSON line per fact, such as `install`, `ci` (each `run:` line with file and line), `config` and `guide`.
+Read it, then the CI files and guides it lists (`git show origin/BASE:<path>`): they say what maintainers
+already hold every change to.
 
-**Stop if a guide limits AI or agent contributions.** agentgraph opens pull requests written by agents. Quote
-the policy and go on only if the user maintains the repo and says so.
+**Stop if a guide limits AI or agent contributions.** Quote the policy and go on only if the user maintains
+the repo and says so.
 
 ## 3. Write the minimal graph
 
-Copy the default graph, then edit it; [references/minimal.md](references/minimal.md) has the install command
-per ecosystem and a worked example.
+Copy the default graph and edit it; [references/minimal.md](references/minimal.md) has the details.
 
 ```sh
 cp -R "$AGI_PKG/default" .agentgraph    # only when .agentgraph does not exist yet
@@ -86,8 +83,8 @@ cp -R "$AGI_PKG/default" .agentgraph    # only when .agentgraph does not exist y
    user what to run and say what it leaves out; never keep a check that tests nothing.
 4. `workflows/issue.md`: add `base: BASE` under `branch:` when `BASE` is not `main`.
 
-Run `agi check --dir .agentgraph` and fix until it prints `ok`. Show the user the folder and the `ok`. This
-is a working setup; the rest is optional.
+Fix until `agi check --dir .agentgraph` prints `ok`, and show the user. This is a working setup; the rest is
+optional.
 
 ## 4. Mine candidate checks
 
@@ -97,19 +94,10 @@ Follow [references/mining.md](references/mining.md). In short:
 node "$SKILL/scripts/slice-history.mjs" --ref origin/BASE > "$NOTES/history.jsonl"
 ```
 
-It prints commit stats, churn, and with `gh` pull request sizes, reviews and inline comments. Read the
-comments in chunks of about 50 lines and note each rule a reviewer enforced, with the pull request numbers.
-Rank every candidate in four tiers, deterministic first:
-
-1. A tool CI runs on every change (lint, format, typecheck, build): a `run:` check with the exact command,
-   proposed as `block`.
-2. A tool that exists but CI does not gate: `run:` check, proposed as `warn`.
-3. A rule reviewers enforced at least twice that a script can decide on added lines: a small script from
-   `assets/rules.mjs`, proposed as `warn`.
-4. A rule that needs judgement: a script lists items (`each:`) and a judge answers one narrow question per
-   item, proposed as `warn`. A judge over the whole diff comes last, and only with repeated evidence.
-
-[references/checks.md](references/checks.md) has a template per tier.
+It prints commit stats, churn, and with `gh` pull request sizes, reviews and inline comments. Note each rule
+a reviewer enforced, with the pull request numbers. Rank every candidate in the four tiers of
+[references/checks.md](references/checks.md), deterministic first: a tool CI runs, a tool CI does not gate, a
+script over added lines, then a judge over script-listed items.
 
 ## 5. Ask about transcripts
 
@@ -124,10 +112,9 @@ On yes, follow [references/transcripts.md](references/transcripts.md). Add what 
 
 ## 6. Present the candidates
 
-Show one table, ranked by tier and evidence count: name, what it decides, tier, the command or script,
-proposed mode, and the evidence (CI file and line, pull request numbers, transcript corrections). Below it,
-list workflow proposals from [references/mining.md](references/mining.md#workflows) with their evidence;
-without evidence the default workflow stays.
+Show one table, ranked by tier and evidence count, with the columns [references/mining.md](references/mining.md#evidence-per-candidate)
+lists. Below it, list workflow proposals from [references/mining.md](references/mining.md#workflows) with their
+evidence; without evidence the default workflow stays.
 
 Add only what the user picks: write each check, name it in a step's `checks:` in `workflows/issue.md`, copy
 scripts into `.agentgraph/scripts/`, and run `agi check --dir .agentgraph` until it prints `ok`.
@@ -139,13 +126,11 @@ yourself; the scan is a heuristic. Run `git status --short`. Tell the user, in p
 
 - What `.agentgraph/` holds and why each check is there, with its evidence.
 - Which checks start as `warn`, and that they move to `block` only after real runs show they fire correctly.
-  The [graph reference](https://github.com/jannik-stacks/agentgraph/blob/main/docs/reference.md) lists every
-  field.
 - The proposals they did not pick.
 - How to try it: with Docker running as a non-root user, `git config user.name` set and an Anthropic key,
   `export ANTHROPIC_API_KEY=...`, then `agi start --provider anthropic --save --dir .agentgraph "<a small
-  task>"`. The first start builds the sandbox image, about 3 minutes. Once the folder is committed, plain
-  `agi start` and the GitHub App read it.
+  task>"`. The first start builds the sandbox image, about 3 minutes. Once committed, plain `agi start` and the
+  GitHub App read the folder.
 
 Commit only when the user says so: only that folder, on a branch they choose, with `git commit -- .agentgraph`.
 The repo's commit hooks run its own code; say so, and let the user run the commit if they prefer.

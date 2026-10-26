@@ -34,35 +34,34 @@ minutes with 6 in parallel. Wait for a yes.
 
 ## 2. Gather the history
 
-If `~/.agentgraph/bench/cases` or `~/.agentgraph/tune-repos/cases` has the repo, copy its cases and
-`splits.json` into `~/.agentgraph/tune/<repo>/`. Otherwise mine:
+`R` is `~/.agentgraph/tune/<repo>`. If `~/.agentgraph/bench/cases` or `~/.agentgraph/tune-repos/cases` has
+the repo, copy its cases and `splits.json` into `R`. Otherwise mine:
 
 ```sh
-node ~/.agentgraph/bench/tools/mine.mjs <owner/name> ~/.agentgraph/tune/<repo>
-node ~/.agentgraph/bench/tools/finalize.mjs ~/.agentgraph/tune/<repo>
+node ~/.agentgraph/bench/tools/mine.mjs <owner/name> R
+node ~/.agentgraph/bench/tools/finalize.mjs R
 ```
 
-That gives one case per merged pull request with a linked issue (`case.json`, `issue.md`, `merged.diff`,
-`reviews.md`), a clone in `repos/`, and `splits.json`: oldest 60% train, 20% validate, newest 20% test. Gate
-the cases with tests, no model calls:
+That gives one case per merged pull request with a linked issue, a clone in `R/repos/`, and `splits.json`:
+oldest 60% train, 20% validate, newest 20% test. Gate each case with tests, no model calls:
 
 ```sh
-node bin/bench.ts score ~/.agentgraph/tune/<repo>/cases/<id> ~/.agentgraph/tune/<repo>/gate --repo ~/.agentgraph/tune/<repo>/repos/<repo>
+node bin/bench.ts score R/cases/<id> R/gate --repo R/repos/<repo>
 ```
 
-Keep a case only when its `valid.json` says the hidden tests fail on the base and pass on the human, and
-write those to `splits.gated.json`. You need about 12 fit plus validate and 5 test cases; with fewer, say the
-numbers will be noisy and ask whether to go on.
+Keep a case only when `valid.json` says the hidden tests fail on the base and pass on the human; write those
+to `R/splits.gated.json`. With fewer than about 12 fit plus validate and 5 test cases, say the numbers will
+be noisy and ask whether to go on.
 
 ## 3. Start from a minimal graph
 
 ```sh
-node bin/tune.ts init <repo> --cases ~/.agentgraph/tune/<repo>/cases --splits ~/.agentgraph/tune/<repo>/splits.gated.json --repos ~/.agentgraph/tune/<repo>/repos --point opencode:luna --name <name>
+node bin/tune.ts init <repo> --cases R/cases --splits R/splits.gated.json --repos R/repos --point opencode:luna --name <name>
 ```
 
-`init` writes the minimal graph (implement with `tries: 2` and a tests check, then a human merge), scores it
-on fit and validate, and records it as the incumbent. Train splits into mine (oldest half, only read) and fit
-(run every round). Show the user the starting score from `node bin/tune.ts status T`.
+`init` writes the minimal graph (implement with `tries: 2` and a tests check, then a human merge) and scores
+it as the incumbent. Train splits into mine (oldest half, only read) and fit (run every round). Show the user
+the starting score from `node bin/tune.ts status T`.
 
 ## 4. One round
 
@@ -87,24 +86,23 @@ node bin/run.ts check --dir T/drafts/r<round>-<direction>
 node bin/tune.ts propose T --from T/drafts/r<round>-<direction> --why "<one plain paragraph: what miss, which cases, why this change>"
 ```
 
-A subagent that finds no change worth trying says so and proposes nothing. Then evaluate them all:
+A subagent with no change worth trying proposes nothing. Then evaluate them all:
 
 ```sh
 node bin/tune.ts step T --k <proposals> --proposers manual --parallel 6
 ```
 
-`step` screens each candidate on 4 cases, runs the survivors on the rest of fit plus validate, reruns both
-graphs on every flipped case until each side has 3 runs, and keeps the best when more cases flip up and hold
-than down. A case where the incumbent's own runs disagree never counts.
+`step` screens each candidate on 4 cases, then runs the survivors on fit plus validate with reruns on
+flipped cases. It keeps the best when more cases flip up and hold than down.
 
 ## 5. Read and choose
 
 Run `node bin/tune.ts status T` with the caps from step 1, and read the new lines of `T/iterations.jsonl`:
 verdict, why and delta. Then:
 
-- Kept: the next round builds on it. A neighbour of the winning direction is a good next try.
-- Close but not kept (a case flipped up but did not hold): try a sharper version once.
-- Screened out or `infra`: do not retry it. Read one trace to learn why.
+- Kept: the next round builds on it; try a neighbour of the winning direction.
+- Close but not kept: try a sharper version once.
+- Screened out or `infra`: do not retry it; read one trace to learn why.
 
 After every third kept change, run `node bin/tune.ts checkpoint T` (test split plus judges).
 
