@@ -62,37 +62,39 @@ const latest = (name: string, lines: Trace[]): CheckResult | undefined => {
   }
 };
 
-/** A check as one list item: its name, who judges it and its gate, its script on demand, and with a run its latest result. */
+/** A check as one list item: its name, its script and judge as toggles that show them in place, its gate, and with a run its latest result. */
 const CheckItem = ({
   name,
   check,
+  judge,
   lines,
 }: {
   name: string;
   check: Fixture['checks'][string] | undefined;
+  judge: string | undefined;
   lines: Trace[] | undefined;
 }) => {
-  const [script, setScript] = useState(false);
+  const [shown, setShown] = useState<'script' | 'judge'>();
   const result = lines && latest(name, lines);
   const mode = check?.mode ?? 'block';
   const tags = [
-    ...(check?.agent === undefined || check.run
+    ...(check?.run
       ? [
           {
+            key: 'script' as const,
             label: 'script',
-            look: 'border border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400',
-            tip: check?.agent
-              ? `The script runs and its output goes to ${check.agent}.`
-              : 'A script; exit 0 passes, and the output is the feedback.',
+            tip: check.agent
+              ? `The script runs and its output goes to ${check.agent}. Click to see it.`
+              : 'Exit 0 passes, and the output is the feedback. Click to see the script.',
           },
         ]
       : []),
     ...(check?.agent
       ? [
           {
+            key: 'judge' as const,
             label: `judge ${check.agent}`,
-            look: 'bg-violet-100 font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-300',
-            tip: `${check.agent} judges ${check.run ? 'the script output' : 'the diff'}; a reply starting with PASS passes, with FAIL fails.`,
+            tip: `${check.agent} judges ${check.run ? 'the script output' : 'the diff'}; a reply starting with PASS passes, with FAIL fails. Click to see what it is told.`,
           },
         ]
       : []),
@@ -103,30 +105,46 @@ const CheckItem = ({
         –
       </span>
       <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-baseline gap-x-2">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="font-mono">{name}</span>
           {tags.map(t => (
-            <Tooltip key={t.label} tip={t.tip}>
-              <span className={cx('cursor-help rounded-sm px-1 text-[11px]', t.look)}>{t.label}</span>
+            <Tooltip key={t.key} tip={t.tip}>
+              <button
+                type="button"
+                aria-pressed={shown === t.key}
+                onClick={() => setShown(shown === t.key ? undefined : t.key)}
+                className={cx(
+                  'rounded-sm px-1 text-[11px] text-zinc-600 transition-colors hover:text-zinc-900 aria-pressed:bg-zinc-200 aria-pressed:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 dark:aria-pressed:bg-zinc-700 dark:aria-pressed:text-zinc-100',
+                  t.key === 'script'
+                    ? 'border border-zinc-300 dark:border-zinc-700'
+                    : 'bg-zinc-100 font-medium dark:bg-zinc-800'
+                )}
+              >
+                {t.label}
+              </button>
             </Tooltip>
           ))}
           <span className="text-zinc-500">
             <Term tip={gates[mode]}>{mode}</Term>
           </span>
-          {check?.run && (
-            <button
-              type="button"
-              aria-pressed={script}
-              onClick={() => setScript(!script)}
-              className="ml-auto rounded px-1 text-[11px] text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 aria-pressed:bg-zinc-100 aria-pressed:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:aria-pressed:bg-zinc-800 dark:aria-pressed:text-zinc-200"
-            >
-              script
-            </button>
-          )}
         </div>
-        {script && check?.run && (
+        {shown === 'script' && check?.run && (
           <div className="agi-in">
             <Code code={check.run} lang="sh" compact wrap lines={12} />
+          </div>
+        )}
+        {shown === 'judge' && check?.agent && (
+          <div className="agi-in space-y-2 border-l-2 border-zinc-200 pl-3 dark:border-zinc-800">
+            {check.body?.trim() ? (
+              <Markdown text={check.body!} />
+            ) : (
+              <p className="text-zinc-500">No instructions; {check.agent} judges with its own prompt alone.</p>
+            )}
+            {judge && (
+              <Disclosure summary={<span className="font-mono">agents/{check.agent}.md</span>}>
+                <Markdown text={judge} />
+              </Disclosure>
+            )}
           </div>
         )}
         {lines &&
@@ -343,7 +361,13 @@ export const StepDetails = ({
         >
           <ul className="space-y-1.5">
             {step.checks.map(name => (
-              <CheckItem key={name} name={name} check={checks[name]} lines={lines} />
+              <CheckItem
+                key={name}
+                name={name}
+                check={checks[name]}
+                judge={checks[name]?.agent && fixture.agents?.[checks[name].agent]}
+                lines={lines}
+              />
             ))}
           </ul>
         </Section>

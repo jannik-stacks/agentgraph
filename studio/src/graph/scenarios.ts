@@ -1,6 +1,6 @@
 import type { Agent, Check } from '../../../src/hub.ts';
 import type { Trace } from '../../../src/trace.ts';
-import type { Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
+import type { Doc, Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
 import type * as WorkflowModule from '../../../src/workflow.ts';
 
 /** One outcome a run met, with the run as it stood before it. */
@@ -16,7 +16,7 @@ type Simulated = { label: string; trail: Trail; run: Run };
 export type Fixture = {
   id: string;
   workflow: Workflow;
-  checks: Record<string, Pick<Check, 'mode' | 'agent' | 'run'>>;
+  checks: Record<string, Pick<Check, 'mode' | 'agent' | 'run'> & Partial<Pick<Doc<Check>, 'body'>>>;
   runs: Simulated[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;

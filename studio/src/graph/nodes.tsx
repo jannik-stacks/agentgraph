@@ -112,15 +112,15 @@ const Bubble = ({ tip, className, children }: { tip: string; className: string; 
 
 const chipKinds: Record<ChipKind, { look: string; tip: string }> = {
   who: {
-    look: 'rounded-sm border border-current/20 bg-current/10 px-1 font-medium',
+    look: 'rounded-sm border border-current/15 bg-current/[0.04] px-1 font-medium',
     tip: 'Who runs the step: the model alias, or you.',
   },
   checks: {
-    look: 'rounded-sm border border-current/30 px-1',
+    look: 'rounded-sm border border-current/20 px-1',
     tip: 'What gates the step: its checks, and how many an agent judges.',
   },
   writes: {
-    look: 'rounded-sm bg-current/10 px-1 opacity-85',
+    look: 'rounded-sm bg-current/[0.04] px-1 opacity-85',
     tip: 'What its agent may write to GitHub.',
   },
   how: { look: 'opacity-70', tip: 'How it runs: once per item, reading traces, answering asides.' },
@@ -182,7 +182,7 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
       className={cx(
         'relative isolate flex size-full cursor-pointer flex-col gap-0.5 rounded-md border px-2.5 pt-3 text-xs transition-shadow',
         here || live
-          ? cx(accent.border, accent.tint, 'text-sky-900 dark:text-sky-100')
+          ? cx(accent.border, accent.tint, 'text-zinc-800 dark:text-zinc-200')
           : 'border-zinc-200 bg-white text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700',
         node.each !== undefined
           ? 'shadow-[3px_3px_0_-1px_var(--color-white),3px_3px_0_0_var(--color-zinc-200),6px_6px_0_-1px_var(--color-white),6px_6px_0_0_var(--color-zinc-200)] dark:shadow-[3px_3px_0_-1px_var(--color-zinc-950),3px_3px_0_0_var(--color-zinc-800),6px_6px_0_-1px_var(--color-zinc-950),6px_6px_0_0_var(--color-zinc-800)]'
@@ -193,7 +193,7 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
         <>
           <span
             aria-hidden
-            className="pointer-events-none absolute -inset-[2px] -z-10 rounded-[8px] shadow-[0_0_0_5px_rgb(14_165_233/0.12),0_1px_2px_rgb(12_74_110/0.12),0_4px_10px_-2px_rgb(12_74_110/0.16),0_12px_28px_-6px_rgb(12_74_110/0.22)] dark:shadow-[0_0_0_5px_rgb(56_189_248/0.14),0_1px_2px_rgb(0_0_0/0.4),0_4px_10px_-2px_rgb(0_0_0/0.45),0_12px_28px_-6px_rgb(0_0_0/0.55)]"
+            className="pointer-events-none absolute -inset-[2px] -z-10 rounded-[8px] shadow-[0_2px_4px_rgb(0_0_0/0.06),0_8px_16px_-4px_rgb(0_0_0/0.10),0_20px_36px_-12px_rgb(0_0_0/0.14)] dark:shadow-[0_2px_4px_rgb(0_0_0/0.3),0_8px_16px_-4px_rgb(0_0_0/0.4),0_20px_36px_-12px_rgb(0_0_0/0.5)]"
           />
           <Selected />
         </>
