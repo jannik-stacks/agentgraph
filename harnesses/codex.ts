@@ -56,6 +56,7 @@ export const makeCodexHarness = (): Harness => ({
           ? [
               `mcp_servers.agentgraph.command=${JSON.stringify(server.command)}`,
               `mcp_servers.agentgraph.args=${JSON.stringify(server.args)}`,
+              'mcp_servers.agentgraph.default_tools_approval_mode="approve"',
             ].flatMap(setting => ['-c', setting])
           : []),
         ...(route.model === 'default' ? [] : ['--model', route.model]),

@@ -154,6 +154,7 @@ describe('a judge session', () => {
 
   it.each([
     ['claude', 'mcp__agentgraph__result'],
+    ['codex', 'mcp_servers.agentgraph.default_tools_approval_mode=\\"approve\\"'],
     ['opencode', '\\"agentgraph_result\\":\\"allow\\"'],
     ['pi', 'mcp__agentgraph__result'],
   ])('on %s is allowed to call it', (name, allowed) => expect(wiring(name, judge)).toContain(allowed));
