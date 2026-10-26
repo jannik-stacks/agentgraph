@@ -173,18 +173,16 @@ const concurrency = {
 };
 
 /** One sentence on what makes a trigger start a run. */
-const startsOn = (event: string, t: { command?: string; label?: string; branches?: string[] }) =>
-  t.command
-    ? `A comment starting with ${t.command} starts a run.`
-    : t.label
-      ? `Adding the ${t.label} label to an issue starts a run.`
-      : event === 'dispatch'
-        ? 'A run proposal from another workflow starts a run.'
-        : event === 'feedback'
-          ? 'What a trusted person says or pushes where another run worked starts a retro.'
-          : t.branches
-            ? `${event.replace('_', ' ')} on ${t.branches.join(', ')}: accepted, starts nothing yet.`
-            : `Each ${event.replace('_', ' ')} event starts a run.`;
+const startsOn = (event: string, t: NonNullable<Workflow['on'][keyof Workflow['on']]>) =>
+  t.label
+    ? `Adding the ${t.label} label to an issue starts a run.`
+    : event === 'dispatch'
+      ? 'A run proposal from another workflow starts a run.'
+      : event === 'feedback'
+        ? 'What a trusted person says or pushes where another run worked starts a retro.'
+        : t.branches
+          ? `${event.replace('_', ' ')} on ${t.branches.join(', ')}: accepted, starts nothing yet.`
+          : `Each ${event.replace('_', ' ')} event starts a run.`;
 
 /** A workflow's trigger, branches and concurrency, each explained on hover, and its description. */
 export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
