@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { cx, Link, Tooltip } from '../ui.tsx';
 import {
   type CheckField,
@@ -12,7 +12,29 @@ import {
 
 const amber = 'text-amber-600 dark:text-amber-400';
 
-const Strip = ({ runs, field }: { runs: RunResults[]; field: CheckField }) => {
+const ChartLink = ({ onClick, children }: { onClick: (() => void) | undefined; children: ReactNode }) =>
+  onClick ? (
+    <button
+      type="button"
+      onClick={onClick}
+      className="relative -mx-1 inline-flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+    >
+      <span className="sr-only">open the chart</span>
+      {children}
+    </button>
+  ) : (
+    children
+  );
+
+const Strip = ({
+  runs,
+  field,
+  onClick,
+}: {
+  runs: RunResults[];
+  field: CheckField;
+  onClick: (() => void) | undefined;
+}) => {
   const s = getFieldSummary(runs, field);
   const bound = field.limit?.maximum ?? field.limit?.minimum;
   const lo = Math.min(s.low, bound ?? s.low);
@@ -20,64 +42,74 @@ const Strip = ({ runs, field }: { runs: RunResults[]; field: CheckField }) => {
   const x = (v: number) => (hi === lo ? 50 : 4 + ((v - lo) / (hi - lo)) * 92);
   return (
     <Tooltip
-      tip={`${formatResultValue(field, s.low)} to ${formatResultValue(field, s.high)}; each dot is one run, the tick the median`}
+      tip={`${formatResultValue(field, s.low)} to ${formatResultValue(field, s.high)}; each dot is one run, the tick the median${onClick ? '; click for the chart' : ''}`}
     >
-      <svg viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden className="h-2.5 w-28 text-zinc-400">
-        <line
-          x1="4"
-          x2="96"
-          y1="5"
-          y2="5"
-          stroke="currentColor"
-          strokeOpacity="0.3"
-          vectorEffect="non-scaling-stroke"
-        />
-        {s.points.map(({ run, v }) => (
-          <circle
-            key={run.key}
-            cx={x(v)}
-            cy="5"
-            r="2"
-            fill="currentColor"
-            fillOpacity="0.6"
-            className={cx(s.outside.includes(run) && amber)}
-          />
-        ))}
-        {bound !== undefined && (
+      <ChartLink onClick={onClick}>
+        <svg viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden className="h-2.5 w-28 text-zinc-400">
           <line
-            x1={x(bound)}
-            x2={x(bound)}
-            y1="2"
-            y2="8"
+            x1="4"
+            x2="96"
+            y1="5"
+            y2="5"
             stroke="currentColor"
-            className={amber}
+            strokeOpacity="0.3"
             vectorEffect="non-scaling-stroke"
           />
-        )}
-        {s.median !== undefined && (
-          <line
-            x1={x(s.median)}
-            x2={x(s.median)}
-            y1="0"
-            y2="10"
-            className="text-zinc-700 dark:text-zinc-300"
-            stroke="currentColor"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-      </svg>
+          {s.points.map(({ run, v }) => (
+            <circle
+              key={run.key}
+              cx={x(v)}
+              cy="5"
+              r="2"
+              fill="currentColor"
+              fillOpacity="0.6"
+              className={cx(s.outside.includes(run) && amber)}
+            />
+          ))}
+          {bound !== undefined && (
+            <line
+              x1={x(bound)}
+              x2={x(bound)}
+              y1="2"
+              y2="8"
+              stroke="currentColor"
+              className={amber}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+          {s.median !== undefined && (
+            <line
+              x1={x(s.median)}
+              x2={x(s.median)}
+              y1="0"
+              y2="10"
+              className="text-zinc-700 dark:text-zinc-300"
+              stroke="currentColor"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+      </ChartLink>
     </Tooltip>
   );
 };
 
-const Trend = ({ steps, field }: { steps: number[]; field: CheckField }) => {
+const Trend = ({
+  steps,
+  field,
+  onClick,
+}: {
+  steps: number[];
+  field: CheckField;
+  onClick: (() => void) | undefined;
+}) => {
   if (steps.length < 2) return null;
   const lo = Math.min(...steps);
   const hi = Math.max(...steps);
   const y = (v: number) => (hi === lo ? 5 : 9 - ((v - lo) / (hi - lo)) * 8);
   const change = steps.at(-1)! - steps[0]!;
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <ChartLink onClick={onClick}>
       <svg viewBox="0 0 60 10" aria-hidden className="h-2.5 w-[60px] text-zinc-500">
         <polyline
           points={steps.map((v, i) => `${(i / (steps.length - 1)) * 60},${y(v)}`).join(' ')}
@@ -90,7 +122,7 @@ const Trend = ({ steps, field }: { steps: number[]; field: CheckField }) => {
         {change > 0 ? '+' : change < 0 ? '-' : ''}
         {formatResultValue(field, Math.abs(change))}
       </span>
-    </span>
+    </ChartLink>
   );
 };
 
@@ -99,11 +131,13 @@ const Cells = ({
   field,
   trend,
   first,
+  onPick,
 }: {
   runs: RunResults[];
   field: CheckField;
   trend: string;
   first: boolean;
+  onPick: ((field: CheckField, along?: string) => void) | undefined;
 }) => {
   const s = getFieldSummary(runs, field, trend);
   const dead = runs.filter(r => r.dead);
@@ -124,9 +158,11 @@ const Cells = ({
         {s.outside.length > 0 && `${s.outside.length} over`}
       </td>
       <td className="pr-4">{formatResultValue(field, s.median)}</td>
-      <td className="pr-4">{s.values.length > 0 && <Strip runs={runs} field={field} />}</td>
       <td className="pr-4">
-        <Trend steps={s.trend} field={field} />
+        {s.values.length > 0 && <Strip runs={runs} field={field} onClick={onPick && (() => onPick(field))} />}
+      </td>
+      <td className="pr-4">
+        <Trend steps={s.trend} field={field} onClick={onPick && (() => onPick(field, trend))} />
       </td>
     </>
   );
@@ -143,7 +179,7 @@ export const ResultTable = ({
   fields: CheckField[];
   by?: string | undefined;
   trend?: string;
-  onPick?: (field: CheckField) => void;
+  onPick?: (field: CheckField, along?: string) => void;
 }) => {
   const groups = by ? [...splitRunsByAxis(runs, by)] : [];
   const shown = fields.filter(f => runs.some(r => typeof readFieldValue(r, f) === 'number'));
@@ -187,13 +223,13 @@ export const ResultTable = ({
                       )}
                     </Tooltip>
                   </td>
-                  <Cells runs={runs} field={field} trend={trend} first={first} />
+                  <Cells runs={runs} field={field} trend={trend} first={first} onPick={onPick} />
                 </tr>
                 {groups.map(([group, members]) => (
                   <tr key={group} className="text-zinc-500">
                     <td />
                     <td className="max-w-[24ch] truncate pr-4 pl-3 font-mono">{group}</td>
-                    <Cells runs={members} field={field} trend={trend} first={first} />
+                    <Cells runs={members} field={field} trend={trend} first={first} onPick={onPick} />
                   </tr>
                 ))}
               </Fragment>
