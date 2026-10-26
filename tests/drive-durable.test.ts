@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { configure, stateOf } from '../bench/drive.ts';
+import { configure, readBenchDriveState } from '../bench/drive.ts';
 import { readJsonl } from '../bin/resume.ts';
 import { isPidRunning } from '../src/owner.ts';
 import { tmp } from './kit.ts';
@@ -116,7 +116,7 @@ describe('bench driver durability', () => {
         .slice(-2)
         .map(e => e.event)
     ).toEqual(['resume', 'finish']);
-    expect(stateOf(dir)).toMatchObject({ status: 'finished', done: 2, total: 2 });
+    expect(readBenchDriveState(dir)).toMatchObject({ status: 'finished', done: 2, total: 2 });
   });
 
   it('keeps a crashed arm job partial, records why, and resumes only that job', async () => {
@@ -129,7 +129,7 @@ describe('bench driver durability', () => {
     });
     expect(events(dir).at(-1)).toMatchObject({ event: 'stop', reason: '1 jobs failed: resume to retry them' });
     expect(readFileSync(join(run(dir), 'c2/v2/diff.patch'), 'utf8')).toBe('d');
-    expect(stateOf(dir)).toMatchObject({ status: 'stopped', done: 1, partial: 1, total: 2 });
+    expect(readBenchDriveState(dir)).toMatchObject({ status: 'stopped', done: 1, partial: 1, total: 2 });
     const before = calls(dir).length;
     expect((await drive(dir)).code).toBe(0);
     const later = calls(dir).slice(before);
@@ -144,9 +144,9 @@ describe('bench driver durability', () => {
     expect((await drive(dir, { ...judged, FAKE_FAIL: 'judge' })).code).toBe(1);
     expect(events(dir).find(e => e.event === 'job-fail')?.reason).toBe('judge exit 1');
     expect(existsSync(join(run(dir), 'c1/v2/score.json'))).toBe(true);
-    expect(stateOf(dir)).toMatchObject({ status: 'stopped', done: 0 });
+    expect(readBenchDriveState(dir)).toMatchObject({ status: 'stopped', done: 0 });
     expect((await drive(dir)).code).toBe(0);
-    expect(stateOf(dir)).toMatchObject({ status: 'finished', done: 1 });
+    expect(readBenchDriveState(dir)).toMatchObject({ status: 'finished', done: 1 });
   });
 
   it('stops on SIGTERM with the reason, stops its jobs and frees the dir', async () => {
@@ -161,7 +161,7 @@ describe('bench driver durability', () => {
     expect(events(dir).at(-1)).toMatchObject({ event: 'stop', reason: 'signal SIGTERM' });
     expect(existsSync(join(dir, 'drive.lock'))).toBe(false);
     await until(() => !isPidRunning(pid));
-    expect(stateOf(dir)).toMatchObject({ status: 'stopped', reason: 'signal SIGTERM' });
+    expect(readBenchDriveState(dir)).toMatchObject({ status: 'stopped', reason: 'signal SIGTERM' });
   });
 
   it('on SIGTERM stops what its jobs started too', async () => {
@@ -186,10 +186,10 @@ describe('bench driver durability', () => {
     await exit;
     process.kill(orphans[0]!, 'SIGKILL');
     expect(existsSync(join(dir, 'drive.lock'))).toBe(true);
-    expect(stateOf(dir)).toMatchObject({ status: 'crashed', done: 0, partial: 1 });
+    expect(readBenchDriveState(dir)).toMatchObject({ status: 'crashed', done: 0, partial: 1 });
     const again = await drive(dir);
     expect(again.code, again.out).toBe(0);
-    expect(stateOf(dir).status).toBe('finished');
+    expect(readBenchDriveState(dir).status).toBe('finished');
   });
 
   it('refuses a second driver on the same dir', async () => {
@@ -202,7 +202,7 @@ describe('bench driver durability', () => {
     expect(calls(dir)).toEqual([]);
     expect(readFileSync(join(dir, 'drive.lock'), 'utf8')).toBe(String(process.pid));
     utimesSync(join(dir, 'drive.lock'), 0, 0);
-    expect(stateOf(dir).status).not.toBe('running');
+    expect(readBenchDriveState(dir).status).not.toBe('running');
   });
 
   it('stops on the Codex budget before a job starts, with the reason', async () => {
@@ -213,7 +213,7 @@ describe('bench driver durability', () => {
     expect(first.code).toBe(1);
     expect(events(dir).at(-1)).toMatchObject({ event: 'stop', reason: 'Codex weekly 50% is over 45%' });
     expect(calls(dir).filter(c => c.cmd !== 'report')).toEqual([]);
-    expect(stateOf(dir)).toMatchObject({ status: 'stopped', reason: 'Codex weekly 50% is over 45%' });
+    expect(readBenchDriveState(dir)).toMatchObject({ status: 'stopped', reason: 'Codex weekly 50% is over 45%' });
     expect((await drive(dir, { MAX_CODEX: '60' })).code).toBe(0);
     expect(JSON.parse(readFileSync(join(dir, 'drive.json'), 'utf8')).MAX_CODEX).toBe('60');
   });
@@ -223,7 +223,7 @@ describe('bench driver durability', () => {
     writeFileSync(join(dir, 'PAUSE'), '');
     const { exit } = start(dir, settings(dir));
     await until(() => events(dir).some(e => e.event === 'pause'));
-    expect(stateOf(dir).status).toBe('paused');
+    expect(readBenchDriveState(dir).status).toBe('paused');
     expect(calls(dir)).toEqual([]);
     rmSync(join(dir, 'PAUSE'));
     expect((await exit).code).toBe(0);

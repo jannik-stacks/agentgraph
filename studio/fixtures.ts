@@ -107,11 +107,11 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
     });
     server.middlewares.use('/api/bench', async (_req, res) => {
       const { readBenchRows: rowsOf }: typeof BenchModule = await from('bin/bench.ts');
-      const { stateOf }: typeof DriveModule = await from('bench/drive.ts');
+      const { readBenchDriveState }: typeof DriveModule = await from('bench/drive.ts');
       const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
       json(res, {
         rows: dirs.flatMap(dir => outsOf(dir)).flatMap(out => rowsOf(out)),
-        drives: [...new Set(dirs.flatMap(drivenOf))].map(stateOf),
+        drives: [...new Set(dirs.flatMap(drivenOf))].map(readBenchDriveState),
         prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
       });
     });

@@ -148,7 +148,6 @@ no-comment tests/tune.test.ts 3
 no-comment tests/world.ts 5
 no-comment tune/propose.ts 15
 no-comment tune/skill.ts 11
-no-of-for bench/drive.ts stateOf
 no-of-for bin/tune.ts flipsOf
 no-of-for bin/tune.ts overOf
 no-of-for bin/tune.ts tunesOf
@@ -164,7 +163,6 @@ unique-export tune/propose.ts propose
 verb-first bench/drive.ts configure
 verb-first bench/drive.ts nodePath
 verb-first bench/drive.ts spendGuard
-verb-first bench/drive.ts stateOf
 verb-first bin/bench.ts armSlot
 verb-first bin/bench.ts bootstrap
 verb-first bin/bench.ts codexUsed

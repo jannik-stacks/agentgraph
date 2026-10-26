@@ -160,7 +160,7 @@ export type DriveState = {
   partial: number;
 };
 
-export const stateOf = (dir: string): DriveState => {
+export const readBenchDriveState = (dir: string): DriveState => {
   const s = recorded(dir);
   const jobs = s.SHA ? jobsOf(dir, s) : [];
   const done = jobs.filter(j => finished(dir, s, j)).length;
