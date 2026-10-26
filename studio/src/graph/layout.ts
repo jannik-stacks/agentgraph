@@ -51,7 +51,7 @@ export const layout = (
   const rows = graphs.map(({ workflow, graph }): WorkflowLayoutLane => {
     const backEdges = graph.edges
       .filter(e => e.kind === 'back')
-      .map(e => ({ e, span: Math.abs(indexOf(graph, e.from) - indexOf(graph, e.to)) }))
+      .map(e => ({ e, span: Math.abs(findStepIndex(graph, e.from) - findStepIndex(graph, e.to)) }))
       .toSorted((a, b) => a.span - b.span);
     const above = backEdges.length ? 20 + (backEdges.length - 1) * lane + 16 : 0;
     const stepTop = top + header + above;
@@ -76,10 +76,10 @@ export const layout = (
     });
     x += endGap;
     nodes.push(place(`${workflow}:done`, 'done', 64, pillHeight));
-    const boxOf = (step: string) => nodes.find(n => n.step === step)!.box;
+    const getStepBox = (step: string) => nodes.find(n => n.step === step)!.box;
     const backs = backEdges.map(({ e }, k) => {
-      const from = boxOf(e.from);
-      const to = boxOf(e.to);
+      const from = getStepBox(e.from);
+      const to = getStepBox(e.to);
       const y = stepTop - 20 - k * lane;
       const out = from.x + from.width * 0.3 + k * nest;
       const into = to.x + to.width * 0.7 - k * nest;
@@ -103,4 +103,4 @@ export const layout = (
 };
 
 const p = (x: number, y: number): CanvasPoint => ({ x, y });
-const indexOf = (graph: WorkflowGraph, step: string) => graph.nodes.findIndex(n => n.step === step);
+const findStepIndex = (graph: WorkflowGraph, step: string) => graph.nodes.findIndex(n => n.step === step);

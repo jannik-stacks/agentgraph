@@ -31,7 +31,7 @@ const clip = (text: string, max = 80) => (text.length > max ? `${text.slice(0, m
 
 /** The first of `keys` the input has, so one view reads both opencode's camelCase and other harnesses' snake_case. */
 const pick = (input: Input, ...keys: string[]) => input[keys.find(key => input[key] !== undefined) ?? ''];
-const pathOf = (input: Input) => pick(input, 'filePath', 'file_path', 'path');
+const pickFilePath = (input: Input) => pick(input, 'filePath', 'file_path', 'path');
 
 const range = (input: Input) => {
   const offset = typeof input.offset === 'number' ? input.offset : undefined;
@@ -106,7 +106,7 @@ const Read = ({ input, output, ok }: ToolProps) =>
   ok === false || output === undefined ? (
     <Output output={output} ok={ok} />
   ) : (
-    <Code code={fileText(output)} lang={getFileHighlightLanguage(str(pathOf(input)))} compact lines={12} />
+    <Code code={fileText(output)} lang={getFileHighlightLanguage(str(pickFilePath(input)))} compact lines={12} />
   );
 
 /** opencode grep output: "Found N matches", then each file followed by its "Line N: text" lines. */
@@ -271,7 +271,7 @@ const Edit = ({ input, output, ok }: ToolProps) => (
 
 const Write = ({ input, output, ok }: ToolProps) => (
   <>
-    <Code code={str(input.content)} lang={getFileHighlightLanguage(str(pathOf(input)))} compact lines={12} />
+    <Code code={str(input.content)} lang={getFileHighlightLanguage(str(pickFilePath(input)))} compact lines={12} />
     {ok === false && <Output output={output} ok={ok} />}
   </>
 );
@@ -398,14 +398,14 @@ const List = ({ output, ok }: ToolProps) =>
   ok === false ? <Output output={output} ok={ok} /> : <Code code={listing(output).join('\n')} compact lines={16} />;
 
 const tools: Record<string, { summary: (input: Input) => string; Body: ComponentType<ToolProps> }> = {
-  read: { summary: i => `${rel(pathOf(i))}${range(i)}`, Body: Read },
+  read: { summary: i => `${rel(pickFilePath(i))}${range(i)}`, Body: Read },
   grep: { summary: i => `${str(i.pattern)} in ${rel(i.path)}`, Body: Grep },
   glob: { summary: i => str(i.pattern), Body: Glob },
   list: { summary: i => rel(i.path), Body: List },
   ls: { summary: i => rel(i.path), Body: List },
   bash: { summary: i => clip(str(i.command).split('\n')[0] ?? ''), Body: Bash },
-  edit: { summary: i => rel(pathOf(i)), Body: Edit },
-  write: { summary: i => rel(pathOf(i)), Body: Write },
+  edit: { summary: i => rel(pickFilePath(i)), Body: Edit },
+  write: { summary: i => rel(pickFilePath(i)), Body: Write },
   todowrite: {
     summary: i => (Array.isArray(i.todos) ? `${i.todos.length} items` : ''),
     Body: Todos,

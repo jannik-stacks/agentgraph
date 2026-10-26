@@ -334,7 +334,7 @@ export type RouteFlowEdge = Edge<
 >;
 
 /** An orthogonal polyline through `points` with rounded corners. */
-const pathOf = (points: CanvasPoint[], radius = 8) =>
+const makeRoundedPath = (points: CanvasPoint[], radius = 8) =>
   points
     .map((p, i) => {
       const before = points[i - 1];
@@ -359,7 +359,7 @@ export const RouteEdge = ({ id, markerEnd, style, data }: EdgeProps<RouteFlowEdg
   const select = useSetAtom(selectedStepAtom);
   const { ref, show, hide } = useTip();
   const { points, back } = data!;
-  const d = pathOf(points);
+  const d = makeRoundedPath(points);
   const taken = (back?.taken ?? 0) > 0;
   const tip = back
     ? back.rounds === undefined

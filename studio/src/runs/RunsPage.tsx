@@ -36,7 +36,7 @@ const Locate = ({ gh }: { gh: string }) => {
 };
 
 /** Each issue the runs worked on, newest first, as a filter option with its title and body, else its workflows. */
-const issuesOf = (runs: ServedRun[]) => {
+const splitRunsByIssue = (runs: ServedRun[]) => {
   const byIssue = new Map<number, { workflows: Set<string>; title?: string | undefined; body?: string | undefined }>();
   for (const { run } of runs.toSorted((a, b) => a.run.started.localeCompare(b.run.started))) {
     const seen = byIssue.get(run.issue) ?? { workflows: new Set() };
@@ -64,7 +64,7 @@ const Runs = () => {
   const { value: runs, failure } = useAtomValue(runsAtom);
   const [issue, setIssue] = useAtom(issueParam);
   const navigate = useSetAtom(navigateAtom);
-  const options = useMemo(() => issuesOf(runs ?? []), [runs]);
+  const options = useMemo(() => splitRunsByIssue(runs ?? []), [runs]);
   if (!runs) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (!runs.length) return <Muted>No runs in this data dir.</Muted>;
   const shown = runs
