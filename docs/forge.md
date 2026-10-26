@@ -24,6 +24,7 @@ The issue number is the handle. Each issue has at most one open pull request, on
 | `export <n>` | Writes the branch into your repo again; `--as <branch>` under another name, `--patch <file>` as a patch file instead. |
 | `close <n>` | Closes the issue and its pull request, whichever are open; a merged pull request stays merged. A live run stops on its next look. |
 | `show [n]`, `show graph` | What needs you and every issue, or one issue's timeline and diff, where the status comment, edited as the run moves, shows when it was last edited; `show graph` prints the graph in use, its path and files. Outside a repo it lists every instance and what needs you there. |
+| `studio` | Starts the [studio](local.md#the-studio) for this repo and prints its URL. It needs a clone of agentgraph and installs the studio's dependencies on first use. |
 | `loop` | Drives every open issue, then again when the forge changes or after `AGENTGRAPH_EVERY` minutes. `--once` makes one pass. |
 
 `check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--dir` and `--logs`, and the commands it prints carry the `--repo` and `--data` it was given. `check --dir` inside a repo checks against the instance's saved provider. Comments, reviews and issues are by the instance owner, `git config user.name` at the first command, the only login the instance trusts. Without a `user.name` it is your OS user, and the CLI says so; `owner` in the instance's `instance.yaml` changes it. <!-- code: src/services.ts#settings -->
@@ -54,7 +55,7 @@ When a `loop` runs for the same repo, it holds the instance's loop lock and the 
 
 Ctrl-C stops a drive. The run keeps its last saved state and goes on from there on the next drive of that issue, for example `say <n> "go on"`. A second Ctrl-C quits at once. <!-- code: src/main.ts#start -->
 
-A run that stops on a runner error, such as a harness that cannot reach its model, waits for an answer. The drive and `show <n>` print its cause and the path of its trace. <!-- code: src/status.ts#formatRunnerError -->
+After a drive the CLI prints why the run waits or stopped, then the next commands, `agi show <n>` and `agi studio` among them. A run that stops on a runner error, such as a harness that cannot reach its model, waits for an answer. The drive and `show <n>` print its cause and the path of its trace. A login the provider rejects stops the run, and for `claude` the CLI says how to drop the saved token. <!-- code: src/status.ts#formatRunnerError -->
 
 ## Where the result lands
 

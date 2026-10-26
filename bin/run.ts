@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { watch } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
@@ -62,6 +63,7 @@ const usage = `usage: agi <verb> [flags]
   close <n>                                       closes issue n
   check [<check>... --runs [--issue <n>]]        validates the graph, or runs checks again on ended runs
   dispatch <n> --workflow <name> [--step <step>]  starts a workflow that takes dispatch on issue n
+  studio                                          starts the studio for this repo and prints its URL
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
 flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
        --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...`;
@@ -365,6 +367,8 @@ async function runOnInstance() {
     return ensureGraph(i, values.dir).catch((e: Error) => fail(e.message, 1));
   };
   switch (verb) {
+    case 'studio':
+      return openStudio(i);
     case 'start': {
       const text = rest.join(' ').trim();
       if (!text) fail(`start takes the issue text\n${usage}`);
@@ -507,6 +511,21 @@ async function drive(i: Instance, issue: number, graph: string, provider: string
   return report(i, issue);
 }
 
+const relogin = `Claude rejected the token. ${process.platform === 'darwin' ? 'Run `security delete-generic-password -s agentgraph -a claude`' : 'Remove ~/.config/agentgraph/claude-token'} and start again.`;
+
+function openStudio(i: Instance) {
+  const dir = join(import.meta.dirname, '..', 'studio');
+  if (!existsSync(join(dir, 'dev.ts')))
+    fail('the studio comes with a clone of agentgraph, not the npm package; see From source in its README', 1);
+  if (!existsSync(join(dir, 'node_modules'))) {
+    console.log(`studio   installing its dependencies once: npm ci --prefix ${dir}`);
+    if (spawnSync('npm', ['ci', '--prefix', dir, '--no-audit', '--no-fund'], { stdio: 'inherit' }).status !== 0)
+      fail('the studio install failed', 1);
+  }
+  const flags = [...(values.data ? ['--data', root] : []), ...(values.dir ? ['--dir', resolve(values.dir)] : [])];
+  spawnSync(process.execPath, [join(dir, 'dev.ts'), '--repo', i.repo, ...flags], { cwd: dir, stdio: 'inherit' });
+}
+
 async function report(i: Instance, issue: number, merged = false) {
   const result = await writePullToRepo(i, issue, values.as ? { as: values.as } : {}).catch((e: Error) => ({
     why: e.message,
@@ -521,12 +540,18 @@ async function report(i: Instance, issue: number, merged = false) {
       `Worktree:     git worktree add ${formatShellWord(`../${basename(i.repo)}-${issue}`)} ${formatShellWord(ref)}`
     );
   }
-  const waiting = findRunsWaitingOnPeople(await listRuns(i.data, { issue })).flatMap(run =>
-    formatNextSteps(run, undefined, selected)
-  );
-  for (const line of await formatRunnerErrors(i.data, await listRuns(i.data, { issue }))) console.log(line);
+  const runs = await listRuns(i.data, { issue });
+  const waiting = findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, undefined, selected));
+  for (const line of waiting.filter(l => !l.startsWith('  '))) console.log(line);
+  const last = runs.toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
+  if (last?.status === 'stopped') console.log(`${last.id} stopped at ${last.step}: ${last.reason}`);
+  if (last?.reason?.includes('rejected the login') && (values.provider ?? i.provider) === 'claude')
+    console.log(relogin);
+  for (const line of await formatRunnerErrors(i.data, runs)) console.log(line);
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
-  const steps = merged ? merge : waiting.filter(l => l.startsWith('  '));
+  const steps = merged
+    ? merge
+    : [...waiting.filter(l => l.startsWith('  ')), `  agi show ${issue}${selected}`, '  agi studio'];
   if (steps.length) console.log(`Next:\n${steps.join('\n')}`);
 }
 

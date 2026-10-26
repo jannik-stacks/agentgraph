@@ -81,7 +81,7 @@ It writes the agent keys as `AGENTGRAPH_PROXY_KEYS` to `~/agentgraph-data/.env` 
 
 ## The studio
 
-From `studio/`:
+Inside a repo, `agi studio` starts it for that repo. From `studio/` in a clone:
 
 ```sh
 npm install

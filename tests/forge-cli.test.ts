@@ -678,7 +678,9 @@ describe('an instance', () => {
 
     git(w.seed, 'branch', '-f', 'agentgraph/1', 'main');
     expect(await writePullToRepo(i, 1)).toEqual({ why: 'agentgraph/1 in your repo moved since agentgraph wrote it' });
-    expect(cli('export', '1', '--as', 'review-1').out).toContain('In your repo: review-1');
+    const exported = cli('export', '1', '--as', 'review-1').out;
+    expect(exported).toContain('In your repo: review-1');
+    expect(exported).toMatch(/#1 is waiting\n[\s\S]*Next:\n  agi merge 1.*\n.*\n  agi show 1.*\n  agi studio/);
     const patch = join(w.root, 'hello.patch');
     expect(cli('export', '1', '--patch', patch).code).toBe(0);
     expect(readFileSync(patch, 'utf8')).toContain('+hello world');
