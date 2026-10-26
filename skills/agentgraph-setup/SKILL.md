@@ -35,14 +35,18 @@ its scripts as `node "$SKILL/scripts/<name>.mjs"`; a bare `node scripts/...` wou
 
 ## 1. Find the agentgraph CLI
 
-`check --dir` validates a graph without a model, a container or a GitHub login. Pick the first that works:
+`agentgraph check --dir .agentgraph` validates a graph without a model, a container or a GitHub login. Run
+`agentgraph --version` or `command -v agentgraph` to see whether it is installed. If not, ask the user before
+installing it, then install it from source:
 
-- An `agentgraph` checkout the user names: `node <checkout>/bin/agentgraph.js check --dir .agentgraph`.
-- An installed release the user confirms is the agentgraph from `github.com/jannik-stacks/agentgraph`:
-  `npx agentgraph@<version> check --dir .agentgraph`.
+```sh
+git clone https://github.com/jannik-stacks/agentgraph ~/agentgraph
+npm ci --prefix ~/agentgraph && npm link --prefix ~/agentgraph
+```
 
-Do not run a bare `npx agentgraph` to find out: the npm name may belong to an unrelated package. Ask the user
-when unsure. Call the working command `AG` below.
+This installs agentgraph's own dependencies, not the repo's. Never use `npx agentgraph`: the npm name belongs
+to an unrelated package. Call the working command `AG` below (`agentgraph`, or `node <checkout>/bin/agentgraph.js`
+when the user would rather not link it). `<agentgraph>` is that checkout.
 
 If `.agentgraph/` already exists, run `AG check --dir .agentgraph` and show the result. Skip step 3's copy:
 read the existing graph and, in step 6, add only the pieces the user picks, without changing what is there.
@@ -156,8 +160,10 @@ user, in plain short sentences:
   correctly. The [graph reference](https://github.com/jannik-stacks/agentgraph/blob/main/docs/reference.md)
   lists every field.
 - The proposals they did not pick, so they can revisit them.
-- How to try it: `AG start --dir .agentgraph "<a small task>"` runs one issue locally on the uncommitted
-  folder (needs Docker and a model login). Once committed, plain `AG start` and the GitHub App read it.
+- How to try it locally: with Docker running as a non-root user, `git config user.name` set and an Anthropic
+  key, `export ANTHROPIC_API_KEY=...` then `AG start --provider anthropic --save --dir .agentgraph "<a small
+  task>"`. The first start builds the sandbox image, about 3 minutes. Once the folder is committed, plain
+  `AG start` and the GitHub App read it.
 
 Ask before committing anything. If they say yes, commit only that folder on a branch of their choosing, with
 `git commit -- .agentgraph` so other staged work stays out. The repo's commit hooks run its own code; say so

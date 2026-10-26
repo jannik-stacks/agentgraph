@@ -4,17 +4,28 @@ A check is `checks/<name>.md`: frontmatter that says how it decides, and a body 
 is what the implementor reads when the check fails, so write it as the rule, in one or two plain sentences.
 A check runs only when a step lists it in `checks:`.
 
-| Field | Meaning |
-| --- | --- |
-| `mode` | `block` fails the try and sends the findings back; `warn` records a failure and goes on; `info` only records; `stop` ends the run |
-| `run` | A shell command in the checkout. Exit 0 passes; its output is the findings |
-| `agent` | A judge agent that reads the change and records pass or fail with a reason |
-| `each` | `files`, `hunks`, or a command whose output lines (or JSON array) are the items; the judge rules on each one |
-| `max` | The most items `each` may give, 20 by default; more fails the check |
+| Field   | Meaning                                                                                                                           |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`  | `block` fails the try and sends the findings back; `warn` records a failure and goes on; `info` only records; `stop` ends the run |
+| `run`   | A shell command in the checkout. Exit 0 passes; its output is the findings                                                        |
+| `agent` | A judge agent that reads the change and records pass or fail with a reason                                                        |
+| `each`  | `files`, `hunks`, or a command whose output lines (or JSON array) are the items; the judge rules on each one                      |
+| `max`   | The most items `each` may give, 20 by default; more fails the check                                                               |
 
 Keep `run:` to one plain command. YAML frontmatter breaks on a `: ` inside an unquoted value, so anything with
 quotes, colons or logic goes in a script file. You may run your own check scripts on the host to try them,
 since they only read git; never run the repo's own commands there.
+
+A one-line git command is often enough, such as a check that the change leaves `package.json` alone:
+
+```markdown
+---
+mode: warn
+run: git diff --quiet "$AGENTGRAPH_BASE" -- package.json
+---
+
+The change does not edit package.json.
+```
 
 Scripts get `AGENTGRAPH_BASE` (the commit the change starts from) and `AGENTGRAPH_DIR` (the graph folder, read
 only). Put scripts in `.agentgraph/scripts/` and call them as `node "$AGENTGRAPH_DIR/scripts/<name>.mjs"`. The
@@ -31,6 +42,7 @@ The exact command from CI, run on the whole repo the way CI runs it.
 mode: block
 run: npx tsc --noEmit
 ---
+
 The whole repo typechecks with its own tsconfig, as CI's `typecheck` job runs it.
 ```
 
@@ -75,6 +87,7 @@ const rules = [
 mode: warn
 run: node "$AGENTGRAPH_DIR/scripts/rules.mjs"
 ---
+
 The change adds no new case of what reviewers ask to remove: `any` in src/ and `console.log` outside src/log.ts.
 ```
 
@@ -89,6 +102,7 @@ the model it needs. Add a judge agent with read-only tools:
 ---
 tools: [read, grep, glob]
 ---
+
 You answer one yes-or-no question about one item of a change. The item holds what you need; read code only
 when the question asks you to. Decide, then record your result once. When it fails, say the file, the line
 and the smallest fix.
@@ -103,6 +117,7 @@ agent: checker
 each: hunks
 max: 30
 ---
+
 Does this hunk add a public function without a doc comment that says what it returns? Pass when it adds none.
 ```
 

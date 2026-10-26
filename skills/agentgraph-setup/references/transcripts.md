@@ -5,10 +5,10 @@ setup only.
 
 ## Where they are
 
-| Agent | Folder | What the script keeps |
-| --- | --- | --- |
-| Claude Code | `~/.claude/projects/<folder>/<session>.jsonl` | `user` records with typed text whose `cwd` is the repo or inside it; no tool results, injected context, subagents or `claude -p` runs |
-| Codex | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`, `~/.codex` by default | sessions whose `session_meta` `cwd` is the repo or inside it, started by a person (not `codex exec`, not a subagent); the `user_message` events |
+| Agent       | Folder                                                                   | What the script keeps                                                                                                                           |
+| ----------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | `~/.claude/projects/<folder>/<session>.jsonl`                            | `user` records with typed text whose `cwd` is the repo or inside it; no tool results, injected context, subagents or `claude -p` runs           |
+| Codex       | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`, `~/.codex` by default | sessions whose `session_meta` `cwd` is the repo or inside it, started by a person (not `codex exec`, not a subagent); the `user_message` events |
 
 Other agents (Cursor, opencode) keep history in formats this script does not read. Say so if the user mentions
 them; do not go looking.

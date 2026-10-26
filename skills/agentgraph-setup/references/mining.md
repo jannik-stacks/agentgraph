@@ -6,17 +6,17 @@ agentgraph runs, which happen in the sandbox.
 
 ## Sources, in order
 
-| Source | Script or file | What to take from it |
-| --- | --- | --- |
-| CI config | `ci` lines of `slice-repo.mjs`, then the files | The commands every change must pass. Tier 1. |
-| Package scripts, Makefile, justfile | `package-scripts`, `targets` | Commands for lint, format, types, build that CI may not run. Tier 2. |
-| Hooks | `hook` | What runs before a commit: lint-staged, pre-commit, commitlint. Tier 2. |
-| Tool configs | `config` | Which linters and formatters exist, and how strict. Confirms tier 1 and 2 commands. |
-| Guides | `guide` | Written rules: CONTRIBUTING, AGENTS.md, PR templates, CODEOWNERS. Tier 3 or 4 when a reviewer also enforced them. |
-| Commit history | `commits`, `churn` of `slice-history.mjs` | Message style (conventional share, subject length, bodies, trailers) and where changes land. |
-| Pull requests | `pulls` | Typical size (median and p90 changed lines and files), labels, linked issues, body length. |
-| Review comments | `review-comment`, `review` | Rules reviewers enforce. The richest source for tier 3 and 4. |
-| Transcripts, opt-in | `slice-transcripts.mjs` | Rules the user keeps repeating to agents. See transcripts.md. |
+| Source                              | Script or file                                 | What to take from it                                                                                              |
+| ----------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| CI config                           | `ci` lines of `slice-repo.mjs`, then the files | The commands every change must pass. Tier 1.                                                                      |
+| Package scripts, Makefile, justfile | `package-scripts`, `targets`                   | Commands for lint, format, types, build that CI may not run. Tier 2.                                              |
+| Hooks                               | `hook`                                         | What runs before a commit: lint-staged, pre-commit, commitlint. Tier 2.                                           |
+| Tool configs                        | `config`                                       | Which linters and formatters exist, and how strict. Confirms tier 1 and 2 commands.                               |
+| Guides                              | `guide`                                        | Written rules: CONTRIBUTING, AGENTS.md, PR templates, CODEOWNERS. Tier 3 or 4 when a reviewer also enforced them. |
+| Commit history                      | `commits`, `churn` of `slice-history.mjs`      | Message style (conventional share, subject length, bodies, trailers) and where changes land.                      |
+| Pull requests                       | `pulls`                                        | Typical size (median and p90 changed lines and files), labels, linked issues, body length.                        |
+| Review comments                     | `review-comment`, `review`                     | Rules reviewers enforce. The richest source for tier 3 and 4.                                                     |
+| Transcripts, opt-in                 | `slice-transcripts.mjs`                        | Rules the user keeps repeating to agents. See transcripts.md.                                                     |
 
 `slice-history.mjs` reads 300 commits, 100 merged pull requests and 300 inline review comments by default
 (`--commits`, `--prs`, `--comments`). Without `gh` it prints `github available: false`; say so and go on with
@@ -65,14 +65,14 @@ never the median, and only when reviews asked to split changes.
 The default workflow (implement, review, wait for a human merge) fits most repos. Propose a change only with
 evidence, and show it as a proposal:
 
-| Evidence | Proposal |
-| --- | --- |
+| Evidence                                                                                            | Proposal                                                                        |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | Many issues get clarifying questions from maintainers before work starts, or issues are often split | A triage step before implement, with an agent that may `ask` or comment a brief |
-| Pull requests in the history often say "stacked on #n" or depend on each other | `stacks: true` in `settings.yaml` |
-| Reviewers often ask for changes on one kind of file (docs, migrations, public API) | A judged check fanned out over those files, not a new step |
-| Work only starts on a milestone | `milestone:` in `settings.yaml` |
-| Strangers comment on issues and only some people should steer agents | `trust:` with the maintainer logins, which the user fills in |
-| The branch must be rebased, not merged, before landing (linear history, rebase-only merges) | `follow: rebase` on the merge step |
+| Pull requests in the history often say "stacked on #n" or depend on each other                      | `stacks: true` in `settings.yaml`                                               |
+| Reviewers often ask for changes on one kind of file (docs, migrations, public API)                  | A judged check fanned out over those files, not a new step                      |
+| Work only starts on a milestone                                                                     | `milestone:` in `settings.yaml`                                                 |
+| Strangers comment on issues and only some people should steer agents                                | `trust:` with the maintainer logins, which the user fills in                    |
+| The branch must be rebased, not merged, before landing (linear history, rebase-only merges)         | `follow: rebase` on the merge step                                              |
 
 Logins in `trust:` are the one place a name may enter `.agentgraph/`, and only when the user types them.
 

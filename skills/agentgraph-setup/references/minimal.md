@@ -7,8 +7,8 @@ commands filled in. Copy it from the package rather than retyping it, so it stay
 cp -R <agentgraph>/default .agentgraph
 ```
 
-`<agentgraph>` is the checkout the user named, or the installed package folder
-(`node_modules/agentgraph` in a project that depends on it).
+`<agentgraph>` is the agentgraph checkout from step 1. The default names no harness and no model, so it runs on
+any provider.
 
 ## What the default holds
 
@@ -40,17 +40,17 @@ CLI does not need it.
 `setup` is a shell script each checkout runs once, with network, before the first step. The sandbox caches
 what it installs, keyed on the lockfiles. Use the frozen install for the lockfile `slice-repo.mjs` reported:
 
-| Lockfile | setup |
-| --- | --- |
-| `package-lock.json` | `npm ci --no-audit --no-fund` |
-| `pnpm-lock.yaml` | `corepack enable && pnpm install --frozen-lockfile` |
-| `yarn.lock` | `corepack enable && yarn install --immutable` (Yarn 2 or later), `yarn install --frozen-lockfile` (Yarn 1) |
-| `bun.lock`, `bun.lockb` | `bun install --frozen-lockfile` |
-| `uv.lock` | `uv sync --frozen` |
-| `poetry.lock` | `poetry install --no-interaction` |
-| `requirements*.txt` | `python -m venv .venv && .venv/bin/pip install -r requirements.txt` |
-| `go.sum` | `go mod download` |
-| `Cargo.lock` | none; a root `Cargo.toml` makes the sandbox install Rust and fetch crates |
+| Lockfile                | setup                                                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `package-lock.json`     | `npm ci --no-audit --no-fund`                                                                              |
+| `pnpm-lock.yaml`        | `corepack enable && pnpm install --frozen-lockfile`                                                        |
+| `yarn.lock`             | `corepack enable && yarn install --immutable` (Yarn 2 or later), `yarn install --frozen-lockfile` (Yarn 1) |
+| `bun.lock`, `bun.lockb` | `bun install --frozen-lockfile`                                                                            |
+| `uv.lock`               | `uv sync --frozen`                                                                                         |
+| `poetry.lock`           | `poetry install --no-interaction`                                                                          |
+| `requirements*.txt`     | `python -m venv .venv && .venv/bin/pip install -r requirements.txt`                                        |
+| `go.sum`                | `go mod download`                                                                                          |
+| `Cargo.lock`            | none; a root `Cargo.toml` makes the sandbox install Rust and fetch crates                                  |
 
 Prefer the command CI uses when it differs, such as extra flags or a workspace filter. Tools the sandbox lacks
 (a Rust target, `cargo-nextest`, a Python version) go in `toolchain`, not `setup`:
@@ -66,6 +66,7 @@ toolchain: rustup target add wasm32-unknown-unknown
 mode: block
 run: npm test
 ---
+
 The test suite passes, as CI runs it in .github/workflows/ci.yml.
 ```
 

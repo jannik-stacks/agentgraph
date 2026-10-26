@@ -3,7 +3,8 @@
 An [Agent Skills](https://agentskills.io/specification) skill that sets up agentgraph for a repo. It writes a
 minimal `.agentgraph/` that passes `agentgraph check`, then mines the repo's CI, scripts, configs, commit and
 review history, and with the user's consent their Claude Code or Codex transcripts, and proposes checks backed
-by that evidence. It never commits or pushes on its own.
+by that evidence. It never commits or pushes on its own. It installs agentgraph from source with `npm link`,
+since the npm name `agentgraph` belongs to an unrelated package.
 
 `SKILL.md` is the skill. `references/` holds the format, the mining playbook, check patterns and the transcript
 rules, loaded when a step needs them. `scripts/` slice the repo into JSON lines with Node and git alone, and
@@ -18,13 +19,15 @@ npx skills add jannik-stacks/agentgraph --skill agentgraph-setup            # th
 npx skills add jannik-stacks/agentgraph --skill agentgraph-setup -g -a claude-code codex cursor
 ```
 
-Or copy the folder by hand:
+`npx skills add` clones the repo, so it works once the repo is public. Until then, or offline:
 
-| Agent | Project | User |
-| --- | --- | --- |
-| Claude Code | `.claude/skills/agentgraph-setup/` | `~/.claude/skills/agentgraph-setup/` |
-| Codex | `.agents/skills/agentgraph-setup/` | `~/.agents/skills/agentgraph-setup/` |
-| Cursor | `.agents/skills/` or `.cursor/skills/` (it also reads `.claude/skills/`) | `~/.cursor/skills/agentgraph-setup/` |
+Copy the folder by hand:
+
+| Agent       | Project                                                                  | User                                 |
+| ----------- | ------------------------------------------------------------------------ | ------------------------------------ |
+| Claude Code | `.claude/skills/agentgraph-setup/`                                       | `~/.claude/skills/agentgraph-setup/` |
+| Codex       | `.agents/skills/agentgraph-setup/`                                       | `~/.agents/skills/agentgraph-setup/` |
+| Cursor      | `.agents/skills/` or `.cursor/skills/` (it also reads `.claude/skills/`) | `~/.cursor/skills/agentgraph-setup/` |
 
 Then ask the agent to set up agentgraph for the repo.
 
