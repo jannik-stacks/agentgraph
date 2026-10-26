@@ -338,7 +338,7 @@ const lines: {
 };
 
 /** A trace line as a row, read through `lines`; `by` is who proposed what it applied. */
-export const lineRow = (line: Trace, by = 'agentgraph'): Row => {
+const lineRow = (line: Trace, by = 'agentgraph'): Row => {
   const kind = (Object.keys(lines) as (keyof typeof lines)[]).find(k => k in line)!;
   return { at: line.at, raw: line, ...(lines[kind] as (l: Trace, by: string) => Row)(line, by) };
 };

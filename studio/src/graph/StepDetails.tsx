@@ -4,7 +4,7 @@ import { makeWorkflowGraph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
 import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
-import { lineRow, Rows, RunLine } from '../runs/rows.tsx';
+import { RunLine } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';
 import { atLink } from '../runs/trace.ts';
 import { accent, cx, Disclosure, Field, Fields, Link, Tooltip } from '../ui.tsx';
@@ -266,7 +266,7 @@ const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
   );
 };
 
-/** A step's doer, checks, tries and way back in plain words, what the selected run did there, and its prompts. */
+/** A step's doer, checks, tries and way back in plain words, and its prompts. */
 export const StepDetails = ({
   fixture,
   step,
@@ -389,19 +389,6 @@ export const StepDetails = ({
             ))}
           </ul>
         </Section>
-      )}
-      {lines && (
-        <Disclosure
-          summary={`In the selected run${lines.length ? `, ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}` : ''}`}
-          summaryClassName="font-medium text-zinc-500"
-          className="space-y-1.5"
-        >
-          {lines.length ? (
-            <Rows rows={lines.map(line => lineRow(line))} />
-          ) : (
-            <p className="text-zinc-500">The run has not been here.</p>
-          )}
-        </Disclosure>
       )}
       {fixture.agents && (
         <Section title="Runs here now">

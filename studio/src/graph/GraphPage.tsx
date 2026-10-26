@@ -211,7 +211,7 @@ const Canvas = ({
             node,
             selected: selected === id,
             hidden,
-            live: run ? undefined : here.get(`${fixture}/${node.step}`),
+            live: picked ? undefined : here.get(`${fixture}/${node.step}`),
             ...(run && {
               overlay: {
                 visits: visits!.filter(v => v.node.step === node.step).length,
