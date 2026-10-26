@@ -1,10 +1,7 @@
 # The minimal graph
 
-The smallest working `.agentgraph/` is the default graph with the repo's install and test commands filled in.
-Copy it from the package (`cp -R "$AGI_PKG/default" .agentgraph`) so it stays in step with the engine. It
-names no harness or model, so it runs on any provider.
-
-## What the default holds
+The smallest `.agentgraph/` that works has five files. No agent names a harness or a model, so it runs on any
+provider. Write them only when `.agentgraph/` does not exist yet.
 
 ```
 .agentgraph/
@@ -64,12 +61,17 @@ command from `checks/tests.md`.
 
 ### repo
 
-`repo: owner/name`, from `git remote get-url origin`; leave it out without a GitHub remote.
+```yaml
+repo: owner/name
+```
+
+Take it from the GitHub remote (`git remote get-url origin`). Leave it out for a repo without one; the local
+CLI does not need it.
 
 ### setup
 
-`setup` runs once per checkout, with network, before the first step; its installs are cached by lockfile.
-Use the frozen install for the lockfile `slice-repo.mjs` reported:
+`setup` is a shell script each checkout runs once, with network, before the first step. The sandbox caches
+what it installs, keyed on the lockfiles. Use the frozen install for the lockfile `slice-repo.mjs` reported:
 
 | Lockfile                | setup                                                                                                      |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -83,8 +85,8 @@ Use the frozen install for the lockfile `slice-repo.mjs` reported:
 | `go.sum`                | `go mod download`                                                                                          |
 | `Cargo.lock`            | none; a root `Cargo.toml` makes the sandbox install Rust and fetch crates                                  |
 
-Prefer CI's command when it differs. Tools the sandbox lacks (a Rust target, `cargo-nextest`, a Python
-version) go in `toolchain`:
+Prefer the command CI uses when it differs, such as extra flags or a workspace filter. Tools the sandbox lacks
+(a Rust target, `cargo-nextest`, a Python version) go in `toolchain`, not `setup`:
 
 ```yaml
 toolchain: rustup target add wasm32-unknown-unknown
@@ -101,15 +103,21 @@ run: npm test
 The test suite passes, as CI runs it in .github/workflows/ci.yml.
 ```
 
-Copy CI's test command with its flags and folder (`cd packages/core && npm test`). Leave out steps that need a
-service CI starts (a database, a browser, a secret); run the part that can (`npm run test:unit`) and tell the
-user what is left out. The body is what the implementor sees on failure, so say plainly what passes.
+Copy the command from the CI step that runs the tests, as CI runs it, including flags and the working folder
+(`cd packages/core && npm test`). Leave out steps that need a service CI starts (a database, a browser
+download, a secret). If the suite cannot run without one, run the part that can (`npm run test:unit`) and tell
+the user what the check leaves out.
 
-The sandbox is one Linux machine with one version of each tool, so a CI matrix stays CI's job; say so.
+The body is the check's description; the implementor sees it when the check fails, so say plainly what passes.
+
+CI often runs the tests on a matrix of versions and systems. The sandbox is one Linux machine with one version
+of each tool, so the check runs the command once. Tell the user the matrix stays CI's job. When the repo needs
+a tool version the sandbox lacks, install it through `toolchain`.
 
 ### base
 
-When pull requests merge into a branch other than `main`, add it in `workflows/issue.md`:
+The default workflow opens pull requests against `main`. When pull requests merge into another branch, add it
+under `branch:` in `workflows/issue.md`:
 
 ```yaml
 branch: agentgraph/{issue}
@@ -122,16 +130,27 @@ base: develop
 agi check --dir .agentgraph
 ```
 
-It prints `ok`, or each problem with its file:
+It prints each problem with its file, or `ok`. Common problems:
 
 - `no step or workflow names <check>`: every check must be in some step's `checks:` list.
 - `no step or check names <agent>`: an agent nothing uses must go.
-- `<field>: is unexpected`: an unknown key; see the
+- `<field>: is unexpected`: an unknown key; fields are listed in the
   [graph reference](https://github.com/jannik-stacks/agentgraph/blob/main/docs/reference.md).
 - `says "..." which is retired`: a word the engine renamed; use the word it suggests.
 
 ## Worked example
 
-A TypeScript library with `package-lock.json` whose CI runs `npm ci`, `npm run lint` and `npm test` adds two
-lines to `settings.yaml`, `repo: acme/left-pad` and `setup: npm ci --no-audit --no-fund`, and keeps
-`checks/tests.md` at `run: npm test`. `npm run lint` becomes a tier 1 candidate later.
+A TypeScript library with `package-lock.json`, and CI that runs `npm ci`, `npm run lint` and `npm test`:
+
+```yaml
+# settings.yaml
+repo: acme/left-pad
+setup: npm ci --no-audit --no-fund
+limits:
+  minutes: 30
+  usd-per-run: 5
+  parallel: 1
+```
+
+`checks/tests.md` keeps `mode: block` with `run: npm test`. `npm run lint` becomes a tier 1 candidate in the
+mining pass; it is not part of the minimal graph.
