@@ -1,7 +1,14 @@
 # Mining agent transcripts
 
-Run this only after the user said yes to the question in SKILL.md step 5. A yes covers this repo and this
-setup only.
+Ask exactly once, and accept no as the answer:
+
+> I can also read the messages you typed to Claude Code and Codex in this repo over the last 90 days, to find
+> rules you keep repeating to agents. A local script picks out only your own typed messages; I then read
+> them, which sends them to the model I run on, like anything else I read. Nothing from them is copied into
+> the repo; I turn repeated corrections into rules in my own words. Should I?
+
+Run the rest only after a yes. A yes covers this repo and this setup only. Add what it finds to the tiers in
+[mining.md](mining.md) and present it with them.
 
 ## Where they are
 

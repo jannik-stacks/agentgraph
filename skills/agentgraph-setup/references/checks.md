@@ -131,4 +131,4 @@ A judge over the whole change, with no `each`, is the last resort. Give it one q
 
 New checks start as `warn`, except tier 1. Moving one to `block` is a graph edit that needs evidence from real
 runs: the check failed where a human would have asked for the same change, and passed where they did not. Until
-then it is a proposal. `AG check <name> --runs` reruns a check on runs that already ended.
+then it is a proposal. `agi check <name> --runs` reruns a check on runs that already ended.

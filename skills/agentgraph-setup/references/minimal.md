@@ -1,28 +1,61 @@
 # The minimal graph
 
-The smallest `.agentgraph/` that works is the default graph agentgraph ships, with the repo's install and test
-commands filled in. Copy it from the package rather than retyping it, so it stays in step with the engine:
-
-```sh
-cp -R <agentgraph>/default .agentgraph
-```
-
-`<agentgraph>` is the agentgraph checkout from step 1. The default names no harness and no model, so it runs on
-any provider.
-
-## What the default holds
+The smallest `.agentgraph/` that works has five files. No agent names a harness or a model, so it runs on any
+provider. Write them only when `.agentgraph/` does not exist yet.
 
 ```
 .agentgraph/
-  settings.yaml            limits: minutes, usd-per-run, parallel
-  workflows/issue.md       implement (tries 3, checks [tests]), review (back to implement once), merge (wait for a human)
+  settings.yaml            limits, plus repo and setup below
   agents/implementor.md    edits the repo; may comment, push, open a pull request or ask
-  agents/reviewer.md       reads the diff; may comment or send the change back
+  skills/implement.md      how this repo wants a change made and tested
   checks/tests.md          block: runs the repo's test command
+  workflows/issue.md       implement with the tests check, then wait for a human to merge
 ```
 
 The workflow starts on an issue labelled `agent:ready` or a `/agent` comment, and works on the branch
 `agentgraph/<issue>`.
+
+```yaml
+# settings.yaml
+limits:
+  minutes: 10
+  usd-per-run: 1
+  parallel: 1
+```
+
+```md
+<!-- agents/implementor.md -->
+---
+tools: [read, edit, write, bash, grep, glob]
+returns: [comment, push, pull_request, ask]
+---
+You make the smallest change to this repo that does what the issue asks, with a test.
+```
+
+```md
+<!-- skills/implement.md -->
+---
+description: Implement one small issue
+---
+Add the code and a test where this repo keeps them. Run <the test command>. Open a pull request when it passes.
+```
+
+```md
+<!-- workflows/issue.md -->
+---
+on: { issues: { label: agent:ready }, issue_comment: {} }
+branch: agentgraph/{issue}
+steps:
+  implement:
+    agent: implementor
+    checks: [tests]
+  merge: { wait: human, back: implement }
+---
+One issue, one pull request, a human merges.
+```
+
+In the skill, name the folders the repo really uses (`src/` and `test/`, `crates/*/tests`) and the test
+command from `checks/tests.md`.
 
 ## The edits
 
@@ -94,7 +127,7 @@ base: develop
 ## Validate
 
 ```sh
-AG check --dir .agentgraph
+agi check --dir .agentgraph
 ```
 
 It prints each problem with its file, or `ok`. Common problems:

@@ -2,7 +2,22 @@
 
 The goal is a short ranked list of checks, each tied to evidence. Scripts slice; you judge one chunk at a time.
 Never run the repo's code on the host to test an idea. A command's worth shows in CI history and in later
-agentgraph runs, which happen in the sandbox.
+agentgraph runs, which happen in the sandbox. Start with:
+
+```sh
+node "$SKILL/scripts/slice-history.mjs" --ref origin/BASE > "$NOTES/history.jsonl"
+```
+
+Rank every candidate in four tiers, deterministic first. [checks.md](checks.md) has a template for each:
+
+1. A repo tool CI already runs on every change: lint, format check, typecheck, build. A `run:` check with the
+   exact command. Proposed as `block`.
+2. A repo tool that exists (script, config, hook) but CI does not gate. `run:` check, proposed as `warn`.
+3. A rule reviewers enforced at least twice that a script can decide on the lines a change adds. A small
+   script from `assets/rules.mjs`, proposed as `warn`.
+4. A rule that needs judgement. A script lists the items (`each:`) and a judge answers one narrow question
+   per item, proposed as `warn`. A judge over the whole diff with no items comes last, and only with
+   repeated evidence.
 
 ## Sources, in order
 
@@ -60,9 +75,19 @@ Every row you show the user carries:
 Size limits come from the `pulls` stats: propose a size check at about the p90 of changed lines and files,
 never the median, and only when reviews asked to split changes.
 
+## Present the candidates
+
+Show one table, ranked by tier and then by evidence count. Each row: name, what it decides, tier, the exact
+command or script, proposed mode, and the evidence (CI file and line, PR numbers, number of transcript
+corrections). Below it, list the workflow proposals from [Workflows](#workflows), each with its evidence.
+
+Ask which to add. Add only those: write each check file, name it in a step's `checks:` list in
+`workflows/issue.md`, and copy any scripts into `.agentgraph/scripts/`.
+
 ## Workflows
 
-The default workflow (implement, review, wait for a human merge) fits most repos. Propose a change only with
+The minimal workflow (implement, then wait for a human merge, plus review when the user said yes to it) fits
+most repos. Propose a change only with
 evidence, and show it as a proposal:
 
 | Evidence                                                                                            | Proposal                                                                        |

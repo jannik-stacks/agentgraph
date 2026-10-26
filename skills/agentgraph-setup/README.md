@@ -1,12 +1,12 @@
 # agentgraph-setup
 
 An [Agent Skills](https://agentskills.io/specification) skill that sets up agentgraph for a repo. It writes a
-minimal `.agentgraph/` that passes `agentgraph check`, then mines the repo's CI, scripts, configs, commit and
+minimal `.agentgraph/` that passes `agi check`, then offers optional steps that each run only on a yes: it mines the repo's CI, scripts, configs, commit and
 review history, and with the user's consent their Claude Code or Codex transcripts, and proposes checks backed
-by that evidence. It never commits or pushes on its own. It installs agentgraph from source with `npm link`,
-since the npm name `agentgraph` belongs to an unrelated package.
+by that evidence. It never commits or pushes on its own. It runs agentgraph as `agi`, or `npx @jannik-stacks/agi`
+without installing; the unscoped `agentgraph` npm package is unrelated.
 
-`SKILL.md` is the skill. `references/` holds the format, the mining playbook, check patterns and the transcript
+`SKILL.md` is the skill. `references/` holds the format, the optional steps, the mining playbook, check patterns and the transcript
 rules, loaded when a step needs them. `scripts/` slice the repo into JSON lines with Node and git alone, and
 `gh` when it is logged in; `assets/` holds check scripts to copy into a graph.
 
