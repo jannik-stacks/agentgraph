@@ -299,7 +299,7 @@ export const Select = ({
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; title?: string | undefined }[];
   onChange: (value: string) => void;
 }) => (
   <label className="flex items-center gap-1.5 text-xs text-zinc-500">
@@ -308,10 +308,11 @@ export const Select = ({
       <select
         className={cx(field, 'max-w-96 appearance-none py-0.5 pr-7 pl-2')}
         value={value}
+        title={options.find(o => o.value === value)?.title}
         onChange={e => onChange(e.target.value)}
       >
         {options.map(o => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} title={o.title}>
             {o.label}
           </option>
         ))}

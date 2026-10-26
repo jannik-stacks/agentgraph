@@ -2,12 +2,6 @@ import type { Step } from '../../../bin/tune.ts';
 import { sum } from '../../../src/stats.ts';
 import { Badge, cx, Field, Fields, Help, IconButton, Tooltip } from '../ui.tsx';
 
-const verdicts: Record<Step['verdict'], string> = {
-  kept: 'Cleared the keep rule against the incumbent on the select cases, so it became the incumbent.',
-  discarded: 'Ran on every select case but did not clear the keep rule.',
-  'screened-out': 'Lost clearly on the screen cases, so it never ran on the rest.',
-  infra: 'The run broke on infrastructure, so it says nothing about the graph.',
-};
 const proposers: Record<Step['proposer'], string> = {
   retro: 'Read the incumbent’s traces on fit cases below 1 and named a shared miss.',
   history: 'Read merged PRs and their reviews and turned a standing rule into the graph.',
@@ -16,11 +10,10 @@ const proposers: Record<Step['proposer'], string> = {
   structure:
     'Made one graph edit from a fixed menu, in turn: add a reviewer, drop a step, more tries, a scout, a check to warn.',
 };
-const help = {
+export const tuneHelp = {
   iteration:
     'One round of the climb: proposers write up to k candidate graphs, each runs on the select cases, and at most one is kept.',
-  verdict:
-    'Kept means the candidate beat the current graph, by winning more cases than it lost or by costing less per run without dropping a case. Discarded means it ran on every select case and did neither. Screened out means it dropped two of its four screen cases and lifted none. Infra means its runs broke for reasons outside the graph.',
+  kept: 'Kept: this change beat the graph before it and replaced it.',
   split:
     'Fit cases are the ones proposers may study. Validate cases count toward keeping a candidate but proposers never see them. Together they are the select cases. Test cases stay held out and run only at checkpoints, with judges.',
   quality:
@@ -60,9 +53,6 @@ export const Candidate = ({ tune, step, onClose }: { tune: string; step: Step; o
         <Tooltip tip={proposers[step.proposer]}>
           <Badge>{step.proposer}</Badge>
         </Tooltip>
-        <Tooltip tip={verdicts[step.verdict]}>
-          <Badge>{step.verdict}</Badge>
-        </Tooltip>
         <IconButton tip="Close" variant="quiet" className="ml-auto" onClick={onClose}>
           <svg viewBox="0 0 24 24" aria-hidden="true" className="size-3">
             <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -76,7 +66,7 @@ export const Candidate = ({ tune, step, onClose }: { tune: string; step: Step; o
         <Field
           name={
             <span className="inline-flex items-center gap-1">
-              iteration <Help tip={help.iteration} />
+              iteration <Help tip={tuneHelp.iteration} />
             </span>
           }
         >
@@ -85,11 +75,11 @@ export const Candidate = ({ tune, step, onClose }: { tune: string; step: Step; o
         <Field
           name={
             <span className="inline-flex items-center gap-1">
-              verdict <Help tip={help.verdict} />
+              kept <Help tip={tuneHelp.kept} />
             </span>
           }
         >
-          {step.verdict}
+          {step.verdict === 'kept' ? 'yes' : 'no'}
         </Field>
         <Field name="why">{step.why}</Field>
         <Field name="graph">
@@ -112,11 +102,11 @@ export const Candidate = ({ tune, step, onClose }: { tune: string; step: Step; o
             <tr className="border-b border-zinc-200 dark:border-zinc-800">
               {(
                 [
-                  ['split', help.split],
+                  ['split', tuneHelp.split],
                   ['cases'],
-                  ['quality', help.quality],
-                  ['delta', help.delta],
-                  ['P(up)', help.pUp],
+                  ['quality', tuneHelp.quality],
+                  ['delta', tuneHelp.delta],
+                  ['P(up)', tuneHelp.pUp],
                   ['usd'],
                 ] as const
               ).map(([h, tip]) => (
