@@ -457,7 +457,7 @@ export const Legend = ({ hidden, onToggle }: { hidden: ReadonlySet<string>; onTo
     </LegendItem>
     <LegendItem
       mark={
-        <span className="relative size-2.5">
+        <span className="relative size-2.5 [&_rect]:animate-none">
           <Selected round={2} dashes={16} />
         </span>
       }
