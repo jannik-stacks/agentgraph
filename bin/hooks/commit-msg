@@ -1,5 +1,5 @@
 #!/bin/sh
-# Holds the message of a commit that touches the engine to the hub's pr-text rules.
+# Holds the message of a commit that touches the engine to the hub's pr-text and hygiene rules.
 engine=$(dirname "$0")/../..
 git diff --cached --quiet -- "$engine" && exit 0
 exec env NODE_OPTIONS= node "$engine/bin/commit-msg.mjs" "$1"

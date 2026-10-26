@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const fast = ['safety', 'size', 'rules', 'lint', 'types', 'code-shape', 'unused-exports', 'propagation', 'enum-copy', 'docs-sync', 'test-guards'];
+export const fast = ['safety', 'hygiene', 'size', 'rules', 'lint', 'types', 'code-shape', 'unused-exports', 'propagation', 'enum-copy', 'docs-sync', 'test-guards'];
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const hub = process.env.AGENTGRAPH_HUB ?? join(import.meta.dirname, '..');

@@ -2,13 +2,14 @@
 on: { issue_comment: {} }
 branch: agentgraph/{issue}
 steps:
-  triage: { agent: triager, tries: 2 }
+  triage: { agent: triager, tries: 2, checks: [hygiene] }
   implement:
     agent: implementor
     tries: 4
     checks:
       [
         safety,
+        hygiene,
         size,
         rules,
         lint,

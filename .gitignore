@@ -9,3 +9,4 @@ coverage/
 *.key
 auth.json
 .bothub-data/
+examples/*/deny.txt

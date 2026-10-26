@@ -58,6 +58,7 @@ describe('commit-msg', () => {
     expect(stdout.trim().split('\n')).toEqual([
       'commit subject is not a conventional commit: "Fixed things"',
       'commit body is 4 lines, over 3',
+      'hygiene: ok',
     ]);
   });
 
@@ -66,5 +67,11 @@ describe('commit-msg', () => {
       'fix(engine): keep the lock\n\nA crash left it held.\n# Please enter the commit message\n'
     );
     expect(status).toBe(0);
+  });
+
+  it('fails a message that names a home folder', () => {
+    const { status, stdout } = message(`fix(engine): read ${['', 'Users', 'someone', 'repo'].join('/')}\n`);
+    expect(status).toBe(1);
+    expect(stdout).toContain('push proposal: names a home folder path');
   });
 });
