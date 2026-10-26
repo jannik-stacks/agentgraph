@@ -8,13 +8,13 @@ for (const source of sources(studio)) {
   const { path, code } = source;
   const { program } = parseSourceFileToAst(path, code);
   if (!program) continue;
-  const lineOf = makeOffsetToLineLookup(code);
+  const getLineAt = makeOffsetToLineLookup(code);
   walk(program, node => {
     if (node.type !== 'JSXElement') return;
     const tip = getJsxAttr(node, 'tip');
     if (!tip) return;
-    const line = lineOf(node.start);
-    if (source.lines && !source.lines.has(line) && !source.lines.has(lineOf(tip.start))) return;
+    const line = getLineAt(node.start);
+    if (source.lines && !source.lines.has(line) && !source.lines.has(getLineAt(tip.start))) return;
     const text = attrText(tip) ?? code.slice(tip.value.start, tip.value.end);
     console.log(
       JSON.stringify({ file: path, line, element: getJsxTag(node), tip: text, code: code.slice(node.start, node.end).slice(0, 600) })

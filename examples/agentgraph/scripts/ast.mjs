@@ -19,7 +19,7 @@ const { parseAst } = await import(pathToFileURL(resolveParser()).href);
 
 export const all = process.argv.includes('--all');
 
-const langOf = path => ({ '.tsx': 'tsx', '.ts': 'ts', '.mts': 'ts', '.jsx': 'jsx' })[extname(path)] ?? 'js';
+const pickParserLang = path => ({ '.tsx': 'tsx', '.ts': 'ts', '.mts': 'ts', '.jsx': 'jsx' })[extname(path)] ?? 'js';
 
 /** Sources matching `wanted`, each with its text and the line numbers that count, or `null` when every line does. */
 export const sources = wanted => {
@@ -42,7 +42,7 @@ export const sources = wanted => {
 /** The program of `code`, or the parse error message. */
 export const parseSourceFileToAst = (path, code) => {
   try {
-    return { program: parseAst(code, { lang: langOf(path) }) };
+    return { program: parseAst(code, { lang: pickParserLang(path) }) };
   } catch (error) {
     return { error: String(error.message ?? error).split('\n')[0] };
   }

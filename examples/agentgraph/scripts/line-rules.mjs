@@ -50,9 +50,9 @@ export const files = (wanted = () => true) => {
 export const scan = (rules, scanned = files()) => {
   const findings = [];
   for (const { path, text, lines } of scanned) {
-    const kindOf = kinds(path, text);
+    const kindByLine = kinds(path, text);
     for (const { line, text: row } of lines) {
-      const kind = kindOf[line - 1] ?? 'text';
+      const kind = kindByLine[line - 1] ?? 'text';
       const body = kind === 'comment' ? row.slice(row.search(/\/\/|\/\*|\*/)) : row;
       for (const [where, pattern, message, unless] of rules) {
         if (!where(path, kind) || !pattern.test(body) || unless?.(path, row)) continue;

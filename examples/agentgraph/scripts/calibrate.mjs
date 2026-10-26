@@ -33,7 +33,7 @@ const decideUrl = (env.AGENTGRAPH_DECIDE_URL || 'http://127.0.0.1:11434').replac
 const llmUrl = (env.AGENTGRAPH_LLM_BASE_URL || 'http://127.0.0.1:4000/v1').replace('litellm:', '127.0.0.1:');
 const key = env.AGENTGRAPH_LLM_API_KEY || env.LITELLM_MASTER_KEY;
 
-const bodyOf = text => text.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
+const removeFrontmatter = text => text.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
 const contract = 'Answer on the first line with exactly PASS or FAIL and nothing before it. Findings, if any, follow.';
 
 const decide = async (model, question, state) => {
@@ -94,7 +94,7 @@ const bestThreshold = rows => {
 console.log('check\tmodel\tgood mean\tbad mean\tno verdict\tthreshold\tright');
 for (const fixture of fixtures) {
   const name = basename(fixture, '.jsonl');
-  const question = bodyOf(readFileSync(join(checks, `${name}.md`), 'utf8'));
+  const question = removeFrontmatter(readFileSync(join(checks, `${name}.md`), 'utf8'));
   const items = readFileSync(fixture, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
   for (const model of models) {
     const rows = [];

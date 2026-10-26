@@ -28,7 +28,7 @@ const timeouts = [
   /\b(it|test|describe)(\.\w+)?\(\s*(['"`]).*?\3\s*,\s*\{[^}]*\btimeout:\s*([\d_]+)/,
   /^\s*\}\s*,\s*([\d_]+)\s*\)\s*;?\s*$/,
 ];
-const timeoutOf = text => {
+const parseTimeout = text => {
   for (const pattern of timeouts) {
     const m = pattern.exec(text);
     if (m) return Number(m[m.length - 1].replaceAll('_', ''));
@@ -59,7 +59,7 @@ const integrity = () => {
     for (const { line, text: raw } of addedLines(sha, path)) {
       const text = raw.replace(strings, '""');
       for (const [pattern, what] of skipped) if (pattern.test(text)) findings.push(`${path}:${line}: ${what}`);
-      const ms = timeoutOf(text);
+      const ms = parseTimeout(text);
       if (ms > defaultTimeout && !path.endsWith('.e2e.test.ts'))
         findings.push(`${path}:${line}: a test timeout of ${ms} ms, above the ${defaultTimeout} ms default`);
     }
@@ -71,7 +71,7 @@ const branchOpen = /^(\}\s*)?(if\s*\(|else\b)/;
 const asserts = /\bexpect(\.soft)?\(/;
 
 /** Loops and branches that hold an `expect(`, found by indentation in formatted code, with line numbers from 1. */
-const shapeOf = text => {
+const parseTestShape = text => {
   const found = [];
   const open = [];
   const close = () => {
@@ -111,7 +111,7 @@ const shape = () => {
   for (const { path, deleted } of changed) {
     if (deleted || !isTestFile(path)) continue;
     const added = new Set(addedLines(sha, path).map(({ line }) => line));
-    for (const { line, what } of shapeOf(readFileSync(path, 'utf8')))
+    for (const { line, what } of parseTestShape(readFileSync(path, 'utf8')))
       if (added.has(line)) findings.push(`${path}:${line}: ${shapeText[what]}`);
   }
 };

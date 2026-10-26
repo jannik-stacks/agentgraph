@@ -17,7 +17,7 @@ const loud = /\banimate-(spin|pulse|ping|bounce)\b/;
 const entering = /\b(agi-enter|animate-in|fade-in|slide-in[-\w]*|zoom-in|animate-\[)/;
 const markdownLibraries = /^(fumadocs-core\/highlight|shiki|react-markdown|marked|markdown-it|remark[-\w]*|rehype[-\w]*)$/;
 
-const textOf = node => {
+const getJsxText = node => {
   let text = '';
   walk(node, child => {
     if (child.type === 'JSXText') text += child.value;
@@ -34,7 +34,7 @@ const rendered = expression => {
   if (expression.type === 'ConditionalExpression') return rendered(expression.consequent) ?? rendered(expression.alternate);
   return undefined;
 };
-const elementOf = child =>
+const getRenderedElement = child =>
   child.type === 'JSXElement' ? child : child.type === 'JSXExpressionContainer' ? rendered(child.expression) : undefined;
 
 const inList = parents =>
@@ -43,10 +43,10 @@ const inList = parents =>
 const isTilde = text => /^\s*[~≈]\s*$/.test(text) || /[~≈]\s*\$/.test(text);
 
 /** Reports every studio UI rule a source breaks through `add(source, line, message)`. */
-export const studioUi = (source, program, lineOf, add) => {
+export const studioUi = (source, program, getLineAt, add) => {
   const { path, code } = source;
   walk(program, (node, parents) => {
-    const line = lineOf(node.start);
+    const line = getLineAt(node.start);
 
     if (node.type === 'ImportDeclaration' && !markdownHome(path) && markdownLibraries.test(node.source.value)) {
       add(source, line, `imports ${node.source.value}; render markdown and code through the shared Markdown component`);
@@ -76,7 +76,7 @@ export const studioUi = (source, program, lineOf, add) => {
       add(source, line, 'a tilde on a value; show the rounded number and put the exact one in a tooltip');
     }
 
-    if (node.type === 'JSXAttribute' && node.name?.name === 'fallback' && /loading/i.test(textOf(node.value))) {
+    if (node.type === 'JSXAttribute' && node.name?.name === 'fallback' && /loading/i.test(getJsxText(node.value))) {
       add(source, line, 'a "Loading" fallback; keep the space with a sized placeholder and no text');
     }
 
@@ -91,7 +91,7 @@ export const studioUi = (source, program, lineOf, add) => {
     }
 
     const children = meaningful(node.children);
-    const kids = children.map(elementOf);
+    const kids = children.map(getRenderedElement);
 
     const clickable = interactive.has(tag) || getJsxAttr(node, 'onClick') || attrText(getJsxAttr(node, 'role')) === 'button';
     if (isNative(tag) && clickable && !primitives(path)) {
@@ -105,21 +105,21 @@ export const studioUi = (source, program, lineOf, add) => {
       if (!kid) return;
       const kidTag = getJsxTag(kid);
       const number = child =>
-        child && ((child.type === 'JSXExpressionContainer' && !elementOf(child)) || getJsxTag(elementOf(child) ?? {}) === 'Num');
+        child && ((child.type === 'JSXExpressionContainer' && !getRenderedElement(child)) || getJsxTag(getRenderedElement(child) ?? {}) === 'Num');
       if (
         isIcon(kidTag) &&
         arrowIcon.test(attrText(getJsxAttr(kid, 'name')) ?? '') &&
         number(children[i + 1]) &&
         !number(children[i - 1])
       ) {
-        add(source, lineOf(kid.start), 'an arrow before its number; put the number first and the muted arrow after it');
+        add(source, getLineAt(kid.start), 'an arrow before its number; put the number first and the muted arrow after it');
       }
       const before = kids[i - 1];
       const removes =
         kidTag === 'button' &&
-        (/^\s*[×✕x]\s*$/i.test(textOf(kid)) || /remove/i.test(attrText(getJsxAttr(kid, 'aria-label')) ?? ''));
+        (/^\s*[×✕x]\s*$/i.test(getJsxText(kid)) || /remove/i.test(attrText(getJsxAttr(kid, 'aria-label')) ?? ''));
       if (removes && before && /^(Chip|Badge)$/.test(getJsxTag(before)) && !primitives(path)) {
-        add(source, lineOf(kid.start), 'a remove button beside a chip; use RemovableChip, which keeps it inside the border');
+        add(source, getLineAt(kid.start), 'a remove button beside a chip; use RemovableChip, which keeps it inside the border');
       }
     });
   });

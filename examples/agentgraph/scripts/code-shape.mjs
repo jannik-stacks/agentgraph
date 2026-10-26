@@ -38,25 +38,25 @@ const gathers = /\b(readFileSync|execFileSync|sources)\(|Text\(/;
 const bounded = /slice\(|clip|max|limit/i;
 
 /** Fields of the items a script prints that gather text with no clip or limit, in their value or its declaration. */
-const unbounded = (program, text, lineOf) => {
-  const codeOf = node => text.slice(node.start, node.end);
+const unbounded = (program, text, getLineAt) => {
+  const getNodeCode = node => text.slice(node.start, node.end);
   const declared = new Map();
   walk(program, node => {
-    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') declared.set(node.id.name, codeOf(node));
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') declared.set(node.id.name, getNodeCode(node));
   });
   const found = [];
   walk(program, node => {
-    const [item] = node.type === 'CallExpression' && codeOf(node.callee) === 'console.log' ? node.arguments : [];
-    if (item?.type !== 'CallExpression' || codeOf(item.callee) !== 'JSON.stringify') return;
+    const [item] = node.type === 'CallExpression' && getNodeCode(node.callee) === 'console.log' ? node.arguments : [];
+    if (item?.type !== 'CallExpression' || getNodeCode(item.callee) !== 'JSON.stringify') return;
     walk(item.arguments[0], field => {
       if (field.type !== 'Property' || field.value.type === 'ObjectExpression') return;
-      const texts = [codeOf(field.value)];
+      const texts = [getNodeCode(field.value)];
       walk(field.value, (name, parents) => {
         const parent = parents.at(-1);
         const property = parent?.type === 'MemberExpression' && parent.property === name && !parent.computed;
         if (name.type === 'Identifier' && !property) texts.push(declared.get(name.name) ?? '');
       });
-      if (texts.some(code => gathers.test(code)) && !texts.some(code => bounded.test(code))) found.push(lineOf(field.start));
+      if (texts.some(code => gathers.test(code)) && !texts.some(code => bounded.test(code))) found.push(getLineAt(field.start));
     });
   });
   return found;
@@ -67,15 +67,15 @@ const hinted = reporter();
 for (const source of sources(path => code(path) || slicer(path))) {
   const { path, code: text } = source;
   const { program, error } = parseSourceFileToAst(path, text);
-  const lineOf = makeOffsetToLineLookup(text);
+  const getLineAt = makeOffsetToLineLookup(text);
   if (error) {
     add({ ...source, lines: null }, 1, `does not parse: ${error}`);
     continue;
   }
 
-  if (studioFile(path)) studioUi(source, program, lineOf, add);
+  if (studioFile(path)) studioUi(source, program, getLineAt, add);
   if (slicer(path)) {
-    for (const line of unbounded(program, text, lineOf)) add(source, line, 'a field sent to a model with no clip or limit');
+    for (const line of unbounded(program, text, getLineAt)) add(source, line, 'a field sent to a model with no clip or limit');
     continue;
   }
 
@@ -83,13 +83,13 @@ for (const source of sources(path => code(path) || slicer(path))) {
     for (const node of valueImports(program)) {
       const specifier = node.source.value;
       if (/(View\.tsx|\/lab\/)/.test(specifier)) {
-        add(source, lineOf(node.start), `imports ${specifier} eagerly; load a route with lazy(() => import(...))`);
+        add(source, getLineAt(node.start), `imports ${specifier} eagerly; load a route with lazy(() => import(...))`);
       }
     }
   }
 
   walk(program, (node, parents) => {
-    const line = lineOf(node.start);
+    const line = getLineAt(node.start);
     const inFunction = parents.some(p => functions.has(p.type));
     if (node.type === 'VariableDeclarator' && inFunction && /^[A-Z]/.test(node.id?.name ?? '')) {
       const init = node.init;

@@ -14,7 +14,7 @@ const declaration = /^export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|function
 const comment = /^\s*(\/\*|\*|\/\/)/;
 
 /** The exports of `lines` with the first line of each one's comment, in order. */
-const exportsOf = lines =>
+const findExports = lines =>
   lines.flatMap((text, i) => {
     const name = declaration.exec(text)?.[1];
     if (!name) return [];
@@ -28,7 +28,7 @@ const touched = new Map();
 for (const { path, deleted } of changedFiles(sha)) {
   if (deleted || !path.startsWith(code) || !/\.(ts|tsx|mts)$/.test(path)) continue;
   const lines = readFileSync(path, 'utf8').split('\n');
-  const owners = exportsOf(lines);
+  const owners = findExports(lines);
   const ranges = [...readChangeDiff(sha, [path], 0).matchAll(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/gm)].map(([, at, n = '1']) => [
     Number(at) - 1,
     Number(at) - 1 + Math.max(Number(n), 1),
