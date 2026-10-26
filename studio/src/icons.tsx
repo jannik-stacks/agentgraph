@@ -39,7 +39,7 @@ const glyphs = {
       <path d="M8 12h8" />
     </>
   ),
-  live: <path d="M21 12a9 9 0 1 1-9-9" />,
+  running: <path d="M21 12a9 9 0 1 1-9-9" />,
   expand: <path d="m7 9 5-5 5 5M7 15l5 5 5-5" />,
   collapse: <path d="m7 4 5 5 5-5M7 20l5-5 5 5" />,
   copy: (

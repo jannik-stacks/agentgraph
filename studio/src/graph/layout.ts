@@ -1,4 +1,4 @@
-import type { Graph } from '../../../src/graph.ts';
+import type { WorkflowGraph } from '../../../src/graph.ts';
 import { makeStepChips, splitStepChips } from './chips.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -25,7 +25,7 @@ export type WorkflowLayoutLane = {
   workflow: string;
   frame: Box;
   nodes: { id: string; kind: 'trigger' | 'step' | 'done'; step?: string; box: Box }[];
-  backs: { edge: Graph['edges'][number]; points: CanvasPoint[] }[];
+  backs: { edge: WorkflowGraph['edges'][number]; points: CanvasPoint[] }[];
 };
 
 /** An edge from a step of one workflow to the trigger of another. */
@@ -36,7 +36,11 @@ export type Start = { workflow: string; step: string; target: string };
  * above their row; starts of other workflows run down below the source row, along a gutter left of all rows, and into
  * the target's trigger.
  */
-export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Start[], hidden: ReadonlySet<string>) => {
+export const layout = (
+  graphs: { workflow: string; graph: WorkflowGraph }[],
+  starts: Start[],
+  hidden: ReadonlySet<string>
+) => {
   const gutter = 16 + nest * starts.length;
   const lines = Math.max(
     0,
@@ -99,4 +103,4 @@ export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Sta
 };
 
 const p = (x: number, y: number): CanvasPoint => ({ x, y });
-const indexOf = (graph: Graph, step: string) => graph.nodes.findIndex(n => n.step === step);
+const indexOf = (graph: WorkflowGraph, step: string) => graph.nodes.findIndex(n => n.step === step);

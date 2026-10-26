@@ -8,7 +8,7 @@ import type { Run, Step, Workflow } from './workflow.ts';
  * the runs on the issue; a check the same when its judge does. `writes` lists what its agent may write to GitHub, and
  * `model` names the model alias its agent asks for.
  */
-export type Graph = {
+export type WorkflowGraph = {
   trigger: string;
   nodes: {
     step: string;
@@ -52,7 +52,7 @@ export function makeWorkflowGraph(
   checks: Record<string, Pick<Check, 'mode' | 'agent'>>,
   run?: Run,
   agents: Record<string, Pick<Agent, 'returns' | 'reads' | 'model'>> = {}
-): Graph {
+): WorkflowGraph {
   const index = (name: string) => w.steps.findIndex(s => s.name === name);
   const loops = w.steps.flatMap((s, from) =>
     s.back?.rounds !== undefined && !('wait' in s.does) ? [{ to: index(s.back.to), from, rounds: s.back.rounds }] : []
@@ -67,7 +67,7 @@ export function makeWorkflowGraph(
       : Math.max(current, ...w.steps.map((s, k) => ((run.rounds[s.name] ?? 0) > 0 ? k : -1)))
     : -1;
 
-  const nodes: Graph['nodes'] = w.steps.map((s, k) => ({
+  const nodes: WorkflowGraph['nodes'] = w.steps.map((s, k) => ({
     step: s.name,
     doer: doer(s),
     checks: s.checks.map(name => {
@@ -90,7 +90,7 @@ export function makeWorkflowGraph(
     ...(run && { run: { tries: k === current ? run.tries : 0, current: k === current, visited: k <= reached } }),
   }));
 
-  const edges: Graph['edges'] = [
+  const edges: WorkflowGraph['edges'] = [
     ...w.steps.slice(1).map((s, k) => ({ from: w.steps[k]!.name, to: s.name, kind: 'next' as const })),
     ...w.steps.flatMap(s =>
       s.back

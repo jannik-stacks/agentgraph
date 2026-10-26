@@ -219,7 +219,7 @@ const Canvas = ({
             node,
             selected: selected === id || !!selected?.startsWith(`${id}/`),
             hidden,
-            live: picked ? undefined : here.get(`${fixture}/${node.step}`),
+            runCountsByStatus: picked ? undefined : here.get(`${fixture}/${node.step}`),
             ...(run && {
               overlay: {
                 visits: visits!.filter(v => v.node.step === node.step).length,
@@ -378,7 +378,7 @@ export const GraphPage = () => {
               )}
             </>
           ) : hub.key === served?.name ? (
-            'The workflows as written. A blue step holds runs that are live now.'
+            'The workflows as written. A blue step holds runs that are running now.'
           ) : (
             'The workflows as written. An example hub, with no runs of its own.'
           )}

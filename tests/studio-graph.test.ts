@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeWorkflowGraph, type Graph } from '../src/graph.ts';
+import { makeWorkflowGraph, type WorkflowGraph } from '../src/graph.ts';
 import type { Workflow } from '../src/workflow.ts';
 import { fixture, hubs as fixtureHubs } from './fixtures.ts';
 import { studioModule } from './studio.ts';
@@ -15,11 +15,11 @@ type Row = {
 };
 
 const { layout } = await studioModule<{
-  layout: (graphs: { workflow: string; graph: Graph }[], starts: [], hidden: Set<string>) => { rows: Row[] };
+  layout: (graphs: { workflow: string; graph: WorkflowGraph }[], starts: [], hidden: Set<string>) => { rows: Row[] };
 }>('graph/layout.ts');
 type Chip = { kind: string; glyph?: string; label: string; tip: string };
 const { makeStepChips, splitStepChips } = await studioModule<{
-  makeStepChips: (node: Graph['nodes'][number], hidden: Set<string>) => Chip[];
+  makeStepChips: (node: WorkflowGraph['nodes'][number], hidden: Set<string>) => Chip[];
   splitStepChips: (chips: Chip[], width: number) => { title?: Chip; rows: Chip[][] };
 }>('graph/chips.ts');
 

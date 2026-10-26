@@ -1,4 +1,4 @@
-import type { Graph } from '../../../src/graph.ts';
+import type { WorkflowGraph } from '../../../src/graph.ts';
 
 export type ChipKind = 'who' | 'checks' | 'writes' | 'how';
 
@@ -12,7 +12,7 @@ export type Chip = {
 export const getStepDoerKind = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
 
 /** The badges a step shows under its name, in the order they read. */
-export const makeStepChips = (node: Graph['nodes'][number], hidden: ReadonlySet<string>): Chip[] => {
+export const makeStepChips = (node: WorkflowGraph['nodes'][number], hidden: ReadonlySet<string>): Chip[] => {
   const chips: Chip[] = [];
   const n = node.checks.length;
   const readers = [...(node.traces ? [node.doer] : []), ...node.checks.filter(c => c.traces).map(c => c.agent)];

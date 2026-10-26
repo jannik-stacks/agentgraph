@@ -10,7 +10,7 @@ import {
 } from '@xyflow/react';
 import { useSetAtom } from 'jotai';
 import type { ReactNode } from 'react';
-import type { Graph } from '../../../src/graph.ts';
+import type { WorkflowGraph } from '../../../src/graph.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
@@ -18,8 +18,7 @@ import { accent, cx, TipBubble, Tooltip, useTip } from '../ui.tsx';
 import { type Chip, type ChipKind, getStepDoerKind, makeStepChips, splitStepChips } from './chips.ts';
 import { chipRoom, type CanvasPoint } from './layout.ts';
 
-type GraphNode = Graph['nodes'][number];
-type GraphEdge = Graph['edges'][number];
+type GraphNode = WorkflowGraph['nodes'][number];
 
 const paths = {
   agent: (
@@ -86,17 +85,16 @@ const handle = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg
 /** Where arrows end: a few pixels short of the node, so the head never touches its border. */
 const arrival = { left: -5 };
 
-/** The run drawn over one step: how often it came here, and the run itself while it stands here. */
-type Overlay = { visits: number; here?: Run | undefined };
-
-type StepData = {
-  node: GraphNode;
-  overlay?: Overlay | undefined;
-  live?: Record<string, number> | undefined;
-  hidden: ReadonlySet<string>;
-  selected: boolean;
-};
-export type StepFlowNode = Node<StepData, 'step'>;
+export type StepFlowNode = Node<
+  {
+    node: GraphNode;
+    overlay?: { visits: number; here?: Run | undefined } | undefined;
+    runCountsByStatus?: Record<string, number> | undefined;
+    hidden: ReadonlySet<string>;
+    selected: boolean;
+  },
+  'step'
+>;
 
 const triesTip = (tries: number) =>
   `${tries === 1 ? 'One try' : `Up to ${tries} tries`}. A failing check sends its findings back into the same session. Out of tries it asks you; an answer gives it one more try, and stop ends the run.`;
@@ -165,15 +163,18 @@ const statusLine = (node: GraphNode, run: Run) =>
           : 'working';
 
 /** A step: what it does, its checks and its tries, with the run's position when one is drawn. */
-export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }: NodeProps<StepFlowNode>) => {
+export const StepCard = ({
+  id,
+  data: { node, overlay, runCountsByStatus, hidden, selected },
+}: NodeProps<StepFlowNode>) => {
   const kind = getStepDoerKind(node.doer);
   const here = overlay?.here;
   const refused = !!here && !!node.run && node.run.tries > 0;
-  const running = here ? here.status === 'running' : !!live?.running;
+  const running = here ? here.status === 'running' : !!runCountsByStatus?.running;
   const status = here
     ? statusLine(node, here)
-    : live &&
-      Object.entries(live)
+    : runCountsByStatus &&
+      Object.entries(runCountsByStatus)
         .map(([status, n]) => `${n} ${status}`)
         .join(', ');
   const { title, rows } = splitStepChips(makeStepChips(node, hidden), chipRoom);
@@ -181,7 +182,7 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
     <div
       className={cx(
         'relative isolate flex size-full cursor-pointer flex-col gap-0.5 rounded-md border px-2.5 pt-3 text-xs transition-shadow',
-        here || live
+        here || runCountsByStatus
           ? cx(accent.border, accent.tint, 'text-zinc-800 dark:text-zinc-200')
           : 'border-zinc-200 bg-white text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700',
         node.each !== undefined
@@ -327,7 +328,10 @@ export const Frame = ({ data: { workflow, trigger, worst, selected } }: NodeProp
   );
 };
 
-export type RouteFlowEdge = Edge<{ points: CanvasPoint[]; tip?: string; back?: GraphEdge }, 'route'>;
+export type RouteFlowEdge = Edge<
+  { points: CanvasPoint[]; tip?: string; back?: WorkflowGraph['edges'][number] },
+  'route'
+>;
 
 /** An orthogonal polyline through `points` with rounded corners. */
 const pathOf = (points: CanvasPoint[], radius = 8) =>

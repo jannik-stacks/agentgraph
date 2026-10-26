@@ -1,4 +1,4 @@
-import type { Graph } from '../../../src/graph.ts';
+import type { WorkflowGraph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { getStepDoerKind } from './chips.ts';
@@ -15,7 +15,7 @@ export const makeRunTrail = (run: Run, trace: Trace[]): Trail => {
   });
 };
 
-type Node = Graph['nodes'][number];
+type Node = WorkflowGraph['nodes'][number];
 
 /** One time a run is at a step: how it got there, the failed tries, and how it left. */
 type Visit = {
@@ -40,7 +40,7 @@ export type End =
 const isAgent = (n: Node) => getStepDoerKind(n.doer) === 'agent';
 
 /** Unrolls a run into the visits it made, in order. */
-export function makeWorkflowRunVisits(graph: Graph, trail: Trail, run: Run): { visits: Visit[]; end: End } {
+export function makeWorkflowRunVisits(graph: WorkflowGraph, trail: Trail, run: Run): { visits: Visit[]; end: End } {
   const node = (step: string) => graph.nodes.find(n => n.step === step)!;
   const visits: Visit[] = [];
   const enter = (step: string, previous?: Trail[number]) => {

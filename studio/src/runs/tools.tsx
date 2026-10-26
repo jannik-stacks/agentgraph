@@ -277,7 +277,7 @@ const Write = ({ input, output, ok }: ToolProps) => (
 
 type Todo = { content?: string; status?: string };
 
-const todoGlyph = { completed: 'ok', in_progress: 'live', cancelled: 'skipped' } as const;
+const todoGlyph = { completed: 'ok', in_progress: 'running', cancelled: 'skipped' } as const;
 
 const Todos = ({ input, output, ok }: ToolProps) => {
   const todos = (Array.isArray(input.todos) ? input.todos : parseJson(output)) as Todo[] | undefined;
