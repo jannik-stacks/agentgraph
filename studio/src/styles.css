@@ -203,13 +203,13 @@ body {
 }
 
 .agi-march {
-  stroke-dasharray: 1 0.5;
-  animation: agi-march 3s linear infinite;
+  stroke-dasharray: 1.2 0.8;
+  animation: agi-march 1.5s linear infinite;
 }
 
 @keyframes agi-march {
   to {
-    stroke-dashoffset: -1.5;
+    stroke-dashoffset: -2;
   }
 }
 
