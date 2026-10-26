@@ -1,6 +1,6 @@
 # Local model stack
 
-LiteLLM in front of every model, Ollama for local models, an egress proxy, and the sandbox image. Every port binds to 127.0.0.1.
+LiteLLM in front of every model, Ollama for local models, and an egress proxy. Every port binds to 127.0.0.1. The CLI builds the sandbox image itself, and uses this stack with `--provider litellm` and the local key loaded: `set -a; . infra/local/.keys.env.local; set +a`.
 
 ## Commands
 
@@ -24,7 +24,9 @@ Fully offline: set `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `npm ru
 
 ## ChatGPT login for smart, writer and luna
 
-Log in once, before the proxy starts; the tokens persist in the `agentgraph-chatgpt-auth` volume. From `infra/local`:
+The default config routes `smart` and `writer` to a ChatGPT login, and `luna` always. Without the login LiteLLM still starts and calls to those models fail. To use an API key instead, set `AGENTGRAPH_MODEL_SMART` and `AGENTGRAPH_MODEL_WRITER` in `.env` to a LiteLLM model id such as `openai/<model>`, and set `OPENAI_API_KEY`.
+
+Log in once from the CLI; the tokens persist in the `agentgraph-chatgpt-auth` volume. From `infra/local`:
 
 1. `docker compose run --rm --no-deps --entrypoint python3 litellm -c "from litellm.llms.chatgpt.authenticator import Authenticator; Authenticator().get_access_token()"`
 2. Open the URL, sign in and enter the code. Device-code login must be on in ChatGPT's security settings.
@@ -43,6 +45,6 @@ A `codex login` imports instead: `CODEX_HOME=$(mktemp -d) codex login`, then `./
 
 ## Keys
 
-`npm run keys` creates one virtual key per agent, or updates existing limits, and appends `AGENTGRAPH_LLM_API_KEY_<AGENT>=...` to `.keys.env`. Subscription models spend $0, so their limits are rpm and tpm. `ROTATE=1 npm run keys` replaces every key. Keys never show in a process list.
+`npm run keys -- local` writes one key for every agent to `.keys.env.local` as `AGENTGRAPH_PROXY_KEYS=*=...`, the form the CLI reads. `npm run keys` creates one key per bot of the example graphs, or updates existing limits, and appends `AGENTGRAPH_LLM_API_KEY_<BOT>=...` to `.keys.env`. Subscription models spend $0, so their limits are rpm and tpm. `ROTATE=1 npm run keys` replaces every key. Keys never show in a process list.
 
 `prices.json.gz` is LiteLLM's price table, pinned to a release, and `npm run prices` fetches it again; see [Models](../../docs/sandbox.md#models).

@@ -33,7 +33,7 @@ Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
 | --- | --- | --- |
 | `repo` | the repo | The checkout the base syncs from and branches go to |
 | `base` | the branch checked out first | The branch agentgraph's base fast-forwards to |
-| `owner` | `git config user.name` | The author of every local verb and the only trusted login |
+| `owner` | `git config user.name` at the first command, else your OS user | The author of every local verb and the only trusted login |
 | `provider` | none | The saved [provider](cli.md#picking-a-provider) |
 | `exported` | none | Where agentgraph last wrote each ref into the repo |
 

@@ -1,6 +1,6 @@
 # CLI
 
-Install it with `npm install -g @jannik-stacks/agi`. It needs Node 24 and Docker.
+Install it with `npm install -g @jannik-stacks/agi`, or run `npx @jannik-stacks/agi <verb>`. It needs Node 24 and Docker. `--help` prints the usage and `--version` the version.
 
 Inside a git repo, `agi <verb>` works on a local instance of it: a folder that stands in for GitHub, plus the runs. Your repo only gets `agentgraph/<n>` branches. With `--forge` or App credentials in the environment, `agi` runs as a runner instead: `--dir` names the graph and `--data` the runs folder.
 
@@ -18,6 +18,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | `export <n>` | Writes the branch into your repo again | |
 | `close <n>` | Closes the issue and its open pull request; a live run stops on its next look | |
 | `show [n]`, `show graph` | What needs you, one issue's timeline and diff, or the graph in use; outside a repo, every instance | yes |
+| `studio` | Starts the [studio](local.md#the-studio) for this repo and prints its URL | |
 | `loop` | Drives every open issue, then again when something changes or every `AGENTGRAPH_EVERY` minutes | yes |
 | `check` | Validates a graph without a model or container; prints each problem or `ok` | yes |
 | `check <name>... --runs` | Runs the named checks on ended runs; see [Checks](checks.md#end-checks) | yes |
@@ -55,7 +56,7 @@ Printed commands carry the `--repo` and `--data` given. Inside a repo, `check --
 
 ## Picking a provider
 
-A provider is where model calls go and how they log in; [Sandbox and models](sandbox.md#providers) lists them. The CLI takes `--provider`, then `provider` in `instance.yaml`, then `AGENTGRAPH_PROVIDER`, then the only ready one, which it saves. With several ready it asks, or fails without a terminal. With none, or an agent whose harness the provider does not serve, it says why and files nothing. <!-- code: bin/run.ts#pickProvider -->
+A provider is where model calls go and how they log in; [Sandbox and models](sandbox.md#providers) lists them. The CLI takes `--provider`, then `provider` in `instance.yaml`, then `AGENTGRAPH_PROVIDER`, then the only ready one, which it saves. It picks before it sets up Docker, so a missing model fails before the image build. With several ready it asks, or fails without a terminal. With none, or an agent whose harness the provider does not serve, it says why and files nothing. <!-- code: bin/run.ts#pickProvider -->
 
 ## Examples
 

@@ -126,7 +126,7 @@ One status comment shows the step, an open question, the stop reason, the pull r
 
 `limits.parallel` caps issues driven at once and `limits.sessions` caps sessions, judges included. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/engine.ts#tick src/engine.ts#getSessionGate -->
 
-Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run with details in the trace. A missing image parks at once and says what to run. Any reply retries. <!-- code: src/engine.ts#drive -->
+Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run with details in the trace. A missing image parks at once and says what to run. A key or login the provider rejects stops the run at once. Any reply retries. <!-- code: src/engine.ts#drive -->
 
 ## Retros
 

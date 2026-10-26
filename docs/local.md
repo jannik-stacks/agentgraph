@@ -1,12 +1,14 @@
 # Install and first run
 
-You need Node 24, Docker running as your user, and `git config user.name` set.
+You need Node 24, Docker used as a member of the `docker` group (not root), and `git config user.name` set. The sandbox image takes about 2.4 GB.
 
 ```sh
 npm install -g @jannik-stacks/agi
 ```
 
-Before it files anything, `agi` checks Docker, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress`, builds missing images and starts an egress proxy. The first build takes a few minutes. `AGENTGRAPH_SANDBOX_URL` skips this. <!-- code: src/docker.ts#ensureDocker -->
+`npx @jannik-stacks/agi <verb>` runs it without installing. The unscoped `agentgraph` package on npm is unrelated.
+
+Before it files anything, `agi` checks Docker, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress`, builds missing or changed images and starts an egress proxy. It stops early when Docker is down, when it runs as root, or when the provider's gateway is a sandbox-network name no container answers to. The first build takes about 3 minutes. `AGENTGRAPH_SANDBOX_URL` skips this. <!-- code: src/docker.ts#ensureDocker -->
 
 ## Models
 
@@ -14,7 +16,7 @@ Pick one of these; [Providers](sandbox.md#providers) has the details.
 
 - A Claude subscription: the first `agi` command runs `claude setup-token` and keeps the token.
 - An Anthropic key: `export ANTHROPIC_API_KEY=...`, then `--provider anthropic --save`.
-- The local model stack, for ChatGPT, OpenRouter or local models: see [infra/local](../infra/local/README.md), then `--provider litellm`.
+- The local model stack, for ChatGPT, OpenRouter or local models: see [infra/local](../infra/local/README.md), load its key with `set -a; . infra/local/.keys.env.local; set +a`, then `--provider litellm`. Only this provider needs the stack.
 
 ## First run
 
@@ -32,11 +34,13 @@ agi review 1 changes "also cover len 0"    # drives it again
 agi merge 1                                # then: git merge agentgraph/1
 ```
 
-Without `.agentgraph/` it uses the [default graph](reference.md#which-graph-runs). Every verb is in the [CLI](cli.md). Keep the data root out of temporary folders, which macOS clears. <!-- code: src/main.ts#start src/main.ts#temporary -->
+Without `.agentgraph/` it uses the [default graph](reference.md#which-graph-runs). With uncommitted changes in `.agentgraph/` and no `--dir`, it says so and runs the committed version; the start banner names the graph, such as `.agentgraph/ at main 1a2b3c4`. <!-- code: src/instance.ts#whyGraphUncommitted src/instance.ts#formatGraphName --> Every verb is in the [CLI](cli.md). Keep the data root out of temporary folders, which macOS clears. <!-- code: src/main.ts#start src/main.ts#temporary -->
 
 ## Who drives
 
 `start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends. While an `agi loop` holds the instance's lock, they only post and the loop picks the issue up. Only one loop runs per instance. <!-- code: src/main.ts#createLoopLock src/main.ts#isLoopHeld -->
+
+After a drive the CLI prints why the run waits or stopped and the next commands. A runner error, such as a harness that cannot reach its model, makes the run wait; the drive and `agi show <n>` print its cause and trace path. A login the provider rejects stops the run, and for `claude` the CLI says how to drop the saved token. <!-- code: src/status.ts#formatRunnerError -->
 
 Ctrl-C stops a drive; the run goes on at the next drive, such as `agi say 1 "go on"`. A second Ctrl-C quits at once. <!-- code: src/main.ts#start -->
 
@@ -50,7 +54,7 @@ The base is the branch checked out on first use, or `origin`'s default on a deta
 
 ## The studio
 
-The studio shows the graph, every run and the Results tab. It only reads. From a checkout of agentgraph:
+The studio shows the graph, every run and the Results tab. It only reads. Inside a repo, `agi studio` starts it for that repo; it needs a clone of agentgraph and installs the studio's dependencies on first use. By hand, from a clone:
 
 ```sh
 cd studio && npm install

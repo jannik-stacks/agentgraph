@@ -67,7 +67,7 @@ An agent's `harness` picks the session program. The operator's `agentgraph.confi
 | --- | --- | --- |
 | `opencode` | Patterns, such as `bash(git diff*)` | `--session <id> --fork` |
 | `pi` | Plain tool names; a pattern fails the graph check | `--fork <id>` |
-| `claude` | Patterns; a tool it lacks fails the graph check | `--resume <id> --fork-session` |
+| `claude` | Patterns; a tool it lacks fails the graph check; commit and pull request attribution is off | `--resume <id> --fork-session` |
 | `codex` | `edit`, `write` and `bash` together give every tool, else read-only; some of the three fails the check | none, a fresh session |
 
 Agent `tools` defaults to none. Session homes under `homes/` in the data folder persist across resumes. <!-- code: src/harnesses.ts#harnessSession -->
@@ -84,7 +84,7 @@ The CLI [picks a provider](cli.md#picking-a-provider), listed in `agentgraph.con
 | `anthropic` | `claude` | `ANTHROPIC_API_KEY` is set |
 | `litellm` | any | `AGENTGRAPH_PROXY_KEYS` is set; agents without a model get `smart`. ChatGPT comes through here ([local stack](../infra/local/README.md)) |
 
-The first pick of `claude` runs `claude setup-token` and keeps the token. Codex sessions never hold a ChatGPT login; the gateway owns it.
+The first pick of `claude` runs `claude setup-token`, joins a token pasted over several lines, tries it with one small `claude -p` call, and keeps it only when that works. Codex sessions never hold a ChatGPT login; the gateway owns it.
 
 ### Settings
 

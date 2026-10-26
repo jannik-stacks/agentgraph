@@ -4,17 +4,18 @@ agentgraph runs coding agents on your repo's issues. You describe the agents, ch
 
 ## Quickstart
 
-You need Node 24, Docker, and a Claude login, an Anthropic key, or [the local model stack](infra/local/README.md). Inside any git repo:
+You need Node 24, Docker used as a non-root member of the `docker` group, `git config user.name` set, and an Anthropic key, a Claude login or [the local model stack](infra/local/README.md). The unscoped `agentgraph` npm package is unrelated. Inside any git repo:
 
 ```sh
 npm install -g @jannik-stacks/agi
-agi start "Add a greet function"
+export ANTHROPIC_API_KEY=sk-ant-...
+agi start --provider anthropic --save "Add a greet function"
 agi show                                   # what needs you
 agi review 1 changes "also greet by name"  # drives it again
 agi merge 1                                # then: git merge agentgraph/1
 ```
 
-The first command makes a local instance of the repo under `~/.agentgraph`, with a folder that stands in for GitHub. Your checkout never moves; the work lands as the branch `agentgraph/1`. Without `.agentgraph/` it uses a default graph: implement, run the tests, review, wait for you.
+The first command makes a local instance of the repo under `~/.agentgraph`, with a folder that stands in for GitHub. Your checkout never moves; the work lands as the branch `agentgraph/1`. Without `.agentgraph/` it uses a default graph: implement, run the tests, review, wait for you. `--save` keeps the provider; other providers are in [Install and first run](docs/local.md#models).
 
 ## Docs
 
