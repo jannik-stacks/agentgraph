@@ -712,8 +712,7 @@ const exec = (
     maxBuffer: 1 << 28,
   });
   if (r.error) spawnSync('docker', ['rm', '-f', name]);
-  if (r.error && (r.error as NodeJS.ErrnoException).code !== 'ETIMEDOUT')
-    throw new Error(`docker could not run a score container: ${r.error.message}`);
+  if (r.error) throw new Error(`infra: score container did not finish: ${r.error.message}`);
   if (
     r.status === 125 ||
     /Cannot connect to the Docker daemon|^docker: Error response from daemon/m.test(r.stderr ?? '')
