@@ -33,6 +33,7 @@ OPENROUTER=glm,glm-flash,deepseek,deepseek-flash,minimax,gemini,gemini-flash,gro
 BOTS=(
   "implementor   smart,writer,fast,local,luna,$OPENROUTER   10  30  400000"
   "reviewer      smart,fast,local,luna,$OPENROUTER           5  60  900000"
+  "claude-reviewer smart,fast,local,luna,$OPENROUTER   5  60  900000"
   "triager       smart,fast,local,luna,$OPENROUTER           1  30  300000"
   "checker       smart,fast,local,luna,$OPENROUTER           1  30  200000"
   "editor        smart,fast,local,luna,$OPENROUTER           1  30  200000"
