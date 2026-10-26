@@ -72,7 +72,11 @@ const findCheckSource = (name: string, lines: Trace[]) => {
 };
 
 const formatCheckTime = (ms: number) =>
-  ms < 1000 ? `${ms} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)}m ${Math.round(ms / 1000) % 60}s`;
+  ms < 1000
+    ? `${ms} ms`
+    : ms < 60_000
+      ? `${(ms / 1000).toFixed(1)} s`
+      : `${Math.floor(ms / 60_000)}m ${Math.round(ms / 1000) % 60}s`;
 
 /** A check as one list item: its name, who judges it and its gate, its latest result in the selected run, and its script, judge and findings on demand. */
 const CheckItem = ({
