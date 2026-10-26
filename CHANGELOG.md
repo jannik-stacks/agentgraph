@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## Before npm
+
+Work from before the first npm release. The 0.1.0 and 0.2.0 milestones never went to npm, so npm
+versions start again at 0.0.1.
+
+### After 0.2.0
 
 - Check results move out of the trace into a per-run check record, `checks.jsonl`. Each entry has its
   time, the check's version and what judging it cost; a judge's transcript is its log, so judging no
@@ -84,12 +89,12 @@
 - `node bench/drive.ts` is the one bench runner; `bin/bench-run.ts`, `npm run bench` and its
   `compare.md` are gone. The `v1` arm, which never ran, is gone too.
 
-## 0.2.0
+### Milestone 0.2.0
 
 The baseline for tuning. From here on a repo gets better through its hub, and the engine changes
 rarely. [The hub contract](docs/contract.md) lists the hub fields and commands that stay stable.
 
-### Tuning
+#### Tuning
 
 - `bin/tune.ts` climbs one hub per repo. Proposers write candidate hubs, each is scored on fit and
   validate cases against the current best, and a candidate is kept only when its gains hold on a
@@ -100,7 +105,7 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
 - The `tune-graph` skill runs the same loop by hand, and `scripts/status.sh` sums a tune up on one
   screen.
 
-### Toolchains
+#### Toolchains
 
 - When a checkout is made, a toolchain step installs what the repo names (the pinned Rust
   toolchain with clippy and rustfmt, then `cargo fetch`) into the `agentgraph-cache` volume, then runs
@@ -108,7 +113,7 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
 - `AGENTGRAPH_CACHE_VOLUME` names another volume, and an empty value turns the step off.
 - A file lock in the cache volume stops two runners installing toolchains at once.
 
-### Starting and sweeping
+#### Starting and sweeping
 
 - A workflow with `issues: { label: agent:ready }` starts when a maintainer adds the label, once
   per issue. Adding it again after a done run starts nothing, and `/agentgraph restart` runs it again.
@@ -117,7 +122,7 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
 - GitHub calls that are safe to repeat are retried with backoff on network errors and 502 to 504.
 - A warning at start when the data dir or its mirror is under a temp dir, which the OS may clear.
 
-### Comments and pushes
+#### Comments and pushes
 
 - Once a question is answered, the status comment moves below the answer, so a finished run no
   longer reads as asking.
@@ -126,7 +131,7 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
 - Changes under `.github/` are left out of a push instead of refusing it, and the pull request
   names the files a maintainer must push.
 
-### Check logs
+#### Check logs
 
 - Every check's full output is kept gzipped by content hash, and a check row in the studio opens
   it on demand.
@@ -134,7 +139,7 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
   `node bin/run.ts prune-logs --data <dir>` counts the logs no trace names, and `--apply` deletes
   them.
 
-### Bench
+#### Bench
 
 - `node bin/bench-run.ts --at <sha>` runs a case set on one engine commit. Arms are keyed by the
   engine's `src/` tree, so validity, arm and judge results are reused when only docs or hubs
@@ -156,11 +161,11 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
   score trees go after scoring, Envs past `AGENTGRAPH_ENV_CAP` are evicted, and runs wait below
   `AGENTGRAPH_MIN_FREE_GB` free.
 
-## 0.1.0
+### Milestone 0.1.0
 
 The first versioned release.
 
-### Engine
+#### Engine
 
 - Workflows start jobs from GitHub events or local issue files. A job casts a bot, hands it a
   skill and may stop on `until` or `requires`.
@@ -176,7 +181,7 @@ The first versioned release.
 - Context for each run: preloaded notes, surfaced notes and a decider model.
 - A mirror per repository and one worktree per run.
 
-### Hubs and checks
+#### Hubs and checks
 
 - A hub is config: `hub.yaml`, bots, skills, checks, workflows and notes. `agentgraph check`
   validates it and fails closed.
@@ -194,7 +199,7 @@ The first versioned release.
 - Example hubs: `agentgraph`, `acme-app`, `clarinet`, `hub`. `agentgraph sim` replays scripted
   scenarios against a hub.
 
-### Sandbox
+#### Sandbox
 
 - Every harness run, script job and script check runs in a throwaway container with a read-only
   root, dropped capabilities, resource limits and a private network.
@@ -205,7 +210,7 @@ The first versioned release.
 - A LiteLLM proxy with one virtual key per bot (`infra/local`), and `logs --spend` to compare
   recorded calls with the proxy's logs.
 
-### Observability
+#### Observability
 
 - Each run leaves `run.json`, `prompt.md`, `events.jsonl`, `summaries.jsonl`, `outcome.json`,
   `stderr.log` and `spans.jsonl`. Secrets are masked.
@@ -218,7 +223,7 @@ The first versioned release.
 - Every run records the engine commit and a hash of the hub's files; each hub version is kept
   under `hubs/`. Runs link to their parent and to the previous run on the issue.
 
-### Data kept
+#### Data kept
 
 - Runs, parked branches and mirrors are never deleted.
 - Each attempt's commit is kept under `refs/agentgraph/attempts/<run id>/<n>` in the mirror.
@@ -227,7 +232,7 @@ The first versioned release.
 - A run's `home/` and its `tmp/` are kept after scrubbing secrets.
 - The bench driver keeps each case's diff and data directory.
 
-### Studio
+#### Studio
 
 - Studio draws each workflow as steps, bots and checks, shows what a job would see, and edits hub
   files with a save and commit action that commits as `update` and never pushes.
@@ -235,13 +240,13 @@ The first versioned release.
   button.
 - Docs tab with the reference generated from the source.
 
-### Bench
+#### Bench
 
 - `bench/mine.mjs` mines cases from merged pull requests, `bench/run.mjs` splits cases and runs
   hub settings over them, `bench/compare.mjs` compares diffs, and `bench/timeline.mjs` prints an
   issue's timeline.
 
-### Known limits
+#### Known limits
 
 - Each issue gets its own cargo build directory under the hub's cache, and nothing prunes old
   ones, so the cache grows with the number of issues.

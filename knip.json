@@ -24,6 +24,7 @@
   "vitest": false,
   "ignoreBinaries": ["continue", "codex", "du", "mkfifo"],
   "ignoreDependencies": [
+    "@changesets/cli",
     "react",
     "react-dom",
     "jotai",
