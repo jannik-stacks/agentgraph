@@ -2,7 +2,7 @@
 title: Bound every input
 status: accepted
 skill: principles
-human: pstack principle 4a
+human: pstack principle
 ---
 Text or a list enters a prompt, a file or a loop: clip or cap it where it enters.
 Bad: 2 MB of function bodies sent to the reviewer.

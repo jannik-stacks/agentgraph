@@ -1,6 +1,6 @@
 # Plans
 
-Ideas we agreed to do later, each with why it waits. Current work lives in [CHAT.md](CHAT.md).
+Ideas we agreed to do later, each with why it waits.
 
 ## Engine
 

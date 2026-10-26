@@ -3,7 +3,7 @@ title: Shared primitives over local copies
 status: accepted
 source: studio review
 check: code-shape
-human: user feedback reuse docs markdown engine, feedback rule 17
+human: user feedback reuse docs markdown engine
 ---
 `ui.tsx` holds the controls the studio repeats: `Select` with its chevron spaced from the text,
 `RemovableChip` with the remove button inside its border, `Tooltip`, `Button`, `Chip` and

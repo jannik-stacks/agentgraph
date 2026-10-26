@@ -2,7 +2,7 @@
 title: A failing test is fixed, never weakened
 status: accepted
 check: test-guards
-human: safety-checks item 3, check test-guards
+human: check test-guards
 ---
 When a test fails, fix the code or the test's expectation of the new behavior. Never delete a test
 file or a test, drop an `expect(`, add `.skip`, `.only` or `.todo`, raise a test timeout above the

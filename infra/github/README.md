@@ -81,4 +81,4 @@ works: the engine reads a typed `@<slug>` or `/agentgraph` the same way.
 
 ## Webhooks later
 
-Runs are started by hand for now, with no webhook and no tunnel. When webhooks are wanted, expose only the webhook path through a Cloudflare tunnel.
+Runs are started by hand for now, with no webhook and no tunnel.

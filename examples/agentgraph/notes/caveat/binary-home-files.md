@@ -2,7 +2,7 @@
 title: A run home holds binary files
 status: accepted
 check: tests
-human: resume session, opencode keeps sessions in SQLite
+human: opencode keeps sessions in SQLite
 ---
 A harness keeps its sessions in its run home, and opencode keeps them in a SQLite file. Code that
 rewrites home files, such as masking secrets, must not decode them as UTF-8: one rewrite corrupts

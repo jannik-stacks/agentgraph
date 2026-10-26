@@ -3,7 +3,7 @@ title: One spinner per running thing
 status: accepted
 source: dashboard review
 check: code-shape
-human: user dashboard feedback, feedback rule 6
+human: user dashboard feedback
 ---
 A running run shows one spinner. Its jobs breathe and its events show a dot, so the levels look
 different and the eye finds the one thing that moves. Draw every status with `StatusIcon` and the

@@ -2,7 +2,7 @@
 title: Dashboard controls are thin wrappers over one function in src
 status: accepted
 check: tests
-human: user rule on the backend as source of truth, commenting from the dashboard
+human: user rule on the backend as source of truth
 ---
 A dashboard control does not get its own logic. The logic lives once in `src/`: one function that
 validates its input with an Effect Schema and writes the local backend's files, and starts nothing.

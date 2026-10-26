@@ -84,8 +84,6 @@ Without `.agentgraph/` in the repo it uses the packaged default hub; see [Withou
 | --- | --- |
 | `examples/sandbox` | A small JavaScript package; the place to start |
 | `examples/agentgraph` | agentgraph itself |
-| `examples/clarinet` | A Rust workspace |
-| `examples/acme-app` | Acme App |
 | `examples/bench` | The hub the bench replays pull requests with |
 
 ## Development

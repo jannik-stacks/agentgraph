@@ -26,7 +26,7 @@ Checks get the same file as `AGENTGRAPH_TRACES`, so a script can, for example, c
 
 ## Super review
 
-A judge that reads traces checks how the work was done. The `claims` check in `examples/acme-app` compares what the implementor says it did with its tool calls:
+A judge that reads traces checks how the work was done. A `claims` check compares what the implementor says it did with its tool calls:
 
 ```yaml
 # checks/claims.md

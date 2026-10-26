@@ -3,7 +3,7 @@ title: Docs show excerpts tied to symbols
 status: accepted
 source: docs review
 check: rules
-human: user feedback on excerpts, feedback rule 10
+human: user feedback on excerpts
 ---
 A docs page shows the few lines a reader needs, through `<Source file="..." symbol="..." />`, so
 the excerpt follows the code when it changes. Whole files are shown only for small config files

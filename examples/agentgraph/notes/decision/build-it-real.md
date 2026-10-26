@@ -3,7 +3,7 @@ title: Build it real, never fake it
 status: accepted
 source: agentgraph sessions
 check: rules
-human: user feedback no fake, build it out, feedback rule 5
+human: user feedback no fake, build it out
 ---
 Shipped code calls the real harness, the real model and the real store. When something is missing,
 it gets built, or the run stops with a clear error; it is never replaced by a canned answer. Fakes

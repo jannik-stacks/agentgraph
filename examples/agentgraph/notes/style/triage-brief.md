@@ -1,7 +1,6 @@
 ---
 title: The triage brief has one template
 status: accepted
-human: narrow-bots W3 triage checks
 ---
 The template itself lives in the triage skill; this note says why it is fixed. Scripts read the
 brief: the test-guards check finds each criterion's named test in the change, the narrow reviewers

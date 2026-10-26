@@ -3,7 +3,7 @@ title: A new test fails on the code before the change
 status: accepted
 source: agentgraph sessions
 check: test-guards
-human: narrow-bots W1 and W2 test first, user feedback no tautological tests, feedback rule 12
+human: user feedback no tautological tests
 ---
 The implement skill says to write each criterion's test first and see it fail. The usual way such a
 test still passes on the base: it asserts a value that holds either way. `undefined` differs from

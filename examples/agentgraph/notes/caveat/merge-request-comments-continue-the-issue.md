@@ -1,7 +1,6 @@
 ---
 title: A comment on a pull request continues the issue it was opened for
 status: accepted
-human: continuing on existing work
 ---
 On GitHub a comment on a pull request arrives as an `issue_comment` whose number is the pull
 request's, not the issue's. Planned as it came, the implementor rendered `agentgraph/<pull request>`,

@@ -2,7 +2,7 @@
 title: Assert what the row says
 status: accepted
 skill: principles
-human: pstack principle 4a
+human: pstack principle
 ---
 Writing a test: assert the value the row names. A test that pins wording the issue removes is wrong.
 Bad: a test locked in "Blocking" on a passing check.

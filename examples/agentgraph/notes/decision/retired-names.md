@@ -3,7 +3,7 @@ title: Retired names
 status: accepted
 source: agentgraph sessions
 check: rules
-human: user feedback on current names, user rename of executor to harness, feedback rule 1
+human: user feedback on current names, user rename of executor to harness
 ---
 The names below were replaced; the new one is used in code, comments, docs and hub files.
 

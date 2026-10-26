@@ -3,7 +3,7 @@ title: Motion only for what is new
 status: accepted
 source: dashboard review
 check: code-shape
-human: user dashboard feedback, feedback rule 16
+human: user dashboard feedback
 ---
 A row animates in once, when it first arrives. A re-render, a filter change, a reconnect or a page
 load animates nothing. `useEnter` in `dashboard/bits.tsx` remembers which keys were seen; an enter
