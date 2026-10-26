@@ -75,15 +75,28 @@ const CheckItem = ({
   const [script, setScript] = useState(false);
   const result = lines && latest(name, lines);
   const mode = check?.mode ?? 'block';
-  const kind =
-    check?.agent === undefined
-      ? { label: 'script', tip: 'A script; exit 0 passes, and the output is the feedback.' }
-      : {
-          label: check.run ? `script, judged by ${check.agent}` : `judged by ${check.agent}`,
-          tip: check.run
-            ? `The script runs and its output goes to ${check.agent}, whose reply must start with PASS; FAIL is a finding.`
-            : `${check.agent} judges the diff; a reply starting with PASS passes, with FAIL fails.`,
-        };
+  const tags = [
+    ...(check?.agent === undefined || check.run
+      ? [
+          {
+            label: 'script',
+            look: 'border border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400',
+            tip: check?.agent
+              ? `The script runs and its output goes to ${check.agent}.`
+              : 'A script; exit 0 passes, and the output is the feedback.',
+          },
+        ]
+      : []),
+    ...(check?.agent
+      ? [
+          {
+            label: `judge ${check.agent}`,
+            look: 'bg-violet-100 font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-300',
+            tip: `${check.agent} judges ${check.run ? 'the script output' : 'the diff'}; a reply starting with PASS passes, with FAIL fails.`,
+          },
+        ]
+      : []),
+  ];
   return (
     <li className="flex gap-2">
       <span aria-hidden className="text-zinc-400">
@@ -92,8 +105,13 @@ const CheckItem = ({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="font-mono">{name}</span>
+          {tags.map(t => (
+            <Tooltip key={t.label} tip={t.tip}>
+              <span className={cx('cursor-help rounded-sm px-1 text-[11px]', t.look)}>{t.label}</span>
+            </Tooltip>
+          ))}
           <span className="text-zinc-500">
-            <Term tip={kind.tip}>{kind.label}</Term>, <Term tip={gates[mode]}>{mode}</Term>
+            <Term tip={gates[mode]}>{mode}</Term>
           </span>
           {check?.run && (
             <button

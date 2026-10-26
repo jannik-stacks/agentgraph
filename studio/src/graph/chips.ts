@@ -15,8 +15,6 @@ export const getStepDoerKind = (doer: string) => (doer === 'script' || doer === 
 export const makeStepChips = (node: Graph['nodes'][number], hidden: ReadonlySet<string>): Chip[] => {
   const chips: Chip[] = [];
   const n = node.checks.length;
-  const judged = node.checks.filter(c => c.agent).length;
-  const judges = [...new Set(node.checks.flatMap(c => c.agent ?? []))];
   const readers = [...(node.traces ? [node.doer] : []), ...node.checks.filter(c => c.traces).map(c => c.agent)];
   if (getStepDoerKind(node.doer) === 'human')
     chips.push({
@@ -38,8 +36,8 @@ export const makeStepChips = (node: Graph['nodes'][number], hidden: ReadonlySet<
     chips.push({
       kind: 'checks',
       glyph: 'checks',
-      label: `${n} ${n === 1 ? 'check' : 'checks'}${judged ? `, ${judged} judged` : ''}`,
-      tip: `${n === 1 ? 'One check runs' : `${n} checks run`} after each try: ${node.checks.map(c => c.name).join(', ')}.${judged ? ` ${judges.join(' and ')} ${judges.length === 1 ? 'judges' : 'judge'} ${judged === 1 ? 'one' : judged} of them, each in its own session.` : ''}`,
+      label: `${n} ${n === 1 ? 'check' : 'checks'}`,
+      tip: `${n === 1 ? 'One check runs' : `${n} checks run`} after each try: ${node.checks.map(c => c.name).join(', ')}.`,
     });
   if (node.writes?.length) {
     const agent = node.doer.split(' / ')[0]!;

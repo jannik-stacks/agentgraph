@@ -68,8 +68,19 @@ const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; class
   </svg>
 );
 
-/** The ring around the selected step, the one the side panel shows. */
-const ring = 'ring-2 ring-zinc-900 ring-offset-2 ring-offset-zinc-50 dark:ring-zinc-100 dark:ring-offset-zinc-900';
+/** The moving dashed outline on the selected step, the one the side panel shows; it sits on the card's border. */
+const Selected = ({ round = 6, dashes = 120 }: { round?: number; dashes?: number }) => (
+  <svg aria-hidden className="pointer-events-none absolute -inset-[2px] size-[calc(100%+4px)] overflow-visible">
+    <rect
+      x="1.5"
+      y="1.5"
+      rx={round + 0.5}
+      pathLength={dashes}
+      className="agi-march fill-none stroke-sky-900 stroke-3 dark:stroke-sky-300"
+      style={{ width: 'calc(100% - 3px)', height: 'calc(100% - 3px)' }}
+    />
+  </svg>
+);
 
 const handle = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
 /** Where arrows end: a few pixels short of the node, so the head never touches its border. */
@@ -175,10 +186,10 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
           : 'border-zinc-200 bg-white text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700',
         node.each !== undefined
           ? 'shadow-[3px_3px_0_-1px_var(--color-white),3px_3px_0_0_var(--color-zinc-200),6px_6px_0_-1px_var(--color-white),6px_6px_0_0_var(--color-zinc-200)] dark:shadow-[3px_3px_0_-1px_var(--color-zinc-950),3px_3px_0_0_var(--color-zinc-800),6px_6px_0_-1px_var(--color-zinc-950),6px_6px_0_0_var(--color-zinc-800)]'
-          : 'shadow-xs',
-        selected && ring
+          : 'shadow-xs'
       )}
     >
+      {selected && <Selected />}
       {running && <span className="agi-shine" style={shineTiming(id)} />}
       <Handle type="target" position={Position.Left} isConnectable={false} className={handle} style={arrival} />
       <Handle type="source" position={Position.Right} isConnectable={false} className={handle} />
@@ -444,7 +455,13 @@ export const Legend = ({ hidden, onToggle }: { hidden: ReadonlySet<string>; onTo
     <LegendItem mark={<span className={cx('size-3 rounded-sm border', accent.border, accent.tint)} />}>
       a run is here
     </LegendItem>
-    <LegendItem mark={<span className={cx('size-2.5 rounded-sm border border-zinc-200 dark:border-zinc-800', ring)} />}>
+    <LegendItem
+      mark={
+        <span className="relative size-2.5">
+          <Selected round={2} dashes={16} />
+        </span>
+      }
+    >
       selected
     </LegendItem>
     <li className="ml-auto">Click a step for its checks and runs.</li>
