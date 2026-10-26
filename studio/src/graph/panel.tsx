@@ -71,7 +71,7 @@ export const Crumbs = ({ path }: { path: string }) => {
   );
 };
 
-export const gates = {
+export const checkModeTips = {
   warn: 'A failure is recorded and never holds the step.',
   block: 'A failure fails the try, and the output goes back as feedback.',
   stop: 'A failure stops the run.',

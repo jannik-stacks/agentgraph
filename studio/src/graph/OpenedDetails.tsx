@@ -3,7 +3,7 @@ import { Code, Markdown } from '../Markdown.tsx';
 import { atLink } from '../runs/trace.ts';
 import { runsAtom } from '../state.ts';
 import { accent, cx, Disclosure, Field, Fields, Link } from '../ui.tsx';
-import { Crumbs, gates, Section, Term, To } from './panel.tsx';
+import { Crumbs, checkModeTips, Section, Term, To } from './panel.tsx';
 import type { Fixture } from './scenarios.ts';
 import { findAgentUses, findCheckVerdicts } from './trail.ts';
 
@@ -65,7 +65,7 @@ export const CheckDetails = ({ fixture, path, name }: { fixture: Fixture; path: 
       </div>
       <Fields>
         <Field name={<Term tip="What a failure does to the step.">gate</Term>}>
-          <Term tip={gates[mode]}>{mode}</Term>
+          <Term tip={checkModeTips[mode]}>{mode}</Term>
         </Field>
         <Field name="decided by">
           {check?.agent === undefined ? (

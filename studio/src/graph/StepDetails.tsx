@@ -8,7 +8,7 @@ import { RunLine } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';
 import { atLink } from '../runs/trace.ts';
 import { accent, cx, Field, Fields, Link, Tooltip } from '../ui.tsx';
-import { gates, Section, Term, To } from './panel.tsx';
+import { checkModeTips, Section, Term, To } from './panel.tsx';
 import type { Fixture, RunDrawnOnWorkflow, Trail } from './scenarios.ts';
 
 const Prompt = ({ title, text }: { title: string; text: string }) => (
@@ -100,7 +100,7 @@ const CheckItem = ({
                 <To path={`${path}/check:${name}/agent:${check.agent}`}>{check.agent}</To>
               </>
             )}
-            , <Term tip={gates[mode]}>{mode}</Term>
+            , <Term tip={checkModeTips[mode]}>{mode}</Term>
           </span>
           {lines && !result && <span className="text-zinc-400">not run yet</span>}
           <span className="ml-auto flex items-baseline gap-1">

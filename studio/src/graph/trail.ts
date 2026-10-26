@@ -1,25 +1,13 @@
 import type { ServedRun } from '../runs/trace.ts';
 import type { Fixture } from './scenarios.ts';
 
-type Opened = { kind: 'check' | 'agent'; name: string };
-
 export const splitSelection = (selected: string | null) => {
   const [workflow, step, ...rest] = selected?.split('/') ?? [];
-  const trail = rest.flatMap((part): Opened[] => {
+  const trail = rest.flatMap((part): { kind: 'check' | 'agent'; name: string }[] => {
     const [kind, name] = part.split(':');
     return (kind === 'check' || kind === 'agent') && name ? [{ kind, name }] : [];
   });
   return { workflow, step, trail };
-};
-
-type Verdict = {
-  run: string;
-  issue: number;
-  at: string;
-  pass: boolean;
-  findings?: string | undefined;
-  items: number;
-  failed: number;
 };
 
 export const findCheckVerdicts = (
@@ -28,7 +16,18 @@ export const findCheckVerdicts = (
   step: string,
   check: string
 ) => {
-  const byTime = new Map<string, Verdict>();
+  const byTime = new Map<
+    string,
+    {
+      run: string;
+      issue: number;
+      at: string;
+      pass: boolean;
+      findings?: string | undefined;
+      items: number;
+      failed: number;
+    }
+  >();
   for (const { fixture: from, run, trace } of runs) {
     if (from !== fixture) continue;
     for (const line of trace) {
