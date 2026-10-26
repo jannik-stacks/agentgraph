@@ -189,7 +189,15 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
           : 'shadow-xs'
       )}
     >
-      {selected && <Selected />}
+      {selected && (
+        <>
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -inset-[2px] -z-10 rounded-[8px] shadow-[0_0_0_5px_rgb(14_165_233/0.12),0_1px_2px_rgb(12_74_110/0.12),0_4px_10px_-2px_rgb(12_74_110/0.16),0_12px_28px_-6px_rgb(12_74_110/0.22)] dark:shadow-[0_0_0_5px_rgb(56_189_248/0.14),0_1px_2px_rgb(0_0_0/0.4),0_4px_10px_-2px_rgb(0_0_0/0.45),0_12px_28px_-6px_rgb(0_0_0/0.55)]"
+          />
+          <Selected />
+        </>
+      )}
       {running && <span className="agi-shine" style={shineTiming(id)} />}
       <Handle type="target" position={Position.Left} isConnectable={false} className={handle} style={arrival} />
       <Handle type="source" position={Position.Right} isConnectable={false} className={handle} />
