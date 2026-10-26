@@ -545,7 +545,7 @@ async function report(i: Instance, issue: number, merged = false) {
   for (const line of waiting.filter(l => !l.startsWith('  '))) console.log(line);
   const last = runs.toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
   if (last?.status === 'stopped') console.log(`${last.id} stopped at ${last.step}: ${last.reason}`);
-  if (last?.reason?.includes('rejected the login') && (values.provider ?? i.provider) === 'claude')
+  if (last?.reason?.includes('rejected the key or login') && (values.provider ?? i.provider) === 'claude')
     console.log(relogin);
   for (const line of await formatRunnerErrors(i.data, runs)) console.log(line);
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];

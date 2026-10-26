@@ -1310,7 +1310,7 @@ const attempt = (
           };
           if (!r.cut && r.ended !== 'stop')
             return yield* new SessionStop({
-              reason: /Failed to authenticate|\b401\b/.test(r.final) ? 'login' : 'provider',
+              reason: /Failed to authenticate|Invalid API key|\b401\b/.test(r.final) ? 'login' : 'provider',
               detail: `session ended ${r.ended} (exit ${r.exit ?? 0}), final: ${squeeze(r.final, 200)}`,
             });
           return r;
@@ -1581,7 +1581,7 @@ export const runStepChecks = (
     return { outcome };
   });
 
-const rejected = 'the model provider rejected the login. Log in again, then start a new run.';
+const rejected = 'the model provider rejected the key or login. Fix it, then start a new run.';
 
 const explain = (e: SandboxError | SessionStop | ForgeError) =>
   `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;
