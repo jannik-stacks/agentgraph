@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { rmSync, symlinkSync } from 'node:fs';
+import { rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, runScript, tmp } from './kit.ts';
@@ -176,6 +176,61 @@ describe('agentgraph hub checks', () => {
     expect(format.out).toContain('oxfmt src/a.ts');
     const tidy = change(config, { 'src/a.ts': "export const a = 'b';\n", 'src/b.ts': 'export const b = 2;\n' });
     expect(check(at('lint.mjs'), tidy)).toEqual({ ok: true, out: 'lint: ok' });
+  });
+});
+
+const deny = () => {
+  const file = join(tmp('deny'), 'deny.txt');
+  writeFileSync(file, '\\bmorgan\\b\nacme-internal\n# private repos and people\n');
+  return file;
+};
+
+describe('hygiene check', () => {
+  const home = ['', 'Users', 'someone', 'notes'].join('/');
+  const email = ['ops', 'acme.io'].join('@');
+
+  it('passes placeholder paths, noreply and example emails, and words the list does not hold', () => {
+    const repo = change(
+      { 'a.md': 'a\n' },
+      { 'a.md': 'a\n/Users/me/x and /home/agent/x\n1+bot@users.noreply.github.com dev@example.com t@t\nmorganite\n' }
+    );
+    expect(runScript(resolve(scripts, 'hygiene.mjs'), repo, [], { AGENTGRAPH_DENY: deny() })).toEqual({
+      ok: true,
+      out: 'hygiene: ok',
+    });
+  });
+
+  it('fails home folders, personal emails and listed words in added lines, file names and proposals, without the word', () => {
+    const repo = change(
+      { 'a.md': 'a\n' },
+      { 'a.md': `a\n${home}\nask ${email}\n`, 'docs/morgan.md': 'Morgan wrote this\n' }
+    );
+    const proposals = join(tmp('proposals'), 'proposals.json');
+    writeFileSync(
+      proposals,
+      JSON.stringify([{ kind: 'pull_request', branch: 'b', base: 'main', title: 't', body: 'see acme-internal' }])
+    );
+    const { ok, out } = runScript(resolve(scripts, 'hygiene.mjs'), repo, [], {
+      AGENTGRAPH_DENY: deny(),
+      AGENTGRAPH_PROPOSALS: proposals,
+    });
+    expect(ok).toBe(false);
+    expect(out.split('\n')).toEqual([
+      'pull_request proposal: names a word on line 2 of the deny list',
+      'a.md:2: adds a home folder path',
+      'a.md:3: adds an email address that is not a noreply one',
+      'docs/morgan.md: its path names a word on line 1 of the deny list',
+      'docs/morgan.md:1: adds a word on line 1 of the deny list',
+      'hygiene: 5 findings',
+    ]);
+    expect(out).not.toMatch(/acme-internal|someone|ops@/);
+  });
+
+  it('fails when AGENTGRAPH_DENY names no file', () => {
+    const repo = change({ 'a.md': 'a\n' });
+    expect(
+      runScript(resolve(scripts, 'hygiene.mjs'), repo, [], { AGENTGRAPH_DENY: join(tmp('none'), 'deny.txt') }).out
+    ).toContain('AGENTGRAPH_DENY names no file');
   });
 });
 
