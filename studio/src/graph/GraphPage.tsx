@@ -49,7 +49,7 @@ const usePanelWidth = () => {
 };
 
 /**
- * The workflows of `shown` as one canvas, with the picked run drawn over its workflow, and a side panel for the
+ * The workflows of `shown` as one canvas, with the selected run drawn over its workflow, and a side panel for the
  * selected step or workflow.
  */
 const WorkflowGraph = ({
@@ -130,7 +130,7 @@ const useHere = () => {
   }, [runs]);
 };
 
-/** Draws the workflows, each with its run overlay when it holds the picked run. */
+/** Draws the workflows, each with its run overlay when it holds the selected run. */
 const Canvas = ({
   shown,
   picked,

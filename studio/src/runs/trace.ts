@@ -97,18 +97,19 @@ export const splitTraceIntoVisitedSteps = (trace: Trace[]) => {
   return visits;
 };
 
-/** The trace line `?at=` opens: the write stamped then, else the first write at or after it, else any line. */
+/** The trace line `?at=` opens: the write stamped then, else the line stamped then, else the first write at or after it, else any line. */
 export const lineAt = (trace: Trace[], at: string | null) =>
   at === null
     ? undefined
     : (trace.find(l => 'applied' in l && l.applied.at === at) ??
+      trace.find(l => l.at === at) ??
       trace.find(l => 'applied' in l && l.at >= at) ??
       trace.find(l => l.at >= at));
 
 /** The studio page of a run at one trace line. */
 export const atLink = (run: string, at: string) => `/runs/${encodeURIComponent(run)}?at=${at}`;
 
-/** The graph page with the run picked and `step` selected. */
+/** The graph page with the run and `step` selected. */
 export const graphLink = (r: ServedRun, step: string) =>
   `/graph?run=${encodeURIComponent(`${r.fixture}:${r.run.id}`)}&step=${encodeURIComponent(`${r.run.workflow}/${step}`)}`;
 

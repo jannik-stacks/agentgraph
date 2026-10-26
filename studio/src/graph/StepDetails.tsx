@@ -6,7 +6,8 @@ import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts'
 import { Code, Markdown } from '../Markdown.tsx';
 import { lineRow, Rows, RunLine } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';
-import { accent, cx, Disclosure, Field, Fields, Tooltip } from '../ui.tsx';
+import { atLink } from '../runs/trace.ts';
+import { accent, cx, Disclosure, Field, Fields, Link, Tooltip } from '../ui.tsx';
 import type { Fixture, RunDrawnOnWorkflow, Trail } from './scenarios.ts';
 
 const Section = ({ title, tip, children }: { title: string; tip?: string; children: React.ReactNode }) => (
@@ -62,20 +63,35 @@ const latest = (name: string, lines: Trace[]): CheckResult | undefined => {
   }
 };
 
-/** A check as one list item: its name, who judges it and its gate, its script and judge on demand, and with a run its latest result. */
+type PromptLine = Extract<Trace, { prompt: unknown }>;
+
+/** The trace line that produced a check's latest result: its judge's session end, else the check line. */
+const findCheckSource = (name: string, lines: Trace[]) => {
+  const prompt = lines.findLast((l): l is PromptLine => 'prompt' in l && l.prompt.check === name);
+  if (!prompt) return lines.findLast(l => 'check' in l && l.check.check === name);
+  return lines.findLast(l => 'event' in l && l.event.type === 'end' && 'key' in l && l.key === prompt.key) ?? prompt;
+};
+
+const formatCheckTime = (ms: number) =>
+  ms < 1000 ? `${ms} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)}m ${Math.round(ms / 1000) % 60}s`;
+
+/** A check as one list item: its name, who judges it and its gate, its latest result in the selected run, and its script, judge and findings on demand. */
 const CheckItem = ({
   name,
   check,
   judge,
   lines,
+  run,
 }: {
   name: string;
   check: Fixture['checks'][string] | undefined;
   judge: string | undefined;
   lines: Trace[] | undefined;
+  run: string | undefined;
 }) => {
-  const [shown, setShown] = useState<'script' | 'judge'>();
+  const [shown, setShown] = useState<'script' | 'judge' | 'findings'>();
   const result = lines && latest(name, lines);
+  const source = run && lines && findCheckSource(name, lines);
   const mode = check?.mode ?? 'block';
   const kind =
     check?.agent === undefined
@@ -86,19 +102,44 @@ const CheckItem = ({
             ? `The script runs and its output goes to ${check.agent}, whose reply must start with PASS; FAIL is a finding.`
             : `${check.agent} judges the diff; a reply starting with PASS passes, with FAIL fails.`,
         };
-  const toggles = [...(check?.run ? ['script' as const] : []), ...(check?.agent ? ['judge' as const] : [])];
+  const toggles = [
+    ...(check?.run ? ['script' as const] : []),
+    ...(check?.agent ? ['judge' as const] : []),
+    ...(result ? ['findings' as const] : []),
+  ];
   return (
     <li className="flex gap-2">
       <span aria-hidden className="text-zinc-400">
         –
       </span>
       <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-baseline gap-x-2">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="font-mono">{name}</span>
+          {result && (
+            <span
+              className={cx(
+                'rounded-sm px-1 text-[11px]',
+                result.pass
+                  ? 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+                  : cx('bg-sky-50 font-medium dark:bg-sky-950', accent.text)
+              )}
+            >
+              {result.pass ? 'passed' : 'failed'} in {formatCheckTime(result.ms)}
+            </span>
+          )}
           <span className="text-zinc-500">
             <Term tip={kind.tip}>{kind.label}</Term>, <Term tip={gates[mode]}>{mode}</Term>
           </span>
-          <span className="ml-auto flex gap-1">
+          {lines && !result && <span className="text-zinc-400">not run yet</span>}
+          <span className="ml-auto flex items-baseline gap-1">
+            {source && (
+              <Link
+                href={atLink(run!, source.at)}
+                className="rounded px-1.5 text-[11px] text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                {'check' in source ? 'trace' : 'session'}
+              </Link>
+            )}
             {toggles.map(key => (
               <button
                 key={key}
@@ -131,24 +172,15 @@ const CheckItem = ({
             )}
           </div>
         )}
-        {lines &&
-          (result ? (
-            <Disclosure
-              summary={
-                <span className={cx(!result.pass && accent.text)}>
-                  {result.pass ? 'passed' : 'failed'} last, {result.ms} ms
-                </span>
-              }
-            >
-              {result.findings ? (
-                <Code code={result.findings} compact wrap lines={12} />
-              ) : (
-                <p className="text-zinc-500">No findings.</p>
-              )}
-            </Disclosure>
-          ) : (
-            <p className="text-zinc-500">Not run yet in this run.</p>
-          ))}
+        {shown === 'findings' && result && (
+          <div className="agi-in">
+            {result.findings ? (
+              <Code code={result.findings} compact wrap lines={12} />
+            ) : (
+              <p className="text-zinc-500">No findings.</p>
+            )}
+          </div>
+        )}
       </div>
     </li>
   );
@@ -233,7 +265,7 @@ const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
   );
 };
 
-/** A step's doer, checks, tries and way back in plain words, what the picked run did there, and its prompts. */
+/** A step's doer, checks, tries and way back in plain words, what the selected run did there, and its prompts. */
 export const StepDetails = ({
   fixture,
   step,
@@ -351,6 +383,7 @@ export const StepDetails = ({
                 check={checks[name]}
                 judge={checks[name]?.agent && fixture.agents?.[checks[name].agent]}
                 lines={lines}
+                run={run?.trace && run.run.id}
               />
             ))}
           </ul>
@@ -358,7 +391,7 @@ export const StepDetails = ({
       )}
       {lines && (
         <Disclosure
-          summary={`In the picked run${lines.length ? `, ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}` : ''}`}
+          summary={`In the selected run${lines.length ? `, ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}` : ''}`}
           summaryClassName="font-medium text-zinc-500"
           className="space-y-1.5"
         >
