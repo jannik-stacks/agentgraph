@@ -9,7 +9,7 @@ import { Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { transition, type Run } from '../src/workflow.ts';
 import { start } from './fixtures.ts';
-import { fresh, hub, pullRequest, say, services, traceOf, w, world } from './world.ts';
+import { fresh, hub, pullRequest, say, services, readTrace, w, world } from './world.ts';
 
 const ending = (checks: Record<string, Partial<Check>>): Hub => ({
   ...hub,
@@ -64,7 +64,7 @@ const keep = (where: ReturnType<typeof world>, branch?: string) => {
 };
 
 const results = (data: string, id = 'run-7') =>
-  traceOf(data, id).flatMap(t => ('check' in t && t.item === undefined ? [{ ...t.check, end: t.end }] : []));
+  readTrace(data, id).flatMap(t => ('check' in t && t.item === undefined ? [{ ...t.check, end: t.end }] : []));
 
 const verdict = (text: string): SessionEvent[] => [start('j'), { type: 'text', text }];
 

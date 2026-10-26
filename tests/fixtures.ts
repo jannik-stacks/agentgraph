@@ -78,7 +78,7 @@ const kinds = ['comment', 'label', 'push', 'pull_request', 'merge', 'issue', 'as
 const doc = <T>(name: string, fields: T) => ({ ...fields, name, path: `${name}.md`, body: `You are ${name}.` });
 
 /** A fixture as a whole hub: every agent on opencode may propose anything, only an implementor code, and `checks` fills in commands and agents. */
-export const hubOf = (hub: string, checks: Record<string, Omit<Check, 'mode'>> = {}): Hub => {
+export const makeTestHub = (hub: string, checks: Record<string, Omit<Check, 'mode'>> = {}): Hub => {
   const f = fixture(hub);
   return {
     dir: '/hub',

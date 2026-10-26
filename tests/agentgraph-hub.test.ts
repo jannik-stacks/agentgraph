@@ -1146,7 +1146,7 @@ describe('slicers for the narrow judges', () => {
   });
 
   it('criteria: the change holds only the changed files the test file names, else the whole change', () => {
-    const criteriaFor = (test: string) => {
+    const getCriteria = (test: string) => {
       const repo = change(
         {
           'src/labels.ts': labels.before,
@@ -1164,12 +1164,12 @@ describe('slicers for the narrow judges', () => {
       writeFileSync(env.AGENTGRAPH_BRIEF, brief);
       return items(run('criteria.mjs', repo, [], env).out)[0]!.change as string;
     };
-    const narrow = criteriaFor("import { labelId } from '../src/labels.ts';\n");
+    const narrow = getCriteria("import { labelId } from '../src/labels.ts';\n");
     expect(narrow).toContain('+export const labelId');
     expect(narrow).not.toContain('src/util.ts');
     expect(narrow).not.toContain('src/other.ts');
-    expect(criteriaFor("run('other.ts');\n")).toMatch(/^diff --git a\/src\/other\.ts[^]*\+export const o = 2;$/);
-    expect(criteriaFor("import { gone } from '../src/gone.ts';\n")).toContain('+export const o = 2;');
+    expect(getCriteria("run('other.ts');\n")).toMatch(/^diff --git a\/src\/other\.ts[^]*\+export const o = 2;$/);
+    expect(getCriteria("import { gone } from '../src/gone.ts';\n")).toContain('+export const o = 2;');
   });
 
   it('reduce: one item with the criteria and the added lines under file and line', () => {

@@ -27,7 +27,7 @@ const logged = (logs: (typeof checkLogs)[number]) => {
         yield* store.log('ok\n'.repeat(1000), true),
         yield* store.log('lint: 1 error', false),
       ];
-      const texts = yield* Effect.forEach(refs, r => (r ? store.logOf(r.hash) : Effect.succeed(undefined)));
+      const texts = yield* Effect.forEach(refs, r => (r ? store.readLog(r.hash) : Effect.succeed(undefined)));
       const files = readdirSync(dir).includes('logs') ? readdirSync(join(dir, 'logs')).length : 0;
       return { refs, texts, files };
     }).pipe(Effect.provide(fileStore(dir, logs)))
@@ -59,7 +59,7 @@ describe('check logs', () => {
   it('answers nothing for a hash it does not hold or that is not one', async () => {
     const dir = data();
     const read = (hash: string) =>
-      Effect.runPromise(Effect.flatMap(Store, s => s.logOf(hash)).pipe(Effect.provide(fileStore(dir))));
+      Effect.runPromise(Effect.flatMap(Store, s => s.readLog(hash)).pipe(Effect.provide(fileStore(dir))));
     expect(await read('0'.repeat(64))).toBeUndefined();
     expect(await read('../run.json')).toBeUndefined();
   });

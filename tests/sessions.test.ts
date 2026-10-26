@@ -7,7 +7,7 @@ import { runStepChecks } from '../src/engine.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
-import { hubOf } from './fixtures.ts';
+import { makeTestHub } from './fixtures.ts';
 import { git } from './kit.ts';
 
 const dirs: string[] = [];
@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 /** Three runs gate one check that judges each of ten items, against a harness that counts its live sessions. */
-const peakOf = async (sessions: number) => {
+const findPeakSessions = async (sessions: number) => {
   const root = mkdtempSync(join(tmpdir(), 'agentgraph-sessions-'));
   dirs.push(root);
   const work = join(root, 'work');
@@ -24,7 +24,7 @@ const peakOf = async (sessions: number) => {
   mkdirSync(join(root, 'news'));
   git(work, 'init', '-q');
   git(work, 'commit', '-q', '--allow-empty', '-m', 'base');
-  const hub = hubOf('hub', { review: { agent: 'reviewer', each: 'seq 10' } });
+  const hub = makeTestHub('hub', { review: { agent: 'reviewer', each: 'seq 10' } });
   const small = { ...hub, dir: root, limits: { ...hub.limits, sessions } };
   const step = small.workflows.issue!.steps.find(s => s.checks.includes('review'))!;
   let live = 0;
@@ -70,10 +70,10 @@ const peakOf = async (sessions: number) => {
 
 describe('limits.sessions', () => {
   it('caps live sessions across runs and each items at the limit', async () => {
-    expect(await peakOf(4)).toEqual({ peak: 4, opened: 30, live: 0 });
+    expect(await findPeakSessions(4)).toEqual({ peak: 4, opened: 30, live: 0 });
   });
 
   it('finishes with a single permit', async () => {
-    expect(await peakOf(1)).toEqual({ peak: 1, opened: 30, live: 0 });
+    expect(await findPeakSessions(1)).toEqual({ peak: 1, opened: 30, live: 0 });
   });
 });

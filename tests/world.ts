@@ -15,13 +15,13 @@ import type { Hub } from '../src/hub.ts';
 import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { hubOf, seeded, start } from './fixtures.ts';
+import { makeTestHub, seeded, start } from './fixtures.ts';
 import { git } from './kit.ts';
 
 export const foot = (...lines: string[]) =>
   `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
 export const replyHint = answerWith;
-export const hub = hubOf('kit', {
+export const hub = makeTestHub('kit', {
   types: { run: '! grep -q TODO hello.txt' },
   safety: { run: '! test -e secret.txt' },
   claims: { agent: 'claim-checker' },
@@ -109,7 +109,7 @@ export const services = (
   return { specs, commands, order, marks, run };
 };
 
-export const traceOf = (data: string, id: string) =>
+export const readTrace = (data: string, id: string) =>
   readFileSync(join(data, id, 'trace.jsonl'), 'utf8')
     .split('\n')
     .filter(Boolean)
@@ -117,7 +117,7 @@ export const traceOf = (data: string, id: string) =>
 
 /** The 👀 a run gave and took back, in order, as the reaction id each took back or undefined when it gave one. */
 export const reactions = (data: string, id: string) =>
-  traceOf(data, id).flatMap(t =>
+  readTrace(data, id).flatMap(t =>
     'applied' in t && t.applied.proposal.kind === 'react' ? [[t.applied.ok, t.applied.proposal.remove]] : []
   );
 

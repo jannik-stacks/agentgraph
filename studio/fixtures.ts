@@ -38,17 +38,17 @@ const json = (res: ServerResponse, value: unknown, status = 200) => {
 };
 
 /** The bench out dirs at or under `dir`: those with a `log.jsonl`, never looking into case dirs. */
-const outsOf = (dir: string, depth = 3): string[] => [
+const findBenchOutDirs = (dir: string, depth = 3): string[] => [
   ...(existsSync(join(dir, 'log.jsonl')) ? [dir] : []),
   ...(depth && existsSync(dir)
     ? readdirSync(dir, { withFileTypes: true })
         .filter(e => e.isDirectory() && !/^(\.|engine$)/.test(e.name) && !existsSync(join(dir, e.name, 'human')))
-        .flatMap(e => outsOf(join(dir, e.name), depth - 1))
+        .flatMap(e => findBenchOutDirs(join(dir, e.name), depth - 1))
     : []),
 ];
 
 /** The driven bench dirs at or right under `dir`: those with a `set.json`. */
-const drivenOf = (dir: string): string[] => [
+const findDrivenBenchDirs = (dir: string): string[] => [
   ...(existsSync(join(dir, 'set.json')) ? [dir] : []),
   ...(existsSync(dir)
     ? readdirSync(dir, { withFileTypes: true })
@@ -106,12 +106,12 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       });
     });
     server.middlewares.use('/api/bench', async (_req, res) => {
-      const { readBenchRows: rowsOf }: typeof BenchModule = await from('bin/bench.ts');
+      const { readBenchRows }: typeof BenchModule = await from('bin/bench.ts');
       const { readBenchDriveState }: typeof DriveModule = await from('bench/drive.ts');
       const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
       json(res, {
-        rows: dirs.flatMap(dir => outsOf(dir)).flatMap(out => rowsOf(out)),
-        drives: [...new Set(dirs.flatMap(drivenOf))].map(readBenchDriveState),
+        rows: dirs.flatMap(dir => findBenchOutDirs(dir)).flatMap(out => readBenchRows(out)),
+        drives: [...new Set(dirs.flatMap(findDrivenBenchDirs))].map(readBenchDriveState),
         prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
       });
     });
@@ -126,7 +126,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       const hash = (req.url ?? '/').split('?')[0]!.slice(1);
       const text =
         data &&
-        (await Effect.runPromise(Effect.flatMap(Store, s => s.logOf(hash)).pipe(Effect.provide(fileStore(data)))));
+        (await Effect.runPromise(Effect.flatMap(Store, s => s.readLog(hash)).pipe(Effect.provide(fileStore(data)))));
       res.statusCode = text === undefined || text === '' ? 404 : 200;
       res.setHeader('content-type', 'text/plain; charset=utf-8');
       res.end(text || '');

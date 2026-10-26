@@ -13,7 +13,7 @@ import type { SessionEvent } from '../src/trace.ts';
 import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { harnesses, hubOf, reply, start, wrote } from './fixtures.ts';
+import { harnesses, makeTestHub, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
@@ -26,7 +26,7 @@ import {
   pull,
   judged,
   services,
-  traceOf,
+  readTrace,
   bodies,
   driveStored,
   fresh,
@@ -35,7 +35,7 @@ import {
 describe('drive', () => {
   it.each(['docker', 'host'])('preserves the checkout and index when saving work fails: %s', async kind => {
     const where = world();
-    const small = hubOf('hub');
+    const small = makeTestHub('hub');
     const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
     let work: Checkout | undefined;
     const sandbox = Layer.effect(
@@ -93,7 +93,7 @@ describe('drive', () => {
 
   it('cleans a partially acquired checkout after index setup fails', async () => {
     const where = world();
-    const small = hubOf('hub');
+    const small = makeTestHub('hub');
     const flow = {
       ...small.workflows.issue!,
       steps: small.workflows.issue!.steps.map(step => ({ ...step, checks: [] })),
@@ -131,7 +131,7 @@ describe('drive', () => {
 
   it('waits for host git and its helpers to stop before releasing a cancelled drive', async () => {
     const where = world();
-    const small = hubOf('hub');
+    const small = makeTestHub('hub');
     const flow = {
       ...small.workflows.issue!,
       steps: small.workflows.issue!.steps.map(step => ({ ...step, checks: [] })),
@@ -285,7 +285,7 @@ describe('drive', () => {
     expect(specs[5]!.prompt).toContain('no hunk needs a change before it can merge');
     expect(specs[5]!.prompt).toContain('+hello');
 
-    const trace = traceOf(where.data, 'run-7');
+    const trace = readTrace(where.data, 'run-7');
     const prompts = trace.flatMap(t => ('prompt' in t ? [t.prompt] : []));
     expect(prompts).toEqual(specs);
     const first = trace.findIndex(t => 'prompt' in t && t.step === 'implement');
@@ -428,14 +428,14 @@ describe('drive', () => {
       [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
     ]);
-    const loud = hubOf('kit', {
+    const loud = makeTestHub('kit', {
       types: { run: 'echo types ok' },
       safety: { run: 'echo secret.txt found; exit 1' },
       claims: { agent: 'claim-checker' },
     });
     await run(drive(w, fresh(), loud));
-    const logged = traceOf(where.data, 'run-7').flatMap(t => ('check' in t && t.log ? [t] : []));
-    const texts = await run(Effect.forEach(logged, t => Effect.flatMap(Store, s => s.logOf(t.log!.hash))));
+    const logged = readTrace(where.data, 'run-7').flatMap(t => ('check' in t && t.log ? [t] : []));
+    const texts = await run(Effect.forEach(logged, t => Effect.flatMap(Store, s => s.readLog(t.log!.hash))));
     const byName = logged.map((t, i) => [t.check.check, t.check.pass, texts[i]] as const);
     expect(byName.sort(([a], [b]) => a.localeCompare(b))).toEqual([
       ['claims', true, 'PASS, no claims'],
@@ -467,7 +467,7 @@ describe('drive', () => {
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
       [start('i1'), wrote('hello.txt', 'hello\n'), reply({ ...push, branch: 'agentgraph/8' })],
     ]);
-    const scoped = hubOf('kit', {
+    const scoped = makeTestHub('kit', {
       safety: { run: '! git diff --name-only $AGENTGRAPH_BASE | grep -qx CHAT.md' },
     });
     const stopped = await run(drive(w, begin(w, { id: 'run-8', issue: 8, started: fresh().started }), scoped));
@@ -481,7 +481,7 @@ describe('drive', () => {
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
       [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
     ]);
-    const reads = hubOf('kit', {
+    const reads = makeTestHub('kit', {
       safety: { run: 'cat "$AGENTGRAPH_CONTEXT"; echo "issue $AGENTGRAPH_ISSUE"; cat "$AGENTGRAPH_REPLY"; exit 1' },
     });
     const stopped = await run(drive(w, fresh(), reads));
@@ -511,7 +511,7 @@ describe('drive', () => {
     const asked = await run(drive(w, fresh(), hub));
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Is it done already?' });
     expect(specs[2]!.prompt).toContain('no change was made');
-    const outcomes = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
+    const outcomes = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
     expect(outcomes).toContainEqual(
       expect.objectContaining({ kind: 'failed', problems: [expect.stringMatching(/^no change was made/)] })
     );
@@ -537,9 +537,9 @@ describe('drive', () => {
     expect(parked.reason).toBe(
       'Stopped by a runner error (SessionStop). The details are in the trace of run run-7. Reply to try triage again from where it was.'
     );
-    const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
+    const stops = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
     expect(stops).toContainEqual({ kind: 'ask', question: 'SessionStop: no scripted session left' });
-    const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
+    const sessions = readTrace(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions[0]).toEqual({ resumed: false, ended: 'provider', usd: 0 });
     const again = services(where, [[start('t1'), reply({ kind: 'ask', question: 'Which file?' })]]);
     const resumed = await again.run(driveStored(w, transition(w, parked, { kind: 'answer', text: 'go on' }), hub));
@@ -606,7 +606,7 @@ describe('setup', () => {
     expect(setups[0]).toMatchObject({ cmd: 'sh', network: 'proxy' });
     expect(commands.length).toBeGreaterThan(1);
     expect(commands.slice(1).every(c => c.network === 'none')).toBe(true);
-    const setup = traceOf(where.data, 'run-7').flatMap(t => ('setup' in t ? [t] : []));
+    const setup = readTrace(where.data, 'run-7').flatMap(t => ('setup' in t ? [t] : []));
     expect(setup).toEqual([expect.objectContaining({ step: 'triage', setup: { ms: expect.any(Number), exit: 0 } })]);
   });
 
@@ -622,7 +622,7 @@ describe('setup', () => {
     ).pipe(Layer.provide(hostSandbox(where.origin)));
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, replaySession(stopping()));
     await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
-    const cache = traceOf(where.data, 'run-7').flatMap(t => ('cache' in t ? [t.cache] : []));
+    const cache = readTrace(where.data, 'run-7').flatMap(t => ('cache' in t ? [t.cache] : []));
     expect(cache).toEqual([{ files: 2 }]);
   });
 
@@ -633,9 +633,9 @@ describe('setup', () => {
     const parked = await run(Effect.flatMap(drive(w, fresh(), failing), r => drive(w, r, failing)));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', tries: 0 });
     expect(specs).toHaveLength(0);
-    const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
+    const stops = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
     expect(stops).toContainEqual({ kind: 'ask', question: 'SandboxError: setup exited 3: registry unreachable' });
-    expect(traceOf(where.data, 'run-7').some(t => 'setup' in t && t.setup.exit === 3)).toBe(true);
+    expect(readTrace(where.data, 'run-7').some(t => 'setup' in t && t.setup.exit === 3)).toBe(true);
   });
 
   it('runs nothing with network when the hub has no setup', async () => {

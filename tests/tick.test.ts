@@ -17,7 +17,7 @@ import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import { begin, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { hubOf, reply, start, wrote } from './fixtures.ts';
+import { makeTestHub, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import {
   hub,
@@ -26,7 +26,7 @@ import {
   push,
   pull,
   services,
-  traceOf,
+  readTrace,
   reactions,
   bodies,
   driveStored,
@@ -37,7 +37,7 @@ import {
 } from './world.ts';
 
 describe('tick', () => {
-  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
 
   it.each(['event', 'cli'])('leaves a locked run to its driver when another tick sees stop: %s', async source => {
     const where = world();
@@ -94,7 +94,7 @@ describe('tick', () => {
     );
     expect(during).toBe('running');
     expect(done.status).toBe('stopped');
-    if (source === 'cli') expect(traceOf(where.data, 'run-7').filter(t => 'spoken' in t)).toHaveLength(1);
+    if (source === 'cli') expect(readTrace(where.data, 'run-7').filter(t => 'spoken' in t)).toHaveLength(1);
   });
 
   it('begins a run from a trusted command, drives it, and begins again only on a new command', async () => {
@@ -370,7 +370,7 @@ describe('tick', () => {
       }).pipe(Effect.provide(Layer.mergeAll(base, session)))
     );
     expect(final?.status).toBe('stopped');
-    expect(traceOf(where.data, 'run-7').filter(t => 'spoken' in t && t.spoken.issue === 8)).toHaveLength(1);
+    expect(readTrace(where.data, 'run-7').filter(t => 'spoken' in t && t.spoken.issue === 8)).toHaveLength(1);
   });
 
   it('takes an approval that came before a later trace line of the waiting run, such as a rebase', async () => {
@@ -528,7 +528,7 @@ describe('tick', () => {
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Will undo.');
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Undone.');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Undone.');
-    const marks = traceOf(where.data, 'run-7').filter(t => t.step === 'merge');
+    const marks = readTrace(where.data, 'run-7').filter(t => t.step === 'merge');
     expect(marks.flatMap(t => ('prompt' in t && t.aside ? [t.aside] : []))).toEqual([
       { issue: 8, comment: '2026-10-16T00:00:05.000Z' },
     ]);
@@ -978,7 +978,7 @@ describe('readEngineEnv', () => {
 });
 
 describe('scanIssuesAndRunningRuns', () => {
-  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
 
   it('drives a commanded issue and a parked one with a new answer, and skips an unmarked one and one waiting with nothing new', async () => {
     const where = world();

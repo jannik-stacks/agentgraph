@@ -11,7 +11,7 @@ const infra = join(import.meta.dirname, '..', 'infra', 'local');
 const hubDirs = readdirSync(examples)
   .map(name => join(examples, name))
   .filter(dir => existsSync(join(dir, 'hub.yaml')));
-const agentsOf = async (dir: string) => Object.values((await Effect.runPromise(loadHub(dir, harnesses))).agents);
+const readHubAgents = async (dir: string) => Object.values((await Effect.runPromise(loadHub(dir, harnesses))).agents);
 
 describe('example hubs', () => {
   it('finds every example hub', () => {
@@ -72,14 +72,14 @@ describe('models and keys', () => {
   });
 
   it.each(hubDirs)('every agent in %s asks for a model alias LiteLLM serves', async dir => {
-    const unknown = (await agentsOf(dir)).flatMap(a =>
+    const unknown = (await readHubAgents(dir)).flatMap(a =>
       a.model && !served.has(a.model) ? [`${a.name}: ${a.model}`] : []
     );
     expect(unknown).toEqual([]);
   });
 
   it.each(hubDirs)('gives every agent in %s a key that allows its model', async dir => {
-    const problems = (await agentsOf(dir)).flatMap(bot => {
+    const problems = (await readHubAgents(dir)).flatMap(bot => {
       const allowed = rows.get(bot.name);
       if (!allowed) return [`${bot.name} has no row in keys.sh`];
       if (bot.model && !allowed.includes(bot.model))

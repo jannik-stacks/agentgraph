@@ -20,12 +20,12 @@ import type { SessionEvent } from '../src/trace.ts';
 import { begin, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { hubOf, reply, start, wrote } from './fixtures.ts';
+import { makeTestHub, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
-import { world, push, pull, services, traceOf, bodies, driveStored, fresh, pullRequest } from './world.ts';
+import { world, push, pull, services, readTrace, bodies, driveStored, fresh, pullRequest } from './world.ts';
 
 describe('a run branch that moved', () => {
-  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
   const flow = {
     ...small.workflows.issue!,
     steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: ['types'] })),
@@ -67,7 +67,7 @@ describe('a run branch that moved', () => {
       if (conflict) expect(next.specs[0]!.prompt).toContain('Resolve each conflict');
       expect(git(where.origin, 'rev-parse', 'agentgraph/7^')).toBe(tip);
       expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe(conflict ? 'resolved' : 'pending');
-      const rebases = traceOf(where.data, 'run-7').flatMap(t =>
+      const rebases = readTrace(where.data, 'run-7').flatMap(t =>
         'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
       );
       expect(rebases).toEqual([!conflict]);
@@ -100,7 +100,7 @@ describe('a run branch that moved', () => {
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
     );
     expect(done.status).toBe('done');
-    expect(traceOf(where.data, 'run-7').filter(t => 'outcome' in t && t.outcome.kind === 'failed')).toEqual([]);
+    expect(readTrace(where.data, 'run-7').filter(t => 'outcome' in t && t.outcome.kind === 'failed')).toEqual([]);
   });
 
   it('keeps restored edits when following a new base on the first try', async () => {
@@ -175,13 +175,13 @@ describe('a run branch that moved', () => {
     const done = await next.run(driveStored(flow, { ...parked, status: 'running', onto: { sha: onto } }, small));
     expect(done.status).toBe('done');
     expect(next.specs).toHaveLength(1);
-    const pushes = traceOf(where.data, 'run-7').flatMap(t =>
+    const pushes = readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied.ok] : []
     );
     expect(pushes).toEqual([true]);
     expect(git(where.origin, 'show', 'agentgraph/7:pending.txt')).toBe('pending');
     expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('upstream');
-    expect(traceOf(where.data, 'run-7')).toContainEqual(
+    expect(readTrace(where.data, 'run-7')).toContainEqual(
       expect.objectContaining({
         applied: expect.objectContaining({
           proposal: expect.objectContaining({ kind: 'rebase', onto: tip }),
@@ -202,7 +202,7 @@ describe('a run branch that moved', () => {
     await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect(git(where.origin, 'rev-parse', branch)).toBe(before);
     expect(
-      traceOf(where.data, 'run-7').flatMap(t =>
+      readTrace(where.data, 'run-7').flatMap(t =>
         'applied' in t && ['push', 'pull_request'].includes(t.applied.proposal.kind) && t.applied.ok ? [t.applied] : []
       )
     ).toEqual([]);
@@ -222,7 +222,7 @@ describe('a run branch that moved', () => {
     await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect((await run(Effect.flatMap(Forge, f => f.issue(8)))).state).toBe('open');
     expect(
-      traceOf(where.data, 'run-7').some(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'merge')
+      readTrace(where.data, 'run-7').some(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'merge')
     ).toBe(false);
   });
 
@@ -361,7 +361,7 @@ describe('a run branch that moved', () => {
         );
         const parked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit);
         expect(
-          traceOf(where.data, 'run-7').some(
+          readTrace(where.data, 'run-7').some(
             t =>
               'applied' in t &&
               t.applied.ok &&
@@ -374,11 +374,11 @@ describe('a run branch that moved', () => {
       }).pipe(Effect.provide(layer))
     );
     expect(done.status).toBe('done');
-    expect(traceOf(where.data, 'target-8').filter(t => 'told' in t)).toHaveLength(1);
+    expect(readTrace(where.data, 'target-8').filter(t => 'told' in t)).toHaveLength(1);
     expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'First')).toHaveLength(1);
     expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'Second')).toHaveLength(1);
     expect(
-      traceOf(where.data, 'run-7').filter(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'push')
+      readTrace(where.data, 'run-7').filter(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'push')
     ).toHaveLength(1);
   });
 
@@ -490,7 +490,7 @@ describe('a run branch that moved', () => {
     const logs = readdirSync(join(where.data, 'logs')).filter(name => name.endsWith('.gz'));
     expect(logs).toHaveLength(1);
     const output = await Effect.runPromise(
-      Effect.flatMap(Store, s => s.logOf(logs[0]!.slice(0, -3))).pipe(Effect.provide(fileStore(where.data)))
+      Effect.flatMap(Store, s => s.readLog(logs[0]!.slice(0, -3))).pipe(Effect.provide(fileStore(where.data)))
     );
     expect(output).toBe('identical-output');
   });
@@ -506,7 +506,7 @@ describe('a run branch that moved', () => {
     const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
     const done = await run(drive(flow, current, small));
     expect(done.status).toBe('done');
-    expect(traceOf(where.data, 'run-7').some(t => 'outcome' in t)).toBe(true);
+    expect(readTrace(where.data, 'run-7').some(t => 'outcome' in t)).toBe(true);
     const fragments = readdirSync(join(where.data, 'run-7')).filter(name => name.endsWith('.partial'));
     expect(fragments).toHaveLength(partial ? 1 : 0);
     if (partial) expect(readFileSync(join(where.data, 'run-7', fragments[0]!), 'utf8')).toBe(fragment);
@@ -590,7 +590,7 @@ describe('a run branch that moved', () => {
     );
     expect(done).toMatchObject({ status: 'waiting', reason: 'Retry later' });
     expect(attempted.some(p => skipped.some(s => JSON.stringify(s) === JSON.stringify(p)))).toBe(false);
-    const failed = traceOf(where.data, 'run-7').flatMap(t =>
+    const failed = readTrace(where.data, 'run-7').flatMap(t =>
       'outcome' in t && t.outcome.kind === 'failed' ? [t.outcome] : []
     );
     expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped]);

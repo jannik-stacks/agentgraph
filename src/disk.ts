@@ -131,7 +131,7 @@ const usage = async () => {
 };
 
 const isData = (labels: Record<string, string>) => Object.keys(labels).some(k => k.startsWith('com.docker.compose.'));
-const labelsOf = (text = '') =>
+const parseDockerLabels = (text = '') =>
   Object.fromEntries(
     text
       .split(',')
@@ -145,11 +145,11 @@ const labelsOf = (text = '') =>
  */
 export const inventory = async (o: { roots?: string[]; measure?: boolean } = {}): Promise<DiskCacheEntry[]> => {
   const df = usage();
-  const tagsOf = new Map<string, string[]>();
+  const tagsById = new Map<string, string[]>();
   const others = new Set<string>();
   for (const l of lines(await ask(['image', 'ls', '--no-trunc', '--format', '{{.ID}} {{.Repository}}:{{.Tag}}']))) {
     const [id = '', tag = ''] = l.split(' ');
-    if (tag.startsWith('agentgraph-env/')) tagsOf.set(id, [...(tagsOf.get(id) ?? []), tag]);
+    if (tag.startsWith('agentgraph-env/')) tagsById.set(id, [...(tagsById.get(id) ?? []), tag]);
     else if (!tag.includes('<none>')) others.add(id);
   }
   const bases = others.size
@@ -171,7 +171,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
   const vols = lines(await ask(['volume', 'ls', '--format', '{{.Name}}\t{{.Labels}}']))
     .map(l => {
       const [name = '', labels] = l.split('\t');
-      return { name, labels: labelsOf(labels) };
+      return { name, labels: parseDockerLabels(labels) };
     })
     .filter(v => !isData(v.labels));
   const overlaid = (key: string) =>
@@ -184,14 +184,14 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
   const names = new Set(vols.map(v => v.name));
   const items: DiskCacheEntry[] = [];
   const keys = new Set<string>();
-  const inspected = tagsOf.size
+  const inspected = tagsById.size
     ? lines(
         await ask([
           'image',
           'inspect',
           '--format',
           '{{.Id}} {{.Created}} {{json .RootFS.Layers}} {{json .Config.Labels}}',
-          ...tagsOf.keys(),
+          ...tagsById.keys(),
         ])
       )
     : [];
@@ -199,7 +199,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
     const [id = '', created = '', layers = '[]', ...rest] = l.split(' ');
     const labels = (JSON.parse(rest.join(' ') || 'null') ?? {}) as Record<string, string>;
     const key = labels['agentgraph.env'];
-    const tags = tagsOf.get(id) ?? [];
+    const tags = tagsById.get(id) ?? [];
     if (!key || !tags.length || isData(labels)) continue;
     const why = gone(labels, JSON.parse(layers) as string[]);
     const unique = (await df).images.get(id) ?? 0;
@@ -333,7 +333,7 @@ const dockerFree = (image: string, volume: string) => {
 };
 
 /** Free bytes where `disk` writes, the smaller of the host dir and the docker disk. */
-const freeOf = async ({ dir, image, volume }: Disk) => {
+const getFreeBytes = async ({ dir, image, volume }: Disk) => {
   let host = Infinity;
   try {
     const s = statfsSync(dir);
@@ -344,7 +344,7 @@ const freeOf = async ({ dir, image, volume }: Disk) => {
 
 const gb = (b: number) => (b / 1e9).toFixed(1);
 
-const reasonOf = (free: number, need: number, kept: DiskCacheEntry[]) => {
+const formatNoRoomReason = (free: number, need: number, kept: DiskCacheEntry[]) => {
   const by = new Map<string, number>();
   for (const i of kept) by.set(i.held!, (by.get(i.held!) ?? 0) + i.bytes);
   const pinned = [...by.keys()].filter(r => r.startsWith('pin ')).map(r => r.slice(4));
@@ -364,7 +364,7 @@ const reasonOf = (free: number, need: number, kept: DiskCacheEntry[]) => {
 export class DiskLow extends Error {
   readonly held: DiskCacheEntry[];
   constructor(free: number, need: number, held: DiskCacheEntry[]) {
-    super(reasonOf(free, need, held));
+    super(formatNoRoomReason(free, need, held));
     this.held = held;
   }
 }
@@ -375,13 +375,13 @@ export class DiskLow extends Error {
  * running container.
  */
 export const ensureFreeDisk = async (disk: Disk, min = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40)) => {
-  if ((await freeOf(disk)) >= min * 1e9) return;
+  if ((await getFreeBytes(disk)) >= min * 1e9) return;
   inDocker.clear();
   await removeOrphanedVolumes(60_000);
   const roots = (process.env.AGENTGRAPH_GC_ROOTS ?? '').split(':').filter(Boolean);
-  const { items, removed } = await collect({ roots, free: await freeOf(disk), floor: min * 1e9 });
+  const { items, removed } = await collect({ roots, free: await getFreeBytes(disk), floor: min * 1e9 });
   inDocker.clear();
-  const free = await freeOf(disk);
+  const free = await getFreeBytes(disk);
   if (free < min * 1e9)
     throw new DiskLow(
       free,

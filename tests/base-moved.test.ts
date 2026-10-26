@@ -11,9 +11,9 @@ import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import type { Hub } from '../src/hub.ts';
 import { type Step } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
-import { hubOf, reply, start, wrote } from './fixtures.ts';
+import { makeTestHub, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
-import { hub, w, world, push, pull, judged, services, traceOf, fresh, say, comment } from './world.ts';
+import { hub, w, world, push, pull, judged, services, readTrace, fresh, say, comment } from './world.ts';
 
 describe('a base that moved', () => {
   /** Run 7 waiting at merge on pull request #8. */
@@ -41,7 +41,7 @@ describe('a base that moved', () => {
   };
   const behind = (where: ReturnType<typeof world>) => git(where.origin, 'rev-list', '--count', 'agentgraph/7..main');
   const rebases = (where: ReturnType<typeof world>) =>
-    traceOf(where.data, 'run-7').flatMap(t =>
+    readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
     );
   /** The hub with the merge step's fields replaced. */
@@ -340,7 +340,7 @@ describe('runStepChecks', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = hubOf('hub', { types: { run: 'cat "$AGENTGRAPH_PROPOSALS"; exit 1' } });
+    const small = makeTestHub('hub', { types: { run: 'cat "$AGENTGRAPH_PROPOSALS"; exit 1' } });
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -364,7 +364,7 @@ describe('runStepChecks', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = hubOf('hub', { types: { each: 'true', run: 'exit 1' } });
+    const small = makeTestHub('hub', { types: { each: 'true', run: 'exit 1' } });
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -380,7 +380,7 @@ describe('runStepChecks', () => {
     };
     const { outcome } = await run(runStepChecks(step, left, small));
     expect(outcome).toEqual({ kind: 'pass' });
-    const checks = traceOf(where.data, 'run-7').flatMap(t =>
+    const checks = readTrace(where.data, 'run-7').flatMap(t =>
       'check' in t && t.check.check === 'types' ? [t.check] : []
     );
     expect(checks).toEqual([
@@ -399,7 +399,7 @@ describe('runStepChecks', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = hubOf('kit', { claims: { each: 'seq 21', agent: 'claim-checker' } });
+    const small = makeTestHub('kit', { claims: { each: 'seq 21', agent: 'claim-checker' } });
     const kit = { ...small, checks: { ...small.checks, claims: { ...small.checks.claims!, mode: 'block' as const } } };
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const { specs, run } = services(where, []);
@@ -427,7 +427,7 @@ describe('runStepChecks', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = hubOf('hub', { types: { each: 'echo at x.js:1 >&2; echo boom >&2; exit 1', run: 'exit 0' } });
+    const small = makeTestHub('hub', { types: { each: 'echo at x.js:1 >&2; echo boom >&2; exit 1', run: 'exit 0' } });
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -443,7 +443,7 @@ describe('runStepChecks', () => {
     };
     const { outcome } = await run(runStepChecks(step, left, small));
     expect(outcome.kind).toBe('failed');
-    const checks = traceOf(where.data, 'run-7').flatMap(t =>
+    const checks = readTrace(where.data, 'run-7').flatMap(t =>
       'check' in t && t.check.check === 'types' ? [t.check] : []
     );
     expect(checks).toEqual([
@@ -459,7 +459,10 @@ describe('runStepChecks', () => {
     const hubDir = join(where.root, 'hubdir');
     mkdirSync(join(hubDir, 'scripts'), { recursive: true });
     writeFileSync(join(hubDir, 'scripts', 'x.sh'), 'echo from hub\n');
-    const small = { ...hubOf('hub', { types: { run: 'sh "$AGENTGRAPH_HUB/scripts/x.sh"; exit 1' } }), dir: hubDir };
+    const small = {
+      ...makeTestHub('hub', { types: { run: 'sh "$AGENTGRAPH_HUB/scripts/x.sh"; exit 1' } }),
+      dir: hubDir,
+    };
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -485,7 +488,7 @@ describe('runStepChecks', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const base = hubOf('hub');
+    const base = makeTestHub('hub');
     const agent = (name: string, harness: Hub['agents'][string]['harness'], model: string): Hub['agents'][string] => ({
       name,
       path: `${name}.md`,
@@ -550,7 +553,7 @@ describe('runStepChecks', () => {
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
     const seen = join(where.root, 'seen.md');
-    const small = hubOf('kit', {
+    const small = makeTestHub('kit', {
       types: { run: `cp "$AGENTGRAPH_CONTEXT" ${seen}` },
       claims: { agent: 'claim-checker' },
     });
@@ -589,7 +592,7 @@ describe('runStepChecks', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const kit = hubOf('kit', {
+    const kit = makeTestHub('kit', {
       types: { run: 'echo x.ts:1 error; exit 1' },
       claims: { agent: 'claim-checker' },
     });
@@ -628,7 +631,7 @@ describe('runStepChecks', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const small = hubOf('kit', { claims: { each: 'echo a; echo b', agent: 'claim-checker' } });
+    const small = makeTestHub('kit', { claims: { each: 'echo a; echo b', agent: 'claim-checker' } });
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const judgedItems: string[] = [];
     const judges = Layer.succeed(Session, {
@@ -679,7 +682,7 @@ describe('runStepChecks', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const small = hubOf('kit', { claims: { agent: 'claim-checker' } });
+    const small = makeTestHub('kit', { claims: { agent: 'claim-checker' } });
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const specs: SessionSpec[] = [];
     const judges = Layer.succeed(Session, {
@@ -729,7 +732,7 @@ describe('runStepChecks', () => {
       mkdirSync(join(where.root, 'news'));
       git(dir, 'init', '-q');
       git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-      const base = hubOf('hub');
+      const base = makeTestHub('hub');
       const critic: Hub['agents'][string] = {
         name: 'critic',
         path: 'critic.md',
@@ -789,7 +792,7 @@ describe('runStepChecks', () => {
       const { exit, opened, data } = await judged([killed, killed], 'warn');
       expect(opened).toBe(2);
       expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
-      const found = traceOf(data, 'run-7').flatMap(t => ('check' in t ? [t.check] : []));
+      const found = readTrace(data, 'run-7').flatMap(t => ('check' in t ? [t.check] : []));
       expect(found).toMatchObject([
         { check: 'correct', pass: false, findings: expect.stringContaining('could not be judged') },
       ]);
@@ -810,14 +813,14 @@ describe('runStepChecks', () => {
       const cut: SessionEvent[] = [{ type: 'text', text: 'PASS fine' }];
       const { exit, data } = await judged([cut, cut]);
       expect(Exit.isFailure(exit)).toBe(true);
-      const sessions = traceOf(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
+      const sessions = readTrace(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
       expect(sessions.map(s => s.ended)).toEqual(['error', 'error']);
     });
 
     it('counts a non-zero exit as an error even after a clean stop', async () => {
       const { exit, data } = await judged([{ ...pass, exit: 1 }, pass]);
       expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
-      const sessions = traceOf(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
+      const sessions = readTrace(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
       expect(sessions).toMatchObject([
         { ended: 'error', exit: 1 },
         { ended: 'stop', exit: 0 },

@@ -52,7 +52,7 @@ export class Store extends Context.Tag('agentgraph/Store')<
     read: (id: string, from?: number) => Stream.Stream<Trace, StoreError>;
     lock: (name: string) => Effect.Effect<void, StoreError, Scope.Scope>;
     log: (output: string, pass: boolean) => Effect.Effect<Log | undefined, StoreError>;
-    logOf: (hash: string) => Effect.Effect<string | undefined, StoreError>;
+    readLog: (hash: string) => Effect.Effect<string | undefined, StoreError>;
   }
 >() {}
 
@@ -248,7 +248,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       );
     },
     log,
-    logOf: hash =>
+    readLog: hash =>
       /^[0-9a-f]{64}$/.test(hash)
         ? io(logFile(hash), () =>
             readFile(logFile(hash)).then(

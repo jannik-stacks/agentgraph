@@ -41,14 +41,14 @@ const holding = (body: string, pull?: Issue): IssueWithPull => ({
   },
   ...(pull && { pull: { ...pull, events: [] } }),
 });
-const bodyOf = (r: Run, t: IssueWithPull = holding('')) => {
+const getCommentBody = (r: Run, t: IssueWithPull = holding('')) => {
   const p = proposeStatusUpdates(r, t).find(p => p.kind === 'comment');
   return p?.kind === 'comment' ? p.body : undefined;
 };
 
 describe('the status comment', () => {
   it('is not edited while only tries, rounds and cost move', () => {
-    const t = holding(bodyOf(run)!);
+    const t = holding(getCommentBody(run)!);
     for (const tick of [
       { tries: 1 },
       { tries: 2, usd: 0.42 },
@@ -68,22 +68,22 @@ describe('the status comment', () => {
   });
 
   it('is not edited when the forge reads it back with its run stamp', () => {
-    const body = bodyOf(run)!;
+    const body = getCommentBody(run)!;
     expect(proposeStatusUpdates(run, holding(`${body}\n\n[⁂](http://studio/runs/issue-7?at=1) `))).toEqual([]);
     expect(proposeStatusUpdates(run, holding(`${body}\n\n<!-- agentgraph run=issue-7 step=implement -->`))).toEqual([]);
   });
 
   it('is edited when the step, status, question, pull request or result changes', () => {
-    const t = holding(bodyOf(run)!);
+    const t = holding(getCommentBody(run)!);
     const pr: Issue = {
       ...issue,
       number: 8,
       url: 'https://github.com/o/r/pull/8',
       pull: { branch: 'b', base: 'main', head: 'h' },
     };
-    expect(bodyOf({ ...run, step: 'review' }, t)).toBe('Working on review.');
-    expect(bodyOf({ ...run, status: 'waiting', reason: 'Which one?' }, t)).toMatch(/^Waiting for an answer/);
-    expect(bodyOf(run, holding(bodyOf(run)!, pr))).toContain(`Pull request: ${pr.url}`);
-    expect(bodyOf({ ...run, status: 'done', usd: 2 }, t)).toMatch(/^Done\.\n\n.*Cost: \$2\.00\./s);
+    expect(getCommentBody({ ...run, step: 'review' }, t)).toBe('Working on review.');
+    expect(getCommentBody({ ...run, status: 'waiting', reason: 'Which one?' }, t)).toMatch(/^Waiting for an answer/);
+    expect(getCommentBody(run, holding(getCommentBody(run)!, pr))).toContain(`Pull request: ${pr.url}`);
+    expect(getCommentBody({ ...run, status: 'done', usd: 2 }, t)).toMatch(/^Done\.\n\n.*Cost: \$2\.00\./s);
   });
 });

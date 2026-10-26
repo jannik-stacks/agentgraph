@@ -655,11 +655,11 @@ export const githubForge = (
       Effect.gen(function* () {
         if (!isAgentBranch(branch)) return yield* refuse(`a rebase goes to a ${pushLimits.prefix} branch`);
         const ref = yield* refPath(branch);
-        const tipOf = Effect.map(
+        const readRefTip = Effect.map(
           missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)),
           r => r?.object.sha
         );
-        const tip = yield* tipOf;
+        const tip = yield* readRefTip;
         if (!tip) return yield* refuse(`${branch} does not exist`);
         if (local && tip !== onto) return yield* refuse(`${branch} moved to ${tip}`, true);
         if (local) {
@@ -700,7 +700,7 @@ export const githubForge = (
           yield* git(work, ['read-tree', '-u', '--reset', tree]);
           return onto;
         }
-        if ((yield* tipOf) !== tip) return yield* refuse(`${branch} moved while it was rebased`, true);
+        if ((yield* readRefTip) !== tip) return yield* refuse(`${branch} moved while it was rebased`, true);
         yield* rewrite(branch, tip, head);
         yield* git(work, ['read-tree', '-u', '--reset', tree]);
         yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));

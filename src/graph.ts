@@ -33,7 +33,7 @@ const doer = ({ does }: Step) =>
   'agent' in does ? (does.skill ? `${does.agent} / ${does.skill}` : does.agent) : 'run' in does ? 'script' : 'human';
 
 /** What starts a workflow, in a few words. */
-const triggerOf = (w: Workflow) =>
+const formatTrigger = (w: Workflow) =>
   Object.entries(w.on)
     .map(([event, t]) =>
       event === 'issue_comment'
@@ -107,5 +107,5 @@ export function makeWorkflowGraph(
         : []
     ),
   ];
-  return { trigger: triggerOf(w), nodes, edges, worst };
+  return { trigger: formatTrigger(w), nodes, edges, worst };
 }

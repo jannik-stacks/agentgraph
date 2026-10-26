@@ -120,17 +120,17 @@ const real = readFileSync(join(import.meta.dirname, 'fixtures', 'interleaved-tra
   .trim()
   .split('\n')
   .map(line => JSON.parse(line) as Trace);
-const sessionsOf = (trace: Trace[]) =>
+const findSessionRows = (trace: Trace[]) =>
   runRow({ fixture: 'kit/issue', repo: 'o/r', run: { ...run, status: 'done' }, trace }, true)
     .children!.flatMap(visit => visit.children!)
     .filter(row => !row.raw || 'session' in (row.raw as object));
 
-const kindOf = (line: object) => ['prompt', 'event', 'session'].find(k => k in line);
+const getLineKind = (line: object) => ['prompt', 'event', 'session'].find(k => k in line);
 
 describe('sessions in a trace', () => {
   it('ties each prompt, its events and its end together in an older trace without keys', () => {
-    const sessions = sessionsOf(real);
-    expect(sessions.map(s => s.children?.map(c => kindOf(c.raw as object)))).toEqual([
+    const sessions = findSessionRows(real);
+    expect(sessions.map(s => s.children?.map(c => getLineKind(c.raw as object)))).toEqual([
       ['prompt', 'event', 'event', 'event', 'event'],
       ['prompt', 'event', 'event', 'event', 'event'],
       ['prompt'],
@@ -149,9 +149,9 @@ describe('sessions in a trace', () => {
         Effect.provide(fileStore(join(import.meta.dirname, 'fixtures', 'old-trace')))
       )
     );
-    const [session] = sessionsOf(old);
-    expect(session?.children?.map(c => kindOf(c.raw as object))).toEqual(
-      old.map(kindOf).filter(k => k && k !== 'session')
+    const [session] = findSessionRows(old);
+    expect(session?.children?.map(c => getLineKind(c.raw as object))).toEqual(
+      old.map(getLineKind).filter(k => k && k !== 'session')
     );
     expect(session?.children?.filter(c => (c.raw as { event?: { type: string } }).event?.type === 'tool')).toHaveLength(
       10
@@ -166,7 +166,7 @@ describe('sessions in a trace', () => {
       own.map(l => ({ ...l, key, ...('prompt' in l && { prompt: { ...l.prompt, check }, item: `${check}.ts` }) }));
     const [a, b] = [judged('a', 'names'), judged('b', 'scope')];
     const ended = { ...own.at(-1)!, key: 'c' } as Trace;
-    const sessions = sessionsOf([...a.flatMap((line, i) => [line, b[i]!]), ended] as Trace[]);
+    const sessions = findSessionRows([...a.flatMap((line, i) => [line, b[i]!]), ended] as Trace[]);
     expect(sessions).toHaveLength(3);
     expect(sessions.slice(0, 2).map(s => s.children?.map(c => (c.raw as { key: string }).key))).toEqual([
       a.slice(0, -1).map(() => 'a'),

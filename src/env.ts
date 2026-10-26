@@ -211,7 +211,7 @@ export const held = (key: string, prune = true) => {
   return running.some(o => o !== ownerId && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000);
 };
 
-const tagOf = (repo: string, key: string) =>
+const makeImageTag = (repo: string, key: string) =>
   `agentgraph-env/${
     repo
       .toLowerCase()
@@ -266,10 +266,10 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxS
   const one = async (mode: SandboxSetup['mode']) => {
     const inputs = mode === 'deps' ? skeleton.digest : tree;
     const key = hash([family, mode, inputs]);
-    const tag = tagOf(spec.repo, key);
+    const tag = makeImageTag(spec.repo, key);
     const pending = building.get(tag);
     if (pending) return pending;
-    const made = buildOf(spec, { key, tag, mode, inputs, lines, skeleton });
+    const made = createSandboxSetup(spec, { key, tag, mode, inputs, lines, skeleton });
     building.set(tag, made);
     made.catch(() => building.delete(tag));
     return made;
@@ -283,7 +283,7 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxS
   return env === 'setup' ? undefined : env;
 };
 
-const buildOf = async (
+const createSandboxSetup = async (
   spec: SandboxSetupSpec,
   b: { key: string; tag: string; mode: SandboxSetup['mode']; inputs: string; lines: string; skeleton: Skeleton }
 ): Promise<SandboxSetup | 'setup' | undefined> => {
@@ -417,11 +417,11 @@ export const dependencyDirs = async (gitDir: string, base: string, limit = 64) =
   const files = (await git(gitDir, 'ls-tree', '-r', '--name-only', base))
     .split('\n')
     .filter(p => p && !/(^|\/)node_modules\//.test(p));
-  const dirsOf = (name: string) =>
+  const findDirsWith = (name: string) =>
     files.filter(p => p === name || p.endsWith(`/${name}`)).map(p => p.slice(0, -name.length));
-  const crates = dirsOf('Cargo.toml');
+  const crates = findDirsWith('Cargo.toml');
   const found = [
-    ...dirsOf('package.json').map(d => `${d}node_modules`),
+    ...findDirsWith('package.json').map(d => `${d}node_modules`),
     ...crates.filter(d => !crates.some(o => o !== d && d.startsWith(o))).map(d => `${d}target`),
   ];
   return found.sort((a, b) => a.split('/').length - b.split('/').length).slice(0, limit);
@@ -429,7 +429,7 @@ export const dependencyDirs = async (gitDir: string, base: string, limit = 64) =
 
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
-const overlayOf = (lower: string, upper: string) => [
+const makeOverlayOpts = (lower: string, upper: string) => [
   '--driver',
   'local',
   '--opt',
@@ -472,7 +472,7 @@ const overlays = (image: string) =>
       await runDockerCli(['volume', 'create', upper]);
       await run(`type=volume,src=${upper},dst=/u`, 'mkdir', '-p', '/u/upper', '/u/work');
       const [l, u] = await mountpoints(lower, upper);
-      await runDockerCli(['volume', 'create', ...overlayOf(l!, u!), over]);
+      await runDockerCli(['volume', 'create', ...makeOverlayOpts(l!, u!), over]);
       await run(`type=volume,src=${over},dst=/o`, 'touch', '/o/x');
       return true;
     } catch {
@@ -569,7 +569,7 @@ export const createSharedMounts = async (
           ...label,
           '--label',
           `agentgraph.lower=${from.lower!.replace('agentgraph-lower-', '')}`,
-          ...overlayOf(`${lower}/.agentgraph-env/data/${i}`, upper),
+          ...makeOverlayOpts(`${lower}/.agentgraph-env/data/${i}`, upper),
           name,
         ]);
         sharedMounts[i] = { ...sharedMounts[i]!, name, upper: sharedMounts[i]!.name };
@@ -578,7 +578,7 @@ export const createSharedMounts = async (
     if (shared) {
       await runDockerCli(['volume', 'create', cache]);
       const [lower, upper] = await mountpoints(cache, shared);
-      await runDockerCli(['volume', 'create', ...label, ...overlayOf(lower!, upper!), `${shared}-o`]);
+      await runDockerCli(['volume', 'create', ...label, ...makeOverlayOpts(lower!, upper!), `${shared}-o`]);
       sharedMounts.push({ name: `${shared}-o`, dst: '/cache', upper: shared });
     }
   } catch (e) {

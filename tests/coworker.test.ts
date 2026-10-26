@@ -13,7 +13,7 @@ import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
 import { begin, cancelled, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { hubOf, reply, start, wrote } from './fixtures.ts';
+import { makeTestHub, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import {
   foot,
@@ -21,7 +21,7 @@ import {
   world,
   push,
   services,
-  traceOf,
+  readTrace,
   reactions,
   bodies,
   driveStored,
@@ -33,7 +33,7 @@ import {
 } from './world.ts';
 
 describe('stacks', () => {
-  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
   const issue = small.workflows.issue!;
   const merging = {
     ...small,
@@ -216,7 +216,7 @@ describe('stacks', () => {
 });
 
 describe('coworker', () => {
-  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
   const flow = small.workflows.issue!;
   const begun = () => begin(flow, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
@@ -397,7 +397,7 @@ describe('coworker', () => {
     expect(specs).toHaveLength(2);
     expect(specs[1]!.resume?.id).toBe('a');
     expect(specs[1]!.prompt.startsWith('say bye too')).toBe(true);
-    const ends = traceOf(where.data, done.id).flatMap(t => ('session' in t ? [t.session.ended] : []));
+    const ends = readTrace(where.data, done.id).flatMap(t => ('session' in t ? [t.session.ended] : []));
     expect(ends[0]).toBe('human');
   });
 
@@ -506,7 +506,7 @@ describe('coworker', () => {
       `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint)}`,
       'Hello or hi?',
     ]);
-    const edits = traceOf(where.data, 'run-7').flatMap(t =>
+    const edits = readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit
         ? [t.applied.proposal.body]
         : []
@@ -545,7 +545,7 @@ describe('coworker', () => {
       );
       expect(issue).toContain(done.reason);
     }
-    const outcomes = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome.kind] : []));
+    const outcomes = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome.kind] : []));
     expect(outcomes).toEqual(['failed', 'failed', fixed ? 'pass' : 'failed']);
   });
 
@@ -657,7 +657,7 @@ describe('compound engineering', () => {
     writeFileSync(join(where.data, 'run-7', 'run.json'), JSON.stringify(fresh()));
     writeFileSync(join(where.data, 'run-7', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
     const seen = join(where.root, 'seen.md');
-    const kit = hubOf('kit', {
+    const kit = makeTestHub('kit', {
       types: { run: `cp "$AGENTGRAPH_TRACES" ${seen}` },
       claims: { agent: 'claim-checker' },
     });
@@ -692,7 +692,7 @@ describe('compound engineering', () => {
     expect(read[0]).toContain('2 tool read {"path":"hello.txt"} ok');
   });
 
-  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const small = makeTestHub('hub', { types: { run: '! grep -q TODO hello.txt' } });
   const { branch: _branch, ...unbranched } = small.workflows.issue!;
   const looking = {
     ...small,

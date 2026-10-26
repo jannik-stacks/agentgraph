@@ -38,12 +38,12 @@ const crosses = (a: Point, b: Point, box: Box) =>
   Math.min(a.x, b.x) < box.x + box.width &&
   Math.max(a.y, b.y) > box.y &&
   Math.min(a.y, b.y) < box.y + box.height;
-const graphsOf = (list: readonly Fixture[]) =>
+const makeGraphs = (list: readonly Fixture[]) =>
   list.map(f => ({ workflow: f.workflow.name, graph: makeWorkflowGraph(f.workflow, f.checks) }));
 
 describe('studio graph', () => {
   it.each(SHOWN)('%s: places each step once, apart from the others, inside its own row', (_, list) => {
-    const { rows } = layout(graphsOf(list), [], new Set());
+    const { rows } = layout(makeGraphs(list), [], new Set());
     const boxes = rows.flatMap(r => r.nodes);
     expect(
       boxes.flatMap((a, i) => boxes.slice(i + 1).flatMap(b => (overlaps(a.box, b.box) ? [`${a.id} ${b.id}`] : [])))
@@ -56,7 +56,7 @@ describe('studio graph', () => {
   });
 
   it.each(SHOWN)('%s: routes each way back inside its row without crossing a node', (_, list) => {
-    const { rows } = layout(graphsOf(list), [], new Set());
+    const { rows } = layout(makeGraphs(list), [], new Set());
     const bad = rows.flatMap(row =>
       row.backs.flatMap(({ points }) =>
         points.flatMap((p, i) => {
