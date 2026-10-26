@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
@@ -445,6 +445,24 @@ describe('the human verbs on a forge folder', () => {
       expect.stringContaining('@cli: /agent Explain the retry path'),
     ]);
     expect(trace.filter(t => t.outcome?.question === 'SandboxError: no commit for main')).toHaveLength(failures);
+  });
+
+  it('gives comments from two racing processes different ids', async () => {
+    const dir = tmp('forge-race');
+    dirs.push(dir);
+    const forgeTs = join(import.meta.dirname, '..', 'src', 'forge.ts');
+    const writer = `import { writeTimelineEvent } from ${JSON.stringify(forgeTs)};
+for (let i = 0; i < 50; i++) writeTimelineEvent(process.argv[1], { issue: 1, kind: 'comment', actor: 'a', trusted: true, comment: { body: String(i) } });`;
+    const write = () =>
+      new Promise<number | null>(done =>
+        spawn('node', ['--input-type=module', '-e', writer, dir], { stdio: 'inherit' }).on('close', done)
+      );
+    expect(await Promise.all([write(), write()])).toEqual([0, 0]);
+    const ids = readFileSync(join(dir, '1.jsonl'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map(line => (JSON.parse(line) as { comment: { id: string } }).comment.id);
+    expect(new Set(ids).size).toBe(100);
   });
 
   it('parks say after both checkout attempts fail', async () => {

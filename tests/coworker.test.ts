@@ -497,8 +497,9 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
     ]);
     const asked = await run(drive(flow, begun(), small));
-    expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: '7-3' });
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
+    const status = issue.events.find(m => m.comment?.body.startsWith('Waiting'))?.comment?.id;
+    expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: status });
     expect(issue.labels).toEqual(['agentgraph:waiting']);
     expect(bodies(issue)).toEqual([
       '/agent',
