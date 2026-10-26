@@ -34,3 +34,32 @@ The agentgraph bot, humans and Claude Code meet one bar here: the rules above, t
 - The repo is public. Commits, pull requests and comments name no home folder, no email but a noreply one, and
   nothing on the operator's deny list; the example's hygiene check blocks them. Point `AGENTGRAPH_DENY` at the list,
   or put it at `examples/agentgraph/deny.txt`, which git ignores.
+
+## Releasing
+
+The package is `@jannik-stacks/agi` on npm. `npm run build` bundles the CLI into `dist/`, and `npm pack --dry-run`
+lists what ships. The studio is not in the package; `agi studio` needs a clone.
+
+- A user-facing change comes with a changeset: run `npx changeset`, pick patch, minor or major, write one or two
+  plain lines, and commit the file in `.changeset/` with the change. Don't edit `CHANGELOG.md` by hand.
+- On each push to `main`, [the release workflow](.github/workflows/release.yml) opens or updates the Version
+  Packages pull request, which sets the version and writes the changelog. Merging it publishes to npm through
+  trusted publishing, with provenance and no token.
+
+Trusted publishing needs the package on npm, so 0.0.1 goes out by hand once. Merge the release setup, wait for
+the Version Packages pull request, and publish from its branch before you merge it:
+
+```sh
+git clone --branch changeset-release/main https://github.com/jannik-stacks/agentgraph.git agi-release
+cd agi-release
+npm ci
+npm run build
+npm pack --dry-run
+npm login
+npm publish --access public
+```
+
+Then on npmjs.com, in the package's settings under Trusted publishing, add a GitHub Actions publisher with
+owner `jannik-stacks`, repository `agentgraph`, workflow `release.yml` and no environment. Set publishing access
+to require two-factor authentication and disallow tokens. Merge the Version Packages pull request; the workflow
+finds 0.0.1 on npm and publishes nothing. Tag the merged commit by hand: `git fetch origin && git tag v0.0.1 origin/main && git push origin v0.0.1`.
