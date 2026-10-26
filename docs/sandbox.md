@@ -81,10 +81,17 @@ The CLI [picks a provider](cli.md#picking-a-provider), listed in `agentgraph.con
 | Provider | Harness | Ready when |
 | --- | --- | --- |
 | `claude` | `claude` | its token is in the macOS Keychain or `~/.config/agentgraph/claude-token`, or `CLAUDE_CODE_OAUTH_TOKEN` is set |
+| `chatgpt` | `codex` | its own login is in `~/.config/agentgraph/codex/auth.json`; offered when `codex login status` passes |
 | `anthropic` | `claude` | `ANTHROPIC_API_KEY` is set |
 | `litellm` | any | `AGENTGRAPH_PROXY_KEYS` is set; agents without a model get `smart`. ChatGPT comes through here ([local stack](../infra/local/README.md)) |
 
-The first pick of `claude` runs `claude setup-token`, joins a token pasted over several lines, tries it with one small `claude -p` call, and keeps it only when that works. Codex sessions never hold a ChatGPT login; the gateway owns it.
+The first pick of `claude` runs `claude setup-token`, joins a token pasted over several lines, tries it with one small `claude -p` call, and keeps it only when that works.
+
+The first pick of `chatgpt` runs `codex login` with `CODEX_HOME=~/.config/agentgraph/codex`, so agentgraph gets its own login, apart from yours in `~/.codex`. Codex keeps it there in a 0600 file. At each start the host refreshes it when less than 2 days remain. Sessions get the access token only, with the refresh token blanked, and run codex's default model. opencode and pi could use the same login later. <!-- code: harnesses/providers.ts#chatgpt harnesses/codex.ts#makeCodexHarness -->
+
+#### A ChatGPT login in sessions
+
+With `chatgpt`, every session holds a working ChatGPT access token, in its environment and in `/tmp`. The token stays valid for up to 10 days. An agent, or a prompt injection in the repo it reads, could leak it, for example in a diff. Output lines are masked, diffs are not. The refresh token stays on the host, so a leaked token stops working when it expires. The Codex backend is not a public API and can change without notice. OpenAI's guidance advises against using a ChatGPT login for automation on public repos. The `litellm` gateway keeps logins out of sessions: they only hold a key you can revoke.
 
 ### Settings
 

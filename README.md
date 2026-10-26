@@ -4,7 +4,7 @@ agentgraph runs coding agents on your repo's issues. The agents, checks and work
 
 ## Quickstart
 
-You need Node 24, Docker without root and `git config user.name`. No API key: when you are logged in to Claude Code, the first `agi start` runs `claude setup-token`, tests the pasted token and keeps it in the macOS Keychain (a 0600 file on Linux). An Anthropic key or LiteLLM also work; see [Models](docs/local.md#models).
+You need Node 24, Docker without root and `git config user.name`. No API key: when you are logged in to Claude Code, the first `agi start` runs `claude setup-token`, tests the pasted token and keeps it in the macOS Keychain (a 0600 file on Linux). A ChatGPT login through Codex, an Anthropic key or LiteLLM also work; see [Models](docs/local.md#models).
 
 In a repo with an off-by-one bug in `padStart` and a failing test:
 
