@@ -216,10 +216,14 @@ describe('tune loop', () => {
     const ran: Parameters<typeof fakeBench>[0] = [];
     const io = fakeBench(ran) as unknown as Parameters<typeof step>[2];
     const dir = await init('demo', setup(), io);
-    const check = spawnSync(process.execPath, ['bin/run.ts', 'check', '--dir', join(dir, 'cands/i000-init/graph')], {
-      encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '' },
-    });
+    const check = spawnSync(
+      process.execPath,
+      ['bin/run.ts', 'check', '--dir', join(dir, 'cands/i000-init/graph'), '--provider', 'litellm'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, NODE_OPTIONS: '' },
+      }
+    );
     expect(check.status, check.stdout + check.stderr).toBe(0);
     const { tune } = tuneRows(dir);
     expect(Object.entries(tune.cases).sort()).toEqual([
