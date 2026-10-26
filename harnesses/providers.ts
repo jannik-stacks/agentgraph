@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -85,6 +85,69 @@ const claude: Provider = {
   },
 };
 
+const codexHome = join(config, 'codex');
+const codexAuth = join(codexHome, 'auth.json');
+const runCodexAtHome = (args: string[], stdio: 'inherit' | 'ignore') =>
+  spawnSync('codex', ['-c', 'cli_auth_credentials_store="file"', ...args], {
+    env: { ...process.env, CODEX_HOME: codexHome },
+    stdio,
+  }).status === 0;
+const readExpiry = (jwt: string) => JSON.parse(Buffer.from(jwt.split('.')[1] ?? '', 'base64url').toString()).exp * 1000;
+
+const readFreshCodexAuth = async () => {
+  const auth = JSON.parse(await readFile(codexAuth, 'utf8'));
+  if (readExpiry(auth.tokens.access_token) - Date.now() > 2 * 86_400_000) return auth;
+  const res = await fetch('https://auth.openai.com/oauth/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
+      grant_type: 'refresh_token',
+      refresh_token: auth.tokens.refresh_token,
+    }),
+  });
+  if (!res.ok)
+    throw new Error(`the ChatGPT login stopped working (HTTP ${res.status}); remove ${codexAuth} and run again`);
+  const { id_token, access_token, refresh_token } = await res.json();
+  const next = {
+    ...auth,
+    tokens: { ...auth.tokens, access_token, ...(id_token && { id_token }), ...(refresh_token && { refresh_token }) },
+    last_refresh: new Date().toISOString(),
+  };
+  await writeFile(`${codexAuth}.tmp`, JSON.stringify(next), { mode: 0o600 });
+  await rename(`${codexAuth}.tmp`, codexAuth);
+  return next;
+};
+
+const chatgpt: Provider = {
+  name: 'chatgpt',
+  harnesses: ['codex'],
+  ready: () => existsSync(codexAuth),
+  detect: () => loggedIn('codex', ['login', 'status']),
+  settings: async () => {
+    const { tokens } = await readFreshCodexAuth();
+    return {
+      AGENTGRAPH_PROXY_URL: 'codex=',
+      AGENTGRAPH_PROXY_KEYS: '',
+      AGENTGRAPH_SESSION_ENV: 'AGENTGRAPH_CHATGPT_AUTH',
+      AGENTGRAPH_MODELS: '*=default',
+      AGENTGRAPH_CHATGPT_AUTH: JSON.stringify({
+        auth_mode: 'chatgpt',
+        tokens: { ...tokens, refresh_token: '' },
+        last_refresh: new Date().toISOString(),
+      }),
+    };
+  },
+  login: async () => {
+    needTerminal(`run CODEX_HOME=${codexHome} codex -c 'cli_auth_credentials_store="file"' login`);
+    console.log('login    agentgraph needs its own ChatGPT login for the sandbox. Running `codex login`...');
+    await mkdir(codexHome, { recursive: true, mode: 0o700 });
+    if (!runCodexAtHome(['login'], 'inherit') || !runCodexAtHome(['login', 'status'], 'ignore'))
+      throw new Error('codex login failed; nothing was saved');
+    console.log(`         saved in ${codexAuth}`);
+  },
+};
+
 const anthropic: Provider = {
   name: 'anthropic',
   harnesses: ['claude'],
@@ -104,4 +167,4 @@ const litellm: Provider = {
   settings: () => ({ AGENTGRAPH_MODELS: process.env.AGENTGRAPH_MODELS ?? '*=smart' }),
 };
 
-export const makeProviders = (): Provider[] => [claude, anthropic, litellm];
+export const makeProviders = (): Provider[] => [claude, chatgpt, anthropic, litellm];

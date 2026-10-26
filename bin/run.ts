@@ -158,6 +158,7 @@ const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefin
 const noModel = `No model to use. Any one of these works:
   export ANTHROPIC_API_KEY=...       Anthropic API, then --provider anthropic
   --provider claude                  Claude subscription, through claude setup-token
+  --provider chatgpt                 ChatGPT subscription for codex, through codex login
   export AGENTGRAPH_PROXY_KEYS=...   your LiteLLM at AGENTGRAPH_PROXY_URL, which also holds
                                      a ChatGPT login (infra/local/README.md)`;
 
@@ -215,7 +216,8 @@ const connect = async (i: Instance, graph: string, after: string) => {
     await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))(host).catch(
       (e: Error) => fail(`${e.message}\n${after}`, 1)
     );
-  Object.assign(process.env, provider.settings?.() ?? {});
+  const settings = await Promise.resolve(provider.settings?.()).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+  Object.assign(process.env, settings ?? {});
   if (!host.sandbox) {
     const missing = await Effect.runPromise(whyModelHostsMissing).catch(() => undefined);
     if (missing) fail(`${missing}\n${after}`, 1);

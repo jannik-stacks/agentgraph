@@ -617,6 +617,23 @@ describe('codex', () => {
     expect(Object.keys(command.secrets ?? {})).toEqual(['AGENTGRAPH_LLM_API_KEY']);
   });
 
+  it('logs in from the passed ChatGPT login in /tmp without a gateway, and hides its token in output', async () => {
+    const token = 'fake-access-token-123';
+    const auth = JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: token, refresh_token: '' } });
+    const { exit, command } = await session(codex, [`leaked ${token}`], {
+      proxy: { url: 'codex=', keys: Redacted.make('') },
+      passed: { AGENTGRAPH_CHATGPT_AUTH: Redacted.make(auth) },
+    });
+    const [flag, script, ...args] = codexArgs(command);
+    expect([flag, ...args.slice(0, 3)]).toEqual(['-c', 'sh', 'codex', 'exec']);
+    expect(script).toContain('"$AGENTGRAPH_CHATGPT_AUTH" > /tmp/codex-auth.json');
+    expect(args.join(' ')).not.toContain('model_provider');
+    expect(Object.keys(command.secrets ?? {})).toEqual(['AGENTGRAPH_CHATGPT_AUTH']);
+    expect(readlinkSync(join(command.home!, '.codex', 'auth.json'))).toBe('/tmp/codex-auth.json');
+    expect(JSON.stringify(exit)).toContain('leaked ***');
+    expect(JSON.stringify(exit)).not.toContain(token);
+  });
+
   it('reads a run', async () => {
     const lines = [
       { type: 'thread.started', thread_id: 't1' },

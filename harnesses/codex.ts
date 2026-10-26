@@ -22,6 +22,7 @@ const CodexLine = Struct({
 
 const writing = ['edit', 'write', 'bash'];
 const writes = (tools: string[]) => tools.some(tool => writing.includes(tool));
+const writeAuth = 'umask 077; printf %s "$AGENTGRAPH_CHATGPT_AUTH" > /tmp/codex-auth.json && exec "$@"';
 
 export const makeCodexHarness = (): Harness => ({
   name: 'codex',
@@ -34,10 +35,11 @@ export const makeCodexHarness = (): Harness => ({
       ? ['can only grant edit, write and bash together']
       : []),
   ],
+  home: (_spec, route) => (route.url ? {} : { links: { '.codex/auth.json': '/tmp/codex-auth.json' } }),
   command: (spec, route) => {
     const resume = !spec.fork && spec.resume;
     const server = spec.returns && makeResultServer(spec.returns);
-    return {
+    const command = {
       cmd: 'codex',
       args: [
         'exec',
@@ -51,7 +53,7 @@ export const makeCodexHarness = (): Harness => ({
           `model_providers.agentgraph.base_url=${JSON.stringify(route.url)}`,
           'model_providers.agentgraph.env_key="AGENTGRAPH_LLM_API_KEY"',
           'model_providers.agentgraph.wire_api="responses"',
-        ].flatMap(setting => ['-c', setting]),
+        ].flatMap(setting => (route.url ? ['-c', setting] : [])),
         ...(server
           ? [
               `mcp_servers.agentgraph.command=${JSON.stringify(server.command)}`,
@@ -64,6 +66,7 @@ export const makeCodexHarness = (): Harness => ({
         resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
       ],
     };
+    return route.url ? command : { cmd: 'sh', args: ['-c', writeAuth, 'sh', command.cmd, ...command.args] };
   },
   parse: () => {
     let failed: string | undefined;

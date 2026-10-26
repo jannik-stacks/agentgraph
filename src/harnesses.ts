@@ -35,7 +35,7 @@ export type Provider = {
   harnesses: string[];
   ready: (host: { image: string; sandbox: string }) => boolean | Promise<boolean>;
   detect?: (host: Parameters<Provider['ready']>[0]) => boolean;
-  settings?: () => Record<string, string>;
+  settings?: () => Record<string, string> | Promise<Record<string, string>>;
   login?: (host: Parameters<Provider['ready']>[0]) => Promise<void>;
 };
 
@@ -197,7 +197,7 @@ export const harnessSession = (
             const { cmd, args, env = {} } = harness.command(spec, route);
             const hidden = Object.values(secrets)
               .map(secret => Redacted.value(secret))
-              .flatMap(secret => [secret, ...secret.split('\n')])
+              .flatMap(secret => [secret, ...secret.split(/[\n"]/)])
               .flatMap(secret => (secret.length < 8 ? [] : [JSON.stringify(secret).slice(1, -1), secret]));
             const parse = harness.parse();
             let session: string | undefined;
