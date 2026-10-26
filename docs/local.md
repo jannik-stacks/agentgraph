@@ -12,7 +12,7 @@ npm run keys                                   # one proxy key per agent, in inf
 
 Runs need the stack up. `npm run down` stops it and keeps its volumes.
 
-[Local infrastructure](../infra/local/README.md) covers providers, the ChatGPT login for `smart` and moving a stack from the old `bothub` compose project.
+[Local infrastructure](../infra/local/README.md) covers providers and the ChatGPT login for `smart`.
 
 ## The CLI
 
