@@ -15,6 +15,8 @@ import {
   writeClosed,
   writeComment,
   writeReview,
+  formatGraphName,
+  whyGraphUncommitted,
 } from '../src/instance.ts';
 import { formatIssueList, formatIssueTimeline } from '../src/status.ts';
 import { scanIssuesAndRunningRuns, tick, type Instruction, type Services } from '../src/engine.ts';
@@ -655,7 +657,7 @@ describe('an instance', () => {
     ]);
     expect(first.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
     const shown = cli('show');
-    expect(shown.out).toContain('npx agentgraph merge 1');
+    expect(shown.out).toContain('agi merge 1');
     expect(shown.out).toContain('#2 open Add hello (agentgraph/1 into main)');
     expect(cli('check', '--dir', sandboxGraph).out).toBe('ok');
 
@@ -703,11 +705,15 @@ describe('an instance', () => {
     const i = await ensureInstance(join(w.root, 'agentgraph-data'), w.seed);
     await ensureBase(i);
     expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'default'));
+    expect(await whyGraphUncommitted(i)).toContain('.agentgraph/ has uncommitted changes');
     git(w.seed, 'add', '.agentgraph');
     git(w.seed, 'commit', '-q', '-m', 'graph');
     await ensureBase(i);
     const graph = await ensureGraph(i);
-    expect(graph.startsWith(join(i.dir, 'graphs'))).toBe(true);
+    expect([await whyGraphUncommitted(i), await formatGraphName(i, graph)]).toEqual([
+      undefined,
+      expect.stringMatching(/^\.agentgraph\/ at main [0-9a-f]{7,}$/),
+    ]);
     expect(readFileSync(join(graph, 'settings.yaml'), 'utf8')).toBe(
       readFileSync(join(sandboxGraph, 'settings.yaml'), 'utf8')
     );
@@ -743,5 +749,26 @@ describe('the CLI flags', () => {
       encoding: 'utf8',
     });
     expect([ran.status, ran.stderr]).toEqual([2, expect.stringContaining(message)]);
+  });
+
+  it.each([
+    [['--help'], 0],
+    [[], 0],
+    [['status'], 2],
+  ] as const)('prints the usage for %o and makes no instance', (args, code) => {
+    const repo = tmp('cli-usage');
+    const data = tmp('cli-usage-data');
+    dirs.push(repo, data);
+    git(repo, 'init', '-q');
+    const ran = spawnSync(process.execPath, [runTs, ...args, '--data', join(data, 'root')], {
+      cwd: repo,
+      env: { ...process.env, NODE_OPTIONS: '' },
+      encoding: 'utf8',
+    });
+    expect([ran.status, ran.stdout + ran.stderr, existsSync(join(data, 'root'))]).toEqual([
+      code,
+      expect.stringContaining('usage: agi <verb>'),
+      false,
+    ]);
   });
 });

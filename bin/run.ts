@@ -5,8 +5,8 @@ import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
-import { Effect, Redacted } from 'effect';
-import { ensureDocker } from '../src/docker.ts';
+import { Effect, Redacted, Stream } from 'effect';
+import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/engine.ts';
 import type { Graph } from '../src/folder.ts';
 import { fileForge, Forge } from '../src/forge.ts';
@@ -33,6 +33,8 @@ import {
   writeReview,
   writeInstanceProvider,
   writeLabels,
+  formatGraphName,
+  whyGraphUncommitted,
   type Instance,
 } from '../src/instance.ts';
 import { createLoopLock, isLoopHeld, readEngineEnv, start, writeTriggeringIssue } from '../src/main.ts';
@@ -42,13 +44,14 @@ import {
   formatIssueList,
   formatIssueTimeline,
   formatNextSteps,
+  formatRunnerError,
   formatShellWord,
 } from '../src/status.ts';
-import { readHostSettings } from '../src/services.ts';
+import { readHostSettings, whyModelHostsMissing } from '../src/services.ts';
 import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import type { Run } from '../src/workflow.ts';
 
-const usage = `usage: npx agentgraph <verb> [flags]
+const usage = `usage: agi <verb> [flags]
   start "<title>[\\n<body>]" [--workflow <name>]   files an issue and drives it until it waits or ends
   loop [--once]                                   drives every open issue, again every AGENTGRAPH_EVERY minutes
   show [<n>|graph]                                  what needs you and every issue, one issue in full, or the graph
@@ -60,8 +63,9 @@ const usage = `usage: npx agentgraph <verb> [flags]
   check [<check>... --runs [--issue <n>]]        validates the graph, or runs checks again on ended runs
   dispatch <n> --workflow <name> [--step <step>]  starts a workflow that takes dispatch on issue n
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
-flags: --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
+flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
        --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...`;
+const verbs = [...usage.matchAll(/^  ([a-z-]+)/gm)].map(m => m[1]);
 
 const { values, positionals } = parseArgs({
   options: {
@@ -85,6 +89,8 @@ const { values, positionals } = parseArgs({
     model: { type: 'string' },
     save: { type: 'boolean' },
     label: { type: 'string', multiple: true },
+    help: { type: 'boolean', short: 'h' },
+    version: { type: 'boolean' },
   },
   allowPositionals: true,
 });
@@ -100,10 +106,29 @@ const numbered = () => (isIssueNumber(n) ? n : fail(`${verb} takes an issue numb
 const said = () => rest.slice(1).join(' ').trim();
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
   .version;
+if (values.version) {
+  console.log(version);
+  process.exit(0);
+}
+if (values.help || !verb) {
+  console.log(usage);
+  process.exit(0);
+}
+if (!verbs.includes(verb)) fail(`no verb ${verb}\n${usage}`);
 const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
 const printRuns = (runs: Run[]) => {
   for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
+};
+const formatRunnerErrors = async (data: string, runs: Run[]) => {
+  const lines: string[] = [];
+  for (const run of runs.filter(r => r.status === 'waiting' && r.retried)) {
+    const trace = await Effect.runPromise(
+      Effect.flatMap(Store, s => Stream.runCollect(s.read(run.id))).pipe(Effect.provide(fileStore(data)))
+    );
+    lines.push(...formatRunnerError([...trace], join(data, run.id, 'trace.jsonl')));
+  }
+  return lines;
 };
 const makeHarnessChoice = (provider: string | undefined) => ({
   config: host.config,
@@ -129,10 +154,10 @@ const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefin
 };
 
 const noModel = `No model to use. Any one of these works:
-  npx agentgraph start --provider claude "..."     Claude subscription, through claude setup-token
-  export ANTHROPIC_API_KEY=...                     Anthropic API
-  export AGENTGRAPH_PROXY_KEYS=...                 your LiteLLM at AGENTGRAPH_PROXY_URL, which also
-                                                   holds a ChatGPT login (infra/local/README.md)`;
+  export ANTHROPIC_API_KEY=...       Anthropic API, then --provider anthropic
+  --provider claude                  Claude subscription, through claude setup-token
+  export AGENTGRAPH_PROXY_KEYS=...   your LiteLLM at AGENTGRAPH_PROXY_URL, which also holds
+                                     a ChatGPT login (infra/local/README.md)`;
 
 const pickProvider = async (i: Instance, after: string): Promise<{ provider: Provider; ready?: boolean }> => {
   const { providers = [], provider: named } = await Effect.runPromise(
@@ -176,25 +201,27 @@ const findUnserved = (provider: Provider, graph: Graph) =>
     }));
 
 const connect = async (i: Instance, graph: string, after: string) => {
-  if (!host.sandbox) {
-    const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`), host.image)).catch(
-      (e: Error) => fail(`${e.message}\n${after}`, 1)
-    );
-    console.log(`sandbox  docker ${docker}`);
-  }
+  const root = !host.sandbox && whyRoot();
+  if (root) fail(`${root}\n${after}`, 1);
   const { provider, ready } = await pickProvider(i, after);
   if (values.save && values.provider) writeInstanceProvider(i, provider.name);
   const harness = values.harness ?? provider.harnesses[0]!;
   if (!provider.harnesses.includes(harness)) fail(`${formatUnserved(provider, harness)}\n${after}`);
-  console.log(
-    `agentgraph ${version}: ${harness} on ${provider.name}, ${graph === defaultDir ? 'default graph' : `graph ${graph}`}, local forge`
-  );
+  console.log(`agentgraph ${version}: ${harness} on ${provider.name}, ${await formatGraphName(i, graph)}, local forge`);
   console.log(`repo     ${i.repo}, base ${i.base}`);
   if (!(ready ?? (await provider.ready(host))))
     await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))(host).catch(
       (e: Error) => fail(`${e.message}\n${after}`, 1)
     );
   Object.assign(process.env, provider.settings?.() ?? {});
+  if (!host.sandbox) {
+    const missing = await Effect.runPromise(whyModelHostsMissing).catch(() => undefined);
+    if (missing) fail(`${missing}\n${after}`, 1);
+    const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`), host.image)).catch(
+      (e: Error) => fail(`${e.message}\n${after}`, 1)
+    );
+    console.log(`sandbox  docker ${docker}`);
+  }
   const aliases = new Map(
     splitNames(process.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
   );
@@ -296,8 +323,7 @@ function instructed(): Instruction {
       ...(values.step && { step: values.step }),
     };
   }
-  if (!values.runs || rest.length === 0)
-    fail('usage: npx agentgraph check <check>... --runs [--workflow <name>] [--issue <n>]');
+  if (!values.runs || rest.length === 0) fail('usage: agi check <check>... --runs [--workflow <name>] [--issue <n>]');
   const issue = Number(values.issue);
   if (values.issue !== undefined && !isIssueNumber(issue)) fail('--issue takes an issue number');
   return {
@@ -320,12 +346,22 @@ async function runOnInstance() {
     return showInstances(root);
   }
   const i = await ensureInstance(root, repo, values.base).catch((e: Error) => fail(e.message));
-  if (i.made) console.log(`data     ${i.dir} (new)`);
+  if (i.made)
+    console.log(
+      [
+        `data     ${i.dir} (new)`,
+        i.unnamed
+          ? `owner    ${i.owner}, your OS user, since git config user.name is unset. It is the one login this instance trusts; to change it, edit owner in ${join(i.dir, 'instance.yaml')}`
+          : `owner    ${i.owner}, from git config user.name, the one login this instance trusts`,
+      ].join('\n')
+    );
   Object.assign(process.env, { AGENTGRAPH_FORGE: i.forge, AGENTGRAPH_TRUST: i.owner });
   const getForge = () => Effect.runPromise(Effect.provide(Forge, fileForge(i.forge)));
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);
+    const uncommitted = !values.dir && (await whyGraphUncommitted(i));
+    if (uncommitted) console.error(uncommitted);
     return ensureGraph(i, values.dir).catch((e: Error) => fail(e.message, 1));
   };
   switch (verb) {
@@ -449,9 +485,7 @@ async function findPullIssue(i: Instance, n: number) {
 async function drive(i: Instance, issue: number, graph: string, provider: string) {
   trapInterrupt();
   if (await isLoopHeld(i.data)) {
-    console.log(
-      `a loop drives this repo and takes #${issue} on its next pass; npx agentgraph show ${issue}${selected}`
-    );
+    console.log(`a loop drives this repo and takes #${issue} on its next pass; agi show ${issue}${selected}`);
     return;
   }
   const stop = watchRuns(i, issue);
@@ -466,7 +500,7 @@ async function drive(i: Instance, issue: number, graph: string, provider: string
   });
   await stop();
   if (!runs) {
-    console.log(`stopped; npx agentgraph say ${issue} "go on"${selected} resumes it`);
+    console.log(`stopped; agi say ${issue} "go on"${selected} resumes it`);
     process.exit(130);
   }
   if (runs.length === 0) console.log(`nothing to do on #${issue}`);
@@ -478,7 +512,7 @@ async function report(i: Instance, issue: number, merged = false) {
     why: e.message,
   }));
   if (result && 'why' in result)
-    console.log(`not written to your repo: ${result.why}\n  npx agentgraph export ${issue} --as <branch>${selected}`);
+    console.log(`not written to your repo: ${result.why}\n  agi export ${issue} --as <branch>${selected}`);
   else if (result) {
     const { ref, base, stat } = result;
     if (stat) console.log(`\n${stat}`);
@@ -490,6 +524,7 @@ async function report(i: Instance, issue: number, merged = false) {
   const waiting = findRunsWaitingOnPeople(await listRuns(i.data, { issue })).flatMap(run =>
     formatNextSteps(run, undefined, selected)
   );
+  for (const line of await formatRunnerErrors(i.data, await listRuns(i.data, { issue }))) console.log(line);
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
   const steps = merged ? merge : waiting.filter(l => l.startsWith('  '));
   if (steps.length) console.log(`Next:\n${steps.join('\n')}`);
@@ -498,6 +533,8 @@ async function report(i: Instance, issue: number, merged = false) {
 async function loop(i: Instance) {
   const moved = await ensureBase(i);
   if (moved) fail(moved, 1);
+  const uncommitted = !values.dir && (await whyGraphUncommitted(i));
+  if (uncommitted) console.error(uncommitted);
   const first = await ensureGraph(i, values.dir).catch((e: Error) => fail(e.message, 1));
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
@@ -527,7 +564,7 @@ async function loop(i: Instance) {
           if (result)
             console.log(
               'why' in result
-                ? `#${issue} not written: ${result.why}; npx agentgraph export ${issue} --as <branch>${selected}`
+                ? `#${issue} not written: ${result.why}; agi export ${issue} --as <branch>${selected}`
                 : `#${issue} in your repo as ${result.ref}`
             );
         }
@@ -546,9 +583,11 @@ async function loop(i: Instance) {
 }
 
 async function showAll(i: Instance, forge: Forge['Type']) {
-  const lines = findRunsWaitingOnPeople(await listRuns(i.data)).flatMap(run =>
-    formatNextSteps(run, undefined, selected)
-  );
+  const runs = await listRuns(i.data);
+  const lines = [
+    ...findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, undefined, selected)),
+    ...(await formatRunnerErrors(i.data, runs)),
+  ];
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
   console.log(formatIssueList(await Effect.runPromise(forge.issues())));
 }
@@ -560,6 +599,7 @@ async function showIssue(forge: Forge['Type'], issue: number, i: Instance) {
     const diff = join(i.forge, String(k), 'diff.patch');
     console.log(formatIssueTimeline(t, existsSync(diff) ? readFileSync(diff, 'utf8') : ''));
   }
+  for (const line of await formatRunnerErrors(i.data, await listRuns(i.data, { issue }))) console.log(line);
 }
 
 async function showInstances(root: string) {

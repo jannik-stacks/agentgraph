@@ -56,7 +56,7 @@ const readOwner = (repo: string) => {
       .trim()
       .replaceAll(',', ' ');
   } catch {
-    return userInfo().username;
+    return undefined;
   }
 };
 
@@ -106,13 +106,14 @@ export const ensureInstance = async (root: string, repo: string, base?: string) 
   const dir = join(resolve(root), `${basename(real)}-${key}-local`);
   const found = readInstance(dir);
   if (found && (!base || base === found.base)) return { ...found, made: false };
+  const named = found ? found.owner : readOwner(real);
   const i: Instance = found
     ? { ...found, base: base! }
     : {
         dir,
         repo: real,
         base: base ?? (await readBranch(real)),
-        owner: readOwner(real),
+        owner: named ?? userInfo().username,
         forge: join(dir, 'forge'),
         data: join(dir, 'data'),
         exported: {},
@@ -121,7 +122,7 @@ export const ensureInstance = async (root: string, repo: string, base?: string) 
   if (!found) await git({}, ['init', '-q', '--bare', '-b', i.base, origin(i)]);
   await inForge(i, ['symbolic-ref', 'HEAD', `refs/heads/${i.base}`]);
   writeInstance(i);
-  return { ...i, made: !found };
+  return { ...i, made: !found, ...(!named && { unnamed: true }) };
 };
 
 export const ensureBase = async (i: Instance): Promise<string | undefined> => {
@@ -161,6 +162,17 @@ export const ensureGraph = async (i: Instance, flag?: string) => {
     await rm(index.GIT_INDEX_FILE, { force: true });
   }
   return dir;
+};
+
+export const whyGraphUncommitted = async (i: Instance) =>
+  (await inRepo(i.repo, ['status', '--porcelain', '--', '.agentgraph']))
+    ? `.agentgraph/ has uncommitted changes; runs use the committed version on ${i.base}. Commit them, or pass --dir .agentgraph to try them.`
+    : undefined;
+
+export const formatGraphName = async (i: Instance, graph: string) => {
+  if (graph === defaultDir) return 'default graph';
+  if (!graph.startsWith(join(i.dir, 'graphs'))) return `graph ${graph}`;
+  return `.agentgraph/ at ${i.base} ${await inForge(i, ['rev-parse', '--short', `refs/heads/${i.base}`])}`;
 };
 
 const readIssues = (dir: string) =>

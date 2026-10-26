@@ -58,10 +58,15 @@ const bind = ({ src, dst, readonly }: Mount) => {
   return ['--mount', `type=bind,src=${src},dst=${dst}${readonly ? ',readonly' : ''}`];
 };
 
+export const whyRoot = () =>
+  process.getuid?.() === 0
+    ? 'agentgraph refuses to run a container as root. Run it as a user in the docker group.'
+    : undefined;
+
 const user = () => {
-  const id = `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
-  if (id.startsWith('0:')) throw infra('refusing to run a container as root');
-  return id;
+  const why = whyRoot();
+  if (why) throw infra(why);
+  return `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
 };
 
 /** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its graph and sandbox setup. */
@@ -214,6 +219,27 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
       )
     );
     return true;
+  });
+
+export const findMissingModelHosts = (hosts: string[]) =>
+  Effect.gen(function* () {
+    if (hosts.length === 0) return [];
+    const filters = Object.values(networks).flatMap(n => ['--filter', `network=${n}`]);
+    const ids = (yield* run('docker', ['ps', '-q', ...filters])).split('\n').filter(Boolean);
+    const lines = ids.length
+      ? yield* run('docker', ['inspect', '--format', '{{json .NetworkSettings.Networks}}', ...ids])
+      : '';
+    const answered = new Set(
+      lines
+        .split('\n')
+        .filter(Boolean)
+        .flatMap(line =>
+          Object.entries(JSON.parse(line) as Record<string, { Aliases: string[] | null; DNSNames: string[] | null }>)
+            .filter(([name]) => (Object.values(networks) as string[]).includes(name))
+            .flatMap(([, n]) => [...(n.Aliases ?? []), ...(n.DNSNames ?? [])])
+        )
+    );
+    return hosts.filter(h => !answered.has(h));
   });
 
 export const ensureDocker = (say: (line: string) => void, image: string) =>

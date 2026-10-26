@@ -1,22 +1,22 @@
 # Running it locally
 
-You need Node 22.18 or later, Docker and `jq`. Commands run from `agentgraph/`.
+You need Node 24 or later and Docker, used as a user in the `docker` group. The model stack and the studio run from a clone of agentgraph, and `npm run keys` also needs `jq`.
 
 ## The model stack
 
 ```sh
 cp infra/local/.env.example infra/local/.env   # once: set LITELLM_MASTER_KEY and provider keys
-npm run up                                     # sandbox image, proxy and egress, waits until healthy
-npm run keys                                   # one proxy key per agent, in infra/local/.keys.env
+npm run up                                     # proxy and egress, waits until healthy
+npm run keys -- local                          # one proxy key for every agent, in infra/local/.keys.env.local
 ```
 
-Runs need the stack up. `npm run down` stops it and keeps its volumes.
+Only `--provider litellm` needs the stack; the `anthropic` and `claude` providers call their API directly. Load the key with `set -a; . infra/local/.keys.env.local; set +a`. `npm run down` stops the stack and keeps its volumes.
 
 [Local infrastructure](../infra/local/README.md) covers providers and the ChatGPT login for `smart`.
 
 ## The CLI
 
-`npx agentgraph <verb>` inside a git repo runs that repo on a [local forge](forge.md), with no setup and no GitHub. `start`, `say`, `review`, `merge`, `export`, `close`, `show` and `loop` are in [Verbs](forge.md#verbs).
+`agi <verb>`, or `npx @jannik-stacks/agi <verb>` without installing, inside a git repo runs that repo on a [local forge](forge.md), with no setup and no GitHub. `start`, `say`, `review`, `merge`, `export`, `close`, `show` and `loop` are in [Verbs](forge.md#verbs). `--help` prints the usage and `--version` the version.
 
 | Command | What it does |
 | --- | --- |
@@ -32,8 +32,8 @@ Keep data out of temporary directories, since macOS deletes untouched files ther
 `--forge github`, `--forge <dir>` or App credentials in the environment run the CLI as a runner instead: no instance, `--dir` names the graph, and `--data` is the runs folder itself. Its verbs are `loop` (with `--once` for one pass), `show`, `check`, `dispatch` and `prune-logs`.
 
 ```sh
-npx agentgraph loop --forge github --dir examples/sandbox --data ~/agentgraph-data
-npx agentgraph show --forge github --dir examples/sandbox --data ~/agentgraph-data
+agi loop --forge github --dir examples/sandbox --data ~/agentgraph-data
+agi show --forge github --dir examples/sandbox --data ~/agentgraph-data
 ```
 
 `loop` without `--dir` uses the repo's [own graph](loop.md#a-graph-in-the-repo) and `AGENTGRAPH_REPO`. On GitHub `show` needs App credentials and warns when the App reaches other repos.

@@ -1,4 +1,5 @@
 import type { Event, Issue } from './event.ts';
+import type { Trace } from './trace.ts';
 import type { Run } from './workflow.ts';
 
 export const findRunsWaitingOnPeople = (runs: Run[]) =>
@@ -20,8 +21,8 @@ export const formatNextSteps = (run: Run, github?: string, flags = '') => {
     ...(issue
       ? [run.reason ? `  Answer at ${issue}` : `  Review the PR linked from ${issue}`]
       : run.reason
-        ? [`  npx agentgraph say ${n} "<answer>"${flags}`]
-        : [`  npx agentgraph merge ${n}${flags}`, `  npx agentgraph review ${n} changes "<why>"${flags}`]),
+        ? [`  agi say ${n} "<answer>"${flags}`]
+        : [`  agi merge ${n}${flags}`, `  agi review ${n} changes "<why>"${flags}`]),
   ];
 };
 
@@ -43,3 +44,8 @@ export const formatIssueTimeline = (t: Issue & { events: Event[] }, diff: string
     }),
     ...(t.pull ? [`\n${t.pull.branch} into ${t.pull.base} at ${t.pull.head}\n\n${diff}`] : []),
   ].join('\n');
+
+export const formatRunnerError = (trace: Trace[], file: string) => [
+  `cause    ${trace.flatMap(t => ('outcome' in t && t.outcome.kind === 'ask' ? [t.outcome.question] : [])).at(-1) ?? 'not traced'}`,
+  `trace    ${file}`,
+];

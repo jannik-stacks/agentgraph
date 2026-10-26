@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Config, Effect, Layer, Option, Redacted, Struct } from 'effect';
 import { fileForge } from './forge.ts';
-import { dockerSandbox, sandboxImage } from './docker.ts';
+import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
 import {
@@ -42,6 +42,8 @@ export type Settings = {
   forge: string | { id: string; key: Redacted.Redacted };
 };
 
+const proxyUrl = Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1'));
+
 const passed = Effect.flatMap(Config.string('AGENTGRAPH_SESSION_ENV').pipe(Config.withDefault('')), names =>
   Effect.map(
     Effect.forEach(splitNames(names), name => Effect.map(Config.redacted(name), value => [name, value] as const)),
@@ -77,7 +79,7 @@ export const settings = Config.all({
   repo: Config.string('AGENTGRAPH_REPO'),
   graph: Config.string('AGENTGRAPH_DIR').pipe(Config.withDefault('.agentgraph')),
   proxy: Config.all({
-    url: Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1')),
+    url: proxyUrl,
     keys: Config.redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
     models: Config.string('AGENTGRAPH_MODELS').pipe(Config.withDefault('')),
   }),
@@ -126,6 +128,17 @@ const findLocalModelHosts = (url: string) =>
   Object.values(parseModelUrls(url))
     .flatMap(at => (URL.canParse(at) ? [new URL(at).hostname] : []))
     .filter(host => !host.includes('.') || host.endsWith('.internal'));
+
+export const whyModelHostsMissing = Effect.gen(function* () {
+  const missing = yield* findMissingModelHosts(
+    findLocalModelHosts(yield* proxyUrl).filter(host => !host.includes('.'))
+  );
+  if (missing.length === 0) return undefined;
+  return [
+    `Nothing answers to ${missing.join(' or ')} on the sandbox network, so sessions cannot reach a model.`,
+    'Start the model stack with `npm run up` in the agentgraph checkout (infra/local/README.md), or pick another provider.',
+  ].join('\n');
+});
 
 /** The production services. The graph is read once for its trust list. Tests build their own from the file and host layers. */
 export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {

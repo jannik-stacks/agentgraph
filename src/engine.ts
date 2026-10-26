@@ -1310,7 +1310,7 @@ const attempt = (
           if (!r.cut && r.ended !== 'stop')
             return yield* new SessionStop({
               reason: 'provider',
-              detail: `session ended ${r.ended} (exit ${r.exit ?? 0})`,
+              detail: `session ended ${r.ended} (exit ${r.exit ?? 0}), final: ${squeeze(r.final, 200)}`,
             });
           return r;
         });

@@ -6,7 +6,7 @@ import { Effect, Redacted } from 'effect';
 import { expect, it } from 'vitest';
 import type { Run } from '../src/workflow.ts';
 import { readInstallationReach } from '../src/github.ts';
-import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
+import { findRunsWaitingOnPeople, formatNextSteps, formatRunnerError } from '../src/status.ts';
 import { fileStore, Store } from '../src/store.ts';
 
 const { privateKey } = generateKeyPairSync('rsa', {
@@ -94,8 +94,28 @@ it('says how to continue on the local forge, and leaves out a run that waits on 
     { ...base, id: 'c', issue: 5, status: 'running', by: 'p' },
   ] as Run[];
   const lines = findRunsWaitingOnPeople(runs).flatMap(r => formatNextSteps(r));
-  expect(lines.join('\n')).toContain(`npx agentgraph say 3 "<answer>"`);
-  expect(lines.join('\n')).toContain(`npx agentgraph merge 4`);
-  expect(lines.join('\n')).toContain(`npx agentgraph review 4 changes "<why>"`);
+  expect(lines.join('\n')).toContain(`agi say 3 "<answer>"`);
+  expect(lines.join('\n')).toContain(`agi merge 4`);
+  expect(lines.join('\n')).toContain(`agi review 4 changes "<why>"`);
   expect(lines.join('\n')).not.toContain('#5');
+});
+
+const askedRunnerError = (question: string) => ({
+  at: 'x',
+  step: 'implement',
+  outcome: { kind: 'ask' as const, question },
+  run: { step: 'implement', status: 'waiting' as const, tries: 0, rounds: {} },
+});
+
+it('names the last question a runner error asked and the trace file', () => {
+  expect(
+    formatRunnerError(
+      [
+        askedRunnerError('SessionStop: first'),
+        { at: 'x', step: 'implement', setup: { ms: 1, exit: 0 } },
+        askedRunnerError('SandboxError: root'),
+      ],
+      '/d/r/trace.jsonl'
+    )
+  ).toEqual(['cause    SandboxError: root', 'trace    /d/r/trace.jsonl']);
 });
