@@ -65,7 +65,12 @@ export const readHarnessSettings = Effect.gen(function* () {
 });
 
 export const readConfiguredHub = (dir: string) =>
-  Effect.flatMap(readHarnessSettings, settings => loadHub(dir, settings.harnesses, settings.harness));
+  Effect.gen(function* () {
+    const settings = yield* readHarnessSettings;
+    const hub = yield* loadHub(dir, settings.harnesses, settings.harness);
+    const repo = yield* Effect.orDie(Config.string('AGENTGRAPH_REPO').pipe(Config.withDefault('')));
+    return { ...hub, repo: repo || hub.repo };
+  });
 
 export const makeHarnessConfigProvider = (
   choice: Partial<Record<'config' | 'provider' | 'harness', string | undefined>>,

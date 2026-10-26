@@ -40,7 +40,7 @@ npx agentgraph show --forge github --hub examples/sandbox --data ~/agentgraph-da
 
 ### Settings
 
-The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGENTGRAPH_DATA`, `AGENTGRAPH_FORGE` and `AGENTGRAPH_REPO` (the hub's `repo`) from its flags, and `AGENTGRAPH_TRUST` to the instance owner. <!-- code: src/services.ts#settings -->
+The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGENTGRAPH_DATA`, `AGENTGRAPH_FORGE` and `AGENTGRAPH_REPO` (the hub's `repo`, unless the environment already names one) from its flags, and `AGENTGRAPH_TRUST` to the instance owner. <!-- code: src/services.ts#settings -->
 
 | Variable | Meaning and default |
 | --- | --- |
@@ -52,6 +52,7 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 | `AGENTGRAPH_HARNESS` | The harness every agent runs on, whatever the hub names |
 | `AGENTGRAPH_PROVIDER` | A provider from the config; agents that name no harness get its first |
 | `AGENTGRAPH_MODELS` | `alias=model` pairs, `*` for agents without a `model`; see [Models](sandbox.md#models) |
+| `AGENTGRAPH_REPO` | `owner/name` of the repo to work on instead of the hub's `repo`, so a public hub can keep a placeholder |
 | `AGENTGRAPH_TRUST` | Comma-separated logins trusted instead of the hub's `trust` |
 | `AGENTGRAPH_PROXY_URL` | Model gateway, `http://gateway:4000/v1`, the local LiteLLM's name on the sandbox networks; see [Models](sandbox.md#models) |
 | `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, see [Models](sandbox.md#models); `AGENTGRAPH_PROXY_KEYS_FILE` names a file holding them |

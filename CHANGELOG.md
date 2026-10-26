@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `AGENTGRAPH_REPO`, when set, is the repo a hub works on instead of its `repo`, so a public hub can keep a
+  placeholder.
 - A committed `.agentgraph/` with symlinks or submodules is refused. The studio's Inbox commands carry
   the instance's `--repo` and `--data`.
 - `start` and `say` take `--label`, repeatable; `show hub` prints the hub in use and its files.

@@ -1,9 +1,10 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { Effect, Either } from 'effect';
+import { ConfigProvider, Effect, Either } from 'effect';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
+import { readConfiguredHub } from '../src/harnesses.ts';
 import { loadHub } from '../src/hub.ts';
 import { hubAt } from '../src/services.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
@@ -251,6 +252,17 @@ describe('loadHub', () => {
     expect(set.trust).toEqual(['ana', 'bob']);
     const unset = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'repo: o/r\n' }), harnesses));
     expect([unset.milestone, unset.trust]).toEqual([undefined, undefined]);
+  });
+
+  it('takes AGENTGRAPH_REPO over the repo the hub file names', async () => {
+    const dir = hubDir({ 'hub.yaml': 'repo: o/r\n' });
+    const read = (env: Record<string, string>) =>
+      Effect.runPromise(
+        readConfiguredHub(dir).pipe(Effect.withConfigProvider(ConfigProvider.fromMap(new Map(Object.entries(env)))))
+      );
+    expect((await read({})).repo).toBe('o/r');
+    expect((await read({ AGENTGRAPH_REPO: '' })).repo).toBe('o/r');
+    expect((await read({ AGENTGRAPH_REPO: 'o/live' })).repo).toBe('o/live');
   });
 
   it('reads the image and network every command of a run gets, and refuses an image that reads as a flag', async () => {
