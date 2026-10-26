@@ -120,7 +120,7 @@ describe('tick', () => {
     const second = await run(tick(small));
     expect(second.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs).toHaveLength(2);
-    expect(specs[1]!.prompt).toContain('@morgan: /agent once more');
+    expect(specs[1]!.prompt).toContain('@robin: /agent once more');
     expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, first[0]!.id)).toEqual([
       [true, undefined],
@@ -328,7 +328,7 @@ describe('tick', () => {
   it('takes a queued CLI stop after a locked aside finishes', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
-    say(where, comment(8, 'morgan', true, '/agent why?', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'robin', true, '/agent why?', '2026-10-16T00:00:05.000Z'));
     const kit = {
       ...merging,
       agents: {
@@ -389,7 +389,7 @@ describe('tick', () => {
     const where = world();
     const at = (s: number) => `2026-10-16T00:00:0${s}.000Z`;
     const settled = { kind: 'pass' as const };
-    say(where, { issue: 8, kind: 'approved', actor: 'morgan', trusted: true, at: at(5) });
+    say(where, { issue: 8, kind: 'approved', actor: 'robin', trusted: true, at: at(5) });
     const { run } = services(where, []);
     await run(waiting(where));
     await run(
@@ -412,8 +412,8 @@ describe('tick', () => {
 
   it('passes on an approval without taking the follow-up asks that came with it', async () => {
     const where = world();
-    say(where, comment(8, 'morgan', true, '@agent please file a follow-up for the docs', '2026-10-16T00:00:05.000Z'));
-    say(where, { issue: 8, kind: 'approved', actor: 'morgan', trusted: true, at: '2026-10-16T00:00:06.000Z' });
+    say(where, comment(8, 'robin', true, '@agent please file a follow-up for the docs', '2026-10-16T00:00:05.000Z'));
+    say(where, { issue: 8, kind: 'approved', actor: 'robin', trusted: true, at: '2026-10-16T00:00:06.000Z' });
     const { specs, run } = services(where, [[start('b'), reply({ kind: 'comment', body: 'Filed.' })]]);
     await run(waiting(where));
     const touched = await run(tick(merging, 7));
@@ -466,10 +466,10 @@ describe('tick', () => {
     say(where, {
       issue: 8,
       kind: 'changes_requested',
-      actor: 'morgan',
+      actor: 'robin',
       trusted: true,
       at: '2026-10-16T00:00:05.000Z',
-      comment: { id: 'review', author: 'morgan', body: 'Trusted request', at: '2026-10-16T00:00:05.000Z' },
+      comment: { id: 'review', author: 'robin', body: 'Trusted request', at: '2026-10-16T00:00:05.000Z' },
     });
     const { specs, run } = services(where, [[start('i'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     await run(waiting(where));
@@ -498,10 +498,10 @@ describe('tick', () => {
     say(where, {
       issue: 8,
       kind: 'changes_requested',
-      actor: 'morgan',
+      actor: 'robin',
       trusted: true,
       at: '2026-10-16T00:00:05.000Z',
-      comment: { id: 'review', author: 'morgan', body: 'rename bar', at: '2026-10-16T00:00:05.000Z' },
+      comment: { id: 'review', author: 'robin', body: 'rename bar', at: '2026-10-16T00:00:05.000Z' },
     });
     const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     await run(waiting(where));
@@ -522,7 +522,7 @@ describe('tick', () => {
   it('sends a run waiting at merge back when the aside a mention starts proposes back, resuming its fork', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
-    say(where, comment(8, 'morgan', true, '/agent please undo the greeting', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'robin', true, '/agent please undo the greeting', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
       [start('f'), reply({ kind: 'comment', body: 'Will undo.' }, { kind: 'back', why: 'undo the greeting' })],
       [start('f'), wrote('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Undone.' })],
@@ -555,13 +555,13 @@ describe('tick', () => {
   it('consumes an approval arriving during an aside on the next tick', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
-    say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'robin', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
     const { run } = services(
       where,
       [[start('f'), reply({ kind: 'comment', body: 'For the example.' })]],
       undefined,
       () => {
-        say(where, { issue: 8, kind: 'approved', actor: 'morgan', trusted: true, at: '2026-10-16T00:00:06.000Z' });
+        say(where, { issue: 8, kind: 'approved', actor: 'robin', trusted: true, at: '2026-10-16T00:00:06.000Z' });
       }
     );
     await run(waiting(where));
@@ -608,7 +608,7 @@ describe('tick', () => {
         rmSync(join(where.forge, '8.md'));
         rmSync(join(where.forge, '8'), { recursive: true });
       }
-      say(where, comment(kind === 'no-pull' ? 7 : 8, 'morgan', true, '/agent why?', at));
+      say(where, comment(kind === 'no-pull' ? 7 : 8, 'robin', true, '/agent why?', at));
       await run(tick(kit, 7));
       expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.seen).not.toBe(at);
       await run(tick(kit, 7));
@@ -622,7 +622,7 @@ describe('tick', () => {
   it('retries an aside that errors once, then answers the human with a short comment and moves on', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
-    say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'robin', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, []);
     await run(waiting(where));
     const stored = () => run(Effect.flatMap(Store, st => st.list({ issue: 7 }))).then(rs => rs[0]!);
@@ -645,7 +645,7 @@ describe('tick', () => {
     const where = world();
     const triage = { ...merging.workflows.issue, name: 'triage', on: { issues: { label: 'triage' } } };
     const both = { ...merging, workflows: { ...merging.workflows, triage } };
-    say(where, comment(7, 'morgan', true, '/agent the second one', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'robin', true, '/agent the second one', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
       [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Thanks.' })],
     ]);
@@ -669,7 +669,7 @@ describe('tick', () => {
     const triage = { ...merging.workflows.issue, name: 'triage', on: { issues: { label: 'triage' } } };
     const fix = { ...merging.workflows.issue, name: 'fix', on: { issues: { label: 'fix' } } };
     const all = { ...merging, workflows: { ...merging.workflows, triage, fix } };
-    say(where, comment(7, 'morgan', true, '/agent the second one', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'robin', true, '/agent the second one', '2026-10-16T00:00:05.000Z'));
     say(where, comment(7, 'ana', true, '/agent and keep it short', '2026-10-16T00:00:06.000Z'));
     say(where, { issue: 7, kind: 'label', actor: 'ana', trusted: true, at: '2026-10-16T00:00:07.000Z', label: 'fix' });
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Short how?' })]]);
@@ -699,8 +699,8 @@ describe('tick', () => {
     const at = '2026-10-16T00:00:05.000Z';
     const asked = 'so the greeting was already documented in the README?';
     say(where, {
-      ...comment(8, 'morgan', true, `/agent ${asked}`, at),
-      comment: { id: 'r1', author: 'morgan', body: `/agent ${asked}`, at, path: 'hello.txt', line: 1 },
+      ...comment(8, 'robin', true, `/agent ${asked}`, at),
+      comment: { id: 'r1', author: 'robin', body: `/agent ${asked}`, at, path: 'hello.txt', line: 1 },
     });
     const { specs, run } = services(where, [
       [
@@ -726,8 +726,8 @@ describe('tick', () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     const line = (id: string, body: string, at: string): Event => ({
-      ...comment(8, 'morgan', true, body, at),
-      comment: { id, author: 'morgan', body, at, path: 'hello.txt', line: 1 },
+      ...comment(8, 'robin', true, body, at),
+      comment: { id, author: 'robin', body, at, path: 'hello.txt', line: 1 },
     });
     say(where, line('r1', '/agent why hello?', '2026-10-16T00:00:05.000Z'));
     say(where, line('r2', '/agent and CHAT.md?', '2026-10-16T00:00:06.000Z'));
@@ -744,10 +744,10 @@ describe('tick', () => {
     const where = world();
     writeFileSync(
       join(where.forge, '9.md'),
-      '---\ntitle: Other\nstate: open\nauthor: morgan\nlabels: []\n---\n\nOther.\n'
+      '---\ntitle: Other\nstate: open\nauthor: robin\nlabels: []\n---\n\nOther.\n'
     );
-    say(where, comment(9, 'morgan', true, 'where is the PR?', '2026-10-16T00:00:02.000Z'));
-    say(where, comment(7, 'morgan', true, '@alice can you look?', '2026-10-16T00:00:03.000Z'));
+    say(where, comment(9, 'robin', true, 'where is the PR?', '2026-10-16T00:00:02.000Z'));
+    say(where, comment(7, 'robin', true, '@alice can you look?', '2026-10-16T00:00:03.000Z'));
     say(where, comment(7, 'mallory', false, 'where is the PR?', '2026-10-16T00:00:04.000Z'));
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'No PR yet.' })]]);
     const done = { ...begin(issue, { id: 'issue-7-done', issue: 7, started: '2026-10-16T00:00:01.000Z' }) };
@@ -761,7 +761,7 @@ describe('tick', () => {
     const touched = await run(tick(twice));
     expect(touched.map(r => [r.id, r.status, r.said])).toEqual([['issue-7-20261016000005000', 'done', [{ issue: 7 }]]]);
     expect(specs).toHaveLength(1);
-    expect(specs[0]!.prompt).toContain('@morgan: /agent where is the PR?');
+    expect(specs[0]!.prompt).toContain('@robin: /agent where is the PR?');
     expect(specs[0]!.prompt).toContain('When it does not ask for work, answer it with comment proposals only');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toContain('No PR yet.');
   });
@@ -819,8 +819,8 @@ describe('tick', () => {
       const file = join(where.forge, `${n}.md`);
       writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${n === 7 ? 'closed' : 'merged'}`));
     }
-    say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });
-    say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at });
+    say(where, { issue: 7, kind: 'closed', actor: 'robin', trusted: true, at });
+    say(where, { issue: 8, kind: 'merged', actor: 'robin', trusted: true, at });
     const swept = await run(scanIssuesAndRunningRuns(merging));
     expect(swept.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'done']]);
   });
@@ -859,7 +859,7 @@ describe('start with one issue', () => {
       issue: 7,
       kind: 'label',
       label: 'agent:ready',
-      actor: 'morgan',
+      actor: 'robin',
       trusted: true,
       at: new Date().toISOString(),
     });
@@ -876,7 +876,7 @@ describe('start with one issue', () => {
       expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
 
       const later = new Date(Date.now() + 1000).toISOString();
-      say(where, { issue: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
+      say(where, { issue: 7, kind: 'merged', actor: 'robin', trusted: true, at: later });
       const done = await main(one, doubles);
       expect(done.map(r => [r.id, r.status])).toEqual([[parked[0]!.id, 'done']]);
     } finally {
@@ -997,7 +997,7 @@ describe('scanIssuesAndRunningRuns', () => {
     for (const n of [8, 9, 10])
       writeFileSync(
         join(where.forge, `${n}.md`),
-        `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody ${n}.\n`
+        `---\ntitle: Issue ${n}\nstate: open\nauthor: robin\nlabels: []\n---\n\nBody ${n}.\n`
       );
     const at = '2026-10-16T00:00:00.000Z';
     const parked = (issue: number, status: Run['status']): Run => ({
@@ -1008,10 +1008,10 @@ describe('scanIssuesAndRunningRuns', () => {
     say(where, {
       issue: 8,
       kind: 'comment',
-      actor: 'morgan',
+      actor: 'robin',
       trusted: true,
       at: answer,
-      comment: { id: 'a', author: 'morgan', body: '/agent hi', at: answer },
+      comment: { id: 'a', author: 'robin', body: '/agent hi', at: answer },
     });
     const { specs, run } = services(where, [
       [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Done?' })],
@@ -1034,7 +1034,7 @@ describe('scanIssuesAndRunningRuns', () => {
     const where = world();
     writeFileSync(
       join(where.forge, '9.md'),
-      '---\ntitle: Issue 9\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody 9.\n'
+      '---\ntitle: Issue 9\nstate: open\nauthor: robin\nlabels: []\n---\n\nBody 9.\n'
     );
     const done = (issue: number, started: string): Run => ({
       ...begin(small.workflows.issue!, { id: `run-${issue}`, issue, started }),
@@ -1058,9 +1058,9 @@ describe('scanIssuesAndRunningRuns', () => {
     const where = world();
     writeFileSync(
       join(where.forge, '8.md'),
-      '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody.\n'
+      '---\ntitle: Issue 8\nstate: open\nauthor: robin\nlabels: []\n---\n\nBody.\n'
     );
-    say(where, comment(8, 'morgan', true, '/agent', '2026-10-16T00:00:00.000Z'));
+    say(where, comment(8, 'robin', true, '/agent', '2026-10-16T00:00:00.000Z'));
     let open = 0;
     let most = 0;
     const slow = Layer.succeed(Session, {

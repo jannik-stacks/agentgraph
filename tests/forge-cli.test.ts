@@ -46,7 +46,7 @@ const world = () => {
   });
   dirs.push(root);
   const dir = join(root, 'forge');
-  const as = 'morgan';
+  const as = 'robin';
   const forge = async (verb: string, ...args: string[]): Promise<string> => {
     const flag = (name: string) => {
       const at = args.indexOf(`--${name}`);
@@ -200,10 +200,10 @@ describe('the human verbs on a forge folder', () => {
     writeFileSync(join(w.dir, '1.md'), '# Fix the typo\n\nIn the readme.\n');
     writeFileSync(
       join(w.dir, '2.md'),
-      '---\ntitle: Add a greeting\nauthor: morgan\nlabels: [agent:ready]\n---\n\nAdd hello.txt.\n'
+      '---\ntitle: Add a greeting\nauthor: robin\nlabels: [agent:ready]\n---\n\nAdd hello.txt.\n'
     );
     expect(await w.forge('show')).toBe('#1 open Fix the typo\n#2 open Add a greeting [agent:ready]');
-    expect(await w.forge('show', '2')).toMatch(/morgan label agent:ready/);
+    expect(await w.forge('show', '2')).toMatch(/robin label agent:ready/);
     const pull: Proposal = {
       kind: 'pull_request',
       branch: 'agentgraph/2',
@@ -232,18 +232,18 @@ describe('the human verbs on a forge folder', () => {
     const w = world();
     await w.forge('init', w.seed);
     const hub = await Effect.runPromise(loadHub(sandboxHub, harnesses));
-    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'morgan', 'router')).rejects.toThrow(
+    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'robin', 'router')).rejects.toThrow(
       'name one workflow with a label: --workflow <name>'
     );
-    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'morgan')).rejects.toThrow('issue|triage');
+    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'robin')).rejects.toThrow('issue|triage');
     await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'x[bot]', 'issue')).rejects.toThrow(
       'x[bot] may not'
     );
     await expect(
-      writeTriggeringIssue({ ...hub, trust: ['ann'] }, w.dir, 'Add a greeting', 'morgan', 'issue')
-    ).rejects.toThrow('morgan may not');
-    expect(await writeTriggeringIssue(hub, w.dir, 'Add a greeting\n\nAdd hello.txt.', 'morgan', 'issue')).toBe(1);
-    expect(await w.forge('show', '1')).toMatch(/^#1 open Add a greeting by morgan \[agent:ready\]\n\nAdd hello.txt.\n/);
+      writeTriggeringIssue({ ...hub, trust: ['ann'] }, w.dir, 'Add a greeting', 'robin', 'issue')
+    ).rejects.toThrow('robin may not');
+    expect(await writeTriggeringIssue(hub, w.dir, 'Add a greeting\n\nAdd hello.txt.', 'robin', 'issue')).toBe(1);
+    expect(await w.forge('show', '1')).toMatch(/^#1 open Add a greeting by robin \[agent:ready\]\n\nAdd hello.txt.\n/);
     const pull: Proposal = {
       kind: 'pull_request',
       branch: 'agentgraph/1',
@@ -606,7 +606,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
 describe('an instance', () => {
   it('runs an issue to a merge on its own forge, and writes to the repo only agentgraph refs', async () => {
     const w = world();
-    git(w.seed, 'config', 'user.name', 'morgan');
+    git(w.seed, 'config', 'user.name', 'robin');
     writeFileSync(join(w.seed, 'wip.txt'), 'unsaved\n');
     git(w.seed, 'remote', 'add', 'origin', 'https://example.invalid/seed.git');
     const looks = () =>
@@ -623,7 +623,7 @@ describe('an instance', () => {
     };
     await expect(ensureInstance(join(w.seed, 'data'), w.seed)).rejects.toThrow('inside');
     const i = await ensureInstance(root, w.seed);
-    expect(i).toMatchObject({ base: 'main', owner: 'morgan', made: true });
+    expect(i).toMatchObject({ base: 'main', owner: 'robin', made: true });
     expect((await ensureInstance(root, w.seed)).made).toBe(false);
     expect(await ensureBase(i)).toBeUndefined();
     expect(await ensureHub(i)).toBe(join(import.meta.dirname, '..', 'hub'));

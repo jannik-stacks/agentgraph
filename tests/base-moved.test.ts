@@ -258,8 +258,8 @@ describe('a base that moved', () => {
   it('says a conflict at the top of the pull request, not under a thread the run already answered', async () => {
     const where = await parked();
     const at = new Date().toISOString();
-    const line = { id: 'r1', author: 'morgan', body: '/agent why hello?', at, path: 'hello.txt', line: 1 };
-    say(where, { ...comment(8, 'morgan', true, '/agent why hello?', at), comment: line });
+    const line = { id: 'r1', author: 'robin', body: '/agent why hello?', at, path: 'hello.txt', line: 1 };
+    say(where, { ...comment(8, 'robin', true, '/agent why hello?', at), comment: line });
     const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Asked for.' })]]);
     await run(tick(hub));
     const mover = join(where.root, 'mover');

@@ -42,12 +42,12 @@ export const world = () => {
   mkdirSync(forge);
   writeFileSync(
     join(forge, '7.md'),
-    '---\ntitle: Add a greeting\nstate: open\nauthor: morgan\nlabels: []\n---\n\nAdd hello.txt.\n'
+    '---\ntitle: Add a greeting\nstate: open\nauthor: robin\nlabels: []\n---\n\nAdd hello.txt.\n'
   );
   const human = (body: string, at: string) =>
     appendFileSync(
       join(forge, '7.jsonl'),
-      `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Event)}\n`
+      `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'robin', trusted: true, at, comment: { id: at, author: 'robin', body, at } } satisfies Event)}\n`
     );
   human('/agent', '2026-10-16T00:00:00.000Z');
   return { root, origin: join(root, 'origin.git'), forge, data, human };

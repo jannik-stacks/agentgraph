@@ -85,7 +85,7 @@ describe('stacks', () => {
     const head = move('hello.txt', 'hello\n');
     writeFileSync(
       join(where.forge, '9.md'),
-      '---\ntitle: Say bye\nstate: open\nauthor: morgan\n---\n\nAdd bye.txt.\n\nStacks on #7\n'
+      '---\ntitle: Say bye\nstate: open\nauthor: robin\n---\n\nAdd bye.txt.\n\nStacks on #7\n'
     );
     return { head, move };
   };
@@ -229,7 +229,7 @@ describe('coworker', () => {
     const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     await run(drive(flow, begun(), small));
     expect(specs[0]!.prompt).toContain('## Pull request #8 Add hello');
-    expect(specs[0]!.prompt).toContain('#7 @morgan: /agent');
+    expect(specs[0]!.prompt).toContain('#7 @robin: /agent');
     expect(specs[0]!.prompt).toContain('#8 @ana: mind the edge case');
     expect(specs[0]!.prompt).toContain('#8 check test: failure');
     expect(specs[0]!.prompt).not.toContain('holds what is new');
@@ -249,7 +249,7 @@ describe('coworker', () => {
   it('catches a resumed session up on what people said and pushed while it was parked, and nothing older', async () => {
     const where = world();
     const { specs, run, asked } = await parked(where, [[start('a'), reply({ kind: 'comment', body: 'ok' })]]);
-    say(where, comment(7, 'morgan', true, '/agent hello', later(1)));
+    say(where, comment(7, 'robin', true, '/agent hello', later(1)));
     say(where, {
       issue: 8,
       kind: 'commit',
@@ -261,7 +261,7 @@ describe('coworker', () => {
     await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
     expect(specs[1]!.resume?.id).toBe('a');
     expect(specs[1]!.prompt).toBe(
-      'hello\n\n## New since you last looked\n\n#7 @morgan: /agent hello\n\n#8 @ana pushed abcdef1 Tweak the greeting'
+      'hello\n\n## New since you last looked\n\n#7 @robin: /agent hello\n\n#8 @ana pushed abcdef1 Tweak the greeting'
     );
   });
 
@@ -425,13 +425,13 @@ describe('coworker', () => {
     say(where, labelled('mallory', false, 'label', '2026-10-16T00:00:01.000Z'));
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(await run(tick(assigned))).toEqual([]);
-    say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:02.000Z'));
+    say(where, labelled('robin', true, 'label', '2026-10-16T00:00:02.000Z'));
     const [asked] = await run(tick(assigned));
     expect(asked).toMatchObject({ issue: 7, status: 'waiting' });
     expect(specs).toHaveLength(1);
     say(where, labelled('mallory', false, 'unlabel', later(1)));
     expect(await run(tick(assigned))).toEqual([]);
-    say(where, labelled('morgan', true, 'unlabel', later(2)));
+    say(where, labelled('robin', true, 'unlabel', later(2)));
     const [stopped] = await run(tick(assigned));
     expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the agentgraph label was removed' });
     expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('');
@@ -444,12 +444,12 @@ describe('coworker', () => {
 
   it('begins on one issue only where the latest agentgraph label came from a maintainer', async () => {
     const where = world();
-    say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:01.000Z'));
+    say(where, labelled('robin', true, 'label', '2026-10-16T00:00:01.000Z'));
     say(where, labelled('mallory', false, 'unlabel', '2026-10-16T00:00:02.000Z'));
     say(where, labelled('mallory', false, 'label', '2026-10-16T00:00:03.000Z'));
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(await run(tick(assigned, 7, true))).toEqual([]);
-    say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:04.000Z'));
+    say(where, labelled('robin', true, 'label', '2026-10-16T00:00:04.000Z'));
     expect((await run(tick(assigned, 7, true))).map(r => r.status)).toEqual(['waiting']);
   });
 
@@ -474,13 +474,13 @@ describe('coworker', () => {
     say(where, marked('stx-agentgraph[bot]', false, '2026-10-16T00:00:01.000Z'));
     say(where, marked('mallory', false, '2026-10-16T00:00:02.000Z'));
     expect(await run(scanIssuesAndRunningRuns(ready))).toEqual([]);
-    say(where, marked('morgan', true, '2026-10-16T00:00:03.000Z'));
+    say(where, marked('robin', true, '2026-10-16T00:00:03.000Z'));
     const [asked] = await run(scanIssuesAndRunningRuns(ready));
     expect(asked).toMatchObject({ issue: 7, workflow: 'issue', status: 'waiting' });
     expect(specs).toHaveLength(1);
     await run(Effect.flatMap(Store, s => s.put({ ...asked!, status: 'done' })));
-    say(where, { ...marked('morgan', true, later(1)), kind: 'unlabel' });
-    say(where, marked('morgan', true, later(2)));
+    say(where, { ...marked('robin', true, later(1)), kind: 'unlabel' });
+    say(where, marked('robin', true, later(2)));
     expect(await run(scanIssuesAndRunningRuns(ready))).toEqual([]);
     expect(specs).toHaveLength(1);
   });
@@ -597,11 +597,11 @@ describe('coworker', () => {
     const where = world();
     pullRequest(where);
     const at = '2026-10-16T00:00:03.000Z';
-    const line = { id: 'r1', author: 'morgan', body: 'why hello?', at, path: 'hello.txt', line: 1 };
-    say(where, { ...comment(8, 'morgan', true, 'why hello?', at), comment: line });
+    const line = { id: 'r1', author: 'robin', body: 'why hello?', at, path: 'hello.txt', line: 1 };
+    say(where, { ...comment(8, 'robin', true, 'why hello?', at), comment: line });
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Asked for.', under: 'r1' })]]);
     await run(drive(flow, { ...begun(), said: [{ issue: 7 }] }, small));
-    expect(specs[0]!.prompt).toContain('@morgan on hello.txt:1, id r1: why hello?');
+    expect(specs[0]!.prompt).toContain('@robin on hello.txt:1, id r1: why hello?');
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under, c.path])).toEqual([
       ['Asked for.', 'r1', 'hello.txt'],
@@ -617,11 +617,11 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'comment', body: 'Said bye.' })],
     ]);
     const at = () => new Date(Date.now() + 1).toISOString();
-    const review = comment(8, 'morgan', true, '/agent yes, bye too', '');
+    const review = comment(8, 'robin', true, '/agent yes, bye too', '');
     const [again, done] = await run(
       Effect.gen(function* () {
         yield* drive(flow, begun(), small);
-        say(where, comment(8, 'morgan', true, '/agent hello', at()));
+        say(where, comment(8, 'robin', true, '/agent hello', at()));
         const [again] = yield* tick(small, 7);
         review.at = review.comment!.at = review.comment!.id = at();
         say(where, { ...review, comment: { ...review.comment!, path: 'hello.txt', line: 1 } });
@@ -706,7 +706,7 @@ describe('compound engineering', () => {
   const pushed = (issue: number, at: string): Event => ({
     issue,
     kind: 'commit',
-    actor: 'morgan',
+    actor: 'robin',
     trusted: true,
     at,
     commit: { sha: 'abcdef0123', title: 'Document the field' },
@@ -724,9 +724,9 @@ describe('compound engineering', () => {
     const where = world();
     say(where, comment(7, 'mallory', false, 'this is wrong', '2026-10-16T00:00:04.000Z'));
     say(where, pushed(7, '2026-10-16T00:00:05.000Z'));
-    say(where, comment(7, 'morgan', true, '/agent stop', '2026-10-16T00:00:06.000Z'));
+    say(where, comment(7, 'robin', true, '/agent stop', '2026-10-16T00:00:06.000Z'));
     say(where, {
-      ...comment(7, 'morgan', true, 'Fine, but the new field needs docs.', '2026-10-16T00:00:07.000Z'),
+      ...comment(7, 'robin', true, 'Fine, but the new field needs docs.', '2026-10-16T00:00:07.000Z'),
       kind: 'approved',
     });
     const { specs, commands, run } = services(where, [[start('r'), reply()]]);
@@ -737,7 +737,7 @@ describe('compound engineering', () => {
     ]);
     expect(specs).toHaveLength(1);
     expect(specs[0]!.prompt).toContain(
-      '## What a person said or pushed\n\n@morgan pushed abcdef0 Document the field\n\n@morgan approved: Fine, but the new field needs docs.'
+      '## What a person said or pushed\n\n@robin pushed abcdef0 Document the field\n\n@robin approved: Fine, but the new field needs docs.'
     );
 
     expect(commands.map(c => c.args.join(' ')).join('\n')).not.toContain('setup-ran');
@@ -748,7 +748,7 @@ describe('compound engineering', () => {
     const again = await run(tick(looking));
     expect(again.map(r => [r.workflow, r.started])).toEqual([['retro', '2026-10-16T00:00:08.000Z']]);
     expect(specs.at(-1)!.prompt).toMatch(
-      /## What a person said or pushed\n\n@morgan pushed abcdef0 Document the field\n\n(?!@morgan approved)/
+      /## What a person said or pushed\n\n@robin pushed abcdef0 Document the field\n\n(?!@robin approved)/
     );
     expect((await run(retros)).map(r => r.workflow)).toEqual(['retro', 'retro']);
   });
@@ -775,23 +775,23 @@ describe('compound engineering', () => {
     say(where, pushed(7, '2026-10-16T00:00:04.000Z'));
     const touched = await run(tick(looking));
     expect(touched.map(r => [r.workflow, r.started])).toEqual([['retro', '2026-10-16T00:00:04.000Z']]);
-    expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan pushed abcdef0 Document the field');
+    expect(specs[0]!.prompt).toContain('said or pushed\n\n@robin pushed abcdef0 Document the field');
   });
 
   it('takes a stop with a reason as feedback, and a bare stop as a command', async () => {
     const where = world();
-    say(where, comment(7, 'morgan', true, '/agent stop', '2026-10-16T00:00:04.000Z'));
-    say(where, comment(7, 'morgan', true, '/agent stop you rewrote the whole module', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'robin', true, '/agent stop', '2026-10-16T00:00:04.000Z'));
+    say(where, comment(7, 'robin', true, '/agent stop you rewrote the whole module', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [[start('r'), reply()]]);
     await run(done());
     expect((await run(tick(looking))).map(r => r.workflow)).toEqual(['retro']);
-    expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan: /agent stop you rewrote the whole module\n');
+    expect(specs[0]!.prompt).toContain('said or pushed\n\n@robin: /agent stop you rewrote the whole module\n');
   });
 
   it('looks up no open issue a run never worked on', async () => {
     const where = world();
-    writeFileSync(join(where.forge, '12.md'), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');
-    say(where, comment(12, 'morgan', true, 'Unrelated.', '2026-10-16T00:00:05.000Z'));
+    writeFileSync(join(where.forge, '12.md'), '---\ntitle: Other\nstate: open\nauthor: robin\n---\n\nElse.\n');
+    say(where, comment(12, 'robin', true, 'Unrelated.', '2026-10-16T00:00:05.000Z'));
     const asked: number[] = [];
     const counted = Layer.effect(
       Forge,
@@ -816,11 +816,11 @@ describe('compound engineering', () => {
       join(where.forge, '8', 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'x', baseSha: 'b1' })
     );
-    say(where, comment(8, 'morgan', true, 'Next time reuse the helper.', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'robin', true, 'Next time reuse the helper.', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [[start('r'), reply()]]);
     await run(done());
     const touched = await run(tick(looking));
     expect(touched.map(r => [r.workflow, r.issue])).toEqual([['retro', 7]]);
-    expect(specs[0]!.prompt).toContain('@morgan: Next time reuse the helper.');
+    expect(specs[0]!.prompt).toContain('@robin: Next time reuse the helper.');
   });
 });

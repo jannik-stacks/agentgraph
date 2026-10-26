@@ -102,7 +102,7 @@ Any `<n>.md` you write into the forge folder, under an unused number, is an issu
 ```md
 ---
 title: Reject a negative count
-author: morgan
+author: robin
 labels: [agent:ready]
 ---
 
