@@ -62,7 +62,7 @@ const latest = (name: string, lines: Trace[]): CheckResult | undefined => {
   }
 };
 
-/** A check as one list item: its name, its script and judge as toggles that show them in place, its gate, and with a run its latest result. */
+/** A check as one list item: its name, who judges it and its gate, its script and judge on demand, and with a run its latest result. */
 const CheckItem = ({
   name,
   check,
@@ -77,55 +77,39 @@ const CheckItem = ({
   const [shown, setShown] = useState<'script' | 'judge'>();
   const result = lines && latest(name, lines);
   const mode = check?.mode ?? 'block';
-  const tags = [
-    ...(check?.run
-      ? [
-          {
-            key: 'script' as const,
-            label: 'script',
-            tip: check.agent
-              ? `The script runs and its output goes to ${check.agent}. Click to see it.`
-              : 'Exit 0 passes, and the output is the feedback. Click to see the script.',
-          },
-        ]
-      : []),
-    ...(check?.agent
-      ? [
-          {
-            key: 'judge' as const,
-            label: `judge ${check.agent}`,
-            tip: `${check.agent} judges ${check.run ? 'the script output' : 'the diff'}; a reply starting with PASS passes, with FAIL fails. Click to see what it is told.`,
-          },
-        ]
-      : []),
-  ];
+  const kind =
+    check?.agent === undefined
+      ? { label: 'script', tip: 'A script; exit 0 passes, and the output is the feedback.' }
+      : {
+          label: check.run ? `script, judged by ${check.agent}` : `judged by ${check.agent}`,
+          tip: check.run
+            ? `The script runs and its output goes to ${check.agent}, whose reply must start with PASS; FAIL is a finding.`
+            : `${check.agent} judges the diff; a reply starting with PASS passes, with FAIL fails.`,
+        };
+  const toggles = [...(check?.run ? ['script' as const] : []), ...(check?.agent ? ['judge' as const] : [])];
   return (
     <li className="flex gap-2">
       <span aria-hidden className="text-zinc-400">
         –
       </span>
       <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="font-mono">{name}</span>
-          {tags.map(t => (
-            <Tooltip key={t.key} tip={t.tip}>
-              <button
-                type="button"
-                aria-pressed={shown === t.key}
-                onClick={() => setShown(shown === t.key ? undefined : t.key)}
-                className={cx(
-                  'rounded-sm px-1 text-[11px] text-zinc-600 transition-colors hover:text-zinc-900 aria-pressed:bg-zinc-200 aria-pressed:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 dark:aria-pressed:bg-zinc-700 dark:aria-pressed:text-zinc-100',
-                  t.key === 'script'
-                    ? 'border border-zinc-300 dark:border-zinc-700'
-                    : 'bg-zinc-100 font-medium dark:bg-zinc-800'
-                )}
-              >
-                {t.label}
-              </button>
-            </Tooltip>
-          ))}
           <span className="text-zinc-500">
-            <Term tip={gates[mode]}>{mode}</Term>
+            <Term tip={kind.tip}>{kind.label}</Term>, <Term tip={gates[mode]}>{mode}</Term>
+          </span>
+          <span className="ml-auto flex gap-1">
+            {toggles.map(key => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={shown === key}
+                onClick={() => setShown(shown === key ? undefined : key)}
+                className="rounded px-1 text-[11px] text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 aria-pressed:bg-zinc-100 aria-pressed:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:aria-pressed:bg-zinc-800 dark:aria-pressed:text-zinc-200"
+              >
+                {key}
+              </button>
+            ))}
           </span>
         </div>
         {shown === 'script' && check?.run && (
