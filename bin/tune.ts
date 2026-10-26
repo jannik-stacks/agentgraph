@@ -539,13 +539,15 @@ export const init = async (
 };
 
 /**
- * The bench hub with no reviewer: implement with two tries against a tests check, then a human merge. A repo with a
+ * The bench hub with no reviewer and no end checks: implement with two tries against a tests check, then a human merge. A repo with a
  * toolchain line builds through the toolchain step, so the case plan's host setup is left out.
  */
 const minimal = (hub: string, commands: ReturnType<typeof pickBenchTestCommands>, toolchain?: string) => {
   cpSync(join(agentgraphDir, 'examples/bench'), hub, { recursive: true });
   rmSync(join(hub, 'agents/reviewer.md'), { force: true });
   rmSync(join(hub, 'scripts/review.mjs'), { force: true });
+  for (const check of ['run-stats', 'tool-budget', 'tests-share'])
+    rmSync(join(hub, `checks/${check}.md`), { force: true });
   writeFileAtomic(
     join(hub, 'workflows/issue.md'),
     `---

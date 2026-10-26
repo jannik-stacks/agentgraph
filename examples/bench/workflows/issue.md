@@ -13,6 +13,7 @@ steps:
     rounds: 1
     until: the change does everything the issue asks and nothing it does not need
   merge: { wait: human, back: implement }
+checks: [run-stats, tool-budget, tests-share]
 ---
 One issue becomes one pull request. The implementor changes the repo until the tests check passes. A
 reviewer reads any change bigger than one small edit and can send it back once. A human merges.
