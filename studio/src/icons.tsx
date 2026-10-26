@@ -49,6 +49,8 @@ const glyphs = {
     </>
   ),
   tick: <path d="m5 12 5 5 9-10" />,
+  chevron: <path d="m9 6 6 6-6 6" />,
+  back: <path d="m15 6-6 6 6 6" />,
   file: (
     <>
       <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" />

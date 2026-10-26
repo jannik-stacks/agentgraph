@@ -38,7 +38,7 @@ export const queryParam = (key: string) =>
     }
   );
 
-/** The step selected on the graph, as `workflow/step`. */
+/** The step selected on the graph, as `workflow/step`, then what was opened from it, as `/check:name` and `/agent:name`. */
 export const selectedStepAtom = queryParam('step');
 
 /** Answers `path` as JSON while something reads it, and again whenever the server reports the data dir changed. */

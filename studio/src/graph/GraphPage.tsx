@@ -21,7 +21,9 @@ import {
   type StepFlowNode,
 } from './nodes.tsx';
 import type { Fixture, RunDrawnOnWorkflow } from './scenarios.ts';
+import { AgentDetails, CheckDetails } from './OpenedDetails.tsx';
 import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
+import { splitSelection } from './trail.ts';
 import { makeRunStory, makeRunTrail, makeWorkflowRunVisits } from './visits.ts';
 
 const hubParam = queryParam('hub');
@@ -62,9 +64,11 @@ const WorkflowGraph = ({
   hidden: ReadonlySet<string>;
 }) => {
   const selected = useAtomValue(selectedStepAtom);
-  const [workflowName, stepName] = selected?.split('/') ?? [];
+  const { workflow: workflowName, step: stepName, trail } = splitSelection(selected);
   const fixture = shown.find(f => f.workflow.name === workflowName);
   const step = fixture?.workflow.steps.find(s => s.name === stepName);
+  const opened = step && trail.at(-1);
+  const path = step && [workflowName, stepName, ...trail.map(t => `${t.kind}:${t.name}`)].join('/');
   const [width, resize] = usePanelWidth();
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -85,8 +89,12 @@ const WorkflowGraph = ({
             onPointerDown={resize}
             className="absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize transition-colors hover:bg-zinc-300/60 md:block dark:hover:bg-zinc-700/60"
           />
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {step ? (
+          <div key={path} className="agi-in min-h-0 flex-1 overflow-y-auto">
+            {opened?.kind === 'check' ? (
+              <CheckDetails fixture={fixture} path={path!} name={opened.name} />
+            ) : opened?.kind === 'agent' ? (
+              <AgentDetails fixture={fixture} hub={shown} path={path!} name={opened.name} />
+            ) : step ? (
               <StepDetails fixture={fixture} step={step} run={picked?.fixture === fixture ? picked : undefined} />
             ) : (
               <WorkflowDetails workflow={fixture.workflow} />
@@ -209,7 +217,7 @@ const Canvas = ({
           ...placed(box),
           data: {
             node,
-            selected: selected === id,
+            selected: selected === id || !!selected?.startsWith(`${id}/`),
             hidden,
             live: picked ? undefined : here.get(`${fixture}/${node.step}`),
             ...(run && {

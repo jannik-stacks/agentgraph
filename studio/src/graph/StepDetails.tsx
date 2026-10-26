@@ -8,42 +8,14 @@ import { RunLine } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';
 import { atLink } from '../runs/trace.ts';
 import { accent, cx, Disclosure, Field, Fields, Link, Tooltip } from '../ui.tsx';
+import { gates, Section, Term, To } from './panel.tsx';
 import type { Fixture, RunDrawnOnWorkflow, Trail } from './scenarios.ts';
-
-const Section = ({ title, tip, children }: { title: string; tip?: string; children: React.ReactNode }) => (
-  <section className="space-y-1.5">
-    <h3 className="font-medium text-zinc-500">{tip ? <Term tip={tip}>{title}</Term> : title}</h3>
-    {children}
-  </section>
-);
 
 const Prompt = ({ title, text }: { title: string; text: string }) => (
   <Section title={title}>
     <Markdown text={text} />
   </Section>
 );
-
-/** A word with a dotted underline that explains itself on hover. */
-const Term = ({ tip, children }: { tip: string; children: React.ReactNode }) => (
-  <Tooltip tip={tip}>
-    <span className="cursor-help underline decoration-zinc-200 decoration-dotted underline-offset-3 hover:decoration-zinc-400 dark:decoration-zinc-700">
-      {children}
-    </span>
-  </Tooltip>
-);
-
-const gates = {
-  warn: 'A failure is recorded and never holds the step.',
-  block: 'A failure fails the try, and the output goes back as feedback.',
-  stop: 'A failure stops the run.',
-};
-
-const doing = (does: Step['does']) =>
-  'agent' in does
-    ? `the ${does.agent} agent${does.skill ? ` with the ${does.skill} skill` : ''}`
-    : 'run' in does
-      ? 'a script'
-      : 'you';
 
 /** A simulated trail as the outcome lines a real run would have traced. */
 const traceOf = (trail: Trail, run: Run): Trace[] =>
@@ -82,13 +54,13 @@ const formatCheckTime = (ms: number) =>
 const CheckItem = ({
   name,
   check,
-  judge,
+  path,
   lines,
   run,
 }: {
   name: string;
   check: Fixture['checks'][string] | undefined;
-  judge: string | undefined;
+  path: string;
   lines: Trace[] | undefined;
   run: string | undefined;
 }) => {
@@ -100,7 +72,7 @@ const CheckItem = ({
     check?.agent === undefined
       ? { label: 'script', tip: 'A script; exit 0 passes, and the output is the feedback.' }
       : {
-          label: check.run ? `script, judged by ${check.agent}` : `judged by ${check.agent}`,
+          label: check.run ? 'script, judged by' : 'judged by',
           tip: check.run
             ? `The script runs and its output goes to ${check.agent}, whose reply must start with PASS; FAIL is a finding.`
             : `${check.agent} judges the diff; a reply starting with PASS passes, with FAIL fails.`,
@@ -119,9 +91,16 @@ const CheckItem = ({
       </span>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="font-mono">{name}</span>
+          <To path={`${path}/check:${name}`}>{name}</To>
           <span className="text-zinc-500">
-            <Term tip={kind.tip}>{kind.label}</Term>, <Term tip={gates[mode]}>{mode}</Term>
+            <Term tip={kind.tip}>{kind.label}</Term>
+            {check?.agent && (
+              <>
+                {' '}
+                <To path={`${path}/check:${name}/agent:${check.agent}`}>{check.agent}</To>
+              </>
+            )}
+            , <Term tip={gates[mode]}>{mode}</Term>
           </span>
           {lines && !result && <span className="text-zinc-400">not run yet</span>}
           <span className="ml-auto flex items-baseline gap-1">
@@ -161,15 +140,15 @@ const CheckItem = ({
         )}
         {shown === 'judge' && check?.agent && (
           <div className="agi-in space-y-2 border-l-2 border-zinc-200 pl-3 dark:border-zinc-800">
+            <p className="font-mono text-zinc-500">checks/{name}.md</p>
+            <p className="text-zinc-500">
+              judged by <To path={`${path}/check:${name}/agent:${check.agent}`}>{check.agent}</To>
+            </p>
+            <h4 className="font-medium text-zinc-500">What the judge is told</h4>
             {check.body?.trim() ? (
               <Markdown text={check.body!} />
             ) : (
-              <p className="text-zinc-500">No instructions; {check.agent} judges with its own prompt alone.</p>
-            )}
-            {judge && (
-              <Disclosure summary={<span className="font-mono">agents/{check.agent}.md</span>}>
-                <Markdown text={judge} />
-              </Disclosure>
+              <p className="text-zinc-500">Nothing; {check.agent} judges with its own system prompt alone.</p>
             )}
           </div>
         )}
@@ -302,7 +281,16 @@ export const StepDetails = ({
                   : 'The step waits for a person. An approving review, an approved label or a merge passes it.'
             }
           >
-            {doing(does)}
+            {'agent' in does ? (
+              <>
+                the <To path={`${workflow.name}/${step.name}/agent:${does.agent}`}>{does.agent}</To> agent
+                {does.skill && ` with the ${does.skill} skill`}
+              </>
+            ) : 'run' in does ? (
+              'a script'
+            ) : (
+              'you'
+            )}
           </Term>
         </Field>
         {'agent' in does && model !== undefined && (
@@ -382,7 +370,7 @@ export const StepDetails = ({
                 key={name}
                 name={name}
                 check={checks[name]}
-                judge={checks[name]?.agent && fixture.agents?.[checks[name].agent]}
+                path={`${workflow.name}/${step.name}`}
                 lines={lines}
                 run={run?.trace && run.run.id}
               />
@@ -402,9 +390,6 @@ export const StepDetails = ({
       )}
       {'agent' in does && does.skill && fixture.skills?.[does.skill] && (
         <Prompt title={`Skill, ${does.skill}`} text={fixture.skills[does.skill]!} />
-      )}
-      {'agent' in does && fixture.agents?.[does.agent] && (
-        <Prompt title={`Agent, ${does.agent}`} text={fixture.agents[does.agent]!} />
       )}
     </div>
   );
