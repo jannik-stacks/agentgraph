@@ -7,7 +7,7 @@ import { Code, Markdown } from '../Markdown.tsx';
 import { RunLine } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';
 import { atLink } from '../runs/trace.ts';
-import { accent, cx, Disclosure, Field, Fields, Link, Tooltip } from '../ui.tsx';
+import { accent, cx, Field, Fields, Link, Tooltip } from '../ui.tsx';
 import { gates, Section, Term, To } from './panel.tsx';
 import type { Fixture, RunDrawnOnWorkflow, Trail } from './scenarios.ts';
 
