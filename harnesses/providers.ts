@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
@@ -21,11 +21,23 @@ const readHidden = async (question: string) => {
   process.stdout.write(question);
   const muted = new Writable({ write: (_chunk, _encoding, done) => done() });
   const lines = createInterface({ input: process.stdin, output: muted, terminal: true });
-  const answer = await lines.question('');
+  const pasted: string[] = [];
+  for await (const line of lines) {
+    if (!line.trim() && pasted.length) break;
+    pasted.push(line);
+  }
   lines.close();
   process.stdout.write('\n');
-  return answer.trim();
+  return pasted.join('').replace(/\s/g, '');
 };
+
+const isTokenAccepted = (token: string) =>
+  spawnSync('claude', ['-p', 'Reply with ok.', '--model', 'haiku'], {
+    cwd: tmpdir(),
+    env: { ...process.env, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: token },
+    stdio: 'ignore',
+    timeout: 60_000,
+  }).status === 0;
 
 const loggedIn = (cmd: string, args: string[]) => spawnSync(cmd, args, { stdio: 'ignore' }).status === 0;
 
@@ -56,8 +68,11 @@ const claude: Provider = {
     console.log('login    agentgraph needs its own Claude token for the sandbox. Running `claude setup-token`...');
     if (spawnSync('claude', ['setup-token'], { stdio: 'inherit' }).status !== 0)
       throw new Error('claude setup-token failed');
-    const token = await readHidden('         paste the token it printed: ');
-    if (!/^[\w-]+$/.test(token)) throw new Error('that is not a token');
+    let token = await readHidden('         paste the token it printed, then press Enter on an empty line: ');
+    for (let tries = 1; !/^[\w-]+$/.test(token) || !isTokenAccepted(token); tries++) {
+      if (tries === 3) throw new Error('that token did not work three times; nothing was saved');
+      token = await readHidden("         that token didn't work, paste it again: ");
+    }
     if (keychain) {
       if (security(['-i'], `add-generic-password -U -s agentgraph -a claude -w "${token}"\n`).status !== 0)
         throw new Error('could not save the token in the Keychain');
