@@ -1,9 +1,9 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useEffect, useMemo, useState } from 'react';
-import { pageAtom, navigateAtom, queryParam, runsAtom } from '../state.ts';
+import { pageAtom, navigateAtom, queryParam, resultsAtoms, runsAtom } from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { Combobox, Loading, Muted } from '../ui.tsx';
-import { CheckSpread } from './checks.tsx';
+import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { RunPage } from './RunPage.tsx';
 import { type ServedRun, isGitHubRef, locatedLink } from './trace.ts';
@@ -61,6 +61,20 @@ const RunList = () => {
   return gh ? <Locate gh={gh} /> : <Runs />;
 };
 
+const RunResults = ({ ids }: { ids: string[] }) => {
+  const { value } = useAtomValue(resultsAtoms.runs);
+  const runs = useMemo(() => value?.runs.filter(r => ids.includes(r.key)) ?? [], [value, ids]);
+  if (!value || !runs.length) return null;
+  return (
+    <section className="space-y-1">
+      <ResultTable runs={runs} fields={value.fields} />
+      <p className="text-xs text-zinc-500">
+        <ResultsLink query="">all results</ResultsLink>
+      </p>
+    </section>
+  );
+};
+
 const Runs = () => {
   const { value: runs, failure } = useAtomValue(runsAtom);
   const [issue, setIssue] = useAtom(issueParam);
@@ -89,7 +103,7 @@ const Runs = () => {
           onChange={setIssue}
         />
       </div>
-      <CheckSpread traces={shown.map(r => r.trace)} />
+      <RunResults ids={shown.map(r => r.run.id)} />
       <Rows rows={shown.map(r => runRow(r))} />
     </>
   );

@@ -1,7 +1,10 @@
 import { atom } from 'jotai';
+import type { readRunResults } from '../../bin/results.ts';
+import type { Step } from '../../bin/tune.ts';
+import { type ResultSource, resultSources, type RunResults } from './results/result.ts';
 import type { ServedRun } from './runs/trace.ts';
 
-export const routes = ['inbox', 'graph', 'runs', 'docs', 'bench', 'compound'] as const;
+export const routes = ['inbox', 'graph', 'runs', 'docs', 'bench', 'results'] as const;
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
 /** The current location; tests set it. @public */
@@ -18,7 +21,7 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
   set(locationAtom, readLocation());
 });
 
-/** The route and the id after it: `/inbox`, `/graph`, `/runs[/<id>]`, `/docs[/<page>]`, `/bench` or `/compound`. */
+/** The route and the id after it: `/inbox`, `/graph`, `/runs[/<id>]`, `/docs[/<page>]`, `/bench` or `/results`. */
 export const pageAtom = atom(get => {
   const [page, id] = get(locationAtom).path.split('/').filter(Boolean);
   const route = routes.find(r => r === page);
@@ -62,6 +65,12 @@ export const makeLiveJsonAtom = <T>(path: string) => {
 
 /** Every run of the served graph, with its trace, every text in it cut short. */
 export const runsAtom = makeLiveJsonAtom<ServedRun[]>('/api/runs');
+
+type ServedResults = Omit<ReturnType<typeof readRunResults>, 'runs'> & { runs: (RunResults & { step?: Step })[] };
+
+export const resultsAtoms = Object.fromEntries(
+  resultSources.map(s => [s, makeLiveJsonAtom<ServedResults>(`/api/results?from=${s}`)])
+) as Record<ResultSource, ReturnType<typeof makeLiveJsonAtom<ServedResults>>>;
 
 const opened = new Map<string, ReturnType<typeof makeLiveJsonAtom<ServedRun | null>>>();
 

@@ -132,8 +132,8 @@ Tell the user, in plain short sentences:
 - The held-out test score with its interval, from the last checkpoint. No score passes 1, the human's
   level; say "as good as the human" only when that interval reaches 1.
 - What it cost: Codex and Claude points, dollars and minutes, from `status`.
-- Where to look: the Compound tab (`npm --prefix studio run dev -- --tune ~/.agentgraph/tune`, then
-  `/compound`).
+- Where to look: the Results tab (`npm --prefix studio run dev -- --tune ~/.agentgraph/tune`, then
+  `/results?from=tune`).
 
 Ask whether to adopt it. If yes, write `T/adopt.patch` against the user's current `.agentgraph/` and tell
 them the command to apply it on a branch of their own. Do not apply it yourself.

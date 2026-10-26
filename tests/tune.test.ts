@@ -15,8 +15,8 @@ import {
   status,
   step,
   tuneRows,
-  type tunesOf,
 } from '../bin/tune.ts';
+import type { readRunResults } from '../bin/results.ts';
 import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { tmp } from './kit.ts';
 
@@ -380,20 +380,27 @@ describe('status', () => {
 
 const tuneRoot = (dir: string) => join(dir, '..', '..');
 
-describe('/api/compound', () => {
-  it('answers every tune under VITE_AGI_TUNE with its steps', async () => {
+describe('/api/results', () => {
+  it('answers every tune candidate under VITE_AGI_TUNE as results', async () => {
     const routes: Record<string, (req: unknown, res: unknown) => Promise<void>> = {};
     const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
     plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
     process.env.VITE_AGI_TUNE = join(import.meta.dirname, 'fixtures/tune');
-    let body = '';
-    await routes['/api/compound']!({}, { setHeader: () => {}, end: (b: string) => (body = b) });
-    const tunes = JSON.parse(body) as ReturnType<typeof tunesOf>;
-    expect(tunes.map(t => [t.name, t.tune.repo, t.steps.length])).toEqual([
-      ['skill@0.1.0', 'acme/clarinet', 25],
-      ['t1', 'acme/clarinet', 25],
-      ['t1', 'example-org/kit', 25],
-    ]);
-    expect(tunes[0]!.steps[0]!.verdict).toBe('kept');
+    const ask = (url: string) =>
+      new Promise<{ status: number; body: string }>(done => {
+        const res = {
+          statusCode: 200,
+          setHeader: () => {},
+          end: (body: string) => done({ status: res.statusCode, body }),
+        };
+        void routes['/api/results']!({ url }, res);
+      });
+    const { fields, runs } = JSON.parse((await ask('/?from=tune')).body) as ReturnType<typeof readRunResults>;
+    expect(fields.map(f => f.field)).toEqual(['quality', 'usd', 'minutes']);
+    expect(runs).toHaveLength(75);
+    expect(runs[0]).toMatchObject({
+      axes: { tune: 'acme/clarinet/skill@0.1.0', repo: 'acme/clarinet', verdict: 'kept' },
+    });
+    expect((await ask('/?from=nope')).status).toBe(400);
   });
 });

@@ -57,7 +57,7 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_DIR`, `AGE
 | `AGENTGRAPH_PROXY_URL` | Model gateway, `http://gateway:4000/v1`, the local LiteLLM's name on the sandbox networks; see [Models](sandbox.md#models) |
 | `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, see [Models](sandbox.md#models); `AGENTGRAPH_PROXY_KEYS_FILE` names a file holding them |
 | `AGENTGRAPH_SESSION_ENV` | Engine variables every session gets, such as a harness login token; empty by default |
-| `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json` |
+| `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json.gz` |
 | `AGENTGRAPH_CONFIG` | The [harness plugins](sandbox.md#harnesses) file; the CLI uses `config.ts` in the data root when it exists, else the package's `agentgraph.config.ts` |
 | `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`, also set by `--logs`; see [Check logs](runs.md#check-logs) |
 | `AGENTGRAPH_CACHE_VOLUME` | [Toolchain cache](sandbox.md#toolchains) volume, `agentgraph-cache` |
@@ -88,4 +88,4 @@ npm install
 npm run dev -- --repo ~/code/left-pad
 ```
 
-It serves on port 5182, or `AGI_PORT`; give each repo its own port. `--repo` reads that repo's instance under `--data` or the default data root. Instead, `--dir <dir> --data <dir>` select the inputs; add `--forge <dir>` so the Inbox names local commands. Without either it reads `examples/sandbox` and `AGENTGRAPH_DATA`, else `~/.agentgraph`. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the Compound tab. The studio only reads. Its Inbox lists the runs that wait for a person, with the same commands `show` prints, including the `--repo` and `--data` it was opened with. A run that waits on a run it started is left out. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->
+It serves on port 5182, or `AGI_PORT`; give each repo its own port. `--repo` reads that repo's instance under `--data` or the default data root. Instead, `--dir <dir> --data <dir>` select the inputs; add `--forge <dir>` so the Inbox names local commands. Without either it reads `examples/sandbox` and `AGENTGRAPH_DATA`, else `~/.agentgraph`. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the [Results](runs.md#results) tab's tunes. The studio only reads. Its Inbox lists the runs that wait for a person, with the same commands `show` prints, including the `--repo` and `--data` it was opened with. A run that waits on a run it started is left out. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->

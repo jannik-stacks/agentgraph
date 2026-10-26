@@ -3,18 +3,16 @@ import { type ReactNode, useMemo, useState } from 'react';
 import type { DriveState } from '../../../bench/drive.ts';
 import type { readBenchRows } from '../../../bin/bench.ts';
 import { getMean } from '../../../src/stats.ts';
-import { makeLiveJsonAtom, queryParam } from '../state.ts';
+import { makeLiveJsonAtom, queryParam, resultsAtoms } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
-import { cost, defaultBenchScoreWeights, frontier, presets, type price, summarise } from './score.ts';
+import { cost, defaultBenchScoreWeights, frontier, presets, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
-import { CheckMeans } from '../runs/checks.tsx';
-import { getCheckNumbers } from '../runs/trace.ts';
+import { findCheckFields, readBenchRowResults, type RunResults } from '../results/result.ts';
+import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
 
 type Row = ReturnType<typeof readBenchRows>[number];
 
-const benchAtom = makeLiveJsonAtom<{ rows: Row[]; drives?: DriveState[]; prices: Parameters<typeof price>[1] }>(
-  '/api/bench'
-);
+const benchAtom = makeLiveJsonAtom<{ rows: Row[]; drives?: DriveState[] }>('/api/bench');
 const params = {
   w: queryParam('w'),
   x: queryParam('x'),
@@ -82,13 +80,30 @@ const terms: [string, ReactNode][] = [
       judges alone score, so they stay off the line. Hollow points are dimmed but their quality interval still reaches
       the line. Crosses show 95 percent intervals from a bootstrap over cases, then repeats. This chart compares setups.
       The{' '}
-      <Link href="/compound" className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100">
-        Compound
+      <Link
+        href="/results?from=bench"
+        className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
+      >
+        Results
       </Link>{' '}
-      tab shows change over time.
+      tab shows each field over time.
     </>,
   ],
 ];
+
+const BenchResults = ({ runs }: { runs: RunResults[] }) => {
+  const { value } = useAtomValue(resultsAtoms.bench);
+  const fields = (value?.fields ?? findCheckFields(runs)).filter(f => f.check !== 'bench');
+  if (!fields.length) return null;
+  return (
+    <section className="space-y-1">
+      <ResultTable runs={runs} fields={fields} by="point" />
+      <p className="text-xs text-zinc-500">
+        <ResultsLink query="from=bench">all results</ResultsLink>
+      </p>
+    </section>
+  );
+};
 
 /** Judges outside the default panel, unticked unless the page says otherwise. */
 const unpanelled = 'sol';
@@ -186,7 +201,7 @@ export const BenchPage = () => {
     const shown = value.rows.filter(r => !repo || r.strata.repo === repo);
     return summarise(shown, {
       w: weights,
-      x: r => (minutes ? r.minutes : cost(r, value.prices, cache === 'off')),
+      x: r => (minutes ? r.minutes : cost(r, cache === 'off')),
       judges: judges.filter(j => !dropped.includes(j)),
       infraZero: infra === 'zero',
     }).filter(p => p.n > 0);
@@ -225,6 +240,10 @@ export const BenchPage = () => {
     for (const t of rs.flatMap(r => Object.values(r.tokens)))
       for (const k of Object.keys(sum) as (keyof typeof sum)[]) sum[k] += t[k] / rs.length;
     return `tokens per run: ${kilo(Math.round(sum.input))} in, ${kilo(Math.round(sum.cacheRead))} cache read, ${kilo(Math.round(sum.cacheWrite))} cache write, ${kilo(Math.round(sum.output))} out`;
+  };
+  const unpricedModels = (rs: Row[]) => {
+    const missing = [...new Set(rs.flatMap(r => r.unpriced ?? []))];
+    return missing.length ? `no list price for ${missing.join(', ')}, counted as $0` : '';
   };
   const one = points.find(p => p.key === picked);
   type Point = (typeof points)[number];
@@ -314,7 +333,7 @@ export const BenchPage = () => {
         </Control>
         <Control
           label="Axis"
-          tip={`Cost prices each run’s tokens at list price, with separate rates for cache reads and writes. Without tokens, it uses the cost reported by the harness. Cache off prices cache reads and writes as plain input. Minutes are wall time with machine sleep removed.${!minutes && value.prices.asOf ? ` Prices as of ${value.prices.asOf}.` : ''}`}
+          tip="Cost prices each run’s tokens at the public API list price from LiteLLM’s table, with separate rates for cache reads and writes, for every model, subscriptions and free ones included. A model the table lacks is named in the point’s tip. Without tokens, it uses the cost the run recorded. Cache off prices cache reads and writes as plain input. Checking cost is apart. Minutes are wall time with machine sleep removed."
         >
           <Select
             label="x"
@@ -413,11 +432,9 @@ export const BenchPage = () => {
                   `quality ${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`,
                   `${fx(p.x)} per task (${ci(p.xCi, fx)})`,
                   `${p.n} cases, ${p.repeats} runs, ${fmt(p.completion * 100, 0)}% complete`,
-                  `${fmt(p.minutes, 1)} min, reported ${usd(getMean(p.perCase.map(s => s.row.usd ?? 0)))} per run`,
+                  `${fmt(p.minutes, 1)} min, checking ${usd(getMean(p.perCase.map(s => s.row.checkUsd)))} per run`,
                   tokens(p.perCase.map(s => s.row)),
-                  p.perCase.some(s => s.row.usdSource === 'list-price estimate')
-                    ? 'paid by a subscription: the cost is a list-price estimate'
-                    : '',
+                  unpricedModels(p.perCase.map(s => s.row)),
                   p.judgeOnly
                     ? 'judges alone score these cases, so the point stays off the line'
                     : dominated && p.yCi[1] >= stair(p.x)
@@ -486,15 +503,7 @@ export const BenchPage = () => {
             />
           </section>
         )}
-        <CheckMeans
-          groups={sorted.map(p => ({
-            key: p.key,
-            label: label(p.key),
-            numbers: p.perCase.map(({ row }) =>
-              getCheckNumbers(Object.entries(row.checks ?? {}).map(([check, value]) => ({ check, value })))
-            ),
-          }))}
-        />
+        <BenchResults runs={sorted.flatMap(p => p.perCase.map(({ row }) => readBenchRowResults(row)))} />
         <div className="overflow-x-auto">
           <table className="w-full max-w-5xl text-left text-xs whitespace-nowrap tabular-nums">
             <thead className="text-zinc-500">

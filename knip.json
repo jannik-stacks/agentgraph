@@ -33,6 +33,7 @@
     "@tailwindcss/vite",
     "@vitejs/plugin-react",
     "agentation",
-    "d3-scale"
+    "d3-scale",
+    "@observablehq/plot"
   ]
 }

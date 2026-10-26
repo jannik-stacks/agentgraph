@@ -2,7 +2,6 @@ import type { readBenchRows } from '../../../bin/bench.ts';
 import { getMean } from '../../../src/stats.ts';
 
 type Row = ReturnType<typeof readBenchRows>[number];
-type Tokens = Row['tokens'][string];
 
 export const defaultBenchScoreWeights = { test: 0.5, judge: 0.35, suite: 0.15, crit: 0.1, help: 0.1 };
 export const presets: Record<string, typeof defaultBenchScoreWeights> = {
@@ -11,27 +10,8 @@ export const presets: Record<string, typeof defaultBenchScoreWeights> = {
   'judges only': { test: 0, judge: 1, suite: 0, crit: 0, help: 0 },
 };
 
-/** List prices in USD per million tokens by upstream model, and the proxy's aliases for them. */
-type Prices = {
-  asOf?: string;
-  aliases?: Record<string, string>;
-  models?: Record<string, { input: number; output: number; cached?: number; cacheWrite?: number }>;
-};
-
-/** The notional USD of `tokens`; `cacheOff` prices cache reads and writes as input. */
-export const price = (tokens: Record<string, Tokens>, prices: Prices, cacheOff = false) =>
-  Object.entries(tokens).reduce((sum, [model, t]) => {
-    const upstream = prices.aliases?.[model] ?? model;
-    const p = prices.models?.[upstream] ?? prices.models?.[upstream.split('/').at(-1)!];
-    if (!p) return sum;
-    const read = cacheOff ? p.input : (p.cached ?? p.input);
-    const write = cacheOff ? p.input : (p.cacheWrite ?? p.input);
-    return sum + (t.input * p.input + t.cacheRead * read + t.cacheWrite * write + t.output * p.output) / 1e6;
-  }, 0);
-
-/** The row's cost: its tokens priced, else what the harness reported. */
-export const cost = (row: Row, prices: Prices, cacheOff = false) =>
-  Object.keys(row.tokens).length ? price(row.tokens, prices, cacheOff) : (row.usd ?? 0);
+/** The row's cost at list price; `cacheOff` prices cache reads and writes as input. */
+export const cost = (row: Row, cacheOff = false) => (cacheOff ? row.usdUncached : row.usd);
 
 /** Quality on a fixed scale where 0 is nothing useful and 1 is the human; `human` is the human row of the same case. */
 export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[], human?: Row) => {

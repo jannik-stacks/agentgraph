@@ -58,7 +58,7 @@ node bin/bench.ts report <out>
 - `run` writes the forge, data, graph copy, `diff.patch`, `meta.json` and `usage.json` under `<out>/<case>/<arm>`. Usage sums cost, tokens and time over every attempt. A model without a list price stops `run` before it spends.
 - `score` applies each diff to a base checkout, runs the suite and typecheck, then adds the human test files and runs the hidden tests. It also counts lines, files, overlap with the human change, added tests, sessions, cost and answers. `--drop-env` removes the scoring environments afterward.
 - `judge` compares pairs blind, with names and issue numbers masked, using Opus and Sonnet through `claude -p` on the host (so it needs a logged-in Claude CLI) and sol through the `smart` alias. The default `--judges opus:1,sonnet:2` gives each judge one or both diff orders; add `sol:2`, or replace the panel with `--judges sol:1`. A judge from the contestant's maker is swapped for another maker. `bench/judge.md` puts correctness first, then scope, and does not reward size.
-- `report` writes valid, invalid and infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables. Cost is recorded, or estimated at list price, and each row says which.
+- `report` writes valid, invalid and infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables. Cost is the list price of the arm's tokens; a model the price table lacks is listed, never counted as $0.
 
 Scoring runs only in [Docker environments](sandbox.md#environments), offline except setup. Progress goes to `<out>/log.jsonl`. Model keys come from `--keys`, default `infra/local/.keys.env`, and stay out of `process.env` except for an engine pinned by `BENCH_ENGINE`, which reads them there. Paid steps stop past `--max-codex` weekly Codex points since the first reading (30) or `--max-claude-calls` judge calls (60).
 
@@ -68,9 +68,9 @@ Scoring runs only in [Docker environments](sandbox.md#environments), offline exc
 cd studio && npm run dev -- --bench <runs dir> <runs dir>
 ```
 
-The Bench tab plots the runs under these directories. Without `point.json` it assumes opencode, `smart`, repeat 1 and the directory name as set. Click a point for its cases.
+The Bench tab plots the runs under these directories. Without `point.json` it assumes opencode, `smart`, repeat 1 and the directory name as set. Click a point for its cases. Under the chart, each field the arms' checks gave is summed up per point; the [Results](runs.md#results) tab has them all.
 
-Quality is 0 for nothing useful and 1 for matching the human. It combines hidden tests (the share of the tests base fails that the run passes), judge preference over the human (doubled and capped at 1), and suite scores, weighted by sliders, minus extra findings and question penalties. The cap means a run judged better than the human cannot outscore one that passes the hidden tests. Cases without hidden tests form their own `judge-only` point. Cost is list-price tokens or elapsed minutes. Crosses show 95% bootstrap intervals over cases, then repeats. The staircase joins the points no cheaper point beats, dashed while any has fewer than ten valid cases.
+Quality is 0 for nothing useful and 1 for matching the human. It combines hidden tests (the share of the tests base fails that the run passes), judge preference over the human (doubled and capped at 1), and suite scores, weighted by sliders, minus extra findings and question penalties. The cap means a run judged better than the human cannot outscore one that passes the hidden tests. Cases without hidden tests form their own `judge-only` point. Cost is list-price tokens or elapsed minutes; judging the arm's checks is shown apart and never counted in. Crosses show 95% bootstrap intervals over cases, then repeats. The staircase joins the points no cheaper point beats, dashed while any has fewer than ten valid cases.
 
 ## Long runs
 

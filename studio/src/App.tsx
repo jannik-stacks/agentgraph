@@ -10,7 +10,7 @@ const pages = {
   runs: lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage }))),
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
   bench: lazy(() => import('./bench/BenchPage.tsx').then(m => ({ default: m.BenchPage }))),
-  compound: lazy(() => import('./compound/CompoundPage.tsx').then(m => ({ default: m.CompoundPage }))),
+  results: lazy(() => import('./results/ResultsPage.tsx').then(m => ({ default: m.ResultsPage }))),
 };
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {

@@ -1,11 +1,12 @@
+import { useAtomValue } from 'jotai';
 import { type ReactNode, useState } from 'react';
 import type { Proposal } from '../../../src/proposal.ts';
 import type { Run } from '../../../src/workflow.ts';
-import type { Trace } from '../../../src/trace.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
+import { RunResultLines } from '../results/ResultTable.tsx';
+import { resultsAtoms } from '../state.ts';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
-import { CheckValues } from './checks.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
   atLink,
@@ -13,6 +14,7 @@ import {
   detail,
   formatCheckValue,
   graphLink,
+  type Line,
   type TraceLineWithKey,
   type SessionTraceLines,
   splitTraceIntoVisitedSteps,
@@ -79,10 +81,28 @@ const CopyLink = ({ href }: { href: string }) => {
   );
 };
 
-/** A check's full output, fetched from the data dir when asked for. */
+const readJudgeSessions = (text: string): Row[] | undefined => {
+  try {
+    const lines = text
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l) as Line);
+    if (!lines.every(l => 'prompt' in l || 'event' in l || 'session' in l)) return;
+    return splitTraceIntoVisitedSteps(lines).flatMap(v =>
+      v.parts.map(part => ('events' in part ? sessionRow(part, false, false) : lineRow(part)))
+    );
+  } catch {
+    return;
+  }
+};
+
+/** A check's full output or its judge sessions, fetched from the data dir when asked for. */
 const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }) => {
   const [text, setText] = useState<string>();
-  if (text !== undefined) return <Pre text={text} />;
+  if (text !== undefined) {
+    const sessions = readJudgeSessions(text);
+    return sessions ? <Rows rows={sessions} /> : <Pre text={text} />;
+  }
   return (
     <button
       type="button"
@@ -93,7 +113,7 @@ const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }
           .then(setText, (e: Error) => setText(e.message))
       }
     >
-      full output, {log.bytes.toLocaleString()} bytes
+      full log, {log.bytes.toLocaleString()} bytes
     </button>
   );
 };
@@ -264,7 +284,7 @@ const lines: {
         <Pill of="line" kind="check" /> {line.check.check} {line.check.pass ? 'pass' : muted('fail')}
         {formatCheckValue(line.check) && ` ${formatCheckValue(line.check)}`}
         {muted(
-          `${line.check.empty ? ', empty' : ''}${line.end ? ', at run end' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.exit === undefined ? '' : `, exit ${line.exit}`}`
+          `${line.check.empty ? ', empty' : ''}${line.later ? ', checked later' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.usd > 0 ? `, ${usd(line.usd)}` : ''}${line.exit === undefined ? '' : `, exit ${line.exit}`}`
         )}
       </>
     ),
@@ -340,9 +360,9 @@ const lines: {
 };
 
 /** A trace line as a row, read through `lines`; `by` is who proposed what it applied. */
-const lineRow = (line: Trace, by = 'agentgraph'): Row => {
+const lineRow = (line: Line, by = 'agentgraph'): Row => {
   const kind = (Object.keys(lines) as (keyof typeof lines)[]).find(k => k in line)!;
-  return { at: line.at, raw: line, ...(lines[kind] as (l: Trace, by: string) => Row)(line, by) };
+  return { at: line.at, raw: line, ...(lines[kind] as (l: Line, by: string) => Row)(line, by) };
 };
 
 /** A session folded to who ran, on what, how it ended and what it cost, its end line as its raw; open, its prompt and every event in order. */
@@ -351,7 +371,7 @@ const sessionRow = (
   running: boolean,
   expand: boolean,
   repo?: string,
-  target?: Trace
+  target?: Line
 ): Row => {
   const spec = prompt?.prompt;
   const aside = prompt?.aside;
@@ -425,8 +445,10 @@ const Issue = ({ r }: { r: ServedRun }) =>
   );
 
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
-const RunInfo = ({ r: { run, trace } }: { r: ServedRun }) => {
+const RunInfo = ({ r: { run } }: { r: ServedRun }) => {
   const [raw, setRaw] = useState(false);
+  const { value } = useAtomValue(resultsAtoms.runs);
+  const results = value?.runs.find(x => x.key === run.id);
   return (
     <>
       <p className="flex gap-x-2 text-zinc-500">
@@ -436,7 +458,7 @@ const RunInfo = ({ r: { run, trace } }: { r: ServedRun }) => {
         </button>
       </p>
       {raw && <Raw value={run} />}
-      <CheckValues trace={trace} />
+      {value && results && <RunResultLines run={results} fields={value.fields} />}
       {run.reason && (
         <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
           {run.reason}
@@ -459,11 +481,11 @@ export const RunLine = ({ r }: { r: ServedRun }) => (
 );
 
 /** A run as a row: where it stands, what it cost and left on the forge; open, the steps it visited. */
-export const runRow = (r: ServedRun, open = false, expand = false, target?: Trace): Row => {
+export const runRow = (r: ServedRun, open = false, expand = false, target?: Line): Row => {
   const { run, trace } = r;
   const visits = splitTraceIntoVisitedSteps(trace);
   let by: string | undefined;
-  const partRow = (part: SessionTraceLines | Trace): Row => {
+  const partRow = (part: SessionTraceLines | Line): Row => {
     if ('events' in part) {
       by ??= part.prompt?.prompt.agent ?? 'the agent';
       return sessionRow(part, r.run.status === 'running', expand, r.repo, target);
@@ -510,7 +532,9 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Trac
         <Link href={graphLink(r, target?.step ?? run.step)} className="shrink-0 underline">
           graph
         </Link>
-        <Col className="w-[6ch] text-right text-zinc-500">{usd(run.usd)}</Col>
+        <Col className="w-[6ch] text-right text-zinc-500">
+          {usd(trace.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0))}
+        </Col>
         <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, r.run.status === 'running' ? undefined : (run.ended ?? trace.at(-1)?.at))}
         </Col>

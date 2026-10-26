@@ -2,6 +2,7 @@ import { useAtomValue } from 'jotai';
 import { useState } from 'react';
 import { makeWorkflowGraph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
+import type { Line } from '../runs/trace.ts';
 import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunLine } from '../runs/rows.tsx';
@@ -25,7 +26,7 @@ const makeTrailTrace = (trail: Trail, run: Run): Trace[] =>
   });
 
 /** The latest result of a check among a run's lines at one step. */
-const latest = (name: string, lines: Trace[]): CheckResult | undefined => {
+const latest = (name: string, lines: Line[]): CheckResult | undefined => {
   for (const line of lines.toReversed()) {
     if ('check' in line && line.check.check === name) return line.check;
     if ('outcome' in line && line.outcome.kind === 'failed') {
@@ -37,7 +38,7 @@ const latest = (name: string, lines: Trace[]): CheckResult | undefined => {
 
 type PromptLine = Extract<Trace, { prompt: unknown }>;
 
-const findCheckSource = (name: string, lines: Trace[]) => {
+const findCheckSource = (name: string, lines: Line[]) => {
   const prompt = lines.findLast((l): l is PromptLine => 'prompt' in l && l.prompt.check === name);
   if (!prompt) return lines.findLast(l => 'check' in l && l.check.check === name);
   return lines.findLast(l => 'event' in l && l.event.type === 'end' && 'key' in l && l.key === prompt.key) ?? prompt;
@@ -61,7 +62,7 @@ const CheckItem = ({
   name: string;
   check: Fixture['checks'][string] | undefined;
   path: string;
-  lines: Trace[] | undefined;
+  lines: Line[] | undefined;
   run: string | undefined;
 }) => {
   const [shown, setShown] = useState<'script' | 'judge' | 'findings'>();

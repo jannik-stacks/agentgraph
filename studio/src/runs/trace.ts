@@ -1,8 +1,6 @@
 import type { Located } from '../../../src/store.ts';
-import type { Trace } from '../../../src/trace.ts';
+import type { CheckEntry, Trace } from '../../../src/trace.ts';
 import type { CheckResult, Outcome, Run } from '../../../src/workflow.ts';
-
-import type { Result } from '../../../src/result.ts';
 
 export const formatNumber = (n: number) =>
   Math.abs(n) >= 1e6
@@ -11,23 +9,10 @@ export const formatNumber = (n: number) =>
       ? `${(n / 1e3).toFixed(1)}k`
       : String(Number.isInteger(n) ? n : Number(n.toPrecision(3)));
 
-export const findLatestCheckResults = (trace: Trace[]) => {
-  const latest = new Map<string, CheckResult>();
-  for (const line of trace) if ('check' in line && line.item === undefined) latest.set(line.check.check, line.check);
-  return [...latest.values()];
-};
+export type Line = Trace | CheckEntry;
 
-export const getCheckNumbers = (results: (Pick<CheckResult, 'check' | 'share' | 'empty'> & { value?: Result })[]) =>
-  results.flatMap(r =>
-    r.empty
-      ? []
-      : [
-          ...Object.entries(r.value ?? {}).flatMap(([k, v]) =>
-            typeof v === 'number' ? [{ name: `${r.check} ${k}`, value: v }] : []
-          ),
-          ...(r.share === undefined ? [] : [{ name: `${r.check} share`, value: r.share }]),
-        ]
-  );
+export const mergeCheckEntries = (trace: Trace[], checks: CheckEntry[]): Line[] =>
+  [...trace, ...checks].toSorted((a, b) => a.at.localeCompare(b.at));
 
 export const formatCheckValue = ({ value, share }: Pick<CheckResult, 'value' | 'share'>) =>
   [
@@ -71,9 +56,9 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
 };
 
 /** A run as the dev server answers it: the run, its trace, where it lives, and its pull request and branch. */
-export type ServedRun = { fixture: string; repo: string; run: Run; trace: Trace[] } & ReturnType<typeof findTraceLinks>;
+export type ServedRun = { fixture: string; repo: string; run: Run; trace: Line[] } & ReturnType<typeof findTraceLinks>;
 
-export type TraceLineWithKey<K extends string> = Extract<Trace, Record<K, unknown>>;
+export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
 
 /** One harness session: its prompt when the trace has one, its events, and how it ended. */
 export type SessionTraceLines = {
@@ -87,8 +72,8 @@ export type SessionTraceLines = {
  * the session that key opened. Older lines without one join the session opened last, and an end joins the session
  * that started with its id.
  */
-export const splitTraceIntoVisitedSteps = (trace: Trace[]) => {
-  const visits: { step: string; parts: (SessionTraceLines | Trace)[] }[] = [];
+export const splitTraceIntoVisitedSteps = (trace: Line[]) => {
+  const visits: { step: string; parts: (SessionTraceLines | Line)[] }[] = [];
   const keyed = new Map<string, SessionTraceLines>();
   let open: SessionTraceLines | undefined;
   for (const line of trace) {
@@ -133,7 +118,7 @@ export const splitTraceIntoVisitedSteps = (trace: Trace[]) => {
 };
 
 /** The trace line `?at=` opens: the write stamped then, else the line stamped then, else the first write at or after it, else any line. */
-export const lineAt = (trace: Trace[], at: string | null) =>
+export const lineAt = (trace: Line[], at: string | null) =>
   at === null
     ? undefined
     : (trace.find(l => 'applied' in l && l.applied.at === at) ??

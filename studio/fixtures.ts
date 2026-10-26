@@ -1,11 +1,11 @@
-import { existsSync, readdirSync, readFileSync, watch } from 'node:fs';
+import { existsSync, readdirSync, watch } from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
-import { findTraceLinks } from './src/runs/trace.ts';
+import { findTraceLinks, mergeCheckEntries } from './src/runs/trace.ts';
 import type * as BenchModule from '../bin/bench.ts';
-import type * as TuneModule from '../bin/tune.ts';
+import type * as ResultsModule from '../bin/results.ts';
 import type * as DriveModule from '../bench/drive.ts';
 import type * as HarnessesModule from '../src/harnesses.ts';
 import type * as StoreModule from '../src/store.ts';
@@ -78,8 +78,9 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * their traces, every text in them cut short; `GET /api/runs/<id>` answers one run with every trace line, and
  * `GET /api/logs/<hash>` the full output of a check, and `GET /api/locate?gh=<link or comment id>` what `locate` finds.
  * `GET /api/bench` answers the rows of every bench out dir under the dirs `VITE_AGI_BENCH` names, where each driven
- * bench dir stands, and the price table.
- * `GET /api/compound` answers every tune under `VITE_AGI_TUNE` (default: the `bin/tune.ts` root): its folder name, settings and steps.
+ * bench dir stands.
+ * `GET /api/results?from=runs|bench|tune` answers what each run, bench row or tune candidate gave, with its fields (`bin/results.ts`);
+ * tunes are under `VITE_AGI_TUNE` (default: the `bin/tune.ts` root).
  * `GET /api/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const makeStudioDevApiPlugin = (): Plugin => ({
@@ -112,12 +113,21 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       json(res, {
         rows: dirs.flatMap(dir => findBenchOutDirs(dir)).flatMap(out => readBenchRows(out)),
         drives: [...new Set(dirs.flatMap(findDrivenBenchDirs))].map(readBenchDriveState),
-        prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
       });
     });
-    server.middlewares.use('/api/compound', async (_req, res) => {
-      const { tunesOf }: typeof TuneModule = await from('bin/tune.ts');
-      json(res, tunesOf(process.env.VITE_AGI_TUNE));
+    server.middlewares.use('/api/results', (req, res) => {
+      const source = new URL(req.url ?? '/', 'http://studio').searchParams.get('from');
+      if (source !== 'runs' && source !== 'bench' && source !== 'tune') return json(res, { error: 'bad from' }, 400);
+      const dirs = {
+        ...(process.env.VITE_AGI_DATA && { data: process.env.VITE_AGI_DATA }),
+        bench: (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean),
+        benchOuts: (dir: string) => findBenchOutDirs(dir),
+        ...(process.env.VITE_AGI_TUNE && { tune: process.env.VITE_AGI_TUNE }),
+      };
+      void Promise.all([from<typeof ResultsModule>('bin/results.ts'), servedGraph()]).then(
+        ([{ readRunResults }, served]) => json(res, readRunResults(source, dirs, served?.graph)),
+        (e: Error) => json(res, { error: e.message }, 500)
+      );
     });
     server.middlewares.use('/api/logs', async (req, res) => {
       const data = process.env.VITE_AGI_DATA;
@@ -153,16 +163,17 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
         Effect.gen(function* () {
           const store = yield* Store;
           const entry = (run: WorkflowModule.Run, all: boolean) =>
-            Stream.runCollect(store.read(run.id)).pipe(
-              Effect.map(Chunk.toArray),
-              Effect.map(trace => ({
+            Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (chunk, checks) => {
+              const trace = Chunk.toArray(chunk);
+              const lines = mergeCheckEntries(trace, checks);
+              return {
                 fixture: `${served.name}/${run.workflow}`,
                 repo: served.graph?.repo ?? '',
                 run,
-                trace: all ? trace : trace.map(line => cut(line) as typeof line),
+                trace: all ? lines : lines.map(line => cut(line) as typeof line),
                 ...findTraceLinks(trace),
-              }))
-            );
+              };
+            });
           if (!one) return yield* Effect.forEach(yield* store.list(), run => entry(run, false));
           const run = yield* store.get(one);
           return run ? yield* entry(run, true) : null;

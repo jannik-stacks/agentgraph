@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Check results move out of the trace into a per-run check record, `checks.jsonl`. Each entry has its
+  time, the check's version and what judging it cost; a judge's transcript is its log, so judging no
+  longer adds sessions to the run's trace. `run.json` has no `usd`; a run's cost is its sessions' sum.
+  `check --runs` skips checks that already have a result under their current version, and trace-only
+  checks run in an empty folder. A failed judge still records what it cost.
+- Costs are the public list price from LiteLLM's pinned price table for every model, subscriptions
+  included. A model without a price is listed as unpriced, never $0.
+- The studio's Compound tab is now the Results tab at `/results`: what checks gave across runs, bench
+  arms or tune candidates, as a table or a chart. A run's page shows its gates and results in two lines.
+  `returns` fields take an optional `unit`. The example graph folds `tool-budget` into `run-stats`.
+
 - The word hub is retired. `--hub` is `--dir`, `AGENTGRAPH_HUB` is `AGENTGRAPH_DIR`, `hub.yaml` is
   `settings.yaml`, `show hub` is `show graph`, the `hub` issue relation and label are `graph`, and the
   packaged default moved from `hub/` to `default/`. Sandboxes mount the folder at `/graph`. Tunes keep

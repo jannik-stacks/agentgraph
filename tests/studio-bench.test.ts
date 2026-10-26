@@ -6,7 +6,6 @@ import {
   defaultBenchScoreWeights,
   frontier,
   presets,
-  price,
   quality,
   summarise,
 } from '../studio/src/bench/score.ts';
@@ -24,12 +23,10 @@ const row = (over: Partial<Row>): Row => ({
   minutes: 1,
   tokens: {},
   usd: 0,
+  usdUncached: 0,
+  checkUsd: 0,
   ...over,
 });
-const prices = {
-  aliases: { smart: 'chatgpt/gpt-6.1-sol' },
-  models: { 'gpt-6.1-sol': { input: 1.25, cached: 0.125, output: 10 } },
-};
 
 describe('bench score', () => {
   it('puts nothing useful at 0 and the human at 1', () => {
@@ -65,11 +62,9 @@ describe('bench score', () => {
     expect(quality(row({ hidden: 0, vsHuman: { opus: 1 } }), defaultBenchScoreWeights)).toBeCloseTo(0.35 / 0.85);
   });
 
-  it('prices tokens by class through the aliases, or falls back to the reported cost', () => {
-    const tokens = { smart: { input: 1e6, cacheRead: 1e6, cacheWrite: 0, output: 1e5 } };
-    expect(price(tokens, prices)).toBeCloseTo(1.25 + 0.125 + 1);
-    expect(price(tokens, prices, true)).toBeCloseTo(1.25 + 1.25 + 1);
-    expect(cost(row({ usd: 0.3 }), prices)).toBe(0.3);
+  it('costs a row at list price, with or without its cache reads', () => {
+    expect(cost(row({ usd: 0.3, usdUncached: 0.5 }))).toBe(0.3);
+    expect(cost(row({ usd: 0.3, usdUncached: 0.5 }), true)).toBe(0.5);
   });
 
   it('bootstraps cases then repeats the same way for the same seed', () => {

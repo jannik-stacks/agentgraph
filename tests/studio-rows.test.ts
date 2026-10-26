@@ -44,7 +44,6 @@ const run: Run = {
   status: 'running',
   tries: 0,
   rounds: {},
-  usd: 0.1,
 } as Run;
 const trace = [
   {
