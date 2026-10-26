@@ -45,4 +45,4 @@ A `codex login` imports instead: `CODEX_HOME=$(mktemp -d) codex login`, then `./
 
 `npm run keys` creates one virtual key per agent, or updates the limits of existing ones, and appends `AGENTGRAPH_LLM_API_KEY_<AGENT>=...` to `.keys.env`. Subscription models report $0 spend, so their limits are the per-key rpm and tpm. `ROTATE=1 npm run keys` replaces every key. The script sends the master key as a header file and new keys on stdin, so neither shows in a process list.
 
-The studio shows billed cost as the harness reports it and, beside it, an estimate at list prices from the proxy's `/model/info` or `prices.json`. ChatGPT login runs bill $0 and show only the estimate.
+Runs record their tokens at the public list price, also on the ChatGPT login, which bills nothing per token. `prices.json.gz` is LiteLLM's price table, pinned to a release; `npm run prices` fetches it again. `aliases.json` maps each proxy alias to a model the table lists.

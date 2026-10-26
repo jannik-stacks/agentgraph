@@ -53,7 +53,7 @@ node bin/bench.ts status <out>
 - `run` writes the forge, data, `diff.patch`, `meta.json` and `usage.json`. A model without a list price stops it before it spends.
 - `score` runs the suite and typecheck on each diff, then the hidden tests, and counts lines, overlap with the human change, tests, sessions, cost and answers. `--drop-env` removes the scoring environments.
 - `judge` compares pairs blind, with names masked, through `claude -p` on the host and the `smart` alias. `--judges opus:1,sonnet:2` sets the panel and how many diff orders each sees. A judge from the contestant's maker is swapped. `bench/judge.md` puts correctness first, then scope, and does not reward size.
-- `report` writes counts, hidden-test rates, win rates with bootstrap intervals, means, judge agreement and strata.
+- `report` writes counts, hidden-test rates, win rates with bootstrap intervals, means, judge agreement and strata. Cost is the list price of the arm's tokens; a model the table lacks is listed, never counted as $0.
 
 Scoring runs offline, except setup. Keys come from `--keys` (`infra/local/.keys.env`). Paid steps stop past `--max-codex` weekly Codex points (30) or `--max-claude-calls` judge calls (60).
 
@@ -63,7 +63,7 @@ Scoring runs offline, except setup. Keys come from `--keys` (`infra/local/.keys.
 cd studio && npm run dev -- --bench <runs dir> <runs dir>
 ```
 
-The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests passed, judge preference over the human (doubled, capped at 1) and suite scores, weighted by sliders, minus findings and question penalties. Cases without hidden tests form a `judge-only` point. Crosses show 95% intervals; the staircase joins the points no cheaper point beats.
+The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests passed, judge preference over the human (doubled, capped at 1) and suite scores, weighted by sliders, minus findings and question penalties. Cases without hidden tests form a `judge-only` point. Judging the arm's checks is shown apart, never in its cost. Crosses show 95% intervals; the staircase joins the points no cheaper point beats. Under the chart, each check field is summed per point; the [Results](checks.md#the-results-tab) tab has them all.
 
 ## Long runs
 

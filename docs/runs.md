@@ -69,7 +69,7 @@ count(-1) should throw.
 | `comment`, `said` | The status comment, and where people last spoke |
 | `base`, `onto` | The stacked parent's pull request, and the base a conflicted follow lands on |
 | `graph`, `by` | Graph version last checked, and the run that dispatched this one |
-| `started`, `ended`, `usd` | Times and session cost, end check judges included |
+| `started`, `ended` | When the run started and ended |
 | `startCommit` | The commit the run's change is measured from |
 | `owed` | [End checks](checks.md#end-checks) the ended run still has to run |
 
@@ -82,7 +82,6 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 | `prompt` | Harness, model, system prompt, prompt and tools |
 | `event` | Harness start (with provider and model), text, tool calls with `ms`, usage and end |
 | `session` | End reason, whether it resumed, and cost |
-| `check` | Result and short findings, `value` or `empty`, the item, `end` for an end check, and `log`, the hash and size of the full output |
 | `setup` | `ms` and `exit` of setup in a checkout |
 | `env`, `cache` | The [environment](sandbox.md#environments) a checkout used, and how many files it wrote to the cache |
 | `applied` | A proposal with its URL or why it failed |
@@ -95,17 +94,9 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 
 ## The check record
 
-Each `checks.jsonl` line is one check result: `at`, `step`, the check's `version`, the result with its short findings, a number check's `value`, `share` or `empty`, the fan-out item, and `usd`, what judging it cost at list price. `later` marks a result from [`check --runs`](loop.md#at-run-end-and-later). `log` is the hash and size of the full output, or of the judge's transcript. Lines are only added; nothing is totalled. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
+Each `checks.jsonl` line is one result: `at`, `step`, the check's `version`, the result with short findings, `value`, `share` or `empty`, the item, and `usd`, what judging cost at list price. `later` marks a result from [`check --runs`](checks.md#end-checks). `log` is the hash and size of the full output or the judge's transcript. Lines are only added. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
 
-The version is a hash of the check's file, its judge's file and the graph's scripts. Readers take each check's newest whole-check result under its current version, else its newest, marked as older. A run's own cost is the sum of its trace's sessions, and its checking cost the sum of its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
-
-## Results
-
-The studio's Results tab at `/results` shows what checks gave, from one of three sources: the data dir's runs, the bench's bot arms or every tune's candidates, as the [studio](local.md) was started with. Each run counts with each check's latest result.
-
-The table has one row per field of a check's result, with how many runs gave it, how many failed results and values past the check's `pass` limit, the median, a strip with one dot per run, and a trend by day, by tens of runs or, for tunes, by iteration. `by` splits each field by a dimension such as workflow, model or tune. A field's `unit` in `returns` (`usd`, `minutes`, `seconds`, `tokens` or `share`) sets how it reads. Runs that ended before any step passed or any session started are dead; they are counted apart and left out unless shown. The chart draws one field against time, order, a dimension or another field, colored and faceted by dimensions, with a dot per run that links to it.
-
-A run's page shows two lines: the gates whose result failed, with the fields past their limit, and every field's value, with "at run end" or "checked later" and a link to the tab filtered to that run. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage -->
+The version hashes the check's file, its judge's file and the graph's scripts. Readers take each check's newest result under its current version, else its newest, marked as older. A run's cost is the sum of its trace's sessions; its checking cost is the sum of its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
 
 ## Run links
 
@@ -115,7 +106,7 @@ The engine posts first and records the `applied` line after. If a runner stops b
 
 ## Check logs
 
-The output of each check is gzipped in `logs/`, one file per distinct content: the last 64K characters of a script's output, or a judge's final reply. Traces and GitHub show short findings, and the studio opens the full output. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`. `agi prune-logs --data <dir>` counts logs no trace names, and `--apply` deletes them; run it while nothing is driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
+The output of each check is gzipped in `logs/`, one file per distinct content: the last 64K characters of a script's output, or a judge's transcript. Traces and GitHub show short findings, and the studio opens the full output. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`. `agi prune-logs --data <dir>` counts logs no check record names, and `--apply` deletes them; run it while nothing is driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
 
 ## Checkouts
 

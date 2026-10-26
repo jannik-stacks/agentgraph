@@ -61,6 +61,6 @@ cd studio && npm install
 npm run dev -- --repo ~/code/left-pad
 ```
 
-It serves on port 5182, or `AGI_PORT`; give each repo its own port. `--repo` reads that repo's instance. Instead, `--dir <dir> --data <dir>` pick the inputs, and `--forge <dir>` makes the Inbox show local commands. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the Results tab at `/results`.
+It serves on port 5182, or `AGI_PORT`; give each repo its own port. `--repo` reads that repo's instance. Instead, `--dir <dir> --data <dir>` pick the inputs, and `--forge <dir>` makes the Inbox show local commands. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the [Results](checks.md#the-results-tab) tab's tunes.
 
 The Inbox lists runs that wait for a person, with the same commands `agi show` prints. A run that waits on a run it started is left out. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->

@@ -28,8 +28,6 @@ A script without its own `returns` is plain Unix: exit 0 passes and its output i
 
 A check with its own `returns` keeps the result as its `value`, such as `{calls: 12}` or `{usd: 0.4}`. A check with `each` keeps the `share` of items that passed. A result that does not match `returns`, or an item a judge never answered, makes the check `empty`, with the reason in its findings. An `empty` result is skipped, never counted as 0. <!-- code: src/engine.ts#runOneCheck -->
 
-The studio's Results tab, at `/results`, charts these values across runs.
-
 ## Judges
 
 A judge reads the diff, the item or the script's output, and records its result by calling the `result` tool, whose input is `returns`. A call that does not match is refused with the reason, and the judge calls again. A judge that stops without a result is resumed once and asked for it. One that crashes or times out is tried once more. If it still gives none, a `block` or `stop` check parks the run as a runner error, and an `info` or `warn` check records it. <!-- code: src/engine.ts#askJudge src/result.ts#makeResultServer -->
@@ -58,11 +56,19 @@ Scripts run in the checkout, without network, with these variables: <!-- code: s
 
 ## End checks
 
-A workflow's `checks` run once when its run ends, done or stopped. They run on a throwaway checkout of the run's kept files, with the change measured from the run's `startCommit` and an empty reply. They must be `info` or `warn` and never change the run's status. A runner killed partway runs only the checks it still owes. A check that cannot run there gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
+A workflow's `checks` run once when its run ends, done or stopped. They run on a throwaway checkout of the run's kept files, with the change measured from the run's `startCommit` and an empty reply. They must be `info` or `warn` and never change the run's status. A runner killed partway runs only the checks it still owes. Every result, from a step, a run's end or later, goes to the run's [check record](runs.md#the-check-record). Judging adds no sessions to the run's trace, so a run's cost and its checking cost stay apart. A check that cannot run there gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
 
-`agi check <name>... --runs` runs checks the same way on runs that already ended, `info` checks as `info` and the rest as `warn`. `--workflow` and `--issue` narrow the runs.
+`agi check <name>... --runs` runs checks the same way on runs that already ended, `info` checks as `info` and the rest as `warn`. `--workflow` and `--issue` narrow the runs. A check that already has a later result under its current version is skipped, so a rerun does nothing until the check changes. The studio marks these results "checked later".
 
-A check with `reads: traces` needs only the run's traces. It gets a checkout of the run's start commit, or of the target branch, without setup, so it works on runs whose kept files are gone.
+A check with `reads: traces` needs only the run's traces. It gets an empty folder beside the run's traces, without setup, so it works on runs whose kept files are gone.
+
+## The Results tab
+
+The studio's Results tab, at `/results`, shows what checks gave. It reads the data folder's runs, the bench's arms, or every tune's candidates, depending on how the [studio](local.md#the-studio) started. Each run counts with each check's latest result. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage -->
+
+The table has one row per result field: how many runs gave it, how many results failed and how many values fall outside `pass`, the median, one dot per run, and a trend by day, by tens of runs or by tune iteration. `by` splits a field by workflow, model, tune or another dimension. A number field's `unit` (`usd`, `minutes`, `seconds`, `tokens` or `share`) sets how it reads. Runs that ended before any step passed or any session started are dead, counted apart and hidden by default. The chart draws a field against time, order, a dimension or another field, with a dot per run that links to it.
+
+A run's page shows the gates that failed, with the fields past their limit, then every field's value, marked "at run end" or "checked later".
 
 ## Reading traces
 

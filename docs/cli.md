@@ -89,7 +89,7 @@ The runner reads these. The CLI sets `AGENTGRAPH_DIR`, `AGENTGRAPH_DATA`, `AGENT
 | `AGENTGRAPH_PROXY_URL` | Model gateway, `http://gateway:4000/v1`; see [Models](sandbox.md#models) |
 | `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, `agent=key` pairs |
 | `AGENTGRAPH_SESSION_ENV` | Engine variables every session gets, such as a login token |
-| `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json` |
+| `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json.gz` |
 | `AGENTGRAPH_CONFIG` | The [harness plugins](sandbox.md#harnesses) file; default `config.ts` in the data root, else the package's `agentgraph.config.ts` |
 | `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`, as `--logs` |
 | `AGENTGRAPH_CACHE_VOLUME` | [Toolchain cache](sandbox.md#toolchains) volume, `agentgraph-cache` |
