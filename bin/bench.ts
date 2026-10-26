@@ -15,6 +15,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
+import { Effect } from 'effect';
 import { dockerArgs, type CheckoutContainerSpec } from '../src/docker.ts';
 import { getModelPrice, type Prices } from '../src/harnesses.ts';
 import {
@@ -50,6 +51,7 @@ import {
   removeSandboxContainersMountingDir,
 } from './resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
+import { hostSettings } from '../src/services.ts';
 let engine = process.env.BENCH_ENGINE ?? agentgraphDir;
 
 type Case = {
@@ -684,7 +686,7 @@ export const stats = (diff: string, human: string[] = []) => {
     overlap: union.size ? getRounded(mine.filter(p => human.includes(p)).length / union.size) : 1,
   };
 };
-let image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
+let image = Effect.runSync(hostSettings.image);
 
 /** The id of the image a tag names now, so a bench keeps one sandbox even when the tag moves or goes. */
 const imageId = (tag: string) =>

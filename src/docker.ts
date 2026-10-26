@@ -172,6 +172,8 @@ const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
     );
   });
 
+export const sandboxImage = 'agentgraph-sandbox:local';
+
 export const ensureDocker = (say: (line: string) => void, image: string) =>
   Effect.gen(function* () {
     const version = yield* Effect.mapError(run('docker', ['version', '--format', '{{.Server.Version}}']), () =>
@@ -214,7 +216,7 @@ export const ensureDocker = (say: (line: string) => void, image: string) =>
         yield* run('docker', ['build', '-q', '--label', `agentgraph.source=${digest}`, '-t', tag, source]);
         return true;
       });
-    if (image === 'agentgraph-sandbox:local') yield* build(image, 'sandbox');
+    if (image === sandboxImage) yield* build(image, 'sandbox');
     if (yield* build('agentgraph-egress:local', 'egress')) yield* has(['rm', '-f', 'agentgraph-egress']);
     const members = yield* run('docker', [
       'network',
@@ -284,7 +286,7 @@ export const dockerSandbox = (o: {
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
-      const image = o.image ?? 'agentgraph-sandbox:local';
+      const image = o.image ?? sandboxImage;
       const cache = o.cache ?? 'agentgraph-cache';
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);

@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Config, Effect, Layer, Redacted } from 'effect';
 import { fileForge } from './forge.ts';
-import { dockerSandbox } from './docker.ts';
+import { dockerSandbox, sandboxImage } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
 import { harnessSession, parseModelUrls, splitNames, readConfiguredHub, readHarnessSettings } from './harnesses.ts';
@@ -44,19 +44,19 @@ const passed = Effect.flatMap(Config.string('AGENTGRAPH_SESSION_ENV').pipe(Confi
   )
 );
 
-const host = {
+export const hostSettings = {
   data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
   every: Config.number('AGENTGRAPH_EVERY').pipe(
     Config.validate({ message: 'Expected minutes above 0', validation: n => n > 0 }),
     Config.withDefault(5)
   ),
-  image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault('agentgraph-sandbox:local')),
+  image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault(sandboxImage)),
 };
 
 const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
 
 export const readHostSettings = async (flags: Partial<Record<'data' | 'forge', string>>) => {
-  const s = await Effect.runPromise(Config.all(host));
+  const s = await Effect.runPromise(Config.all(hostSettings));
   const onForge = flags.forge !== undefined || app.some(name => process.env[name]);
   const data = resolve(flags.data ?? s.data);
   const config = join(data, 'config.ts');
@@ -65,7 +65,7 @@ export const readHostSettings = async (flags: Partial<Record<'data' | 'forge', s
 };
 
 export const settings = Config.all({
-  ...host,
+  ...hostSettings,
   repo: Config.string('AGENTGRAPH_REPO'),
   hub: Config.string('AGENTGRAPH_HUB').pipe(Config.withDefault('.agentgraph')),
   proxy: Config.all({
