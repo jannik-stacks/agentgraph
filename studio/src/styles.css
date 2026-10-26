@@ -203,7 +203,7 @@ body {
 }
 
 .agi-march {
-  stroke-dasharray: 1.2 0.8;
+  stroke-dasharray: 0.6 1.4;
   animation: agi-march 1.5s linear infinite;
 }
 

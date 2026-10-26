@@ -76,7 +76,7 @@ const Selected = ({ round = 6, dashes = 140 }: { round?: number; dashes?: number
       y="1.5"
       rx={round + 0.5}
       pathLength={dashes}
-      className="agi-march fill-none stroke-sky-700 stroke-3 dark:stroke-sky-400"
+      className="agi-march fill-none stroke-sky-700 stroke-3 [stroke-linecap:round] dark:stroke-sky-400"
       style={{ width: 'calc(100% - 3px)', height: 'calc(100% - 3px)' }}
     />
   </svg>
@@ -193,7 +193,7 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
         <>
           <span
             aria-hidden
-            className="pointer-events-none absolute -inset-[2px] -z-10 rounded-[8px] shadow-[0_2px_4px_rgb(0_0_0/0.06),0_8px_16px_-4px_rgb(0_0_0/0.10),0_20px_36px_-12px_rgb(0_0_0/0.14)] dark:shadow-[0_2px_4px_rgb(0_0_0/0.3),0_8px_16px_-4px_rgb(0_0_0/0.4),0_20px_36px_-12px_rgb(0_0_0/0.5)]"
+            className="pointer-events-none absolute inset-0 -z-10 rounded-md shadow-[0_2px_4px_rgb(0_0_0/0.06),0_8px_16px_-4px_rgb(0_0_0/0.10),0_20px_36px_-12px_rgb(0_0_0/0.14)] dark:shadow-[0_2px_4px_rgb(0_0_0/0.3),0_8px_16px_-4px_rgb(0_0_0/0.4),0_20px_36px_-12px_rgb(0_0_0/0.5)]"
           />
           <Selected />
         </>
