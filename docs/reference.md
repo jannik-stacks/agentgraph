@@ -1,6 +1,6 @@
 # The graph folder
 
-A repo keeps its graph in `.agentgraph/`, a folder of Markdown files with YAML frontmatter. The engine reads the frontmatter, and agents read the prose.
+A repo keeps its graph in `.agentgraph/`: Markdown files whose frontmatter the engine reads and whose prose agents read.
 
 ```
 .agentgraph/
@@ -12,21 +12,19 @@ A repo keeps its graph in `.agentgraph/`, a folder of Markdown files with YAML f
   scripts/               anything checks and steps run
 ```
 
-`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind in a body, and retired words. Besides these files a graph may hold `scripts/` and `fixtures/`; read other folders through `$AGENTGRAPH_DIR`. <!-- code: src/folder.ts#loadGraph -->
+`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#loadGraph -->
 
-Nothing here is stable yet. Renames and removals are listed in `CHANGELOG.md`. A tune changes graph files only, and its runs refuse an engine whose `src/` differs from the release it started from.
+Nothing here is stable yet; `CHANGELOG.md` lists renames and removals.
 
 ## Which graph runs
 
 Locally, the first that exists: <!-- code: src/instance.ts#ensureGraph src/instance.ts#defaultDir -->
 
-1. `--dir <dir>`. `--dir .agentgraph` uses your working tree, uncommitted edits included.
-2. `.agentgraph/` in your repo at the committed base. Each version is checked out once under the instance.
-3. The default graph in the package: implement, review, then a human merge, with a check that runs the repo's `test` script when there is one.
+1. `--dir <dir>`; `--dir .agentgraph` uses your working tree, uncommitted edits included.
+2. `.agentgraph/` in your repo at the committed base.
+3. The default graph in the package: implement, review, then a human merge, with a check that runs the repo's `test` script if it has one. To change it, copy the folder `agi show graph` prints to `.agentgraph/`.
 
-A committed graph with symlinks or submodules is refused. To change the default graph, copy the folder `agi show graph` prints to `.agentgraph/`, edit it and commit it.
-
-On GitHub, the runner reads `.agentgraph/` (or `AGENTGRAPH_DIR`) from the head of the default branch on every poll, so changes in a pull request apply only after merge. `AGENTGRAPH_DIR` can also be an absolute local path. Inside the sandbox it names the read-only copy of the graph. <!-- code: src/services.ts#graphAt src/main.ts#start -->
+A committed graph with symlinks or submodules is refused. On GitHub, the runner reads `.agentgraph/` (or `AGENTGRAPH_DIR`, which may be an absolute path) from the default branch's head on every poll, so a pull request's graph changes apply after merge. Inside the sandbox `AGENTGRAPH_DIR` names the read-only copy of the graph. <!-- code: src/services.ts#graphAt src/main.ts#start -->
 
 ## settings.yaml
 
@@ -55,7 +53,7 @@ On GitHub, the runner reads `.agentgraph/` (or `AGENTGRAPH_DIR`) from the head o
 
 ## Workflows
 
-`workflows/<name>.md`. The file name names the workflow. The body describes it, or is the prompt of its single step. <!-- code: src/workflow.ts#Front -->
+`workflows/<name>.md`, named by its file. The body describes it, or is the prompt of its single step. <!-- code: src/workflow.ts#Front -->
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -74,7 +72,7 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 | `label` | label name | Adding it to an issue starts a run |
 | `branches` | list of names | Accepted, starts nothing yet |
 
-`dispatch` and `feedback` take no fields: `on: dispatch`, or a map such as `on: { issues: { label: triage }, dispatch }`. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/engine.ts#feedback -->
+`dispatch` and `feedback` take no fields: `on: { issues: { label: triage }, dispatch }`. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/engine.ts#feedback -->
 
 ## Steps
 
@@ -86,7 +84,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `run` | shell command | none | A script runs the step |
 | `wait` | `human` | none | The step waits for a person |
 | `skill` | skill name | the skill named like the step | Agent instructions |
-| `checks` | list of check names | none; at `wait`, the script checks of its `back` step | Checks after each try; at `wait`, after a base update |
+| `checks` | list of check names | none; at `wait`, its `back` step's script checks | Checks after each try; at `wait`, after a base update |
 | `tries` | positive integer | 1 at `wait`, else 3 with checks, else 1 | Attempts, the first included |
 | `back` | step name | none | This or an earlier step the run may return to |
 | `until` | sentence | required on an agent step with `back` | When the step is done |
@@ -100,15 +98,15 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `harness` | harness name from the config | the provider's first, else the config's first | The session program; see [Harnesses](sandbox.md#harnesses) |
+| `harness` | harness name | the provider's first, else the config's first | See [Harnesses](sandbox.md#harnesses) |
 | `model` | model alias | `default`, or Claude Code's own | The model name the endpoint expects |
 | `tools` | list of tool names | none | Allowed tools |
 | `returns` | list of proposal kinds | `[comment]` | What it may [propose](proposals.md) |
-| `reads` | `traces` | none | Give it the issue's run traces; needs the `read` tool. See [Reading traces](checks.md#reading-traces) |
+| `reads` | `traces` | none | [The issue's run traces](checks.md#reading-traces); needs the `read` tool |
 
 ## Checks
 
-`checks/<name>.md`. A check has `run`, `agent` or both. The body is its description. See [Checks and results](checks.md). <!-- code: src/folder.ts#Check -->
+`checks/<name>.md`, with `run`, `agent` or both. The body is its description; see [Checks and results](checks.md). <!-- code: src/folder.ts#Check -->
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -121,11 +119,11 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `pass` | JSON Schema subset | `pass` is true | The results that pass; not on `info` |
 | `reads` | `traces` | none | Needs only the run's traces, so it runs on old runs |
 
-The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`, `minimum`, `maximum` and `description`, and a number field may name its `unit`: `usd`, `minutes`, `seconds`, `tokens` or `share`. The unit only sets how the studio shows it.
+The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`, `minimum`, `maximum` and `description`. A number field may name a display `unit`: `usd`, `minutes`, `seconds`, `tokens` or `share`.
 
 ## Skills
 
-`skills/<name>.md` or `skills/<name>/SKILL.md` (the Agent Skills format). The body is the instruction. Other frontmatter keys are ignored. <!-- code: src/folder.ts#SkillFile -->
+`skills/<name>.md` or `skills/<name>/SKILL.md`. The body is the instruction; other frontmatter keys are ignored. <!-- code: src/folder.ts#SkillFile -->
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |

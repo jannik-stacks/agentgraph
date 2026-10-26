@@ -23,7 +23,7 @@ Locally, each repo gets an instance under the data root. As a runner (`--forge`)
       .locks/                         locks of runs being driven
 ```
 
-A data folder inside the repo is refused. A moved repo is a new instance; `agi show` outside a repo marks instances whose repo is gone. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
+A data folder inside the repo is refused. A moved repo is a new instance. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
 
 ## instance.yaml
 
@@ -39,9 +39,9 @@ Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
 
 ## The forge folder
 
-A forge folder stands in for GitHub. It holds `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, it refuses a whole push that touches `.github/`, and a second `pull_request` for a branch leaves the open one as it is. `--forge <dir>` runs the CLI on one directly, for tests and the bench. <!-- code: src/forge.ts#fileForge -->
+A forge folder stands in for GitHub: `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, it refuses a whole push that touches `.github/`. `--forge <dir>` runs the CLI on one directly. <!-- code: src/forge.ts#fileForge -->
 
-Any `<n>.md` you write there under an unused number is an issue: the first line is the title, the rest the body. To start a workflow, add frontmatter with an `author` and the workflow's label. The next look starts the run when the author is trusted. `agi start` writes such a file. <!-- code: src/forge.ts#writeIssueFile -->
+Any `<n>.md` you write under an unused number is an issue. Frontmatter with a trusted `author` and a workflow's label starts that workflow on the next look; `agi start` writes such a file. <!-- code: src/forge.ts#writeIssueFile -->
 
 ```md
 ---
@@ -67,7 +67,7 @@ count(-1) should throw.
 | `feedback`, `reason` | Feedback for the next try, and why the run waits or stopped |
 | `answers` | Human answers, each with its question |
 | `comment`, `said` | The status comment, and where people last spoke |
-| `base`, `onto` | The stacked parent's pull request, and the base a conflicted follow lands on |
+| `base`, `onto` | The stacked parent's pull request, and where a conflicted follow lands |
 | `graph`, `by` | Graph version last checked, and the run that dispatched this one |
 | `started`, `ended` | When the run started and ended |
 | `startCommit` | The commit the run's change is measured from |
@@ -83,31 +83,31 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 | `event` | Harness start (with provider and model), text, tool calls with `ms`, usage and end |
 | `session` | End reason, whether it resumed, and cost |
 | `setup` | `ms` and `exit` of setup in a checkout |
-| `env`, `cache` | The [environment](sandbox.md#environments) a checkout used, and how many files it wrote to the cache |
+| `env`, `cache` | The [environment](sandbox.md#environments) a checkout used, and files it cached |
 | `applied` | A proposal with its URL or why it failed |
 | `outcome` | Pass, failure, back, ask, answer or stop, and the next state |
 | `saved` | Changed state fields; `cleared` lists removed ones |
 | `spoken` | A CLI command, where it came from and where to reply |
 | `told` | Forwarded text, with the sender in `by`: a router run id or `cli` |
 
-`node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push'` audits finished runs. It fails on denied tool calls, sessions that cost nothing, and finished workflows without any of their listed applied kinds.
+`node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push'` fails on denied tool calls, sessions that cost nothing, and finished workflows without their listed applied kinds.
 
 ## The check record
 
-Each `checks.jsonl` line is one result: `at`, `step`, the check's `version`, the result with short findings, `value`, `share` or `empty`, the item, and `usd`, what judging cost at list price. `later` marks a result from [`check --runs`](checks.md#end-checks). `log` is the hash and size of the full output or the judge's transcript. Lines are only added. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
+Each `checks.jsonl` line is one result: `at`, `step`, the check's `version`, the result with short findings, `value`, `share` or `empty`, the item, and `usd`, the judging cost. `later` marks a result from [`check --runs`](checks.md#end-checks), and `log` points at the full output. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
 
-The version hashes the check's file, its judge's file and the graph's scripts. Readers take each check's newest result under its current version, else its newest, marked as older. A run's cost is the sum of its trace's sessions; its checking cost is the sum of its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
+The version hashes the check's file, its judge's file and the graph's scripts. Readers take each check's newest result under its current version, else its newest, marked as older. A run's cost sums its sessions; its checking cost sums its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
 
 ## Run links
 
-Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL` set, a `⁂` links to `<studio>/runs/<id>?at=<time>`. In the studio, `/runs?gh=<link or comment id>` opens the run that made a write. <!-- code: src/forge.ts#formatBodyWithRunLink src/store.ts#locate -->
+Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL` set, a `⁂` links to the run in the studio, and `/runs?gh=<link or comment id>` finds the run behind a write. <!-- code: src/forge.ts#formatBodyWithRunLink src/store.ts#locate -->
 
-The engine posts first and records the `applied` line after. If a runner stops between the two, the resumed try finds the post by its operation key and does not post it again. <!-- code: src/engine.ts#findAppliedBefore -->
+A runner that stops between posting and recording finds the post by its operation key and does not post again. <!-- code: src/engine.ts#findAppliedBefore -->
 
 ## Check logs
 
-The output of each check is gzipped in `logs/`, one file per distinct content: the last 64K characters of a script's output, or a judge's transcript. Traces and GitHub show short findings, and the studio opens the full output. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`. `agi prune-logs --data <dir>` counts logs no check record names, and `--apply` deletes them; run it while nothing is driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
+Each check's full output, the last 64K characters of a script's output or a judge's transcript, is gzipped in `logs/`, one file per distinct content. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`. `agi prune-logs --data <dir>` counts logs no check record names, and `--apply` deletes them; run it while nothing is driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
 
 ## Checkouts
 
-A run works in a checkout from the mirror on its workflow branch. When the engine is done with a checkout, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. <!-- code: src/docker.ts#dockerSandbox -->
+A run works in a checkout from the mirror. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. <!-- code: src/docker.ts#dockerSandbox -->
