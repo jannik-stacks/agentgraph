@@ -99,10 +99,10 @@ const listProcesses = (args: string[]) =>
       })
   );
 
-const groupBy = <T>(list: T[], keyOf: (item: T) => string) => {
+const groupBy = <T>(list: T[], getKey: (item: T) => string) => {
   const groups = new Map<string, T[]>();
   for (const item of list) {
-    const key = keyOf(item);
+    const key = getKey(item);
     groups
       .set(key, groups.get(key) ?? [])
       .get(key)!

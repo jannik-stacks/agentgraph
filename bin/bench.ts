@@ -521,7 +521,7 @@ export const infra = (s: { infra?: string; setup?: { ok: boolean }; status?: str
   (s.setup?.ok === false ? 'setup fails' : s.status === 'running' ? 'run did not finish' : undefined);
 
 /** The hub an arm of the case starts from: `BENCH_HUB` when set, else the example hub of its repo. */
-const hubOf = (c: Pick<Case, 'repo'>) =>
+const findCaseHubDir = (c: Pick<Case, 'repo'>) =>
   process.env.BENCH_HUB ?? join(engine, 'examples', hubs[c.repo.split('/').pop() ?? ''] ?? 'bench');
 
 /** Where an arm run is kept: by case, arm, engine, hub (`BENCH_HUB` when set) and commands, and the point and repeat when given. */
@@ -540,7 +540,7 @@ export const armSlot = (
     c.base,
     arm,
     tree,
-    treeText(hubOf(c)),
+    treeText(findCaseHubDir(c)),
     arm === 'floor' ? treeText(join(agentgraphDir, 'bench/floor')) : '',
     c.runner,
     c.setup,
@@ -583,7 +583,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   const at = join(out, c.id, arm);
   if (!benched(c.repo)) throw new Error(`${c.repo} is never benched`);
   if (existsSync(join(at, 'diff.patch'))) return;
-  const missing = unpriced(arm, hubOf(c));
+  const missing = unpriced(arm, findCaseHubDir(c));
   if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to prices.json with its source`);
   if (!keys.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   const log = logger(out, { case: c.id, arm });
@@ -981,7 +981,7 @@ export const invalid = (base: Tests, human: Tests, tested = false) => {
 /** The base commit's file list, a file's text, and whether a word occurs anywhere in it. */
 type Base = { files: string[]; text: (path: string) => string; has: (word: string) => boolean };
 
-const baseOf = (repo: string, base: string): Base => {
+const readRepoBase = (repo: string, base: string): Base => {
   const at = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer: 1 << 28 });
   return {
     files: at('ls-tree', '-r', '--name-only', base).stdout.split('\n').filter(Boolean),
@@ -1100,7 +1100,7 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     const coupled = couplings(
       readFileOrEmpty(join(c.dir, 'merged.diff')),
       `${c.title}\n${c.body}`,
-      baseOf(repo, c.base)
+      readRepoBase(repo, c.base)
     );
     if (coupled.length) writeFileAtomic(file, { invalid: 'coupled', coupled });
   }
@@ -1705,7 +1705,7 @@ export const progress = (units: Unit[], parallel = 1) => {
 };
 
 /** The units of an out dir: from `units.json` when a driver wrote one, else every case and arm seen. */
-const unitsOf = (out: string) => {
+const readPlannedUnits = (out: string) => {
   const planned = JSON.parse(readFileOrEmpty(join(out, 'units.json')) || 'null') as {
     units: Omit<Unit, 'out'>[];
     parallel?: number;
@@ -1799,7 +1799,7 @@ if (import.meta.main) {
     writeFileAtomic(join(a, 'report.md'), report(a));
     console.log(readFileOrEmpty(join(a, 'report.md')));
   } else if (command === 'status' && a) {
-    const { units, parallel } = unitsOf(resolve(a));
+    const { units, parallel } = readPlannedUnits(resolve(a));
     console.log(statusText(progress(units, parallel)));
   } else {
     console.error('usage: node bin/bench.ts (run (v2|floor) <case> <out> | score <case> <out>) --repo <clone>');

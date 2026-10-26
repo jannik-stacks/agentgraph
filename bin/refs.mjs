@@ -27,7 +27,7 @@ const slug = heading =>
     .replace(/ /g, '-');
 
 /** Each page's sections: heading anchor and first line, outside fenced code. */
-const sectionsOf = page => {
+const splitPageSections = page => {
   const sections = [{ anchor: '', from: 1 }];
   let fenced = false;
   read(page)
@@ -44,7 +44,7 @@ const where = (page, anchor) => (anchor ? `${page}#${anchor}` : page);
 
 /** Every ref as a pair of a docs section and a symbol. */
 const pairs = pages.flatMap(page => {
-  const sections = sectionsOf(page);
+  const sections = splitPageSections(page);
   let fenced = false;
   return read(page)
     .split('\n')
@@ -69,7 +69,7 @@ const declaration = name =>
   );
 
 /** The lines of a top-level declaration, with the comment above it, in formatted source. */
-const rangeOf = (text, name) => {
+const findDeclarationRange = (text, name) => {
   const lines = text.split('\n');
   const at = lines.findIndex(line => declaration(name).test(line));
   if (at < 0) return undefined;
@@ -113,11 +113,11 @@ const touched = (base, staged) => {
 /** What to re-check: the other side of each pair that changed on one side only, and the docs sections citing the same symbol. */
 const diff = (base, staged) => {
   const changed = touched(base, staged);
-  const sections = new Map(pages.map(page => [page, sectionsOf(page)]));
+  const sections = new Map(pages.map(page => [page, splitPageSections(page)]));
   const docsChanged = p => [...(changed.get(p.page) ?? [])].some(n => sectionAt(sections.get(p.page), n) === p.anchor);
   const codeChanged = p => {
     const lines = changed.get(p.file);
-    const range = lines && existsSync(join(root, p.file)) && rangeOf(read(p.file), p.symbol);
+    const range = lines && existsSync(join(root, p.file)) && findDeclarationRange(read(p.file), p.symbol);
     return !!range && [...lines].some(n => n >= range.from && n <= range.to);
   };
   const out = new Set();
@@ -218,7 +218,7 @@ const userFacing = () => {
 };
 
 /** The code in a page: fenced blocks whole, and inline code spans elsewhere. */
-const codeOf = page => {
+const findCodeLines = page => {
   let fence = '';
   return read(page)
     .split('\n')
@@ -232,7 +232,7 @@ const codeOf = page => {
 };
 
 const coverage = () => {
-  const code = pages.map(codeOf).join('\n');
+  const code = pages.map(findCodeLines).join('\n');
   const named = name => new RegExp(`(^|[^\\w-])${name.replace(/[.$]/g, '\\$&')}([^\\w-]|$)`, 'm').test(code);
   const uncited = userFacing().filter(i => !named(i.name));
   const cited = new Set(pairs.map(p => `${p.file}#${p.symbol}`));
@@ -259,7 +259,7 @@ else {
   const bad = pairs.flatMap(({ page, line, file, symbol }) =>
     !existsSync(join(root, file))
       ? [`${page}:${line}: ${file} does not exist`]
-      : !rangeOf(read(file), symbol)
+      : !findDeclarationRange(read(file), symbol)
         ? [`${page}:${line}: ${symbol} is not declared at the top of ${file}`]
         : []
   );

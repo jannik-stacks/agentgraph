@@ -116,7 +116,7 @@ type Entry = { id: string; repo: string; split?: string; use?: boolean };
 type Job = { point: string; k: number; c: Entry };
 const arms = ['v2', 'floor'];
 
-const jobsOf = (dir: string, s: Settings): Job[] => {
+const readBenchJobs = (dir: string, s: Settings): Job[] => {
   const cases = json<{ cases: Entry[] }>(join(dir, 'set.json'), { cases: [] }).cases.filter(
     c => c.split !== 'gate' || c.use
   );
@@ -127,7 +127,7 @@ const jobsOf = (dir: string, s: Settings): Job[] => {
 
 const slot = (j: Job) => j.point.replace(':', '-');
 const runDir = (dir: string, s: Settings, j: Job) => join(dir, s.SHA!, slot(j), `r${j.k}`);
-const nameOf = (j: Job) => `${slot(j)}/r${j.k}/${j.c.id}`;
+const formatJobName = (j: Job) => `${slot(j)}/r${j.k}/${j.c.id}`;
 const marker = (dir: string, j: Job) => join(dir, 'done', slot(j), `r${j.k}`, j.c.id);
 /** Done markers older drivers wrote: by engine for one point, by model for several. */
 const markers = (dir: string, s: Settings, j: Job) => [
@@ -162,7 +162,7 @@ export type DriveState = {
 
 export const readBenchDriveState = (dir: string): DriveState => {
   const s = recorded(dir);
-  const jobs = s.SHA ? jobsOf(dir, s) : [];
+  const jobs = s.SHA ? readBenchJobs(dir, s) : [];
   const done = jobs.filter(j => finished(dir, s, j)).length;
   const partial = jobs.filter(j => !finished(dir, s, j) && existsSync(join(runDir(dir, s, j), j.c.id))).length;
   const base = { dir, done, total: jobs.length, partial };
@@ -269,7 +269,7 @@ if (import.meta.main) {
     const bench = (args: string[], logFile: string) =>
       runLogged([join(engine, 'bin/bench.ts'), ...args, ...(s.KEYS ? ['--keys', s.KEYS] : [])], logFile, env, log);
 
-    const jobs = jobsOf(dir, s);
+    const jobs = readBenchJobs(dir, s);
     const total = jobs.length;
     const done = () => jobs.filter(j => finished(dir, s, j)).length;
     const queue = jobs.filter(j => !finished(dir, s, j));
@@ -321,7 +321,7 @@ if (import.meta.main) {
     };
 
     let active = 0;
-    const partial = queue.filter(j => existsSync(join(runDir(dir, s, j), j.c.id))).map(nameOf);
+    const partial = queue.filter(j => existsSync(join(runDir(dir, s, j), j.c.id))).map(formatJobName);
     const again = readJsonl<{ event: string }>(join(dir, 'events.jsonl')).some(e =>
       ['start', 'resume'].includes(e.event)
     );
@@ -381,14 +381,14 @@ if (import.meta.main) {
       await bench(['score', ...common], logFile);
       const valid = json<{ invalid?: string } | null>(join(at, id, 'valid.json'), null);
       if (!valid) return 'no validity: the first score failed';
-      if (valid.invalid) log(`${nameOf(j)} invalid: ${valid.invalid}`);
+      if (valid.invalid) log(`${formatJobName(j)} invalid: ${valid.invalid}`);
       else {
         for (const arm of arms) {
           const code = await bench(
             ['run', arm, ...common, '--point', j.point, '--repeat', String(j.k), ...paid],
             logFile
           );
-          log(`${nameOf(j)} ${arm} exit ${code}`);
+          log(`${formatJobName(j)} ${arm} exit ${code}`);
         }
         const missing = arms.filter(arm => !existsSync(join(at, id, arm, 'diff.patch')));
         if (missing.length) return `no ${missing.join(', ')} diff`;
@@ -424,8 +424,8 @@ if (import.meta.main) {
           const j = queue.shift()!;
           if (finished(dir, s, j)) continue;
           active++;
-          event('job-start', { job: nameOf(j), active, load: loadavg()[0] });
-          log(`start ${nameOf(j)} (active ${active}, queued ${queue.length})`);
+          event('job-start', { job: formatJobName(j), active, load: loadavg()[0] });
+          log(`start ${formatJobName(j)} (active ${active}, queued ${queue.length})`);
           const t0 = Date.now();
           void runJob(j)
             .catch((e: unknown) => `error ${String(e).slice(0, 300)}`)
@@ -433,13 +433,13 @@ if (import.meta.main) {
               active--;
               const min = Math.round((Date.now() - t0) / 60000);
               if (why) {
-                failed.push(nameOf(j));
-                event('job-fail', { job: nameOf(j), reason: why, min, active });
-                return log(`${nameOf(j)} not done: ${why}`);
+                failed.push(formatJobName(j));
+                event('job-fail', { job: formatJobName(j), reason: why, min, active });
+                return log(`${formatJobName(j)} not done: ${why}`);
               }
               spend?.finished();
               const n = done();
-              event('job-done', { job: nameOf(j), min, done: n, total, active });
+              event('job-done', { job: formatJobName(j), min, done: n, total, active });
               log(`done ${n}/${total}`);
               if (maxCodex !== undefined)
                 for (const m of milestones)

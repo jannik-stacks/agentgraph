@@ -320,7 +320,7 @@ async function runOnInstance() {
   const i = await ensureInstance(root, repo, values.base).catch((e: Error) => fail(e.message));
   if (i.made) console.log(`data     ${i.dir} (new)`);
   Object.assign(process.env, { AGENTGRAPH_FORGE: i.forge, AGENTGRAPH_TRUST: i.owner });
-  const forgeOf = () => Effect.runPromise(Effect.provide(Forge, fileForge(i.forge)));
+  const getForge = () => Effect.runPromise(Effect.provide(Forge, fileForge(i.forge)));
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);
@@ -345,7 +345,7 @@ async function runOnInstance() {
     }
     case 'say': {
       if (!said()) fail(`say takes text\n${usage}`);
-      const issue = await findIssueOf(i, numbered());
+      const issue = await findPullIssue(i, numbered());
       const hub = await synced();
       const { provider } = await prepare(i, hub, 'Nothing was posted.');
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
@@ -358,7 +358,7 @@ async function runOnInstance() {
       ];
       if (!verdict) fail('review takes approve or changes');
       const text = rest.slice(2).join(' ').trim();
-      const issue = await findIssueOf(i, numbered());
+      const issue = await findPullIssue(i, numbered());
       const hub = await synced();
       const prepared = verdict === 'changes_requested' && (await prepare(i, hub, 'Nothing was posted.'));
       await writeReview(i.forge, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
@@ -387,8 +387,8 @@ async function runOnInstance() {
     }
     case 'close': {
       const pull = await findPull(i.forge, numbered());
-      const open = new Set((await Effect.runPromise((await forgeOf()).issues({ state: 'open' }))).map(t => t.number));
-      const closed = [...new Set([n, await findIssueOf(i, n), pull?.number ?? n])].filter(k => open.has(k));
+      const open = new Set((await Effect.runPromise((await getForge()).issues({ state: 'open' }))).map(t => t.number));
+      const closed = [...new Set([n, await findPullIssue(i, n), pull?.number ?? n])].filter(k => open.has(k));
       for (const k of closed) await writeClosed(i.forge, i.owner, k);
       console.log(closed.length ? `closed #${closed.join(' and #')}` : `nothing open on #${n}`);
       return;
@@ -402,7 +402,7 @@ async function runOnInstance() {
         for (const file of readdirSync(hub, { recursive: true, encoding: 'utf8' }).toSorted()) console.log(`  ${file}`);
         return;
       }
-      return rest[0] ? showIssue(await forgeOf(), numbered(), i) : showAll(i, await forgeOf());
+      return rest[0] ? showIssue(await getForge(), numbered(), i) : showAll(i, await getForge());
     case 'check':
     case 'dispatch': {
       if (verb === 'check' && !values.runs) return checkHub(await synced(), i);
@@ -438,7 +438,7 @@ function watchRuns(i: Instance, issue: number) {
   };
 }
 
-async function findIssueOf(i: Instance, n: number) {
+async function findPullIssue(i: Instance, n: number) {
   const branch = (await findPull(i.forge, n))?.pull.branch ?? '';
   return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 }
