@@ -2,7 +2,7 @@
  * Hill-climbs a hub on one repo's replayed pull requests: each step evaluates candidate hubs with the bench and keeps
  * one only when it beats the incumbent on the select cases (fit plus validate).
  * Usage: node bin/tune.ts init <repo> --cases <dir> --splits <file> --repos <dir> --point opencode:luna [--name t1]
- *        node bin/tune.ts step <tune dir> [--k 3] [--proposers retro,history,manual] [--parallel 6]
+ *        node bin/tune.ts step <tune dir> [--k 3] [--proposers retro,history,manual] [--parallel 6] [--proposer-model gpt-6.1-sol]
  *        node bin/tune.ts run <tune dir> --iterations 8 [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  *        node bin/tune.ts checkpoint <tune dir>
  *        node bin/tune.ts propose <tune dir> --from <hub dir> --why <text> [--as manual|skill]
@@ -595,6 +595,7 @@ export const step = async (
     limits?: Limits;
     keys?: string;
     claude?: Record<string, number>;
+    model?: string;
   } = {},
   io: Io = bench
 ) => {
@@ -613,7 +614,15 @@ export const step = async (
     const before = guard(dir, io, limits);
     const runs = join(dir, 'runs', inc.id);
     const made = await io
-      .propose({ tune: dir, id, proposer, from: join(dir, 'cands', inc.id, 'hub'), runs, iteration })
+      .propose({
+        tune: dir,
+        id,
+        proposer,
+        from: join(dir, 'cands', inc.id, 'hub'),
+        runs,
+        iteration,
+        ...(o.model && { model: o.model }),
+      })
       .catch((e: unknown) => void failed.push(`${id}: ${String(e)}`));
     if (!made?.hub) continue;
     const after = guard(dir, io, limits, made.usage);
@@ -849,6 +858,7 @@ if (import.meta.main) {
       why: { type: 'string' },
       as: { type: 'string', default: 'manual' },
       keys: { type: 'string' },
+      'proposer-model': { type: 'string' },
     },
   });
   const [command, target] = positionals;
@@ -862,6 +872,7 @@ if (import.meta.main) {
       claudeWeek: Number(values['max-claude-week']),
     },
     ...(values.keys && { keys: resolve(values.keys) }),
+    ...(values['proposer-model'] && { model: values['proposer-model'] }),
   };
   const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
   const dir =

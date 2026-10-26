@@ -308,6 +308,14 @@ describe('tune loop', () => {
     await run(dir, { iterations: 5, proposers: ['retro'] }, silent);
     expect(asked).toBe(1);
 
+    const models: unknown[] = [];
+    const watched = {
+      ...silent,
+      propose: async (o: { model?: string }) => (models.push(o.model), { rationale: 'nothing' }),
+    } as unknown as typeof io;
+    await step(dir, { k: 1, proposers: ['retro'], model: 'gpt-6.1-sol' }, watched);
+    expect(models).toEqual(['gpt-6.1-sol']);
+
     propose(dir, fromHub, 'f1 needs care, on a broken bench');
     const broken = {
       ...silent,

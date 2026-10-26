@@ -5,7 +5,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { failureClass, infra } from '../bin/bench.ts';
@@ -248,6 +248,7 @@ const hubText = (hub: string) =>
 export type ClaudeStreamEvent = {
   type?: string;
   session_id?: string;
+  thread_id?: string;
   total_cost_usd?: number;
   structured_output?: unknown;
   result?: string;
@@ -268,9 +269,9 @@ export const claudeUsed = (stream: string): Usage | undefined => {
     : undefined;
 };
 
-const claude = (args: string[], prompt: string, cwd: string, log: string) =>
+const cli = (cmd: string, args: string[], prompt: string, cwd: string, log: string) =>
   new Promise<string>((done, fail) => {
-    const child = spawn(process.env.AGENTGRAPH_CLAUDE ?? 'claude', args, {
+    const child = spawn(cmd, args, {
       cwd,
       env: { ...process.env, NODE_OPTIONS: '' },
       timeout: 30 * 60_000,
@@ -284,11 +285,51 @@ const claude = (args: string[], prompt: string, cwd: string, log: string) =>
     child.stderr.on('data', (d: Buffer) => (err += d.toString()));
     child.on('error', fail);
     child.on('close', code => {
-      if (out.includes('"type":"result"')) done(out);
-      else fail(new Error(`claude exited ${code}: ${tail(err, 500)}`));
+      if (out.includes('"type":"result"') || code === 0) done(out);
+      else fail(new Error(`${cmd} exited ${code}: ${tail(err, 500)}`));
     });
     child.stdin.end(prompt);
   });
+
+type Schema = {
+  type?: string | string[];
+  enum?: string[];
+  properties?: Record<string, Schema>;
+  items?: Schema;
+  required?: string[];
+  additionalProperties?: boolean;
+};
+const strict = (x: Schema): Schema => {
+  if (x.items) return { ...x, items: strict(x.items) };
+  if (!x.properties) return x;
+  const props = Object.entries(x.properties).map(([k, v]): [string, Schema] => {
+    const s = strict(v);
+    return [k, x.required?.includes(k) || !s.type ? s : { ...s, type: [s.type as string, 'null'] }];
+  });
+  return {
+    ...x,
+    properties: Object.fromEntries(props),
+    required: Object.keys(x.properties),
+    additionalProperties: false,
+  };
+};
+
+const codex = async (model: string, session: string | undefined, prompt: string, cwd: string, log: string) => {
+  const [answer, shape] = [join(dirname(log), 'answer.json'), join(dirname(log), 'schema.json')];
+  writeFileAtomic(shape, strict(schema));
+  rmSync(answer, { force: true });
+  const args = ['exec', ...(session ? ['resume', session] : []), '--json', '--skip-git-repo-check', '-m', model];
+  const flags = ['-c', 'sandbox_mode="read-only"', '--output-schema', shape, '-o', answer, '-'];
+  const stream = await cli('codex', [...args, ...flags], prompt, cwd, log);
+  const thread = parseJsonl<ClaudeStreamEvent>(stream).find(e => e.type === 'thread.started')?.thread_id ?? session;
+  let output: unknown;
+  try {
+    output = JSON.parse(readFileOrEmpty(answer), (_, v: unknown) => v ?? undefined);
+  } catch {
+    output = undefined;
+  }
+  return `${stream}\n${JSON.stringify({ type: 'result', session_id: thread, structured_output: output })}\n`;
+};
 
 const answerOf = (result?: ClaudeStreamEvent): Answer | undefined => {
   if (result?.structured_output) return result.structured_output as Answer;
@@ -455,12 +496,16 @@ export const propose = async (o: {
   let problems: string[] = [];
   let ask = prompt;
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const stream = await claude(
-      [...base, ...(session ? ['--resume', session] : [])],
-      ask,
-      input,
-      join(dir, `stream-${attempt}.jsonl`)
-    );
+    const log = join(dir, `stream-${attempt}.jsonl`);
+    const stream = o.model?.startsWith('gpt-')
+      ? await codex(o.model, session, ask, input, log)
+      : await cli(
+          process.env.AGENTGRAPH_CLAUDE ?? 'claude',
+          [...base, ...(session ? ['--resume', session] : [])],
+          ask,
+          input,
+          log
+        );
     const result = parseJsonl<ClaudeStreamEvent>(stream).findLast(e => e.type === 'result');
     usd += result?.total_cost_usd ?? 0;
     usage = claudeUsed(stream) ?? usage;
