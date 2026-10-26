@@ -68,7 +68,7 @@ no-comment src/git.ts 3
 no-comment src/github.ts 20
 no-comment src/graph.ts 3
 no-comment src/harnesses.ts 7
-no-comment src/hub.ts 19
+no-comment src/hub.ts 18
 no-comment src/main.ts 2
 no-comment src/proposal.ts 3
 no-comment src/sandbox.ts 8

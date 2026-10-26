@@ -1,9 +1,17 @@
 // The written rules as one table over the lines a change adds: timeless comments and docs prose, words instead of
 // symbols, headings that are names, ASCII diagram arrows, safe git ranges and refs, no way around the hub's guards,
 // nothing unfinished in shipped code, current names and no CLAUDE.md. With `--all` every tracked line counts.
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { files, scan } from './line-rules.mjs';
 import { report } from './changes.mjs';
-import { retiredWords } from './retired-words.mjs';
+
+const retiredPaths = [
+  join(process.cwd(), 'src/retired.ts'),
+  fileURLToPath(new URL('../../../src/retired.ts', import.meta.url)),
+];
+const { formatRetiredAdvice, retiredWords } = await import(pathToFileURL(retiredPaths.find(existsSync)).href);
 
 const docsPath = /^docs\/.*\.mdx?$/;
 const codePath = /\.(ts|tsx|mts|cts|js|mjs)$/;
@@ -29,8 +37,9 @@ const diagram = (path, kind) => kept(path) && kind === 'fence' && /\.mdx?$/.test
 const launchers = new Set(['src/runner.ts', 'src/sim.ts']);
 
 /** A line that quotes the old name, or names the new one beside it, is a hint about the name. */
-const hint = (old, replacement) => (_, text) =>
-  text.includes(replacement.replaceAll('`', '')) || new RegExp(`(===\\s*)?['"]${old}s?['"]`, 'i').test(text);
+const hint = ({ word, example }) => (_, text) =>
+  (example !== undefined && text.includes(example.replaceAll('`', ''))) ||
+  new RegExp(`(===\\s*)?['"]${word}s?['"]`, 'i').test(text);
 
 const rules = [
   [written, /\b20\d\d-\d\d-\d\d\b/, 'a date'],
@@ -80,8 +89,8 @@ const rules = [
   [path => kept(path) && !inTests(path), /\bgit diff\b[^\n]*[^.\s]\.\.HEAD\b/, 'a two-dot range to HEAD; review a branch with base...HEAD'],
 
   ...retiredWords
-    .filter(([, , pattern]) => pattern)
-    .map(([old, replacement, pattern]) => [named, pattern, `${old}; say ${replacement}`, hint(old, replacement)]),
+    .filter(({ text }) => text)
+    .map(retired => [named, retired.text, `${retired.word}; ${formatRetiredAdvice(retired)}`, hint(retired)]),
 ];
 
 const longest = 30;

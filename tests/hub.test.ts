@@ -204,7 +204,7 @@ describe('loadHub', () => {
     ]);
   });
 
-  it('fails retired words in any hub prompt, naming the word and what to say now', async () => {
+  it('fails retired words in any hub prompt, naming the word and a clearer one', async () => {
     const dir = hubDir({
       'agents/a.md': '---\nharness: opencode\n---\nOpen a merge request.\n',
       'skills/s.md': 'A human answers with `/agentgraph <answer>` on the issue.\n',
@@ -213,11 +213,11 @@ describe('loadHub', () => {
         '---\non: issues\nsteps:\n  x: { agent: a, skill: s, checks: [c] }\n---\nThe persona runs for-each file.\n',
     });
     expect(await problems(dir)).toEqual([
-      'agents/a.md: says "merge request", which is retired; say pull request',
-      'skills/s.md: says "/agentgraph", which is retired; say /agent followed by what you want',
-      'checks/c.md: says "bots/", which is retired; say agents/',
-      'workflows/w.md: says "persona", which is retired; say agent, or harness for the program that runs a session',
-      'workflows/w.md: says "for-each", which is retired; say returns: and each:',
+      'agents/a.md: says "merge request", which is retired; find a clearer word, for example pull request',
+      'skills/s.md: says "/agentgraph", which is retired; find a clearer word, for example /agent followed by what you want',
+      'checks/c.md: says "bots/", which is retired; find a clearer word, for example agents/',
+      'workflows/w.md: says "persona", which is retired; find a clearer word, for example agent',
+      'workflows/w.md: says "for-each", which is retired; find a clearer word, for example `each:`',
     ]);
   });
 

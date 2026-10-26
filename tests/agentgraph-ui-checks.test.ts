@@ -353,10 +353,10 @@ describe('rules check, retired names', () => {
     );
     const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
-    expect(out).toContain('src/executors/pi.ts:1: executor; say harness');
-    expect(out).toContain('examples/hub/agents/triager.md:2: soul; say agent');
-    expect(out).toContain('examples/hub/agents/triager.md:3: `can:`; say `returns:`');
-    expect(out).toContain('docs/loop.md:1: for-each; say `each:`');
+    expect(out).toContain('src/executors/pi.ts:1: executor; find a clearer word, for example harness');
+    expect(out).toContain('examples/hub/agents/triager.md:2: soul; find a clearer word, for example agent');
+    expect(out).toContain('examples/hub/agents/triager.md:3: `can:`; find a clearer word, for example `returns:`');
+    expect(out).toContain('docs/loop.md:1: for-each; find a clearer word, for example `each:`');
   });
 
   it('passes a hint that rejects the old name', () => {

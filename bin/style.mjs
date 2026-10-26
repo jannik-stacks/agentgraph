@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { findRetiredWordInName } from '../examples/agentgraph/scripts/retired-words.mjs';
+import { formatRetiredAdvice, retiredWords } from '../src/retired.ts';
 
 export const verbs = new Set(
   [
@@ -34,6 +34,13 @@ export const findNameProblems = name => {
   if (/[a-z\d](Of|For)$/.test(name)) problems.push('no-of-for');
   if (!verbs.has(/^[a-z]+/.exec(name)?.[0]) && !exempt.has(name)) problems.push('verb-first');
   return problems;
+};
+
+const findRetiredWordInName = name => {
+  const words = new Set(
+    name.split(/(?<=[a-z\d])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[^A-Za-z]+/).map(word => word.toLowerCase())
+  );
+  return retiredWords.find(({ word }) => words.has(word) || words.has(`${word}s`));
 };
 
 const declaration =
@@ -125,8 +132,8 @@ export default {
       'retired-word',
       n => findRetiredWordInName(n) !== undefined,
       n => {
-        const [word, say] = findRetiredWordInName(n);
-        return `${n}: ${word} is retired, say ${say} (examples/agentgraph/scripts/retired-words.mjs)`;
+        const retired = findRetiredWordInName(n);
+        return `${n}: ${retired.word} is retired; ${formatRetiredAdvice(retired)} (src/retired.ts)`;
       }
     ),
     'no-comment': noComment,

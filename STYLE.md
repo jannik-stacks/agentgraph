@@ -55,10 +55,10 @@ at that level first.
 14. Core code in `src/` uses the short words from `docs/vocabulary.md`. Edge code (bench, tune, studio,
     `bin/`, hub scripts, test doubles) uses long, self-explaining names.
 15. Edge types never take a core word: `TuneProposerResult`, not `Proposal`.
-16. One word per concept, one export per name. Retired words, each with what to say instead, are listed
-    once in [retired-words.mjs](examples/agentgraph/scripts/retired-words.mjs); lint and the hub's checks
-    read that list. A word without a line pattern is retired for names only, since text keeps other
-    meanings of it (git's `core.bare`, `stacks-core`, a `timestamp`).
+16. One word per concept, one export per name. Retired words, each with a clearer word to start from, are
+    listed once in [src/retired.ts](src/retired.ts); lint, the hub loader and the hub's checks read that
+    list. The lint asks for a clearer word rather than a one-for-one swap. A word without a `text` pattern
+    is retired for names only, since text keeps other meanings of it (git's `core.bare`, `stacks-core`, a `timestamp`).
 17. Don't overload taken words: session is a harness session, run is one workflow execution, no `core`,
     no export named like an Effect or platform type (`TokenScope`, not `Scope`).
 

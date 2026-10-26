@@ -4,6 +4,7 @@ import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import { Kind } from './proposal.ts';
+import { formatRetiredAdvice, retiredWords } from './retired.ts';
 import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 /** An agent file's frontmatter. */
@@ -104,26 +105,14 @@ const unknownKinds = (body: string, say: (message: string) => void) => {
   }
 };
 
-/** Words and phrases that described agentgraph once and no longer do, each with what to say now. */
-const retiredWords: [RegExp, string][] = [
-  [/(?<![\w./-])\/agentgraph\b(?![/-])/i, '/agent followed by what you want'],
-  [/\bmerge requests?\b/i, 'pull request'],
-  [/\bopen-pr\b/, 'pull_request'],
-  [/\b(?:souls?|personas?|executors?)\b/i, 'agent, or harness for the program that runs a session'],
-  [/\bbots\//, 'agents/'],
-  [/^\s*can:|\bfor-each\b|\bover:/m, 'returns: and each:'],
-  [/\bruns-per-day\b|\bmax-turns\b/, 'limits in hub.yaml'],
-  [/## Resuming|main-worktree|\/hub\/scripts|criteria table|adds the Closes/, 'nothing; the engine no longer has it'],
-];
-
 /**
  * Reports each retired word a hub or notes file still uses.
  * @internal
  */
 export const retiredIn = (text: string, say: (message: string) => void) => {
-  for (const [word, now] of retiredWords) {
-    const found = word.exec(text);
-    if (found) say(`says ${JSON.stringify(found[0].trim())}, which is retired; say ${now}`);
+  for (const retired of retiredWords) {
+    const found = retired.text?.exec(text);
+    if (found) say(`says ${JSON.stringify(found[0].trim())}, which is retired; ${formatRetiredAdvice(retired)}`);
   }
 };
 
