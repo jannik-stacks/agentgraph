@@ -2,7 +2,7 @@ import { Container, ContainerProxy, type OutboundHandlerContext } from '@cloudfl
 import allowlist from '../../../infra/local/egress/allowlist';
 import boxScript from './box.sh';
 import { forwardToGateway } from '../gateway/forward.ts';
-import { type Network, networks, reachOf } from './gateway.ts';
+import { type Network, networks, getHostReach } from './gateway.ts';
 
 export { ContainerProxy };
 
@@ -116,7 +116,7 @@ export class Box extends Container<Env> {
   }
 
   reach(host: string) {
-    return reachOf(this.running, egress, host);
+    return getHostReach(this.running, egress, host);
   }
 
   override async onActivityExpired() {

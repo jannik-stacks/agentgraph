@@ -1,6 +1,6 @@
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { type Network, reachOf } from '../examples/deploy/cloudflare/gateway.ts';
+import { type Network, getHostReach } from '../examples/deploy/cloudflare/gateway.ts';
 import { forwardToGateway } from '../examples/deploy/gateway/forward.ts';
 import { startGateway } from '../examples/deploy/gateway/server.ts';
 
@@ -45,7 +45,7 @@ describe('cloudflare gateway', () => {
   it('lets a box reach the gateway and registries only while a command on that network runs', () => {
     const egress = [/^registry\.npmjs\.org$/];
     const reach = (running: Map<Network, number>) =>
-      ['gateway.internal', 'registry.npmjs.org', 'example.com'].map(host => reachOf(running, egress, host));
+      ['gateway.internal', 'registry.npmjs.org', 'example.com'].map(host => getHostReach(running, egress, host));
     expect(reach(box())).toEqual(['none', 'none', 'none']);
     expect(reach(box('none'))).toEqual(['none', 'none', 'none']);
     expect(reach(box('models'))).toEqual(['gateway', 'none', 'none']);
