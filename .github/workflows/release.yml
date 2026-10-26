@@ -12,6 +12,7 @@ permissions: {}
 
 jobs:
   mode:
+    if: github.repository == 'jannik-stacks/agentgraph'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -49,6 +50,7 @@ jobs:
     needs: mode
     if: needs.mode.outputs.mode == 'publish'
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       contents: write
       id-token: write

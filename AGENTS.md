@@ -46,20 +46,17 @@ lists what ships. The studio is not in the package; `agi studio` needs a clone.
   Packages pull request, which sets the version and writes the changelog. Merging it publishes to npm through
   trusted publishing, with provenance and no token.
 
-Trusted publishing needs the package on npm, so 0.0.1 goes out by hand once. Merge the release setup, wait for
-the Version Packages pull request, and publish from its branch before you merge it:
+The workflow only runs on pushes to `main` of this repo, never on pull requests, so a pull request from a fork
+can't reach the token or npm. The publish job runs in the `npm` environment, which only `main` may deploy to.
 
-```sh
-git clone --branch changeset-release/main https://github.com/jannik-stacks/agentgraph.git agi-release
-cd agi-release
-npm ci
-npm run build
-npm pack --dry-run
-npm login
-npm publish --access public
-```
+Trusted publishing needs the package on npm, so 0.0.1 went out by hand from `main`, before the push that added
+the workflow: `npm ci && npm run build && npm publish --access public`, then tag `v0.0.1`. One-time setup after
+that:
 
-Then on npmjs.com, in the package's settings under Trusted publishing, add a GitHub Actions publisher with
-owner `jannik-stacks`, repository `agentgraph`, workflow `release.yml` and no environment. Set publishing access
-to require two-factor authentication and disallow tokens. Merge the Version Packages pull request; the workflow
-finds 0.0.1 on npm and publishes nothing. Tag the merged commit by hand: `git fetch origin && git tag v0.0.1 origin/main && git push origin v0.0.1`.
+- GitHub, Settings, Environments: create `npm` and limit deployment branches to `main`. Add yourself as a required
+  reviewer to approve each publish.
+- npmjs.com, the package's Settings, Trusted publishing: add a GitHub Actions publisher with owner
+  `jannik-stacks`, repository `agentgraph`, workflow `release.yml` and environment `npm`. Then set publishing
+  access to require two-factor authentication and disallow tokens.
+- GitHub, Settings, Actions, General: allow GitHub Actions to create pull requests, so it can open the Version
+  Packages pull request.
