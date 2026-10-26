@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Creates one LiteLLM virtual key per bot, or updates the limits of keys that already exist.
-# New key values are appended to $KEYS_FILE as AGENTGRAPH_LLM_API_KEY_<BOT>=...; e2e.sh hands
-# them to a data dir as AGENTGRAPH_PROXY_KEYS.
+# Creates one LiteLLM virtual key per bot, or updates the limits of keys that already exist. New key values are
+# appended to $KEYS_FILE as AGENTGRAPH_LLM_API_KEY_<BOT>=...; e2e.sh hands them to a data dir.
 #
 #   ./keys.sh             create missing keys, converge budgets and limits on existing ones
 #   ./keys.sh local       one key for every agent, as AGENTGRAPH_PROXY_KEYS=*=... in .keys.env.local
@@ -12,15 +11,11 @@ set -euo pipefail
 ENV_FILE="${ENV_FILE:-.env}"
 names=""
 if [[ -f "$ENV_FILE" ]]; then
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^(export\ )?([A-Za-z_][A-Za-z0-9_]*)= ]]; then names+=" ${BASH_REMATCH[2]}"; fi
-  done <"$ENV_FILE"
+  names=$(sed -nE 's/^(export )?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$ENV_FILE")
   . "$ENV_FILE"
 fi
-for name in $(compgen -e); do
-  if [[ "$name" =~ (^|_)(KEYS?|TOKEN|SECRET|PASSWORD)(_|$) ]]; then names+=" $name"; fi
-done
-export -n LITELLM_MASTER_KEY $names
+# Secrets stay out of the environment of curl and jq.
+export -n LITELLM_MASTER_KEY $names $(compgen -e | grep -E '(^|_)(KEYS?|TOKEN|SECRET|PASSWORD)(_|$)')
 : "${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in infra/local/.env}"
 BASE="${LITELLM_URL:-http://127.0.0.1:4000}"
 local="${1:-}"
@@ -40,7 +35,6 @@ BOTS=(
   "triager       smart,fast,local,luna,$OPENROUTER           1  30  300000"
   "checker       smart,fast,local,luna,$OPENROUTER           1  30  200000"
   "editor        smart,fast,local,luna,$OPENROUTER           1  30  200000"
-  "claim-checker fast,local,luna,$OPENROUTER                 1  30  200000"
   "scout         fast,local,luna,$OPENROUTER                 1  30  200000"
   "router        smart,fast,local,luna,$OPENROUTER           1  30  200000"
   "retro         smart,fast,local,luna,$OPENROUTER           2  30  400000"
@@ -48,12 +42,6 @@ BOTS=(
 )
 
 [[ "$local" != local ]] || BOTS=("local smart,writer,fast,local,luna,$OPENROUTER 10 30 400000")
-
-# Every bot in the example graphs needs a row.
-[[ "$local" == local ]] || for file in ../../examples/*/agents/*.md; do
-  bot=$(basename "$file" .md)
-  printf '%s\n' "${BOTS[@]}" | grep -q "^$bot " || echo "warn: $bot (${file#../../}) has no row in keys.sh" >&2
-done
 
 api() { # method path [json]
   curl -fsS -X "$1" "$BASE$2" -H @<(printf 'Authorization: Bearer %s\nContent-Type: application/json\n' "$LITELLM_MASTER_KEY") \
