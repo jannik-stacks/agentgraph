@@ -391,8 +391,7 @@ export const dockerSandbox = (o: {
           );
           const verify = (name: string) =>
             inMirror(['rev-parse', '--verify', '--quiet', `${name}^{commit}`]).pipe(Effect.orElseSucceed(() => ''));
-          const kept = keep ? yield* verify(keep) : '';
-          const saved = keep ? kept || (yield* verify(keep.replace('refs/agentgraph/', 'refs/bothub/'))) : '';
+          const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
           const rev =
             own || (saved ? yield* verify(`${saved}^`) : (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`)));
@@ -458,7 +457,7 @@ export const dockerSandbox = (o: {
                 '-m',
                 name + (work.published ? `\n\nbaseline ${work.published}` : ''),
               ]);
-              yield* inWork(['update-ref', name, commit, kept]);
+              yield* inWork(['update-ref', name, commit, saved]);
             }).pipe(
               Effect.tapError(() => Effect.promise(() => rename(`${dir}.owner`, `${dir}.failed`))),
               Effect.mapError(
