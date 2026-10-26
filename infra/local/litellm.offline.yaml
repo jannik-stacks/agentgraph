@@ -1,5 +1,4 @@
-# Every alias on the local Ollama model, for fully offline simulation.
-# Use it with LITELLM_CONFIG=litellm.offline.yaml in .env, then `docker compose up -d litellm`.
+# Every alias on the local Ollama model, for a fully offline run: LITELLM_CONFIG=litellm.offline.yaml in .env.
 
 model_list:
   - model_name: local

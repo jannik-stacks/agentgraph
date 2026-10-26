@@ -1,85 +1,66 @@
-# Model aliases bots ask for. Upstream model IDs come from the environment (see .env.example).
-# For a fully offline run, switch to litellm.offline.yaml (LITELLM_CONFIG in .env).
-#
-# Clients (opencode, pi): AGENTGRAPH_LLM_BASE_URL=http://127.0.0.1:4000/v1 (http://gateway:4000/v1 in a sandbox)
+# Model aliases agents ask for, at http://127.0.0.1:4000/v1 (http://gateway:4000/v1 in a sandbox). Upstream ids
+# come from .env; litellm.offline.yaml serves the same aliases from Ollama alone.
 
 model_list:
-  # ChatGPT subscription through the chatgpt/ provider. Tokens come from the device login
-  # (README) and live in $CHATGPT_TOKEN_DIR. Spend is reported as $0, so key budgets do not
-  # apply here; per-key rpm/tpm and agentgraph's runs-per-day budget are the limits. Its chat
-  # completions bridge drops streamed tool-call arguments, so opencode talks to /v1/responses.
-  - model_name: smart
-    model_info: { mode: responses }
-    litellm_params:
-      model: os.environ/AGENTGRAPH_MODEL_SMART
-
-  - model_name: writer
-    model_info: { mode: responses }
-    litellm_params:
-      model: os.environ/AGENTGRAPH_MODEL_WRITER
-
-  # A small, fast chat model for decide calls (AGENTGRAPH_DECIDE_MODEL=luna). No tools and no
-  # streaming, so plain chat completions work.
-  - model_name: luna
-    litellm_params:
-      model: chatgpt/gpt-6-luna
+  # ChatGPT subscription through the chatgpt/ provider, logged in per the README. Spend is reported as $0, so per-key
+  # rpm/tpm and agentgraph's runs-per-day budget are the limits. Its chat completions bridge drops streamed tool-call
+  # arguments, so opencode talks to /v1/responses.
+  - { model_name: smart, model_info: { mode: responses }, litellm_params: { model: os.environ/AGENTGRAPH_MODEL_SMART } }
+  - { model_name: writer, model_info: { mode: responses }, litellm_params: { model: os.environ/AGENTGRAPH_MODEL_WRITER } }
+  # A small, fast chat model, called without tools or streaming, so plain chat completions work.
+  - { model_name: luna, litellm_params: { model: chatgpt/gpt-6-luna } }
 
   # Local models through Ollama. qwen3.5 thinks by default; think: false keeps replies short.
   - model_name: fast
-    litellm_params:
+    litellm_params: &local
       model: os.environ/AGENTGRAPH_MODEL_LOCAL
       api_base: os.environ/OLLAMA_API_BASE
       think: false
+  - { model_name: local, litellm_params: *local }
 
-  - model_name: local
-    litellm_params:
-      model: os.environ/AGENTGRAPH_MODEL_LOCAL
-      api_base: os.environ/OLLAMA_API_BASE
-      think: false
-
-  # Paid models through OpenRouter, a flagship and a cheap one per family. Without OPENROUTER_API_KEY the
-  # proxy still starts and these answer 401. Per-token costs are set so per-key dollar budgets apply.
+  # Paid models through OpenRouter, a flagship and a cheap one per family. LiteLLM reads OPENROUTER_API_KEY from the
+  # environment; without it these answer 401. Per-token costs are set so per-key dollar budgets apply.
   - model_name: glm
-    litellm_params: { model: openrouter/z-ai/glm-5.3, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/z-ai/glm-5.3 }
     model_info: { input_cost_per_token: 7.9e-8, output_cost_per_token: 1.4e-6, cache_read_input_token_cost: 7.8e-8 }
   - model_name: glm-flash
-    litellm_params: { model: openrouter/z-ai/glm-5.3-flash, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/z-ai/glm-5.3-flash }
     model_info: { input_cost_per_token: 1.71e-8, output_cost_per_token: 1.21e-7, cache_read_input_token_cost: 1.71e-8 }
   - model_name: deepseek
-    litellm_params: { model: openrouter/deepseek/deepseek-v4-pro-0813, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/deepseek/deepseek-v4-pro-0813 }
     model_info: { input_cost_per_token: 1.32e-6, output_cost_per_token: 3.96e-6, cache_read_input_token_cost: 4.4e-8 }
   - model_name: deepseek-flash
-    litellm_params: { model: openrouter/deepseek/deepseek-v4.1-flash, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/deepseek/deepseek-v4.1-flash }
     model_info: { input_cost_per_token: 3.0e-7, output_cost_per_token: 1.2e-6, cache_read_input_token_cost: 6.0e-9 }
   - model_name: minimax
-    litellm_params: { model: openrouter/minimax/minimax-m3, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/minimax/minimax-m3 }
     model_info: { input_cost_per_token: 3.0e-7, output_cost_per_token: 1.2e-6, cache_read_input_token_cost: 6.0e-8 }
   - model_name: gemini
-    litellm_params: { model: openrouter/google/gemini-4-argon, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/google/gemini-4-argon }
     model_info: { input_cost_per_token: 2.0e-6, output_cost_per_token: 1.0e-5, cache_read_input_token_cost: 1.0e-7 }
   - model_name: gemini-flash
-    litellm_params: { model: openrouter/google/gemini-3.8-flash, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/google/gemini-3.8-flash }
     model_info: { input_cost_per_token: 8.25e-7, output_cost_per_token: 4.125e-6, cache_read_input_token_cost: 8.25e-8 }
   - model_name: grok
-    litellm_params: { model: openrouter/x-ai/grok-4.7, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/x-ai/grok-4.7 }
     model_info: { input_cost_per_token: 2.0e-6, output_cost_per_token: 6.0e-6, cache_read_input_token_cost: 5.0e-7 }
   - model_name: grok-build
-    litellm_params: { model: openrouter/x-ai/grok-build-0.1, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/x-ai/grok-build-0.1 }
     model_info: { input_cost_per_token: 1.0e-6, output_cost_per_token: 2.0e-6, cache_read_input_token_cost: 2.0e-7 }
   - model_name: qwen
-    litellm_params: { model: openrouter/qwen/qwen3.8-max-0902, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/qwen/qwen3.8-max-0902 }
     model_info: { input_cost_per_token: 2.0e-6, output_cost_per_token: 6.0e-6, cache_read_input_token_cost: 2.5e-7 }
   - model_name: qwen-flash
-    litellm_params: { model: openrouter/qwen/qwen3.8-flash, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/qwen/qwen3.8-flash }
     model_info: { input_cost_per_token: 1.5e-7, output_cost_per_token: 4.7e-7, cache_read_input_token_cost: 1.6e-8 }
   - model_name: kimi
-    litellm_params: { model: openrouter/moonshotai/kimi-k3, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/moonshotai/kimi-k3 }
     model_info: { input_cost_per_token: 2.39e-7, output_cost_per_token: 1.1936e-5, cache_read_input_token_cost: 2.1e-7 }
   - model_name: muse
-    litellm_params: { model: openrouter/meta/muse-spark-1.3, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/meta/muse-spark-1.3 }
     model_info: { input_cost_per_token: 1.25e-6, output_cost_per_token: 4.25e-6, cache_read_input_token_cost: 1.5e-7 }
   - model_name: muse-flash
-    litellm_params: { model: openrouter/meta/muse-glimmer-30b, api_key: os.environ/OPENROUTER_API_KEY }
+    litellm_params: { model: openrouter/meta/muse-glimmer-30b }
     model_info: { input_cost_per_token: 3.0e-7, output_cost_per_token: 1.2e-6, cache_read_input_token_cost: 4.0e-8 }
 
 # Timeouts are shortest here: a stream silent for stream_timeout seconds fails and is retried once, before the
