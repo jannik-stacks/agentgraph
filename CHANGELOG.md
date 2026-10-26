@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.1
+
+### Patch Changes
+
+- 3bf9d78: First release on npm. Install it with `npm install -g @jannik-stacks/agi` and run `agi`. The package ships
+  the CLI built to plain JavaScript, so it runs on Node 24 with no TypeScript loader. The studio still runs
+  from a clone.
+
 ## Before npm
 
 Work from before the first npm release. The 0.1.0 and 0.2.0 milestones never went to npm, so npm
