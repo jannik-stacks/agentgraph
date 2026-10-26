@@ -43,7 +43,7 @@ at that level first.
 7. Exported functions start with a verb from the fixed set in `docs/patterns.md#names` (`parse`,
    `compile`, `format`, `make`, `get`, `find`, `read`, `write`, `run`, ...).
 8. `is` returns a boolean, `why` returns a reason or undefined: `isAgentBranch`, `whyUnpushable`.
-9. No `xOf` or `xFor` helpers: `splitTraceIntoVisitedSteps`, not `visitsOf`.
+9. No `xOf`, `xFor` or `xFrom` names: `splitTraceIntoVisitedSteps`, not `visitsOf`.
 10. Types and components are a qualifier plus a noun: `RunLink`, `DiskCacheEntry`, never `Mark` or `Item`.
 11. Spell words out: no `Repo`, `Dep` or `Cfg` in type names. The allowed abbreviations are
     `Dirs`, `Ms`, `Id`, `Url`, `Json`, `Sha`, `Ast`, `Api`, `Cli`, `Pid` and `Env`.

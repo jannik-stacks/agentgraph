@@ -308,6 +308,12 @@
         "style/unique-export": "error",
         "style/retired-word": "error"
       }
+    },
+    {
+      "files": ["examples/**", "tests/**", "studio/*.ts"],
+      "rules": {
+        "style/no-of-for": "error"
+      }
     }
   ],
   "ignorePatterns": ["**/node_modules/**", "studio-lab/**", "research/**"]

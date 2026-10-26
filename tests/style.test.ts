@@ -26,7 +26,7 @@ const config = JSON.stringify({
 });
 
 describe('style lint', () => {
-  it('flags a verbless, an xOf and a shared export name and a retired word, minus the baseline', () => {
+  it('flags a verbless, an xOf, a local xOf or xFrom and a shared export name and a retired word, minus the baseline', () => {
     const dir = tmp('style');
     write(dir, {
       '.oxlintrc.json': config,
@@ -45,12 +45,16 @@ describe('style lint', () => {
         'export const makeTimestamp = () => 1;',
         'export type Hub = { dir: string };',
         'export const Hub = 1;',
+        'export const readItems = () => { const itemsOf = [1]; return itemsOf; };',
+        'export function readNext() { function stepFrom() { return 1; } return stepFrom(); }',
       ].join('\n'),
       'src/b.ts': 'export const plan = 2;\n',
       'bin/style-baseline.txt': 'verb-first src/a.ts plan\n',
     });
     expect(lint(dir)).toEqual([
       'error style(no-of-for) graphOf',
+      'error style(no-of-for) itemsOf',
+      'error style(no-of-for) stepFrom',
       'error style(retired-word) CoreRun',
       'error style(retired-word) isAlive',
       'error style(retired-word) makeClimb',

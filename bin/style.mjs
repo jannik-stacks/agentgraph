@@ -31,7 +31,7 @@ const baselinePath = join(root, 'bin/style-baseline.txt');
 export const findNameProblems = name => {
   if (/^[A-Z]/.test(name)) return [];
   const problems = [];
-  if (/[a-z\d](Of|For)$/.test(name)) problems.push('no-of-for');
+  if (/[a-z\d](Of|For|From)$/.test(name)) problems.push('no-of-for');
   if (!verbs.has(/^[a-z]+/.exec(name)?.[0]) && !exempt.has(name)) problems.push('verb-first');
   return problems;
 };
@@ -118,11 +118,17 @@ export default {
       n =>
         `${n}: an exported function starts with a verb from docs/patterns.md#names, or is a layer constructor in STYLE.md#exceptions`
     ),
-    'no-of-for': makeNameRule(
-      'no-of-for',
-      (n, fn) => fn && findNameProblems(n).includes('no-of-for'),
-      n => `${n}: name what the function does, not what it is of or for`
-    ),
+    'no-of-for': {
+      create: context => {
+        const file = relative(root, context.filename);
+        const check = id => {
+          if (id?.type !== 'Identifier' || !findNameProblems(id.name).includes('no-of-for')) return;
+          if (!baseline.has(`no-of-for ${file} ${id.name}`))
+            context.report({ node: id, message: `${id.name}: name what it does, not what it is of, for or from` });
+        };
+        return { VariableDeclarator: node => check(node.id), FunctionDeclaration: node => check(node.id) };
+      },
+    },
     'unique-export': makeNameRule(
       'unique-export',
       (n, _, file) => [...(readExportOwners().get(n) ?? [])].some(f => f !== file),
