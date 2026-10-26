@@ -1,7 +1,7 @@
 import { createPrivateKey, sign } from 'node:crypto';
 import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import {
-  addressed,
+  makeCommentWithAgentRequest,
   isAgentBranch,
   isPostedBy,
   pushLimits,
@@ -316,7 +316,7 @@ export const githubForge = (
         ...(typeof c.line === 'number' && { line: c.line }),
         ...(c.in_reply_to_id !== undefined && { under: String(c.in_reply_to_id) }),
       };
-      return shown ? addressed(comment) : comment;
+      return shown ? makeCommentWithAgentRequest(comment) : comment;
     };
 
     const heard = (issue: number, c: RestComment, self: string, kind: Event['kind'] = 'comment'): Event => {

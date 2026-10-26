@@ -15,15 +15,15 @@ export type Issue = {
 };
 
 /**
- * A comment; `path` and `line` place a review comment, `under` is the review comment it answers. `said` is what it
- * says to the bot: its text without the `/agent` that calls the bot, when it has one.
+ * A comment; `path` and `line` place a review comment, `under` is the review comment it answers. `agentRequest` is what
+ * it asks the bot: its text without the `/agent` that calls the bot, when it has one.
  */
 export type Comment = {
   id: string;
   author: string;
   body: string;
   at: string;
-  said?: string;
+  agentRequest?: string;
   path?: string;
   line?: number;
   under?: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressed } from '../src/forge.ts';
+import { makeCommentWithAgentRequest } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import {
   begin,
@@ -270,7 +270,9 @@ describe('getEventOutcome', () => {
     ...more,
   });
   const comment = (body: string) =>
-    said('comment', { comment: addressed({ id: 'c1', author: 'morgan', body, at: '2026-10-16T01:00:00Z' }) });
+    said('comment', {
+      comment: makeCommentWithAgentRequest({ id: 'c1', author: 'morgan', body, at: '2026-10-16T01:00:00Z' }),
+    });
   const waiting = at('merge', { status: 'waiting' });
   const asked = at('implement', { status: 'waiting', reason: 'which API?' });
 

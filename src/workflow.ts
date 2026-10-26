@@ -408,7 +408,7 @@ export function makeRunWithFreshRound(w: Workflow, run: Run): Run {
 }
 
 /** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
-export const parseAgentRequest = (m: Event) => (m.kind === 'comment' ? m.comment?.said : undefined);
+export const parseAgentRequest = (m: Event) => (m.kind === 'comment' ? m.comment?.agentRequest : undefined);
 
 /**
  * The question a run parks with when a human cancels the try it is on.
@@ -442,7 +442,7 @@ export function getEventOutcome(w: Workflow, run: Run, m: Event, lined: Event[] 
     if (m.kind === 'changes_requested') {
       const notes = lined.flatMap(l =>
         l.comment?.path
-          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}: ${l.comment.said ?? l.comment.body}`
+          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}: ${l.comment.agentRequest ?? l.comment.body}`
           : []
       );
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };

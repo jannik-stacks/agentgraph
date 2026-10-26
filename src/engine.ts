@@ -449,7 +449,7 @@ export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[
         id: '',
         author: 'cli',
         body: `/agent ${instruction.text}`,
-        said: instruction.text,
+        agentRequest: instruction.text,
         at,
         ...(parent && { path: parent.path!, line: parent.line, under: parent.under ?? parent.id }),
       },
@@ -522,7 +522,7 @@ const tellsOf = (run: Run) =>
                 actor: t.told.by,
                 trusted: true,
                 at: t.at,
-                comment: { id: '', author: t.told.by, body: t.told.text, at: t.at, said: t.told.text },
+                comment: { id: '', author: t.told.by, body: t.told.text, at: t.at, agentRequest: t.told.text },
               },
             ]
           : []
@@ -539,8 +539,8 @@ const router = (hub: Hub) =>
 
 /** The event as a run of `w` hears it: with a router, only the router hears `/agent` from people, the others hear what it tells them. */
 const heardBy = (hub: Hub, w: Workflow, m: Event): Event => {
-  if (!router(hub) || w.on.issue_comment || m.comment?.said === undefined) return m;
-  const { said: _said, ...comment } = m.comment;
+  if (!router(hub) || w.on.issue_comment || m.comment?.agentRequest === undefined) return m;
+  const { agentRequest: _agentRequest, ...comment } = m.comment;
   return { ...m, comment };
 };
 

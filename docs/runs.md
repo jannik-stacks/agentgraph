@@ -66,7 +66,7 @@ It fails on denied tool calls, started sessions that cost nothing, and finished 
 
 ## Run links
 
-Every comment, reply, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL` set, a `⁂` links to `<studio>/runs/<id>?at=<time>`, and the trace's `applied` line has the same `at`. <!-- code: src/forge.ts#stamp -->
+Every comment, reply, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL` set, a `⁂` links to `<studio>/runs/<id>?at=<time>`, and the trace's `applied` line has the same `at`. <!-- code: src/forge.ts#formatBodyWithRunLink -->
 
 The operation key names one write of one try: the run, step, try, round, target and proposal. The engine posts first and records the `applied` line after. When a runner stops between the two, the resumed try finds the post by its key, records it and does not post it again. This covers comments, review replies and issues in both forges; a pull request is already found by its branch. <!-- code: src/engine.ts#findAppliedBefore src/github.ts#githubForge src/forge.ts#fileForge -->
 

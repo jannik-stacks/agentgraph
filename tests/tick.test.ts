@@ -467,7 +467,7 @@ describe('tick', () => {
     const events = await run(Effect.flatMap(Forge, f => Stream.runCollect(f.since(''))));
     const withheld = [...events].find(m => m.actor === 'mallory')!.comment!;
     expect(withheld.body).toContain('withheld');
-    expect(withheld.said).toBeUndefined();
+    expect(withheld.agentRequest).toBeUndefined();
   });
 
   it('sends a run parked at merge with its rounds spent back on a new change request', async () => {

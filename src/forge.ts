@@ -26,7 +26,7 @@ const makeStudioRunUrlAt = (studio: string, run: string, at: string) => `${makeS
  * A body ending in a hidden marker of where it came from, after a ⁂ that links to it when the studio has a URL. Any
  * marker or link already in the body is dropped first.
  */
-const stamp = (body: string, mark: RunLink, at: string, studio = '') => {
+const formatBodyWithRunLink = (body: string, mark: RunLink, at: string, studio = '') => {
   const fields = Object.entries({ ...mark, at })
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}=${v.replace(/[^\w.:-]/g, '')}`);
@@ -40,7 +40,7 @@ export const makePostableProposal = (p: Proposal, studio?: string) =>
     if (!('body' in p)) return { posted: p };
     if (!mark) return { posted: { ...p, body: removeRunLink(p.body) } };
     const at = new Date().toISOString();
-    return { posted: { ...p, body: stamp(p.body, mark, at, studio) }, at };
+    return { posted: { ...p, body: formatBodyWithRunLink(p.body, mark, at, studio) }, at };
   });
 
 export const isPostedBy = (body: string, operation: string) => body.includes(` operation=${operation} `);
@@ -63,29 +63,24 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
   }
 >() {}
 
-/** The body without its first `/agent` or `@agent` outside quoted lines and fenced code, or undefined when it has none. */
-const called = (body: string): string | undefined => {
+/** The comment with what it asks the bot after its first `/agent` or `@agent` outside quoted lines and fenced code. */
+export const makeCommentWithAgentRequest = (c: Comment): Comment => {
   let fenced = false;
   let offset = 0;
-  for (const line of body.split('\n')) {
+  for (const line of c.body.split('\n')) {
     const start = offset;
     offset += line.length + 1;
     if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
     if (fenced || /^\s*>/.test(line)) continue;
     const found = /(?<![\w./-])[/@]agent(?![\w/-])/i.exec(line);
-    if (found)
-      return `${body.slice(0, start + found.index).trimEnd()} ${body
-        .slice(start + found.index + found[0].length)
-        .replace(/^[,:]/, '')
-        .trimStart()}`.trim();
+    if (!found) continue;
+    const agentRequest = `${c.body.slice(0, start + found.index).trimEnd()} ${c.body
+      .slice(start + found.index + found[0].length)
+      .replace(/^[,:]/, '')
+      .trimStart()}`.trim();
+    return { ...c, agentRequest };
   }
-  return undefined;
-};
-
-/** The comment with what it says to the bot, when it calls it with `/agent`. */
-export const addressed = (c: Comment): Comment => {
-  const said = called(c.body);
-  return said === undefined ? c : { ...c, said };
+  return c;
 };
 
 /** Whether an issue passes the `issues` filter. */
@@ -260,12 +255,14 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       const eventsOf = async (n: number) =>
         (await readTimeline(n))
           .map(m =>
-            m.comment ? { ...m, comment: addressed({ ...m.comment, body: removeRunLink(m.comment.body) }) } : m
+            m.comment
+              ? { ...m, comment: makeCommentWithAgentRequest({ ...m.comment, body: removeRunLink(m.comment.body) }) }
+              : m
           )
           .map(m => (trust && !trust.includes(m.actor) ? { ...m, trusted: false } : m))
           .map(m => {
             if (!m.comment || m.trusted || m.actor === me) return m;
-            const { said: _said, ...comment } = m.comment;
+            const { agentRequest: _agentRequest, ...comment } = m.comment;
             return { ...m, comment: { ...comment, body: withheld(m.actor) } };
           });
       const say = (m: Omit<Parameters<typeof writeTimelineEvent>[1], 'actor' | 'trusted'>) =>

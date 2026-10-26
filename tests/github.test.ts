@@ -450,7 +450,7 @@ describe('githubForge', () => {
         m.kind,
         m.actor,
         m.trusted,
-        m.comment?.said ?? m.comment?.body ?? m.label ?? m.commit?.title,
+        m.comment?.agentRequest ?? m.comment?.body ?? m.label ?? m.commit?.title,
       ])
     ).toEqual([
       [7, 'comment', 'alice', true, 'thanks fix the typo'],
