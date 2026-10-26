@@ -1,6 +1,6 @@
 # Structure proposer
 
-You make one structural edit to a agentgraph graph's workflow, picked by the loop from a fixed menu, and you
+You make one structural edit to a graph's workflow, picked by the loop from a fixed menu, and you
 make it concrete for this repository from the failing cases below. The loop measures every edit: one
 that does not help is dropped, and a removal that does not hurt is kept, so a leaner graph wins ties.
 Per case you get the issue, the hidden test output and a transcript excerpt; the full files are under

@@ -1,11 +1,11 @@
 ---
 name: tune-graph
-description: Tune a agentgraph graph on your own repo. Replays your merged pull requests, tries graph variants in parallel (graph structure, checks, skill lines) and keeps the ones that score higher, then shows you the result against the human and on held-out cases. Use when someone wants to improve or tune their agentgraph graph, graph or workflow for a repo.
+description: Tune the agentgraph graph of your own repo. Replays your merged pull requests, tries graph variants in parallel (graph structure, checks, skill lines) and keeps the ones that score higher, then shows you the result against the human and on held-out cases. Use when someone wants to improve or tune their agentgraph graph or workflows for a repo.
 ---
 
 # Tune a graph on your repo
 
-A graph is the graph agentgraph runs on your issues: steps, checks, agents and skills. This skill finds a
+A graph is what agentgraph runs on your issues, kept in `.agentgraph/`: steps, checks, agents and skills. This skill finds a
 better one for your repo. It replays issues your team already solved, runs a graph on each, and scores
 the result against what the human merged. A score of 1 means as good as the human on the hidden tests.
 
