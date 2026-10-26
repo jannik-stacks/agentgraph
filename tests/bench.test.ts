@@ -54,6 +54,7 @@ const hostDocker = (image = true) => {
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  delete process.env.BENCH_EXCLUDE;
 });
 
 const diff = `diff --git a/src/a.ts b/src/a.ts
@@ -93,7 +94,7 @@ describe('bench helpers', () => {
   });
 
   it('drops lockfiles and index lines and masks issue numbers and names', () => {
-    const out = scrub(diff, ['morgan']);
+    const out = scrub(diff, ['robin']);
     expect(out).not.toMatch(/package-lock|^index |#12|agentgraph/m);
     expect(out).toContain('+// see #N from someone');
   });
@@ -410,13 +411,16 @@ describe('bin/bench.ts score and report', () => {
     expect(readBenchRows(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);
     writeFileSync(join(out, 'demo', 'base', 'score.json'), JSON.stringify({ ...score('base'), suite: { ok: false } }));
     expect(readBenchRows(out)[1]).not.toHaveProperty('suite');
-    mkdirSync(join(out, 'btc', 'human'), { recursive: true });
-    writeFileSync(join(out, 'btc', 'case.json'), JSON.stringify({ repo: 'acme/billing' }));
-    writeFileSync(join(out, 'btc', 'human', 'score.json'), '{}');
+    mkdirSync(join(out, 'nope', 'human'), { recursive: true });
+    writeFileSync(join(out, 'nope', 'case.json'), JSON.stringify({ repo: 'acme/private-app' }));
+    writeFileSync(join(out, 'nope', 'human', 'score.json'), '{}');
+    expect(readBenchRows(out).map(r => r.case)).toContain('nope');
+    process.env.BENCH_EXCLUDE = 'private-app';
+    Object.assign(env, { BENCH_EXCLUDE: 'private-app' });
     expect(readBenchRows(out).map(r => r.case)).toEqual(['demo', 'demo', 'demo']);
     expect(readBenchRows(out, ['me/other'])).toEqual([]);
     expect(readBenchRows(out, ['me/demo'])).toHaveLength(3);
-    expect(bench('report', out)).not.toContain('btc');
+    expect(bench('report', out)).not.toContain('nope');
   });
 });
 
@@ -704,7 +708,7 @@ describe('pickBenchTestCommands', () => {
       hasTests: false,
       typecheck: expect.any(String),
     });
-    expect(pickBenchTestCommands('acme/billing', [])).toEqual({ hasTests: false });
+    expect(pickBenchTestCommands('acme/app', [])).toEqual({ hasTests: false });
   });
 
   it('runs one cargo command per hidden Rust file and builds the workspace tests during setup', () => {

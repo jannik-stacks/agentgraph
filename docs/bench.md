@@ -10,9 +10,9 @@ ln -s "$PWD/node_modules" <dir>/<sha>/engine/agentgraph/node_modules
 SHA=<sha> POINTS=opencode:luna REPEATS=3 KEYS=<keys file> node bench/drive.ts <dir>
 ```
 
-A bench dir holds `set.json` (a copy of `bench/sets/<set>.json`) and the set's case dirs under `cases/`. The driver runs validity, v2, floor, scoring and judging for every case at each point and repeat with the engine checked out at `<dir>/<sha>/engine`, and writes `report.md` in each run dir `<dir>/<sha>/<harness>-<model>/r<k>`. Points take aliases such as `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)). [Long runs](#long-runs) covers settings, budgets, pause and resume.
+A bench dir holds `set.json` (the list of cases) and the set's case dirs under `cases/`. The driver runs validity, v2, floor, scoring and judging for every case at each point and repeat with the engine checked out at `<dir>/<sha>/engine`, and writes `report.md` in each run dir `<dir>/<sha>/<harness>-<model>/r<k>`. Points take aliases such as `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)). [Long runs](#long-runs) covers settings, budgets, pause and resume.
 
-Each run dir's `point.json` records harness, model, engine, hub trees, set and repeat. For arm commands run by hand, `BENCH_POINT` selects the model and `BENCH_HUB=<dir>` replaces the v2 hub and joins its cache key. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key.
+Each run dir's `point.json` records harness, model, engine, hub trees, set and repeat. For arm commands run by hand, `BENCH_POINT` selects the model and `BENCH_HUB=<dir>` replaces the v2 hub and joins its cache key. `BENCH_EXCLUDE=<repo>,<repo>` names repos a bench never runs or reports. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key.
 
 Shared results live in `<dir>/.cache` (`BENCH_CACHE`): validity keys include case, scoring code and sandbox image; arm keys include case, arm, hub, engine `src` tree (except floor), point and repeat; judge keys include judge and the ordered diff prompt. Existing outputs are skipped; `BENCH_FRESH=1` ignores the cache.
 
@@ -38,7 +38,7 @@ A tested case is valid only if its hidden tests fail on base and pass on the hum
 | Arm | What runs |
 | --- | --- |
 | `human` | The merged change |
-| `v2` | The repo's hub (`examples/clarinet`, `examples/acme-app`, `examples/sandbox`), else `examples/bench`: implement, check tests, review with one return, then a human merge |
+| `v2` | The example hub named after the repo (`examples/<repo>`, `examples/sandbox` for `agentgraph-sandbox`), else `examples/bench`: implement, check tests, review with one return, then a human merge |
 | `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
 
 Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers the first question with "No more information. Use your judgment."; a second question ends the arm where it waits. Answers are counted.

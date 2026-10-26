@@ -89,13 +89,13 @@ type Verdict = {
 
 const bots = ['v2', 'floor'];
 /** Repos a bench never runs or reports. */
-const excluded = new Set(['billing']);
-const benched = (repo = '') => !excluded.has(repo.split('/').pop() ?? '');
+const benched = (repo = '') => !process.env.BENCH_EXCLUDE?.split(',').includes(repo.split('/').pop() ?? '');
 const arms = ['human', ...bots, 'control'];
-const hubs: Record<string, string> = {
-  clarinet: 'clarinet',
-  'acme-app': 'acme-app',
-  'agentgraph-sandbox': 'sandbox',
+const hubAliases: Record<string, string> = { 'agentgraph-sandbox': 'sandbox' };
+const findExampleHubName = (repo: string) => {
+  const name = repo.split('/').pop() ?? '';
+  const hub = hubAliases[name] ?? name;
+  return existsSync(join(engine, 'examples', hub, 'hub.yaml')) ? hub : 'bench';
 };
 const strataKeys = ['repo', 'tests', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/agent No more information. Use your judgment.';
@@ -269,10 +269,6 @@ const tested = (repo: string, tests: string[]): Commands => {
     /\.(test|spec)\.[jt]sx?$/.test(p)
   );
   const files = js.map(quote).join(' ');
-  if (name === 'billing' && js.length) {
-    const runner = 'node_modules/.bin/vitest run';
-    return { setup: `${install('11.1.3')}`, runner, test: `${runner} ${files}` };
-  }
   if (name === 'explorer' && js.length) {
     const runner = 'TZ=UTC node_modules/.bin/jest --env=jsdom --runTestsByPath';
     return { setup: `${install('10.28.2')}`, runner, test: `${runner} ${files}` };
@@ -433,7 +429,7 @@ export const repoint = (hub: string, point: string) => {
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
   const { start } = (await import(join(engine, 'src/main.ts'))) as typeof MainModule;
   if (resolve(engine) !== resolve(agentgraphDir)) Object.assign(process.env, keys);
-  const own = process.env.BENCH_HUB ?? `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
+  const own = process.env.BENCH_HUB ?? `examples/${findExampleHubName(c.repo)}`;
   const hub = join(at, 'hub');
   cpSync(resolve(engine, own), hub, { recursive: true });
   if (own === 'examples/bench' && c.runner) {
@@ -522,7 +518,7 @@ export const infra = (s: { infra?: string; setup?: { ok: boolean }; status?: str
 
 /** The hub an arm of the case starts from: `BENCH_HUB` when set, else the example hub of its repo. */
 const findCaseHubDir = (c: Pick<Case, 'repo'>) =>
-  process.env.BENCH_HUB ?? join(engine, 'examples', hubs[c.repo.split('/').pop() ?? ''] ?? 'bench');
+  process.env.BENCH_HUB ?? join(engine, 'examples', findExampleHubName(c.repo));
 
 /** Where an arm run is kept: by case, arm, engine, hub (`BENCH_HUB` when set) and commands, and the point and repeat when given. */
 export const armSlot = (
