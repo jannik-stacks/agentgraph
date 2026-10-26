@@ -435,6 +435,7 @@ describe('claude', () => {
       expect.arrayContaining(['--permission-mode', 'dontAsk', '--resume', 'e477', '--model', 'smart'])
     );
     expect(args[args.indexOf('--tools') + 1]).toBe('Read,Bash');
+    expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({ attribution: { commit: '', pr: '' } });
     expect(args[args.indexOf('--allowedTools') + 1]).toBe(
       'Read,Bash(git diff*),Bash(NODE_OPTIONS= command git diff*),Bash(git log*),Bash(NODE_OPTIONS= command git log*)'
     );

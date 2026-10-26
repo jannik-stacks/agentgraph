@@ -74,6 +74,8 @@ export const claude = (): Harness => ({
           : ['--safe-mode']),
         '--restricted',
         '--strict-mcp-config',
+        '--settings',
+        JSON.stringify({ attribution: { commit: '', pr: '' } }),
         '--permission-mode',
         'dontAsk',
         '--tools',

@@ -14,10 +14,10 @@ A container has a read-only root, a tmpfs `/tmp`, the operator's non-root uid, n
 
 Sessions and checkout setup use the graph's `network`:
 
-| `network` | Docker network | Reachable |
-| --- | --- | --- |
+| `network`          | Docker network       | Reachable                                                  |
+| ------------------ | -------------------- | ---------------------------------------------------------- |
 | `egress` (default) | `agentgraph-sandbox` | Model proxy, the optional Ollama relay, an HTTPS allowlist |
-| `models` | `agentgraph-models` | Model proxy only |
+| `models`           | `agentgraph-models`  | Model proxy only                                           |
 
 The local compose stack creates both internal networks. The allowlist in `infra/local/egress/allowlist` has `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org` for GitHub downloads and npm installs, and `api.anthropic.com`, `chatgpt.com` and `auth.openai.com` for harnesses on their own login and for LiteLLM. No PyPI, crates.io, Docker Graph, SSH or browsing. Scripts and checks get no network at all. Environment builds use Docker's default network.
 
@@ -113,7 +113,10 @@ const echo = (): Harness => ({
   },
 });
 
-export default { harnesses: [opencode(), claude(), pi(), echo()], providers: makeProviders() } satisfies HarnessSettings;
+export default {
+  harnesses: [opencode(), claude(), pi(), echo()],
+  providers: makeProviders(),
+} satisfies HarnessSettings;
 ```
 
 The package has no entry point yet, so a plugin imports its types from `src/harnesses.ts`, and the schema and parsing helpers the built-in four share from `harnesses/helpers.ts`. What the session loop does around a plugin:
@@ -126,12 +129,12 @@ The package has no entry point yet, so a plugin imports its types from `src/harn
 
 `AGENTGRAPH_HARNESS` runs every agent on that harness. Otherwise an agent without a `harness` gets the first harness `AGENTGRAPH_PROVIDER` serves, else the first in the config. A graph loads only when every agent's harness is in the config and its `check` finds nothing. A config that does not load fails every graph with its problem. A graph names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/folder.ts#loadGraph -->
 
-| Harness | Tool permissions | Aside fork |
-| --- | --- | --- |
-| `opencode` | Allowlists with patterns, such as `bash(git diff*)` | `--session <id> --fork` |
-| `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` fails the graph check, so best for read-only agents | `--fork <id>` |
-| `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work, a tool Claude Code lacks fails the graph check | `--resume <id> --fork-session` |
-| `codex` | An agent with `edit`, `write` and `bash` gets every tool Codex has; any other runs in Codex's read-only sandbox, so `bash(git diff*)` means read-only shell. Granting only some of the three, or a pattern on any tool but `bash`, fails the graph check. Codex always talks to the gateway as its own model provider (`wire_api = "responses"`) with the agent's key, so a ChatGPT subscription works only behind a gateway that holds the login, such as LiteLLM's `chatgpt/` models. Sessions live in the session home | none; an aside starts a fresh session |
+| Harness    | Tool permissions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Aside fork                            |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `opencode` | Allowlists with patterns, such as `bash(git diff*)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | `--session <id> --fork`               |
+| `pi`       | Plain tool names only; a patterned tool such as `bash(npm test*)` fails the graph check, so best for read-only agents                                                                                                                                                                                                                                                                                                                                                                                                     | `--fork <id>`                         |
+| `claude`   | Claude Code through the proxy's Anthropic endpoint, with its commit and pull request attribution off; patterns work, a tool Claude Code lacks fails the graph check                                                                                                                                                                                                                                                                                                                                                       | `--resume <id> --fork-session`        |
+| `codex`    | An agent with `edit`, `write` and `bash` gets every tool Codex has; any other runs in Codex's read-only sandbox, so `bash(git diff*)` means read-only shell. Granting only some of the three, or a pattern on any tool but `bash`, fails the graph check. Codex always talks to the gateway as its own model provider (`wire_api = "responses"`) with the agent's key, so a ChatGPT subscription works only behind a gateway that holds the login, such as LiteLLM's `chatgpt/` models. Sessions live in the session home | none; an aside starts a fresh session |
 
 Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnessSession -->
 
