@@ -101,18 +101,18 @@ const Bubble = ({ tip, className, children }: { tip: string; className: string; 
 
 const chipKinds: Record<ChipKind, { look: string; tip: string }> = {
   who: {
-    look: 'rounded-sm border border-current/20 bg-current/10 px-1 font-medium text-zinc-700 dark:text-zinc-300',
+    look: 'rounded-sm border border-current/20 bg-current/10 px-1 font-medium',
     tip: 'Who runs the step: the model alias, or you.',
   },
   checks: {
-    look: 'rounded-sm border border-current/30 px-1 text-zinc-700 dark:text-zinc-300',
+    look: 'rounded-sm border border-current/30 px-1',
     tip: 'What gates the step: its checks, and how many an agent judges.',
   },
   writes: {
-    look: 'rounded-sm bg-current/10 px-1 text-zinc-600 dark:text-zinc-400',
+    look: 'rounded-sm bg-current/10 px-1 opacity-85',
     tip: 'What its agent may write to GitHub.',
   },
-  how: { look: 'text-zinc-500', tip: 'How it runs: once per item, reading traces, answering asides.' },
+  how: { look: 'opacity-70', tip: 'How it runs: once per item, reading traces, answering asides.' },
 };
 
 const ChipLabel = ({ kind, glyph, label, className }: Omit<Chip, 'tip'> & { className?: string }) => (
@@ -171,8 +171,8 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
       className={cx(
         'relative isolate flex size-full cursor-pointer flex-col gap-0.5 rounded-md border px-2.5 pt-3 text-xs transition-shadow',
         here || live
-          ? cx(accent.border, accent.tint)
-          : 'border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700',
+          ? cx(accent.border, accent.tint, 'text-sky-900 dark:text-sky-100')
+          : 'border-zinc-200 bg-white text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700',
         node.each !== undefined
           ? 'shadow-[3px_3px_0_-1px_var(--color-white),3px_3px_0_0_var(--color-zinc-200),6px_6px_0_-1px_var(--color-white),6px_6px_0_0_var(--color-zinc-200)] dark:shadow-[3px_3px_0_-1px_var(--color-zinc-950),3px_3px_0_0_var(--color-zinc-800),6px_6px_0_-1px_var(--color-zinc-950),6px_6px_0_0_var(--color-zinc-800)]'
           : 'shadow-xs',
@@ -183,7 +183,7 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
       <Handle type="target" position={Position.Left} isConnectable={false} className={handle} style={arrival} />
       <Handle type="source" position={Position.Right} isConnectable={false} className={handle} />
       <div className="flex min-w-0 items-center gap-1.5">
-        <Glyph name={kind === 'human' ? 'person' : kind} className="size-3.5 text-zinc-500" />
+        <Glyph name={kind === 'human' ? 'person' : kind} className="size-3.5 opacity-60" />
         <span className="truncate text-[13px] font-semibold">{node.step}</span>
         {title && (
           <span className="ml-auto">
@@ -202,11 +202,11 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
         >
           <div className="mb-1 truncate text-sky-600 dark:text-sky-400">
             {status}
-            {here?.reason && here.status !== 'waiting' && <span className="text-zinc-500">, {here.reason}</span>}
+            {here?.reason && here.status !== 'waiting' && <span className="opacity-70">, {here.reason}</span>}
           </div>
         </Tooltip>
       ) : (
-        <div className="mb-1 truncate text-zinc-500">{kind === 'human' ? 'waits for you' : node.doer}</div>
+        <div className="mb-1 truncate opacity-70">{kind === 'human' ? 'waits for you' : node.doer}</div>
       )}
       <div className="flex flex-col gap-0.5">
         {rows.map((line, i) => (
