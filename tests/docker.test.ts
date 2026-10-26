@@ -11,6 +11,7 @@ import {
   writeCheckoutOwner,
   reap,
   readDependencySkeleton,
+  readSandboxSetup,
   removeOrphanedVolumes,
   makeToolchainSetupCommands,
   written,
@@ -350,6 +351,79 @@ describe('docker with a stand-in docker client', () => {
   it('refuses to mount a docker socket', async () => {
     const exit = await use(layer, s => s.exec(command('/var/run/docker.sock')));
     expect(JSON.stringify(exit)).toContain('mount not allowed');
+  });
+});
+
+const count = (file: string) => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0);
+
+describe('docker images and sandbox setups shared by concurrent callers', () => {
+  const bin = tmp('bin');
+  const state = tmp('docker-state');
+  const path = process.env.PATH;
+  const saved = process.env.AGENTGRAPH_STATE;
+  beforeAll(() => {
+    writeFileSync(
+      join(bin, 'docker'),
+      [
+        '#!/bin/sh',
+        `s=${state}`,
+        `[ "$1" = network ] && { echo true; exit 0; }`,
+        `case "$1" in rm|volume) exit 0;; commit) touch $s/committed; exit 0;; esac`,
+        `[ "$1" = build ] && { echo x >> $s/builds; sleep 0.3; touch $s/sandbox; exit 0; }`,
+        `[ "$1" = image ] && case "$*" in`,
+        `  *Labels*) [ -e $s/committed ] || exit 1; echo '{"agentgraph.env":"k","agentgraph.mode":"deps","agentgraph.complete":"true"}'; exit 0;;`,
+        `  *agentgraph-sandbox:local*) [ -e $s/sandbox ] || { echo "No such image" >&2; exit 1; }; echo sha256:base; exit 0;;`,
+        `  *sha256*|*ghcr.io*) echo "No such image" >&2; exit 1;;`,
+        `  *) echo sha256:base; exit 0;;`,
+        `esac`,
+        `case "$*" in *agentgraph.envbuild*)`,
+        `  mkdir $s/busy 2>/dev/null || exit 137; echo x >> $s/envbuilds; sleep 0.3; rmdir $s/busy`,
+        `  printf '@@ignored\\n@@untracked\\n@@lower\\n5\\n'; exit 0;;`,
+        `esac`,
+        `echo started`,
+      ].join('\n')
+    );
+    chmodSync(join(bin, 'docker'), 0o755);
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    process.env.AGENTGRAPH_STATE = tmp('state');
+  });
+  afterAll(() => {
+    process.env.PATH = path;
+    if (saved === undefined) delete process.env.AGENTGRAPH_STATE;
+    else process.env.AGENTGRAPH_STATE = saved;
+  });
+
+  it('builds a missing sandbox image once for concurrent checkouts, then runs their commands', async () => {
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin(), cache: '' }), s =>
+      Effect.all(
+        [1, 2].map(() => Effect.flatMap(s.checkout('main'), work => s.exec(command(work.dir)))),
+        { concurrency: 'unbounded' }
+      )
+    );
+    expect(Exit.isSuccess(exit) && exit.value.map(e => e.output.trim())).toEqual(['started', 'started']);
+    expect(count(join(state, 'builds'))).toBe(1);
+  });
+
+  it('fails with the command to fetch a missing image it cannot build', async () => {
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin(), cache: '' }), s =>
+      s.checkout('main', undefined, undefined, { image: 'ghcr.io/x/sandbox:1' })
+    );
+    expect(JSON.stringify(exit)).toContain('Run `docker pull ghcr.io/x/sandbox:1` there.');
+    expect(JSON.stringify(exit)).toContain('"reason":"host"');
+  });
+
+  it('builds one sandbox setup for two callers that start at once', async () => {
+    const repo = origin();
+    const spec = {
+      image: 'base:1',
+      git: join(repo, '.git'),
+      base: 'main',
+      cache: 'c',
+      toolchain: 'true',
+    };
+    const envs = await Promise.all(['one', 'two'].map(name => readSandboxSetup({ ...spec, repo: name })));
+    expect(envs.map(e => e?.mode)).toEqual(['deps', 'deps']);
+    expect(count(join(state, 'envbuilds'))).toBe(1);
   });
 });
 

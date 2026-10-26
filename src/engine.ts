@@ -1753,8 +1753,11 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       const said = `Stopped by a runner error (${e._tag}). The details are in the trace of run ${current.id}.`;
       if (e._tag === 'SessionStop' && e.reason === 'human')
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: said }));
-      if (!current.retried) return settle({ kind: 'ask', question: why }, { ...current, retried: true });
-      const question = `${said} Reply to try ${current.step} again from where it was.`;
+      const host = e._tag === 'SandboxError' && e.reason === 'host';
+      if (!current.retried && !host) return settle({ kind: 'ask', question: why }, { ...current, retried: true });
+      const question = host
+        ? `Stopped by a runner error (${e._tag}): ${e.detail}\nThen reply to try ${current.step} again.`
+        : `${said} Reply to try ${current.step} again from where it was.`;
       return settle(
         { kind: 'ask', question: why },
         { ...unthreaded(current), status: 'waiting', reason: question, retried: true }

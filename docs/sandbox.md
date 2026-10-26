@@ -31,7 +31,7 @@ The key covers the base image, the toolchain commands, `setup` and those files, 
 
 Each checkout mounts private overlays over the cached dependency folders, so its writes stay its own, and the overlays go when the checkout closes. Checkouts skip setup when the environment holds everything setup produced; resumed checkouts and incomplete environments run it again. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox src/env.ts#unlogged -->
 
-`AGENTGRAPH_STATE` (default `~/.cache/agentgraph`) holds runner heartbeats and image use times. Runners that share Docker must share it, and startup removes what stopped runners left behind.
+`AGENTGRAPH_STATE` (default `~/.cache/agentgraph`) holds runner heartbeats, image use times and build locks. Runners that share Docker must share it, and startup removes what stopped runners left behind. One environment key builds under one lock, so runners that start at once wait for the first build and reuse it. The `agentgraph-sandbox:local` and `agentgraph-egress:local` images build under one shared lock too. A checkout builds the sandbox image when it is missing; any other missing image fails the checkout with the `docker pull` command to run. <!-- code: src/owner.ts#waitForLock src/docker.ts#ensureImage -->
 
 One check decides whether the process that owns something still runs: run locks, checkouts, dependency volumes, held environments and the bench and tune locks all ask it. An owner is a pid, plus a random owner id when the process beats. It still runs while its heartbeat is under two minutes old, or while its pid runs and it wrote its claim after the machine last booted. <!-- code: src/owner.ts#isOwnerRunning src/owner.ts#isLockedByOtherProcess -->
 
@@ -63,7 +63,7 @@ A failed toolchain install is a runner error with its output. `AGENTGRAPH_CACHE_
 
 ## A hub's own image
 
-Hub `image` names a local image for every run command and environment build, instead of `AGENTGRAPH_IMAGE` or `agentgraph-sandbox:local`. Build it yourself with the harnesses and any dependencies; agentgraph never builds or pulls it.
+Hub `image` names a local image for every run command and environment build, instead of `AGENTGRAPH_IMAGE` or `agentgraph-sandbox:local`. Build it yourself with the harnesses and any dependencies; agentgraph never builds or pulls it, and a checkout without it fails with the command to run.
 
 ```dockerfile
 FROM agentgraph-sandbox:local

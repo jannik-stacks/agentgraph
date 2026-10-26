@@ -42,7 +42,7 @@ export type Checkout = {
 };
 
 export class SandboxError extends Data.TaggedError('SandboxError')<{
-  reason: 'timeout' | 'stalled' | 'infra';
+  reason: 'timeout' | 'stalled' | 'infra' | 'host';
   detail: string;
 }> {}
 

@@ -202,4 +202,4 @@ One status comment shows the step, whether a question is open, the stop reason, 
 
 `limits.parallel` caps how many issues a pass handles at once, and `limits.sessions` caps sessions, judges included. Runs that one look drives together go oldest first. <!-- code: src/engine.ts#tick src/engine.ts#gateOf -->
 
-`minutes` is a wall-clock deadline. After each try, a run that is still working stops if it spent more than `usd-per-run`. Runner errors (timeouts, provider faults, failed setup, a missing check command with exit 127) retry once, then park the run at its step with details in the trace. Any reply retries with the session and tries kept. <!-- code: src/engine.ts#drive -->
+`minutes` is a wall-clock deadline. After each try, a run that is still working stops if it spent more than `usd-per-run`. Runner errors (timeouts, provider faults, failed setup, a missing check command with exit 127) retry once, then park the run at its step with details in the trace. A missing image or a failed image build parks at once and says what to run on the host. Any reply retries with the session and tries kept. <!-- code: src/engine.ts#drive -->

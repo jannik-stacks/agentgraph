@@ -7,7 +7,7 @@ import { dockerSandbox } from '../src/docker.ts';
 import { drive } from '../src/engine.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { fileForge, Forge } from '../src/forge.ts';
-import { Sandbox, type Checkout } from '../src/sandbox.ts';
+import { Sandbox, SandboxError, type Checkout } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts';
@@ -527,6 +527,26 @@ describe('drive', () => {
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', usd: 0.5 });
     expect(stopped.reason).toBe("Spent $0.50, over the hub's usd-per-run of 0.1.");
     expect(specs).toHaveLength(1);
+  });
+
+  it('parks at once with what to fix on the host when the sandbox cannot start there', async () => {
+    const where = world();
+    const detail =
+      'The image ghcr.io/x/sandbox:1 is missing on the runner host. Run `docker pull ghcr.io/x/sandbox:1` there.';
+    const missing = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        checkout: () => Effect.fail(new SandboxError({ reason: 'host', detail })),
+      }))
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), missing, replaySession([]));
+    const parked = await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
+    expect(parked).toMatchObject({
+      status: 'waiting',
+      reason: `Stopped by a runner error (SandboxError): ${detail}\nThen reply to try triage again.`,
+    });
+    expect(readTrace(where.data, 'run-7').filter(t => 'outcome' in t)).toHaveLength(1);
   });
 
   it('parks the run at its step when a session cannot run, and an answer tries that step again', async () => {

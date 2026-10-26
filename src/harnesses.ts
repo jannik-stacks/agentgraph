@@ -163,7 +163,7 @@ const writeHome = async (home: string, path: string, text: string) => {
 };
 
 const makeSessionStop = (e: SandboxError) =>
-  new SessionStop({ reason: e.reason === 'infra' ? 'sandbox' : e.reason, detail: e.detail });
+  new SessionStop({ reason: e.reason === 'infra' || e.reason === 'host' ? 'sandbox' : e.reason, detail: e.detail });
 
 /**
  * Runs the harness of `harnesses` that `spec.harness` names. Each session gets its own home under

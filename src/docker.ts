@@ -22,6 +22,7 @@ import {
   written,
 } from './env.ts';
 import { ensureFreeDisk } from './disk.ts';
+import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { gitIdentity, hostGit, makeHostEnv } from './git.ts';
 
@@ -173,6 +174,48 @@ const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
 
 export const sandboxImage = 'agentgraph-sandbox:local';
 
+const locked = <A, E>(name: string, e: Effect.Effect<A, E>) =>
+  Effect.acquireUseRelease(
+    Effect.promise(() => waitForLock(name)),
+    () => e,
+    release => Effect.promise(release)
+  );
+
+const builds: Record<string, string> = { [sandboxImage]: 'sandbox', 'agentgraph-egress:local': 'egress' };
+
+const ensureImage = (tag: string, fresh = false, say: (line: string) => void = () => {}) =>
+  Effect.gen(function* () {
+    const dir = builds[tag];
+    const label = fresh && dir ? '{{index .Config.Labels "agentgraph.source"}}' : '{{.Id}}';
+    const built = (yield* run('docker', ['image', 'inspect', '--format', label, tag]).pipe(
+      Effect.orElseSucceed(() => '')
+    )).trim();
+    if (!dir)
+      return built
+        ? false
+        : yield* new SandboxError({
+            reason: 'host',
+            detail: `The image ${tag} is missing on the runner host. Run \`docker pull ${tag}\` there.`,
+          });
+    const source = fileURLToPath(new URL(`../infra/local/${dir}`, import.meta.url));
+    const hash = createHash('sha256');
+    for (const f of readdirSync(source, { withFileTypes: true }).filter(f => f.isFile()))
+      hash.update(f.name).update(readFileSync(join(source, f.name)));
+    const digest = hash.digest('hex').slice(0, 12);
+    if (fresh ? built === digest : built) return false;
+    say(`building ${tag}`);
+    yield* run('docker', ['build', '-q', '--label', `agentgraph.source=${digest}`, '-t', tag, source]).pipe(
+      Effect.mapError(
+        e =>
+          new SandboxError({
+            reason: 'host',
+            detail: `Building ${tag} failed on the runner host: ${e.detail}\nFix that, then run \`docker build -t ${tag} ${source}\` there.`,
+          })
+      )
+    );
+    return true;
+  });
+
 export const ensureDocker = (say: (line: string) => void, image: string) =>
   Effect.gen(function* () {
     const version = yield* Effect.mapError(run('docker', ['version', '--format', '{{.Server.Version}}']), () =>
@@ -180,57 +223,46 @@ export const ensureDocker = (say: (line: string) => void, image: string) =>
         "agentgraph runs the repo's code only in a container, and docker is not running.\nStart Docker Desktop, colima or podman (DOCKER_HOST), or set AGENTGRAPH_SANDBOX_URL to a box server."
       )
     );
-    const has = (args: string[]) =>
-      run('docker', args).pipe(
-        Effect.as(true),
-        Effect.orElseSucceed(() => false)
-      );
-    const made = [
-      ['sandbox', networks.egress, true],
-      ['models', networks.models, true],
-      ['egress', 'agentgraph-egress', false],
-    ] as const;
-    for (const [key, name, internal] of made)
-      if (!(yield* has(['network', 'inspect', name])))
-        yield* run('docker', [
-          ...`network create --label com.docker.compose.project=agentgraph --label com.docker.compose.network=${key}`.split(
-            ' '
-          ),
-          ...(internal ? ['--internal'] : []),
-          name,
-        ]);
-    const build = (tag: string, dir: string) =>
+    yield* locked(
+      'images',
       Effect.gen(function* () {
-        const source = fileURLToPath(new URL(`../infra/local/${dir}`, import.meta.url));
-        const hash = createHash('sha256');
-        for (const f of readdirSync(source, { withFileTypes: true }).filter(f => f.isFile()))
-          hash.update(f.name).update(readFileSync(join(source, f.name)));
-        const digest = hash.digest('hex').slice(0, 12);
-        const label = '{{index .Config.Labels "agentgraph.source"}}';
-        const built = yield* run('docker', ['image', 'inspect', '--format', label, tag]).pipe(
-          Effect.orElseSucceed(() => '')
-        );
-        if (built.trim() === digest) return false;
-        say(`building ${tag}`);
-        yield* run('docker', ['build', '-q', '--label', `agentgraph.source=${digest}`, '-t', tag, source]);
-        return true;
-      });
-    if (image === sandboxImage) yield* build(image, 'sandbox');
-    if (yield* build('agentgraph-egress:local', 'egress')) yield* has(['rm', '-f', 'agentgraph-egress']);
-    const members = yield* run('docker', [
-      'network',
-      'inspect',
-      '--format',
-      '{{range .Containers}}{{.Name}} {{end}}',
-      networks.egress,
-    ]);
-    if (!members.includes('egress') && !(yield* has(['start', 'agentgraph-egress']))) {
-      const flags = `run -d --name agentgraph-egress --restart unless-stopped --read-only --cap-drop ALL
+        const has = (args: string[]) =>
+          run('docker', args).pipe(
+            Effect.as(true),
+            Effect.orElseSucceed(() => false)
+          );
+        const made = [
+          ['sandbox', networks.egress, true],
+          ['models', networks.models, true],
+          ['egress', 'agentgraph-egress', false],
+        ] as const;
+        for (const [key, name, internal] of made)
+          if (!(yield* has(['network', 'inspect', name])))
+            yield* run('docker', [
+              ...`network create --label com.docker.compose.project=agentgraph --label com.docker.compose.network=${key}`.split(
+                ' '
+              ),
+              ...(internal ? ['--internal'] : []),
+              name,
+            ]);
+        if (builds[image]) yield* ensureImage(image, true, say);
+        if (yield* ensureImage('agentgraph-egress:local', true, say)) yield* has(['rm', '-f', 'agentgraph-egress']);
+        const members = yield* run('docker', [
+          'network',
+          'inspect',
+          '--format',
+          '{{range .Containers}}{{.Name}} {{end}}',
+          networks.egress,
+        ]);
+        if (!members.includes('egress') && !(yield* has(['start', 'agentgraph-egress']))) {
+          const flags = `run -d --name agentgraph-egress --restart unless-stopped --read-only --cap-drop ALL
         --security-opt no-new-privileges:true --memory 128m --pids-limit 512 --network ${networks.egress}
         --network-alias egress agentgraph-egress:local`;
-      yield* run('docker', flags.split(/\s+/));
-    }
-    yield* has(['network', 'connect', 'agentgraph-egress', 'agentgraph-egress']);
+          yield* run('docker', flags.split(/\s+/));
+        }
+        yield* has(['network', 'connect', 'agentgraph-egress', 'agentgraph-egress']);
+      })
+    );
     return version;
   });
 
@@ -369,6 +401,12 @@ export const dockerSandbox = (o: {
         hub?: Pick<Hub, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Hub, 'repo'>>
       ) =>
         Effect.gen(function* () {
+          const box = hub?.image ?? image;
+          const present = yield* run('docker', ['image', 'inspect', '--format', '{{.Id}}', box]).pipe(
+            Effect.as(true),
+            Effect.orElseSucceed(() => false)
+          );
+          if (!present) yield* locked('images', ensureImage(box));
           yield* lock.withPermits(1)(
             Effect.gen(function* () {
               const exists = yield* Effect.promise(() =>
