@@ -41,7 +41,7 @@ and link it instead:
 
 ```sh
 git clone https://github.com/jannik-stacks/agentgraph ~/agentgraph
-npm ci --prefix ~/agentgraph && npm link --prefix ~/agentgraph
+npm ci --prefix ~/agentgraph && npm --prefix ~/agentgraph run build && npm link --prefix ~/agentgraph
 ```
 
 Either way this installs agentgraph's own dependencies, not the repo's. The unscoped `agentgraph` npm package
