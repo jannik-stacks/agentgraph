@@ -42,6 +42,8 @@ lists what ships. The studio is not in the package; `agi studio` needs a clone.
 
 - A user-facing change comes with a changeset: run `npx changeset`, pick patch, minor or major, write one or two
   plain lines, and commit the file in `.changeset/` with the change. Don't edit `CHANGELOG.md` by hand.
+- Stay on 0.0.x for now: every changeset is a patch, even a breaking one. On 0.x, changesets turns a major bump
+  into 1.0.0 and a minor bump into 0.1.0.
 - On each push to `main`, [the release workflow](.github/workflows/release.yml) opens or updates the Version
   Packages pull request, which sets the version and writes the changelog. Merging it publishes to npm through
   trusted publishing, with provenance and no token.
