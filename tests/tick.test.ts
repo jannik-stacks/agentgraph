@@ -152,12 +152,13 @@ describe('tick', () => {
 
   it('fails a retry that pushes without the pull request its failed first try proposed', async () => {
     const where = world();
-    const { run } = services(where, [
+    const { specs, run } = services(where, [
       [start('a'), wrote('hello.txt', 'TODO\n'), reply(push, pull)],
       [start('a'), wrote('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Dropped the TODO.' })],
     ]);
     const [parked] = await run(tick(small));
     expect(parked).toMatchObject({ status: 'waiting', reason: 'a pass needs a pull request or an ask' });
+    expect(specs[1]!.prompt).toContain('answer them by changing the code, not with a comment');
     expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))).not.toContain('Dropped the TODO.');
   });
 
@@ -194,7 +195,7 @@ describe('tick', () => {
     ]);
     await run(tick(small));
     expect(specs[1]!.prompt).toContain('use comment, it is posted under the thread you are answering');
-    expect(specs[1]!.prompt).toContain('nothing from this reply was applied: send every proposal again');
+    expect(specs[1]!.prompt).toContain('Nothing from this reply was applied');
     expect(git(where.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
   });
 

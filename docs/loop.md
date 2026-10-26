@@ -141,7 +141,7 @@ A workflow's `checks` run once when its run ends, done or stopped, on a throwawa
 
 ## Tries and going back
 
-Failed checks or proposals retry in the same session with the findings as feedback. When `tries` run out, the run waits and says why on the issue.
+Failed checks or proposals retry in the same session with the findings as feedback. When nothing from the try applied, the feedback says so, asks for every proposal again, and tells the agent that only it sees the findings, so it answers them in code rather than in a comment. When `tries` run out, the run waits and says why on the issue. <!-- code: src/workflow.ts#transition -->
 
 `back: implement` lets a step send the run back to `implement`. An agent step with `back` also needs `until`, the condition that satisfies it. A `back` proposal carries the reason as feedback. `rounds` caps the returns; when they run out, the run waits.
 

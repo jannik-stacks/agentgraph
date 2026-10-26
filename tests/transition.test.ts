@@ -73,7 +73,17 @@ describe('transition, running', () => {
       tries: 2,
       sessions: { implement: session('s-implement') },
     });
-    expect(next.feedback).toBe('types: x.ts:1 error\nno agentgraph block');
+    expect(next.feedback).toContain('types: x.ts:1 error\nno agentgraph block\n\nNothing from this reply was applied');
+  });
+
+  it('does not say nothing was applied when a proposal landed before another failed', () => {
+    const next = transition(w, at('implement'), {
+      kind: 'failed',
+      checks: [],
+      proposals: [{ proposal: { kind: 'comment', body: 'x' }, ok: false, reason: 'forbidden' }],
+      problems: [],
+    });
+    expect(next.feedback).toBe('comment failed: forbidden');
   });
 
   it('failed with no tries left: waiting with a readable question', () => {
@@ -84,7 +94,7 @@ describe('transition, running', () => {
       tries: 4,
       reason:
         'implement failed after 4 tries (checks: types).\n\ntypes: x.ts:1 error\nno agentgraph block\n\nHow should I proceed?',
-      feedback: 'types: x.ts:1 error\nno agentgraph block',
+      feedback: expect.stringContaining('types: x.ts:1 error\nno agentgraph block\n\nNothing from'),
     });
   });
 
@@ -97,7 +107,7 @@ describe('transition, running', () => {
     expect(next.reason).toBe(
       'implement failed after 4 tries (checks: types).\n\ntypes: x.ts:1: Missing return\nplain failure\nNo size label proposed\nno agentgraph block\n\nHow should I proceed?'
     );
-    expect(next.feedback).toBe(`types: ${findings}\nno agentgraph block`);
+    expect(next.feedback).toContain(`types: ${findings}\nno agentgraph block\n\nNothing from`);
   });
 
   it('failed on a step with one try: waiting at once', () => {

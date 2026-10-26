@@ -117,8 +117,6 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Said[]; pro
       onRight: p => proposals.push(p),
     })
   );
-  if (problems.length > 0 && proposals.length > 0)
-    problems.push('nothing from this reply was applied: send every proposal again, not only the fixed ones');
   return { proposals, problems };
 };
 

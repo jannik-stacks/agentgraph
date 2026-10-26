@@ -269,6 +269,9 @@ export const unchanged = (returns: readonly string[], held: boolean) =>
     ? 'no change was made: change the files the issue needs and push them, or ask'
     : undefined;
 
+const unapplied =
+  'Nothing from this reply was applied: fix what failed, then send every proposal again, not only the fixed ones. Only you see these findings, so answer them by changing the code, not with a comment.';
+
 export const formatFailedTryFeedback = (o: Extract<Outcome, { kind: 'failed' }>) =>
   [
     ...o.checks.map(c => `${c.check}: ${c.findings ?? 'failed'}`),
@@ -356,7 +359,13 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
                 'How should I proceed?',
               ].join('\n\n')
             : text;
-        const feedback = [...(run.answers ?? []).map(answer => answer.said), text].join('\n\n');
+        const feedback = [
+          ...(run.answers ?? []).map(answer => answer.said),
+          text,
+          o.proposals.length === 0 && unapplied,
+        ]
+          .filter(Boolean)
+          .join('\n\n');
         return tries < step.tries ? { ...fresh(run), tries, feedback } : { ...ask(question), tries, feedback };
       }
       case 'back':
