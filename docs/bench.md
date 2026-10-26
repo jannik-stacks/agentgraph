@@ -1,10 +1,10 @@
 # Bench
 
-The bench replays merged pull requests from their parent commit and issue text. Hidden tests and blind judges score each arm against the merged change.
+The bench replays merged pull requests from their parent commit and issue. Hidden tests and blind judges score each arm against the merged change.
 
 ## Run a set
 
-A bench dir holds `set.json` (the cases) and `cases/`. `bench/drive.ts` runs every case at each point and repeat, with the engine checked out at `<dir>/<sha>/engine` (or `ENGINE`): validity, the `v2` and `floor` arms, scoring and judging (`JUDGES`, default `opus:1,sonnet:2`; `none` skips).
+A bench dir holds `set.json` and `cases/`. `bench/drive.ts` runs every case at each point and repeat with the engine at `<dir>/<sha>/engine` (or `ENGINE`): validity, both arms, scoring and judging (`JUDGES`, default `opus:1,sonnet:2`; `none` skips).
 
 ```sh
 git worktree add --detach <dir>/<sha>/engine <sha>
@@ -13,7 +13,7 @@ SHA=<sha> POINTS=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> node benc
 node bench/drive.ts resume <dir>
 ```
 
-Each run dir, `<dir>/<sha>/<harness>-<model>/r<k>`, gets a `report.md` and a `point.json` with harness, model, engine, graph, set and repeat. Points take aliases such as `opencode:glm` ([OpenRouter](../infra/local/README.md#openrouter-models)). `BENCH_EXCLUDE=<repo>,<repo>` names repos never run or reported. Results are cached in `<dir>/.cache` (`BENCH_CACHE`) by case, arm, graph, engine `src` tree, point and repeat; `BENCH_FRESH=1` ignores the cache.
+Each run dir, `<dir>/<sha>/<harness>-<model>/r<k>`, gets `report.md` and `point.json`. Points take aliases such as `opencode:glm` ([OpenRouter](../infra/local/README.md#openrouter-models)). `BENCH_EXCLUDE=<repo>,<repo>` skips repos. Results are cached in `<dir>/.cache` (`BENCH_CACHE`) by case, arm, graph, engine `src` tree, point and repeat; `BENCH_FRESH=1` ignores it.
 
 ## Cases
 
@@ -28,7 +28,7 @@ A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden
 | `size`, `kind`, `area` | Report strata |
 | `control` | `bug` flips an added comparison; `padded` adds trivial tests |
 
-A tested case is valid only if its hidden tests fail on base and pass on the human change, the human diff applies, setup works, and the human passes the suite and, where base does, the typecheck. Before any container runs, a coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json` and are skipped. Repos whose tests start their own containers are left out, since the sandbox has no Docker socket.
+A tested case is valid only if its hidden tests fail on base and pass on the human change, and the human change applies, sets up and passes the suite and typecheck. A coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json`. Repos whose tests start containers are left out.
 
 ## Arms
 
@@ -38,7 +38,7 @@ A tested case is valid only if its hidden tests fail on base and pass on the hum
 | `v2` | The example graph named after the repo, else `examples/bench`: implement, check tests, review with one return, a human merge |
 | `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
 
-Each arm seeds its forge at the base, hiding the fix. A scripted maintainer answers the first question with "No more information. Use your judgment."; a second question ends the arm. An unfinished arm retries once, then counts as infra and stays out of win rates and means. An arm that changed nothing scores 0.
+Each arm starts from the base with the fix hidden. A scripted maintainer answers the first question with "No more information. Use your judgment."; a second ends the arm. An unfinished arm retries once, then counts as infra and stays out of the rates. An arm that changed nothing scores 0.
 
 ## Commands
 
@@ -50,12 +50,9 @@ node bin/bench.ts report <out>
 node bin/bench.ts status <out>
 ```
 
-- `run` writes the forge, data, `diff.patch`, `meta.json` and `usage.json`. A model without a list price stops it before it spends.
-- `score` runs the suite and typecheck on each diff, then the hidden tests, and counts lines, overlap with the human change, tests, sessions, cost and answers. `--drop-env` removes the scoring environments.
-- `judge` compares pairs blind, with names masked, through `claude -p` on the host and the `smart` alias. `--judges opus:1,sonnet:2` sets the panel and how many diff orders each sees. A judge from the contestant's maker is swapped. `bench/judge.md` puts correctness first, then scope, and does not reward size.
-- `report` writes counts, hidden-test rates, win rates with bootstrap intervals, means, judge agreement and strata. Cost is the list price of the arm's tokens; a model the table lacks is listed, never counted as $0.
+`run` writes `diff.patch`, `meta.json` and `usage.json`, and refuses a model without a list price. `score` runs the suite, typecheck and hidden tests, offline except setup, and counts lines, overlap, tests, sessions, cost and answers; `--drop-env` removes its environments. `judge` compares pairs blind through `claude -p` and the `smart` alias; `--judges opus:1,sonnet:2` sets the panel and diff orders, and a judge from the contestant's maker is swapped. `bench/judge.md` puts correctness first, then scope. `report` writes rates, win rates with bootstrap intervals, means, judge agreement and strata, with cost at list price; an unpriced model is listed, never $0.
 
-Scoring runs offline, except setup. Keys come from `--keys` (`infra/local/.keys.env`). Paid steps stop past `--max-codex` weekly Codex points (30) or `--max-claude-calls` judge calls (60).
+Keys come from `--keys` (`infra/local/.keys.env`). Paid steps stop past `--max-codex` weekly Codex points (30) or `--max-claude-calls` judge calls (60).
 
 ## Cost against quality
 
@@ -63,15 +60,10 @@ Scoring runs offline, except setup. Keys come from `--keys` (`infra/local/.keys.
 cd studio && npm run dev -- --bench <runs dir> <runs dir>
 ```
 
-The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests passed, judge preference over the human (doubled, capped at 1) and suite scores, weighted by sliders, minus findings and question penalties. Cases without hidden tests form a `judge-only` point. Judging the arm's checks is shown apart, never in its cost. Crosses show 95% intervals; the staircase joins the points no cheaper point beats. Under the chart, each check field is summed per point; the [Results](checks.md#the-results-tab) tab has them all.
+The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests, judge preference (doubled, capped at 1) and suite scores, weighted by sliders, minus penalties. Cases without hidden tests form a `judge-only` point. Checking cost stays out of an arm's cost. Crosses show 95% intervals; the staircase joins the points no cheaper point beats. Check fields are summed per point below; the [Results](checks.md#the-results-tab) tab has them all.
 
 ## Long runs
 
-Rerun the same command after an interruption. `diff.patch` marks an arm as done, live `<arm>.lock` holders are skipped, and abandoned work moves to `<case>/.attic/`. The first start pins its settings in `drive.json` and `env.json`, including the sandbox image, and later starts refuse changed values. Budgets (`MAX_CODEX`, `CAP` and `PER` for OpenRouter dollars) may change on any start. Low disk [holds work](sandbox.md#disk).
+Rerun the same command after an interruption; `resume <dir>` rebuilds the queue from disk. `diff.patch` marks an arm done, live `<arm>.lock` holders are skipped, and abandoned work moves to `<case>/.attic/`. The first start pins its settings in `drive.json` and `env.json`; only budgets (`MAX_CODEX`, and `CAP` and `PER` for OpenRouter dollars) may change later. Low disk [holds work](sandbox.md#disk). `touch <dir>/PAUSE` takes no new job, the `parallel` file sets workers live, and Ctrl-C or `kill <pid in drive.lock>` stops. One driver runs per dir, and it exits 1 while jobs are left.
 
-- Pause: `touch <dir>/PAUSE` takes no new job; `rm` it to go on. The `parallel` file sets the worker count live.
-- Stop: Ctrl-C or `kill <pid in drive.lock>`. A budget stop takes no new job.
-- Resume: `resume <dir>` rebuilds the queue from disk; finished jobs never rerun.
-- One driver per dir. The driver exits 1 while jobs are left, so a queue retries it later.
-
-`sh bin/overnight.sh <queue>` runs a file of shell commands, one per line, up to three times each, and `sh bin/overnight.sh status <queue>` shows progress. Keep queues and outputs out of `/tmp`. Tunes live under `AGENTGRAPH_TUNE` (`~/.agentgraph/tune`); `node bin/tune.ts status <tune dir>` shows one.
+`sh bin/overnight.sh <queue>` runs a file of commands, each up to three times; `sh bin/overnight.sh status <queue>` shows progress. Keep queues out of `/tmp`. Tunes live under `AGENTGRAPH_TUNE` (`~/.agentgraph/tune`); `node bin/tune.ts status <tune dir>` shows one.
