@@ -65,7 +65,6 @@ const latest = (name: string, lines: Trace[]): CheckResult | undefined => {
 
 type PromptLine = Extract<Trace, { prompt: unknown }>;
 
-/** The trace line that produced a check's latest result: its judge's session end, else the check line. */
 const findCheckSource = (name: string, lines: Trace[]) => {
   const prompt = lines.findLast((l): l is PromptLine => 'prompt' in l && l.prompt.check === name);
   if (!prompt) return lines.findLast(l => 'check' in l && l.check.check === name);
