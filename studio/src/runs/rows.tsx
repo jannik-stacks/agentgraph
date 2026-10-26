@@ -357,7 +357,7 @@ const sessionRow = (
     repo && aside?.issue !== undefined && aside.comment !== undefined
       ? `https://github.com/${repo}/issues/${aside.issue}#${aside.review ? 'discussion_r' : 'issuecomment-'}${aside.comment}`
       : undefined;
-  const started = events.flatMap(e => (e.event.type === 'start' ? [e.event] : []))[0];
+  const started = events.find((e): e is typeof e & { event: { type: 'start' } } => e.event.type === 'start')?.event;
   const id = end?.session.id ?? spec?.resume?.id ?? started?.session;
   const usage = events.flatMap(e => (e.event.type === 'usage' ? [e.event] : []));
   const first = (prompt ?? events[0])?.at;
