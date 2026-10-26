@@ -1,4 +1,5 @@
 #!/bin/sh
-# Holds the message of a commit that touches agentgraph/ to the hub's pr-text rules.
-git diff --cached --quiet -- agentgraph && exit 0
-exec env NODE_OPTIONS= node agentgraph/bin/commit-msg.mjs "$1"
+# Holds the message of a commit that touches the engine to the hub's pr-text rules.
+engine=$(dirname "$0")/../..
+git diff --cached --quiet -- "$engine" && exit 0
+exec env NODE_OPTIONS= node "$engine/bin/commit-msg.mjs" "$1"

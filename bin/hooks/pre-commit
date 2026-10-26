@@ -1,4 +1,5 @@
 #!/bin/sh
-# Runs agentgraph's checks when the commit touches agentgraph/.
-git diff --cached --quiet -- agentgraph && exit 0
-cd agentgraph && NODE_OPTIONS= exec npm run -s check
+# Runs agentgraph's checks when the commit touches the engine, at the repo root or in a subfolder.
+engine=$(dirname "$0")/../..
+git diff --cached --quiet -- "$engine" && exit 0
+cd "$engine" && NODE_OPTIONS= exec npm run -s check

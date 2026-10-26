@@ -6,7 +6,7 @@ The bench replays merged pull requests from their parent commit and issue text. 
 
 ```sh
 git worktree add --detach <dir>/<sha>/engine <sha>
-ln -s "$PWD/node_modules" <dir>/<sha>/engine/agentgraph/node_modules
+ln -s "$PWD/node_modules" <dir>/<sha>/engine/node_modules
 SHA=<sha> POINTS=opencode:luna REPEATS=3 KEYS=<keys file> node bench/drive.ts <dir>
 ```
 
@@ -89,7 +89,7 @@ sh bin/overnight.sh status <queue>
 
 ### Driving a whole set
 
-`bench/drive.ts` runs a set at one or more points with repeats. A bench dir holds `set.json`, `cases/` and the engine at `<dir>/<SHA>/engine/agentgraph` (or `ENGINE`). For each job it checks validity, runs v2 and floor, scores and judges (`JUDGES`, default `opus:1,sonnet:2`; `none` skips).
+`bench/drive.ts` runs a set at one or more points with repeats. A bench dir holds `set.json`, `cases/` and the engine at `<dir>/<SHA>/engine` (or `ENGINE`). For each job it checks validity, runs v2 and floor, scores and judges (`JUDGES`, default `opus:1,sonnet:2`; `none` skips).
 
 ```sh
 SHA=<sha> POINTS=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> node bench/drive.ts <dir>

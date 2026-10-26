@@ -79,13 +79,15 @@ const queued = (dir: string) =>
   ) as Settings;
 
 const defaults = (dir: string, sha = '') => {
-  const engine = join(dir, sha, 'engine', 'agentgraph');
+  const engine = ['engine/agentgraph', 'engine']
+    .map(path => join(dir, sha, path))
+    .find(path => existsSync(join(path, 'bin/bench.ts')));
   return {
     POINTS: 'opencode:luna',
     REPEATS: '3',
     JUDGES: 'opus:1,sonnet:2',
     SET: basename(dir),
-    ENGINE: existsSync(engine) ? engine : '',
+    ENGINE: engine ?? '',
     REPOS: join(process.env.HOME ?? '', '.agentgraph/tune/repos'),
   };
 };
@@ -255,7 +257,7 @@ if (import.meta.main) {
     const s = configure(dir);
     const engine = s.ENGINE!;
     if (!existsSync(join(engine, 'bin/bench.ts')))
-      throw new Error(`no engine at ${engine || join(dir, s.SHA!, 'engine', 'agentgraph')}`);
+      throw new Error(`no engine at ${engine || join(dir, s.SHA!, 'engine')}`);
     const judges = s.JUDGES!;
     const maxCodex = s.MAX_CODEX ? Number(s.MAX_CODEX) : undefined;
     const cap = s.CAP ? Number(s.CAP) : undefined;
