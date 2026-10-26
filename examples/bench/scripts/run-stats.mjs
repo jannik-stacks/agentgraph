@@ -18,6 +18,6 @@ console.log(
     tools: events.filter(e => e.type === 'tool').length,
     steps: lines.filter(line => line.outcome).length,
     minutes: times.length ? Math.round((Math.max(...times) - Math.min(...times)) / 600) / 100 : 0,
-    tokens: sum('input') + sum('output') + sum('cacheRead') + sum('cacheWrite'),
+    tokens: sum('input') + sum('output'),
   })
 );
