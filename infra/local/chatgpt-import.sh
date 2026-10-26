@@ -11,14 +11,13 @@ docker compose run --rm --no-deps -T \
   --entrypoint python3 litellm -c '
 import json, os
 t = json.load(open("/in/auth.json")).get("tokens") or {}
-missing = [k for k in ("access_token", "refresh_token", "id_token") if not t.get(k)]
+keys = ("access_token", "refresh_token", "id_token")
+missing = [k for k in keys if not t.get(k)]
 if missing:
     raise SystemExit(f"auth.json lacks {missing}; was this a ChatGPT login?")
 d = os.environ["CHATGPT_TOKEN_DIR"]
 os.makedirs(d, exist_ok=True)
-out = {k: t[k] for k in ("access_token", "refresh_token", "id_token")}
-if t.get("account_id"):
-    out["account_id"] = t["account_id"]
+out = {k: t[k] for k in keys + ("account_id",) if t.get(k)}
 p = os.path.join(d, "auth.json")
 with open(p + ".tmp", "w") as f:
     json.dump(out, f)

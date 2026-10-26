@@ -17,8 +17,8 @@ node "$agentgraph/bin/run.ts" check --dir "$graph" >/dev/null
 mkdir -p "$data"
 data="$(cd "$data" && pwd -P)"
 
-keys="$(sed -n 's/^AGENTGRAPH_LLM_API_KEY_\([A-Z0-9_]*\)=\(.*\)$/\1=\2/p' "$here/.keys.env" |
-  awk '{ i = index($0, "="); n = tolower(substr($0, 1, i - 1)); gsub("_", "-", n); printf "%s%s=%s", sep, n, substr($0, i + 1); sep = "," }')"
+keys="$(awk '/^AGENTGRAPH_LLM_API_KEY_[A-Z0-9_]*=/ { i = index($0, "="); n = tolower(substr($0, 24, i - 24)); gsub("_", "-", n)
+  printf "%s%s=%s", sep, n, substr($0, i + 1); sep = "," }' "$here/.keys.env")"
 printf 'AGENTGRAPH_PROXY_KEYS=%s\n' "$keys" >"$data/.env"
 chmod 600 "$data/.env"
 
