@@ -1,7 +1,6 @@
 {
   "entry": [
     "src/main.ts!",
-    "agentgraph.config.ts!",
     "bin/*.{ts,mjs}!",
     "bench/*.ts!",
     "tune/*.ts!",

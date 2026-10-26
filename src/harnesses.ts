@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open as openFile, rm, symlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { Config, ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
 import { type HarnessCheck, GraphError, loadGraph } from './folder.ts';
 import { type Command, type Exit, Sandbox, type SandboxError } from './sandbox.ts';
@@ -41,15 +41,16 @@ export type Provider = {
 
 export type HarnessSettings = { harnesses: Harness[]; providers?: Provider[]; harness?: string; provider?: string };
 
-const builtIn = fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url));
-
 export const readHarnessSettings = Effect.gen(function* () {
-  const path = resolve(yield* Effect.orDie(Config.string('AGENTGRAPH_CONFIG').pipe(Config.withDefault(builtIn))));
+  const file = yield* Effect.orDie(Config.string('AGENTGRAPH_CONFIG').pipe(Config.withDefault('')));
+  const path = file ? resolve(file) : 'agentgraph.config.ts';
   const harness = yield* Effect.orDie(Config.string('AGENTGRAPH_HARNESS').pipe(Config.withDefault('')));
   const named = yield* Effect.orDie(Config.string('AGENTGRAPH_PROVIDER').pipe(Config.withDefault('')));
   return yield* Effect.tryPromise({
     try: async () => {
-      const settings: HarnessSettings | undefined = (await import(pathToFileURL(path).href)).default;
+      const settings: HarnessSettings | undefined = (
+        await (file ? import(pathToFileURL(path).href) : import('#config'))
+      ).default;
       if (!Array.isArray(settings?.harnesses)) throw new Error('has no default export with a harnesses list');
       const names = settings.harnesses.map(h => h.name);
       const twice = names.find((name, i) => names.indexOf(name) !== i);

@@ -1,27 +1,27 @@
 {
   "name": "@jannik-stacks/agi",
-  "version": "0.2.0",
+  "version": "0.0.0",
   "license": "MIT",
   "bin": {
-    "agi": "bin/agi.js"
+    "agi": "dist/run.mjs"
   },
   "files": [
-    "src",
-    "bin/agi.js",
-    "bin/run.ts",
+    "dist",
     "default",
-    "harnesses",
-    "agentgraph.config.ts",
-    "infra/local/sandbox",
+    "infra/local/sandbox/Dockerfile",
     "infra/local/egress",
     "infra/local/prices.json.gz",
     "infra/local/aliases.json"
   ],
   "type": "module",
+  "imports": {
+    "#config": "./agentgraph.config.ts"
+  },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
+    "build": "tsdown bin/run.ts",
     "up": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile sandbox up -d --wait",
     "down": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile '*' down",
     "keys": "bash infra/local/keys.sh",
