@@ -2,6 +2,10 @@
   "name": "@jannik-stacks/agi",
   "version": "0.0.1",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jannik-stacks/agentgraph.git"
+  },
   "bin": {
     "agi": "dist/run.mjs"
   },
