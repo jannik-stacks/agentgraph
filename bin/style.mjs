@@ -122,11 +122,22 @@ export default {
       create: context => {
         const file = relative(root, context.filename);
         const check = id => {
-          if (id?.type !== 'Identifier' || !findNameProblems(id.name).includes('no-of-for')) return;
+          if (!id) return;
+          if (id.type === 'ObjectPattern') return id.properties.forEach(p => check(p.value ?? p.argument));
+          if (id.type === 'ArrayPattern') return id.elements.forEach(check);
+          if (id.type === 'AssignmentPattern') return check(id.left);
+          if (id.type === 'RestElement') return check(id.argument);
+          if (id.type !== 'Identifier' || !findNameProblems(id.name).includes('no-of-for')) return;
           if (!baseline.has(`no-of-for ${file} ${id.name}`))
             context.report({ node: id, message: `${id.name}: name what it does, not what it is of, for or from` });
         };
-        return { VariableDeclarator: node => check(node.id), FunctionDeclaration: node => check(node.id) };
+        const checkFunction = node => [node.id, ...node.params].forEach(check);
+        return {
+          VariableDeclarator: node => check(node.id),
+          FunctionDeclaration: checkFunction,
+          FunctionExpression: checkFunction,
+          ArrowFunctionExpression: checkFunction,
+        };
       },
     },
     'unique-export': makeNameRule(

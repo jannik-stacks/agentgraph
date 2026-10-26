@@ -68,7 +68,7 @@ no-comment src/git.ts 3
 no-comment src/github.ts 20
 no-comment src/graph.ts 3
 no-comment src/harnesses.ts 7
-no-comment src/hub.ts 18
+no-comment src/hub.ts 19
 no-comment src/main.ts 2
 no-comment src/proposal.ts 3
 no-comment src/sandbox.ts 8
@@ -89,7 +89,7 @@ no-comment studio/src/compound/CompoundPage.tsx 1
 no-comment studio/src/compound/climb.ts 7
 no-comment studio/src/docs/DocsPage.tsx 1
 no-comment studio/src/graph/GraphPage.tsx 8
-no-comment studio/src/graph/StepDetails.tsx 7
+no-comment studio/src/graph/StepDetails.tsx 8
 no-comment studio/src/graph/chips.ts 3
 no-comment studio/src/graph/layout.ts 6
 no-comment studio/src/graph/nodes.tsx 10
@@ -158,19 +158,7 @@ no-of-for bin/tune.ts overOf
 no-of-for bin/tune.ts qsOf
 no-of-for bin/tune.ts tunesOf
 no-of-for bin/tune.ts unitOf
-no-of-for src/engine.ts depthOf
-no-of-for src/engine.ts diffOf
-no-of-for src/engine.ts gateOf
-no-of-for src/engine.ts issuesOf
-no-of-for src/engine.ts itemsOf
-no-of-for src/engine.ts proposalsOf
-no-of-for src/engine.ts pullOf
-no-of-for src/engine.ts resultOf
-no-of-for src/engine.ts shapeOf
-no-of-for src/engine.ts stackOf
-no-of-for src/engine.ts tellsOf
-no-of-for src/engine.ts treeOf
-no-of-for src/engine.ts verdictOf
+no-of-for studio/fixtures.ts tunesOf
 no-of-for studio/src/bench/score.ts humanOf
 no-of-for studio/src/compound/CompoundPage.tsx xOf
 no-of-for studio/src/compound/climb.ts seriesOf
@@ -288,6 +276,7 @@ verb-first studio/src/compound/climb.ts seriesOf
 verb-first studio/src/graph/layout.ts layout
 verb-first studio/src/graph/scenarios.ts scenarios
 verb-first studio/src/graph/scenarios.ts simulate
+verb-first studio/src/runs/rows.tsx lineRow
 verb-first studio/src/runs/rows.tsx statusTip
 verb-first studio/src/runs/tools.tsx toolName
 verb-first studio/src/runs/tools.tsx toolSummary
