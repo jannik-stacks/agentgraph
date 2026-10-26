@@ -62,7 +62,7 @@ const trace = [
     run: { step: 'review', status: 'running', tries: 0, rounds: {} },
   },
   { at, step: 'review', saved: { step: 'review' } },
-  { at, step: 'review', event: { type: 'start', session: 's2', model: 'smart' } },
+  { at, step: 'review', event: { type: 'start', session: 's2', harness: 'pi', model: 'smart' } },
 ] as Trace[];
 
 describe('a run as rows', () => {

@@ -11,7 +11,11 @@ describe('traces', () => {
     const data = tmp('traces');
     write(data, {
       'run-1/trace.jsonl': [
-        JSON.stringify({ at: '', step: 'implement', event: { type: 'start', session: 's1', model: 'm', home: '/h' } }),
+        JSON.stringify({
+          at: '',
+          step: 'implement',
+          event: { type: 'start', session: 's1', harness: 'pi', model: 'm', home: '/h' },
+        }),
         session('implement', { id: 's1', ended: 'stop', usd: 0 }),
         session('review', { id: 's2', ended: 'stop', usd: 0.12 }),
         session('review', { ended: 'provider', usd: 0 }),

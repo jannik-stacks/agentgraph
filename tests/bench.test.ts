@@ -564,7 +564,7 @@ describe('points', () => {
     const at = join(root, 'v2');
     mkdirSync(join(at, 'data', 'run-1'), { recursive: true });
     const trace = [
-      { key: 'k', event: { type: 'start', model: 'smart' } },
+      { key: 'k', event: { type: 'start', harness: 'pi', model: 'smart' } },
       { key: 'k', event: { type: 'usage', input: 100, cacheRead: 80, cacheWrite: 5, output: 7 } },
       { key: 'k', session: { usd: 0.5 } },
     ];
@@ -590,7 +590,7 @@ describe('points', () => {
     const attempt = (dir: string, usd: number, meta?: object) => {
       mkdirSync(join(root, dir, 'data', 'run-1'), { recursive: true });
       const trace = [
-        { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', model: 'luna' } },
+        { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', harness: 'codex', model: 'luna' } },
         { at: '2026-10-22T10:00:30.000Z', key: 'k', event: { type: 'usage', input: 10, output: 2 } },
         { at: '2026-10-22T10:00:40.000Z', key: 'k', event: { type: 'tool', name: 'bash', ms: 2000 } },
         { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd } },
