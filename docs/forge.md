@@ -1,13 +1,13 @@
 # Without GitHub
 
-Run `npx agentgraph` inside any git repo. The first command makes a local instance for that checkout: a forge folder that stands in for GitHub, and the runs. Your repo gets only `agentgraph/<n>` branches. No GitHub App is needed. Sessions need Docker and a model gateway, such as [the model stack](local.md#the-model-stack).
+Run `agi`, or `npx @jannik-stacks/agi`, inside any git repo. The first command makes a local instance for that checkout: a forge folder that stands in for GitHub, and the runs. Your repo gets only `agentgraph/<n>` branches. No GitHub App is needed. Sessions need Docker and one of the [model providers](#models): an Anthropic key, a Claude subscription, or a gateway such as [the model stack](local.md#the-model-stack).
 
 ```sh
 cd ~/code/left-pad
-npx agentgraph start "padStart drops the last char when len is 0"
-npx agentgraph show
-npx agentgraph review 1 changes "also cover a negative len"
-npx agentgraph merge 1
+agi start "padStart drops the last char when len is 0"
+agi show
+agi review 1 changes "also cover a negative len"
+agi merge 1
 ```
 
 ## Verbs
@@ -26,11 +26,11 @@ The issue number is the handle. Each issue has at most one open pull request, on
 | `show [n]`, `show graph` | What needs you and every issue, or one issue's timeline and diff; `show graph` prints the graph in use, its path and files. Outside a repo it lists every instance and what needs you there. |
 | `loop` | Drives every open issue, then again when the forge changes or after `AGENTGRAPH_EVERY` minutes. `--once` makes one pass. |
 
-`check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--dir` and `--logs`, and the commands it prints carry the `--repo` and `--data` it was given. `check --dir` inside a repo checks against the instance's saved provider. Comments, reviews and issues are by the instance owner, `git config user.name`, the only login the instance trusts. <!-- code: src/services.ts#settings -->
+`check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--dir` and `--logs`, and the commands it prints carry the `--repo` and `--data` it was given. `check --dir` inside a repo checks against the instance's saved provider. Comments, reviews and issues are by the instance owner, `git config user.name` at the first command, the only login the instance trusts. Without a `user.name` it is your OS user, and the CLI says so; `owner` in the instance's `instance.yaml` changes it. <!-- code: src/services.ts#settings -->
 
 ## The sandbox
 
-Before it files or drives, the CLI checks that docker runs, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress` when missing, builds the sandbox and egress images from the package when they are missing or their files changed, and starts an egress proxy when none is on the sandbox network. Without docker it stops before filing and says how to start it. `AGENTGRAPH_SANDBOX_URL` skips all of this. <!-- code: src/docker.ts#ensureDocker -->
+Before it files or drives, the CLI checks that docker runs, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress` when missing, builds the sandbox and egress images from the package when they are missing or their files changed, and starts an egress proxy when none is on the sandbox network. Without docker it stops before filing and says how to start it. It also stops when it runs as root, and when the provider's gateway is a name on the sandbox network that no running container answers to. `AGENTGRAPH_SANDBOX_URL` skips all of this. <!-- code: src/docker.ts#ensureDocker -->
 
 ## Models
 
@@ -42,7 +42,7 @@ A provider is where model calls go and how they authenticate. `agentgraph.config
 | `anthropic` | `claude` | `ANTHROPIC_API_KEY` is set |
 | `litellm` | any | `AGENTGRAPH_PROXY_KEYS` is set, for `AGENTGRAPH_PROXY_URL`; agents without a model get `smart` unless `AGENTGRAPH_MODELS` says otherwise. A ChatGPT subscription comes through here: LiteLLM holds the login ([local stack](../infra/local/README.md)) |
 
-`--provider` picks one for that command, and with `--save` for later ones too; else `provider` in instance.yaml, else `AGENTGRAPH_PROVIDER`, else the only ready one, which is saved. A subscription counts as ready when the host is logged in to it (`claude auth status`); only the status is read, and the sandbox gets its own login. The CLI sets up docker before it looks. When several are ready the CLI asks in a terminal and saves the answer, and fails without one. When none is ready it lists how to get one, and files nothing. Agents that name no harness get the provider's first. `--harness` runs every agent on one of the provider's harnesses, and `--model` replaces every agent's model, for that command only. An agent whose harness the provider does not serve fails before anything is filed. <!-- code: bin/run.ts#pickProvider -->
+`--provider` picks one for that command, and with `--save` for later ones too; else `provider` in instance.yaml, else `AGENTGRAPH_PROVIDER`, else the only ready one, which is saved. A subscription counts as ready when the host is logged in to it (`claude auth status`); only the status is read, and the sandbox gets its own login. The CLI picks the provider before it sets up docker, so a missing model fails before the image build. When several are ready the CLI asks in a terminal and saves the answer, and fails without one. When none is ready it lists how to get one, and files nothing. Agents that name no harness get the provider's first. `--harness` runs every agent on one of the provider's harnesses, and `--model` replaces every agent's model, for that command only. An agent whose harness the provider does not serve fails before anything is filed. <!-- code: bin/run.ts#pickProvider -->
 
 A subscription logs in once per machine, the first time it is picked. `claude` runs `claude setup-token` on the host and asks for the token it prints, then keeps it in the macOS Keychain, or elsewhere in a file only you can read; each Claude Code session gets it as `CLAUDE_CODE_OAUTH_TOKEN`. The token is inside the session's container while it runs. Codex sessions never hold a ChatGPT login: they talk to the gateway with the agent's proxy key, and the gateway owns the login and its refresh.
 
@@ -53,6 +53,8 @@ A subscription logs in once per machine, the first time it is picked. `claude` r
 When a `loop` runs for the same repo, it holds the instance's loop lock and the verbs only post; the loop takes the issue on its next pass, and `show <n>` shows where it stands. Only one loop runs per instance. <!-- code: src/main.ts#createLoopLock src/main.ts#isLoopHeld -->
 
 Ctrl-C stops a drive. The run keeps its last saved state and goes on from there on the next drive of that issue, for example `say <n> "go on"`. A second Ctrl-C quits at once. <!-- code: src/main.ts#start -->
+
+A run that stops on a runner error, such as a harness that cannot reach its model, waits for an answer. The drive and `show <n>` print its cause and the path of its trace. <!-- code: src/status.ts#formatRunnerError -->
 
 ## Where the result lands
 
@@ -73,6 +75,8 @@ Workflows that name no `base` start from the instance's base. <!-- code: src/mai
 3. Else the default graph in the package: implement, review, then a human merge, with a check that runs the repo's `test` script when there is one.
 
 <!-- code: src/instance.ts#ensureGraph src/instance.ts#defaultDir -->
+
+When `.agentgraph/` has uncommitted changes and no `--dir` is given, the CLI says so and runs the committed version. The start banner names the graph in use, such as `.agentgraph/ at main 1a2b3c4`. <!-- code: src/instance.ts#whyGraphUncommitted src/instance.ts#formatGraphName -->
 
 A committed graph with symlinks or submodules is refused. To change the default graph, copy the folder `show graph` prints to `.agentgraph/` in your repo, edit it and commit it.
 
