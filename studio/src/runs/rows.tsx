@@ -5,11 +5,13 @@ import type { Trace } from '../../../src/trace.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
+import { CheckValues } from './checks.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
   atLink,
   type ServedRun,
   detail,
+  formatCheckValue,
   graphLink,
   type TraceLineWithKey,
   type SessionTraceLines,
@@ -260,7 +262,7 @@ const lines: {
     summary: (
       <>
         <Pill of="line" kind="check" /> {line.check.check} {flag(line.check.pass ? 'pass' : 'fail', !line.check.pass)}
-        {line.check.value !== undefined && ` ${line.check.value}`}
+        {formatCheckValue(line.check) && ` ${formatCheckValue(line.check)}`}
         {muted(
           `${line.check.empty ? ', empty' : ''}${line.end ? ', at run end' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.exit === undefined ? '' : `, exit ${line.exit}`}`
         )}
@@ -423,7 +425,7 @@ const Issue = ({ r }: { r: ServedRun }) =>
   );
 
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
-const RunInfo = ({ r: { run } }: { r: ServedRun }) => {
+const RunInfo = ({ r: { run, trace } }: { r: ServedRun }) => {
   const [raw, setRaw] = useState(false);
   return (
     <>
@@ -434,6 +436,7 @@ const RunInfo = ({ r: { run } }: { r: ServedRun }) => {
         </button>
       </p>
       {raw && <Raw value={run} />}
+      <CheckValues trace={trace} />
       {run.reason && (
         <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
           {run.reason}

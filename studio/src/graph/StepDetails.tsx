@@ -70,12 +70,15 @@ const CheckItem = ({
   const mode = check?.mode ?? 'block';
   const kind =
     check?.agent === undefined
-      ? { label: 'script', tip: 'A script; exit 0 passes, and the output is the feedback.' }
+      ? {
+          label: 'script',
+          tip: check?.returns
+            ? 'A script; its last line is the result, which passes when it matches pass and the script exits 0.'
+            : 'A script; exit 0 passes, and the output is the feedback.',
+        }
       : {
           label: check.run ? 'script, judged by' : 'judged by',
-          tip: check.run
-            ? `The script runs and its output goes to ${check.agent}, whose reply must start with PASS; FAIL is a finding.`
-            : `${check.agent} judges the diff; a reply starting with PASS passes, with FAIL fails.`,
+          tip: `${check.run ? `The script runs and its output goes to ${check.agent}` : `${check.agent} judges the diff`}, which records its result with the result tool; it passes when it matches pass.`,
         };
   const resultText = result && `${result.pass ? '✓' : '✕'} ${formatCheckTime(result.ms)}`;
   const resultLook = cx('px-1 text-[11px] tabular-nums', result?.pass ? 'text-zinc-500' : accent.text);

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { pageAtom, navigateAtom, queryParam, runsAtom } from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { Combobox, Loading, Muted } from '../ui.tsx';
+import { CheckSpread } from './checks.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { RunPage } from './RunPage.tsx';
 import { type ServedRun, isGitHubRef, locatedLink } from './trace.ts';
@@ -88,6 +89,7 @@ const Runs = () => {
           onChange={setIssue}
         />
       </div>
+      <CheckSpread traces={shown.map(r => r.trace)} />
       <Rows rows={shown.map(r => runRow(r))} />
     </>
   );

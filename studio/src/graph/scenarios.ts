@@ -13,7 +13,7 @@ export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; tra
 export type Fixture = {
   id: string;
   workflow: Workflow;
-  checks: Record<string, Pick<Check, 'mode' | 'agent' | 'run'> & Partial<Pick<Doc<Check>, 'body'>>>;
+  checks: Record<string, Pick<Check, 'mode' | 'agent' | 'run' | 'returns'> & Partial<Pick<Doc<Check>, 'body'>>>;
   runs: { label: string; trail: Trail; run: Run }[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;

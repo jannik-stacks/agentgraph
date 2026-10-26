@@ -29,6 +29,8 @@ import {
 } from '../src/env.ts';
 import { collect, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
+import type { Result } from '../src/result.ts';
+import type { Trace } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/forge.ts';
 import { writeComment } from '../src/instance.ts';
@@ -868,6 +870,16 @@ const earlier = (at: string) => {
   ];
 };
 
+const readEndCheckValues = (dir: string) => {
+  const data = join(dir, 'data');
+  const values: Record<string, Result> = {};
+  for (const t of (existsSync(data) ? readdirSync(data) : []).flatMap(id =>
+    readJsonl<Partial<Pick<Extract<Trace, { check: unknown }>, 'check' | 'end'>>>(join(data, id, 'trace.jsonl'))
+  ))
+    if (t.end && t.check?.value && !t.check.empty) values[t.check.check] = t.check.value;
+  return values;
+};
+
 /** Wall time of one attempt: its `meta.json` ms, else the span of its traces. */
 const took = (dir: string) => {
   const ms = (JSON.parse(readFileOrEmpty(join(dir, 'meta.json')) || '{}') as { ms?: number }).ms;
@@ -1536,6 +1548,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
               )
             : 0;
         const spent = { ...s, ...usage(join(out, c.id, arm)) };
+        const checks = readEndCheckValues(join(out, c.id, arm));
         const [hidden, typecheck] = [ok(s.hidden), ok(s.typecheck)];
         const suite = ok(base.suite) === 0 ? undefined : ok(s.suite);
         const share = hiddenShare(
@@ -1559,6 +1572,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
             answers: Number(s.answers ?? 0),
             minutes: Number(spent.ms ?? 0) / 60_000,
             tokens: spent.tokens ?? {},
+            ...(Object.keys(checks).length > 0 && { checks }),
             ...(spent.split && { split: spent.split }),
             ...getBenchUsageCost(spent, p.harness),
           },

@@ -1,6 +1,41 @@
 import type { Located } from '../../../src/store.ts';
 import type { Trace } from '../../../src/trace.ts';
-import type { Outcome, Run } from '../../../src/workflow.ts';
+import type { CheckResult, Outcome, Run } from '../../../src/workflow.ts';
+
+import type { Result } from '../../../src/result.ts';
+
+export const formatNumber = (n: number) =>
+  Math.abs(n) >= 1e6
+    ? `${(n / 1e6).toFixed(2)}M`
+    : Math.abs(n) >= 1e4
+      ? `${(n / 1e3).toFixed(1)}k`
+      : String(Number.isInteger(n) ? n : Number(n.toPrecision(3)));
+
+export const findLatestCheckResults = (trace: Trace[]) => {
+  const latest = new Map<string, CheckResult>();
+  for (const line of trace) if ('check' in line && line.item === undefined) latest.set(line.check.check, line.check);
+  return [...latest.values()];
+};
+
+export const getCheckNumbers = (results: (Pick<CheckResult, 'check' | 'share' | 'empty'> & { value?: Result })[]) =>
+  results.flatMap(r =>
+    r.empty
+      ? []
+      : [
+          ...Object.entries(r.value ?? {}).flatMap(([k, v]) =>
+            typeof v === 'number' ? [{ name: `${r.check} ${k}`, value: v }] : []
+          ),
+          ...(r.share === undefined ? [] : [{ name: `${r.check} share`, value: r.share }]),
+        ]
+  );
+
+export const formatCheckValue = ({ value, share }: Pick<CheckResult, 'value' | 'share'>) =>
+  [
+    ...Object.entries(value ?? {}).map(
+      ([k, v]) => `${k} ${typeof v === 'number' ? formatNumber(v) : JSON.stringify(v)}`
+    ),
+    ...(share === undefined ? [] : [`${Math.round(share * 100)}% of items passed`]),
+  ].join(', ');
 
 /** What an outcome says beyond its kind. */
 export const detail = (o: Outcome) =>

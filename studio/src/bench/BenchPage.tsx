@@ -7,6 +7,8 @@ import { makeLiveJsonAtom, queryParam } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaultBenchScoreWeights, frontier, presets, type price, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
+import { CheckMeans } from '../runs/checks.tsx';
+import { getCheckNumbers } from '../runs/trace.ts';
 
 type Row = ReturnType<typeof readBenchRows>[number];
 
@@ -484,6 +486,15 @@ export const BenchPage = () => {
             />
           </section>
         )}
+        <CheckMeans
+          groups={sorted.map(p => ({
+            key: p.key,
+            label: label(p.key),
+            numbers: p.perCase.map(({ row }) =>
+              getCheckNumbers(Object.entries(row.checks ?? {}).map(([check, value]) => ({ check, value })))
+            ),
+          }))}
+        />
         <div className="overflow-x-auto">
           <table className="w-full max-w-5xl text-left text-xs whitespace-nowrap tabular-nums">
             <thead className="text-zinc-500">
