@@ -14,6 +14,7 @@ steps:
         rules,
         lint,
         types,
+        repo-checks,
         studio-build,
         tests,
         old-tests,

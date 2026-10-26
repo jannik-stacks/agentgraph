@@ -1,5 +1,5 @@
 ---
 mode: block
-run: node_modules/.bin/tsc --noEmit
+run: node_modules/.bin/tsc --noEmit && node_modules/.bin/tsc --noEmit -p studio
 ---
-agentgraph type-checks.
+agentgraph and the studio type-check.
