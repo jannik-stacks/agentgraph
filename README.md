@@ -1,21 +1,31 @@
 # agentgraph
 
-agentgraph runs coding agents on your repo's issues. You describe the agents, checks and workflows in `.agentgraph/`, a folder of Markdown files. A `/agent` comment or a label starts a workflow. Agents work in Docker sandboxes and never hold a GitHub token. The engine pushes their work only after the checks pass, and a person merges it. The studio shows every run.
+agentgraph runs coding agents on your repo's issues. The agents, checks and workflows are Markdown files in `.agentgraph/`. Agents work in Docker sandboxes without a GitHub token, the engine pushes only checked work, and a person merges it.
 
 ## Quickstart
 
-You need Node 24, Docker used as a non-root member of the `docker` group, `git config user.name` set, and an Anthropic key, a Claude login or [the local model stack](infra/local/README.md). The unscoped `agentgraph` npm package is unrelated. Inside any git repo:
+You need Node 24, Docker without root and `git config user.name`. No API key: when you are logged in to Claude Code, the first `agi start` runs `claude setup-token`, tests the pasted token and keeps it in the macOS Keychain (a 0600 file on Linux). An Anthropic key or LiteLLM also work; see [Models](docs/local.md#models).
+
+In a repo with an off-by-one bug in `padStart` and a failing test:
 
 ```sh
 npm install -g @jannik-stacks/agi
-export ANTHROPIC_API_KEY=sk-ant-...
-agi start --provider anthropic --save "Add a greet function"
-agi show                                   # what needs you
-agi review 1 changes "also greet by name"  # drives it again
-agi merge 1                                # then: git merge agentgraph/1
+agi start "padStart is off by one when len is 0"
+agi show 1
+git diff main...agentgraph/1
+agi review 1 changes "also cover a negative len"
+agi merge 1
+git merge --ff-only agentgraph/1
+agi studio
 ```
 
-The first command makes a local instance of the repo under `~/.agentgraph`, with a folder that stands in for GitHub. Your checkout never moves; the work lands as the branch `agentgraph/1`. Without `.agentgraph/` it uses a default graph: implement, run the tests, review, wait for you. `--save` keeps the provider; other providers are in [Install and first run](docs/local.md#models).
+The first run builds the sandbox images, about 3 minutes. An implementor changes the code and runs the tests, a reviewer reads it, then it waits for you. The branch lands in your repo; your checkout never moves.
+
+Without `.agentgraph/` it runs the [default graph](default/workflows/issue.md). No GitHub needed: `~/.agentgraph/<repo>-<hash>-local/` holds `instance.yaml`, the runs in `data/` and `forge/`, which stands in for GitHub.
+
+### From source
+
+`agi studio` needs a clone: run `npm ci && npm run build && npm link` in it, and `npm run build` again after each pull.
 
 ## Docs
 
@@ -27,16 +37,15 @@ Start at [What agentgraph is](docs/index.md), then:
 4. [Workflows](docs/workflows.md)
 5. [Running on GitHub](docs/github.md)
 6. [Hosting](docs/hosting.md)
-
-The [CLI](docs/cli.md) page lists every verb, flag and setting.
+7. [CLI](docs/cli.md)
 
 ## Examples
 
-| Example | What it is |
-| --- | --- |
-| `examples/sandbox` | A small JavaScript package; the place to start |
-| `examples/agentgraph` | The graph agentgraph runs on itself |
-| `examples/bench` | The graph the bench replays pull requests with |
+| Example               | What it is                                     |
+| --------------------- | ---------------------------------------------- |
+| `examples/sandbox`    | A small JavaScript package; the place to start |
+| `examples/agentgraph` | The graph agentgraph runs on itself            |
+| `examples/bench`      | The graph the bench replays pull requests with |
 
 ## Development
 
