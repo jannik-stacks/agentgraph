@@ -135,7 +135,7 @@ A number check without a value is `empty`, with the reason in its findings: no i
 
 ### At run end and later
 
-A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the run's kept files, with the change measured from the run's `fork` and an empty reply. Each check starts from the files as setup left them. They must be `warn` and never change the run's status. The run keeps them in `owed` until each result is traced, so a runner killed partway runs only the rest on its next pass. A check that cannot run there, missing kept files included, gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
+A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the run's kept files, with the change measured from the run's `startCommit` and an empty reply. Each check starts from the files as setup left them. They must be `warn` and never change the run's status. The run keeps them in `owed` until each result is traced, so a runner killed partway runs only the rest on its next pass. A check that cannot run there, missing kept files included, gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
 
 `npx agentgraph check <name>... --runs` runs checks the same way on runs that already ended, as `warn`. `--workflow` and `--issue` narrow the runs.
 

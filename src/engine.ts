@@ -1478,8 +1478,8 @@ const reopen = (hub: Hub, w: Workflow, run: Run) =>
     const made = yield* Effect.flatMap(Sandbox, s =>
       s.checkout(`refs/agentgraph/runs/${run.id}`, undefined, undefined, hub)
     );
-    if (!run.fork) return yield* new SandboxError({ reason: 'infra', detail: 'the run kept no fork commit' });
-    const work = { ...made, base: run.fork };
+    if (!run.startCommit) return yield* new SandboxError({ reason: 'infra', detail: 'the run kept no start commit' });
+    const work = { ...made, base: run.startCommit };
     yield* setUp(hub, work, run);
     const ready = yield* treeOf(work);
     const left: Left = {
@@ -1714,7 +1714,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       }
 
       const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
-      current = { ...current, fork: work.base };
+      current = { ...current, startCommit: work.base };
 
       if (!w.on.feedback) yield* setUp(hub, work, current);
       while (current.status === 'running') {

@@ -50,17 +50,17 @@ const git = (where: ReturnType<typeof world>, ...args: string[]) =>
     .trim();
 
 const keep = (where: ReturnType<typeof world>, branch?: string) => {
-  const fork = git(where, 'rev-parse', 'main');
+  const startCommit = git(where, 'rev-parse', 'main');
   git(where, 'read-tree', 'main');
   if (branch) {
     const blob = execFileSync('git', ['--git-dir', where.origin, 'hash-object', '-w', '--stdin'], { input: 'hello\n' });
     git(where, 'update-index', '--add', '--cacheinfo', `100644,${blob.toString().trim()},hello.txt`);
   }
   const tree = git(where, 'write-tree');
-  const tip = branch ? git(where, 'commit-tree', tree, '-p', fork, '-m', 'Add hello') : fork;
+  const tip = branch ? git(where, 'commit-tree', tree, '-p', startCommit, '-m', 'Add hello') : startCommit;
   if (branch) git(where, 'update-ref', `refs/heads/${branch}`, tip);
   git(where, 'update-ref', 'refs/agentgraph/runs/run-7', git(where, 'commit-tree', tree, '-p', tip, '-m', 'kept'));
-  return fork;
+  return startCommit;
 };
 
 const results = (data: string, id = 'run-7') =>
@@ -155,11 +155,11 @@ describe('end checks', () => {
       lines: { returns: 'number', run: 'wc -l < hello.txt' },
       changed: { returns: 'number', each: 'files', run: 'test -s "$AGENTGRAPH_ITEM"' },
     });
-    const fork = keep(where, 'agentgraph/7');
+    const startCommit = keep(where, 'agentgraph/7');
     const kept = git(where, 'rev-parse', 'refs/agentgraph/runs/run-7');
     pullRequest(where);
     const { run } = services(where, []);
-    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), step: 'merge', status: 'waiting', fork })));
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), step: 'merge', status: 'waiting', startCommit })));
     const at = '2026-10-16T00:10:00.000Z';
     for (const n of [7, 8]) {
       const file = join(where.forge, `${n}.md`);
@@ -182,8 +182,10 @@ describe('end checks', () => {
     const where = world();
     const h = ending({ present: { run: 'echo present' }, lines: { returns: 'number', run: 'echo 3' } });
     const { commands, run } = services(where, []);
-    const fork = keep(where);
-    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', owed: ['lines'], fork })));
+    const startCommit = keep(where);
+    await run(
+      Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', owed: ['lines'], startCommit }))
+    );
     await run(tick(h, 7, true));
     await run(tick(h, 7, true));
     expect(commands.filter(c => c.args.some(a => a.startsWith('echo'))).map(c => c.args.at(-1))).toEqual(['echo 3']);
@@ -221,8 +223,8 @@ describe('end checks', () => {
     const where = world();
     const h = ending({ wipe: { run: 'rm README.md' }, lines: { returns: 'number', run: 'wc -l < README.md' } });
     const { run } = services(where, []);
-    const fork = keep(where);
-    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', fork })));
+    const startCommit = keep(where);
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', startCommit })));
     const [after] = await run(instruct(h, { kind: 'check', checks: ['wipe', 'lines'], issue: 7 }));
     expect(after).toMatchObject({ status: 'done' });
     expect(after).not.toHaveProperty('owed');

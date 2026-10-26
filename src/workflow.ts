@@ -98,7 +98,7 @@ export type Run = {
   hub?: string;
   /** The run whose `run` proposal started this one. */
   by?: string;
-  fork?: string;
+  startCommit?: string;
   owed?: string[];
   started: string;
   ended?: string;
