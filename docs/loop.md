@@ -144,13 +144,15 @@ Scripts run in the checkout with these variables: <!-- code: src/engine.ts#runOn
 
 A check with its own `returns` keeps its result as `value`, without `why`, so a measure is just a result: `{calls: 12}`, `{usd: 0.4}`. A check with `each` keeps the `share` instead. A result that does not match `returns`, an item without a judge's result, or a failed `each` makes the check `empty`, with the reason in its findings. Readers skip an empty result; it never counts as 0. <!-- code: src/engine.ts#runOneCheck -->
 
-A check with `reads: traces` needs no change, only the run's traces. At run end and on `--runs` it gets a checkout of the run's start commit, or of the target branch when the run kept none, without setup, so it works on runs whose kept files are gone.
+A check with `reads: traces` needs no change, only the run's traces. At run end and on `--runs` it gets an empty folder beside the run's traces, without the run's files or setup, so it works on runs whose kept files are gone.
 
 ### At run end and later
 
-A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the run's kept files, with the change measured from the run's `startCommit` and an empty reply. Each check starts from the files as setup left them. They must be `info` or `warn` and never change the run's status. The run keeps them in `owed` until each result is traced, so a runner killed partway runs only the rest on its next pass. A check that cannot run there, missing kept files included, gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
+A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the run's kept files, with the change measured from the run's `startCommit` and an empty reply. Each check starts from the files as setup left them. They must be `info` or `warn` and never change the run's status. The run keeps them in `owed` until each result is recorded, so a runner killed partway runs only the rest on its next pass. A check that cannot run there, missing kept files included, gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
 
-`npx agentgraph check <name>... --runs` runs checks the same way on runs that already ended, `info` checks as `info` and the rest as `warn`. `--workflow` and `--issue` narrow the runs.
+Every result, from a step, the run's end or a later check, goes to the run's [check record](runs.md#the-check-record) with the check's version and what judging it cost. Judging never adds sessions to the run's trace, so a run's cost and its checking cost stay apart.
+
+`npx agentgraph check <name>... --runs` checks runs that already ended the same way, `info` checks as `info` and the rest as `warn`. `--workflow` and `--issue` narrow the runs. It skips a check that already has a result from after the run ended under the check's current version, so running it again does nothing until the check changes. The studio marks these results "checked later" with their date. <!-- code: src/engine.ts#runEndChecks -->
 
 ## Tries and going back
 

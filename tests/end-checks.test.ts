@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Either } from 'effect';
 import { describe, expect, it } from 'vitest';
@@ -9,7 +9,7 @@ import { Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { transition, type Run } from '../src/workflow.ts';
 import { result, start } from './fixtures.ts';
-import { fresh, graph, pullRequest, say, services, readTrace, w, world } from './world.ts';
+import { fresh, graph, pullRequest, say, services, readChecks, w, world } from './world.ts';
 
 const ending = (checks: Record<string, Partial<Check>>): Graph => ({
   ...graph,
@@ -18,7 +18,7 @@ const ending = (checks: Record<string, Partial<Check>>): Graph => ({
     ...Object.fromEntries(
       Object.entries(checks).map(([name, c]) => [
         name,
-        { name, path: `checks/${name}.md`, body: '', mode: 'warn', ...c },
+        { name, path: `checks/${name}.md`, body: '', mode: 'warn', version: 'v1', ...c },
       ])
     ),
   },
@@ -63,8 +63,13 @@ const keep = (where: ReturnType<typeof world>, branch?: string) => {
   return startCommit;
 };
 
-const results = (data: string, id = 'run-7') =>
-  readTrace(data, id).flatMap(t => ('check' in t && t.item === undefined ? [{ ...t.check, end: t.end }] : []));
+const results = (data: string, id = 'run-7') => {
+  const file = join(data, id, 'run.json');
+  const { ended } = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Run) : {};
+  return readChecks(data, id).flatMap(e =>
+    e.item === undefined ? [{ ...e.check, end: ended !== undefined && e.at >= ended, later: e.later === true }] : []
+  );
+};
 
 const judge = (pass: boolean, why = pass ? 'fine' : 'wrong'): SessionEvent[] => [start('j'), result({ pass, why })];
 const silent: SessionEvent[] = [start('j'), { type: 'text', text: 'maybe' }];
@@ -162,7 +167,7 @@ describe('a check with items', () => {
     });
     const { run } = services(where, []);
     await run(runStepChecks(implement('sizes'), left(where), h));
-    const items = readTrace(where.data, 'run-7').flatMap(t => ('check' in t && t.item ? [t.check] : []));
+    const items = readChecks(where.data, 'run-7').flatMap(t => (t.item ? [t.check] : []));
     expect(items.map(i => [i.pass, i.value])).toEqual([
       [true, { n: 1 }],
       [true, { n: 2 }],
@@ -379,14 +384,19 @@ describe('end checks', () => {
     expect(after).toMatchObject({ status: 'done' });
     expect(after).not.toHaveProperty('owed');
     expect(results(where.data)).toEqual([
-      expect.objectContaining({ check: 'wipe', pass: true, end: true }),
-      expect.objectContaining({ check: 'lines', value: { n: 1 }, end: true }),
+      expect.objectContaining({ check: 'wipe', pass: true, end: true, later: true }),
+      expect.objectContaining({ check: 'lines', value: { n: 1 }, end: true, later: true }),
     ]);
+    await run(instruct(h, { kind: 'check', checks: ['wipe', 'lines'], issue: 7 }));
+    expect(results(where.data)).toHaveLength(2);
+    const changed = { ...h, checks: { ...h.checks, lines: { ...h.checks.lines!, version: 'v2' } } };
+    await run(instruct(changed, { kind: 'check', checks: ['wipe', 'lines'], issue: 7 }));
+    expect(results(where.data).map(r => r.check)).toEqual(['wipe', 'lines', 'lines']);
     const refused = await run(Effect.either(instruct(h, { kind: 'check', checks: ['nope'] })));
     expect(Either.isLeft(refused) && refused.left.message).toBe('the graph has no check nope');
   });
 
-  it('run checks that read only traces on the target branch when the run kept no files or start commit', async () => {
+  it('run checks that read only traces in an empty folder, without the files of the run', async () => {
     const where = world();
     const h = ending({ lines: { ...measure('wc -l < $AGENTGRAPH_RUN_TRACE'), reads: 'traces' } });
     const { run } = services(where, []);

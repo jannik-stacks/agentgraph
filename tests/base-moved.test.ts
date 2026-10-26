@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, runStepChecks, tick } from '../src/engine.ts';
@@ -7,13 +8,27 @@ import { Forge } from '../src/forge.ts';
 import { type Command } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionEvent, SessionSpec } from '../src/trace.ts';
+import type { SessionEvent, SessionSpec, Trace } from '../src/trace.ts';
 import type { Graph } from '../src/folder.ts';
 import { type Step } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
-import { graph, w, world, push, pull, judged, services, readTrace, fresh, say, comment } from './world.ts';
+import { graph, w, world, push, pull, judged, services, readChecks, readTrace, fresh, say, comment } from './world.ts';
+
+const readJudgeSessions = (data: string) =>
+  readChecks(data, 'run-7').flatMap(e =>
+    e.log
+      ? gunzipSync(readFileSync(join(data, 'logs', `${e.log.hash}.gz`)))
+          .toString('utf8')
+          .split('\n')
+          .filter(Boolean)
+          .flatMap(line => {
+            const t = JSON.parse(line) as Trace;
+            return 'session' in t ? [t.session] : [];
+          })
+      : []
+  );
 
 describe('a base that moved', () => {
   /** Run 7 waiting at merge on pull request #8. */
@@ -291,7 +306,6 @@ describe('a base that moved', () => {
       [start('j'), { type: 'usage', input: 1, output: 1, usd: 0.25 }, result({ pass: false, why: 'a claim' })],
       [start('i2'), reply({ kind: 'ask', question: 'Which claim?' })],
     ]);
-    const [was] = await run(Effect.flatMap(Store, s => s.list()));
     const strict = {
       ...graph,
       checks: { ...graph.checks, claims: { ...graph.checks.claims!, mode: 'block' as const } },
@@ -299,7 +313,8 @@ describe('a base that moved', () => {
     await run(tick(merging({ checks: ['types', 'claims'] }, strict)));
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which claim?' });
-    expect(stored!.usd).toBeCloseTo(was!.usd + 0.25);
+    const judging = readChecks(where.data, stored!.id).filter(e => e.check.check === 'claims');
+    expect(judging.at(-1)!.usd).toBeCloseTo(0.25);
   });
 
   it('does nothing when the branch is up to date', async () => {
@@ -392,9 +407,7 @@ describe('runStepChecks', () => {
     };
     const { outcome } = await run(runStepChecks(step, left, small));
     expect(outcome).toEqual({ kind: 'pass' });
-    const checks = readTrace(where.data, 'run-7').flatMap(t =>
-      'check' in t && t.check.check === 'types' ? [t.check] : []
-    );
+    const checks = readChecks(where.data, 'run-7').flatMap(t => (t.check.check === 'types' ? [t.check] : []));
     expect(checks).toEqual([
       {
         check: 'types',
@@ -457,9 +470,7 @@ describe('runStepChecks', () => {
     };
     const { outcome } = await run(runStepChecks(step, left, small));
     expect(outcome.kind).toBe('failed');
-    const checks = readTrace(where.data, 'run-7').flatMap(t =>
-      'check' in t && t.check.check === 'types' ? [t.check] : []
-    );
+    const checks = readChecks(where.data, 'run-7').flatMap(t => (t.check.check === 'types' ? [t.check] : []));
     expect(checks).toEqual([
       { check: 'types', pass: false, empty: true, findings: 'each failed: at x.js:1\nboom', ms: expect.any(Number) },
     ]);
@@ -521,6 +532,7 @@ describe('runStepChecks', () => {
       path: `${name}.md`,
       body: name,
       mode: 'block' as const,
+      version: 'v1',
       agent: judge,
     });
     const small = {
@@ -762,7 +774,10 @@ describe('runStepChecks', () => {
       const graph = {
         ...base,
         agents: { ...base.agents, critic },
-        checks: { correct: { name: 'correct', path: 'c.md', body: 'c', mode, agent: 'critic' }, ...more },
+        checks: {
+          correct: { name: 'correct', path: 'c.md', body: 'c', mode, agent: 'critic', version: 'v1' },
+          ...more,
+        },
       };
       const step = {
         name: 'implement',
@@ -810,7 +825,7 @@ describe('runStepChecks', () => {
       const { exit, opened, data } = await judged([killed, killed], 'warn');
       expect(opened).toBe(2);
       expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
-      const found = readTrace(data, 'run-7').flatMap(t => ('check' in t ? [t.check] : []));
+      const found = readChecks(data, 'run-7').map(t => t.check);
       expect(found).toMatchObject([
         { check: 'correct', pass: false, findings: expect.stringContaining('could not be judged') },
       ]);
@@ -822,7 +837,7 @@ describe('runStepChecks', () => {
     });
 
     it('stops on a failed stop check even when another check cannot be judged', async () => {
-      const red = { name: 'red', path: 'r.md', body: '', mode: 'stop' as const, run: 'exit 1' };
+      const red = { name: 'red', path: 'r.md', body: '', mode: 'stop' as const, run: 'exit 1', version: 'v1' };
       const { exit } = await judged([killed, killed], 'block', { red });
       expect(Exit.isSuccess(exit) && exit.value.outcome).toMatchObject({ kind: 'stop' });
     });
@@ -831,14 +846,14 @@ describe('runStepChecks', () => {
       const cut: SessionEvent[] = [result({ pass: true, why: 'fine' })];
       const { exit, data } = await judged([cut, cut]);
       expect(Exit.isFailure(exit)).toBe(true);
-      const sessions = readTrace(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
+      const sessions = readJudgeSessions(data);
       expect(sessions.map(s => s.ended)).toEqual(['error', 'error']);
     });
 
     it('counts a non-zero exit as an error even after a clean stop', async () => {
       const { exit, data } = await judged([[result({ pass: true, why: 'fine' }), { ...stop, exit: 1 }], pass]);
       expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
-      const sessions = readTrace(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
+      const sessions = readJudgeSessions(data);
       expect(sessions).toMatchObject([
         { ended: 'error', exit: 1 },
         { ended: 'stop', exit: 0 },

@@ -282,7 +282,7 @@ export const remoteSandbox = (o: {
         );
 
       const checkout = (
-        ref: string,
+        ref: string | undefined,
         branch?: string,
         keep?: string,
         graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
@@ -317,7 +317,7 @@ export const remoteSandbox = (o: {
                 );
               })
           );
-          if (!graph) return work;
+          if (!graph || ref === undefined) return work;
           const files = yield* hostGit(work.git, ['ls-tree', '--name-only', work.head ?? work.base]);
           const toolchain = [
             ...makeToolchainSetupCommands(files.toString('utf8').split('\n')),

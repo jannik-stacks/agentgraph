@@ -97,7 +97,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `pass`    | JSON Schema subset                   | `pass` is true   | The results that pass; not on `info`                                              |
 | `reads`   | `traces`                             | none             | Needs only the run's traces, so it runs on old runs without their kept files      |
 
-The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`, `minimum`, `maximum` and `description`.
+The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`, `minimum`, `maximum` and `description`, and a number field may name its `unit`: `usd`, `minutes`, `seconds`, `tokens` or `share`. The unit only sets how the studio shows it.
 
 ## Skills
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { transcript } from '../src/context.ts';
-import type { Trace } from '../src/trace.ts';
+import type { CheckEntry, Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
 
 const run: Run = {
@@ -13,7 +13,6 @@ const run: Run = {
   rounds: {},
   sessions: {},
   started: '2026-10-19T00:00:00Z',
-  usd: 1.5,
 };
 const at = '2026-10-19T00:01:00Z';
 const spec = {
@@ -44,7 +43,6 @@ const lines: Trace[] = [
     },
   },
   { at, step: 'implement', session: { id: 's1', resumed: false, ended: 'stop', usd: 0.4 } },
-  { at, step: 'implement', check: { check: 'tests', pass: false, findings: '1 failed', ms: 1 } },
   {
     at,
     step: 'implement',
@@ -54,16 +52,20 @@ const lines: Trace[] = [
   { at, step: 'implement', saved: { tries: 1 } },
 ];
 
+const checks: CheckEntry[] = [
+  { at, step: 'implement', version: 'v1', usd: 0, check: { check: 'tests', pass: false, findings: '1 failed', ms: 1 } },
+];
+
 describe('transcript', () => {
   it('renders each session with its thinking, tool calls, checks and moves, numbered by trace line', () => {
-    const text = transcript(21, [{ run, lines }]);
+    const text = transcript(21, [{ run, lines, checks }]);
     expect(text).toContain('### implementor (opencode, smart)\n\nYou fix one issue.');
-    expect(text).toContain('## Run issue-21-1 (issue, waiting, $1.50)');
+    expect(text).toContain('## Run issue-21-1 (issue, waiting, $0.40)');
     expect(text).toContain('### implement, implementor, fresh');
     expect(text).toContain('3 thinking: The issue names kit/src/fee.ts.');
     expect(text).toContain('4 tool bash {"command":"npm test"} exit 1: FAIL');
-    expect(text).toContain('7 check tests: FAIL 1 failed');
-    expect(text).toContain('8 outcome back: document maxFee -> implement running');
+    expect(text).toContain(`### Checks\n\n${at} implement, check tests: FAIL 1 failed`);
+    expect(text).toContain('7 outcome back: document maxFee -> implement running');
     expect(text).not.toContain('saved');
     expect(text).toContain('5 text: Done. AGENTGRAPH_LLM_API_KEY=[redacted]');
   });
@@ -72,13 +74,15 @@ describe('transcript', () => {
     const prompt =
       'use ghp_' +
       'abcdefghijklmnopqrstuvwxyz0123 and -----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----';
-    const text = transcript(21, [{ run, lines: [{ at, step: 'implement', prompt: { ...spec, prompt } }] }]);
+    const text = transcript(21, [{ run, lines: [{ at, step: 'implement', prompt: { ...spec, prompt } }], checks: [] }]);
     expect(text).toContain('1 prompt: use [redacted] and [redacted]');
     const more =
       'AKIA' +
       'IOSFODNN7EXAMPLE npm_abcdefghijklmnopqrstuvwxyz0123456789 Authorization: Bearer abc.def-ghi_jkl012 eyJhbGciOiJIUzI1NiJ9.' +
       'eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
-    const also = transcript(21, [{ run, lines: [{ at, step: 'implement', prompt: { ...spec, prompt: more } }] }]);
+    const also = transcript(21, [
+      { run, lines: [{ at, step: 'implement', prompt: { ...spec, prompt: more } }], checks: [] },
+    ]);
     expect(also).toContain('1 prompt: [redacted] [redacted] Authorization: Bearer [redacted] [redacted]');
   });
 
@@ -99,19 +103,19 @@ describe('transcript', () => {
       })),
       { at, step: 'implement', session: { id: 's1', resumed: false, ended: 'stop', usd: 0.4 } },
     ];
-    const long = transcript(21, [{ run, lines: many }]);
+    const long = transcript(21, [{ run, lines: many, checks: [] }]);
     expect(long).toMatch(/\.\.\. \d+ entries cut: tool read \d+/);
     expect(long).toContain('202 session ended stop');
 
     const two = transcript(
       21,
       [
-        { run, lines: many },
-        { run: { ...run, id: 'issue-21-2' }, lines },
+        { run, lines: many, checks: [] },
+        { run: { ...run, id: 'issue-21-2' }, lines, checks },
       ],
       5000
     );
-    expect(two).toContain('## Run issue-21-1 (issue, waiting, $1.50)\n\nShortened to fit');
+    expect(two).toContain('## Run issue-21-1 (issue, waiting, $0.40)\n\nShortened to fit');
     expect(two).toContain('202 session ended stop');
     expect(two).toContain('3 thinking: The issue names kit/src/fee.ts.');
   });
@@ -122,7 +126,11 @@ describe('transcript', () => {
       { at, step: 'implement', event: { type: 'text', text: `${n} `.repeat(400) } },
       { at, step: 'implement', session: { id: `s${n}`, resumed: true, ended: 'stop', usd: 0.1 } },
     ];
-    const text = transcript(21, [{ run, lines: Array.from({ length: 30 }, (_, n) => session(n)).flat() }], 20_000);
+    const text = transcript(
+      21,
+      [{ run, lines: Array.from({ length: 30 }, (_, n) => session(n)).flat(), checks: [] }],
+      20_000
+    );
     expect(text.length).toBeLessThan(20_100);
     expect(text).toContain('# Traces of #21');
     expect(text).toContain('prompt: try 29');

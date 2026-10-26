@@ -1,6 +1,6 @@
 import { makeStudioRunUrl, removeRunLink, type Event, type Issue } from './event.ts';
 import type { Proposal } from './proposal.ts';
-import type { Trace } from './trace.ts';
+import type { CheckEntry, Trace } from './trace.ts';
 import { formatFailedTryFeedback, type Run, type Seen } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
@@ -102,7 +102,7 @@ export const answerWith = 'Answer with <code>/agent</code> and your reply, or <c
  * The labels and status comment for a run, as proposals; only what differs from the issue now. The comment holds what
  * a human acts on, so tries, rounds and cost so far never edit it; they show in the studio, linked when `studio` is set.
  */
-export function proposeStatusUpdates(run: Run, t: IssueWithPull, studio?: string): Proposal[] {
+export function proposeStatusUpdates(run: Run, t: IssueWithPull, studio?: string, usd?: number): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
   const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
@@ -112,7 +112,7 @@ export function proposeStatusUpdates(run: Run, t: IssueWithPull, studio?: string
   const ended = run.status === 'done' || run.status === 'stopped';
   const notes = [
     ...(run.status === 'waiting' && run.reason ? [answerWith] : []),
-    ...(ended ? [`Cost: $${run.usd.toFixed(2)}.`] : []),
+    ...(ended && usd !== undefined ? [`Cost: $${usd.toFixed(2)}.`] : []),
   ];
   const body = [
     {
@@ -168,14 +168,15 @@ const clip = (text: string, max: number) => {
   return one.length <= max ? one : `${one.slice(0, max / 2)} ... ${one.slice(-max / 2)}`;
 };
 
+const checked = (e: CheckEntry) => {
+  const on = e.item ? ` on ${clip(e.item.split('\n')[0]!, 120)}` : '';
+  return `${e.at} ${e.step}, check ${e.check.check}${on}: ${e.check.pass ? 'pass' : `FAIL ${clip(e.check.findings ?? '', 400)}`}`;
+};
+
 /** A trace line as one transcript entry, or nothing for lines a reader does not need. */
 const entry = (t: Trace): string | undefined => {
   if ('prompt' in t) return `prompt: ${clip(t.prompt.prompt, 1500)}`;
   if ('session' in t) return `session ended ${t.session.ended}, $${t.session.usd.toFixed(2)}`;
-  if ('check' in t) {
-    const on = t.item ? ` on ${clip(t.item.split('\n')[0]!, 120)}` : '';
-    return `check ${t.check.check}${on}: ${t.check.pass ? 'pass' : `FAIL ${clip(t.check.findings ?? '', 400)}`}`;
-  }
   if ('applied' in t) {
     const { proposal: p, ok, reason } = t.applied;
     if (p.kind === 'react') return;
@@ -220,13 +221,17 @@ const shorten = (entries: string[], max = 8000) => {
 
 /**
  * The runs on an issue as one markdown file for an agent that reads traces: each agent's system prompt once, then per
- * run and session the prompt, thinking, text and tool calls, then checks, proposals and moves. Each entry starts with
- * its line in the run's trace. Past `budget`, the older runs keep only how their sessions ended and their outcomes, and
+ * run and session the prompt, thinking, text and tool calls, proposals and moves, then its check results. Each trace
+ * entry starts with its line in the run's trace. Past `budget`, the older runs keep only how their sessions ended and their outcomes, and
  * then the middle is cut, so the newest run's last sessions stay.
  */
-export function transcript(issue: number, runs: { run: Run; lines: Trace[] }[], budget = 60_000): string {
+export function transcript(
+  issue: number,
+  runs: { run: Run; lines: Trace[]; checks: CheckEntry[] }[],
+  budget = 60_000
+): string {
   const agents = new Map<string, string>();
-  const rendered = runs.map(({ run, lines }) => {
+  const rendered = runs.map(({ run, lines, checks }) => {
     const sections = [{ head: '', entries: [] as string[] }];
     lines.forEach((t, n) => {
       if ('prompt' in t) {
@@ -238,7 +243,9 @@ export function transcript(issue: number, runs: { run: Run; lines: Trace[] }[], 
       const said = entry(t);
       if (said) sections.at(-1)!.entries.push(`${n + 1} ${said}`);
     });
-    const head = `## Run ${run.id} (${run.workflow}, ${run.status}, $${run.usd.toFixed(2)})`;
+    if (checks.length > 0) sections.push({ head: '### Checks', entries: checks.map(checked) });
+    const usd = lines.reduce((sum, t) => sum + ('session' in t ? t.session.usd : 0), 0);
+    const head = `## Run ${run.id} (${run.workflow}, ${run.status}, $${usd.toFixed(2)})`;
     const ends = sections.flatMap(s => s.entries.filter(e => /^\d+ (session|outcome)/.test(e)));
     return {
       full: [head, ...sections.flatMap(s => [s.head, shorten(s.entries).join('\n')].filter(Boolean))].join('\n\n'),

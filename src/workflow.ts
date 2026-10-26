@@ -112,7 +112,6 @@ export type Run = {
   owed?: string[];
   started: string;
   ended?: string;
-  usd: number;
 };
 
 export const isRunDone = (run: Run) => run.status === 'done' || run.status === 'stopped';
@@ -312,7 +311,6 @@ export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started'>, f
     tries: 0,
     rounds: {},
     sessions: {},
-    usd: 0,
   };
 }
 

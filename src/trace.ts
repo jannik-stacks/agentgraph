@@ -65,7 +65,8 @@ export type Aside = { issue?: number; comment?: string; review?: true };
 /**
  * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A
  * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed. A session's prompt,
- * event and session lines share its `key`, so sessions running at once stay apart. A check line with `end` ran once the run ended.
+ * event and session lines share its `key`, so sessions running at once stay apart. Check results are not trace lines but
+ * entries of the run's check record.
  */
 export type Trace = { at: string; step: string } & (
   | { prompt: SessionSpec; key?: string; item?: string; aside?: Aside }
@@ -81,7 +82,6 @@ export type Trace = { at: string; step: string } & (
         usd: number;
       };
     }
-  | { check: CheckResult; item?: string; exit?: number; log?: Log; end?: true }
   | { setup: { ms: number; exit: number } }
   | { cache: { files: number } }
   | { env: NonNullable<Checkout['env']> }
@@ -94,3 +94,26 @@ export type Trace = { at: string; step: string } & (
 
 /** A check's full output in the store: its sha256 and its length in bytes. */
 export type Log = { hash: string; bytes: number };
+
+export type CheckEntry = {
+  at: string;
+  step: string;
+  check: CheckResult;
+  version: string;
+  usd: number;
+  item?: string;
+  exit?: number;
+  log?: Log;
+  later?: true;
+};
+
+export const findLatestChecks = (entries: CheckEntry[], versions: Record<string, string> = {}, from = '') => {
+  const latest = new Map<string, CheckEntry>();
+  const current = (e: CheckEntry) => versions[e.check.check] === undefined || versions[e.check.check] === e.version;
+  for (const e of entries.toSorted((a, b) => a.at.localeCompare(b.at))) {
+    if (e.item !== undefined || e.at < from) continue;
+    const was = latest.get(e.check.check);
+    if (!was || current(e) || !current(was)) latest.set(e.check.check, e);
+  }
+  return [...latest.values()].map(e => (current(e) ? e : { ...e, older: true as const }));
+};

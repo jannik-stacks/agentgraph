@@ -9,7 +9,8 @@
 | **harness** | Session program: Claude Code, opencode or pi |
 | **workflow** | Ordered steps on an issue, started by an `on` trigger |
 | **step** | Agent with a skill, script, or human wait |
-| **check** | Script or judging agent that passes or fails a try or an ended run, and may measure a number |
+| **check** | Script or judging agent run on a try or an ended run. A check gives a typed result, and its mode says whether a failed result blocks, warns or is only recorded |
+| **result** | What a check gives: a JSON object its `returns` describes, kept in the run's [check record](runs.md#the-check-record) |
 | **try** | One step attempt; retries resume its session |
 | **back** | Return to an earlier step with feedback, at most `rounds` times |
 | **proposal** | Requested engine action; see [kinds](proposals.md#kinds) |

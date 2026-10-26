@@ -59,7 +59,7 @@ const usage = `usage: npx agentgraph <verb> [flags]
   close <n>                                       closes issue n
   check [<check>... --runs [--issue <n>]]        validates the graph, or runs checks again on ended runs
   dispatch <n> --workflow <name> [--step <step>]  starts a workflow that takes dispatch on issue n
-  prune-logs [--apply]                            counts the check logs no trace names, or deletes them
+  prune-logs [--apply]                            counts the check logs no run names, or deletes them
 flags: --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
        --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...`;
 

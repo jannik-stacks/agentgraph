@@ -549,8 +549,7 @@ const minimal = (graph: string, commands: ReturnType<typeof pickBenchTestCommand
   cpSync(join(agentgraphDir, 'examples/bench'), graph, { recursive: true });
   rmSync(join(graph, 'agents/reviewer.md'), { force: true });
   rmSync(join(graph, 'scripts/review.mjs'), { force: true });
-  for (const check of ['run-stats', 'tool-budget', 'tests-share'])
-    rmSync(join(graph, `checks/${check}.md`), { force: true });
+  for (const check of ['run-stats', 'tests-share']) rmSync(join(graph, `checks/${check}.md`), { force: true });
   writeFileAtomic(
     join(graph, 'workflows/issue.md'),
     `---

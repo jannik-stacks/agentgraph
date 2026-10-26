@@ -26,6 +26,7 @@ import {
   pull,
   judged,
   services,
+  readChecks,
   readTrace,
   bodies,
   driveStored,
@@ -215,12 +216,12 @@ describe('drive', () => {
   it('drives the run as stored once it holds the lock, not the snapshot it was given', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
-    const advanced: Run = { ...fresh(), step: 'review', status: 'waiting', reason: 'Ready?', usd: 2 };
+    const advanced: Run = { ...fresh(), step: 'review', status: 'waiting', reason: 'Ready?' };
     await run(Effect.flatMap(Store, s => s.put(advanced)));
     const driven = await run(drive(w, fresh(), graph));
-    expect(driven).toMatchObject({ step: 'review', status: 'waiting', reason: 'Ready?', usd: 2 });
+    expect(driven).toMatchObject({ step: 'review', status: 'waiting', reason: 'Ready?' });
     expect(specs).toEqual([]);
-    expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({ step: 'review', usd: 2 });
+    expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({ step: 'review', reason: 'Ready?' });
   });
 
   it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
@@ -242,7 +243,7 @@ describe('drive', () => {
     ]);
 
     const asked = await run(drive(w, fresh(), graph));
-    expect(asked).toMatchObject({ step: 'review', status: 'waiting', reason: 'still not right', usd: 0.5 + 4 * 0.25 });
+    expect(asked).toMatchObject({ step: 'review', status: 'waiting', reason: 'still not right' });
     expect(asked.rounds).toEqual({ review: 2 });
     expect(asked.sessions.implement).toMatchObject({ id: 'i1', home: '/homes/i1', seen: { at: expect.any(String) } });
 
@@ -287,7 +288,7 @@ describe('drive', () => {
 
     const trace = readTrace(where.data, 'run-7');
     const prompts = trace.flatMap(t => ('prompt' in t ? [t.prompt] : []));
-    expect(prompts).toEqual(specs);
+    expect(prompts).toEqual(specs.filter(s => !s.check));
     const first = trace.findIndex(t => 'prompt' in t && t.step === 'implement');
     expect(trace[first + 1]).toMatchObject({ step: 'implement', event: { type: 'start', session: 'i1' } });
     const replayed: Partial<Run> = {};
@@ -303,9 +304,9 @@ describe('drive', () => {
     );
     const sessions = trace.flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions[1]).toEqual({ id: 'i1', resumed: false, ended: 'stop', exit: 0, usd: 0.5 });
-    expect(sessions[2]).toMatchObject({ id: 'j', resumed: false, ended: 'stop', exit: 0 });
-    expect(sessions[3]).toMatchObject({ id: 'i1', resumed: true, ended: 'stop', exit: 0 });
-    const types = trace.flatMap(t => ('check' in t && t.check.check === 'types' ? [t] : []));
+    expect(sessions[2]).toMatchObject({ id: 'i1', resumed: true, ended: 'stop', exit: 0 });
+    expect(sessions.some(s => s.id === 'j')).toBe(false);
+    const types = readChecks(where.data, 'run-7').filter(t => t.check.check === 'types');
     expect(types[0]).toMatchObject({ check: { pass: false }, exit: 1 });
     expect(types[1]).toMatchObject({ check: { pass: true }, exit: 0 });
     const outcomes = trace.flatMap(t => ('outcome' in t ? [[t.step, t.outcome.kind, t.run.tries, t.run.rounds]] : []));
@@ -436,11 +437,11 @@ describe('drive', () => {
       claims: { agent: 'claim-checker' },
     });
     await run(drive(w, fresh(), loud));
-    const logged = readTrace(where.data, 'run-7').flatMap(t => ('check' in t && t.log ? [t] : []));
+    const logged = readChecks(where.data, 'run-7').filter(t => t.log);
     const texts = await run(Effect.forEach(logged, t => Effect.flatMap(Store, s => s.readLog(t.log!.hash))));
     const byName = logged.map((t, i) => [t.check.check, t.check.pass, texts[i]] as const);
     expect(byName.sort(([a], [b]) => a.localeCompare(b))).toEqual([
-      ['claims', true, 'no claims'],
+      ['claims', true, expect.stringContaining('"prompt"')],
       ['safety', false, 'secret.txt found\n'],
       ['types', true, 'types ok\n'],
     ]);
@@ -526,7 +527,7 @@ describe('drive', () => {
     ]);
     const capped = { ...graph, limits: { ...graph.limits, usdPerRun: 0.1 } };
     const stopped = await run(drive(w, fresh(), capped));
-    expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', usd: 0.5 });
+    expect(stopped).toMatchObject({ step: 'implement', status: 'stopped' });
     expect(stopped.reason).toBe("Spent $0.50, over the graph's usd-per-run of 0.1.");
     expect(specs).toHaveLength(1);
   });

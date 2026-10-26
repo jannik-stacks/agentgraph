@@ -394,8 +394,40 @@ export const dockerSandbox = (o: {
           return { code, output } satisfies Exit;
         });
 
+      const empty = (graph?: Pick<Graph, 'image' | 'network'>) =>
+        Effect.gen(function* () {
+          const id = randomBytes(6).toString('hex');
+          const [dir, news] = [join(o.data, 'work', id), join(o.data, 'news', id)];
+          const remove = Effect.promise(() => {
+            made.delete(dir);
+            return Promise.all([dir, `${dir}.owner`, news].map(p => rm(p, { recursive: true, force: true })));
+          });
+          yield* Effect.acquireRelease(
+            Effect.tryPromise({
+              try: async () => {
+                writeCheckoutOwner(dir);
+                await Promise.all([dir, news].map(p => mkdir(p, { recursive: true })));
+                made.set(dir, {
+                  ...(graph?.image !== undefined && { image: graph.image }),
+                  ...(graph?.network !== undefined && { network: graph.network }),
+                  sharedMounts: [],
+                  mounts: [{ src: news, dst: news, readonly: true }],
+                });
+              },
+              catch: e => infra((e as Error).message),
+            }).pipe(Effect.onError(() => remove)),
+            () => remove
+          );
+          return {
+            dir,
+            base: '',
+            git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+            news: join(news, 'news.md'),
+          };
+        });
+
       const checkout = (
-        ref: string,
+        ref: string | undefined,
         branch?: string,
         keep?: string,
         graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
@@ -407,6 +439,7 @@ export const dockerSandbox = (o: {
             Effect.orElseSucceed(() => false)
           );
           if (!present) yield* locked('images', ensureImage(box));
+          if (ref === undefined) return yield* empty(graph);
           yield* lock.withPermits(1)(
             Effect.gen(function* () {
               const exists = yield* Effect.promise(() =>

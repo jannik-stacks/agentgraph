@@ -17,7 +17,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { dockerArgs, type CheckoutContainerSpec } from '../src/docker.ts';
-import { getModelPrice, sumTokenCost, type Prices } from '../src/harnesses.ts';
+import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import {
   dependencyDirs,
   discard,
@@ -29,8 +29,8 @@ import {
 } from '../src/env.ts';
 import { collect, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
-import type { Result } from '../src/result.ts';
-import type { Trace } from '../src/trace.ts';
+import type { CheckResult } from '../src/workflow.ts';
+import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/forge.ts';
 import { writeComment } from '../src/instance.ts';
@@ -583,7 +583,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (!benched(c.repo)) throw new Error(`${c.repo} is never benched`);
   if (existsSync(join(at, 'diff.patch'))) return;
   const missing = unpriced(arm, findCaseGraphDir(c));
-  if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to prices.json with its source`);
+  if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to infra/local/aliases.json`);
   if (!keys.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   const log = logger(out, { case: c.id, arm });
   if (!claim(at)) return log({ event: 'busy' });
@@ -827,15 +827,18 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   }
 };
 /**
- * Sessions, reported cost and tokens by model of an arm's traces; input counts only uncached tokens. `split` is session,
- * tool, graph setup and check time in ms; sessions running at once each count.
+ * Sessions, recorded cost and tokens by model of an arm's traces, and what checking its runs cost; input counts only
+ * uncached tokens. `split` is session, tool, graph setup and check time in ms; sessions running at once each count.
  */
 const effort = (data: string) => {
-  const traces = existsSync(data) ? readdirSync(data).flatMap(id => readJsonl(join(data, id, 'trace.jsonl'))) : [];
+  const ids = existsSync(data) ? readdirSync(data) : [];
+  const traces = ids.flatMap(id => readJsonl(join(data, id, 'trace.jsonl')));
+  const checks = ids.flatMap(id => readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')));
   const sessions = traces.flatMap(t => (t.session ? [t.session as { usd: number }] : []));
   const models: Record<string, string> = {};
-  const tokens: Record<string, { input: number; cacheRead: number; cacheWrite: number; output: number }> = {};
+  const tokens: Record<string, TokenCounts> = {};
   const split = { agent: 0, tools: 0, setup: 0, checks: 0 };
+  for (const e of checks) if (e.item === undefined) split.checks += e.check.ms ?? 0;
   const opened: Record<string, number> = {};
   for (const t of traces) {
     const e = (t.event ?? {}) as Partial<Record<'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'ms', number>> & {
@@ -844,7 +847,6 @@ const effort = (data: string) => {
     };
     const key = String(t.key);
     split.setup += (t.setup as { ms?: number } | undefined)?.ms ?? 0;
-    split.checks += (t.check as { ms?: number } | undefined)?.ms ?? 0;
     if (e.type === 'tool') split.tools += e.ms ?? 0;
     const when = Date.parse(String(t.at));
     if (e.type === 'start') opened[key] = when;
@@ -858,7 +860,13 @@ const effort = (data: string) => {
     sum.cacheWrite += write;
     sum.output += e.output ?? 0;
   }
-  return { sessions: sessions.length, usd: getRounded(sessions.reduce((a, s) => a + s.usd, 0)), tokens, split };
+  return {
+    sessions: sessions.length,
+    usd: getRounded(sessions.reduce((a, s) => a + s.usd, 0)),
+    checkUsd: getRounded(checks.reduce((a, e) => a + e.usd, 0)),
+    tokens,
+    split,
+  };
 };
 
 /** The earlier attempts of the arm at `at`: older `<arm>.<ms>` dirs beside it and `.attic/<arm>-<time>` dirs. */
@@ -871,14 +879,30 @@ const earlier = (at: string) => {
   ];
 };
 
-const readEndCheckValues = (dir: string) => {
+const readEndCheckResults = (dir: string) => {
   const data = join(dir, 'data');
-  const values: Record<string, Result> = {};
-  for (const t of (existsSync(data) ? readdirSync(data) : []).flatMap(id =>
-    readJsonl<Partial<Pick<Extract<Trace, { check: unknown }>, 'check' | 'end'>>>(join(data, id, 'trace.jsonl'))
-  ))
-    if (t.end && t.check?.value && !t.check.empty) values[t.check.check] = t.check.value;
-  return values;
+  const results: Record<
+    string,
+    Pick<CheckResult, 'pass' | 'value' | 'share' | 'empty'> & { at: string; later?: true }
+  > = {};
+  for (const id of existsSync(data) ? readdirSync(data) : []) {
+    const { ended } = JSON.parse(readFileOrEmpty(join(data, id, 'run.json')) || '{}') as { ended?: string };
+    if (!ended) continue;
+    for (const { at, later, check } of findLatestChecks(
+      readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')),
+      {},
+      ended
+    ))
+      results[check.check] = {
+        at,
+        pass: check.pass,
+        ...(check.value && { value: check.value }),
+        ...(check.share !== undefined && { share: check.share }),
+        ...(check.empty && { empty: check.empty }),
+        ...(later && { later }),
+      };
+  }
+  return results;
 };
 
 /** Wall time of one attempt: its `meta.json` ms, else the span of its traces. */
@@ -904,7 +928,7 @@ export const readArmUsageOverAttempts = (at: string) => {
       const sum = (tokens[model] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
       for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) sum[k] += t[k];
     }
-  const total = (k: 'sessions' | 'usd' | 'ms') => getRounded(attempts.reduce((n, a) => n + a[k], 0));
+  const total = (k: 'sessions' | 'usd' | 'checkUsd' | 'ms') => getRounded(attempts.reduce((n, a) => n + a[k], 0));
   const part = (k: keyof ReturnType<typeof effort>['split']) => attempts.reduce((n, a) => n + a.split[k], 0);
   const split = {
     agent: part('agent'),
@@ -913,7 +937,15 @@ export const readArmUsageOverAttempts = (at: string) => {
     checks: part('checks'),
     infra: attempts.reduce((n, a) => n + (a.infra ? a.ms : 0), 0),
   };
-  return { sessions: total('sessions'), usd: total('usd'), ms: total('ms'), tokens, split, attempts };
+  return {
+    sessions: total('sessions'),
+    usd: total('usd'),
+    checkUsd: total('checkUsd'),
+    ms: total('ms'),
+    tokens,
+    split,
+    attempts,
+  };
 };
 
 /** An arm's usage over all its attempts: recounted from its records when they are here, else its `usage.json`. */
@@ -1290,8 +1322,7 @@ const judgeModels: Record<string, string> = {
   sol: 'smart',
   gemini: 'gemini',
 };
-const priceTable = JSON.parse(readFileOrEmpty(join(agentgraphDir, 'infra/local/prices.json')) || '{}') as Prices;
-const upstream = priceTable.aliases;
+const prices = readPrices();
 
 /** The models an arm's agents run on, at `point` when given, that the engine's price table has no list price for. */
 export const unpriced = (arm: string, graph: string, point = options.point) => {
@@ -1299,34 +1330,24 @@ export const unpriced = (arm: string, graph: string, point = options.point) => {
   const named = (existsSync(dir) ? readdirSync(dir) : [])
     .filter(n => n.endsWith('.md'))
     .map(n => /^model: *(\S+)/m.exec(readFileOrEmpty(join(dir, n)))?.[1] ?? 'default');
-  const prices = JSON.parse(
-    readFileOrEmpty(process.env.AGENTGRAPH_PRICES ?? join(engine, 'infra/local/prices.json')) || '{}'
-  ) as Prices;
-  return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !getModelPrice(prices, [m]));
+  return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !isModelPriced(prices, m));
 };
 
 /**
- * What an arm's usage cost and where the number comes from: recorded by the run, else its tokens at today's list
- * price. A subscription's cost is a list-price estimate either way.
+ * What an arm's tokens cost at list price, also with cache reads and writes priced as input, and the models the table
+ * has no price for. Without tokens it is the cost the run recorded.
  */
-export const getBenchUsageCost = (
-  u: { usd?: number; tokens?: ReturnType<typeof effort>['tokens'] },
-  harness = '',
-  prices = priceTable
-) => {
+export const getBenchUsageCost = (u: { usd?: number; tokens?: Record<string, TokenCounts> }, table = prices) => {
   const models = Object.keys(u.tokens ?? {});
-  const sub = (m: string) => (prices.subscriptions ?? []).some(p => (prices.aliases?.[m] ?? m).startsWith(p));
-  const estimate = harness === 'claude-sub' || models.some(sub);
-  if (u.usd || !models.length)
-    return { usd: u.usd ?? 0, usdSource: estimate ? 'list-price estimate' : 'recorded' } as const;
-  const listed = models.map(m => [getModelPrice(prices, [m]), u.tokens![m]!] as const);
-  if (listed.some(([p]) => !p)) return { usd: 0, usdSource: 'unpriced' } as const;
-  const usd = listed.reduce((sum, [p, t]) => sum + sumTokenCost(p!, t), 0);
-  return { usd: getRounded(usd), usdSource: estimate ? 'list-price estimate' : 'list price' } as const;
+  if (!models.length) return { usd: u.usd ?? 0, usdUncached: u.usd ?? 0 };
+  const at = (uncached: boolean) =>
+    getRounded(models.reduce((sum, m) => sum + (getListPriceUsd(table, [m], u.tokens![m]!, uncached) ?? 0), 0));
+  const unpriced = models.filter(m => !isModelPriced(table, m));
+  return { usd: at(false), usdUncached: at(true), ...(unpriced.length > 0 && { unpriced }) };
 };
 
 /** The maker of a proxy alias or model, from its upstream name: openai, anthropic, google, z-ai, x-ai and so on. */
-export const getModelMakerFromUpstreamName = (model: string, aliases = upstream ?? {}) => {
+export const getModelMakerFromUpstreamName = (model: string, aliases = prices.aliases) => {
   const name = (aliases[model] ?? model).replace(/^openrouter\//, '');
   if (/^(chatgpt|openai)\/|^gpt-/.test(name)) return 'openai';
   if (/^(anthropic\/)?claude/.test(name)) return 'anthropic';
@@ -1337,7 +1358,7 @@ export const getModelMakerFromUpstreamName = (model: string, aliases = upstream 
 export const makeCrossMakerJudgePanel = (
   chosen: Record<string, number>,
   contestant: string,
-  aliases = upstream ?? {}
+  aliases = prices.aliases
 ) => {
   const own = getModelMakerFromUpstreamName(contestant, aliases);
   const other = (name: string) => getModelMakerFromUpstreamName(judgeModels[name]!, aliases) !== own;
@@ -1413,10 +1434,7 @@ const judge = async (caseDir: string, out: string) => {
                   const cost = { ms: Date.now() - started, ...(tokens && { tokens }) };
                   writeFileAtomic(join(dir, `${name}.${attempt}.cost.json`), {
                     ...cost,
-                    ...getBenchUsageCost(
-                      { ...cost, ...(got.usd !== undefined && { usd: got.usd }) },
-                      getModelMakerFromUpstreamName(judgeModels[name]!) === 'anthropic' ? 'claude-sub' : ''
-                    ),
+                    ...getBenchUsageCost({ ...cost, ...(got.usd !== undefined && { usd: got.usd }) }),
                   });
                 }
                 const v = parseBenchJudgeVerdict(raw);
@@ -1549,7 +1567,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
               )
             : 0;
         const spent = { ...s, ...usage(join(out, c.id, arm)) };
-        const checks = readEndCheckValues(join(out, c.id, arm));
+        const checks = readEndCheckResults(join(out, c.id, arm));
         const [hidden, typecheck] = [ok(s.hidden), ok(s.typecheck)];
         const suite = ok(base.suite) === 0 ? undefined : ok(s.suite);
         const share = hiddenShare(
@@ -1575,7 +1593,8 @@ export const readBenchRows = (out: string, repos?: string[]) => {
             tokens: spent.tokens ?? {},
             ...(Object.keys(checks).length > 0 && { checks }),
             ...(spent.split && { split: spent.split }),
-            ...getBenchUsageCost(spent, p.harness),
+            ...getBenchUsageCost(spent),
+            checkUsd: spent.checkUsd ?? 0,
           },
         ];
       });

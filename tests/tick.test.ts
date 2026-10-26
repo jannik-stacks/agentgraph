@@ -710,7 +710,7 @@ describe('tick', () => {
       ],
     ]);
     const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
-    expect(touched).toMatchObject([{ id: 'run-7', step: 'merge', status: 'waiting', usd: 0.5 }]);
+    expect(touched).toMatchObject([{ id: 'run-7', step: 'merge', status: 'waiting' }]);
     expect(touched[0]!.sessions).toEqual({ implement: { id: 'a', home: '/homes/a' } });
     expect(specs).toHaveLength(1);
     expect(specs[0]).toMatchObject({ resume: { id: 'a', home: '/homes/a' }, fork: true });

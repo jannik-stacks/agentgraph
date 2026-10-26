@@ -13,7 +13,6 @@ const run: Run = {
   rounds: {},
   sessions: {},
   started: '2026-10-22T10:00:00Z',
-  usd: 0,
   comment: 'c1',
 };
 const issue: Issue = {
@@ -47,15 +46,10 @@ const getCommentBody = (r: Run, t: IssueWithPull = holding('')) => {
 };
 
 describe('the status comment', () => {
-  it('is not edited while only tries, rounds and cost move', () => {
+  it('is not edited while only tries and rounds move', () => {
     const t = holding(getCommentBody(run)!);
-    for (const tick of [
-      { tries: 1 },
-      { tries: 2, usd: 0.42 },
-      { rounds: { review: 1 }, usd: 1.5 },
-      { tries: 1, rounds: { review: 2 }, usd: 3.25 },
-    ])
-      expect(proposeStatusUpdates({ ...run, ...tick }, t)).toEqual([]);
+    const ticks = [{ tries: 1 }, { tries: 2 }, { rounds: { review: 1 } }, { tries: 1, rounds: { review: 2 } }];
+    expect(ticks.flatMap(tick => proposeStatusUpdates({ ...run, ...tick }, t))).toEqual([]);
   });
 
   it('links the run in the studio, where tries, rounds and cost so far show', () => {
@@ -64,7 +58,7 @@ describe('the status comment', () => {
       body: expect.stringContaining('[Progress in the studio](http://studio:5492/runs/issue-7)'),
     });
     const t = holding((body as { body: string }).body);
-    expect(proposeStatusUpdates({ ...run, tries: 2, usd: 1 }, t, 'http://studio:5492/')).toEqual([]);
+    expect(proposeStatusUpdates({ ...run, tries: 2 }, t, 'http://studio:5492/')).toEqual([]);
   });
 
   it('is not edited when the forge reads it back with its run stamp', () => {
@@ -84,6 +78,8 @@ describe('the status comment', () => {
     expect(getCommentBody({ ...run, step: 'review' }, t)).toBe('Working on review.');
     expect(getCommentBody({ ...run, status: 'waiting', reason: 'Which one?' }, t)).toMatch(/^Waiting for an answer/);
     expect(getCommentBody(run, holding(getCommentBody(run)!, pr))).toContain(`Pull request: ${pr.url}`);
-    expect(getCommentBody({ ...run, status: 'done', usd: 2 }, t)).toMatch(/^Done\.\n\n.*Cost: \$2\.00\./s);
+    expect(getCommentBody({ ...run, status: 'done' }, t)).toMatch(/^Done\./);
+    const done = proposeStatusUpdates({ ...run, status: 'done' }, t, undefined, 2).find(p => p.kind === 'comment');
+    expect(done?.kind === 'comment' && done.body).toMatch(/Cost: \$2\.00\./);
   });
 });

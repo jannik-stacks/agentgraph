@@ -29,7 +29,6 @@ const run = (id: string, thread: number, status: string) =>
     rounds: {},
     sessions: {},
     started: 'x',
-    usd: 0,
   });
 
 const answers: Record<string, unknown> = {
@@ -87,7 +86,7 @@ it('stays quiet about a single repo', async () => {
 });
 
 it('says how to continue on the local forge, and leaves out a run that waits on its child', () => {
-  const base = { workflow: 'issue', step: 'merge', tries: 0, rounds: {}, usd: 0, started: 'x' } as const;
+  const base = { workflow: 'issue', step: 'merge', tries: 0, rounds: {}, started: 'x' } as const;
   const runs = [
     { ...base, id: 'a', issue: 3, status: 'waiting', reason: 'which one?' },
     { ...base, id: 'b', issue: 4, status: 'waiting' },

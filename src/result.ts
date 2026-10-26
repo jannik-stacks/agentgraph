@@ -10,6 +10,7 @@ export type ResultType = {
   readonly minimum?: number;
   readonly maximum?: number;
   readonly description?: string;
+  readonly unit?: 'usd' | 'minutes' | 'seconds' | 'tokens' | 'share';
 };
 
 const nested = Schema.suspend((): Schema.Schema<ResultType> => ResultType);
@@ -25,6 +26,7 @@ export const ResultType: Schema.Schema<ResultType> = Schema.Struct({
   minimum: optional(Schema.Number),
   maximum: optional(Schema.Number),
   description: optional(Schema.String),
+  unit: optional(Schema.Literal('usd', 'minutes', 'seconds', 'tokens', 'share')),
 });
 
 export type Result = Record<string, unknown>;

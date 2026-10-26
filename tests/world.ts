@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, FiberRef, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
@@ -10,7 +10,7 @@ import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
+import type { CheckEntry, Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
 import type { Graph } from '../src/folder.ts';
 import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
@@ -109,11 +109,17 @@ export const services = (
   return { specs, commands, order, marks, run };
 };
 
-export const readTrace = (data: string, id: string) =>
-  readFileSync(join(data, id, 'trace.jsonl'), 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map(line => JSON.parse(line) as Trace);
+const readLines = <A>(path: string) =>
+  existsSync(path)
+    ? readFileSync(path, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map(line => JSON.parse(line) as A)
+    : [];
+
+export const readTrace = (data: string, id: string) => readLines<Trace>(join(data, id, 'trace.jsonl'));
+
+export const readChecks = (data: string, id: string) => readLines<CheckEntry>(join(data, id, 'checks.jsonl'));
 
 /** The 👀 a run gave and took back, in order, as the reaction id each took back or undefined when it gave one. */
 export const reactions = (data: string, id: string) =>

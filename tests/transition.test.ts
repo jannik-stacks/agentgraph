@@ -43,7 +43,6 @@ describe('begin', () => {
       tries: 0,
       rounds: {},
       sessions: {},
-      usd: 0,
     });
   });
 });

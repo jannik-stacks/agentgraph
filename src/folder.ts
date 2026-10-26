@@ -34,7 +34,7 @@ export type Graph = {
   sha: string;
   agents: Record<string, Doc<Agent>>;
   skills: Record<string, Doc<SkillFile>>;
-  checks: Record<string, Doc<Check>>;
+  checks: Record<string, Doc<Check> & { version: string }>;
   workflows: Record<string, Workflow>;
   limits: Limits;
   /** A shell script each checkout runs once, with network, before the first step. */
@@ -274,6 +274,9 @@ const compile = (
 export type HarnessCheck = { name: string; check?: (agent: Agent) => string[] };
 
 /** Reads a graph directory, validates every file and fails with all problems at once. */
+const hash = (...texts: string[]) => createHash('sha256').update(texts.join('\0')).digest('hex').slice(0, 12);
+const readDocText = (files: File[], name?: string) => files.find(f => getDocName(f.path) === name)?.text ?? '';
+
 export const loadGraph = (
   dir: string,
   harnesses: readonly HarnessCheck[],
@@ -311,6 +314,16 @@ export const loadGraph = (
         message: `nothing reads ${name}/; the engine loads agents, skills, checks and workflows, and a graph script reads a folder through $AGENTGRAPH_DIR`,
       });
     if (problems.length > 0 || !settings) return yield* new GraphError({ problems });
+    const scripts = read.scripts.map(f => `${f.path}\0${f.text}`).join('\0');
+    const checks = Object.fromEntries(
+      Object.entries(parts.checks).map(([name, check]) => [
+        name,
+        {
+          ...check,
+          version: hash(readDocText(read.groups.checks, name), readDocText(read.groups.agents, check.agent), scripts),
+        },
+      ])
+    );
     const sha = createHash('sha256');
     for (const file of [
       { path: 'settings.yaml', text: read.settingsText ?? '' },
@@ -332,5 +345,6 @@ export const loadGraph = (
       ...(settings.milestone !== undefined && { milestone: settings.milestone }),
       ...(settings.trust !== undefined && { trust: settings.trust }),
       ...parts,
+      checks,
     };
   });

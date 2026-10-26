@@ -37,7 +37,6 @@ import {
   makeRunWithFreshRound,
   transition,
   type CheckResult,
-  type Doc,
   type Outcome,
   type Run,
   type Seen,
@@ -707,12 +706,12 @@ const getSessionGate = (graph: Graph) => {
 };
 
 /**
- * One harness session: what it was opened with, every event and how it ended become trace lines. It holds a session
- * permit only while the harness runs. When `until` ends first, the session is cut short and its result comes back as `cut`.
+ * One harness session: what it was opened with, every event and how it ended become lines of the trace of the run
+ * `into`, or of the list `into`. It holds a session permit only while the harness runs. When `until` ends first, the session is cut short and its result comes back as `cut`.
  */
 const converse = <A = never, R = never>(
   graph: Graph,
-  run: string,
+  into: string | Trace[],
   step: string,
   spec: SessionSpec,
   item?: string,
@@ -732,8 +731,10 @@ const converse = <A = never, R = never>(
     };
     let end: Ended = { ended: 'error' };
     const key = randomUUID().slice(0, 8);
+    const write = (line: Trace) =>
+      typeof into === 'string' ? store.trace(into, line) : Effect.sync(() => void into.push(line));
     const ended = (how: Ended) =>
-      store.trace(run, {
+      write({
         at: now(),
         step,
         key,
@@ -745,7 +746,7 @@ const converse = <A = never, R = never>(
           usd: seen.usd,
         },
       });
-    yield* store.trace(run, {
+    yield* write({
       at: now(),
       step,
       prompt: spec,
@@ -763,7 +764,7 @@ const converse = <A = never, R = never>(
           seen.final = event.final;
           end = { ended: event.exit === 0 ? event.ended : 'error', exit: event.exit };
         }
-        return store.trace(run, { at: now(), step, event, key });
+        return write({ at: now(), step, event, key });
       }),
       Effect.scoped,
       getSessionGate(graph).withPermits(1),
@@ -794,9 +795,9 @@ const converse = <A = never, R = never>(
  * stops cleanly without a valid result is resumed once and told to record it. Without a result after that the check
  * could not be judged.
  */
-const askJudge = (graph: Graph, run: string, step: string, spec: SessionSpec, item?: string) => {
+const askJudge = (graph: Graph, into: Trace[], step: string, spec: SessionSpec, item?: string) => {
   const judge = (s: SessionSpec) =>
-    converse(graph, run, step, s, item).pipe(
+    converse(graph, into, step, s, item).pipe(
       Effect.flatMap(j =>
         j.ended === 'stop'
           ? Effect.succeed(j)
@@ -870,7 +871,11 @@ const traced = (graph: Graph, issue: number, run: string, work: Checkout) =>
       .filter(r => !retro(graph, r))
       .sort((a, b) => a.started.localeCompare(b.started));
     const read = yield* Effect.forEach(runs, run =>
-      Effect.map(Stream.runCollect(store.read(run.id)), lines => ({ run, lines: Chunk.toArray(lines) }))
+      Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (lines, checks) => ({
+        run,
+        lines: Chunk.toArray(lines),
+        checks,
+      }))
     );
     const own = Chunk.toArray(yield* Stream.runCollect(store.read(run)));
     const files = checkFiles(work);
@@ -914,6 +919,7 @@ type Item = {
   exit?: number;
   output?: string;
   unread?: true;
+  usd: number;
 };
 
 /** The judge prompts that passed per data dir, run, check, judge and diff; the same judge, prompt and diff is not judged again. */
@@ -923,10 +929,10 @@ const passes = new WeakMap<object, Set<string>>();
  * One check over what a try left: its items, the command per item, then the agent that judges. Each item gives a
  * result `returns` describes, from the judge when there is one, else from the script; it passes when it matches
  * `pass` and its script exited 0. With `each` the check carries the share of items that passed, else the result
- * itself when it has its own `returns`. Per-item results are traced, with `end` once the run ended; judging
- * sessions' cost comes back as `usd`.
+ * itself when it has its own `returns`. The result and each item's go to the run's check record, each with what its
+ * judging cost and the judge's transcript as its log.
  */
-const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, end?: true) =>
+const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, graph: Graph, later?: true) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const passed = passes.get(store) ?? new Set<string>();
@@ -947,8 +953,13 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, 
     const listed = yield* all.pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
     const items: (string | undefined)[] = listed instanceof EachFailed ? [] : listed;
     const diff = check.agent && !check.reads ? yield* readCheckoutDiff(work) : '';
-    let usd = 0;
-    const settle = (item: string | undefined, value: Result | undefined, exit?: number, output?: string): Item => {
+    const settle = (
+      item: string | undefined,
+      value: Result | undefined,
+      exit?: number,
+      output?: string,
+      usd = 0
+    ): Item => {
       const exited = exit === undefined ? {} : { exit };
       const unread = value === undefined ? 'its last line is no JSON object' : findMismatch(returns, value);
       if (unread || !value)
@@ -959,6 +970,7 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, 
           ...exited,
           unread: true,
           ...(output && { output }),
+          usd,
         };
       const why = typeof value.why === 'string' ? value.why : '';
       const failed = info ? undefined : exit ? `exit ${exit}` : findMismatch(check.pass ?? defaultPass, value);
@@ -970,6 +982,7 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, 
         findings: check.pass && failed ? [failed, why].filter(Boolean).join('\n') : why || failed || '',
         ...exited,
         output: output ?? why,
+        usd,
       };
     };
     const one = (item: string | undefined) =>
@@ -1006,9 +1019,12 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, 
           )
           .digest('hex');
         if (!reads && !check.returns && passed.has(key)) return settle(item, { pass: true });
+        const lines: Trace[] = [];
+        const transcript = () => lines.map(line => JSON.stringify(line) + '\n').join('');
+        const cost = () => lines.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0);
         const judged = yield* askJudge(
           graph,
-          run,
+          lines,
           step,
           {
             harness: agent.harness,
@@ -1028,13 +1044,39 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, 
         ).pipe(
           Effect.catchTag('SessionStop', e =>
             (check.mode === 'warn' || info) && e.reason !== 'human' ? Effect.succeed(e) : Effect.fail(e)
+          ),
+          Effect.tapError(e =>
+            Effect.flatMap(store.log(transcript(), false), log =>
+              store.addChecks(run, {
+                at: now(),
+                step,
+                version: check.version,
+                check: {
+                  check: check.name,
+                  pass: false,
+                  empty: true,
+                  findings: squeeze(e instanceof SessionStop ? (e.detail ?? e.reason) : String(e)),
+                  ms: 0,
+                },
+                usd: cost(),
+                ...(item !== undefined && { item }),
+                ...(log && { log }),
+                ...(later && { later }),
+              })
+            )
           )
         );
         if (judged instanceof SessionStop)
-          return { item, pass: info, findings: judged.detail ?? judged.reason, unread: true as const };
-        usd += judged.usd;
+          return {
+            item,
+            pass: info,
+            findings: judged.detail ?? judged.reason,
+            unread: true as const,
+            output: transcript(),
+            usd: cost(),
+          };
         const { usd: _usd, ...value } = judged;
-        const settled = settle(item, value);
+        const settled = settle(item, value, undefined, transcript(), cost());
         if (settled.pass && !check.returns) passed.add(key);
         return settled;
       });
@@ -1042,10 +1084,11 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, 
     const over = items.length > max;
     const results: Item[] =
       listed instanceof EachFailed
-        ? [{ item: undefined, pass: info, findings: `each failed: ${listed.detail}`, unread: true }]
+        ? [{ item: undefined, pass: info, findings: `each failed: ${listed.detail}`, unread: true, usd: 0 }]
         : over
-          ? [{ item: undefined, pass: info, findings: `${items.length} items, more than ${max}`, unread: true }]
+          ? [{ item: undefined, pass: info, findings: `${items.length} items, more than ${max}`, unread: true, usd: 0 }]
           : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
+    const usd = results.reduce((sum, r) => sum + r.usd, 0);
     const noted = results.filter(r => !r.pass || r.unread);
     const none = check.each !== undefined && items.length === 0 && !(listed instanceof EachFailed);
     const unread = results.some(r => r.unread);
@@ -1070,13 +1113,13 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, 
       r.output === undefined ? Effect.succeed(undefined) : store.log(r.output, r.pass)
     );
     const at = now();
-    yield* store.trace(
+    const entry = { at, step, version: check.version, ...(later && { later }) };
+    yield* store.addChecks(
       run,
       ...results
         .flatMap((r, i) => (r.item === undefined ? [] : [{ ...r, log: logs[i] }]))
         .map(r => ({
-          at,
-          step,
+          ...entry,
           check: {
             check: check.name,
             pass: r.pass,
@@ -1085,21 +1128,20 @@ const runOneCheck = (step: string, check: Doc<Check>, work: Left, graph: Graph, 
             ...((!r.pass || r.unread) && { findings: squeeze(r.findings) }),
             ms: 0,
           },
+          usd: r.usd,
           item: r.item!,
           ...(r.exit !== undefined && { exit: r.exit }),
           ...(r.log && { log: r.log }),
-          ...(end && { end }),
         })),
       {
-        at,
-        step,
+        ...entry,
         check: result,
+        usd: check.each ? 0 : usd,
         ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }),
         ...(!check.each && logs[0] && { log: logs[0] }),
-        ...(end && { end }),
       }
     );
-    return { result, usd };
+    return result;
   });
 
 /** One try of the current step: a session, a script or a wait, then its checks, then apply proposals on a pass. */
@@ -1166,10 +1208,12 @@ const attempt = (
         ms: Date.now() - started,
       };
       const log = yield* store.log(out.output, result.pass);
-      yield* store.trace(run.id, {
+      yield* store.addChecks(run.id, {
         at: now(),
         step: step.name,
         check: result,
+        version: graph.sha.slice(0, 12),
+        usd: 0,
         exit: out.code,
         ...(log && { log }),
       });
@@ -1258,7 +1302,6 @@ const attempt = (
           spoke = r.id ?? spoke;
           tried = {
             ...tried,
-            usd: tried.usd + r.usd,
             ...(step.each === undefined &&
               r.id !== undefined && {
                 sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, seen } },
@@ -1373,7 +1416,7 @@ const attempt = (
     if (idle && !(yield* readCheckoutDiff(work)).trim())
       return done({ kind: 'failed', checks: [], proposals: [], problems: [idle] }, tried);
     const checked = answered
-      ? { outcome: { kind: 'pass' } as const, usd: 0 }
+      ? { outcome: { kind: 'pass' } as const }
       : yield* Effect.raceFirst(
           runStepChecks(
             step,
@@ -1391,8 +1434,7 @@ const attempt = (
           Effect.map(watch(tried, { at: tried.seen ?? run.started }), cut => ({ cut }))
         );
     if ('cut' in checked) return done(checked.cut.outcome, { ...tried, seen: checked.cut.at });
-    const { outcome: gated, usd } = checked;
-    tried = { ...tried, usd: tried.usd + usd };
+    const { outcome: gated } = checked;
     if (gated.kind === 'failed' || (gated.kind === 'pass' && problems.length > 0))
       return done(
         gated.kind === 'failed'
@@ -1490,27 +1532,21 @@ const prepare = (graph: Graph, left: Left, traces: boolean) =>
   });
 
 /**
- * The step's checks over what a try left behind, all at once, so every finding of a try comes back together. `usd` is what the agent checks cost.
+ * The step's checks over what a try left behind, all at once, so every finding of a try comes back together.
  * @internal
  */
 export const runStepChecks = (
   step: Step,
   left: Left,
   graph: Graph
-): Effect.Effect<
-  { outcome: Outcome; usd: number },
-  SandboxError | SessionStop | StoreError,
-  Sandbox | Session | Store
-> =>
+): Effect.Effect<{ outcome: Outcome }, SandboxError | SessionStop | StoreError, Sandbox | Session | Store> =>
   Effect.gen(function* () {
     const checks = step.checks.map(name => ({ ...graph.checks[name]!, name }));
     yield* prepare(graph, left, checks.length > 0);
     const settled = yield* Effect.forEach(checks, c => Effect.either(runOneCheck(step.name, c, left, graph)), {
       concurrency: 'unbounded',
     });
-    const results = settled.flatMap(r => (Either.isRight(r) ? [r.right] : []));
-    const usd = results.reduce((sum, r) => sum + r.usd, 0);
-    const all = results.map(r => r.result);
+    const all = settled.flatMap(r => (Either.isRight(r) ? [r.right] : []));
     const failed = (mode: Check['mode']) =>
       all.filter(v => !v.pass && checks.find(c => c.name === v.check)?.mode === mode);
 
@@ -1521,7 +1557,6 @@ export const runStepChecks = (
           kind: 'stop',
           why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n'),
         },
-        usd,
       };
     const error = settled.find(Either.isLeft);
     if (error) return yield* error.left;
@@ -1542,7 +1577,7 @@ export const runStepChecks = (
       blocking.length > 0 || proposals.length > 0
         ? { kind: 'failed', checks: blocking, proposals, problems: [] }
         : { kind: 'pass' };
-    return { outcome, usd };
+    return { outcome };
   });
 
 const explain = (e: SandboxError | SessionStop | ForgeError) =>
@@ -1554,16 +1589,14 @@ const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeErro
 const reopen = (graph: Graph, w: Workflow, run: Run, traces: boolean) =>
   Effect.gen(function* () {
     const t = yield* readIssueWithPull(w, run);
-    const kept = `refs/agentgraph/runs/${run.id}`;
-    const target = run.base?.branch ?? expand(w.base ?? 'main', { number: run.issue });
     const made = yield* Effect.flatMap(Sandbox, s =>
-      s.checkout(traces ? (run.startCommit ?? target) : kept, undefined, undefined, graph)
+      s.checkout(traces ? undefined : `refs/agentgraph/runs/${run.id}`, undefined, undefined, graph)
     );
-    const base = run.startCommit ?? (traces ? made.base : undefined);
-    if (!base) return yield* new SandboxError({ reason: 'infra', detail: 'the run kept no start commit' });
+    const base = run.startCommit ?? made.base;
+    if (!base && !traces) return yield* new SandboxError({ reason: 'infra', detail: 'the run kept no start commit' });
     const work = { ...made, base };
     if (!traces) yield* setUp(graph, work, run);
-    const ready = yield* writeCheckoutTree(work);
+    const ready = traces ? '' : yield* writeCheckoutTree(work);
     const left: Left = {
       ...work,
       run: run.id,
@@ -1574,28 +1607,41 @@ const reopen = (graph: Graph, w: Workflow, run: Run, traces: boolean) =>
       ...(run.answers && { answers: run.answers }),
     };
     yield* prepare(graph, left, true);
-    const restore = Effect.zipRight(text(work, ['read-tree', '-u', '--reset', ready]), text(work, ['clean', '-fdq']));
+    const restore = traces
+      ? Effect.void
+      : Effect.zipRight(text(work, ['read-tree', '-u', '--reset', ready]), text(work, ['clean', '-fdq']));
     return { left, restore };
   });
+
+const readRunSpend = (id: string) =>
+  Effect.flatMap(Store, store =>
+    Effect.zipWith(
+      Stream.runFold(store.read(id), 0, (sum, line) => sum + ('session' in line ? line.session.usd : 0)),
+      store.readChecks(id),
+      (work, checks) => checks.reduce((sum, e) => sum + e.usd, work)
+    )
+  );
 
 const runEndChecks = (
   graph: Graph,
   id: string,
-  adding: string[] = []
+  later?: string[]
 ): Effect.Effect<Run | undefined, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     if (Either.isLeft(yield* Effect.either(store.lock(id)))) return;
-    const stored = yield* store.get(id);
-    const owed = [...new Set([...(stored?.owed ?? []), ...adding])];
-    if (!stored || owed.length === 0) return stored;
-    const ended: Run = { ...stored, owed };
-    if (owed.length > (stored.owed?.length ?? 0)) yield* store.put(ended);
+    const ended = yield* store.get(id);
+    if (!ended) return;
+    const after = (yield* store.readChecks(id)).filter(e => ended.ended && e.at >= ended.ended && !e.item);
+    const names = later
+      ? later.filter(name => !after.some(e => e.check.check === name && e.version === graph.checks[name]?.version))
+      : (ended.owed ?? []);
+    if (names.length === 0) return later ? undefined : ended;
     let run = ended;
     const w = graph.workflows[ended.workflow];
-    const traces = owed.every(name => graph.checks[name]?.reads === 'traces');
+    const traces = names.every(name => graph.checks[name]?.reads === 'traces');
     const opened = w ? yield* caught(reopen(graph, w, ended, traces)) : `the graph has no workflow ${ended.workflow}`;
-    for (const name of owed) {
+    for (const name of names) {
       const check = graph.checks[name];
       const got = !check
         ? `the graph has no check ${name}`
@@ -1609,20 +1655,23 @@ const runEndChecks = (
                   { ...check, mode: check.mode === 'info' ? 'info' : 'warn' },
                   opened.left,
                   graph,
-                  true
+                  later && true
                 )
               )
             );
       if (typeof got === 'string')
-        yield* store.trace(id, {
+        yield* store.addChecks(id, {
           at: now(),
           step: ended.step,
           check: { check: name, pass: false, empty: true, findings: got, ms: 0 },
-          end: true,
+          version: check?.version ?? '',
+          usd: 0,
+          ...(later && { later: true as const }),
         });
+      if (later) continue;
       const { owed: before = [], ...rest } = run;
       const left = before.filter(n => n !== name);
-      run = { ...rest, usd: run.usd + (typeof got === 'string' ? 0 : got.usd), ...(left.length > 0 && { owed: left }) };
+      run = { ...rest, ...(left.length > 0 && { owed: left }) };
       yield* store.put(run);
     }
     return run;
@@ -1637,7 +1686,10 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
     if (w.on.feedback) return run;
     const forge = yield* Forge;
     const t = yield* readIssueWithPull(w, run);
-    const status = yield* Effect.forEach(proposeStatusUpdates(run, t, forge.studio), p => forge.apply(run.issue, p));
+    const usd = isRunDone(run) ? yield* readRunSpend(run.id) : undefined;
+    const status = yield* Effect.forEach(proposeStatusUpdates(run, t, forge.studio, usd), p =>
+      forge.apply(run.issue, p)
+    );
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
@@ -1821,8 +1873,9 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         }
 
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
-        if (current.status === 'running' && current.usd > graph.limits.usdPerRun) {
-          const why = `Spent $${current.usd.toFixed(2)}, over the graph's usd-per-run of ${graph.limits.usdPerRun}.`;
+        const usd = current.status === 'running' ? yield* readRunSpend(current.id) : 0;
+        if (usd > graph.limits.usdPerRun) {
+          const why = `Spent $${usd.toFixed(2)}, over the graph's usd-per-run of ${graph.limits.usdPerRun}.`;
           yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
         }
         const t = !isRunDone(current) ? yield* Effect.option(readIssueWithPull(w, current)) : Option.none();
@@ -2001,7 +2054,7 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
     const judged = (name: string) => graph.checks[name]?.agent !== undefined;
     const scripts = step.checks.filter(c => !judged(c));
     const later = own ? step.checks.filter(judged) : [];
-    let { outcome, usd } = yield* runStepChecks(own ? { ...step, checks: scripts } : to, left, graph);
+    let { outcome } = yield* runStepChecks(own ? { ...step, checks: scripts } : to, left, graph);
     if (outcome.kind === 'pass' && later.length > 0) {
       const log = yield* text(work, ['log', '--oneline', '--no-decorate', `${from}..${onto}`]);
       const stat = yield* text(work, ['diff', '--stat', from, onto]);
@@ -2015,14 +2068,12 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
         .join('\n\n');
       const second = yield* runStepChecks({ ...step, checks: later }, { ...left, reply }, graph);
       outcome = second.outcome;
-      usd += second.usd;
     }
-    const checked = { ...current, usd: run.usd + usd };
     return outcome.kind === 'failed'
-      ? { run: checked, outcome: { kind: 'back', why: formatFailedTryFeedback(outcome) } as const }
+      ? { run: current, outcome: { kind: 'back', why: formatFailedTryFeedback(outcome) } as const }
       : outcome.kind === 'pass'
-        ? { run: checked }
-        : { run: checked, outcome };
+        ? { run: current }
+        : { run: current, outcome };
   }).pipe(Effect.scoped);
 
 /**
@@ -2088,7 +2139,7 @@ const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNulla
       ...[...landed, ...undone].filter(a => !a.operation).map(applied => ({ at: now(), step: step.name, applied }))
     );
     const { eyes, ...rest } = landed.some(a => a.ok) ? unthreaded(run) : run;
-    const answered = { ...rest, ...(eyes && !undone.length && { eyes }), usd: run.usd + r.usd };
+    const answered = { ...rest, ...(eyes && !undone.length && { eyes }) };
     if (!back || r.id === undefined) return { run: answered };
     const sessions = { ...run.sessions, [to.name]: { id: r.id, home: r.home, ...(kept?.seen && { seen: kept.seen }) } };
     return { run: { ...answered, sessions }, outcome: { kind: 'back', why: back.why } as const };

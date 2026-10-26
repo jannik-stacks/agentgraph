@@ -14,7 +14,7 @@ import { transcript } from '../src/context.ts';
 import { readConfiguredGraph } from '../src/harnesses.ts';
 import type { Graph } from '../src/folder.ts';
 import { writeFileAtomic } from '../src/store.ts';
-import type { Trace } from '../src/trace.ts';
+import type { CheckEntry, Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
 
 export type Proposer = 'retro' | 'history' | 'structure';
@@ -138,6 +138,7 @@ const traces = (at: string, budget: number) => {
     .map(n => ({
       run: JSON.parse(readFileOrEmpty(join(data, n, 'run.json'))) as Run,
       lines: readJsonl<Trace>(join(data, n, 'trace.jsonl')),
+      checks: readJsonl<CheckEntry>(join(data, n, 'checks.jsonl')),
     }));
   return transcript(1, runs, budget);
 };

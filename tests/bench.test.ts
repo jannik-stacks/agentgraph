@@ -30,6 +30,7 @@ import {
   parseBenchJudgeVerdict,
 } from '../bin/bench.ts';
 import { git, tmp } from './kit.ts';
+import { getRounded } from '../src/stats.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
 
@@ -398,8 +399,7 @@ describe('bin/bench.ts score and report', () => {
       vsHuman: { opus: 0, sonnet: 0.5 },
       findings: { critical: 0, high: 0.75 },
       tokens,
-      usd: 0.25,
-      usdSource: 'list-price estimate',
+      usd: getBenchUsageCost({ tokens }).usd,
     });
     expect(rows[0]!.findings.high).toBe(0.25);
     expect(rows[1]).toMatchObject({ hiddenShare: 1 });
@@ -579,11 +579,20 @@ describe('points', () => {
     expect(JSON.parse(readFileSync(join(root, 'kept', 'usage.json'), 'utf8'))).toEqual({
       sessions: 1,
       usd: 0.5,
+      checkUsd: 0,
       ms: 0,
       tokens,
       split: { agent: 0, tools: 0, setup: 0, checks: 0, infra: 0 },
       attempts: [
-        { dir: 'v2', ms: 0, sessions: 1, usd: 0.5, tokens, split: { agent: 0, tools: 0, setup: 0, checks: 0 } },
+        {
+          dir: 'v2',
+          ms: 0,
+          sessions: 1,
+          usd: 0.5,
+          checkUsd: 0,
+          tokens,
+          split: { agent: 0, tools: 0, setup: 0, checks: 0 },
+        },
       ],
     });
   });
@@ -599,9 +608,13 @@ describe('points', () => {
         { at: '2026-10-22T10:00:40.000Z', key: 'k', event: { type: 'tool', name: 'bash', ms: 2000 } },
         { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd } },
         { at: '2026-10-22T10:01:05.000Z', setup: { ms: 5000, exit: 0 } },
-        { at: '2026-10-22T10:01:06.000Z', check: { check: 'test', pass: true, ms: 1000 } },
       ];
+      const check = { at: '2026-10-22T10:01:06.000Z', step: 'end', version: 'v', usd: 0.1 };
       writeFileSync(join(root, dir, 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
+      writeFileSync(
+        join(root, dir, 'data', 'run-1', 'checks.jsonl'),
+        JSON.stringify({ ...check, check: { check: 'test', pass: true, ms: 1000 } })
+      );
       if (meta) writeFileSync(join(root, dir, 'meta.json'), JSON.stringify(meta));
     };
     attempt('v2', 0.5, { ms: 1000 });
@@ -609,11 +622,11 @@ describe('points', () => {
     attempt('v2.1792493424355', 0.125);
     attempt('.attic/floor-2026-10-22T09-00-00-000Z', 9, { ms: 9 });
     const all = readArmUsageOverAttempts(join(root, 'v2'));
-    expect(all).toMatchObject({ sessions: 3, usd: 0.875, ms: 69_000 });
+    expect(all).toMatchObject({ sessions: 3, usd: 0.875, checkUsd: 0.3, ms: 68_000 });
     expect(all.tokens).toEqual({ luna: { input: 30, cacheRead: 0, cacheWrite: 0, output: 6 } });
     expect(all.split).toEqual({ agent: 180_000, tools: 6000, setup: 15_000, checks: 3000, infra: 2000 });
     expect(all.attempts.map(a => [a.dir, a.ms, a.usd, a.infra])).toEqual([
-      ['v2.1792493424355', 66_000, 0.125, undefined],
+      ['v2.1792493424355', 65_000, 0.125, undefined],
       ['.attic/v2-2026-10-22T09-00-00-000Z', 2000, 0.25, 'SandboxError: no image'],
       ['v2', 1000, 0.5, undefined],
     ]);
@@ -633,36 +646,24 @@ describe('prices', () => {
     expect(unpriced('floor', graph, undefined)).toEqual([]);
   });
 
-  it('reprices tokens when a run recorded no cost, and marks subscription cost as an estimate', () => {
+  it('prices tokens at list price, with cache priced as input too, and names the models it cannot price', () => {
     const prices = {
-      aliases: { luna: 'chatgpt/gpt-6-luna', flash: 'openrouter/deepseek/deepseek-v4.1-flash' },
-      models: {
-        'gpt-6-luna': { input: 0.1, cached: 0.01, output: 0.5 },
-        'deepseek-v4.1-flash': { input: 0.3, cached: 0.006, output: 1.2 },
+      aliases: { flash: 'openrouter/deepseek/deepseek-v4.1-flash' },
+      table: {
+        'deepseek-v4.1-flash': {
+          input_cost_per_token: 0.3e-6,
+          cache_read_input_token_cost: 0.006e-6,
+          output_cost_per_token: 1.2e-6,
+        },
       },
-      subscriptions: ['chatgpt/'],
     };
     const t = { input: 1e6, cacheRead: 1e6, cacheWrite: 1e6, output: 1e6 };
-    expect(getBenchUsageCost({ usd: 0, tokens: { flash: t } }, 'opencode', prices)).toEqual({
-      usd: 0.3 + 0.006 + 0.3 + 1.2,
-      usdSource: 'list price',
+    expect(getBenchUsageCost({ usd: 2, tokens: { flash: t } }, prices)).toEqual({
+      usd: getRounded(0.3 + 0.006 + 0.3 + 1.2),
+      usdUncached: getRounded(0.3 * 3 + 1.2),
     });
-    expect(getBenchUsageCost({ usd: 2, tokens: { flash: t } }, 'opencode', prices)).toEqual({
-      usd: 2,
-      usdSource: 'recorded',
-    });
-    expect(getBenchUsageCost({ usd: 0.5, tokens: { luna: t } }, 'opencode', prices).usdSource).toBe(
-      'list-price estimate'
-    );
-    expect(getBenchUsageCost({ usd: 0, tokens: { luna: t } }, 'opencode', prices)).toEqual({
-      usd: 0.71,
-      usdSource: 'list-price estimate',
-    });
-    expect(getBenchUsageCost({ usd: 1 }, 'claude-sub', prices).usdSource).toBe('list-price estimate');
-    expect(getBenchUsageCost({ usd: 0, tokens: { mystery: t } }, 'opencode', prices)).toEqual({
-      usd: 0,
-      usdSource: 'unpriced',
-    });
+    expect(getBenchUsageCost({ usd: 1 }, prices)).toEqual({ usd: 1, usdUncached: 1 });
+    expect(getBenchUsageCost({ tokens: { flash: t, mystery: t } }, prices)).toMatchObject({ unpriced: ['mystery'] });
   });
 });
 

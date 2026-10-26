@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
@@ -30,6 +30,21 @@ const late = (command: Command) => () =>
 export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
     checkout: (ref, branch, keep) => {
+      if (ref === undefined)
+        return Effect.acquireRelease(
+          Effect.promise(async () => {
+            const [dir, news] = await Promise.all(
+              ['agentgraph-work-', 'agentgraph-news-'].map(p => mkdtemp(join(tmpdir(), p)))
+            );
+            return {
+              dir: dir!,
+              base: '',
+              git: { GIT_DIR: join(dir!, '.git'), GIT_WORK_TREE: dir! },
+              news: join(news!, 'news.md'),
+            };
+          }),
+          work => Effect.promise(() => Promise.all([work.dir, dirname(work.news)].map(p => rm(p, { recursive: true }))))
+        );
       let checked: Checkout | undefined;
       const work = async () => {
         const dir = await mkdtemp(join(tmpdir(), 'agentgraph-work-'));

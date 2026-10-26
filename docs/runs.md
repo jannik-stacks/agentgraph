@@ -30,7 +30,7 @@ A run id is the workflow name, the issue number and a timestamp.
 | `comment`, `said` | The status comment, and where people last spoke |
 | `base`, `onto` | The stacked parent's pull request, and the base a conflicted follow lands on |
 | `graph`, `by` | Graph version last checked, and the run that dispatched this one |
-| `started`, `ended`, `usd` | Times and session cost, judges of end checks included |
+| `started`, `ended` | When the run started and when it ended |
 | `startCommit` | The commit the run's change is measured from, as its last checkout had it |
 | `owed` | [End checks](loop.md#at-run-end-and-later) the ended run has yet to run |
 
@@ -45,7 +45,6 @@ Each `trace.jsonl` line has `at`, `step` and one kind: <!-- code: src/trace.ts#T
 | `prompt` | Harness, model, system prompt, prompt and tools |
 | `event` | A start with the harness, the provider when one was picked and the model asked for after aliases; harness text, tool calls with `ms` where the harness reports it, usage and end |
 | `session` | End reason, whether it resumed, and cost |
-| `check` | Result and short findings, a number check's `value` or `empty`, the fan-out item, `end` for an end check, and `log`, the hash and size of the full output |
 | `setup` | `ms` and `exit` of the graph setup in a checkout |
 | `env`, `cache` | The [environment](sandbox.md#environments) a checkout started from, and how many files it wrote to the cache |
 | `applied` | A proposal with its URL or failure reason |
@@ -64,6 +63,20 @@ node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push' 'triage=label|i
 
 It fails on denied tool calls, started sessions that cost nothing, and finished workflows without any of their listed applied kinds. It also prints how long each run waited before its first session.
 
+## The check record
+
+Each `checks.jsonl` line is one check result: `at`, `step`, the check's `version`, the result with its short findings, a number check's `value`, `share` or `empty`, the fan-out item, and `usd`, what judging it cost at list price. `later` marks a result from [`check --runs`](loop.md#at-run-end-and-later). `log` is the hash and size of the full output, or of the judge's transcript. Lines are only added; nothing is totalled. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
+
+The version is a hash of the check's file, its judge's file and the graph's scripts. Readers take each check's newest whole-check result under its current version, else its newest, marked as older. A run's own cost is the sum of its trace's sessions, and its checking cost the sum of its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
+
+## Results
+
+The studio's Results tab at `/results` shows what checks gave, from one of three sources: the data dir's runs, the bench's bot arms or every tune's candidates, as the [studio](local.md) was started with. Each run counts with each check's latest result.
+
+The table has one row per field of a check's result, with how many runs gave it, how many failed results and values past the check's `pass` limit, the median, a strip with one dot per run, and a trend by day, by tens of runs or, for tunes, by iteration. `by` splits each field by a dimension such as workflow, model or tune. A field's `unit` in `returns` (`usd`, `minutes`, `seconds`, `tokens` or `share`) sets how it reads. Runs that ended before any step passed or any session started are dead; they are counted apart and left out unless shown. The chart draws one field against time, order, a dimension or another field, colored and faceted by dimensions, with a dot per run that links to it.
+
+A run's page shows two lines: the gates whose result failed, with the fields past their limit, and every field's value, with "at run end" or "checked later" and a link to the tab filtered to that run. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage -->
+
 ## Run links
 
 Every comment, reply, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL` set, a `⁂` links to `<studio>/runs/<id>?at=<time>`, and the trace's `applied` line has the same `at`. <!-- code: src/forge.ts#formatBodyWithRunLink -->
@@ -74,9 +87,9 @@ In the studio, `/runs?gh=<link or comment id>` opens the run that made a write, 
 
 ## Check logs
 
-The output of each check is gzipped in `logs/`, one file per distinct content: the last 64K characters of a script's output, or a judge's whole final reply. Traces and GitHub show short findings, and the studio's check rows open the full output. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`.
+The output of each check is gzipped in `logs/`, one file per distinct content: the last 64K characters of a script's output, or a judge's transcript as trace lines. Traces and GitHub show short findings, and the studio's check rows open the full output. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`.
 
-`npx agentgraph prune-logs --data <dir>` counts logs no trace refers to; `--apply` deletes them. Run it while no run is being driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
+`npx agentgraph prune-logs --data <dir>` counts logs no check record refers to; `--apply` deletes them. Run it while no run is being driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
 
 ## Checkout
 

@@ -6,8 +6,8 @@ import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
 import { createLock } from './owner.ts';
-import type { Log, Trace } from './trace.ts';
-import type { Run } from './workflow.ts';
+import type { CheckEntry, Log, Trace } from './trace.ts';
+import { isRunDone, type Run } from './workflow.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
 const changes = (before: Run | undefined, next: Run): Trace | undefined => {
@@ -50,6 +50,8 @@ export class Store extends Context.Tag('agentgraph/Store')<
     put: (run: Run) => Effect.Effect<void, StoreError>;
     trace: (id: string, ...lines: Trace[]) => Effect.Effect<void, StoreError>;
     read: (id: string, from?: number) => Stream.Stream<Trace, StoreError>;
+    addChecks: (id: string, ...entries: CheckEntry[]) => Effect.Effect<void, StoreError>;
+    readChecks: (id: string) => Effect.Effect<CheckEntry[], StoreError>;
     lock: (name: string) => Effect.Effect<void, StoreError, Scope.Scope>;
     log: (output: string, pass: boolean) => Effect.Effect<Log | undefined, StoreError>;
     readLog: (hash: string) => Effect.Effect<string | undefined, StoreError>;
@@ -84,8 +86,8 @@ const current = (value: unknown, key = ''): unknown => {
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 
 /**
- * A run is `<dir>/<id>/run.json` and its trace `<dir>/<id>/trace.jsonl`; every put that changes the run first traces
- * what changed, so a trace may hold a change its run.json missed. Locks carry a process owner and an acquisition id.
+ * A run is `<dir>/<id>/run.json`, stamped `ended` when first stored done or stopped, its trace `<dir>/<id>/trace.jsonl` and its check record `<dir>/<id>/checks.jsonl`;
+ * every put that changes the run first traces what changed, so a trace may hold a change its run.json missed. Locks carry a process owner and an acquisition id.
  * Check output is gzipped once per content at `<dir>/logs/<sha256>.gz`, as `logs` says.
  */
 export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all'): Layer.Layer<Store> => {
@@ -93,6 +95,23 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     Effect.tryPromise({ try: f, catch: cause => new StoreError({ path, cause }) });
   const runFile = (id: string) => join(dir, id, 'run.json');
   const traceFile = (id: string) => join(dir, id, 'trace.jsonl');
+  const checksFile = (id: string) => join(dir, id, 'checks.jsonl');
+  const readLines = <A>(path: string) =>
+    io(path, () =>
+      readFile(path, 'utf8').then(
+        text =>
+          text.split('\n').flatMap((line, i, lines): A[] => {
+            if (!line) return [];
+            try {
+              return [current(JSON.parse(line)) as A];
+            } catch (e) {
+              if (i === lines.length - 1) return [];
+              throw e;
+            }
+          }),
+        e => (missing(e) ? [] : Promise.reject(e))
+      )
+    );
   const readRun = (id: string) =>
     io(runFile(id), () =>
       readFile(runFile(id), 'utf8').then(
@@ -101,13 +120,13 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       )
     );
   const writers = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
-  const trace = (id: string, ...lines: Trace[]) => {
-    const writer = writers.get(id) ?? Effect.unsafeMakeSemaphore(1);
-    writers.set(id, writer);
+  const append = (path: string, lines: unknown[]) => {
+    const writer = writers.get(path) ?? Effect.unsafeMakeSemaphore(1);
+    writers.set(path, writer);
     return writer.withPermits(1)(
-      io(traceFile(id), async () => {
-        await mkdir(join(dir, id), { recursive: true });
-        const file = await open(traceFile(id), 'a+');
+      io(path, async () => {
+        await mkdir(dirname(path), { recursive: true });
+        const file = await open(path, 'a+');
         try {
           const { size } = await file.stat();
           if (size > 0) {
@@ -125,7 +144,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
               }
               if (complete) await file.appendFile('\n');
               else {
-                await writeFile(`${traceFile(id)}.${randomUUID()}.partial`, tail);
+                await writeFile(`${path}.${randomUUID()}.partial`, tail);
                 await file.truncate(cut);
               }
             }
@@ -137,6 +156,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       })
     );
   };
+  const trace = (id: string, ...lines: Trace[]) => append(traceFile(id), lines);
 
   const logFile = (hash: string) => join(dir, 'logs', `${hash}.gz`);
   const log = (output: string, pass: boolean) => {
@@ -161,34 +181,21 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
           )
         )
       ),
-    put: run =>
+    put: next =>
       Effect.gen(function* () {
-        const line = changes(yield* readRun(run.id), run);
+        const before = yield* readRun(next.id);
+        const { ended: _ended, ...open } = next;
+        const ended = next.ended ?? before?.ended ?? new Date().toISOString();
+        const run: Run = isRunDone(next) ? { ...next, ended } : open;
+        const line = changes(before, run);
         if (line) yield* trace(run.id, line);
         yield* io(runFile(run.id), async () => writeFileAtomic(runFile(run.id), run));
       }),
     trace,
     read: (id, from = 0) =>
-      Stream.fromIterableEffect(
-        io(traceFile(id), () =>
-          readFile(traceFile(id), 'utf8').then(
-            text =>
-              text
-                .split('\n')
-                .flatMap((line, i, lines): Trace[] => {
-                  if (!line) return [];
-                  try {
-                    return [current(JSON.parse(line)) as Trace];
-                  } catch (e) {
-                    if (i === lines.length - 1) return [];
-                    throw e;
-                  }
-                })
-                .slice(from),
-            e => (missing(e) ? [] : Promise.reject(e))
-          )
-        )
-      ),
+      Stream.fromIterableEffect(Effect.map(readLines<Trace>(traceFile(id)), lines => lines.slice(from))),
+    addChecks: (id, ...entries) => append(checksFile(id), entries),
+    readChecks: id => readLines<CheckEntry>(checksFile(id)),
     lock: name => {
       const path = join(dir, '.locks', `${name.replaceAll('/', '_')}.lock`);
       return Effect.asVoid(
@@ -242,13 +249,14 @@ export const locate = (input: unknown) =>
     return issue ? { issue } : undefined;
   });
 
-/** The check logs in `<dir>/logs` that no run's trace names; they are deleted only when `apply` is set. */
+/** The check logs in `<dir>/logs` that no run's trace or check record names; they are deleted only when `apply` is set. */
 export const pruneLogs = async (dir: string, apply = false) => {
   const named = new Set<string>();
-  for (const id of await readdir(dir).catch(() => [])) {
-    const text = await readFile(join(dir, id, 'trace.jsonl'), 'utf8').catch(() => '');
-    for (const [hash] of text.matchAll(/[0-9a-f]{64}/g)) named.add(hash);
-  }
+  for (const id of await readdir(dir).catch(() => []))
+    for (const file of ['trace.jsonl', 'checks.jsonl']) {
+      const text = await readFile(join(dir, id, file), 'utf8').catch(() => '');
+      for (const [hash] of text.matchAll(/[0-9a-f]{64}/g)) named.add(hash);
+    }
   const unused = { files: 0, bytes: 0 };
   for (const name of await readdir(join(dir, 'logs')).catch(() => [])) {
     const hash = /^([0-9a-f]{64})\.gz$/.exec(name)?.[1];
