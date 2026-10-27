@@ -1033,7 +1033,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
         const reads = agent.reads ?? check.reads;
         const prompt = [
           check.body,
-          out?.output ?? item ?? diff,
+          out?.output ?? item ?? squeeze(diff, 200_000),
           heard(work.answers),
           reads && tracesAt(work),
           'Call the result tool once you have decided.',
