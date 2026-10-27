@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { Effect, Layer, Stream, TestClock, TestContext } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
-import { fileForge, Forge } from '../src/forge.ts';
+import { fileForge, Forge, ForgeError } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import type { Sandbox } from '../src/sandbox.ts';
@@ -489,6 +489,24 @@ describe('coworker', () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect((await run(scanIssuesAndRunningRuns(ready))).map(r => [r.issue, r.status])).toEqual([[7, 'waiting']]);
+  });
+
+  it('looks past a merged pull request GitHub refuses to show', async () => {
+    const where = world();
+    writeFileSync(join(where.forge, '8.md'), '---\ntitle: Merged\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+    say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:00:01.000Z' });
+    const forge = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({
+        ...f,
+        issue: (n: number) =>
+          n === 8 ? Effect.fail(new ForgeError({ status: 404, message: 'Not Found' })) : f.issue(n),
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const session = replaySession([[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
+    const layer = Layer.mergeAll(forge, fileStore(where.data), hostSandbox(where.origin), session);
+    const runs = await Effect.runPromise(scanIssuesAndRunningRuns(ready).pipe(Effect.provide(layer)));
+    expect(runs.map(r => [r.issue, r.status])).toEqual([[7, 'waiting']]);
   });
 
   it('keeps one status comment through two tries and an ask, with the question in its own comment', async () => {

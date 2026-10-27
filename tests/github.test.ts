@@ -367,6 +367,41 @@ describe('githubForge', () => {
     expect(t.events).toEqual([]);
   });
 
+  it('reads a pull request again with a new token when an older one is refused it, never with one just minted', async () => {
+    let minted = 0;
+    const f = fake({
+      'POST /app/installations/9/access_tokens': () => ({
+        body: { token: `tok-${++minted}`, expires_at: '2999-01-01T00:00:00Z' },
+      }),
+      'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
+      'GET /repos/o/r/pulls/8': (_: Body, headers: Headers) =>
+        headers.get('authorization') === 'Bearer tok-1' ? { status: 404, body: {} } : { body: pull(8) },
+      'GET /repos/o/r/issues/8/comments': [],
+      'GET /repos/o/r/pulls/8/comments': [],
+      'GET /repos/o/r/pulls/8/reviews': [],
+      'GET /repos/o/r/pulls/8/commits': [],
+      'GET /repos/o/r/issues/8/events': [],
+    });
+    const clock = Date.now;
+    let later = 0;
+    Date.now = () => clock() + later;
+    try {
+      const [young, old] = await run(
+        f,
+        Effect.gen(function* () {
+          const forge = yield* Forge;
+          const young = yield* Effect.either(forge.issue(8));
+          later = 6_000;
+          return [young, yield* forge.issue(8)] as const;
+        })
+      );
+      expect(young._tag === 'Left' && young.left.status).toBe(404);
+      expect(old.pull?.branch).toBe('agentgraph/8');
+    } finally {
+      Date.now = clock;
+    }
+  });
+
   it('reads what was said and done since a cursor, trusting only people who may write', async () => {
     const cursor = '2026-10-16T09:00:00Z';
     const window = `since=${encodeURIComponent(cursor)}&sort=updated&direction=asc&per_page=100`;

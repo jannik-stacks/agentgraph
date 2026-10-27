@@ -2223,10 +2223,13 @@ export const tick = (
     const cursor = started === undefined ? '' : [started, ...waiting.map(p => p.at)].sort()[0]!;
     const issues = yield* forge.issues({ state: 'open' });
     const latest = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)));
-    const merged = yield* Effect.forEach(
+    const merged = (yield* Effect.forEach(
       latest.filter(m => m.kind === 'merged' && !issues.some(t => t.number === m.issue)),
-      m => forge.issue(m.issue)
-    );
+      m =>
+        forge
+          .issue(m.issue)
+          .pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`#${m.issue}`, e), [])))
+    )).flat();
     const origin = new Map<Event, number>();
     const onRun = (m: Event): Event => {
       const r = all.find(
@@ -2662,7 +2665,9 @@ export const scanIssuesAndRunningRuns = (
         : Chunk.toArray(yield* Stream.runCollect(forge.since(new Date(Date.parse(from) - debounce).toISOString())));
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue), ...asked])];
-    return (yield* Effect.forEach(issues, n => tick(graph, n, true, debounce), {
-      concurrency: graph.limits.parallel,
-    })).flat();
+    const look = (n: number) =>
+      tick(graph, n, true, debounce).pipe(
+        Effect.catchTag('ForgeError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
+      );
+    return (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();
   });

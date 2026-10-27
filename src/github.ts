@@ -187,20 +187,23 @@ const scopes = {
   repos: { metadata: 'read' },
 } as const;
 type TokenScope = keyof typeof scopes;
+type AppToken = (scope: TokenScope, refused?: string) => Effect.Effect<string, ForgeError>;
+const freshMs = 5_000;
 
 /** Mints installation tokens for the App, one per scope, reusing a token until a minute before it expires. */
 export const appToken = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch
-): ((scope: TokenScope) => Effect.Effect<string, ForgeError>) => {
+): AppToken => {
   const request = requester(fetch);
-  const tokens = new Map<TokenScope, { value: string; expires: number }>();
+  const tokens = new Map<TokenScope, { value: string; expires: number; minted: number }>();
   const minting = Effect.unsafeMakeSemaphore(1);
-  return scope =>
+  return (scope, refused) =>
     minting.withPermits(1)(
       Effect.suspend(() => {
         const token = tokens.get(scope);
-        if (token && token.expires - 60_000 > Date.now()) return Effect.succeed(token.value);
+        const kept = token && (token.value !== refused || Date.now() - token.minted < freshMs);
+        if (kept && token.expires - 60_000 > Date.now()) return Effect.succeed(token.value);
         return Effect.gen(function* () {
           const signed = yield* appSigned(app);
           const { data: installation } = yield* request<{ id: number }>(
@@ -214,12 +217,22 @@ export const appToken = (
             signed,
             { permissions: scopes[scope], ...(scope !== 'repos' && { repositories: [app.repo.split('/')[1]] }) }
           );
-          tokens.set(scope, { value: data.token, expires: Date.parse(data.expires_at) });
+          tokens.set(scope, { value: data.token, expires: Date.parse(data.expires_at), minted: Date.now() });
           return data.token;
         });
       })
     );
 };
+
+// UNEXPECTED: a token GitHub narrows to some repos or permissions loses private contents and pull requests ~10s after it is minted, answering 404; a new token reads them again.
+const authed = <T>(token: AppToken, scope: TokenScope, call: (token: string) => Effect.Effect<T, ForgeError>) =>
+  Effect.flatMap(token(scope), t =>
+    Effect.catchIf(
+      call(t),
+      e => e.status === 404,
+      e => Effect.flatMap(token(scope, t), fresh => (fresh === t ? Effect.fail(e) : call(fresh)))
+    )
+  );
 
 const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
   Effect.try({
@@ -234,7 +247,7 @@ const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
 export const githubForge = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch,
-  token: (scope: TokenScope) => Effect.Effect<string, ForgeError> = appToken(app, fetch),
+  token: AppToken = appToken(app, fetch),
   trust?: readonly string[],
   studio?: string
 ): Layer.Layer<Forge> =>
@@ -255,7 +268,7 @@ export const githubForge = (
     );
 
     const gh = <T>(method: string, path: string, body?: unknown, scope: TokenScope = 'read', version?: string) =>
-      Effect.flatMap(token(scope), t => request<T>(method, path, t, body, version)).pipe(Effect.map(r => r.data));
+      authed(token, scope, t => request<T>(method, path, t, body, version)).pipe(Effect.map(r => r.data));
 
     const missing = <A, R>(effect: Effect.Effect<A, ForgeError, R>) =>
       Effect.catchIf(
@@ -270,9 +283,7 @@ export const githubForge = (
         const items: T[] = [];
         let url: string | undefined = path;
         while (url) {
-          const page: { data: T[]; next?: string } = yield* Effect.flatMap(token('read'), t =>
-            request<T[]>('GET', url!, t)
-          );
+          const page: { data: T[]; next?: string } = yield* authed(token, 'read', t => request<T[]>('GET', url!, t));
           items.push(...page.data);
           url = more(page.data) ? page.next : undefined;
         }
