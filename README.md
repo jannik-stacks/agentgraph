@@ -46,6 +46,7 @@ Start at [What agentgraph is](docs/index.md), then:
 | `examples/sandbox`    | A small JavaScript package; the place to start |
 | `examples/agentgraph` | The graph agentgraph runs on itself            |
 | `examples/bench`      | The graph the bench replays pull requests with |
+| `examples/conflicts`  | Conflicts resolved in a run of their own       |
 
 ## Development
 

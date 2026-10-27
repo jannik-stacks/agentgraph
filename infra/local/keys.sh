@@ -36,6 +36,7 @@ BOTS=(
   "checker       smart,fast,local,luna,$OPENROUTER           1  30  200000"
   "editor        smart,fast,local,luna,$OPENROUTER           1  30  200000"
   "scout         fast,local,luna,$OPENROUTER                 1  30  200000"
+  "resolver      fast,local,luna,$OPENROUTER                 1  30  200000"
   "router        smart,fast,local,luna,$OPENROUTER           1  30  200000"
   "retro         smart,fast,local,luna,$OPENROUTER           2  30  400000"
   "auditor       smart,fast,local,luna,$OPENROUTER           1  30  400000"
