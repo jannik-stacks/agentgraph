@@ -1144,6 +1144,47 @@ describe('readEngineEnv', () => {
 describe('scanIssuesAndRunningRuns', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 
+  it.each([false, true])('shares polling across forty issues with a prior run: %s', async prior => {
+    const where = world();
+    for (let n = 8; n < 47; n++)
+      writeFileSync(
+        join(where.forge, `${n}.md`),
+        `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\nBody.\n`
+      );
+    let listings = 0;
+    const cursors: string[] = [];
+    const observed = Layer.effect(
+      Forge,
+      Effect.map(Forge, forge => ({
+        ...forge,
+        issues: filter =>
+          Effect.suspend(() => {
+            listings++;
+            return forge.issues(filter);
+          }),
+        since: (cursor, columns) => {
+          cursors.push(cursor);
+          return forge.since(cursor, columns);
+        },
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const layer = Layer.mergeAll(observed, fileStore(where.data), hostSandbox(where.origin), replaySession([]));
+    const unmarked = { ...small, workflows: {} };
+    const started = '2026-10-16T00:00:00.000Z';
+    if (prior)
+      await Effect.runPromise(
+        Effect.flatMap(Store, store =>
+          store.put({
+            ...begin(small.workflows.issue!, { id: 'run-7', issue: 7, started }),
+            status: 'waiting',
+          })
+        ).pipe(Effect.provide(fileStore(where.data)))
+      );
+    await Effect.runPromise(scanIssuesAndRunningRuns(unmarked).pipe(Effect.provide(layer)));
+    expect(listings).toBe(1);
+    expect(cursors).toEqual(prior ? [started, ''] : ['']);
+  });
+
   it('drives a commanded issue and a parked one with a new answer, and skips an unmarked one and one waiting with nothing new', async () => {
     const where = world();
     for (const n of [8, 9, 10])

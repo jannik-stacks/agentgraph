@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Config, Effect, Layer, Option, Redacted, Struct } from 'effect';
-import { fileForge } from './forge.ts';
+import { fileForge, type Forge } from './forge.ts';
 import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
@@ -106,8 +106,17 @@ const where = (s: Settings) => {
   }
   const app = { repo: s.repo, ...s.forge };
   const token = appToken(app);
+  const forges = new Map<string, Layer.Layer<Forge>>();
   return {
-    forge: (trust?: readonly string[]) => githubForge(app, globalThis.fetch, token, trust, s.studio),
+    forge: (trust?: readonly string[]) => {
+      const key = JSON.stringify(trust) ?? '';
+      let layer = forges.get(key);
+      if (!layer) {
+        layer = githubForge(app, globalThis.fetch, token, trust, s.studio);
+        forges.set(key, layer);
+      }
+      return layer;
+    },
     origin: { origin: `https://github.com/${app.repo}.git`, token: token('read') },
   };
 };
@@ -141,35 +150,48 @@ export const whyModelHostsMissing = Effect.gen(function* () {
 });
 
 /** The production services. The graph is read once for its trust list. Tests build their own from the file and host layers. */
-export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
-  const { forge, origin } = where(s);
-  const sandbox = s.sandbox
-    ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
-    : dockerSandbox({
-        data: s.data,
-        cache: s.cache,
-        image: s.image,
-        direct: findLocalModelHosts(s.proxy.url),
-        ...origin,
-      });
-  // a graph that does not load trusts no one; every tick reports why it does not load
-  const trust = s.trust.length
-    ? Effect.succeed(s.trust)
-    : Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
-        Effect.provide(sandbox),
-        Effect.catchAll(() => Effect.succeed<string[]>([]))
-      );
-  const config = readHarnessSettings.pipe(Effect.orElseSucceed((): HarnessSettings => ({ harnesses: [] })));
-  return Layer.unwrapEffect(
-    Effect.map(Effect.all([trust, config]), ([trust, config]) =>
-      Layer.mergeAll(
-        forge(trust),
-        fileStore(s.data, s.checkLogs),
-        harnessSession({
-          ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
-          ...Struct.pick(config, 'harnesses', 'provider'),
-        }).pipe(Layer.provideMerge(sandbox))
+export const makeProductionLayers = () => {
+  let previous: string | undefined;
+  let place: ReturnType<typeof where>;
+  return (s: Settings): Layer.Layer<Services> => {
+    const key = JSON.stringify([
+      s.repo,
+      s.studio,
+      typeof s.forge === 'string' ? s.forge : [s.forge.id, Redacted.value(s.forge.key)],
+    ]);
+    if (key !== previous) {
+      place = where(s);
+      previous = key;
+    }
+    const { forge, origin } = place;
+    const sandbox = s.sandbox
+      ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
+      : dockerSandbox({
+          data: s.data,
+          cache: s.cache,
+          image: s.image,
+          direct: findLocalModelHosts(s.proxy.url),
+          ...origin,
+        });
+    // a graph that does not load trusts no one; every tick reports why it does not load
+    const trust = s.trust.length
+      ? Effect.succeed(s.trust)
+      : Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
+          Effect.provide(sandbox),
+          Effect.catchAll(() => Effect.succeed<string[]>([]))
+        );
+    const config = readHarnessSettings.pipe(Effect.orElseSucceed((): HarnessSettings => ({ harnesses: [] })));
+    return Layer.unwrapEffect(
+      Effect.map(Effect.all([trust, config]), ([trust, config]) =>
+        Layer.mergeAll(
+          forge(trust),
+          fileStore(s.data, s.checkLogs),
+          harnessSession({
+            ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
+            ...Struct.pick(config, 'harnesses', 'provider'),
+          }).pipe(Layer.provideMerge(sandbox))
+        )
       )
-    )
-  );
+    );
+  };
 };

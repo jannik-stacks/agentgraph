@@ -2,11 +2,12 @@ import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Deferred, Effect, Fiber, Logger, Redacted, Stream, TestClock, TestContext } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { ConfigProvider, Deferred, Effect, Fiber, Logger, Redacted, Stream, TestClock, TestContext } from 'effect';
+import { describe, expect, it, vi } from 'vitest';
 import { Forge, ForgeError, currentRunLinkRef } from '../src/forge.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { githubForge } from '../src/github.ts';
+import { makeProductionLayers, settings } from '../src/services.ts';
 import type { Checkout } from '../src/sandbox.ts';
 import { tmp } from './kit.ts';
 
@@ -159,6 +160,148 @@ describe('githubForge', () => {
     );
     const reads = f.calls.filter(c => c.path.startsWith('/repos/o/r/issues/7'));
     expect(reads.every(c => c.headers.get('authorization') === 'Bearer tok')).toBe(true);
+  });
+
+  it('keeps tokens and conditional reads across passes and renewed session credentials', async () => {
+    let served = 0;
+    const f = fake({
+      'GET /repos/o/r/issues': (_: Body, headers: Headers) =>
+        headers.get('if-none-match') === '"v1"'
+          ? { status: 304 }
+          : { body: [issue(++served)], headers: { etag: '"v1"' } },
+    });
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => f.fetch(String(url), init));
+    try {
+      const make = makeProductionLayers();
+      const configured = Effect.runSync(
+        settings.pipe(
+          Effect.withConfigProvider(
+            ConfigProvider.fromMap(
+              new Map([
+                ['AGENTGRAPH_REPO', app.repo],
+                ['AGENTGRAPH_APP_ID', app.id],
+                ['AGENTGRAPH_APP_KEY', privateKey],
+                ['AGENTGRAPH_TRUST', 'alice'],
+                ['AGENTGRAPH_DATA', tmp('github-layers')],
+              ])
+            )
+          )
+        )
+      );
+      const list = Effect.flatMap(Forge, forge => forge.issues({ state: 'open' }));
+      const first = await Effect.runPromise(Effect.provide(list, make(configured)));
+      const second = await Effect.runPromise(
+        Effect.provide(
+          list,
+          make({
+            ...configured,
+            passed: { LOGIN: Redacted.make('renewed') },
+          })
+        )
+      );
+      await Effect.runPromise(Effect.provide(list, make({ ...configured, forge: { id: '43', key: app.key } })));
+      expect(second).toEqual(first);
+      expect(served).toBe(2);
+      expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('does not refresh a read token for an issue without a parent', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues/7': issue(7),
+      'GET /repos/o/r/issues/7/comments': [],
+      'GET /repos/o/r/issues/7/events': [],
+    });
+    const now = vi.spyOn(Date, 'now');
+    const initial = Date.now();
+    try {
+      await run(
+        f,
+        Effect.gen(function* () {
+          const forge = yield* Forge;
+          yield* forge.issue(7);
+          now.mockReturnValue(initial + 6_000);
+          yield* forge.issue(7);
+        })
+      );
+      expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('does not send a conditional read with a different token', async () => {
+    let auth = 'first';
+    const f = fake({
+      'GET /repos/o/r/issues': () => ({ body: [issue(7)], headers: { etag: '"v1"' } }),
+    });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const forge = yield* Forge;
+        yield* forge.issues();
+        auth = 'second';
+        yield* forge.issues();
+      }).pipe(Effect.provide(githubForge(app, f.fetch, () => Effect.sync(() => auth))))
+    );
+    expect(
+      f.calls.filter(c => c.path.startsWith('/repos/o/r/issues')).map(c => c.headers.get('if-none-match'))
+    ).toEqual([null, null]);
+  });
+
+  it.each([
+    [403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '10' }],
+    [429, { 'retry-after': '10' }],
+  ] as const)('holds concurrent reads until reset after %s', async (status, headers) => {
+    let reads = 0;
+    const f = fake({
+      'GET /repos/o/r/issues': () =>
+        ++reads === 1 ? { status, headers, body: { message: 'API rate limit exceeded' } } : { body: [] },
+    });
+    const counts = await Effect.runPromise(
+      Effect.gen(function* () {
+        const forge = yield* Forge;
+        yield* Effect.either(forge.issues());
+        const pending = yield* Effect.fork(
+          Effect.all([forge.issues(), forge.issues({ state: 'open' })], { concurrency: 2 })
+        );
+        yield* TestClock.adjust('9 seconds');
+        const before = reads;
+        yield* TestClock.adjust('1 second');
+        yield* Fiber.join(pending);
+        return [before, reads];
+      }).pipe(Effect.provide(githubForge(app, f.fetch)), Effect.provide(TestContext.TestContext))
+    );
+    expect(counts).toEqual([1, 3]);
+  });
+
+  it('holds a pending network retry when another request exhausts the budget', async () => {
+    let reads = 0;
+    const f = fake({
+      'GET /repos/o/r/issues': () => {
+        reads++;
+        return reads === 1
+          ? { status: 502 }
+          : reads === 2
+            ? { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '10' } }
+            : { body: [] };
+      },
+    });
+    const counts = await Effect.runPromise(
+      Effect.gen(function* () {
+        const forge = yield* Forge;
+        const pending = yield* Effect.fork(forge.issues());
+        yield* TestClock.adjust('0 seconds');
+        yield* Effect.either(forge.issues());
+        yield* TestClock.adjust('1 second');
+        const before = reads;
+        yield* TestClock.adjust('9 seconds');
+        yield* Fiber.join(pending);
+        return [before, reads];
+      }).pipe(Effect.provide(githubForge(app, f.fetch)), Effect.provide(TestContext.TestContext))
+    );
+    expect(counts).toEqual([2, 3]);
   });
 
   it('reads the milestone title of an issue', async () => {
@@ -464,40 +607,43 @@ describe('githubForge', () => {
     expect(t.events).toEqual([]);
   });
 
-  it('reads a pull request again with a new token when an older one is refused it, never with one just minted', async () => {
-    let minted = 0;
-    const f = fake({
-      'POST /app/installations/9/access_tokens': () => ({
-        body: { token: `tok-${++minted}`, expires_at: '2999-01-01T00:00:00Z' },
-      }),
-      'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
-      'GET /repos/o/r/pulls/8': (_: Body, headers: Headers) =>
-        headers.get('authorization') === 'Bearer tok-1' ? { status: 404, body: {} } : { body: pull(8) },
-      'GET /repos/o/r/issues/8/comments': [],
-      'GET /repos/o/r/pulls/8/comments': [],
-      'GET /repos/o/r/pulls/8/reviews': [],
-      'GET /repos/o/r/pulls/8/commits': [],
-      'GET /repos/o/r/issues/8/events': [],
-    });
-    const clock = Date.now;
-    let later = 0;
-    Date.now = () => clock() + later;
-    try {
-      const [young, old] = await run(
-        f,
-        Effect.gen(function* () {
-          const forge = yield* Forge;
-          const young = yield* Effect.either(forge.issue(8));
-          later = 6_000;
-          return [young, yield* forge.issue(8)] as const;
-        })
-      );
-      expect(young._tag === 'Left' && young.left.status).toBe(404);
-      expect(old.pull?.branch).toBe('agentgraph/8');
-    } finally {
-      Date.now = clock;
+  it.each([401, 404])(
+    'reads a pull request again after an older token gets %s, never with one just minted',
+    async status => {
+      let minted = 0;
+      const f = fake({
+        'POST /app/installations/9/access_tokens': () => ({
+          body: { token: `tok-${++minted}`, expires_at: '2999-01-01T00:00:00Z' },
+        }),
+        'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
+        'GET /repos/o/r/pulls/8': (_: Body, headers: Headers) =>
+          headers.get('authorization') === 'Bearer tok-1' ? { status, body: {} } : { body: pull(8) },
+        'GET /repos/o/r/issues/8/comments': [],
+        'GET /repos/o/r/pulls/8/comments': [],
+        'GET /repos/o/r/pulls/8/reviews': [],
+        'GET /repos/o/r/pulls/8/commits': [],
+        'GET /repos/o/r/issues/8/events': [],
+      });
+      const clock = Date.now;
+      let later = 0;
+      Date.now = () => clock() + later;
+      try {
+        const [young, old] = await run(
+          f,
+          Effect.gen(function* () {
+            const forge = yield* Forge;
+            const young = yield* Effect.either(forge.issue(8));
+            later = 6_000;
+            return [young, yield* forge.issue(8)] as const;
+          })
+        );
+        expect(young._tag === 'Left' && young.left.status).toBe(status);
+        expect(old.pull?.branch).toBe('agentgraph/8');
+      } finally {
+        Date.now = clock;
+      }
     }
-  });
+  );
 
   it('reads what was said and done since a cursor, trusting only people who may write', async () => {
     const cursor = '2026-10-16T09:00:00Z';

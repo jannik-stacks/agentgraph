@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
+import { Chunk, Data, Duration, Effect, Either, Option, Schema, Stream } from 'effect';
 import {
   answerWith,
   formatRequest,
@@ -2682,18 +2682,46 @@ export const scanIssuesAndRunningRuns = (
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
-    const open = (yield* forge.issues({ state: 'open' })).filter(t => !t.pull && inScope(graph, t));
+    const [listing, invalidate] = yield* Effect.cachedInvalidateWithTTL(
+      forge.issues({ state: 'open' }),
+      Duration.infinity
+    );
+    const listed = yield* listing;
+    const open = listed.filter(t => !t.pull && inScope(graph, t));
     const all = yield* Effect.flatMap(Store, s => s.list());
     const runs = all.filter(r => !isRunDone(r) || r.owed);
     const from = newest(...all.map(r => r.started));
-    const said =
-      from === undefined
-        ? []
-        : Chunk.toArray(yield* Stream.runCollect(forge.since(new Date(Date.parse(from) - debounce).toISOString())));
+    const cursor = from
+      ? new Date(Date.parse(all.flatMap(r => [r.started, r.seen ?? r.started]).toSorted()[0]!) - debounce).toISOString()
+      : '';
+    const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
+    const latest = yield* Effect.cached(Stream.runCollect(forge.since(cursor, boards)).pipe(Effect.map(Chunk.toArray)));
+    const history = cursor
+      ? yield* Effect.cached(Stream.runCollect(forge.since('', boards)).pipe(Effect.map(Chunk.toArray)))
+      : latest;
+    const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
     const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
     const look = (n: number) =>
       tick(graph, n, true, debounce).pipe(
+        Effect.provideService(Forge, {
+          ...forge,
+          issues: filter =>
+            filter?.state === 'open' && !filter.labels?.length && filter.parent === undefined
+              ? listing
+              : forge.issues(filter),
+          since: at => Stream.fromIterableEffect(at < cursor ? history : latest).pipe(Stream.filter(m => m.at > at)),
+          apply: (...args) =>
+            forge
+              .apply(...args)
+              .pipe(
+                Effect.tap(a =>
+                  a.ok && ['issue', 'pull_request', 'merge', 'label', 'push', 'rebase'].includes(a.proposal.kind)
+                    ? invalidate
+                    : Effect.void
+                )
+              ),
+        }),
         Effect.catchTag('ForgeError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
       );
     return (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();

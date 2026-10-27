@@ -111,7 +111,7 @@ export const start = (
     base?: string;
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
   },
-  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers,
+  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(),
   defaults: Record<string, string> = {},
   signal?: AbortSignal,
   refresh: () => Promise<unknown> = async () => {}

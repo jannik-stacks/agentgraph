@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createPrivateKey, sign } from 'node:crypto';
 import { promisify } from 'node:util';
-import { Config, Effect, Layer, Option, Redacted, Schedule, Stream } from 'effect';
+import { Clock, Config, Effect, Layer, Option, Redacted, Schedule, Stream } from 'effect';
 import {
   makeCommentWithAgentRequest,
   isAgentBranch,
@@ -170,40 +170,56 @@ const refPath = (branch: string) =>
  * answers 502 to 504.
  */
 const requester = (fetch: Fetch) => {
-  const etags = new Map<string, { etag: string; data: unknown; next?: string }>();
+  const etags = new Map<string, { auth: string; version: string; etag: string; data: unknown; next?: string }>();
+  let reset = 0;
   return <T>(method: string, path: string, auth: string, body?: unknown, version = '2022-11-28') =>
     Effect.gen(function* () {
       const url = path.startsWith('https://') ? path : api + path;
-      const cached = method === 'GET' ? etags.get(url) : undefined;
+      const entry = method === 'GET' ? etags.get(url) : undefined;
+      const cached = entry?.auth === auth && entry.version === version ? entry : undefined;
       const again = method !== 'POST' || path.endsWith('/access_tokens');
-      const res = yield* Effect.tryPromise({
-        try: async signal => {
-          const res = await fetch(url, {
-            method,
-            signal,
-            headers: {
-              Accept: 'application/vnd.github+json',
-              Authorization: `Bearer ${auth}`,
-              'X-GitHub-Api-Version': version,
-              'User-Agent': 'agentgraph',
-              ...(cached && { 'If-None-Match': cached.etag }),
-              ...(body !== undefined && { 'Content-Type': 'application/json' }),
-            },
-            ...(body !== undefined && { body: JSON.stringify(body) }),
-          });
-          if (again && res.status >= 502 && res.status <= 504) throw new Error(`status ${res.status}`);
-          return { status: res.status, ok: res.ok, headers: res.headers, text: await res.text() };
-        },
-        catch: e => new ForgeError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
-      }).pipe(
-        Effect.timeoutFail({
-          duration: '30 seconds',
-          onTimeout: () => new ForgeError({ message: `GitHub ${method} ${path} timed out` }),
-        }),
-        Effect.retry({ schedule: Schedule.exponential('1 second'), times: again ? 4 : 0 })
-      );
+      const res = yield* Effect.gen(function* () {
+        while (reset > (yield* Clock.currentTimeMillis)) yield* Effect.sleep(reset - (yield* Clock.currentTimeMillis));
+        return yield* Effect.tryPromise({
+          try: async signal => {
+            const res = await fetch(url, {
+              method,
+              signal,
+              headers: {
+                Accept: 'application/vnd.github+json',
+                Authorization: `Bearer ${auth}`,
+                'X-GitHub-Api-Version': version,
+                'User-Agent': 'agentgraph',
+                ...(cached && { 'If-None-Match': cached.etag }),
+                ...(body !== undefined && { 'Content-Type': 'application/json' }),
+              },
+              ...(body !== undefined && { body: JSON.stringify(body) }),
+            });
+            if (again && res.status >= 502 && res.status <= 504) throw new Error(`status ${res.status}`);
+            return { status: res.status, ok: res.ok, headers: res.headers, text: await res.text() };
+          },
+          catch: e => new ForgeError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
+        }).pipe(
+          Effect.timeoutFail({
+            duration: '30 seconds',
+            onTimeout: () => new ForgeError({ message: `GitHub ${method} ${path} timed out` }),
+          })
+        );
+      }).pipe(Effect.retry({ schedule: Schedule.exponential('1 second'), times: again ? 4 : 0 }));
       if (res.status === 304 && cached) return cached as { data: T; next?: string };
       if (!res.ok) {
+        if (
+          res.status === 429 ||
+          (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || /rate limit/i.test(res.text)))
+        ) {
+          const now = yield* Clock.currentTimeMillis;
+          const retry = Number(res.headers.get('retry-after')) || 0;
+          reset = Math.max(
+            reset,
+            Number(res.headers.get('x-ratelimit-reset')) * 1000 || now + (retry > 0 ? retry * 1000 : 60_000),
+            now + retry * 1000
+          );
+        }
         const message = `GitHub ${method} ${path} failed with ${res.status}: ${res.text.slice(0, 200)}`;
         return yield* new ForgeError({ status: res.status, message });
       }
@@ -214,7 +230,7 @@ const requester = (fetch: Fetch) => {
       const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('link') ?? '')?.[1];
       const out = { data, ...(next && { next }) };
       const etag = res.headers.get('etag');
-      if (method === 'GET' && etag) etags.set(url, { etag, ...out });
+      if (method === 'GET' && etag) etags.set(url, { auth, version, etag, ...out });
       return out;
     });
 };
@@ -273,7 +289,7 @@ const authed = <T>(token: AppToken, scope: TokenScope, call: (token: string) => 
   Effect.flatMap(token(scope), t =>
     Effect.catchIf(
       call(t),
-      e => e.status === 404,
+      e => e.status === 401 || e.status === 404,
       e => Effect.flatMap(token(scope, t), fresh => (fresh === t ? Effect.fail(e) : call(fresh)))
     )
   );
@@ -295,13 +311,13 @@ export const githubForge = (
   trust?: readonly string[],
   studio?: string,
   projectToken = readProjectToken
-): Layer.Layer<Forge> =>
-  Layer.sync(Forge, () => {
+): Layer.Layer<Forge> => {
+  const request = requester(fetch);
+  return Layer.sync(Forge, () => {
     const listed = (user: User, association = '') => (trust ? trust.includes(login(user)) : members.has(association));
     const repo = `/repos/${app.repo}`;
     let slug: string | undefined;
 
-    const request = requester(fetch);
     const jwt = appSigned(app);
 
     const me = Effect.suspend(() =>
@@ -472,7 +488,9 @@ export const githubForge = (
         const [said, parent, pull, lined, reviews, commits, events] = yield* Effect.all(
           [
             all<RestComment>(`${repo}/issues/${number}/comments?per_page=100`),
-            missing(gh<RestIssue>('GET', `${repo}/issues/${number}/parent`)),
+            authed(token, 'read', t => missing(request<RestIssue>('GET', `${repo}/issues/${number}/parent`, t))).pipe(
+              Effect.map(r => r?.data)
+            ),
             isPull ? gh<RestPull>('GET', `${repo}/pulls/${number}`) : Effect.succeed(undefined),
             isPull ? all<RestComment>(`${repo}/pulls/${number}/comments?per_page=100`) : none,
             isPull ? all<RestReview>(`${repo}/pulls/${number}/reviews?per_page=100`) : none,
@@ -1028,6 +1046,7 @@ export const githubForge = (
 
     return { issues, issue, since, apply, findPost, slug: me, ...(studio && { studio }) };
   });
+};
 
 export const readInstallationReach = (
   app: { repo: string; id: string; key: Redacted.Redacted },
