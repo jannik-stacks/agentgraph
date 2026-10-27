@@ -1414,17 +1414,23 @@ const attempt = (
       });
 
     const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
-    const edited = commented && asked && (yield* writeCheckoutTree(work)) !== before;
-    const answered = commented && answering && !edited;
-    if (asked && commented && (edited || !held) && (returns.includes('push') || returns.includes('pull_request')))
+    const tree = yield* writeCheckoutTree(work);
+    const answered = commented && answering && tree === before;
+    const unpushed =
+      !answered &&
+      !back &&
+      returns.includes('push') &&
+      !world.some(p => p.kind === 'push') &&
+      tree !== (yield* text(work, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]));
+    if (unpushed || (asked && commented && !held && (returns.includes('push') || returns.includes('pull_request'))))
       return done(
         {
           kind: 'failed',
           checks: [],
           proposals: [],
           problems: [
-            edited
-              ? 'files changed but nothing was pushed: push them with a pull request, or ask'
+            unpushed
+              ? 'files changed but nothing was pushed: end with a push proposal, which the runner commits and pushes, or ask'
               : 'a pass needs a pull request or an ask',
           ],
         },

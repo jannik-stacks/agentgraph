@@ -230,9 +230,7 @@ describe('a run branch that moved', () => {
     const where = world();
     pullRequest(where);
     writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
-    const { run } = services(where, [
-      [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 8, head: 'own' })],
-    ]);
+    const { run } = services(where, [[start('a'), reply({ kind: 'merge', number: 8, head: 'own' })]]);
     await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect((await run(Effect.flatMap(Forge, f => f.issue(8)))).state).toBe('merged');
   });
