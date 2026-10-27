@@ -172,6 +172,7 @@ body {
     position: absolute;
     inset: 0 auto 0 0;
     width: 45%;
+    opacity: 0.5;
     background: linear-gradient(90deg, transparent, var(--agi-shine), transparent);
     transform: translateX(-130%) skewX(-20deg);
     animation: agi-shine var(--shine-duration) ease-in-out var(--shine-delay) infinite;
