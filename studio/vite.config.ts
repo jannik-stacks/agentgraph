@@ -26,6 +26,7 @@ const deny = ['.env', '.env.*', '*.env', '*.{crt,pem,key,p12,pfx,cer,der}', '.np
 
 export default defineConfig({
   appType: 'spa',
+  cacheDir: `node_modules/.vite-${server.port}`,
   plugins: [noNodeInBrowser(), makeStudioDevApiPlugin(), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
   optimizeDeps: { entries: ['index.html', 'src/**/*.tsx'], include: ['agentation', 'fumadocs-core/highlight'] },
