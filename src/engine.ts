@@ -2155,6 +2155,19 @@ const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNulla
 /** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
 export const issueDebounceMs = 30_000;
 
+const runnerRetry = 'Tried again after a runner error. Go on from where the run was.';
+
+const isRunnerRetryDue = (id: string) =>
+  Effect.map(
+    Effect.flatMap(Store, s => Stream.runCollect(s.read(id))),
+    lines => {
+      const trace = Chunk.toArray(lines);
+      const tries = trace.filter(t => 'outcome' in t && t.outcome.kind === 'answer' && t.outcome.text === runnerRetry);
+      const last = trace.at(-1)?.at;
+      return tries.length < 5 && (!last || Date.now() - Date.parse(last) >= 600_000 * 2 ** tries.length);
+    }
+  );
+
 /**
  * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`.
  * With `only`, it looks at that issue alone and begins a run there when none was live; with `marked` too, only on a
@@ -2404,9 +2417,11 @@ export const tick = (
         if (!parent || parent.status !== 'waiting') return;
         const w = graph.workflows[parent.workflow];
         const child = all.find(c => c.by === parent.id && parent.reason === waitingOn(c) && c.status !== 'running');
-        if (!w || !child) return;
-        const outcome: Outcome = { kind: 'answer', text: settled(child) };
-        yield* record(parent, outcome, transition(w, parent, outcome));
+        const due = !child && parent.reason?.startsWith(stoppedByRunner) && (yield* isRunnerRetryDue(parent.id));
+        if (!w || (!child && !due)) return;
+        const outcome: Outcome = { kind: 'answer', text: child ? settled(child) : runnerRetry };
+        const next = transition(w, parent, outcome);
+        yield* record(parent, outcome, child ? next : yield* past(parent, next));
       }).pipe(Effect.scoped);
 
     const busy = new Set(

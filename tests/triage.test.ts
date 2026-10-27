@@ -4,6 +4,7 @@ import { Chunk, Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { fileForge, Forge } from '../src/forge.ts';
+import { stoppedByRunner } from '../src/context.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { loadGraph } from '../src/folder.ts';
@@ -530,5 +531,37 @@ describe('/agent after a close or merge', () => {
       ['router', 2, 'done'],
     ]);
     expect(value.find(r => r.workflow === 'router')!.said).toEqual([{ issue: 2 }]);
+  });
+});
+
+describe('a run parked by a runner error', () => {
+  const retried = 'Tried again after a runner error. Go on from where the run was.';
+  it.each([
+    ['tries again once the wait is over', 0, at(9), 'done'],
+    ['waits ten minutes, doubled with each try', 1, new Date(Date.now() - 900_000).toISOString(), 'waiting'],
+    ['stops trying after five tries', 5, at(9), 'waiting'],
+  ])('%s', async (_, tries, last, status) => {
+    const where = world();
+    await putRun(where, {
+      ...begin(graph.workflows.router!, { id: 'router-1', issue: 1, started: at(0) }),
+      status: 'waiting',
+      reason: `${stoppedByRunner} (SandboxError). Reply to try router again from where it was.`,
+      retried: true,
+    });
+    const step = 'router';
+    const lines = [
+      ...Array.from({ length: tries }, () => ({
+        at: at(1),
+        step,
+        outcome: { kind: 'answer' as const, text: retried },
+        run: { step, status: 'running' as const, tries: 0, rounds: {} },
+      })),
+      { at: last, step, saved: { status: 'waiting' as const } },
+    ];
+    await Effect.runPromise(
+      Effect.flatMap(Store, s => s.trace('router-1', ...lines)).pipe(Effect.provide(fileStore(where.data)))
+    );
+    await run(where, [turn({ kind: 'comment', body: 'Routed.' })], scanIssuesAndRunningRuns(graph));
+    expect((await runs(where)).find(r => r.id === 'router-1')!.status).toBe(status);
   });
 });
