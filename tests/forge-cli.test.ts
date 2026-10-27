@@ -532,13 +532,51 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     await expect(w.run([], 1, { kind: 'dispatch', issue: 1, workflow: 'triage' })).rejects.toThrow(
       'a live run holds #1'
     );
-    await expect(w.run([], 1, { kind: 'dispatch', issue: 1, workflow: 'router' })).rejects.toThrow(
-      'not a workflow with on: dispatch'
+    await expect(w.run([], 1, { kind: 'dispatch', issue: 1, workflow: 'nope' })).rejects.toThrow(
+      'the graph has no workflow nope'
     );
     const stored = await Effect.runPromise(
       Effect.flatMap(Store, store => store.get(run!.id)).pipe(Effect.provide(fileStore(join(w.root, 'data'))))
     );
     expect(stored!.status).toBe('running');
+  });
+
+  it('dispatches a workflow without on: dispatch, asked the text given on the command line', async () => {
+    const w = world();
+    await w.forge('init', w.seed);
+    await w.forge('issue', 'A task');
+    const data = join(w.root, 'data');
+    const dispatched = spawnSync(
+      process.execPath,
+      [
+        runTs,
+        'dispatch',
+        '1',
+        'what is left?',
+        '--dir',
+        sandboxGraph,
+        '--data',
+        data,
+        '--forge',
+        w.dir,
+        '--workflow',
+        'router',
+      ],
+      { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+    );
+    expect(dispatched.status, dispatched.stderr).toBe(0);
+    const [run] = await Effect.runPromise(
+      Effect.flatMap(Store, store => store.list()).pipe(Effect.provide(fileStore(data)))
+    );
+    expect(run).toMatchObject({ workflow: 'router', status: 'running', by: 'cli', said: [{ issue: 1 }] });
+    await w.run([[start('router'), reply({ kind: 'comment', body: 'Only tests.' })]], 1);
+    const trace = readFileSync(join(data, run!.id, 'trace.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l));
+    expect(trace.find(t => t.prompt).prompt.prompt).toMatch(
+      /^## What you were asked\n\n@cli: \/agent what is left\?\n/
+    );
   });
 
   it('recovers a PR review command passed by the repo cursor with a per-issue sweep', async () => {

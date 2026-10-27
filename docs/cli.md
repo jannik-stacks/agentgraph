@@ -22,7 +22,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | `loop` | Drives every open issue, then again when something changes or every `AGENTGRAPH_EVERY` minutes | yes |
 | `check` | Validates a graph without a model or container; prints each problem or `ok` | yes |
 | `check <name>... --runs` | Runs the named checks on ended runs; see [Checks](checks.md#end-checks) | yes |
-| `dispatch <n>` | Starts `--workflow` on issue n, when that workflow accepts `dispatch` | yes |
+| `dispatch <n> ["<text>"]` | Starts any `--workflow` on issue n, with the text as what it was [asked](workflows.md#dispatch) | yes |
 | `prune-logs` | Counts [check logs](runs.md#check-logs) no trace names | yes |
 
 Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-drives).

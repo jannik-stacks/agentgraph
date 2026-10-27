@@ -75,7 +75,7 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 | `label` | label name | Adding it to an issue starts a run |
 | `branches` | list of names | Accepted, starts nothing yet |
 
-`dispatch` and `feedback` take no fields: `on: { issues: { label: triage }, dispatch }`. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/engine.ts#feedback -->
+`dispatch` and `feedback` take no fields: `on: { issues: { label: triage }, dispatch }`. `dispatch` lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/engine.ts#feedback -->
 
 ## Steps
 

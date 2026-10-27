@@ -15,7 +15,7 @@ import {
   type IssueWithPull,
 } from './context.ts';
 import { Forge, ForgeError, currentRunLinkRef, withheld } from './forge.ts';
-import type { Applied, Event, Issue } from './event.ts';
+import type { Applied, Comment, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
@@ -358,8 +358,16 @@ const filed = () =>
 /** The reason a run waits while a run it started works. */
 const waitingOn = (child: Run) => `waiting on ${child.id}`;
 
-/** Why the run's `run` proposals may not start: one at a time, of a dispatch workflow, on an open issue in scope that no other live run holds. */
-const undispatchable = (graph: Graph, run: Pick<Run, 'id'>, asked: Extract<Proposal, { kind: 'run' }>[]) =>
+/**
+ * Why the `run` proposals may not start: one at a time, on an open issue in scope that no other live run holds. An agent
+ * may start only a workflow with `on: dispatch`, a human any workflow.
+ */
+const undispatchable = (
+  graph: Graph,
+  run: Pick<Run, 'id'>,
+  asked: Extract<Proposal, { kind: 'run' }>[],
+  isHuman = false
+) =>
   Effect.gen(function* () {
     const [p] = asked;
     if (!p) return [];
@@ -371,15 +379,17 @@ const undispatchable = (graph: Graph, run: Pick<Run, 'id'>, asked: Extract<Propo
     const reason =
       asked.length > 1
         ? 'propose one run at a time'
-        : !w?.on.dispatch
-          ? `${p.workflow} is not a workflow with on: dispatch`
-          : !issue || issue.pull
-            ? `#${p.issue} is not an open issue`
-            : !inScope(graph, issue)
-              ? `#${p.issue} is outside the graph milestone`
-              : held
-                ? `a live run holds #${p.issue}`
-                : undefined;
+        : !w
+          ? `the graph has no workflow ${p.workflow}`
+          : !isHuman && !w.on.dispatch
+            ? `${p.workflow} is not a workflow with on: dispatch`
+            : !issue || issue.pull
+              ? `#${p.issue} is not an open issue`
+              : !inScope(graph, issue)
+                ? `#${p.issue} is outside the graph milestone`
+                : held
+                  ? `a live run holds #${p.issue}`
+                  : undefined;
     return reason === undefined ? [] : asked.map((proposal): Applied => ({ proposal, ok: false, reason }));
   });
 
@@ -388,7 +398,7 @@ const dispatch = (
   graph: Graph,
   run: Pick<Run, 'id'>,
   p: Extract<Proposal, { kind: 'run' }>,
-  seed?: Pick<Run, 'onto' | 'feedback'>
+  seed?: Pick<Run, 'onto' | 'feedback' | 'said'>
 ) =>
   Effect.gen(function* () {
     const at = now();
@@ -418,9 +428,26 @@ const tell = (issue: number, text: string, by: string) =>
     return to;
   });
 
+const spokenByCli = (issue: number, text: string, at: string, parent?: Comment): Event => ({
+  issue,
+  kind: 'comment',
+  actor: 'cli',
+  trusted: true,
+  at,
+  source: 'cli',
+  comment: {
+    id: '',
+    author: 'cli',
+    body: `/agent ${text}`,
+    agentRequest: text,
+    at,
+    ...(parent && { path: parent.path!, line: parent.line, under: parent.under ?? parent.id }),
+  },
+});
+
 export type Instruction =
   | { kind: 'say'; issue: number; text: string; comment?: string }
-  | ({ kind: 'dispatch' } & Omit<Extract<Proposal, { kind: 'run' }>, 'kind'>)
+  | ({ kind: 'dispatch'; text?: string } & Omit<Extract<Proposal, { kind: 'run' }>, 'kind'>)
   | { kind: 'check'; checks: string[]; workflow?: string; issue?: number };
 
 /** CLI instructions use the event handling and dispatch checks of router proposals. */
@@ -440,10 +467,15 @@ export const instruct = (
       return runs.filter(r => r !== undefined);
     }
     if (instruction.kind === 'dispatch') {
-      const p = { ...instruction, kind: 'run' as const };
-      const refused = yield* undispatchable(graph, { id: 'cli' }, [p]);
+      const { text, ...p } = { ...instruction, kind: 'run' as const };
+      const refused = yield* undispatchable(graph, { id: 'cli' }, [p], true);
       if (refused.length) return yield* new ForgeError({ message: refused[0]!.reason! });
-      return [yield* dispatch(graph, { id: 'cli' }, p)];
+      const child = yield* dispatch(graph, { id: 'cli' }, p, text ? { said: [{ issue: p.issue }] } : undefined);
+      if (text)
+        yield* Effect.flatMap(Store, s =>
+          s.trace(child.id, { at: child.started, step: child.step, spoken: spokenByCli(p.issue, text, child.started) })
+        );
+      return [child];
     }
     if (!router(graph)) return yield* new ForgeError({ message: 'graph has no router workflow' });
     const forge = yield* Forge;
@@ -455,22 +487,7 @@ export const instruct = (
     if (instruction.comment !== undefined && (!issue.pull || parent?.path === undefined))
       return yield* new ForgeError({ message: `no review comment ${instruction.comment} on #${issue.number}` });
     const at = now();
-    const event: Event = {
-      issue: issue.number,
-      kind: 'comment',
-      actor: 'cli',
-      trusted: true,
-      at,
-      source: 'cli',
-      comment: {
-        id: '',
-        author: 'cli',
-        body: `/agent ${instruction.text}`,
-        agentRequest: instruction.text,
-        at,
-        ...(parent && { path: parent.path!, line: parent.line, under: parent.under ?? parent.id }),
-      },
-    };
+    const event = spokenByCli(issue.number, instruction.text, at, parent);
     const runs = yield* Effect.flatMap(Store, s => s.list());
     const open = yield* forge.issues({ state: 'open' });
     const owner = runs.find(

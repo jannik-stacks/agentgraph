@@ -60,13 +60,21 @@ The bot's own comments, labels and issues start nothing, and agents cannot add t
 
 ## Dispatch
 
-An agent that may return `run` can start another workflow:
+A human can start any workflow of the graph on an open issue in scope that no live run holds, the router included. `on` decides only what starts a run on its own. A text given with it is what the run was asked, first in its prompt as if a trusted `/agent` comment had started it:
+
+```sh
+agi dispatch 12 "what is left on this issue?" --workflow router
+```
+
+The run's trace records the text as `spoken`, and the run replies where a comment-started run would. <!-- code: src/engine.ts#instruct src/context.ts#formatRequest -->
+
+An agent that may return `run` can start a workflow with `on: dispatch`:
 
 ```json
 {"kind": "run", "workflow": "triage", "issue": 12, "step": "implement"}
 ```
 
-`step` is optional. The target must accept `dispatch`, the issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/engine.ts#undispatchable src/engine.ts#dispatch src/engine.ts#settled -->
+`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/engine.ts#undispatchable src/engine.ts#dispatch src/engine.ts#settled -->
 
 ### Routing
 

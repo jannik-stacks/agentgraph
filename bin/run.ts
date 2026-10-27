@@ -62,7 +62,7 @@ const usage = `usage: agi <verb> [flags]
   export <n> [--as <branch>] [--patch <file>]     writes issue n's branch into your repo again
   close <n>                                       closes issue n
   check [<check>... --runs [--issue <n>]]        validates the graph, or runs checks again on ended runs
-  dispatch <n> --workflow <name> [--step <step>]  starts a workflow that takes dispatch on issue n
+  dispatch <n> ["<text>"] --workflow <name>       starts any workflow on issue n, asked the text; --step <step> picks the step
   studio                                          starts the studio for this repo and prints its URL
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
 flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
@@ -341,6 +341,7 @@ function instructed(): Instruction {
       issue: numbered(),
       workflow: values.workflow!,
       ...(values.step && { step: values.step }),
+      ...(said() && { text: said() }),
     };
   }
   if (!values.runs || rest.length === 0) fail('usage: agi check <check>... --runs [--workflow <name>] [--issue <n>]');
