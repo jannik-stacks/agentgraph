@@ -115,6 +115,8 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
   const key = createHash('sha256').update(real).digest('hex').slice(0, 6);
   const dir = join(resolve(root), `${basename(real)}-${key}-local`);
   const found = readInstance(dir);
+  const paths = [dir, found?.data ?? join(dir, 'data'), origin(found ?? { forge: join(dir, 'forge') })];
+  paths.forEach(assertOutside);
   if (found && (!base || base === found.base) && (!readonly || found.readonly)) return { ...found, made: false };
   const named = found ? found.owner : readOwner(real);
   const i: Instance = found
@@ -130,7 +132,7 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
         ...(readonly && { readonly }),
       };
   await mkdir(i.data, { recursive: true });
-  for (const path of [i.data, origin(i)]) assertOutside(path);
+  paths.forEach(assertOutside);
   if (!found) await git({}, ['init', '-q', '--bare', '-b', i.base, origin(i)]);
   await inForge(i, ['symbolic-ref', 'HEAD', `refs/heads/${i.base}`]);
   writeInstance(i);

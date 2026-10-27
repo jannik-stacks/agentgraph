@@ -8,10 +8,12 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  symlinkSync,
+  mkdirSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
@@ -214,6 +216,10 @@ describe("the user's repo", () => {
     const before = { ...look(seed), objects: files(join(seed, '.git', 'objects'), /^$/) };
     const data = join(root, 'agentgraph-data');
     const i = await ensureInstance(data, seed, 'main', true);
+    const evil = join(root, 'evil');
+    mkdirSync(evil);
+    symlinkSync(join(seed, '.git'), join(evil, basename(i.dir)));
+    await expect(ensureInstance(evil, seed, 'main')).rejects.toThrow('inside');
     expect((await ensureInstance(data, seed)).readonly).toBe(true);
     expect(await ensureBase(i)).toBeUndefined();
     expect(await whyGraphUncommitted(i, await ensureGraph(i))).toBeUndefined();
