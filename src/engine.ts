@@ -75,7 +75,7 @@ const shapes: Record<Said['kind'], string> = {
   issue: [
     '{"kind":"issue","relation":"part","title":"...","body":"...\\n\\n## Done when\\n...","size":"XS|S|M|L|XL","stacks_on":1,"depends_on":[1]}',
     '{"kind":"issue","relation":"follow-up","title":"...","body":"...\\n\\n## Done when\\n..."}',
-    '{"kind":"issue","relation":"graph","title":"...","body":"<the class of miss and the check that would catch it>\\n\\n## Done when\\n..."}',
+    '{"kind":"issue","relation":"graph","title":"...","body":"<the class of miss and what it costs; a check that would catch it is an idea, not a requirement>\\n\\n## Done when\\n..."}',
   ].join('\n'),
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
