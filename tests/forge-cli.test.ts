@@ -704,6 +704,7 @@ describe('an instance', () => {
 
   it('reads .agentgraph from git, else from disk, and holds one loop per data dir', async () => {
     const w = world();
+    git(w.seed, 'config', 'user.name', 'morgan');
     const i = await ensureInstance(join(w.root, 'agentgraph-data'), w.seed);
     await ensureBase(i);
     expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'default'));

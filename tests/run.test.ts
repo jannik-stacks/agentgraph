@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
 import { drive } from '../src/engine.ts';
 import { harnessSession } from '../src/harnesses.ts';
@@ -13,7 +13,7 @@ import type { SessionEvent } from '../src/trace.ts';
 import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { harnesses, makeTestGraph, reply, start, wrote } from './fixtures.ts';
+import { fakeDocker, harnesses, makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
@@ -34,6 +34,8 @@ import {
 } from './world.ts';
 
 describe('drive', () => {
+  beforeAll(() => fakeDocker().restore);
+
   it.each(['docker', 'host'])('preserves the checkout and index when saving work fails: %s', async kind => {
     const where = world();
     const small = makeTestGraph('graph');

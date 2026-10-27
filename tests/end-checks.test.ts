@@ -43,7 +43,7 @@ const left = (where: ReturnType<typeof world>) => {
 };
 
 const git = (where: ReturnType<typeof world>, ...args: string[]) =>
-  execFileSync('git', ['--git-dir', where.origin, ...args], {
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '--git-dir', where.origin, ...args], {
     env: { ...process.env, GIT_INDEX_FILE: join(where.root, 'index') },
   })
     .toString()

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { remoteSandbox } from '../src/remote.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { startBoxServer } from './doubles/box.ts';
+import { fakeDocker } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
 
 const origin = () => {
@@ -41,6 +42,7 @@ describe('remote sandbox', () => {
   beforeAll(async () => {
     server = await startBoxServer(boxes);
   });
+  beforeAll(() => fakeDocker().restore);
   afterAll(() => server.close());
   const layer = () => remoteSandbox({ url: server.url, data: tmp('data'), origin: origin() });
 

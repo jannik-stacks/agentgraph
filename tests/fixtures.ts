@@ -105,10 +105,10 @@ export const makeTestGraph = (graph: string, checks: Record<string, Omit<Check, 
 };
 
 /**
- * Runs `f` with a fake `docker` that logs its arguments and prints `out` for the first key its arguments start with;
- * a `*` in a key matches anything. Each call gets its own state dir.
+ * Puts a fake `docker` first on PATH that logs its arguments and prints `out` for the first key its arguments start
+ * with; a `*` in a key matches anything and any other call succeeds silently. Each call gets its own state dir.
  */
-export const faked = async <A>(out: Record<string, string>, f: (log: () => string) => Promise<A>) => {
+export const fakeDocker = (out: Record<string, string> = {}) => {
   const bin = tmp('bin');
   const log = join(bin, 'log');
   const cases = Object.entries(out)
@@ -125,11 +125,21 @@ export const faked = async <A>(out: Record<string, string>, f: (log: () => strin
   const saved = { PATH: process.env.PATH, AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE };
   process.env.PATH = `${bin}${delimiter}${saved.PATH}`;
   process.env.AGENTGRAPH_STATE = tmp('state');
+  return {
+    log: () => (existsSync(log) ? readFileSync(log, 'utf8') : ''),
+    restore: () => {
+      Object.assign(process.env, saved);
+      if (saved.AGENTGRAPH_STATE === undefined) delete process.env.AGENTGRAPH_STATE;
+    },
+  };
+};
+
+export const faked = async <A>(out: Record<string, string>, f: (log: () => string) => Promise<A>) => {
+  const docker = fakeDocker(out);
   try {
-    return await f(() => (existsSync(log) ? readFileSync(log, 'utf8') : ''));
+    return await f(docker.log);
   } finally {
-    Object.assign(process.env, saved);
-    if (saved.AGENTGRAPH_STATE === undefined) delete process.env.AGENTGRAPH_STATE;
+    docker.restore();
   }
 };
 

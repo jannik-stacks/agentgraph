@@ -39,7 +39,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
     }
     if (op === 'stop') {
       const child = children.get(url.searchParams.get('arg') ?? '');
-      if (child?.exitCode === null) {
+      if (child && child.exitCode === null && child.signalCode === null) {
         const exited = new Promise(resolve => child.once('close', resolve));
         process.kill(-child.pid!, 'SIGKILL');
         await exited;

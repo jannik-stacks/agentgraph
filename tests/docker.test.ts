@@ -20,7 +20,7 @@ import { isOwnerRunning, startHeartbeat } from '../src/owner.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
-import { faked, harnesses, plant } from './fixtures.ts';
+import { fakeDocker, faked, harnesses, plant } from './fixtures.ts';
 import { git, tmp, write } from './kit.ts';
 
 /** A repo with one commit on `main` and a `feature` branch one commit ahead. */
@@ -477,6 +477,8 @@ describe('makeToolchainSetupCommands', () => {
 });
 
 describe('docker checkout', () => {
+  beforeAll(() => fakeDocker().restore);
+
   it('sends the token to clone and fetch through the environment only', async () => {
     const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
     const bin = tmp('git-bin');

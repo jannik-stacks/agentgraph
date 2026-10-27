@@ -893,7 +893,7 @@ describe('temporary', () => {
     symlinkSync('/tmp', linked);
     expect(temporary('/tmp/agentgraph-data')).toEqual(['/tmp/agentgraph-data', '/tmp/agentgraph-data/mirror.git']);
     expect(temporary(linked)).toEqual([linked, join(linked, 'mirror.git')]);
-    expect(temporary(join(homedir(), '.agentgraph'))).toEqual([]);
+    expect(temporary('/srv/agentgraph')).toEqual([]);
   });
 });
 
