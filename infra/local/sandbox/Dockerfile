@@ -3,7 +3,7 @@
 #
 #   docker build -t agentgraph-sandbox:local infra/local/sandbox
 #   infra/local/sandbox/smoke.sh      starts it the way a run does; fails on a missing tool or plugin install
-FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
+FROM node:24-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea
 
 ARG OPENCODE_VERSION=1.19.0
 ARG PI_VERSION=1.1.0
