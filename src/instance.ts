@@ -307,11 +307,12 @@ export const writePullToRepo = async (
     return { ref: resolve(to.patch), base, stat };
   }
   const saved = readInstance(i.dir) ?? i;
-  if (i.readonly || saved.readonly) return { why: `agentgraph does not write to ${i.repo}; pass --patch <file>` };
+  if (saved.readonly) return { why: `agentgraph does not write to ${i.repo}; pass --patch <file>` };
   const name = to.as ?? branch;
   const ref = `refs/heads/${name}`;
   if (!name.startsWith('agentgraph/')) return { why: `${name} is not an agentgraph/ branch` };
-  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head) || !(await isRefName(ref))) return { why: `${name} is not a branch` };
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head) || !(await succeeds(git({}, ['check-ref-format', ref]))))
+    return { why: `${name} is not a branch` };
   const current = await inRepo(i.repo, ['rev-parse', '-q', '--verify', ref], [1]);
   if (current === head) return { ref: name, base, stat };
   const exported = saved.exported[ref];
@@ -322,7 +323,7 @@ export const writePullToRepo = async (
   if (checkedOut.includes(`branch ${ref}`)) return { why: `${name} is checked out in your repo` };
   const haves: string[] = [];
   for (const at of [await inForge(i, ['rev-parse', '-q', '--verify', 'refs/agentgraph/repo'], [1]), exported])
-    if (at && (await isCommitIn(i.repo, at))) haves.push(at);
+    if (at && (await succeeds(inRepo(i.repo, ['cat-file', '-e', `${at}^{commit}`])))) haves.push(at);
   const list = await inForge(i, ['rev-list', '--objects', head, '--not', ...haves]);
   const keep = list ? await sendPack(i, list) : undefined;
   try {
@@ -337,14 +338,8 @@ export const writePullToRepo = async (
   return { ref: name, base, stat };
 };
 
-const isCommitIn = (repo: string, at: string) =>
-  inRepo(repo, ['cat-file', '-e', `${at}^{commit}`]).then(
-    () => true,
-    () => false
-  );
-
-const isRefName = (ref: string) =>
-  git({}, ['check-ref-format', ref]).then(
+const succeeds = (run: Promise<unknown>) =>
+  run.then(
     () => true,
     () => false
   );
