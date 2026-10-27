@@ -96,9 +96,10 @@ export const isLoopHeld = (data: string) =>
 
 /**
  * Reads the settings, the App env file named by `AGENTGRAPH_APP_ENV` and the environment, builds the services, catches up
- * with one sweep and then ticks every `every` minutes under the data dir's loop lock. With `one`, it looks at that issue
- * once, or at every open issue once when `issue` is `'all'`, and resolves with the runs it touched; `base` is the branch
- * workflows that name none start from. An abort of `signal` interrupts it, and a run it drove resumes on the next look.
+ * with one sweep and then ticks every `every` minutes under the data dir's loop lock. Each pass first runs `refresh`,
+ * then reads the settings and builds the services again, so a renewed login reaches it without a restart. With `one`,
+ * it looks at that issue once, or at every open issue once when `issue` is `'all'`, and resolves with the runs it
+ * touched; `base` is the branch workflows that name none start from. An abort of `signal` interrupts it, and a run it drove resumes on the next look.
  */
 export const start = (
   one?: {
@@ -112,11 +113,12 @@ export const start = (
   },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers,
   defaults: Record<string, string> = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  refresh: () => Promise<unknown> = async () => {}
 ): Promise<Run[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
     Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
-  const read = Effect.promise(() => readEngineEnv(defaults));
+  const read = Effect.tryPromise(() => readEngineEnv(defaults));
   const program = one
     ? Effect.gen(function* () {
         const env = yield* read;
@@ -147,27 +149,23 @@ export const start = (
         ).pipe(choose(provider));
       })
     : Effect.gen(function* () {
-        const provider = configured(yield* read);
-        const loop = Effect.gen(function* () {
-          const s = yield* settings;
-          yield* Effect.flatMap(Store, store => store.lock('loop'));
-          yield* warnTemporary(s.data);
-          const look = (pass: (graph: Graph) => Effect.Effect<Run[], unknown, Services>) =>
-            graphAt(s.graph).pipe(
-              Effect.flatMap(pass),
-              Effect.scoped,
-              Effect.catchAll(e => Effect.logError(e))
-            );
-          yield* look(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs));
-          return yield* Effect.forever(
-            Effect.zipRight(
-              Effect.sleep(`${s.every} minutes`),
-              look(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs))
-            )
-          );
-        });
-        yield* provided(Effect.scoped(loop)).pipe(Effect.withConfigProvider(provider));
-        return [];
-      });
+        const s = yield* settings.pipe(Effect.withConfigProvider(configured(yield* read)));
+        yield* Effect.flatMap(Store, store => store.lock('loop')).pipe(Effect.provide(fileStore(s.data)));
+        yield* warnTemporary(s.data);
+        const pass = Effect.tryPromise(refresh).pipe(
+          Effect.catchAll(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
+          Effect.zipRight(read),
+          Effect.flatMap(env =>
+            provided(
+              Effect.flatMap(settings, now => graphAt(now.graph)).pipe(
+                Effect.flatMap(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs)),
+                Effect.scoped
+              )
+            ).pipe(Effect.withConfigProvider(configured(env)))
+          ),
+          Effect.catchAll(e => Effect.logError(e))
+        );
+        return yield* Effect.forever(Effect.zipRight(pass, Effect.sleep(`${s.every} minutes`)));
+      }).pipe(Effect.scoped);
   return Effect.runPromise(program, { signal });
 };

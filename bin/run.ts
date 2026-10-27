@@ -196,6 +196,8 @@ const pickProvider = async (i: Instance, after: string): Promise<{ provider: Pro
   return picked;
 };
 
+const applySettings = (provider: Provider) => async () => void Object.assign(process.env, await provider.settings?.());
+
 const applyNamedProvider = async () => {
   const { providers = [], provider: named } = await Effect.runPromise(readHarnessSettings).catch((e: Error) =>
     fail(e.message, 1)
@@ -203,7 +205,9 @@ const applyNamedProvider = async () => {
   const provider = providers.find(p => p.name === named);
   if (!provider) return;
   if (!(await provider.ready(host))) fail(`${provider.name} is not ready; log in with agi in a repo first`, 1);
-  Object.assign(process.env, (await provider.settings?.()) ?? {});
+  const apply = applySettings(provider);
+  await apply();
+  return apply;
 };
 
 const findUnserved = (provider: Provider, graph: Graph) =>
@@ -227,8 +231,7 @@ const connect = async (i: Instance, graph: string, after: string) => {
     await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))(host).catch(
       (e: Error) => fail(`${e.message}\n${after}`, 1)
     );
-  const settings = await Promise.resolve(provider.settings?.()).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
-  Object.assign(process.env, settings ?? {});
+  await applySettings(provider)().catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   if (!host.sandbox) {
     const missing = await Effect.runPromise(whyModelHostsMissing).catch(() => undefined);
     if (missing) fail(`${missing}\n${after}`, 1);
@@ -291,7 +294,7 @@ async function runOnForge() {
     fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the graph and its env');
   const folder = values.forge && values.forge !== 'github' ? resolve(values.forge) : undefined;
   if (folder) process.env.AGENTGRAPH_FORGE = folder;
-  if (['loop', 'check', 'dispatch'].includes(verb)) await applyNamedProvider();
+  const refresh = ['loop', 'check', 'dispatch'].includes(verb) ? await applyNamedProvider() : undefined;
   const graph = values.dir && resolve(values.dir);
   const needGraph = () => graph ?? fail(`${verb} on a forge needs --dir`);
   switch (verb) {
@@ -303,7 +306,7 @@ async function runOnForge() {
           AGENTGRAPH_DIR: graph,
           AGENTGRAPH_REPO: (await Effect.runPromise(readConfiguredGraph(graph))).repo,
         });
-      await start();
+      await start(undefined, undefined, {}, undefined, refresh);
       return;
     }
     case 'show': {
@@ -622,6 +625,11 @@ async function loop(i: Instance) {
         () => {}
       );
       woken.abort();
+      await applySettings(connection.provider)().catch((e: Error) =>
+        console.error(
+          `${connection.provider.name} settings did not refresh, the next pass keeps the last: ${e.message}`
+        )
+      );
     }
   } finally {
     await release();

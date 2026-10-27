@@ -885,6 +885,39 @@ describe('start with one issue', () => {
   });
 });
 
+describe('the loop', () => {
+  it('reads the settings again each pass and keeps the last ones when the refresh fails', async () => {
+    const where = world();
+    const defaults = {
+      AGENTGRAPH_FORGE: where.forge,
+      AGENTGRAPH_DATA: where.data,
+      AGENTGRAPH_REPO: 'acme/sandbox',
+      AGENTGRAPH_DIR: join(import.meta.dirname, '..', 'examples', 'sandbox'),
+      AGENTGRAPH_EVERY: '0.0001',
+      AGENTGRAPH_SESSION_ENV: 'AGENTGRAPH_TEST_LOGIN',
+    };
+    process.env.AGENTGRAPH_TEST_LOGIN = 'login-0';
+    const seen: string[] = [];
+    const doubles = (s: Settings) => {
+      seen.push(Redacted.value(s.passed.AGENTGRAPH_TEST_LOGIN!));
+      return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), hostSandbox(where.origin), replaySession([]));
+    };
+    const stop = new AbortController();
+    let passes = 0;
+    const refresh = async () => {
+      if (++passes === 4) stop.abort();
+      if (passes === 2) throw new Error('login server down');
+      process.env.AGENTGRAPH_TEST_LOGIN = `login-${passes}`;
+    };
+    try {
+      await expect(main(undefined, doubles, defaults, stop.signal, refresh)).rejects.toThrow();
+      expect(seen.slice(0, 3)).toEqual(['login-1', 'login-1', 'login-3']);
+    } finally {
+      delete process.env.AGENTGRAPH_TEST_LOGIN;
+    }
+  });
+});
+
 describe('temporary', () => {
   it('names a data dir under a temp dir, by its own path or through a link, and its mirror', () => {
     const home = mkdtempSync(join(homedir(), '.agentgraph-test-'));

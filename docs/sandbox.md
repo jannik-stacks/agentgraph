@@ -99,7 +99,7 @@ The CLI [picks a provider](cli.md#picking-a-provider), listed in `agentgraph.con
 
 The first pick of `claude` runs `claude setup-token`, joins a token pasted over several lines, tries it with one small `claude -p` call, and keeps it only when that works.
 
-The first pick of `chatgpt` runs `codex login` with `CODEX_HOME=~/.config/agentgraph/codex`, so agentgraph gets its own login, apart from yours in `~/.codex`. Codex keeps it there in a 0600 file. At each start the host refreshes it when less than 2 days remain. Sessions get the access token only, with the refresh token blanked. codex reads it from `/tmp`, opencode from `OPENCODE_AUTH_CONTENT` through its built-in OpenAI login, and pi as the key of a provider that talks to the Codex backend. Agents run `gpt-6.1-sol`, and `fast` runs `gpt-6-luna`. <!-- code: harnesses/providers.ts#chatgpt harnesses/codex.ts#makeCodexHarness harnesses/opencode.ts#opencode harnesses/pi.ts#pi -->
+The first pick of `chatgpt` runs `codex login` with `CODEX_HOME=~/.config/agentgraph/codex`, so agentgraph gets its own login, apart from yours in `~/.codex`. Codex keeps it there in a 0600 file. At each start and before each loop pass, the host refreshes it when less than 2 days remain. Sessions get the access token only, with the refresh token blanked. codex reads it from `/tmp`, opencode from `OPENCODE_AUTH_CONTENT` through its built-in OpenAI login, and pi as the key of a provider that talks to the Codex backend. Agents run `gpt-6.1-sol`, and `fast` runs `gpt-6-luna`. <!-- code: harnesses/providers.ts#chatgpt harnesses/codex.ts#makeCodexHarness harnesses/opencode.ts#opencode harnesses/pi.ts#pi -->
 
 #### A ChatGPT login in sessions
 
