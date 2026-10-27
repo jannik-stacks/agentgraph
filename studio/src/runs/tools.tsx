@@ -212,10 +212,18 @@ const Prompt = ({ command }: { command: string }) => {
   );
 };
 
+const shellCommand = (input: Input) => {
+  const command = str(pick(input, 'command', 'value'));
+  const [, quote, body = ''] = /^\S*bash -lc (['"])([\s\S]*)\1$/.exec(command) ?? [];
+  if (quote === "'") return body.replaceAll("'\\''", "'");
+  if (quote === '"') return body.replace(/\\(["\\$`])/g, '$1');
+  return command;
+};
+
 const Bash = ({ input, output, ok }: ToolProps) => (
   <>
     {input.description !== undefined && <div className="text-zinc-500">{str(input.description)}</div>}
-    <Prompt command={str(input.command)} />
+    <Prompt command={shellCommand(input)} />
     <Output output={output} ok={ok} lines={6} />
   </>
 );
@@ -403,7 +411,7 @@ const tools: Record<string, { summary: (input: Input) => string; Body: Component
   glob: { summary: i => str(i.pattern), Body: Glob },
   list: { summary: i => rel(i.path), Body: List },
   ls: { summary: i => rel(i.path), Body: List },
-  bash: { summary: i => clip(str(i.command).split('\n')[0] ?? ''), Body: Bash },
+  bash: { summary: i => clip(shellCommand(i).split('\n')[0] ?? ''), Body: Bash },
   edit: { summary: i => rel(pickFilePath(i)), Body: Edit },
   write: { summary: i => rel(pickFilePath(i)), Body: Write },
   todowrite: {

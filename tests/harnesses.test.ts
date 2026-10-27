@@ -672,7 +672,7 @@ describe('codex', () => {
     ].map(line => JSON.stringify(line));
     const { events: got } = await events(codex, lines);
     expect(got.map(e => e.type)).toEqual(['start', 'thinking', 'tool', 'tool', 'text', 'usage', 'end']);
-    expect(got[2]).toMatchObject({ name: 'bash', input: 'ls', ok: true, output: 'a.ts' });
+    expect(got[2]).toMatchObject({ name: 'bash', input: { command: 'ls' }, ok: true, output: 'a.ts' });
     expect(got[3]).toMatchObject({ name: 'edit', ok: false });
     expect(got[5]).toMatchObject({ input: 100, output: 5, cacheRead: 60 });
     expect(got.at(-1)).toEqual({ type: 'end', final: 'done', ended: 'stop', exit: 0 });

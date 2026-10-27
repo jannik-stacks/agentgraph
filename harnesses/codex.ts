@@ -82,7 +82,7 @@ export const makeCodexHarness = (): Harness => ({
               type: 'tool',
               id: item.id ?? '',
               name: item.type === 'file_change' ? 'edit' : 'bash',
-              input: item.type === 'file_change' ? item.changes : item.command,
+              input: item.type === 'file_change' ? item.changes : { command: item.command },
               ok: item.status !== 'failed' && (item.exit_code ?? 0) === 0,
               output: item.aggregated_output ?? '',
             },
