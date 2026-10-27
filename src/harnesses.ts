@@ -26,7 +26,7 @@ export type Harness = HarnessCheck & {
   command: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
-  ) => Pick<Command, 'cmd' | 'args'> & Partial<Pick<Command, 'env'>>;
+  ) => Pick<Command, 'cmd' | 'args'> & Partial<Pick<Command, 'env' | 'readonly'>>;
   parse: () => (line: unknown) => Piece[];
 };
 
@@ -85,6 +85,8 @@ export const makeHarnessConfigProvider = (
 
 /** Runs the harness with its errors on the one stream it prints to, so the lines keep their order. */
 const wrapped = (cmd: string, args: string[]) => ({ cmd: 'sh', args: ['-c', 'exec "$@" 2>&1', 'sh', cmd, ...args] });
+
+const isWritingTool = (tool: string) => /^(edit|write|bash)(\(|$)/.test(tool);
 
 /** `name=value` pairs, separated by commas or white space. */
 const parseNamePairs = (text: string) =>
@@ -194,7 +196,7 @@ export const harnessSession = (
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });
-            const { cmd, args, env = {} } = harness.command(spec, route);
+            const { cmd, args, env = {}, readonly } = harness.command(spec, route);
             const hidden = Object.values(secrets)
               .map(secret => Redacted.value(secret))
               .flatMap(secret => [secret, ...secret.split(/[\n"]/)])
@@ -252,6 +254,7 @@ export const harnessSession = (
                 ...wrapped(cmd, args),
                 dir: spec.dir,
                 home,
+                readonly: !!readonly || !spec.tools.some(isWritingTool),
                 env: { ...env, ...(spec.base && { AGENTGRAPH_BASE: spec.base }) },
                 secrets,
                 network: 'proxy',

@@ -43,7 +43,7 @@ export const makeCodexHarness = (): Harness => ({
       cmd: 'codex',
       args: [
         'exec',
-        ...(writes(spec.tools) ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', 'read-only']),
+        '--dangerously-bypass-approvals-and-sandbox',
         ...(resume ? ['resume', resume.id] : []),
         '--json',
         '--skip-git-repo-check',
@@ -66,7 +66,10 @@ export const makeCodexHarness = (): Harness => ({
         resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
       ],
     };
-    return route.url ? command : { cmd: 'sh', args: ['-c', writeAuth, 'sh', command.cmd, ...command.args] };
+    const readonly = !writes(spec.tools);
+    return route.url
+      ? { ...command, readonly }
+      : { cmd: 'sh', args: ['-c', writeAuth, 'sh', command.cmd, ...command.args], readonly };
   },
   parse: () => {
     let failed: string | undefined;

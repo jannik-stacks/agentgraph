@@ -139,6 +139,33 @@ describe('docker with a stand-in docker client', () => {
     expect(args).toContain('AGENTGRAPH_DIR=/graph');
   });
 
+  it('mounts the work tree, git dirs and shared volumes read-only for a read-only command, but not its home', () => {
+    const box = {
+      mounts: [
+        { src: '/m', dst: '/m', readonly: true },
+        { src: '/m/worktrees/w', dst: '/m/worktrees/w' },
+      ],
+      sharedMounts: [
+        { name: 'deps', dst: '/work/node_modules' },
+        { name: 'own-c', dst: '/cache' },
+      ],
+    };
+    const args = (readonly: boolean) =>
+      dockerArgs(command('/w', { home: '/h', readonly }), 'img', 'n', box, 'agentgraph-cache').filter(a =>
+        /^type=|^npm_config_cache=/.test(a)
+      );
+    expect(args(true)).toEqual([
+      'type=bind,src=/w,dst=/work,readonly',
+      'type=bind,src=/h,dst=/home/agent',
+      'type=bind,src=/m,dst=/m,readonly',
+      'type=bind,src=/m/worktrees/w,dst=/m/worktrees/w,readonly',
+      'type=volume,src=deps,dst=/work/node_modules,volume-nocopy,readonly',
+      'type=volume,src=own-c,dst=/cache,volume-nocopy,readonly',
+      'npm_config_cache=/tmp/npm',
+    ]);
+    expect(args(false).filter(a => a.endsWith(',readonly'))).toEqual(['type=bind,src=/m,dst=/m,readonly']);
+  });
+
   it('has no network without the proxy and returns any exit code', async () => {
     const exit = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'fail'] })));
     expect(Exit.isSuccess(exit) && exit.value.code).toBe(3);

@@ -98,9 +98,22 @@ const BAD_SETTINGS = [
 
 const LEAKY_PATHS = ['../escape', '/escape', 'a/../../escape', 'a//b', './a'];
 
+const READ_ONLY_SESSIONS = [
+  ...['claude', 'opencode', 'pi', 'codex'].flatMap(harness => [
+    [harness, ['read', 'grep', 'glob'], true] as const,
+    [harness, ['read', 'edit', 'write', 'bash'], false] as const,
+  ]),
+  ['claude', ['read', 'bash(npm test*)'], false] as const,
+  ['codex', ['read', 'bash(npm test*)'], true] as const,
+];
+
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 
 describe('the session loop', () => {
+  it.each(READ_ONLY_SESSIONS)('runs %s with %j read-only: %s', async (harness, tools, readonly) => {
+    expect((await session({ ...spec, harness, tools: [...tools] }, [])).command.readonly).toBe(readonly);
+  });
+
   it('prices usage at list price from the price table, cached input at its own rate', async () => {
     const prices = join(mkdtempSync(join(tmpdir(), 'agentgraph-prices-')), 'prices.json');
     writeFileSync(
@@ -581,20 +594,28 @@ describe('codex', () => {
     const { exit, command } = await session(codex, [], { proxy });
     expect(Exit.isSuccess(exit)).toBe(true);
     const args = codexArgs(command);
-    expect(args.slice(0, 4)).toEqual(['exec', '--sandbox', 'read-only', '--json']);
+    expect(args.slice(0, 3)).toEqual(['exec', '--dangerously-bypass-approvals-and-sandbox', '--json']);
     expect(args[args.indexOf('--model') + 1]).toBe('gpt-y');
     expect(args.at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
     const { model: _, ...bare } = codex;
     const { command: unnamed } = await session({ ...bare, resume: resumable() }, [], { proxy });
-    expect(codexArgs(unnamed).slice(0, 5)).toEqual(['exec', '--sandbox', 'read-only', 'resume', 't1']);
+    expect(codexArgs(unnamed).slice(0, 4)).toEqual([
+      'exec',
+      '--dangerously-bypass-approvals-and-sandbox',
+      'resume',
+      't1',
+    ]);
     expect(codexArgs(unnamed)[codexArgs(unnamed).indexOf('--model') + 1]).toBe('gpt-x');
   });
 
-  it('keeps a read-only agent in its read-only sandbox and starts a fork fresh', async () => {
+  it('leaves a read-only agent to a read-only sandbox mount, not its own sandbox, and starts a fork fresh', async () => {
     const { command: reader } = await session(codex, [], { proxy });
-    expect(codexArgs(reader)).toContain('read-only');
+    expect(codexArgs(reader)).toContain('--dangerously-bypass-approvals-and-sandbox');
+    expect(codexArgs(reader)).not.toContain('--sandbox');
+    expect(reader.readonly).toBe(true);
     const { command: writer } = await session({ ...codex, tools: ['read', 'edit', 'write', 'bash'] }, [], { proxy });
     expect(codexArgs(writer)).toContain('--dangerously-bypass-approvals-and-sandbox');
+    expect(writer.readonly).toBe(false);
     const { command: forked } = await session({ ...codex, resume: resumable(), fork: true }, [], { proxy });
     expect(codexArgs(forked)).not.toContain('resume');
     expect(codexArgs(forked).at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);

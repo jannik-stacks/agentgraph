@@ -1,7 +1,7 @@
 import { Context, Data, type Effect, type Redacted, type Stream, type Scope } from 'effect';
 import type { Graph } from './folder.ts';
 
-/** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given. */
+/** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given and, with `readonly`, the only mount it can write. */
 export type Command = {
   cmd: string;
   args: string[];
@@ -9,6 +9,7 @@ export type Command = {
   /** The graph directory, readable by the command as `$AGENTGRAPH_DIR`, never writable. */
   graph?: string;
   home?: string;
+  readonly?: boolean;
   env: Record<string, string>;
   secrets?: Record<string, Redacted.Redacted>;
   /** `open` reaches any host. */

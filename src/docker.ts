@@ -92,7 +92,8 @@ const scratch = Object.fromEntries(
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
  * the only routes out are the `direct` model hosts and, unless the graph's network is `models`, the egress allowlist; with
  * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`, read-only unless a shared
- * mount overlays it there; each shared mount is a volume at its path.
+ * mount overlays it there; each shared mount is a volume at its path. A `readonly` command gets every mount read-only
+ * but its home.
  */
 export const dockerArgs = (
   c: Command,
@@ -128,12 +129,12 @@ export const dockerArgs = (
   size.cpus,
   '--pids-limit',
   size.pids,
-  ...bind({ src: c.dir, dst: inside.work }),
+  ...bind({ src: c.dir, dst: inside.work, readonly: !!c.readonly }),
   ...(c.home ? bind({ src: c.home, dst: inside.home }) : []),
   ...(c.graph ? bind({ src: c.graph, dst: inside.graph, readonly: true }) : []),
-  ...mounts.flatMap(bind),
+  ...mounts.flatMap(m => bind({ ...m, readonly: !!(m.readonly || c.readonly) })),
   ...(cache && !sharedMounts.some(l => l.dst === inside.cache) ? volume(cache, inside.cache, false, true) : []),
-  ...sharedMounts.flatMap(l => volume(l.name, l.dst, true)),
+  ...sharedMounts.flatMap(l => volume(l.name, l.dst, true, c.readonly)),
   '--workdir',
   inside.work,
   ...Object.entries({
@@ -142,7 +143,7 @@ export const dockerArgs = (
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'safe.directory',
     GIT_CONFIG_VALUE_0: '*',
-    ...(cache && (sharedMounts.some(l => l.dst === inside.cache) ? packageManagerCacheEnv : scratch)),
+    ...(cache && (!c.readonly && sharedMounts.some(l => l.dst === inside.cache) ? packageManagerCacheEnv : scratch)),
     ...(c.network === 'proxy' &&
       network === 'egress' && {
         HTTPS_PROXY: egress,
