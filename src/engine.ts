@@ -2115,10 +2115,10 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
 
 /**
  * Answers what a human said to a run waiting at a human step: a fork of the session of the step it goes back to, in a
- * throwaway checkout of the pull request head. Its comments land under the thread and the run keeps waiting; a `back`
- * comes back as the outcome, with the fork as that step's session.
+ * throwaway checkout of the pull request head. Its comments land on pull request `number` and the run keeps waiting; a
+ * `back` comes back as the outcome, with the fork as that step's session, even when the reply could not land.
  */
-const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNullable<Issue['pull']>) =>
+const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNullable<Issue['pull']>, number: number) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;
@@ -2167,9 +2167,17 @@ const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNulla
     const back = proposals.find(p => p.kind === 'back');
     const landed = yield* land(
       run,
-      proposals.filter(p => p.kind === 'comment')
-    ).pipe(writing(run, r.id));
-    if (!landed.some(a => a.ok)) return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
+      proposals.filter(p => p.kind === 'comment'),
+      undefined,
+      number
+    ).pipe(
+      writing(run, r.id),
+      Effect.catchTag('ForgeError', e =>
+        back ? Effect.as(Effect.logWarning(`aside reply of run ${run.id}`, e), []) : e
+      )
+    );
+    if (!back && !landed.some(a => a.ok))
+      return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
     const undone = landed.some(a => a.ok) && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* store.trace(
       run.id,
@@ -2393,13 +2401,13 @@ export const tick = (
           said: heard([m, ...took.filter(a => a !== m)]),
         });
         const step = w.steps.find(s => s.name === run.step);
-        const pull = issues.find(t => t.number === findPullNumber(w, run.issue, issues))?.pull;
+        const pr = issues.find(t => t.number === findPullNumber(w, run.issue, issues));
         const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
           outcome.kind !== 'answer' || !step || !isHumanWaitStep(step)
             ? undefined
             : yield* (
-                pull
-                  ? aside(w, seen, graph, outcome.text, pull)
+                pr?.pull
+                  ? aside(w, seen, graph, outcome.text, pr.pull, pr.number)
                   : step.back
                     ? Effect.succeed({ run: seen, outcome: { kind: 'back', why: outcome.text } as const })
                     : Effect.fail(

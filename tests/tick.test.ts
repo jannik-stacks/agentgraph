@@ -552,6 +552,54 @@ describe('tick', () => {
     ]);
   });
 
+  it('replies under a review thread on the pull request when the change was asked on the issue', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    const lined = comment(8, 'morgan', true, 'not this example', '2026-10-16T00:00:02.000Z');
+    say(where, { ...lined, comment: { ...lined.comment!, id: 'r1', path: 'hello.txt', line: 1 } });
+    say(where, comment(7, 'morgan', true, '/agent drop the example', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [
+      [start('f'), reply({ kind: 'comment', body: 'Will drop it.', under: 'r1' }, { kind: 'back', why: 'drop it' })],
+      [start('f'), wrote('hello.txt', 'hello\n'), reply(push)],
+    ]);
+    await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    expect(specs).toHaveLength(2);
+    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Will drop it.');
+    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Will drop it.');
+  });
+
+  it('goes back when the aside proposes back, even if its reply cannot land', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    say(where, comment(8, 'morgan', true, '/agent drop the example', '2026-10-16T00:00:05.000Z'));
+    const specs: unknown[] = [];
+    const failing = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
+          p.kind === 'comment' && p.body === 'boom'
+            ? Effect.fail(new ForgeError({ status: 403, message: 'forbidden' }))
+            : f.apply(n, p, work),
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const recording = Layer.effect(
+      Session,
+      Effect.map(Session, s => ({ open: (spec: SessionSpec) => (specs.push(spec), s.open(spec)) }))
+    ).pipe(
+      Layer.provide(
+        replaySession([
+          [start('f'), reply({ kind: 'comment', body: 'boom' }, { kind: 'back', why: 'drop it' })],
+          [start('f'), wrote('hello.txt', 'hello\n'), reply(push)],
+        ])
+      )
+    );
+    const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), recording);
+    await Effect.runPromise(Effect.zipRight(waiting(where), tick(merging, 7)).pipe(Effect.provide(layer)));
+    expect(specs).toHaveLength(2);
+    expect((specs[1] as SessionSpec).prompt).toMatch(/^the merge step sent this back: drop it/);
+  });
+
   it('consumes an approval arriving during an aside on the next tick', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
