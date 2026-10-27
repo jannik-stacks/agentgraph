@@ -260,7 +260,7 @@ describe('coworker', () => {
     });
     await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
     expect(specs[1]!.resume?.id).toBe('a');
-    expect(specs[1]!.prompt).toBe(
+    expect(specs[1]!.prompt.split('\n\nEnd your reply')[0]).toBe(
       'hello\n\n## New since you last looked\n\n#7 @morgan: /agent hello\n\n#8 @ana pushed abcdef1 Tweak the greeting'
     );
   });
@@ -273,11 +273,11 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'comment', body: 'ok' })],
     ]);
     const again = await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
-    expect(specs[1]!.prompt).toBe('hello');
+    expect(specs[1]!.prompt.split('\n\nEnd your reply')[0]).toBe('hello');
     pullRequest(where, 'b2');
     say(where, check(8, 'test', 'success', later(3)));
     await run(driveStored(flow, transition(flow, again, { kind: 'answer', text: 'go on' }), small));
-    expect(specs[2]!.prompt).toBe(
+    expect(specs[2]!.prompt.split('\n\nEnd your reply')[0]).toBe(
       'go on\n\n## New since you last looked\n\nThe base main moved to b2.\n\n#8 check test: success'
     );
   });

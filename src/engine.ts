@@ -1262,6 +1262,11 @@ const attempt = (
       /** A step that judges the change, and does not fan out over it, opens on the whole of it. */
       const diff = step.back && !step.each && !kept ? yield* readCheckoutDiff(work) : '';
       if (agent.reads) yield* traced(graph, run.issue, run.id, work);
+      const ending = [
+        'End your reply with a fenced agentgraph block holding a JSON array of proposals. The runner commits, pushes,',
+        'opens pull requests and posts comments from them, so do not run git or gh yourself. The shape of each kind:',
+        ...kinds.map(k => shapes[k as keyof typeof shapes]),
+      ].join('\n');
       const prompt = [
         formatRequest(t, run.started),
         ...[step.does.skill, ...(graph.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && graph.skills[s]?.body),
@@ -1282,11 +1287,7 @@ const attempt = (
         agent.reads && tracesAt(work),
         agent.returns.includes('issue') && (yield* filed()),
         run.feedback,
-        [
-          'End your reply with a fenced agentgraph block holding a JSON array of proposals. The runner commits, pushes,',
-          'opens pull requests and posts comments from them, so do not run git or gh yourself. The shape of each kind:',
-          ...kinds.map(k => shapes[k as keyof typeof shapes]),
-        ].join('\n'),
+        ending,
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -1346,7 +1347,7 @@ const attempt = (
         yield* refresh(run, work, caught.seen, t);
         const r = yield* talk(
           kept
-            ? [run.feedback ?? 'Continue.', caught.text].filter(Boolean).join('\n\n')
+            ? [run.feedback ?? 'Continue.', caught.text, ending].filter(Boolean).join('\n\n')
             : item === undefined
               ? prompt
               : `${prompt}\n\n## Item\n\n${item}`,
@@ -1429,6 +1430,7 @@ const attempt = (
           checks: [],
           proposals: [],
           problems: [
+            ...problems,
             unpushed
               ? 'files changed but nothing was pushed: end with a push proposal, which the runner commits and pushes, or ask'
               : 'a pass needs a pull request or an ask',

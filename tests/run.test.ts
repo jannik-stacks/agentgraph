@@ -283,7 +283,7 @@ describe('drive', () => {
     ]);
     expect(specs[2]!.prompt).toContain('+TODO');
     expect(specs[3]!.prompt).toMatch(/^types: /);
-    expect(specs[6]!.prompt).toBe('the review step sent this back: say hello world');
+    expect(specs[6]!.prompt.split('\n\nEnd your reply')[0]).toBe('the review step sent this back: say hello world');
     expect(specs[1]!.prompt).toContain('Add hello.txt.');
     expect(specs[5]!.prompt).toContain('no hunk needs a change before it can merge');
     expect(specs[5]!.prompt).toContain('+hello');

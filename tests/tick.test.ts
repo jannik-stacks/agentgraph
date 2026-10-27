@@ -582,9 +582,24 @@ describe('tick', () => {
       await run(Effect.zipRight(waiting(where), tick(merging, 7)));
       expect(specs).toHaveLength(3);
       expect(specs[2]!.prompt).toContain('files changed but nothing was pushed');
+      expect(specs[2]!.prompt).toContain('{"kind":"push","branch"');
       expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
     }
   );
+
+  it('tells a try that changes files and sends a malformed push why it did not parse', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    say(where, comment(8, 'morgan', true, '/agent drop the example', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [
+      [start('f'), reply({ kind: 'comment', body: 'Will drop it.' }, { kind: 'back', why: 'drop it' })],
+      [start('f'), wrote('hello.txt', 'hello\n'), reply({ kind: 'push', message: 'drop it' } as Proposal)],
+      [start('f'), reply(push)],
+    ]);
+    await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    expect(specs[2]!.prompt).toContain('proposal 1: write it as {"kind":"push","branch"');
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
+  });
 
   it('goes back when the aside proposes back, even if its reply cannot land', async () => {
     const where = world();
