@@ -11,7 +11,7 @@ import type { Sandbox } from '../src/sandbox.ts';
 import type { Session } from '../src/session.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { fileStore, Store } from '../src/store.ts';
-import { begin } from '../src/workflow.ts';
+import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start } from './fixtures.ts';
@@ -443,5 +443,92 @@ describe('dispatch', () => {
     const tried = await run(other, Array(3).fill(turn({ kind: 'run', workflow: 'triage', issue: 1 })), tick(unbounded));
     expect(tried.value[0]!.reason).toContain('triage may not propose run');
     expect((await runs(other)).map(r => r.workflow)).toEqual(['triage']);
+  });
+});
+
+const putRun = (where: ReturnType<typeof world>, r: Run) =>
+  Effect.runPromise(Effect.flatMap(Store, s => s.put(r)).pipe(Effect.provide(fileStore(where.data))));
+const shut = (where: ReturnType<typeof world>, n: number, state: 'closed' | 'merged') => {
+  const file = join(where.forge, `${n}.md`);
+  writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${state}`));
+};
+const openPull = (where: ReturnType<typeof world>, n: number, branch: string) => {
+  writeFileSync(join(where.forge, `${n}.md`), `---\ntitle: Pull ${n}\nstate: open\nauthor: morgan\n---\n\nCloses #1\n`);
+  mkdirSync(join(where.forge, String(n)), { recursive: true });
+  writeFileSync(
+    join(where.forge, String(n), 'pull.json'),
+    JSON.stringify({ branch, base: 'main', head: 'x', baseSha: 'b1' })
+  );
+};
+const sayOn = (where: ReturnType<typeof world>, m: Event) =>
+  appendFileSync(join(where.forge, `${m.issue}.jsonl`), `${JSON.stringify(m)}\n`);
+const command = (issue: number, body: string, s: number): Event => ({
+  issue,
+  kind: 'comment',
+  actor: 'morgan',
+  trusted: true,
+  at: at(s),
+  comment: { id: `c${s}`, author: 'morgan', body, at: at(s) },
+});
+const ended = (workflow: 'issue' | 'triage', issue: number, s: number): Run => ({
+  ...begin(graph.workflows[workflow]!, { id: `${workflow}-${issue}`, issue, started: at(s) }),
+  status: 'done',
+});
+const filed = turn({ kind: 'comment', body: 'Filed a follow-up.' });
+
+describe('/agent after a close or merge', () => {
+  it('starts the router on a command on a closed issue', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+    ]);
+    shut(where, 1, 'closed');
+    await putRun(where, ended('triage', 2, 0));
+    sayOn(where, command(1, '/agent file a follow-up for the docs', 5));
+    const { value } = await run(where, [filed], scanIssuesAndRunningRuns(graph));
+    expect(value.map(r => [r.workflow, r.issue, r.status])).toEqual([['router', 1, 'done']]);
+  });
+
+  it('starts the router on a command on a merged pull request whose run is done', async () => {
+    const where = world();
+    openPull(where, 2, 'agentgraph/1');
+    shut(where, 1, 'closed');
+    shut(where, 2, 'merged');
+    await putRun(where, ended('issue', 1, 0));
+    sayOn(where, { issue: 2, kind: 'merged', actor: 'morgan', trusted: true, at: at(3) });
+    sayOn(where, command(2, '/agent file a follow-up for the docs', 5));
+    const { value } = await run(where, [filed], scanIssuesAndRunningRuns(graph));
+    expect(value.map(r => [r.workflow, r.issue, r.status])).toEqual([['router', 2, 'done']]);
+  });
+
+  it('starts the router on a command on an open pull request no run works on', async () => {
+    const where = world();
+    openPull(where, 2, 'feature/docs');
+    git(where.origin, 'branch', 'feature/docs', 'main');
+    await putRun(where, ended('triage', 1, 0));
+    sayOn(where, command(2, '/agent file a follow-up for the docs', 5));
+    const { value } = await run(where, [filed], scanIssuesAndRunningRuns(graph));
+    expect(value.map(r => [r.workflow, r.issue, r.status])).toEqual([['router', 2, 'done']]);
+  });
+
+  it('hands a command said before the merge to the router once the merge ends the run', async () => {
+    const where = world();
+    openPull(where, 2, 'agentgraph/1');
+    await putRun(where, {
+      ...begin(graph.workflows.issue!, { id: 'issue-1', issue: 1, started: at(0) }),
+      step: 'merge',
+      status: 'waiting',
+    });
+    sayOn(where, command(2, '/agent file a follow-up for the docs', 5));
+    sayOn(where, { issue: 2, kind: 'merged', actor: 'morgan', trusted: true, at: at(6) });
+    sayOn(where, { issue: 1, kind: 'closed', actor: 'morgan', trusted: true, at: at(6) });
+    shut(where, 1, 'closed');
+    shut(where, 2, 'merged');
+    const { value } = await run(where, [filed], scanIssuesAndRunningRuns(graph));
+    expect(value.map(r => [r.workflow, r.issue, r.status]).toSorted()).toEqual([
+      ['issue', 1, 'done'],
+      ['router', 2, 'done'],
+    ]);
+    expect(value.find(r => r.workflow === 'router')!.said).toEqual([{ issue: 2 }]);
   });
 });

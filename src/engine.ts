@@ -1834,7 +1834,9 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
           : named;
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
-        (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
+        ((issue.state === 'open' ? issue.pull?.branch : undefined) ??
+          current.base?.branch ??
+          expand(w.base ?? 'main', issue));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, graph));
       if (own && made.saved) {
         const message = yield* text(made, ['log', '-1', '--format=%B', made.saved]);
@@ -2184,11 +2186,16 @@ export const tick = (
     );
     const origin = new Map<Event, number>();
     const onRun = (m: Event): Event => {
-      const r = runs.find(
+      const r = all.find(
         r =>
           r.issue !== m.issue &&
           graph.workflows[r.workflow] &&
-          findPullNumber(graph.workflows[r.workflow]!, r.issue, [...issues, ...merged]) === m.issue
+          !retro(graph, r) &&
+          findPullNumber(
+            graph.workflows[r.workflow]!,
+            r.issue,
+            m.kind === 'comment' ? issues : [...issues, ...merged]
+          ) === m.issue
       );
       if (!r) return m;
       const moved = { ...m, issue: r.issue };
@@ -2458,7 +2465,8 @@ export const tick = (
             : undefined;
       const [verb = '', step = ''] = named ? words.slice(1) : words;
       const restart = /^restart$/i.test(verb) ? step : undefined;
-      if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || young(m.issue)) continue;
+      if (!w || (used.has(m) && restart === undefined) || !m.trusted || young(m.issue)) continue;
+      if (!open.has(m.issue) && (m.kind !== 'comment' || !inScope(graph, yield* forge.issue(m.issue)))) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
       const concerns = (name: string) => m.kind !== 'comment' || !routed || !!graph.workflows[name]?.on.issue_comment;
       if (
@@ -2588,20 +2596,27 @@ export const tick = (
   });
 
 /**
- * One pass over the open issues and the issues of live runs, up to `limits.parallel` at once: each gets one look, and a
- * new run only on a trusted mark. Each issue is read from its own last run on, so it catches up on what a repo-wide
- * look has passed. `debounce` is as for `tick`.
+ * One pass over the open issues, the issues of live runs and wherever a trusted `/agent` was said since the newest run
+ * began, closed or merged ones too, up to `limits.parallel` at once: each gets one look, and a new run only on a trusted
+ * mark. Each issue is read from its own last run on, so it catches up on what a repo-wide look has passed. `debounce` is
+ * as for `tick`.
  */
 export const scanIssuesAndRunningRuns = (
   graph: Graph,
   debounce = 0
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
-    const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(
-      t => !t.pull && inScope(graph, t)
-    );
-    const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(r => !isRunDone(r) || r.owed);
-    const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
+    const forge = yield* Forge;
+    const open = (yield* forge.issues({ state: 'open' })).filter(t => !t.pull && inScope(graph, t));
+    const all = yield* Effect.flatMap(Store, s => s.list());
+    const runs = all.filter(r => !isRunDone(r) || r.owed);
+    const from = newest(...all.map(r => r.started));
+    const said =
+      from === undefined
+        ? []
+        : Chunk.toArray(yield* Stream.runCollect(forge.since(new Date(Date.parse(from) - debounce).toISOString())));
+    const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
+    const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue), ...asked])];
     return (yield* Effect.forEach(issues, n => tick(graph, n, true, debounce), {
       concurrency: graph.limits.parallel,
     })).flat();
