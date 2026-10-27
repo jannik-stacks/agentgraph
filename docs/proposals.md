@@ -37,6 +37,8 @@ A refused write fails the try. Any other GitHub error parks the run with a quest
 
 ## Comments
 
+An agent posts only the kinds its `returns` lists, so a reviewer that returns `[back]` keeps its findings in the run: a pass leaves its reply in the trace, and `back` hands it to the next step as feedback.
+
 A comment goes where a person started or woke the run, else to the branch's open pull request, else the issue. `under` names a review comment to reply under. When people spoke in several places, a comment without `under` posts once, at top level if one of them was. <!-- code: src/engine.ts#land -->
 
 ## Pushes

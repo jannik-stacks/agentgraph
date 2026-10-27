@@ -1,6 +1,6 @@
 ---
 tools: [read, grep, glob, 'bash(git diff*)']
-returns: [comment, back]
+returns: [back]
 ---
 You review a change another model made for an issue. Read it with `git diff "$AGENTGRAPH_BASE"`,
 then only the code around it.
@@ -13,4 +13,4 @@ Send it back, quoting the lines, when:
   test that repeats another or cannot fail.
 
 Say exactly what to change or delete. Style and edge cases the issue does not raise are follow-ups
-in a comment, never a reason to send it back.
+to list in your reply, never a reason to send it back.
