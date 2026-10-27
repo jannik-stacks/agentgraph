@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open as openFile, rm, symlink } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Config, ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
 import { type HarnessCheck, GraphError, loadGraph } from './folder.ts';
@@ -182,14 +182,20 @@ export const harnessSession = (
             const secrets = { ...s.passed, ...(key && { [harness.key]: Redacted.make(key) }) };
             const { files = {}, links = {} } = harness.home?.(spec, route) ?? {};
             const homes = join(s.data, 'homes');
-            const home = (!spec.fork && spec.resume?.home) || join(homes, randomUUID());
+            const from = spec.resume && join(homes, basename(spec.resume.home));
+            const home = (!spec.fork && from) || join(homes, randomUUID());
             yield* Effect.tryPromise({
               try: async () => {
-                const from = spec.resume?.home;
-                if (from && (dirname(resolve(from)) !== resolve(homes) || !(await lstat(from)).isDirectory()))
-                  throw new Error(`${from} is not a session home in ${homes}`);
-                if (spec.fork && spec.resume)
-                  await cp(spec.resume.home, home, { recursive: true, verbatimSymlinks: true });
+                if (
+                  from &&
+                  (dirname(resolve(from)) !== resolve(homes) ||
+                    !(await lstat(from).then(
+                      s => s.isDirectory(),
+                      () => false
+                    )))
+                )
+                  throw new Error(`${spec.resume!.home} is not a session home in ${homes}`);
+                if (spec.fork && from) await cp(from, home, { recursive: true, verbatimSymlinks: true });
                 await mkdir(home, { recursive: true });
                 for (const [path, text] of Object.entries(files)) await writeHome(home, path, text);
                 for (const [path, target] of Object.entries(links)) await linkHome(home, path, target);

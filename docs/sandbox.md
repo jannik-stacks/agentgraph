@@ -82,7 +82,7 @@ An agent's `harness` picks the session program. The operator's `agentgraph.confi
 | `claude` | Patterns; a tool it lacks fails the graph check; commit and pull request attribution is off | `--resume <id> --fork-session` |
 | `codex` | `edit`, `write` and `bash` together give every tool, else a read-only `/work`; some of the three fails the check. Codex's own sandbox stays off, as it needs namespaces the container forbids | none, a fresh session |
 
-Agent `tools` defaults to none. Session homes under `homes/` in the data folder persist across resumes. <!-- code: src/harnesses.ts#harnessSession -->
+Agent `tools` defaults to none. Session homes under `homes/` in the data folder persist across resumes; a resume finds its home by name there, so a moved data folder keeps them. <!-- code: src/harnesses.ts#harnessSession -->
 
 ## Models
 

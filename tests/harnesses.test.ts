@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { makeCodexHarness } from '../harnesses/codex.ts';
@@ -276,6 +276,13 @@ describe('the session loop', () => {
     expect(command.home).toBe(home);
     expect(harnessArgs(command)).toContain('--session');
     expect(got[0]).toMatchObject({ type: 'start', home });
+  });
+
+  it('resumes a session home recorded under a data dir that has since moved', async () => {
+    const home = makeHome();
+    const moved = { id: 'ses_1', home: join('/old/data/homes', basename(home)) };
+    const { command } = await events({ ...spec, resume: moved }, sample('opencode-run.jsonl'));
+    expect(command.home).toBe(home);
   });
 
   it.each([
