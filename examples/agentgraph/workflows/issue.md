@@ -1,5 +1,5 @@
 ---
-on: { issue_comment: {} }
+on: { issues: { label: agent:ready }, issue_comment: {} }
 branch: agentgraph/{issue}
 steps:
   triage: { agent: triager, tries: 2, checks: [hygiene] }
