@@ -196,6 +196,16 @@ const pickProvider = async (i: Instance, after: string): Promise<{ provider: Pro
   return picked;
 };
 
+const applyNamedProvider = async () => {
+  const { providers = [], provider: named } = await Effect.runPromise(readHarnessSettings).catch((e: Error) =>
+    fail(e.message, 1)
+  );
+  const provider = providers.find(p => p.name === named);
+  if (!provider) return;
+  if (!(await provider.ready(host))) fail(`${provider.name} is not ready; log in with agi in a repo first`, 1);
+  Object.assign(process.env, (await provider.settings?.()) ?? {});
+};
+
 const findUnserved = (provider: Provider, graph: Graph) =>
   Object.values(graph.agents)
     .filter(a => !provider.harnesses.includes(a.harness))
@@ -281,6 +291,7 @@ async function runOnForge() {
     fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the graph and its env');
   const folder = values.forge && values.forge !== 'github' ? resolve(values.forge) : undefined;
   if (folder) process.env.AGENTGRAPH_FORGE = folder;
+  if (['loop', 'check', 'dispatch'].includes(verb)) await applyNamedProvider();
   const graph = values.dir && resolve(values.dir);
   const needGraph = () => graph ?? fail(`${verb} on a forge needs --dir`);
   switch (verb) {
