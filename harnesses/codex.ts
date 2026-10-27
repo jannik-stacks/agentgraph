@@ -22,6 +22,7 @@ const CodexLine = Struct({
 
 const writing = ['edit', 'write', 'bash'];
 const writes = (tools: string[]) => tools.some(tool => writing.includes(tool));
+const isWriter = (tools: string[]) => writing.every(tool => tools.includes(tool));
 const writeAuth = 'umask 077; printf %s "$AGENTGRAPH_CHATGPT_AUTH" > /tmp/codex-auth.json && exec "$@"';
 
 export const makeCodexHarness = (): Harness => ({
@@ -31,9 +32,7 @@ export const makeCodexHarness = (): Harness => ({
     ...tools
       .filter(tool => splitToolPattern(tool)[2] !== undefined && !tool.startsWith('bash('))
       .map(tool => `cannot limit a tool to a pattern such as ${tool}`),
-    ...(writes(tools) && !writing.every(tool => tools.includes(tool))
-      ? ['can only grant edit, write and bash together']
-      : []),
+    ...(writes(tools) && !isWriter(tools) ? ['can only grant edit, write and bash together'] : []),
   ],
   home: (_spec, route) => (route.url ? {} : { links: { '.codex/auth.json': '/tmp/codex-auth.json' } }),
   command: (spec, route) => {
@@ -66,7 +65,7 @@ export const makeCodexHarness = (): Harness => ({
         resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
       ],
     };
-    const readonly = !writes(spec.tools);
+    const readonly = !isWriter(spec.tools);
     return route.url
       ? { ...command, readonly }
       : { cmd: 'sh', args: ['-c', writeAuth, 'sh', command.cmd, ...command.args], readonly };

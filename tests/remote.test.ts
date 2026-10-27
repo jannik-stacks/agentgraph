@@ -68,6 +68,13 @@ describe('remote sandbox', () => {
     );
   });
 
+  it('refuses a read-only command, which a box cannot enforce', async () => {
+    const exit = await use(layer(), s =>
+      Effect.flatMap(s.checkout('main'), work => s.exec({ ...sh(work.dir, 'echo x > a.txt'), readonly: true }))
+    );
+    expect(JSON.stringify(exit)).toContain('cannot keep the work tree read-only');
+  });
+
   it('seeds a box again after it restarted, from the files the host has', async () => {
     const exit = await use(layer(), s =>
       Effect.gen(function* () {

@@ -8,11 +8,13 @@ A container has a read-only root, your non-root uid, no capabilities, `no-new-pr
 
 | Path | What | Access |
 | --- | --- | --- |
-| `/work` | The checkout | writable |
+| `/work` | The checkout | writable; read only for a session with no `edit`, `write` or `bash` tool |
 | `/home/agent` | The session home | writable |
 | `/graph` | The graph, `AGENTGRAPH_DIR`; scripts and setup only | read only |
 | `/cache` | The shared toolchain cache | overlay |
 | the mirror | The repo's git objects | read only |
+
+A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box server can't enforce that, so it refuses read-only sessions. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#remoteSandbox -->
 
 `infra/local/sandbox` builds the image. <!-- code: tests/doubles/sandbox.ts#hostSandbox -->
 
@@ -78,7 +80,7 @@ An agent's `harness` picks the session program. The operator's `agentgraph.confi
 | `opencode` | Patterns, such as `bash(git diff*)` | `--session <id> --fork` |
 | `pi` | Plain tool names; a pattern fails the graph check | `--fork <id>` |
 | `claude` | Patterns; a tool it lacks fails the graph check; commit and pull request attribution is off | `--resume <id> --fork-session` |
-| `codex` | `edit`, `write` and `bash` together give every tool, else read-only; some of the three fails the check | none, a fresh session |
+| `codex` | `edit`, `write` and `bash` together give every tool, else a read-only `/work`; some of the three fails the check. Codex's own sandbox stays off, as it needs namespaces the container forbids | none, a fresh session |
 
 Agent `tools` defaults to none. Session homes under `homes/` in the data folder persist across resumes. <!-- code: src/harnesses.ts#harnessSession -->
 

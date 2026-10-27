@@ -105,6 +105,7 @@ const READ_ONLY_SESSIONS = [
   ]),
   ['claude', ['read', 'bash(npm test*)'], false] as const,
   ['codex', ['read', 'bash(npm test*)'], true] as const,
+  ['codex', ['read', 'edit'], true] as const,
 ];
 
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);

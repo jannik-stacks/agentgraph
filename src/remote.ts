@@ -196,6 +196,8 @@ export const remoteSandbox = (o: {
           Effect.gen(function* () {
             const box = boxes.get(c.dir);
             if (!box) return yield* infra(`${c.dir} is not a checkout of this sandbox`);
+            if (c.readonly)
+              return yield* infra('a box server cannot keep the work tree read-only; run read-only agents on docker');
             const home = c.home ? yield* homeDir(c.home) : undefined;
             const late = () => new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
             const bounded = { duration: Duration.minutes(c.minutes), onTimeout: late };
