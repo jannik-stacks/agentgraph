@@ -1,6 +1,7 @@
 #!/bin/sh
 # Starts the image the way agentgraph starts a run: read-only root, tmpfs /tmp as HOME, the host user, no capabilities.
-# Fails when a tool the runs need or opencode's plugin install is missing, or opencode cannot load its config there.
+# Fails when a tool the runs need or opencode's plugin install is missing, or opencode cannot load its config there. An
+# image with Playwright's browser must also load a local page in it.
 #
 #   infra/local/sandbox/smoke.sh [image]
 set -eu
@@ -18,5 +19,11 @@ docker run --rm --pull never --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,size=
     done
     out=$(opencode debug config 2>&1) || { echo "$out"; exit 1; }
     if echo "$out" | grep -Ei "error|EROFS|read-only"; then exit 1; fi
+    if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+      set -- "$PLAYWRIGHT_BROWSERS_PATH"/chromium_headless_shell-*/*/*headless?shell
+      echo "<p>browser smoke</p>" > /tmp/page.html
+      dom=$("$1" --no-sandbox --dump-dom file:///tmp/page.html 2>&1) || { echo "$dom"; exit 1; }
+      echo "$dom" | grep -q "<p>browser smoke</p>" || { echo "$dom"; exit 1; }
+    fi
   '
 echo "sandbox smoke: ok"

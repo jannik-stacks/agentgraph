@@ -57,6 +57,16 @@ A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` names another volu
 
 Graph `image` names a local image for every command and environment build, instead of `AGENTGRAPH_IMAGE` or `agentgraph-sandbox:local`. Build it yourself, with the harnesses, for example `FROM agentgraph-sandbox:local` plus an `npm ci` into `/node_modules` on the `PATH`. Those dependencies stay as built even when a pull request changes the lockfile. Pair it with `network: models`.
 
+### A browser
+
+`infra/local/sandbox/browser` adds Playwright's headless Chromium, the libraries it links and one font, about 380 MB. Each Playwright release finds only its own browser build, so build it with the repo's `@playwright/test` version:
+
+```sh
+docker build -t agentgraph-sandbox:browser --build-arg PLAYWRIGHT_VERSION=1.60.0 infra/local/sandbox/browser
+```
+
+A graph opts in with `image: agentgraph-sandbox:browser`. The image sets `PLAYWRIGHT_BROWSERS_PATH`, so Playwright finds the browser, and `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`, so `npx playwright test` runs with no network. Tests run headless only.
+
 ## Harnesses
 
 An agent's `harness` picks the session program. The operator's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins in `harnesses/`; a graph never loads code. A plugin gives a `name`, its `key` variable, a `command`, a `parse` for output lines, and an optional `home` and `check`. <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
