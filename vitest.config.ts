@@ -1,5 +1,8 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 
+for (const name of ['BASE', 'DIR', 'ISSUE', 'PROPOSALS', 'CONTEXT', 'REPLY', 'TRACES', 'RUN_TRACE', 'ITEM'])
+  delete process.env[`AGENTGRAPH_${name}`];
+
 const toolTestTimeout = 60_000;
 const toolTests = [
   'tests/agentgraph-example.test.ts',
