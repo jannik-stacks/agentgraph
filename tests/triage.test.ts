@@ -612,3 +612,37 @@ describe('a run parked by a runner error', () => {
     expect((await runs(where)).find(r => r.id === 'router-1')!.status).toBe(status);
   });
 });
+
+describe('a pass', () => {
+  it('looks at issues with live runs before the rest, so a slow look elsewhere does not hold them', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+    ]);
+    await putRun(where, {
+      ...begin(graph.workflows.router!, { id: 'router-2', issue: 2, started: at(0) }),
+      status: 'waiting',
+      reason: `${stoppedByRunner} (SandboxError). Reply to try router again from where it was.`,
+    });
+    await Effect.runPromise(
+      Effect.flatMap(Store, s => s.trace('router-2', { at: at(9), step: 'router', saved: { status: 'waiting' } })).pipe(
+        Effect.provide(fileStore(where.data))
+      )
+    );
+    const stalled = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({ ...f, since: (cursor: string) => (cursor ? f.since(cursor) : Stream.never) }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const layer = Layer.mergeAll(
+      stalled,
+      fileStore(where.data),
+      hostSandbox(where.origin),
+      replaySession([turn({ kind: 'comment', body: 'Routed.' })])
+    );
+    const one = { ...graph, limits: { ...graph.limits, parallel: 1 } };
+    await Effect.runPromise(
+      scanIssuesAndRunningRuns(one).pipe(Effect.timeout('3 seconds'), Effect.ignore, Effect.provide(layer))
+    );
+    expect((await runs(where)).find(r => r.id === 'router-2')!.status).toBe('done');
+  });
+});

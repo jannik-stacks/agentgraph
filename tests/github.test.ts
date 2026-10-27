@@ -501,6 +501,7 @@ describe('githubForge', () => {
     ]);
     expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(1);
     expect(f.calls.filter(c => c.path === '/repos/o/r/collaborators/bob/permission')).toHaveLength(1);
+    expect(f.calls.filter(c => c.path === '/repos/o/r/collaborators/carol/permission')).toHaveLength(1);
   });
 
   it('applies replies, labels, pull requests and issues', async () => {

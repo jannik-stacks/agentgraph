@@ -2644,8 +2644,8 @@ export const tick = (
   });
 
 /**
- * One pass over the open issues, the issues of live runs and wherever a trusted `/agent` was said since the newest run
- * began, closed or merged ones too, up to `limits.parallel` at once: each gets one look, and a new run only on a trusted
+ * One pass over the issues of live runs, then wherever a trusted `/agent` was said since the newest run began, closed or
+ * merged ones too, then the open issues, up to `limits.parallel` at once: each gets one look, and a new run only on a trusted
  * mark. Each issue is read from its own last run on, so it catches up on what a repo-wide look has passed. `debounce` is
  * as for `tick`.
  */
@@ -2664,7 +2664,7 @@ export const scanIssuesAndRunningRuns = (
         ? []
         : Chunk.toArray(yield* Stream.runCollect(forge.since(new Date(Date.parse(from) - debounce).toISOString())));
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
-    const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue), ...asked])];
+    const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
     const look = (n: number) =>
       tick(graph, n, true, debounce).pipe(
         Effect.catchTag('ForgeError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))

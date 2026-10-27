@@ -350,8 +350,8 @@ export const githubForge = (
       labeled: 'label',
       unlabeled: 'unlabel',
     };
-    /** An issue event in our shape, trusted when its actor may write; undefined for events that say nothing here. */
-    const evented = (issue: number, e: RestEvent, merged: boolean) =>
+    /** An issue event in our shape, trusted when `may` says its actor may write; undefined for events that say nothing here. */
+    const evented = (issue: number, e: RestEvent, merged: boolean, may: ReturnType<typeof writer>) =>
       Effect.gen(function* () {
         const kind = kinds[e.event];
         if (!kind || (kind === 'closed' && merged) || ((kind === 'label' || kind === 'unlabel') && !e.label))
@@ -360,7 +360,7 @@ export const githubForge = (
           issue,
           kind,
           actor: login(e.actor),
-          trusted: (yield* permitted(e.actor)) && (!trust || trust.includes(login(e.actor))),
+          trusted: (yield* may(e.actor)) && (!trust || trust.includes(login(e.actor))),
           at: e.created_at,
           ...(e.label && { label: e.label.name }),
         } satisfies Event;
@@ -461,7 +461,7 @@ export const githubForge = (
               })
             )
           )),
-          ...(yield* Effect.forEach(events, e => evented(number, e, merged))).flatMap(m => m ?? []),
+          ...(yield* Effect.forEach(events, e => evented(number, e, merged, may))).flatMap(m => m ?? []),
           ...(pull ? yield* checked(number, pull.head.sha) : []),
         ];
         return {
@@ -495,6 +495,7 @@ export const githubForge = (
       Stream.fromIterableEffect(
         Effect.gen(function* () {
           const self = yield* me;
+          const may = writer();
           const after = (at?: string | null): at is string => !!at && at > cursor;
           const from = cursor ? `since=${encodeURIComponent(cursor)}&` : '';
           const window = `${from}sort=updated&direction=asc&per_page=100`;
@@ -549,11 +550,10 @@ export const githubForge = (
           for (const e of events) {
             const m =
               after(e.created_at) && e.issue
-                ? yield* evented(e.issue.number, e, merged.has(e.issue.number))
+                ? yield* evented(e.issue.number, e, merged.has(e.issue.number), may)
                 : undefined;
             if (m) found.push(m);
           }
-          const may = writer();
           for (const m of found) if (m.trusted && (m.comment || m.commit)) m.trusted = yield* may({ login: m.actor });
           return found.sort((a, b) => a.at.localeCompare(b.at));
         })
