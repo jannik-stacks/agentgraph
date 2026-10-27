@@ -15,7 +15,7 @@ Before it files anything, `agi` checks Docker, creates the networks `agentgraph-
 Pick one of these; [Providers](sandbox.md#providers) has the details.
 
 - A Claude subscription: the first `agi` command runs `claude setup-token` and keeps the token.
-- A ChatGPT subscription, for codex only: `--provider chatgpt --save` runs `codex login` once and keeps that login. Read [what that exposes](sandbox.md#a-chatgpt-login-in-sessions) first.
+- A ChatGPT subscription, for codex, opencode and pi: `--provider chatgpt --save` runs `codex login` once and keeps that login. Read [what that exposes](sandbox.md#a-chatgpt-login-in-sessions) first.
 - An Anthropic key: `export ANTHROPIC_API_KEY=...`, then `--provider anthropic --save`.
 - The local model stack, for ChatGPT, OpenRouter or local models: see [infra/local](../infra/local/README.md), load its key with `set -a; . infra/local/.keys.env.local; set +a`, then `--provider litellm`. Only this provider needs the stack.
 

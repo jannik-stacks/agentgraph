@@ -21,6 +21,8 @@ const PiLine = Struct({
   messages: opt(Schema.Array(PiMessage)),
 });
 
+const chatgptToken = `!node -p 'JSON.parse(process.env.AGENTGRAPH_CHATGPT_AUTH).tokens.access_token'`;
+
 export const pi = (): Harness => ({
   name: 'pi',
   key: 'AGENTGRAPH_LLM_API_KEY',
@@ -38,9 +40,9 @@ export const pi = (): Harness => ({
       '.pi/agent/models.json': JSON.stringify({
         providers: {
           agentgraph: {
-            baseUrl: route.url,
-            api: 'openai-completions',
-            apiKey: '$AGENTGRAPH_LLM_API_KEY',
+            ...(route.url
+              ? { baseUrl: route.url, api: 'openai-completions', apiKey: '$AGENTGRAPH_LLM_API_KEY' }
+              : { baseUrl: 'https://chatgpt.com/backend-api', api: 'openai-codex-responses', apiKey: chatgptToken }),
             models: [{ id: route.model, contextWindow: 200_000, maxTokens: 32_000 }],
           },
         },

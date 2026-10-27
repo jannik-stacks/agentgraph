@@ -35,13 +35,16 @@ describe('chatgpt', () => {
     const settings = await chatgpt.settings!();
     expect(fetch).not.toHaveBeenCalled();
     expect(settings).toMatchObject({
-      AGENTGRAPH_PROXY_URL: 'codex=',
-      AGENTGRAPH_SESSION_ENV: 'AGENTGRAPH_CHATGPT_AUTH',
+      AGENTGRAPH_PROXY_URL: '*=',
+      AGENTGRAPH_SESSION_ENV: 'AGENTGRAPH_CHATGPT_AUTH OPENCODE_AUTH_CONTENT',
     });
     expect(JSON.parse(settings.AGENTGRAPH_CHATGPT_AUTH!)).toMatchObject({
       auth_mode: 'chatgpt',
       tokens: { id_token: 'fake-id', access_token: access, refresh_token: '', account_id: 'acct-1' },
     });
+    const { openai } = JSON.parse(settings.OPENCODE_AUTH_CONTENT!);
+    expect(openai).toEqual({ type: 'oauth', refresh: '', access, expires: expect.any(Number), accountId: 'acct-1' });
+    expect(openai.expires - Date.now()).toBeGreaterThan(4 * day);
   });
 
   it('refreshes on the host when less than two days are left and keeps the new refresh token there', async () => {

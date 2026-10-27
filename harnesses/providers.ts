@@ -121,20 +121,24 @@ const readFreshCodexAuth = async () => {
 
 const chatgpt: Provider = {
   name: 'chatgpt',
-  harnesses: ['codex'],
+  harnesses: ['codex', 'opencode', 'pi'],
   ready: () => existsSync(codexAuth),
   detect: () => loggedIn('codex', ['login', 'status']),
   settings: async () => {
     const { tokens } = await readFreshCodexAuth();
+    const access = tokens.access_token;
     return {
-      AGENTGRAPH_PROXY_URL: 'codex=',
+      AGENTGRAPH_PROXY_URL: '*=',
       AGENTGRAPH_PROXY_KEYS: '',
-      AGENTGRAPH_SESSION_ENV: 'AGENTGRAPH_CHATGPT_AUTH',
-      AGENTGRAPH_MODELS: '*=default',
+      AGENTGRAPH_SESSION_ENV: 'AGENTGRAPH_CHATGPT_AUTH OPENCODE_AUTH_CONTENT',
+      AGENTGRAPH_MODELS: '*=gpt-6.1-sol,smart=gpt-6.1-sol,fast=gpt-6-luna',
       AGENTGRAPH_CHATGPT_AUTH: JSON.stringify({
         auth_mode: 'chatgpt',
         tokens: { ...tokens, refresh_token: '' },
         last_refresh: new Date().toISOString(),
+      }),
+      OPENCODE_AUTH_CONTENT: JSON.stringify({
+        openai: { type: 'oauth', refresh: '', access, expires: readExpiry(access), accountId: tokens.account_id },
       }),
     };
   },

@@ -75,6 +75,8 @@ export const opencode = (): Harness => ({
   }),
   command: (spec, route) => {
     const server = spec.returns && makeResultServer(spec.returns);
+    const provider = route.url ? 'agentgraph' : 'openai';
+    const timeouts = { headerTimeout: modelTimeouts.headersMs, chunkTimeout: modelTimeouts.idleMs };
     return {
       cmd: 'opencode',
       args: [
@@ -86,7 +88,7 @@ export const opencode = (): Harness => ({
         '--agent',
         'agentgraph',
         '--model',
-        `agentgraph/${route.model}`,
+        `${provider}/${route.model}`,
         ...(spec.resume ? ['--session', spec.resume.id, ...(spec.fork ? ['--fork'] : [])] : []),
         '--',
         ...words(spec.prompt),
@@ -100,20 +102,21 @@ export const opencode = (): Harness => ({
           snapshot: false,
           compaction: { auto: false, prune: false },
           tool_output: { max_lines: 300, max_bytes: 16_384 },
-          enabled_providers: ['agentgraph'],
-          provider: {
-            agentgraph: {
-              npm: '@ai-sdk/openai',
-              name: 'agentgraph',
-              options: {
-                baseURL: '{env:AGENTGRAPH_LLM_BASE_URL}',
-                apiKey: '{env:AGENTGRAPH_LLM_API_KEY}',
-                headerTimeout: modelTimeouts.headersMs,
-                chunkTimeout: modelTimeouts.idleMs,
-              },
-              models: { [route.model]: {} },
-            },
-          },
+          enabled_providers: [provider],
+          provider: route.url
+            ? {
+                agentgraph: {
+                  npm: '@ai-sdk/openai',
+                  name: 'agentgraph',
+                  options: {
+                    baseURL: '{env:AGENTGRAPH_LLM_BASE_URL}',
+                    apiKey: '{env:AGENTGRAPH_LLM_API_KEY}',
+                    ...timeouts,
+                  },
+                  models: { [route.model]: {} },
+                },
+              }
+            : { openai: { options: timeouts } },
           agent: { agentgraph: { mode: 'primary', prompt: spec.system } },
           ...(server && { mcp: { agentgraph: { type: 'local', command: [server.command, ...server.args] } } }),
         }),

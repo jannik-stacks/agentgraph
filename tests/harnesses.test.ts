@@ -634,6 +634,23 @@ describe('codex', () => {
     expect(JSON.stringify(exit)).not.toContain(token);
   });
 
+  it('lets opencode and pi use the passed ChatGPT login without a gateway', async () => {
+    const proxy = { url: '*=', keys: Redacted.make(''), models: 'smart=gpt-6.1-sol' };
+    const { command: open } = await session(spec, [], { proxy });
+    expect(harnessArgs(open)).toContain('openai/gpt-6.1-sol');
+    const config = JSON.parse(open.env.OPENCODE_CONFIG_CONTENT!);
+    expect(config.enabled_providers).toEqual(['openai']);
+    expect(Object.keys(config.provider)).toEqual(['openai']);
+    expect(open.secrets ?? {}).toEqual({});
+    const { command: pi } = await session({ ...spec, harness: 'pi' }, [], { proxy });
+    const models = JSON.parse(readFileSync(join(pi.home!, '.pi/agent/models.json'), 'utf8'));
+    expect(models.providers.agentgraph).toMatchObject({
+      baseUrl: 'https://chatgpt.com/backend-api',
+      api: 'openai-codex-responses',
+      apiKey: expect.stringContaining('AGENTGRAPH_CHATGPT_AUTH'),
+    });
+  });
+
   it('reads a run', async () => {
     const lines = [
       { type: 'thread.started', thread_id: 't1' },
