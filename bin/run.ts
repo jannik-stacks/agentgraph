@@ -264,6 +264,7 @@ const trapInterrupt = () =>
 const host = await readHostSettings(values).catch((e: Error) => fail(e.message));
 const { onForge, data: root } = host;
 
+const graphDir = values.dir ?? process.env.AGENTGRAPH_DIR;
 const selected = formatInstanceFlags(values.repo && resolve(values.repo), values.data && root);
 
 if (verb === 'check' && values.dir && !values.runs) {
@@ -364,9 +365,10 @@ async function runOnInstance() {
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);
-    const uncommitted = !values.dir && (await whyGraphUncommitted(i));
+    const graph = await ensureGraph(i, graphDir).catch((e: Error) => fail(e.message, 1));
+    const uncommitted = await whyGraphUncommitted(i, graph);
     if (uncommitted) console.error(uncommitted);
-    return ensureGraph(i, values.dir).catch((e: Error) => fail(e.message, 1));
+    return graph;
   };
   switch (verb) {
     case 'studio':
@@ -524,7 +526,7 @@ function openStudio(i: Instance) {
     if (spawnSync('npm', ['ci', '--prefix', dir, '--no-audit', '--no-fund'], { stdio: 'inherit' }).status !== 0)
       fail('the studio install failed', 1);
   }
-  const flags = [...(values.data ? ['--data', root] : []), ...(values.dir ? ['--dir', resolve(values.dir)] : [])];
+  const flags = [...(values.data ? ['--data', root] : []), ...(graphDir ? ['--dir', resolve(graphDir)] : [])];
   spawnSync(process.execPath, [join(dir, 'dev.ts'), '--repo', i.repo, ...flags], { cwd: dir, stdio: 'inherit' });
 }
 
@@ -560,9 +562,9 @@ async function report(i: Instance, issue: number, merged = false) {
 async function loop(i: Instance) {
   const moved = await ensureBase(i);
   if (moved) fail(moved, 1);
-  const uncommitted = !values.dir && (await whyGraphUncommitted(i));
+  const first = await ensureGraph(i, graphDir).catch((e: Error) => fail(e.message, 1));
+  const uncommitted = await whyGraphUncommitted(i, first);
   if (uncommitted) console.error(uncommitted);
-  const first = await ensureGraph(i, values.dir).catch((e: Error) => fail(e.message, 1));
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
   trapInterrupt();
@@ -571,7 +573,7 @@ async function loop(i: Instance) {
       let graph = '';
       const why =
         (await ensureBase(i)) ||
-        (await ensureGraph(i, values.dir)
+        (await ensureGraph(i, graphDir)
           .then(dir => loadServedGraph(connection, (graph = dir)))
           .then(
             () => '',

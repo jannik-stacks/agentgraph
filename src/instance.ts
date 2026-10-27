@@ -144,7 +144,7 @@ export const ensureBase = async (i: Instance): Promise<string | undefined> => {
 export const ensureGraph = async (i: Instance, flag?: string) => {
   if (flag) return resolve(flag);
   const tree = await inForge(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
-  if (!tree) return defaultDir;
+  if (!tree) return existsSync(join(i.repo, '.agentgraph')) ? join(i.repo, '.agentgraph') : defaultDir;
   const dir = join(i.dir, 'graphs', tree);
   if (existsSync(dir)) return dir;
   const linked = (await inForge(i, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
@@ -164,14 +164,18 @@ export const ensureGraph = async (i: Instance, flag?: string) => {
   return dir;
 };
 
-export const whyGraphUncommitted = async (i: Instance) =>
-  (await inRepo(i.repo, ['status', '--porcelain', '--', '.agentgraph']))
+const isCommittedGraph = (i: Instance, graph: string) => graph.startsWith(join(i.dir, 'graphs'));
+
+export const whyGraphUncommitted = async (i: Instance, graph: string) =>
+  isCommittedGraph(i, graph) && (await inRepo(i.repo, ['status', '--porcelain', '--', '.agentgraph']))
     ? `.agentgraph/ has uncommitted changes; runs use the committed version on ${i.base}. Commit them, or pass --dir .agentgraph to try them.`
     : undefined;
 
 export const formatGraphName = async (i: Instance, graph: string) => {
   if (graph === defaultDir) return 'default graph';
-  if (!graph.startsWith(join(i.dir, 'graphs'))) return `graph ${graph}`;
+  if (graph === join(i.repo, '.agentgraph') && !(await inRepo(i.repo, ['ls-files', '--', '.agentgraph'])))
+    return 'graph .agentgraph/ (not in git)';
+  if (!isCommittedGraph(i, graph)) return `graph ${graph}`;
   return `.agentgraph/ at ${i.base} ${await inForge(i, ['rev-parse', '--short', `refs/heads/${i.base}`])}`;
 };
 

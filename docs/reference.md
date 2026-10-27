@@ -20,9 +20,12 @@ Nothing here is stable yet; `CHANGELOG.md` lists renames and removals.
 
 Locally, the first that exists: <!-- code: src/instance.ts#ensureGraph src/instance.ts#defaultDir -->
 
-1. `--dir <dir>`; `--dir .agentgraph` uses your working tree, uncommitted edits included.
+1. `--dir <dir>`, or `AGENTGRAPH_DIR`; `--dir .agentgraph` uses your working tree, uncommitted edits included.
 2. `.agentgraph/` in your repo at the committed base.
-3. The default graph in the package: implement, review, then a human merge, with a check that runs the repo's `test` script if it has one. To change it, copy the folder `agi show graph` prints to `.agentgraph/`.
+3. `.agentgraph/` in your working tree when the base does not track it. The start banner says `graph .agentgraph/ (not in git)`.
+4. The default graph in the package: implement, review, then a human merge, with a check that runs the repo's `test` script if it has one. To change it, copy the folder `agi show graph` prints to `.agentgraph/`.
+
+To keep a private graph out of a team repo, add `.agentgraph/` to `.git/info/exclude`. Git then ignores it without a change to `.gitignore`, and every command reads it from disk. <!-- code: src/instance.ts#formatGraphName -->
 
 A committed graph with symlinks or submodules is refused. On GitHub, the runner reads `.agentgraph/` (or `AGENTGRAPH_DIR`, which may be an absolute path) from the default branch's head on every poll, so a pull request's graph changes apply after merge. Inside the sandbox `AGENTGRAPH_DIR` names the read-only copy of the graph. <!-- code: src/services.ts#graphAt src/main.ts#start -->
 

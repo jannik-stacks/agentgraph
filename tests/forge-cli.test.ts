@@ -702,21 +702,33 @@ describe('an instance', () => {
     expect(git(join(i.forge, 'origin.git'), 'rev-parse', 'main')).toBe(git(w.seed, 'rev-parse', 'HEAD'));
   });
 
-  it('reads the committed .agentgraph graph, and holds one loop per data dir', async () => {
+  it('reads .agentgraph from git, else from disk, and holds one loop per data dir', async () => {
     const w = world();
-    cpSync(sandboxGraph, join(w.seed, '.agentgraph'), { recursive: true });
     const i = await ensureInstance(join(w.root, 'agentgraph-data'), w.seed);
     await ensureBase(i);
     expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'default'));
-    expect(await whyGraphUncommitted(i)).toContain('.agentgraph/ has uncommitted changes');
+    cpSync(sandboxGraph, join(w.seed, '.agentgraph'), { recursive: true });
+    const onDisk = join(i.repo, '.agentgraph');
+    const readOnDisk = async () => {
+      const graph = await ensureGraph(i);
+      return [graph, await whyGraphUncommitted(i, graph), await formatGraphName(i, graph)];
+    };
+    expect(await readOnDisk()).toEqual([onDisk, undefined, 'graph .agentgraph/ (not in git)']);
+    writeFileSync(join(w.seed, '.git', 'info', 'exclude'), '.agentgraph/\n');
+    expect(git(w.seed, 'status', '--porcelain')).toBe('');
+    expect(await readOnDisk()).toEqual([onDisk, undefined, 'graph .agentgraph/ (not in git)']);
+    writeFileSync(join(w.seed, '.git', 'info', 'exclude'), '');
     git(w.seed, 'add', '.agentgraph');
     git(w.seed, 'commit', '-q', '-m', 'graph');
     await ensureBase(i);
     const graph = await ensureGraph(i);
-    expect([await whyGraphUncommitted(i), await formatGraphName(i, graph)]).toEqual([
+    expect([await whyGraphUncommitted(i, graph), await formatGraphName(i, graph)]).toEqual([
       undefined,
       expect.stringMatching(/^\.agentgraph\/ at main [0-9a-f]{7,}$/),
     ]);
+    writeFileSync(join(w.seed, '.agentgraph', 'settings.yaml'), 'repo: changed\n');
+    expect(await whyGraphUncommitted(i, graph)).toContain('.agentgraph/ has uncommitted changes');
+    git(w.seed, 'checkout', '-q', '--', '.agentgraph');
     expect(readFileSync(join(graph, 'settings.yaml'), 'utf8')).toBe(
       readFileSync(join(sandboxGraph, 'settings.yaml'), 'utf8')
     );
