@@ -14,7 +14,7 @@ ARG OXFMT_VERSION=0.72.0
 ARG RUSTUP_VERSION=1.29.1
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential ca-certificates curl git mold pkg-config procps ripgrep \
+ && apt-get install -y --no-install-recommends build-essential ca-certificates curl git jq mold pkg-config procps ripgrep \
  && rm -rf /var/lib/apt/lists/*
 
 # Toolchain managers, not toolchains: the toolchain step installs what a repo names into the /cache volume.
