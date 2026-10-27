@@ -60,7 +60,7 @@ A committed graph with symlinks or submodules is refused. On GitHub, the runner 
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `on` | event name, or map of triggers | required | `issues`, `issue_comment`, `pull_request`, `dispatch` or `feedback` |
+| `on` | event name, or map of triggers | required | `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback` or `conflict` |
 | `branch` | template | none, a detached checkout | Work branch; expands `{issue}` and `{parent}` |
 | `base` | template | `main` | Pull request base |
 | `concurrency` | `steer`, `queue` or `cancel` | `steer` | [Comments while it works](workflows.md#comments-while-it-works) |

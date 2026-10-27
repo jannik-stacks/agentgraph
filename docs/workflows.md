@@ -44,7 +44,7 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 - `issue_comment`: a trusted comment with `/agent` or `@agent` as a word, outside quotes and code. The marker is cut before the agent reads it.
 - `issues` with a `label`: a trusted person adds that label to an open issue.
 
-`pull_request` and `branches` are accepted but start nothing yet. Other runs start through [dispatch](#dispatch) or as a [retro](#retros). <!-- code: src/forge.ts#makeCommentWithAgentRequest -->
+`pull_request` and `branches` are accepted but start nothing yet. Other runs start through [dispatch](#dispatch), as a [retro](#retros) or on a [conflict](#when-the-base-or-the-graph-moves). <!-- code: src/forge.ts#makeCommentWithAgentRequest -->
 
 With several comment workflows, `/agent` starts the first, or the one its first word names (`/agent plan`). Comments without the marker are context. Comments on the issue's pull request count for the issue; bot comments never do. `/agent restart` starts the workflow again with its human answers, and `/agent restart implement` starts at that step. An eyes reaction marks the comment or issue until the engine replies. <!-- code: src/engine.ts#tick -->
 
@@ -117,6 +117,8 @@ Runs waiting at a human step are compared with their base and the graph version.
 If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts.
 
 A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. A second conflict at the same base asks for a manual update. <!-- code: src/engine.ts#following -->
+
+A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the same checkout with the markers left and the conflict as its feedback. It has a budget of its own and pushes to the same branch, so give it the same `branch`. Like a retro it posts no status, hears no comments and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/engine.ts#catchUp src/workflow.ts#isQuiet -->
 
 ## Status on the issue
 

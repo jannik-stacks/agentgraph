@@ -241,6 +241,30 @@ describe('a base that moved', () => {
     expect(said(where)).not.toContain('by hand');
   });
 
+  it('starts the conflict workflow on a conflict, which resolves it while the run stays at merge', async () => {
+    const where = await moved('hello.txt', 'other.txt');
+    const conflict: typeof w = {
+      ...w,
+      name: 'conflict',
+      on: { conflict: {} },
+      steps: [{ name: 'resolve', does: { agent: 'implementor' }, checks: [], tries: 1 }],
+      checks: [],
+    };
+    const resolving = { ...graph, workflows: { ...graph.workflows, conflict } };
+    const { specs, run } = services(where, [[start('c1'), wrote('hello.txt', 'hello upstream\n'), reply(push)]]);
+    await run(tick(resolving));
+    await run(tick(resolving));
+    expect(specs.map(s => /no longer rebases onto main at \w+: conflicts in hello.txt/.test(s.prompt))).toEqual([true]);
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7~1')).toBe(git(where.origin, 'rev-parse', 'main'));
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello upstream');
+    const runs = await run(Effect.flatMap(Store, s => s.list()));
+    expect(runs.map(r => [r.workflow, r.step, r.status, r.by]).toSorted()).toEqual([
+      ['conflict', 'resolve', 'done', 'run-7'],
+      ['issue', 'merge', 'waiting', undefined],
+    ]);
+    expect(said(where)).not.toContain('by hand');
+  });
+
   it('fails a try that leaves conflict markers and pushes nothing', async () => {
     const where = await moved('hello.txt');
     const before = git(where.origin, 'rev-parse', 'agentgraph/7');
@@ -570,7 +594,7 @@ describe('runStepChecks', () => {
       proposals: [],
     };
     const { outcome } = await Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
-    expect(specs.map(s => [s.agent, s.harness, s.model]).sort()).toEqual([
+    expect(specs.map(s => [s.agent, s.harness, s.model]).toSorted()).toEqual([
       ['critic', 'claude', 'opus'],
       ['tester', 'opencode', 'smart'],
     ]);

@@ -46,6 +46,7 @@ import {
   type Workflow,
   unchanged,
   isHumanWaitStep,
+  isQuiet,
   isRunDone,
   parseAgentRequest,
 } from './workflow.ts';
@@ -382,8 +383,13 @@ const undispatchable = (graph: Graph, run: Pick<Run, 'id'>, asked: Extract<Propo
     return reason === undefined ? [] : asked.map((proposal): Applied => ({ proposal, ok: false, reason }));
   });
 
-/** Begins the workflow a `run` proposal names, as a run `by` the run that proposed it. */
-const dispatch = (graph: Graph, run: Pick<Run, 'id'>, p: Extract<Proposal, { kind: 'run' }>) =>
+/** Begins the workflow a `run` proposal names, as a run `by` the run that proposed it, seeded with `seed`. */
+const dispatch = (
+  graph: Graph,
+  run: Pick<Run, 'id'>,
+  p: Extract<Proposal, { kind: 'run' }>,
+  seed?: Pick<Run, 'onto' | 'feedback'>
+) =>
   Effect.gen(function* () {
     const at = now();
     const w = graph.workflows[p.workflow]!;
@@ -394,6 +400,7 @@ const dispatch = (graph: Graph, run: Pick<Run, 'id'>, p: Extract<Proposal, { kin
         w.steps.find(s => s.name === p.step)
       ),
       by: run.id,
+      ...seed,
     };
     yield* Effect.flatMap(Store, s => s.put(child));
     return child;
@@ -564,7 +571,7 @@ const heardBy = (graph: Graph, w: Workflow, m: Event): Event => {
 /** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
 const told = (graph: Graph, w: Workflow, run: Run, t: IssueWithPull) =>
   Effect.map(readRunEvents(run), tells => {
-    if (w.on.feedback) return undefined;
+    if (isQuiet(w)) return undefined;
     const since = run.seen ?? run.started;
     const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => heardBy(graph, w, m)), ...tells]
       .filter(m => m.at > since)
@@ -1689,7 +1696,7 @@ const runEndChecks = (
  */
 const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Store> =>
   Effect.gen(function* () {
-    if (w.on.feedback) return run;
+    if (isQuiet(w)) return run;
     const forge = yield* Forge;
     const t = yield* readIssueWithPull(w, run);
     const usd = isRunDone(run) ? yield* readRunSpend(run.id) : undefined;
@@ -1982,8 +1989,8 @@ const follow = (w: Workflow, given: Run, known: NonNullable<Run['base']>, head: 
  * when that says none. When the change stays the same, the step's own checks run again, scripts first and judged ones
  * only once those pass; a changed change or a new graph runs every check of the step it goes back to. A failed check
  * sends the run back as a request for changes would. A conflict sends it back too, to start on the new base with
- * markers left; when that already happened for this base head, it is said on the issue once. Undefined when nothing
- * moved.
+ * markers left, or starts the graph's `conflict` workflow there while the run waits; when that already happened for
+ * this base head, it is said on the issue once. Undefined when nothing moved.
  */
 const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
@@ -2013,7 +2020,8 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
           t => 'applied' in t && !t.applied.ok && 'onto' in t.applied.proposal && t.applied.proposal.onto === onto
         )
       );
-      if (tried >= (to ? 2 : 1)) return { run: current };
+      const resolver = Object.values(graph.workflows).find(w => w.on.conflict);
+      if (tried >= (to || resolver ? 2 : 1)) return { run: current };
       const { tree, files } = yield* mergeTreeOnto(work, onto, pull.head);
       if (merge && files.length === 0) yield* hostGit(work.git, ['read-tree', '-u', '--reset', tree]);
       const applied: Applied =
@@ -2021,14 +2029,16 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
           ? { proposal, ok: false, reason: `conflicts in ${files.join(', ')}` }
           : yield* forge.apply(run.issue, proposal, work);
       yield* store.trace(run.id, { at: now(), step: run.step, applied });
-      if (!applied.ok && tried === 0 && to) {
+      if (!applied.ok && tried === 0 && (to || resolver)) {
         const why = [
           `${branch} no longer ${verb} ${pull.base} at ${onto.slice(0, 7)}: ${applied.reason}.`,
           `The work tree now starts on ${pull.base} with this change applied and conflict markers left where they clash.`,
           'Resolve each conflict so both sides keep working, remove every marker, and push.',
         ].join(' ');
-        const following = { ...current, onto: { sha: onto, ...(merge && { merge: true as const }) } };
-        return { run: following, outcome: { kind: 'back', why } as const };
+        const seed = { onto: { sha: onto, ...(merge && { merge: true as const }) }, feedback: why };
+        if (!resolver) return { run: { ...current, onto: seed.onto }, outcome: { kind: 'back', why } as const };
+        yield* dispatch(graph, run, { kind: 'run', workflow: resolver.name, issue: run.issue }, seed);
+        return { run: current };
       }
       if (!applied.ok) {
         const body = `${branch} no longer ${verb} ${pull.base}: ${applied.reason}. Update it by hand.`;
@@ -2583,7 +2593,7 @@ export const tick = (
         const w = graph.workflows[r.workflow];
         const step = w?.steps.find(s => s.name === r.step);
         const pull = w && issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull;
-        if (!w || !step || !isHumanWaitStep(step) || !pull) return;
+        if (!w || !step || !isHumanWaitStep(step) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
         const caught = yield* catchUp(w, r, graph, pull).pipe(
           Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
         );

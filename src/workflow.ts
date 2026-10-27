@@ -27,13 +27,13 @@ export type Problem = { path: string; message: string };
 
 /**
  * An ordered list of steps; the body is the description, or the prompt when there are no steps. `dispatch` starts it
- * only from a `run` proposal, `feedback` on what a trusted person says or pushes where another run worked. A run of a
- * `feedback` workflow never waits: where another run would ask, it stops.
+ * only from a `run` proposal, `feedback` on what a trusted person says or pushes where another run worked, `conflict`
+ * when the pull request of a run waiting on a human conflicts with its base.
  */
 export type Workflow = Doc<{
   on: Partial<
     Record<
-      'issues' | 'issue_comment' | 'pull_request' | 'dispatch' | 'feedback',
+      'issues' | 'issue_comment' | 'pull_request' | 'dispatch' | 'feedback' | 'conflict',
       { label?: string; branches?: string[] }
     >
   >;
@@ -120,7 +120,7 @@ export const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optional
 const Count = Schema.Int.pipe(Schema.positive());
 const Names = Schema.mutable(Schema.Array(Schema.String));
 const Trigger = Schema.NullOr(Schema.Struct({ label: exact(Schema.String), branches: exact(Names) }));
-const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback');
+const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback', 'conflict');
 
 const StepFile = Schema.Struct({
   agent: exact(Schema.String),
@@ -145,6 +145,7 @@ const Front = Schema.Struct({
       pull_request: exact(Trigger),
       dispatch: exact(Schema.Null),
       feedback: exact(Schema.Null),
+      conflict: exact(Schema.Null),
     })
   ),
   branch: exact(Schema.String),
@@ -268,6 +269,8 @@ export function compileWorkflow(
 }
 
 export const isHumanWaitStep = (step: Step) => 'wait' in step.does;
+
+export const isQuiet = (w: Workflow) => w.on.feedback !== undefined || w.on.conflict !== undefined;
 const entered = (step: Step): Run['status'] => (isHumanWaitStep(step) ? 'waiting' : 'running');
 
 const fresh = ({ feedback: _feedback, reason: _reason, retried: _retried, ...run }: Run): Run => run;
@@ -322,7 +325,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const owed = w.checks.length > 0 && { owed: w.checks };
   const stop = (why: string): Run => ({ ...fresh(run), status: 'stopped', reason: why, ...owed });
   const ask = (question: string): Run =>
-    w.on.feedback ? stop(question) : { ...fresh(run), status: 'waiting', reason: question };
+    isQuiet(w) ? stop(question) : { ...fresh(run), status: 'waiting', reason: question };
 
   const forward = (): Run => {
     const next = w.steps[i + 1];
