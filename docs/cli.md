@@ -47,7 +47,7 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--issue <n>` | `check --runs` | Only runs on this issue |
 | `--runs` | `check` | Run checks on ended runs |
 | `--line <path>:<line>` | `say` | Comment on a line of the pull request |
-| `--as <branch>` | `export` | Write under another branch name |
+| `--as <branch>` | `export` | Write under another `agentgraph/` branch name |
 | `--patch <file>` | `export` | Write a patch file instead; it must not exist yet |
 | `--read-only` | all | Never write to this repo from now on, kept in `instance.yaml` |
 | `--once` | `loop` | Make one pass |

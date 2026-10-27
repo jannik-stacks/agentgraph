@@ -1,6 +1,16 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -35,13 +45,13 @@ const hooks = (
 const files = (dir: string, skip: RegExp) =>
   Object.fromEntries(
     readdirSync(dir, { recursive: true, encoding: 'utf8' })
-      .filter(p => !skip.test(p) && statSync(join(dir, p)).isFile())
-      .map(p => [
-        p,
-        createHash('sha256')
-          .update(readFileSync(join(dir, p)))
-          .digest('hex'),
-      ])
+      .filter(p => !skip.test(p))
+      .map(p => {
+        const at = join(dir, p);
+        const st = lstatSync(at);
+        const body = st.isSymbolicLink() ? readlinkSync(at) : st.isFile() ? readFileSync(at) : '';
+        return [p, `${st.mode.toString(8)} ${createHash('sha256').update(body).digest('hex')}`];
+      })
   );
 
 const userRepo = () => {
@@ -66,11 +76,20 @@ const userRepo = () => {
   git(seed, 'config', 'commit.gpgsign', 'true');
   git(seed, 'config', 'gpg.format', 'ssh');
   git(seed, 'config', 'user.signingkey', join(root, 'no-such-key'));
+  writeFileSync(join(seed, '.git', 'info', 'attributes'), '* filter=trap\n');
+  git(seed, 'config', 'filter.trap.clean', `sh -c 'echo filter >> ${ran}; cat'`);
   return { root, seed, ran };
 };
 
-const quiet = (cwd: string, ...args: string[]) =>
-  spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }).stdout.trim();
+const quiet = (cwd: string, ...args: string[]) => {
+  const out = spawnSync('git', ['-c', 'filter.trap.clean=cat', ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+  });
+  expect(out.status, out.stderr).toBe(0);
+  return out.stdout.trim();
+};
 
 const look = (repo: string) => ({
   refs: quiet(repo, 'for-each-ref', '--format=%(refname) %(objectname) %(symref)')
@@ -124,9 +143,11 @@ describe("the user's repo", () => {
   it('comes out of a whole run byte-identical but for agentgraph/ branches and new objects', async () => {
     const { root, seed, ran } = userRepo();
     const before = look(seed);
+    const objects = files(join(seed, '.git', 'objects'), /^$/);
     const data = join(root, 'agentgraph-data');
 
     const i = await ensureInstance(data, seed, 'main');
+    git(join(i.forge, 'origin.git'), 'config', 'remote.origin.pushurl', seed);
     expect(await ensureBase(i)).toBeUndefined();
     const graph = await ensureGraph(i);
     expect(await whyGraphUncommitted(i, graph)).toBeUndefined();
@@ -157,6 +178,7 @@ describe("the user's repo", () => {
     ]);
     expect(second.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
     expect(await writePullToRepo(i, 1)).toMatchObject({ ref: 'agentgraph/1' });
+    expect(await writePullToRepo(i, 1, { as: 'mine' })).toMatchObject({ why: expect.stringContaining('agentgraph/') });
     expect(git(seed, 'show', 'agentgraph/1:hello.txt')).toBe('hello world');
     const patch = join(root, 'hello.patch');
     expect(await writePullToRepo(i, 1, { patch })).toMatchObject({ ref: patch });
@@ -171,6 +193,7 @@ describe("the user's repo", () => {
     expect(readdirSync(join(i.forge, 'origin.git', 'worktrees'))).toEqual([]);
 
     expect(look(seed)).toEqual(before);
+    expect(files(join(seed, '.git', 'objects'), /^$/)).toMatchObject(objects);
     expect(existsSync(ran)).toBe(false);
     expect(quiet(seed, 'for-each-ref', '--format=%(refname)', 'refs/heads/agentgraph/')).toBe(
       'refs/heads/agentgraph/1'
@@ -193,6 +216,7 @@ describe("the user's repo", () => {
     const i = await ensureInstance(data, seed, 'main', true);
     expect((await ensureInstance(data, seed)).readonly).toBe(true);
     expect(await ensureBase(i)).toBeUndefined();
+    expect(await whyGraphUncommitted(i, await ensureGraph(i))).toBeUndefined();
     const loaded = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue');
     Object.assign(process.env, {

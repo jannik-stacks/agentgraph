@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
@@ -105,10 +105,13 @@ const isInside = (dir: string, path: string) => {
 export const ensureInstance = async (root: string, repo: string, base?: string, readonly?: boolean) => {
   const real = realpathSync(repo);
   const common = readRealPath(await inRepo(real, ['rev-parse', '--path-format=absolute', '--git-common-dir']));
-  if ([real, common].some(dir => isInside(dir, readRealPath(root))))
-    throw new Error(
-      `the data dir ${root} is inside ${real}; pass --data or set AGENTGRAPH_DATA to a folder outside it`
-    );
+  const assertOutside = (path: string) => {
+    if ([real, common].some(dir => isInside(dir, readRealPath(path))))
+      throw new Error(
+        `the data dir ${path} is inside ${real}; pass --data or set AGENTGRAPH_DATA to a folder outside it`
+      );
+  };
+  assertOutside(root);
   const key = createHash('sha256').update(real).digest('hex').slice(0, 6);
   const dir = join(resolve(root), `${basename(real)}-${key}-local`);
   const found = readInstance(dir);
@@ -127,6 +130,7 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
         ...(readonly && { readonly }),
       };
   await mkdir(i.data, { recursive: true });
+  for (const path of [i.data, origin(i)]) assertOutside(path);
   if (!found) await git({}, ['init', '-q', '--bare', '-b', i.base, origin(i)]);
   await inForge(i, ['symbolic-ref', 'HEAD', `refs/heads/${i.base}`]);
   writeInstance(i);
@@ -174,11 +178,34 @@ export const ensureGraph = async (i: Instance, flag?: string) => {
 
 const isCommittedGraph = (i: Instance, graph: string) => graph.startsWith(join(i.dir, 'graphs'));
 
-export const whyGraphUncommitted = async (i: Instance, graph: string) =>
-  isCommittedGraph(i, graph) &&
-  (await inRepo(i.repo, ['status', '--porcelain', '--ignore-submodules=all', '--', '.agentgraph']))
-    ? `.agentgraph/ has uncommitted changes; runs use the committed version on ${i.base}. Commit them, or pass --dir .agentgraph to try them.`
-    : undefined;
+export const whyGraphUncommitted = async (i: Instance, graph: string) => {
+  if (!isCommittedGraph(i, graph)) return undefined;
+  const listed = await inRepo(i.repo, [
+    'ls-files',
+    '-z',
+    '--cached',
+    '--others',
+    '--exclude-standard',
+    '--',
+    '.agentgraph',
+  ]);
+  const local = new Set(
+    listed
+      .split('\0')
+      .filter(Boolean)
+      .map(p => relative('.agentgraph', p))
+  );
+  const committed = readdirSync(graph, { recursive: true, encoding: 'utf8' }).filter(p =>
+    statSync(join(graph, p)).isFile()
+  );
+  const same = (p: string) => {
+    const mine = join(i.repo, '.agentgraph', p);
+    return existsSync(mine) && readFileSync(mine).equals(readFileSync(join(graph, p)));
+  };
+  return committed.length === local.size && committed.every(p => local.has(p) && same(p))
+    ? undefined
+    : `.agentgraph/ has uncommitted changes; runs use the committed version on ${i.base}. Commit them, or pass --dir .agentgraph to try them.`;
+};
 
 export const formatGraphName = async (i: Instance, graph: string) => {
   if (graph === defaultDir) return 'default graph';
@@ -277,31 +304,34 @@ export const writePullToRepo = async (
     await writeFile(resolve(to.patch), `${patch}\n`, { flag: 'wx' });
     return { ref: resolve(to.patch), base, stat };
   }
-  if (i.readonly) return { why: `agentgraph does not write to ${i.repo}; pass --patch <file>` };
+  const saved = readInstance(i.dir) ?? i;
+  if (i.readonly || saved.readonly) return { why: `agentgraph does not write to ${i.repo}; pass --patch <file>` };
   const name = to.as ?? branch;
   const ref = `refs/heads/${name}`;
-  if (!to.as && !branch.startsWith('agentgraph/')) return { why: `${branch} is not an agentgraph/ branch` };
+  if (!name.startsWith('agentgraph/')) return { why: `${name} is not an agentgraph/ branch` };
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head) || !(await isRefName(ref))) return { why: `${name} is not a branch` };
   const current = await inRepo(i.repo, ['rev-parse', '-q', '--verify', ref], [1]);
   if (current === head) return { ref: name, base, stat };
-  if (current && current !== i.exported[ref]) return { why: `${name} in your repo moved since agentgraph wrote it` };
-  if (!current && i.exported[ref] && to.auto)
+  const exported = saved.exported[ref];
+  if (current && current !== exported) return { why: `${name} in your repo moved since agentgraph wrote it` };
+  if (!current && exported && to.auto)
     return { why: `${name} was deleted in your repo; agi export ${n} writes it again` };
   const checkedOut = (await inRepo(i.repo, ['worktree', 'list', '--porcelain'])).split('\n');
   if (checkedOut.includes(`branch ${ref}`)) return { why: `${name} is checked out in your repo` };
   const haves: string[] = [];
-  for (const at of [await inForge(i, ['rev-parse', '-q', '--verify', 'refs/agentgraph/repo'], [1]), i.exported[ref]])
+  for (const at of [await inForge(i, ['rev-parse', '-q', '--verify', 'refs/agentgraph/repo'], [1]), exported])
     if (at && (await isCommitIn(i.repo, at))) haves.push(at);
   const list = await inForge(i, ['rev-list', '--objects', head, '--not', ...haves]);
   const keep = list ? await sendPack(i, list) : undefined;
   try {
+    await inRepo(i.repo, ['rev-list', '--objects', '--quiet', head, '--not', '--all']);
     await inRepo(i.repo, ['update-ref', '--no-deref', '-m', 'agentgraph export', ref, head, current]);
   } finally {
     if (keep) await rm(keep, { force: true });
   }
-  const saved = readInstance(i.dir) ?? i;
-  i.exported = { ...saved.exported, [ref]: head };
-  writeInstance({ ...saved, exported: i.exported });
+  const now = readInstance(i.dir) ?? i;
+  i.exported = { ...now.exported, [ref]: head };
+  writeInstance({ ...now, exported: i.exported });
   return { ref: name, base, stat };
 };
 
@@ -318,6 +348,7 @@ const isRefName = (ref: string) =>
   );
 
 const sendPack = async (i: Instance, list: string) => {
+  const packs = await inRepo(i.repo, ['rev-parse', '--path-format=absolute', '--git-path', 'objects/pack']);
   const pack = await Effect.runPromise(
     hostGit({ GIT_DIR: origin(i) }, ['pack-objects', '-q', '--stdout'], { input: list })
   );
@@ -326,5 +357,5 @@ const sendPack = async (i: Instance, list: string) => {
       await git({}, ['-C', i.repo, 'index-pack', '--stdin', '--strict', '--keep=agentgraph export'], [], pack)
     ) ?? [];
   if (!id) throw new Error(`git index-pack kept no pack in ${i.repo}`);
-  return inRepo(i.repo, ['rev-parse', '--path-format=absolute', '--git-path', `objects/pack/pack-${id}.keep`]);
+  return join(packs, `pack-${id}.keep`);
 };

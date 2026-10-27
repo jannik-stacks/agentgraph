@@ -328,6 +328,7 @@ const timeout = (c: Command) => () =>
 
 const forgeConfig = (origin: string) => ({
   'remote.origin.url': origin,
+  'remote.origin.pushurl': origin,
   'receive.autogc': 'false',
   'receive.denyCurrentBranch': 'ignore',
   'gc.auto': '0',
@@ -481,12 +482,10 @@ export const dockerSandbox = (o: {
             Effect.gen(function* () {
               if (o.local) {
                 if (configured) return;
-                configured = true;
                 for (const [key, value] of Object.entries(forgeConfig(mirror)))
-                  if ((yield* inMirror(['config', '--get', key]).pipe(Effect.orElseSucceed(() => ''))) !== value) {
-                    configured = false;
-                    yield* Effect.ignore(inMirror(['config', key, value]));
-                  }
+                  if ((yield* inMirror(['config', '--get-all', key]).pipe(Effect.orElseSucceed(() => ''))) !== value)
+                    yield* inMirror(['config', '--replace-all', key, value]);
+                configured = true;
                 return;
               }
               const exists = yield* Effect.promise(() =>
