@@ -28,6 +28,8 @@ export const formatEventLine = (m: Event): string => {
       return `${who} added the label ${m.label}`;
     case 'unlabel':
       return `${who} removed the label ${m.label}`;
+    case 'column':
+      return `${who} moved it to ${m.column?.name} on project ${m.column?.project}`;
     case 'closed':
     case 'merged':
       return `${who} ${m.kind} it`;

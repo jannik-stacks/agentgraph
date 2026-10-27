@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import { createPrivateKey, sign } from 'node:crypto';
-import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
+import { promisify } from 'node:util';
+import { Config, Effect, Layer, Option, Redacted, Schedule, Stream } from 'effect';
 import {
   makeCommentWithAgentRequest,
   isAgentBranch,
@@ -76,6 +78,25 @@ type RestCheck = {
   app?: { slug?: string } | null;
 };
 type RestStatus = { context: string; state: string; updated_at: string; creator?: User };
+type ProjectColumnPage = {
+  data?: {
+    repository: {
+      issues: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        nodes: ({
+          number: number;
+          projectItems: {
+            nodes: ({
+              project: { number: number; owner: { login?: string } };
+              fieldValueByName: { name: string; updatedAt: string } | null;
+            } | null)[];
+          };
+        } | null)[];
+      };
+    };
+  };
+  errors?: { type?: string; message: string }[];
+};
 type RestReview = {
   id: number;
   state: string;
@@ -86,6 +107,29 @@ type RestReview = {
 };
 
 const api = 'https://api.github.com';
+const columnQuery = `query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    issues(states: OPEN, first: 100, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number projectItems(first: 20) { nodes {
+        project { number owner { ... on User { login } ... on Organization { login } } }
+        fieldValueByName(name: "Status") {
+          ... on ProjectV2ItemFieldSingleSelectValue { name updatedAt }
+        }
+      } } }
+    }
+  }
+}`;
+
+const readProjectToken: Effect.Effect<string, ForgeError> = Effect.gen(function* () {
+  const set = yield* Effect.orElseSucceed(Config.option(Config.redacted('AGENTGRAPH_PROJECT_TOKEN')), Option.none);
+  const value = Option.match(set, { onNone: () => '', onSome: Redacted.value }).trim();
+  if (value) return value;
+  return yield* Effect.tryPromise({
+    try: () => promisify(execFile)('gh', ['auth', 'token']).then(out => out.stdout.trim()),
+    catch: () => new ForgeError({ message: 'no token' }),
+  }).pipe(Effect.filterOrFail(Boolean, () => new ForgeError({ message: 'no token' })));
+});
 const members = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const writers = new Set(['admin', 'maintain', 'write']);
 /** Statuses that mean GitHub refused a proposal, as opposed to failing. */
@@ -249,7 +293,8 @@ export const githubForge = (
   fetch: Fetch = globalThis.fetch,
   token: AppToken = appToken(app, fetch),
   trust?: readonly string[],
-  studio?: string
+  studio?: string,
+  projectToken = readProjectToken
 ): Layer.Layer<Forge> =>
   Layer.sync(Forge, () => {
     const listed = (user: User, association = '') => (trust ? trust.includes(login(user)) : members.has(association));
@@ -491,7 +536,52 @@ export const githubForge = (
           : Effect.tap(permitted(user), ok => asked.set(login(user), ok));
     };
 
-    const since: Forge['Type']['since'] = cursor =>
+    const columns = Effect.runSync(
+      Effect.cached(
+        Effect.gen(function* () {
+          const auth = yield* projectToken;
+          const [owner, name] = app.repo.split('/');
+          const found: Event[] = [];
+          let after: string | null = null;
+          do {
+            const page: ProjectColumnPage = (yield* request<ProjectColumnPage>('POST', '/graphql', auth, {
+              query: columnQuery,
+              variables: { owner, name, after },
+            })).data;
+            if (!page.data || page.errors?.some(e => e.type === 'INSUFFICIENT_SCOPES'))
+              return yield* new ForgeError({ message: page.errors?.map(e => e.message).join('; ') ?? 'no data' });
+            const { issues } = page.data.repository;
+            for (const t of issues.nodes)
+              for (const item of t?.projectItems.nodes ?? []) {
+                const v = item?.fieldValueByName;
+                if (!t || !item || !v?.name) continue;
+                const by = item.project.owner.login ?? 'ghost';
+                found.push({
+                  issue: t.number,
+                  kind: 'column',
+                  actor: by,
+                  trusted: by === owner,
+                  at: v.updatedAt,
+                  column: { project: `${by}/${item.project.number}`, name: v.name },
+                });
+              }
+            after = issues.pageInfo.hasNextPage ? issues.pageInfo.endCursor : null;
+          } while (after);
+          return found;
+        }).pipe(
+          Effect.catchAll(e =>
+            Effect.as(
+              Effect.logError(
+                `Reading project columns needs a GitHub token with the read:project scope: run \`gh auth refresh -s read:project\`, or set AGENTGRAPH_PROJECT_TOKEN. (${e.message})`
+              ),
+              []
+            )
+          )
+        )
+      )
+    );
+
+    const since: Forge['Type']['since'] = (cursor, read) =>
       Stream.fromIterableEffect(
         Effect.gen(function* () {
           const self = yield* me;
@@ -499,12 +589,13 @@ export const githubForge = (
           const after = (at?: string | null): at is string => !!at && at > cursor;
           const from = cursor ? `since=${encodeURIComponent(cursor)}&` : '';
           const window = `${from}sort=updated&direction=asc&per_page=100`;
-          const [said, lined, events, open] = yield* Effect.all(
+          const [said, lined, events, open, board] = yield* Effect.all(
             [
               all<RestComment>(`${repo}/issues/comments?${window}`),
               all<RestComment>(`${repo}/pulls/comments?${window}`),
               all<RestEvent>(`${repo}/issues/events?per_page=100`, page => after(page.at(-1)?.created_at)),
               all<RestPull>(`${repo}/pulls?state=open&per_page=100`),
+              read ? columns : Effect.succeed([]),
             ],
             { concurrency: 'unbounded' }
           );
@@ -554,6 +645,7 @@ export const githubForge = (
                 : undefined;
             if (m) found.push(m);
           }
+          found.push(...board.filter(m => after(m.at)));
           for (const m of found) if (m.trusted && (m.comment || m.commit)) m.trusted = yield* may({ login: m.actor });
           return found.sort((a, b) => a.at.localeCompare(b.at));
         })

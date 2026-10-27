@@ -53,7 +53,7 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
   {
     issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], ForgeError>;
     issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, ForgeError>;
-    since: (cursor: string) => Stream.Stream<Event, ForgeError>;
+    since: (cursor: string, columns?: boolean) => Stream.Stream<Event, ForgeError>;
     apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, ForgeError>;
     findPost: (number: number, proposal: Proposal, operation: string) => Effect.Effect<Applied | undefined, ForgeError>;
     /** The login people mention to talk to the bot, when the forge has one. */

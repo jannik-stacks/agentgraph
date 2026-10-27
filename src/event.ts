@@ -34,12 +34,23 @@ export type Comment = {
 export type Event = {
   source?: 'cli';
   issue: number;
-  kind: 'comment' | 'approved' | 'changes_requested' | 'merged' | 'closed' | 'label' | 'unlabel' | 'commit' | 'check';
+  kind:
+    | 'comment'
+    | 'approved'
+    | 'changes_requested'
+    | 'merged'
+    | 'closed'
+    | 'label'
+    | 'unlabel'
+    | 'column'
+    | 'commit'
+    | 'check';
   actor: string;
   trusted: boolean;
   at: string;
   comment?: Comment;
   label?: string;
+  column?: { project: string; name: string };
   commit?: { sha: string; title: string };
   check?: { name: string; conclusion: string };
 };

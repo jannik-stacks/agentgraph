@@ -1,6 +1,6 @@
 # Running on GitHub
 
-On GitHub, agentgraph acts as one GitHub App. The runner polls the repo, so the App needs no webhook or tunnel. People start work with `/agent` or `@agent` in a comment, or with a trigger label; see [Workflows](workflows.md#what-starts-a-run).
+On GitHub, agentgraph acts as one GitHub App. The runner polls the repo, so the App needs no webhook or tunnel. People start work with `/agent` or `@agent` in a comment, with a trigger label, or by moving an issue's card into a project board column; see [Workflows](workflows.md#what-starts-a-run).
 
 The App is private and asks for four repository permissions: contents write, pull requests write, issues write and metadata read. It never gets workflows or administration. Commits go through the Git API, so GitHub signs them and a "require signed commits" rule passes.
 
@@ -38,6 +38,16 @@ npm run keychain-import -- <slug>
 ```
 
 On other hosts, set `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE`, or point `AGENTGRAPH_APP_ENV` at `app.env`. [Hosting](hosting.md) shows each host.
+
+## Project boards
+
+A workflow with a `column` trigger reads the repo's project boards with your own token, since a GitHub App cannot read a personal account's boards. Give the `gh` login the scope once:
+
+```sh
+gh auth refresh -s read:project
+```
+
+The runner then uses `gh auth token`. Where there is no `gh`, set `AGENTGRAPH_PROJECT_TOKEN` to a token with `read:project`. It is only read from the environment and never logged or stored.
 
 ## Start the runner
 

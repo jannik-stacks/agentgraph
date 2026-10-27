@@ -2,9 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Deferred, Effect, Fiber, Redacted, Stream, TestClock, TestContext } from 'effect';
+import { Deferred, Effect, Fiber, Logger, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { Forge, currentRunLinkRef } from '../src/forge.ts';
+import { Forge, ForgeError, currentRunLinkRef } from '../src/forge.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { githubForge } from '../src/github.ts';
 import type { Checkout } from '../src/sandbox.ts';
@@ -88,6 +88,50 @@ const comment = (id: number, login: string, association: string, body: string, m
   html_url: `https://github.com/o/r/issues/7#issuecomment-${id}`,
   issue_url: 'https://api.github.com/repos/o/r/issues/7',
   ...more,
+});
+
+const projectItem = (owner: string, number: number, name: string, updatedAt: string) => ({
+  project: { number, owner: { login: owner } },
+  fieldValueByName: { name, updatedAt },
+});
+const columnPages = (headers: Headers, after?: string | null) => ({
+  body:
+    headers.get('authorization') !== 'Bearer user-token'
+      ? {
+          errors: [{ type: 'INSUFFICIENT_SCOPES', message: "requires one of the following scopes: ['read:project']" }],
+        }
+      : {
+          data: {
+            repository: {
+              issues: after
+                ? {
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                    nodes: [
+                      {
+                        number: 9,
+                        projectItems: { nodes: [projectItem('o', 1, 'Agent Ready', '2026-10-16T11:00:00Z')] },
+                      },
+                    ],
+                  }
+                : {
+                    pageInfo: { hasNextPage: true, endCursor: 'p2' },
+                    nodes: [
+                      {
+                        number: 7,
+                        projectItems: {
+                          nodes: [
+                            projectItem('o', 1, 'Agent Ready', '2026-10-16T10:00:00Z'),
+                            projectItem('mallory', 2, 'Agent Ready', '2026-10-16T10:00:00Z'),
+                            { project: { number: 3, owner: { login: 'o' } }, fieldValueByName: null },
+                          ],
+                        },
+                      },
+                      { number: 8, projectItems: { nodes: [projectItem('o', 1, 'Todo', '2026-10-15T10:00:00Z')] } },
+                    ],
+                  },
+            },
+          },
+        },
 });
 
 describe('githubForge', () => {
@@ -271,6 +315,59 @@ describe('githubForge', () => {
     ]);
     expect(t.events[4]!.comment).toMatchObject({ id: '5', path: 'a.ts', line: 3 });
     expect(t.events[5]!.comment).toMatchObject({ id: '6', under: '5' });
+  });
+
+  it.each([
+    [
+      'reads the columns of open issues on project boards in one query per page and pass',
+      Effect.succeed('user-token'),
+      [
+        [7, 'o', true, 'o/1', 'Agent Ready'],
+        [7, 'mallory', false, 'mallory/2', 'Agent Ready'],
+        [9, 'o', true, 'o/1', 'Agent Ready'],
+      ],
+      2,
+      [],
+    ],
+    [
+      'says once which scope is missing when the token cannot read projects',
+      Effect.succeed('app-like-token'),
+      [],
+      1,
+      ['read:project'],
+    ],
+    [
+      'says once how to get a token when there is none',
+      Effect.fail(new ForgeError({ message: 'no token' })),
+      [],
+      0,
+      ['read:project'],
+    ],
+  ])('%s', async (_, token, expected, queries, said) => {
+    const f = fake({
+      'GET *': [],
+      'POST /graphql': (body: Body, headers: Headers) =>
+        columnPages(headers, (body as { variables?: { after?: string | null } }).variables?.after),
+    });
+    const logs: string[] = [];
+    const logger = Logger.replace(
+      Logger.defaultLogger,
+      Logger.make(({ message }) => logs.push(String(message)))
+    );
+    const events = await Effect.runPromise(
+      Effect.flatMap(Forge, forge =>
+        Effect.zipRight(
+          Stream.runCollect(forge.since('2026-10-16T00:00:00Z', true)),
+          Stream.runCollect(forge.since('2026-10-16T00:00:00Z', true))
+        )
+      ).pipe(Effect.provide(githubForge(app, f.fetch, undefined, undefined, undefined, token)), Effect.provide(logger))
+    ).then(chunk => [...chunk]);
+    expect([
+      events.map(m => [m.issue, m.actor, m.trusted, m.column?.project, m.column?.name]),
+      f.calls.filter(c => c.path === '/graphql').length,
+      logs.length,
+      said.every(word => logs.join('\n').includes(word)),
+    ]).toEqual([expected, queries, said.length, true]);
   });
 
   it('trusts only the listed logins when given a trust list, labels included', async () => {
