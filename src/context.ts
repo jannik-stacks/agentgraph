@@ -49,7 +49,7 @@ export function context(t: IssueWithPull): string {
     pull &&
       `## Pull request #${pull.number} ${pull.title}\n\n${pull.pull?.branch} into ${pull.pull?.base}\n\n${pull.body}`,
   ].filter(Boolean);
-  const lines = timeline(t, () => true);
+  const lines = timeline(t, m => !isRunnerStatus(m));
   let size = [...heads, ...lines].join('\n\n').length;
   for (let i = 0; i < lines.length && size > cap; i++) {
     const short = `${lines[i]!.split('\n')[0]!.slice(0, 120)} ...`;
@@ -62,6 +62,26 @@ export function context(t: IssueWithPull): string {
 
 const bot = (m: Event) => m.actor.endsWith('[bot]');
 const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined ? m.comment.id : undefined);
+
+const status =
+  /^(Working on |Waiting for |Done\.$|Stopped at |Asked the question below at |Stopped by a runner error at )/;
+
+const isRunnerStatus = (m: Event) =>
+  bot(m) && (m.kind === 'label' || m.kind === 'unlabel' || status.test(m.comment?.body.split('\n')[0] ?? ''));
+
+export function formatRequest(t: IssueWithPull, started: string): string {
+  const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
+  const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
+  if (said.length === 0) return '';
+  const threads = new Set(said.map(thread).filter(Boolean));
+  const before = events.filter(m => !said.includes(m) && threads.has(thread(m)) && m.at < started);
+  return [
+    `## What you were asked\n\n${said.map(formatEventLine).join('\n\n')}`,
+    before.length > 0 && `Earlier in its review thread:\n\n${before.map(formatEventLine).join('\n\n')}`,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 /**
  * Only what came after `seen`: what people said and pushed, checks, and the base moving. Empty when nothing did. A

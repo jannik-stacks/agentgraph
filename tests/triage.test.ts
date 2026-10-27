@@ -534,6 +534,53 @@ describe('/agent after a close or merge', () => {
   });
 });
 
+describe('router input', () => {
+  it('opens on the review comment that asked, after its thread, without the runner labels and status', async () => {
+    const where = world();
+    openPull(where, 2, 'agentgraph/1');
+    git(where.origin, 'branch', 'agentgraph/1', 'main');
+    await putRun(where, ended('issue', 1, 0));
+    const inline = (id: string, actor: string, body: string, s: number): Event => ({
+      issue: 2,
+      kind: 'comment',
+      actor,
+      trusted: !actor.endsWith('[bot]'),
+      at: at(s),
+      comment: { id, author: actor, body, at: at(s), path: 'docs/x.md', line: 8, ...(id !== 'r0' && { under: 'r0' }) },
+    });
+    sayOn(where, inline('r0', 'morgan', 'what is slot?', 2));
+    sayOn(where, inline('b1', 'agentgraph[bot]', 'Slot is the index.', 3));
+    sayOn(where, {
+      issue: 1,
+      kind: 'label',
+      actor: 'agentgraph[bot]',
+      trusted: false,
+      at: at(4),
+      label: 'agentgraph:waiting',
+    });
+    sayOn(where, {
+      issue: 1,
+      kind: 'comment',
+      actor: 'agentgraph[bot]',
+      trusted: false,
+      at: at(4),
+      comment: { id: 's1', author: 'agentgraph[bot]', body: 'Waiting for a human at merge.', at: at(4) },
+    });
+    sayOn(where, inline('r1', 'morgan', '/agent handle all five review comments', 5));
+    const { value } = await run(where, [filed], scanIssuesAndRunningRuns(graph));
+    const router = value.find(r => r.workflow === 'router')!;
+    const trace = await Effect.runPromise(
+      Effect.flatMap(Store, s => Stream.runCollect(s.read(router.id))).pipe(Effect.provide(fileStore(where.data)))
+    );
+    const prompt = Chunk.toArray(trace).flatMap(t => ('prompt' in t ? [t.prompt.prompt] : []))[0]!;
+    expect(prompt).toMatch(
+      /^## What you were asked\n\n@morgan on docs\/x.md:8, id r1: \/agent handle all five review comments\n\nEarlier in its review thread:\n\n@morgan on docs\/x.md:8, id r0: what is slot\?\n\n@agentgraph\[bot\] on docs\/x.md:8, id b1: Slot is the index.\n\n/
+    );
+    expect(prompt).not.toContain('agentgraph:waiting');
+    expect(prompt).not.toContain('Waiting for a human at merge.');
+  });
+});
+
 describe('a run parked by a runner error', () => {
   const retried = 'Tried again after a runner error. Go on from where the run was.';
   it.each([

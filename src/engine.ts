@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
 import {
   answerWith,
+  formatRequest,
   context,
   footer,
   formatEventLine,
@@ -494,7 +495,7 @@ const settled = (child: Run) =>
         : `asks: ${child.reason}`
   }`;
 
-/** The run's issue and the pull request on its branch, fetched before every session. */
+/** The run's issue and the pull request on its branch, or for a run with no branch the one it was asked on, fetched before every session. */
 const readIssueWithPull = (
   w: Workflow,
   run: Run
@@ -502,9 +503,10 @@ const readIssueWithPull = (
   Effect.gen(function* () {
     const forge = yield* Forge;
     const issue = yield* forge.issue(run.issue);
-    const pull =
-      issue.pull || w.branch === undefined
-        ? undefined
+    const pull = issue.pull
+      ? undefined
+      : w.branch === undefined
+        ? run.said?.find(s => s.issue !== run.issue)?.issue
         : findPullNumber(w, run.issue, yield* forge.issues({ state: 'open' }));
     const spoken = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
       'spoken' in t ? [t.spoken] : []
@@ -1237,6 +1239,7 @@ const attempt = (
       const diff = step.back && !step.each && !kept ? yield* readCheckoutDiff(work) : '';
       if (agent.reads) yield* traced(graph, run.issue, run.id, work);
       const prompt = [
+        formatRequest(t, run.started),
         ...[step.does.skill, ...(graph.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && graph.skills[s]?.body),
         w.body,
         context(t),
