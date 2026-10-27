@@ -101,7 +101,7 @@ const where = (s: Settings) => {
     const dir = s.forge;
     return {
       forge: (trust?: readonly string[]) => fileForge(dir, undefined, trust),
-      origin: { origin: join(dir, 'origin.git') },
+      origin: { origin: join(dir, 'origin.git'), local: true },
     };
   }
   const app = { repo: s.repo, ...s.forge };

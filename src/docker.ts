@@ -326,8 +326,16 @@ const start = (args: string[], secrets: Command['secrets'], name: string, on: (c
 const timeout = (c: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
 
+const forgeConfig = (origin: string) => ({
+  'remote.origin.url': origin,
+  'receive.autogc': 'false',
+  'receive.denyCurrentBranch': 'ignore',
+  'gc.auto': '0',
+});
+
 /**
- * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`. With
+ * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`, or of
+ * `origin` itself when it is a `local` forge's bare repo. With
  * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
  * the volume `cache`, `agentgraph-cache` by default. A checkout for a graph starts from the graph's sandbox setup at its base, built once
  * with the toolchain and setup, and holds its dependency directories in volumes, never in the checkout. An empty cache
@@ -336,6 +344,7 @@ const timeout = (c: Command) => () =>
 export const dockerSandbox = (o: {
   data: string;
   origin: string;
+  local?: boolean;
   image?: string;
   cache?: string;
   direct?: string[];
@@ -346,7 +355,8 @@ export const dockerSandbox = (o: {
     Effect.gen(function* () {
       const image = o.image ?? sandboxImage;
       const cache = o.cache ?? 'agentgraph-cache';
-      const mirror = join(o.data, 'mirror.git');
+      const mirror = o.local ? o.origin : join(o.data, 'mirror.git');
+      let configured = false;
       const lock = yield* Effect.makeSemaphore(1);
       if (cache) yield* Effect.promise(() => removeOrphanedVolumes(30_000).catch(() => 0));
       reap(o.data);
@@ -469,6 +479,16 @@ export const dockerSandbox = (o: {
           if (ref === undefined) return yield* empty(graph);
           yield* lock.withPermits(1)(
             Effect.gen(function* () {
+              if (o.local) {
+                if (configured) return;
+                configured = true;
+                for (const [key, value] of Object.entries(forgeConfig(mirror)))
+                  if ((yield* inMirror(['config', '--get', key]).pipe(Effect.orElseSucceed(() => ''))) !== value) {
+                    configured = false;
+                    yield* Effect.ignore(inMirror(['config', key, value]));
+                  }
+                return;
+              }
               const exists = yield* Effect.promise(() =>
                 readFile(join(mirror, 'HEAD')).then(
                   () => true,
@@ -489,7 +509,12 @@ export const dockerSandbox = (o: {
             })
           );
           const verify = (name: string) =>
-            inMirror(['rev-parse', '--verify', '--quiet', `${name}^{commit}`]).pipe(Effect.orElseSucceed(() => ''));
+            inMirror([
+              'rev-parse',
+              '--verify',
+              '--quiet',
+              `${o.local && name === 'origin/HEAD' ? 'HEAD' : name}^{commit}`,
+            ]).pipe(Effect.orElseSucceed(() => ''));
           const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
           const rev =
