@@ -61,14 +61,14 @@ export const makeCodexHarness = (): Harness => ({
             ].flatMap(setting => ['-c', setting])
           : []),
         ...(route.model === 'default' ? [] : ['--model', route.model]),
-        '--',
-        resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
+        '-',
       ],
     };
     const readonly = !isWriter(spec.tools);
+    const input = resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`;
     return route.url
-      ? { ...command, readonly }
-      : { cmd: 'sh', args: ['-c', writeAuth, 'sh', command.cmd, ...command.args], readonly };
+      ? { ...command, readonly, input }
+      : { cmd: 'sh', args: ['-c', writeAuth, 'sh', command.cmd, ...command.args], readonly, input };
   },
   parse: () => {
     let failed: string | undefined;

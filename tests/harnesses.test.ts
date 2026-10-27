@@ -9,6 +9,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -109,11 +110,25 @@ const READ_ONLY_SESSIONS = [
 ];
 
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
+const input = (c: Command) => readFileSync(join(c.home!, '.agentgraph', 'input'), 'utf8');
 
 describe('the session loop', () => {
   it.each(READ_ONLY_SESSIONS)('runs %s with %j read-only: %s', async (harness, tools, readonly) => {
     expect((await session({ ...spec, harness, tools: [...tools] }, [])).command.readonly).toBe(readonly);
   });
+
+  it.each(['claude', 'opencode', 'pi', 'codex'])(
+    'hands %s a prompt over 256 KiB on its stdin, not its argv',
+    async harness => {
+      const prompt = `${'fix the bug in 2 files '.repeat(16_000)}end`;
+      const { command } = await session({ ...spec, harness, prompt }, []);
+      const sizes = [...command.args, ...Object.entries(command.env).flat()].map(arg => Buffer.byteLength(arg));
+      expect(Math.max(...sizes)).toBeLessThan(16_384);
+      const [flag, script] = command.args;
+      const piped = spawnSync('sh', [flag!, script!, 'sh', 'cat'], { env: { HOME: command.home! }, encoding: 'utf8' });
+      expect(piped.stdout.endsWith(prompt)).toBe(true);
+    }
+  );
 
   it('prices usage at list price from the price table, cached input at its own rate', async () => {
     const prices = join(mkdtempSync(join(tmpdir(), 'agentgraph-prices-')), 'prices.json');
@@ -172,7 +187,7 @@ describe('the session loop', () => {
   it('runs the harness with its errors in its output, with only the agent key, by name', async () => {
     const { command, data } = await events(spec, sample('opencode-run.jsonl'));
     expect(command.cmd).toBe('sh');
-    expect(command.args[1]).toBe('exec "$@" 2>&1');
+    expect(command.args[1]).toBe('exec "$@" < "$HOME/.agentgraph/input" 2>&1');
     expect(command.args[3]).toBe('opencode');
     expect(command.network).toBe('proxy');
     expect(command.minutes).toBe(5);
@@ -324,11 +339,9 @@ describe('thinking', () => {
 });
 
 describe('opencode', () => {
-  it('passes the prompt as space-free words after -- and denies every tool outside the allowlist', async () => {
+  it('takes the prompt on its stdin and denies every tool outside the allowlist', async () => {
     const { command } = await events(spec, []);
-    const args = harnessArgs(command);
-    const split = args.indexOf('--');
-    expect(args.slice(0, split)).toEqual([
+    expect(harnessArgs(command)).toEqual([
       'run',
       '--format',
       'json',
@@ -339,7 +352,7 @@ describe('opencode', () => {
       '--model',
       'agentgraph/smart',
     ]);
-    expect(args.slice(split + 1)).toEqual(['fix', 'the', '"bug"', 'in\t2', 'files']);
+    expect(input(command)).toBe(spec.prompt);
     expect(JSON.parse(command.env.OPENCODE_PERMISSION!)).toEqual({
       '*': 'deny',
       read: 'allow',
@@ -604,7 +617,8 @@ describe('codex', () => {
     const args = codexArgs(command);
     expect(args.slice(0, 3)).toEqual(['exec', '--dangerously-bypass-approvals-and-sandbox', '--json']);
     expect(args[args.indexOf('--model') + 1]).toBe('gpt-y');
-    expect(args.at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
+    expect(args.at(-1)).toBe('-');
+    expect(input(command)).toBe(`${spec.system}\n\n${spec.prompt}`);
     const { model: _, ...bare } = codex;
     const { command: unnamed } = await session({ ...bare, resume: resumable() }, [], { proxy });
     expect(codexArgs(unnamed).slice(0, 4)).toEqual([
@@ -626,7 +640,7 @@ describe('codex', () => {
     expect(writer.readonly).toBe(false);
     const { command: forked } = await session({ ...codex, resume: resumable(), fork: true }, [], { proxy });
     expect(codexArgs(forked)).not.toContain('resume');
-    expect(codexArgs(forked).at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
+    expect(input(forked)).toBe(`${spec.system}\n\n${spec.prompt}`);
   });
 
   it('rejects tool limits it cannot enforce', () => {

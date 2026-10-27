@@ -47,21 +47,6 @@ const permission = (tools: string[], read: string[] = []) => {
   return rules;
 };
 
-const numeric = /^(?:-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+)$/i;
-
-const words = (prompt: string) => {
-  const out: string[] = [];
-  for (const word of prompt.split(' ')) {
-    if (!numeric.test(word)) {
-      out.push(word);
-      continue;
-    }
-    const last = out.pop();
-    out.push(last === undefined ? `${word}\t` : `${last}\t${word}`);
-  }
-  return out;
-};
-
 const deniedByOpencode = 'prevents you from using this specific tool call';
 
 export const opencode = (): Harness => ({
@@ -90,9 +75,8 @@ export const opencode = (): Harness => ({
         '--model',
         `${provider}/${route.model}`,
         ...(spec.resume ? ['--session', spec.resume.id, ...(spec.fork ? ['--fork'] : [])] : []),
-        '--',
-        ...words(spec.prompt),
       ],
+      input: spec.prompt,
       env: {
         AGENTGRAPH_LLM_BASE_URL: route.url,
         OPENCODE_CONFIG_CONTENT: JSON.stringify({

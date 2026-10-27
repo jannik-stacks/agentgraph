@@ -1939,6 +1939,12 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
     if (current.status !== 'running') return current;
     do {
       yield* walk.pipe(
+        Effect.catchAllDefect(defect =>
+          Effect.zipRight(
+            Effect.logError(`run ${current.id}`, defect),
+            new SandboxError({ reason: 'infra', detail: String(defect) })
+          )
+        ),
         Effect.scoped,
         Effect.catchTags({
           SandboxError: halt,

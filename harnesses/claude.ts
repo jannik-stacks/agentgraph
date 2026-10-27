@@ -87,9 +87,8 @@ export const claude = (): Harness => ({
         ...(spec.resume ? ['--resume', spec.resume.id, ...(spec.fork ? ['--fork-session'] : [])] : []),
         '--append-system-prompt',
         spec.system,
-        '--',
-        spec.prompt,
       ],
+      input: spec.prompt,
       env: {
         ...(route.url && { ANTHROPIC_BASE_URL: route.url.replace(/\/v1\/?$/, '') }),
         DISABLE_AUTOUPDATER: '1',

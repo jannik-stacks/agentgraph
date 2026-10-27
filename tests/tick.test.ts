@@ -1162,4 +1162,25 @@ describe('scanIssuesAndRunningRuns', () => {
     ]);
     expect(most).toBe(2);
   });
+
+  it('parks a run whose session dies with a runner error and drives the others on', async () => {
+    const where = world();
+    writeFileSync(
+      join(where.forge, '8.md'),
+      '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nDies.\n'
+    );
+    say(where, comment(8, 'morgan', true, '/agent', '2026-10-16T00:00:00.000Z'));
+    const dying = Layer.succeed(Session, {
+      open: spec =>
+        spec.prompt.includes('Dies.')
+          ? Stream.die(new Error('spawn E2BIG'))
+          : Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })),
+    });
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), dying);
+    const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
+    expect(touched.map(r => [r.issue, r.status, r.reason]).toSorted()).toEqual([
+      [7, 'waiting', 'Which file?'],
+      [8, 'waiting', expect.stringMatching(/^Stopped by a runner error \(SandboxError\)/)],
+    ]);
+  });
 });

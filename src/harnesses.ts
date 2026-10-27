@@ -26,7 +26,7 @@ export type Harness = HarnessCheck & {
   command: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
-  ) => Pick<Command, 'cmd' | 'args'> & Partial<Pick<Command, 'env' | 'readonly'>>;
+  ) => Pick<Command, 'cmd' | 'args'> & Partial<Pick<Command, 'env' | 'readonly'>> & { input: string };
   parse: () => (line: unknown) => Piece[];
 };
 
@@ -83,8 +83,13 @@ export const makeHarnessConfigProvider = (
   return ConfigProvider.fromMap(new Map(chosen)).pipe(ConfigProvider.orElse(() => fallback));
 };
 
-/** Runs the harness with its errors on the one stream it prints to, so the lines keep their order. */
-const wrapped = (cmd: string, args: string[]) => ({ cmd: 'sh', args: ['-c', 'exec "$@" 2>&1', 'sh', cmd, ...args] });
+const inputFile = '.agentgraph/input';
+
+/** Runs the harness on its input file, with its errors on the one stream it prints to, so the lines keep their order. */
+const wrapped = (cmd: string, args: string[]) => ({
+  cmd: 'sh',
+  args: ['-c', `exec "$@" < "$HOME/${inputFile}" 2>&1`, 'sh', cmd, ...args],
+});
 
 const isWritingTool = (tool: string) => /^(edit|write|bash)(\(|$)/.test(tool);
 
@@ -181,6 +186,7 @@ export const harnessSession = (
             const key = keys[spec.agent] ?? keys['*'] ?? (route.url && 'none');
             const secrets = { ...s.passed, ...(key && { [harness.key]: Redacted.make(key) }) };
             const { files = {}, links = {} } = harness.home?.(spec, route) ?? {};
+            const { cmd, args, env = {}, readonly, input } = harness.command(spec, route);
             const homes = join(s.data, 'homes');
             const from = spec.resume && join(homes, basename(spec.resume.home));
             const home = (!spec.fork && from) || join(homes, randomUUID());
@@ -191,12 +197,12 @@ export const harnessSession = (
                   throw new Error(`${spec.resume!.home} is not a session home in ${homes}`);
                 if (spec.fork && from) await cp(from, home, { recursive: true, verbatimSymlinks: true });
                 await mkdir(home, { recursive: true });
-                for (const [path, text] of Object.entries(files)) await writeHome(home, path, text);
+                for (const [path, text] of Object.entries({ ...files, [inputFile]: input }))
+                  await writeHome(home, path, text);
                 for (const [path, target] of Object.entries(links)) await linkHome(home, path, target);
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });
-            const { cmd, args, env = {}, readonly } = harness.command(spec, route);
             const hidden = Object.values(secrets)
               .map(secret => Redacted.value(secret))
               .flatMap(secret => [secret, ...secret.split(/[\n"]/)])

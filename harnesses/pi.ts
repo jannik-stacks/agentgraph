@@ -72,9 +72,8 @@ export const pi = (): Harness => ({
         ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
         '--append-system-prompt',
         spec.system,
-        '--',
-        spec.prompt,
       ],
+      input: spec.prompt,
       env: { PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' },
     };
   },
