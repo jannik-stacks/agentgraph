@@ -45,6 +45,8 @@ A comment goes where a person started or woke the run, else to the branch's open
 
 While the branch has no open pull request, an agent that may return `pull_request` must return one, or an `ask`, a `back`, an `issue` part, or comments answering a finished run. <!-- code: src/engine.ts#attempt -->
 
+A `pull_request` on a branch whose pull request is open rewrites its title and body. A step of its own after review, with an agent that returns only `pull_request`, keeps the description current each time the change goes round again. <!-- code: src/forge.ts#fileForge src/github.ts#githubForge -->
+
 A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/forge.ts#unpushable -->
 
 ## Filing issues

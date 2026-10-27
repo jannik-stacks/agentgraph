@@ -370,6 +370,24 @@ describe('drive', () => {
     ]);
   });
 
+  it('lets a later step rewrite the title and body of the open pull request', async () => {
+    const where = world();
+    const describe = { name: 'describe', does: { agent: 'implementor' }, checks: [], tries: 1 };
+    const describing = { ...w, steps: [...w.steps.slice(0, -1), describe, w.steps.at(-1)!] };
+    const { run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
+      [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
+      judged,
+      [start('r1'), reply({ kind: 'comment', body: 'Looks right.' })],
+      [start('d1'), reply({ ...pull, title: 'feat: greet', body: 'Adds `hello.txt`.' })],
+    ]);
+    expect(await run(drive(describing, fresh(), graph))).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(await run(Effect.flatMap(Forge, f => f.issue(8)))).toMatchObject({
+      title: 'feat: greet',
+      body: 'Adds `hello.txt`.',
+    });
+  });
+
   it('shows how to reply under a review comment', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);

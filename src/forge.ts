@@ -413,7 +413,9 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             if (!isAgentBranch(p.branch)) return no(`a pull request goes from a ${pushLimits.prefix} branch`);
             for (const k of await numbers()) {
               const pr = await read(k);
-              if (pr?.pull?.branch === p.branch && pr.state === 'open') return { proposal: p, ok: true, url: pr.url };
+              if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;
+              await write({ ...pr, title: p.title, body: p.body });
+              return { proposal: p, ok: true, url: pr.url };
             }
             const head = work ? await tip(work, p.branch).catch(() => '') : '';
             if (!head) return no(`branch ${p.branch} is not pushed`);
