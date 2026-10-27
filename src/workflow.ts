@@ -269,7 +269,6 @@ export function compileWorkflow(
 }
 
 export const isHumanWaitStep = (step: Step) => 'wait' in step.does;
-
 export const isQuiet = (w: Workflow) => w.on.feedback !== undefined || w.on.conflict !== undefined;
 const entered = (step: Step): Run['status'] => (isHumanWaitStep(step) ? 'waiting' : 'running');
 

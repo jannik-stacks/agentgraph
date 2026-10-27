@@ -186,14 +186,8 @@ export const harnessSession = (
             const home = (!spec.fork && from) || join(homes, randomUUID());
             yield* Effect.tryPromise({
               try: async () => {
-                if (
-                  from &&
-                  (dirname(resolve(from)) !== resolve(homes) ||
-                    !(await lstat(from).then(
-                      s => s.isDirectory(),
-                      () => false
-                    )))
-                )
+                const dir = from && (await lstat(from).catch(() => undefined))?.isDirectory();
+                if (from && (dirname(resolve(from)) !== resolve(homes) || !dir))
                   throw new Error(`${spec.resume!.home} is not a session home in ${homes}`);
                 if (spec.fork && from) await cp(from, home, { recursive: true, verbatimSymlinks: true });
                 await mkdir(home, { recursive: true });
