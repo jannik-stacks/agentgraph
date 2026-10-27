@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.0.3
+
+### Patch Changes
+
+- deb117a: A change asked of a run waiting at a human step goes back to work even when the reply could not be posted, and a reply under a review thread now goes to the pull request, not its issue.
+- d74f0e2: A browser sandbox image, `infra/local/sandbox/browser`, adds Playwright's headless Chromium so graphs can run browser end-to-end tests with no network. A graph opts in with `image: agentgraph-sandbox:browser`.
+- 2bdad12: The chatgpt provider now serves opencode and pi too. Agents run gpt-6.1-sol, and `fast` runs gpt-6-luna.
+- 2781b8c: Read-only codex agents can read files again inside the docker sandbox. Codex no longer runs its own sandbox, which needs namespaces the container forbids; a session whose tools change nothing now gets its work tree, git dirs and dependency volumes mounted read-only instead, for every harness. A box server can't enforce that and refuses read-only sessions.
+- f0bc68a: A trusted `/agent` on a closed issue, a merged or closed pull request, or an open pull request no run works on now starts the comment workflow, and a comment said just before a merge is no longer lost when the merge ends the run. A run on a pull request that is no longer open starts from its base branch.
+- 4ffa29f: An `on: conflict` workflow resolves a waiting run's conflict with its moved base in a run of its own, with a budget of its own, while the first run keeps waiting. `examples/conflicts` shows one.
+- 09bdec2: `agi dispatch` starts any workflow, the router included, and takes an optional text the run is asked first. `on: dispatch` now only decides what an agent's `run` proposal may start.
+- 9a0913b: A forge loop now runs on the provider that AGENTGRAPH_PROVIDER names.
+- 5140797: A long-running `agi loop` renews the provider login before each pass, so a ChatGPT login no longer expires mid-run. A failed renewal is logged and the pass keeps the last login.
+- bae9827: The graph issue shape no longer asks an agent to prescribe the check that would catch a miss.
+- b4514b4: A judge reads at most 200,000 characters of a change, its start and end.
+- 6ea2bb2: A loop pass looks at issues with live runs first, so a runner-error retry or a reply no longer waits behind every open issue. Reading what happened asks GitHub once per person, not once per label event.
+- d62543f: A local instance reads an `.agentgraph/` that git does not track straight from disk, so a private graph can live in `.git/info/exclude`. `AGENTGRAPH_DIR` now picks the graph inside a repo too.
+- 8e53fe9: Workflows can start when an issue's card moves into a project board column: `on: { issues: { column: Agent Ready } }`. With a `label` too, a column start also adds the label.
+- 2606d54: Harnesses read the prompt on stdin from a file in the session home, so a long prompt no longer overflows the argument limit with `spawn E2BIG`. A defect while a run works, such as a failed spawn, now parks that run with a runner error instead of stopping the loop.
+- 0be5bf9: The default reviewer returns only `back`: its findings stay in the run instead of posting a pull request comment.
+- 368caca: A retried session sees the proposal shapes again, and why its proposals failed to parse.
+- 942481d: In a forge folder, a `pull_request` for a branch with an open pull request rewrites its title and body, as on GitHub, so a later step can keep the description current.
+- d5d687b: A run a comment started now opens its prompt with that comment, its file and line, and the earlier comments of its review thread. A run with no branch reads the pull request it was asked on, and the timeline leaves out the runner's own labels and status comments.
+- 13ba5ed: A run parked by a runner error now tries its step again on its own: after 10 minutes, doubling with each try, at most 5 times. A reply still tries it at once.
+- c919798: A resumed session finds its home by name under the current data folder, so moving the data folder no longer stops runs with "is not a session home".
+- 60a4f53: The shimmer on running graph nodes is half as strong.
+- 400fd65: A GitHub read that a narrowed App token is refused with a 404 is tried once more with a new token, so pull requests and file contents in a private repo stay readable. A merged pull request that can't be read, or one issue GitHub refuses, no longer stops the whole pass.
+- 7d08175: Each studio port keeps its own Vite cache, so two studios no longer wipe each other's dependencies.
+- 66d3e9d: The sandbox image and the deploy engine image move to Debian trixie for git 2.47. The engine merges with `git merge-tree --merge-base`, which needs git 2.40 or later, so rebases failed in the deploy image and agentgraph's own tests failed in the sandbox. The sandbox image also gets jq. Rebuild `agentgraph-sandbox:local` to pick both up.
+- 6ed0419: A step whose agent may push now fails a try that changes files but proposes no push, instead of passing with the change left unpushed.
+- c91ab05: A local instance checks out from its forge directly, so the second copy of the repo in `mirror.git` is gone. Branches reach your repo as a pack and one `agentgraph/<n>` ref, without your hooks, gc or index lock; `--read-only` keeps a repo untouched. To migrate an instance, copy its kept files into the forge with `git --git-dir=<instance>/forge/origin.git fetch <instance>/data/mirror.git '+refs/agentgraph/runs/*:refs/agentgraph/runs/*'`, then move `mirror.git` aside.
+
 ## 0.0.2
 
 ### Patch Changes
