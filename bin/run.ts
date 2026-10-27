@@ -66,7 +66,7 @@ const usage = `usage: agi <verb> [flags]
   studio                                          starts the studio for this repo and prints its URL
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
 flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
-       --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...`;
+       --read-only --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...`;
 const verbs = [...usage.matchAll(/^  ([a-z-]+)/gm)].map(m => m[1]);
 
 const { values, positionals } = parseArgs({
@@ -83,6 +83,7 @@ const { values, positionals } = parseArgs({
     line: { type: 'string' },
     as: { type: 'string' },
     patch: { type: 'string' },
+    'read-only': { type: 'boolean' },
     once: { type: 'boolean' },
     apply: { type: 'boolean' },
     runs: { type: 'boolean' },
@@ -350,7 +351,7 @@ async function runOnInstance() {
     if (verb !== 'show') fail(`${verb || 'agentgraph'} runs inside a git repo, or pass --repo <dir>\n${usage}`);
     return showInstances(root);
   }
-  const i = await ensureInstance(root, repo, values.base).catch((e: Error) => fail(e.message));
+  const i = await ensureInstance(root, repo, values.base, values['read-only']).catch((e: Error) => fail(e.message));
   if (i.made)
     console.log(
       [
@@ -427,7 +428,7 @@ async function runOnInstance() {
       if (!result) return fail(`#${n} has no pull request`, 1);
       if ('why' in result)
         return fail(values.patch ? result.why : `${result.why}; try --as <branch> or --patch <file>`, 1);
-      if (!values.patch) return report(i, n);
+      if (!values.patch) return report(i, n, false, result);
       console.log(`${result.stat}\nPatch: ${result.ref}    git am ${formatShellWord(result.ref)}`);
       return;
     }
@@ -530,12 +531,17 @@ function openStudio(i: Instance) {
   spawnSync(process.execPath, [join(dir, 'dev.ts'), '--repo', i.repo, ...flags], { cwd: dir, stdio: 'inherit' });
 }
 
-async function report(i: Instance, issue: number, merged = false) {
-  const result = await writePullToRepo(i, issue, values.as ? { as: values.as } : {}).catch((e: Error) => ({
-    why: e.message,
-  }));
+async function report(
+  i: Instance,
+  issue: number,
+  merged = false,
+  written?: Awaited<ReturnType<typeof writePullToRepo>>
+) {
+  const result = written ?? (await writePullToRepo(i, issue, { auto: true }).catch((e: Error) => ({ why: e.message })));
   if (result && 'why' in result)
-    console.log(`not written to your repo: ${result.why}\n  agi export ${issue} --as <branch>${selected}`);
+    console.log(
+      `not written to your repo: ${result.why}\n  agi export ${issue} ${i.readonly ? '--patch <file>' : '--as <branch>'}${selected}`
+    );
   else if (result) {
     const { ref, base, stat } = result;
     if (stat) console.log(`\n${stat}`);
@@ -589,7 +595,7 @@ async function loop(i: Instance) {
         ).catch((e: unknown) => (stopping.signal.aborted ? [] : (console.error(e), [])));
         printRuns(runs);
         for (const issue of new Set(runs.map(r => r.issue))) {
-          const result = await writePullToRepo(i, issue).catch((e: Error) => ({ why: e.message }));
+          const result = await writePullToRepo(i, issue, { auto: true }).catch((e: Error) => ({ why: e.message }));
           if (result)
             console.log(
               'why' in result

@@ -10,12 +10,11 @@ Locally, each repo gets an instance under the data root. As a runner (`--forge`)
 ~/.agentgraph/                      --data, else AGENTGRAPH_DATA
   left-pad-7c1e2a-local/            <repo folder>-<hash of its path>-local
     instance.yaml                   repo, base, owner, provider, refs written into the repo
-    forge/                          issues, timelines, origin.git
+    forge/                          issues, timelines, origin.git (the checkouts' git)
     graphs/                         committed graph versions
     data/                           the runs folder:
       <run id>/run.json               current state
       <run id>/trace.jsonl            append-only events
-      mirror.git                      bare mirror of the repo
       work/<id>/                      checkouts in use
       index/<id>, news/<id>/          checkout index and news file
       homes/<id>/                     harness homes, kept for resuming
@@ -36,6 +35,7 @@ Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
 | `owner` | `git config user.name` at the first command, else your OS user | The author of every local verb and the only trusted login |
 | `provider` | none | The saved [provider](cli.md#picking-a-provider) |
 | `exported` | none | Where agentgraph last wrote each ref into the repo |
+| `readonly` | off | `true` writes nothing to the repo; `--read-only` sets it |
 
 ## The forge folder
 
@@ -110,4 +110,4 @@ Each check's full output, the last 64K characters of a script's output or a judg
 
 ## Checkouts
 
-A run works in a checkout from the mirror. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. <!-- code: src/docker.ts#dockerSandbox -->
+A run works in a checkout, a worktree of the forge's `origin.git` in a local instance, or of `mirror.git` in the runs folder on a runner. Its admin dir stays in that repo and its files in `work/`; neither is in your repo. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. <!-- code: src/docker.ts#dockerSandbox -->

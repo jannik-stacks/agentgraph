@@ -22,6 +22,7 @@ const toolTests = [
   'tests/tick.test.ts',
   'tests/triage.test.ts',
   'tests/tune.test.ts',
+  'tests/user-repo.test.ts',
 ];
 
 export default defineConfig({

@@ -47,7 +47,11 @@ Ctrl-C stops a drive; the run goes on at the next drive, such as `agi say 1 "go 
 
 ## Where the result lands
 
-When a drive ends, the branch is fetched into your repo as `agentgraph/<n>`, and the CLI prints the diff stat and next commands. Your checkout never moves. A branch you moved or checked out stays yours; the CLI says how to export under another name. Git runs without your hooks or config. <!-- code: src/instance.ts#writePullToRepo src/git.ts#hostGit -->
+When a drive ends, the branch shows up in your repo as `agentgraph/<n>`, and the CLI prints the diff stat and next commands. Your checkout, index and HEAD never move, and no other branch does. A branch you moved or checked out stays yours, and one you deleted stays deleted until `agi export <n>`; the CLI says how to export under another name. <!-- code: src/instance.ts#writePullToRepo -->
+
+Agentgraph only reads your repo, except for that branch: it adds the run's objects as one pack and moves `refs/heads/agentgraph/<n>` only from where it last wrote it. It never runs your hooks, signs, starts a gc or takes your index lock, and its checkouts live in the instance, not in your repo's worktrees. <!-- code: src/git.ts#hostGit src/docker.ts#dockerSandbox -->
+
+For a repo agentgraph must not write to at all, pass `--read-only` on first use. Then nothing goes into the repo, and `agi export <n> --patch <file>` hands you the change. <!-- code: src/instance.ts#ensureInstance -->
 
 ## The base
 
