@@ -14,6 +14,12 @@ const hardened = [
   'core.attributesFile=/dev/null',
   '-c',
   'core.excludesFile=/dev/null',
+  '-c',
+  'gc.auto=0',
+  '-c',
+  'maintenance.auto=false',
+  '-c',
+  'commit.gpgsign=false',
 ];
 
 const passed = [
@@ -37,7 +43,7 @@ export const makeHostEnv = (env: Record<string, string> = {}): Record<string, st
 });
 
 /**
- * Host git for the repo `env` names, with no user config, hooks or inherited `GIT_*` variables. Without `GIT_DIR` it
+ * Host git for the repo `env` names, with no user config, hooks, gc, signing, optional locks, lazy fetches or inherited `GIT_*` variables. Without `GIT_DIR` it
  * runs in the temp dir, for a clone. `input` goes to its stdin; an exit code in `codes` also succeeds.
  */
 export const hostGit = (
@@ -54,6 +60,8 @@ export const hostGit = (
         GIT_CONFIG_NOSYSTEM: '1',
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_ATTR_NOSYSTEM: '1',
+        GIT_OPTIONAL_LOCKS: '0',
+        GIT_NO_LAZY_FETCH: '1',
         ...env,
       }),
     });

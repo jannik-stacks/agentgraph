@@ -267,9 +267,17 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           });
       const say = (m: Omit<Parameters<typeof writeTimelineEvent>[1], 'actor' | 'trusted'>) =>
         writeTimelineEvent(dir, { ...m, actor: who, trusted: who !== me });
-      /** The tip of `branch` on the checkout's remote, fetched. */
-      const tip = (work: Checkout, branch: string) =>
-        git(work, 'fetch', '-q', 'origin', `refs/heads/${branch}`).then(() => git(work, 'rev-parse', 'FETCH_HEAD'));
+      /** The tip of `branch` on the checkout's remote, fetched when the checkout lacks it. */
+      const tip = async (work: Checkout, branch: string) => {
+        const ref = `refs/heads/${branch}`;
+        const line = (await git(work, 'ls-remote', 'origin', ref)).split('\n').find(l => l.endsWith(`\t${ref}`));
+        if (!line) throw new ForgeError({ message: `no branch ${branch}` });
+        const head = line.split('\t')[0]!;
+        await git(work, 'cat-file', '-e', `${head}^{commit}`).catch(() =>
+          git(work, 'fetch', '-q', '--no-write-fetch-head', 'origin', head)
+        );
+        return head;
+      };
       const open = async ({ body, pull, ...front }: Pick<Issue, 'title' | 'body'> & Partial<Issue>) => {
         const number = await writeIssueFile(dir, { labels: [], author: who, ...front }, body);
         await writePull(number, pull);
