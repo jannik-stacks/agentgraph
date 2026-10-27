@@ -148,6 +148,7 @@ const slotsOf = async (w: string) =>
         const at = join(w, 'out', slot);
         const why = readFileOrEmpty(join(at, 'why.md')).trim();
         const diff = spawnSync('git', ['diff', '--no-index', '--stat', join(w, 'graph'), join(at, 'graph')], {
+          cwd: w,
           encoding: 'utf8',
         }).stdout;
         if (!why && !diff) return { slot, graph: join(at, 'graph'), why, problems: [], empty: true };
