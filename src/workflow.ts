@@ -34,7 +34,7 @@ export type Workflow = Doc<{
   on: Partial<
     Record<
       'issues' | 'issue_comment' | 'pull_request' | 'dispatch' | 'feedback' | 'conflict',
-      { label?: string; branches?: string[] }
+      { label?: string; column?: string; project?: string; branches?: string[] }
     >
   >;
   branch?: string;
@@ -119,7 +119,14 @@ export const isRunDone = (run: Run) => run.status === 'done' || run.status === '
 export const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
 const Count = Schema.Int.pipe(Schema.positive());
 const Names = Schema.mutable(Schema.Array(Schema.String));
-const Trigger = Schema.NullOr(Schema.Struct({ label: exact(Schema.String), branches: exact(Names) }));
+const Trigger = Schema.NullOr(
+  Schema.Struct({
+    label: exact(Schema.String),
+    column: exact(Schema.String),
+    project: exact(Schema.String.pipe(Schema.pattern(/^[\w.-]+\/\d+$/, { message: () => 'owner/number' }))),
+    branches: exact(Names),
+  })
+);
 const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback', 'conflict');
 
 const StepFile = Schema.Struct({
@@ -190,6 +197,8 @@ export function compileWorkflow(
   }
   const front = decoded.right;
   const name = basename(path, '.md');
+  const trigger = typeof front.on === 'string' ? undefined : front.on.issues;
+  if (trigger?.project !== undefined && trigger.column === undefined) say('on.issues.project', 'project needs column');
 
   if (front.steps && front.agent) say('agent', 'only a workflow without steps names its agent');
   if (!front.steps && !front.agent && names.agents.length !== 1)
@@ -425,6 +434,17 @@ export function makeRunWithFreshRound(w: Workflow, run: Run): Run {
   if (run.status !== 'waiting' || !step || !isHumanWaitStep(step) || cap === undefined || taken < cap) return run;
   return { ...run, rounds: { ...run.rounds, [run.step]: taken - 1 } };
 }
+
+const issueSources: Record<string, (trigger: NonNullable<Workflow['on']['issues']>, m: Event) => boolean> = {
+  label: (t, m) => m.kind === 'label' && m.label === t.label && m.trusted,
+  column: (t, m) =>
+    m.kind === 'column' &&
+    m.column?.name === t.column &&
+    (t.project === undefined ? m.trusted : t.project === m.column?.project),
+};
+
+export const isIssueTriggered = (w: Workflow, m: Event) =>
+  w.on.issues !== undefined && Object.values(issueSources).some(matches => matches(w.on.issues!, m));
 
 /** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
 export const parseAgentRequest = (m: Event) => (m.kind === 'comment' ? m.comment?.agentRequest : undefined);

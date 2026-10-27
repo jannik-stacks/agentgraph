@@ -47,7 +47,7 @@ A workflow with a `column` trigger reads the repo's project boards with your own
 gh auth refresh -s read:project
 ```
 
-The runner then uses `gh auth token`. Where there is no `gh`, set `AGENTGRAPH_PROJECT_TOKEN` to a token with `read:project`. It is only read from the environment and never logged or stored.
+The runner then uses `gh auth token`. Where there is no `gh`, set `AGENTGRAPH_PROJECT_TOKEN` to a token with `read:project`. It is only read from the environment and never logged or stored. See [Project boards](workflows.md#project-boards).
 
 ## Start the runner
 

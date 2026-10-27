@@ -73,6 +73,8 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `label` | label name | Adding it to an issue starts a run |
+| `column` | option of a board's Status field | The issue's card in that column starts a run; with `label`, also adds the label ([Project boards](workflows.md#project-boards)) |
+| `project` | `owner/number` | The one board `column` reads; any board of the repo owner when unset |
 | `branches` | list of names | Accepted, starts nothing yet |
 
 `dispatch` and `feedback` take no fields: `on: { issues: { label: triage }, dispatch }`. `dispatch` lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/engine.ts#feedback -->

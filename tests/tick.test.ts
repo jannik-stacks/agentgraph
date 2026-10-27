@@ -36,6 +36,15 @@ import {
   pullRequest,
 } from './world.ts';
 
+const card = (project: string, name: string, trusted: boolean): Event => ({
+  issue: 7,
+  kind: 'column',
+  actor: project.split('/')[0]!,
+  trusted,
+  at: '2026-10-16T00:00:05.000Z',
+  column: { project, name },
+});
+
 describe('tick', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 
@@ -720,6 +729,35 @@ describe('tick', () => {
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain(
       'Could not answer: SessionStop. Reply again to retry.'
     );
+  });
+
+  it.each([
+    ['a card moved on a trusted board', {}, card('acme/1', 'Agent Ready', true), ['board']],
+    ['a card on an outside board', {}, card('mallory/2', 'Agent Ready', false), []],
+    ['a card on the named outside board', { project: 'ops/2' }, card('ops/2', 'Agent Ready', false), ['board']],
+    ['a card on another board than the named one', { project: 'acme/1' }, card('acme/3', 'Agent Ready', true), []],
+    ['a card in another column', {}, card('acme/1', 'Todo', true), []],
+  ])('starts a column workflow on %s', async (_, project, moved, started) => {
+    const where = world();
+    const board = { ...small.workflows.issue!, name: 'board', on: { issues: { column: 'Agent Ready', ...project } } };
+    say(where, moved);
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Which greeting?' })]]);
+    await run(tick({ ...small, workflows: { board } }, 7));
+    const runs = await run(Effect.flatMap(Store, s => s.list({ issue: 7 })));
+    expect(runs.map(r => r.workflow)).toEqual(started);
+  });
+
+  it('puts the label on an issue a column started, and starts once', async () => {
+    const where = world();
+    const issue = { ...small.workflows.issue!, on: { issues: { label: 'agent:ready', column: 'Agent Ready' } } };
+    say(where, card('acme/1', 'Agent Ready', true));
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Which greeting?' })]]);
+    const graph = { ...small, workflows: { issue } };
+    await run(tick(graph, 7));
+    await run(tick(graph, 7));
+    const runs = await run(Effect.flatMap(Store, s => s.list({ issue: 7 })));
+    const labels = (await run(Effect.flatMap(Forge, f => f.issue(7)))).labels;
+    expect([runs.map(r => r.workflow), labels.filter(l => l === 'agent:ready')]).toEqual([['issue'], ['agent:ready']]);
   });
 
   it('answers a waiting run started by a label on a command, without starting the command workflow', async () => {

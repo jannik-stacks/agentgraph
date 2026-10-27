@@ -46,6 +46,7 @@ import {
   type Workflow,
   unchanged,
   isHumanWaitStep,
+  isIssueTriggered,
   isQuiet,
   isRunDone,
   parseAgentRequest,
@@ -2244,7 +2245,8 @@ export const tick = (
       .at(-1);
     const cursor = started === undefined ? '' : [started, ...waiting.map(p => p.at)].sort()[0]!;
     const issues = yield* forge.issues({ state: 'open' });
-    const latest = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)));
+    const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
+    const latest = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor, boards)));
     const merged = (yield* Effect.forEach(
       latest.filter(m => m.kind === 'merged' && !issues.some(t => t.number === m.issue)),
       m =>
@@ -2296,7 +2298,7 @@ export const tick = (
           if (!recorded) yield* store.trace(run.id, { at: m.at, step: run.step, spoken });
           return run;
         });
-      if (m.kind !== 'comment' && m.kind !== 'label') return Effect.succeed(run);
+      if (m.kind !== 'comment' && m.kind !== 'label' && m.kind !== 'column') return Effect.succeed(run);
       const issue = origin.get(m) ?? m.issue;
       const react: Extract<Proposal, { kind: 'react' }> = {
         kind: 'react',
@@ -2517,6 +2519,12 @@ export const tick = (
         yield* store.put(first);
         const run = m ? yield* eyes(first, m) : first;
         if (run !== first) yield* store.put(run);
+        const mark = w.on.issues?.label;
+        if (mark !== undefined && m && m.kind !== 'label' && isIssueTriggered(w, m))
+          yield* forge.apply(issue, { kind: 'label', add: [mark] }).pipe(
+            Effect.flatMap(applied => store.trace(run.id, { at: now(), step: run.step, applied })),
+            Effect.catchTag('ForgeError', e => Effect.logWarning(`label for run ${run.id}`, e))
+          );
         touched.push(run);
       }).pipe(Effect.scoped);
     for (const m of events) {
@@ -2525,17 +2533,14 @@ export const tick = (
       const relabelled = events.some(
         n => n.issue === m.issue && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
       );
+      const sourced = Object.values(graph.workflows).find(w => isIssueTriggered(w, m));
       const w =
-        m.kind === 'label'
-          ? relabelled
-            ? undefined
-            : labelled.find(w => w.on.issues!.label === m.label)
-          : parseAgentRequest(m) !== undefined
-            ? (named ?? triggered[0])
-            : undefined;
+        m.kind === 'label' && relabelled
+          ? undefined
+          : (sourced ?? (parseAgentRequest(m) !== undefined ? (named ?? triggered[0]) : undefined));
       const [verb = '', step = ''] = named ? words.slice(1) : words;
       const restart = /^restart$/i.test(verb) ? step : undefined;
-      if (!w || (used.has(m) && restart === undefined) || !m.trusted || young(m.issue)) continue;
+      if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !inScope(graph, yield* forge.issue(m.issue)))) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
       const concerns = (name: string) => m.kind !== 'comment' || !routed || !!graph.workflows[name]?.on.issue_comment;
@@ -2550,7 +2555,7 @@ export const tick = (
           r =>
             r.issue === m.issue &&
             concerns(r.workflow) &&
-            (m.at <= (r.seen ?? r.started) || (m.kind === 'label' && r.workflow === w.name && r.status === 'done'))
+            (m.at <= (r.seen ?? r.started) || (sourced && r.workflow === w.name && r.status === 'done'))
         );
       const held = [...busy].some(k => k.endsWith(`#${m.issue}`) && concerns(k.slice(0, k.lastIndexOf('#'))));
       if (!held && !old) yield* start(w, m.issue, m.at, m, restart);

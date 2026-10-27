@@ -43,6 +43,9 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 
 - `issue_comment`: a trusted comment with `/agent` or `@agent` as a word, outside quotes and code. The marker is cut before the agent reads it.
 - `issues` with a `label`: a trusted person adds that label to an open issue.
+- `issues` with a `column`: the open issue's card is in that column of a GitHub project board, the option of its Status field, spelled exactly. See [Project boards](#project-boards).
+
+Each field of an `issues` trigger names a source, and the source decides whether an event starts the workflow and whether to trust it. `label` and `column` are the built-in GitHub sources, and a new source is one more entry beside them. <!-- code: src/workflow.ts#isIssueTriggered -->
 
 `pull_request` and `branches` are accepted but start nothing yet. Other runs start through [dispatch](#dispatch), as a [retro](#retros) or on a [conflict](#when-the-base-or-the-graph-moves). <!-- code: src/forge.ts#makeCommentWithAgentRequest -->
 
@@ -51,6 +54,22 @@ With several comment workflows, `/agent` starts the first, or the one its first 
 A comment that asks for no work can end the run after one session that only comments. That works without a branch, with an open pull request, or after a finished run of that workflow. Otherwise a first session that may push fails when it changed nothing.
 
 A workflow can take both triggers: `on: { issue_comment: {}, issues: { label: agent:ready } }`. A label starts it once per issue; after that, use restart. One live run holds an issue, a label added meanwhile is ignored, and removing a live run's trigger label stops it. <!-- code: src/workflow.ts#getEventOutcome -->
+
+## Project boards
+
+GitHub sends no event when a card moves, so the engine reads the board on each pass, in one GraphQL query per 100 open issues. A card that entered the column after the newest run began starts a run, once per issue like a label. <!-- code: src/github.ts#githubForge src/engine.ts#tick -->
+
+```yaml
+on: { issues: { column: Agent Ready } }                            # any board the repo owner owns
+on: { issues: { column: Agent Ready, project: jannik-stacks/1 } }  # only this board
+on: { issues: { label: agent:ready, column: Agent Ready } }        # the column adds the label
+```
+
+GitHub does not say who moved a card, so the board is what is trusted: a board the repo owner owns, or the one `project` names. A card on anyone else's board starts nothing, since anyone can add a public issue to a board of their own.
+
+With both `label` and `column`, either starts the run, and a run started from the column puts the label on the issue. The label stays the one visible sign of agent work, and removing it stops the run as before. Moving the card out of the column does not stop a run. `examples/board` and `examples/board-label` show both. <!-- code: src/engine.ts#tick -->
+
+A GitHub App cannot read the boards of a personal account, so the board is read with a user token that has the `read:project` scope: `AGENTGRAPH_PROJECT_TOKEN`, or else `gh auth token`. Without one, each pass logs once which scope is missing and how to get it, and column triggers start nothing. Labels and comments still go through the App. <!-- code: src/github.ts#readProjectToken -->
 
 ## Trust and scope
 
