@@ -381,6 +381,7 @@ export const loadGraph = (
         problems.push({ path: agent.path, message: 'tools: remote sandboxes do not support host tools' });
     }
     if (problems.length > 0 || !settings || !registry) return yield* new GraphError({ problems });
+    const tools = Object.keys(registry.tools);
     const scripts = read.scripts.map(f => `${f.path}\0${f.text}`).join('\0');
     const checks = Object.fromEntries(
       Object.entries(parts.checks).map(([name, check]) => [
@@ -404,7 +405,7 @@ export const loadGraph = (
       repo: settings.repo ?? '',
       sha: sha.digest('hex'),
       limits: settings.limits,
-      ...(Object.keys(registry.tools).length && { tools: Object.keys(registry.tools) }),
+      ...(tools.length && { tools }),
       ...(settings.plugins !== undefined && { plugins: settings.plugins }),
       ...(settings.setup !== undefined && { setup: settings.setup }),
       ...(settings.toolchain !== undefined && { toolchain: settings.toolchain }),

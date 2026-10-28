@@ -21,8 +21,8 @@ export const tool = <A, I, S = undefined>(definition: {
   description: string;
   inputSchema: Schema.Schema<A, I>;
   execute: (input: A, context: ToolContext<S>) => unknown;
-}): Tool<A, unknown, Omit<ToolContext<S>, 'abortSignal'>> =>
-  aiTool<A, unknown, Omit<ToolContext<S>, 'abortSignal'>>({
+}): Tool<A, unknown, ToolContext<S>> =>
+  aiTool<A, unknown, ToolContext<S>>({
     description: definition.description,
     inputSchema: jsonSchema<A>(JSONSchema.make(definition.inputSchema), {
       validate: async value => {
@@ -40,10 +40,7 @@ export const tool = <A, I, S = undefined>(definition: {
 
 export const makePlugin = <S = undefined>(
   definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools'> & {
-    tools: Record<
-      string,
-      Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, Omit<ToolContext<S>, 'abortSignal'>>
-    >;
+    tools: Record<string, Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, ToolContext<S>>>;
   } & ([S] extends [undefined]
       ? { settingsSchema?: Schema.Schema<S, Schema.Schema.Any['Encoded']> }
       : { settingsSchema: Schema.Schema<S, Schema.Schema.Any['Encoded']> })

@@ -364,3 +364,64 @@ it('does not execute a tool when validation finishes after cancellation', async 
   });
   expect(execute).toHaveBeenCalledTimes(1);
 });
+
+it('finishes cancellation tracing before closing without waiting for native work', async () => {
+  let started!: () => void;
+  let recorded!: () => void;
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => {
+    started = resolve;
+  });
+  const tracing = new Promise<void>(resolve => {
+    recorded = resolve;
+  });
+  const gate = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const endpoint = await startRegistered(
+    {
+      issues: {
+        tool: tool({
+          inputSchema: schema,
+          execute: () => {
+            started();
+            return new Promise<string>(() => {});
+          },
+        }),
+        settings: {},
+        plugin: 'issues',
+      },
+    },
+    { repo: 'o/r', forge: { searchIssues: async () => [] } },
+    async () => {
+      recorded();
+      await gate;
+    }
+  );
+  const pending = readLocalHttp(endpoint.url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${endpoint.secret}`,
+      Accept: 'application/json, text/event-stream',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'issues', arguments: { query: 'wait' } },
+    }),
+  }).catch(() => undefined);
+  await ready;
+  let closed = false;
+  const closing = endpoint.close().then(() => {
+    closed = true;
+  });
+  await tracing;
+  await new Promise<void>(resolve => setImmediate(resolve));
+  expect(closed).toBe(false);
+  release();
+  await closing;
+  await pending;
+  expect(closed).toBe(true);
+});

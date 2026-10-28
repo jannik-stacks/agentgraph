@@ -147,7 +147,6 @@ one without that check.
 - **Harness plugins are named after their harness:** `opencode()`, `claude()` and `pi()` read in
   `agentgraph.config.ts` the way Vite's `vue()` does. Their schema helper `some` reads as
   `some(Str, 'type', 'id')`, a list of optional fields. `bin/style.mjs` exempts the four names.
-
 - **The public `tool()` helper keeps the AI SDK name:** plugin files use the same spelling as the
   SDK definition it delegates to. `bin/style.mjs` exempts this helper.
 

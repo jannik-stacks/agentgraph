@@ -1,10 +1,14 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { BlockList, isIP } from 'node:net';
 import { asSchema } from 'ai';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  type CallToolRequest,
+} from '@modelcontextprotocol/sdk/types.js';
 import { formatRedactedText } from './context.ts';
 import type { SessionEvent } from './trace.ts';
 import type { readPlugins, ToolContext } from './plugin.ts';
@@ -23,10 +27,12 @@ export const startTools = async (
   if (!isIP(route.host) || wildcards.check(route.host, isIP(route.host) === 6 ? 'ipv6' : 'ipv4'))
     throw new Error('tools need a specific IP listen address');
   const secret = randomBytes(32).toString('hex');
+  const bearer = Buffer.from(`Bearer ${secret}`);
   const id = randomUUID();
   const path = `/${id}`;
   const controllers = new Set<AbortController>();
   const running = new Set<Promise<unknown>>();
+  const calls = new Set<Promise<unknown>>();
   const peers = new BlockList();
   const [address, prefix] = route.subnet.split('/');
   peers.addSubnet(address!, Number(prefix), isIP(address!) === 6 ? 'ipv6' : 'ipv4');
@@ -73,7 +79,8 @@ export const startTools = async (
       response.writeHead(404).end();
       return;
     }
-    if (request.headers.authorization !== `Bearer ${secret}`) {
+    const authorization = Buffer.from(request.headers.authorization ?? '');
+    if (authorization.length !== bearer.length || !timingSafeEqual(authorization, bearer)) {
       response.writeHead(401).end();
       return;
     }
@@ -111,7 +118,7 @@ export const startTools = async (
         inputSchema: schemas[name] as { type: 'object' },
       })),
     }));
-    mcp.setRequestHandler(CallToolRequestSchema, async request => {
+    const call = async (request: CallToolRequest) => {
       const { name, arguments: input = {} } = request.params;
       const call = randomUUID();
       const started = Date.now();
@@ -174,6 +181,11 @@ export const startTools = async (
         ok = false;
       }
       return { content: [{ type: 'text' as const, text: output }], isError: !ok };
+    };
+    mcp.setRequestHandler(CallToolRequestSchema, request => {
+      const pending = call(request);
+      calls.add(pending);
+      return pending.finally(() => calls.delete(pending));
     });
     try {
       const chunks: Buffer[] = [];
@@ -217,6 +229,7 @@ export const startTools = async (
     close: async () => {
       for (const controller of controllers) controller.abort(new Error('tool session closed'));
       server.closeAllConnections();
+      await Promise.allSettled(calls);
       await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
     },
   };

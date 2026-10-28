@@ -55,8 +55,7 @@ const passed = Effect.flatMap(
   Config.string('AGENTGRAPH_SESSION_ENV').pipe(
     Config.withDefault(''),
     Config.validate({
-      message:
-        'AGENTGRAPH_SESSION_ENV may list only model login variables: CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, AGENTGRAPH_CHATGPT_AUTH, OPENCODE_AUTH_CONTENT',
+      message: `AGENTGRAPH_SESSION_ENV may list only model login variables: ${[...sessionEnv].join(', ')}`,
       validation: names => splitNames(names).every(name => sessionEnv.has(name)),
     })
   ),
