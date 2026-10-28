@@ -9,7 +9,7 @@ import { readEngineEnv, start as main, temporary } from '../src/main.ts';
 import { fileForge, Forge, ForgeError } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { Sandbox } from '../src/sandbox.ts';
+import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { settings, type Settings } from '../src/services.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -771,6 +771,34 @@ describe('tick', () => {
       );
     }
   );
+
+  it('traces a sandbox start error while answering a waiting run', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    await services(where, []).run(waiting(where));
+    writeFileSync(
+      join(where.forge, '8', 'pull.json'),
+      JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
+    );
+    say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
+    let first = true;
+    const sandbox = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        checkout: (...args: Parameters<typeof s.checkout>) => {
+          if (!first) return s.checkout(...args);
+          first = false;
+          return Effect.fail(new SandboxError({ reason: 'host', detail: 'sandbox image is missing' }));
+        },
+      }))
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, replaySession([]));
+    await Effect.runPromise(tick(merging, 7).pipe(Effect.provide(layer)));
+    expect(readTrace(where.data, 'run-7')).toContainEqual(
+      expect.objectContaining({ outcome: { kind: 'ask', question: 'SandboxError: sandbox image is missing' } })
+    );
+  });
 
   it('retries an aside that errors once, then answers the human with a short comment and moves on', async () => {
     const where = world();

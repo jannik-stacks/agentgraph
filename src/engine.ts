@@ -2534,6 +2534,13 @@ export const tick = (
                 Effect.catchAll(e =>
                   Effect.gen(function* () {
                     yield* Effect.logError(`aside of run ${run.id}`, e);
+                    if (e._tag === 'SandboxError')
+                      yield* store.trace(run.id, {
+                        at: now(),
+                        step: run.step,
+                        outcome: { kind: 'ask', question: explain(e) },
+                        run: { step: run.step, status: run.status, tries: run.tries, rounds: run.rounds },
+                      });
                     if (!run.retried)
                       return {
                         run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const },
@@ -2731,7 +2738,20 @@ export const tick = (
         findPullNumber(w, r.issue, issues) === undefined
       )
         continue;
-      yield* follow(w, r, r.base, head).pipe(Effect.catchAll(e => Effect.logError(`follow run ${r.id}`, e)));
+      yield* follow(w, r, r.base, head).pipe(
+        Effect.catchAll(e =>
+          Effect.gen(function* () {
+            yield* Effect.logError(`follow run ${r.id}`, e);
+            if (e._tag === 'SandboxError')
+              yield* store.trace(r.id, {
+                at: now(),
+                step: r.step,
+                outcome: { kind: 'ask', question: explain(e) },
+                run: { step: r.step, status: r.status, tries: r.tries, rounds: r.rounds },
+              });
+          })
+        )
+      );
     }
 
     for (const before of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => r.status === 'waiting'))

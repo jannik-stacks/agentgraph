@@ -6,7 +6,7 @@ import { drive, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/eng
 import { fileForge, Forge, ForgeError } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
-import type { Sandbox } from '../src/sandbox.ts';
+import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
@@ -170,6 +170,30 @@ describe('stacks', () => {
     const before = git(where.origin, 'rev-parse', 'agentgraph/9');
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
+  });
+
+  it('traces a sandbox start error while following a stacked branch', async () => {
+    const where = world();
+    const { move } = parent(where);
+    await services(where, [child()]).run(drive(flow, run9(), merging));
+    move('more.txt', 'more\n');
+    let first = true;
+    const sandbox = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        checkout: (...args: Parameters<typeof s.checkout>) => {
+          if (!first) return s.checkout(...args);
+          first = false;
+          return Effect.fail(new SandboxError({ reason: 'host', detail: 'sandbox image is missing' }));
+        },
+      }))
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, replaySession([]));
+    await Effect.runPromise(tick(merging, 9).pipe(Effect.provide(layer)));
+    expect(readTrace(where.data, 'run-9')).toContainEqual(
+      expect.objectContaining({ outcome: { kind: 'ask', question: 'SandboxError: sandbox image is missing' } })
+    );
   });
 
   it('retries a refused stack follow from its last successful base', async () => {
