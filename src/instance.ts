@@ -25,7 +25,7 @@ export type Instance = {
   readonly?: boolean;
 };
 
-export const defaultDir = fileURLToPath(new URL('../default', import.meta.url));
+export const defaultDir = fileURLToPath(new URL('../examples/starter', import.meta.url));
 
 const git = (env: Record<string, string>, args: string[], codes: number[] = [], input?: Uint8Array) =>
   Effect.runPromise(hostGit(env, args, { codes, ...(input && { input }) })).then(out => out.toString('utf8').trim());

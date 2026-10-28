@@ -21,7 +21,7 @@ agi studio
 
 The first run builds the sandbox images, about 3 minutes. An implementor changes the code and runs the tests, a reviewer reads it, then it waits for you. The branch lands in your repo; your checkout never moves.
 
-Without `.agentgraph/` it runs the [default graph](default/workflows/issue.md). No GitHub needed: `~/.agentgraph/<repo>-<hash>-local/` holds `instance.yaml`, the runs in `data/` and `forge/`, which stands in for GitHub.
+Without `.agentgraph/` it runs the [default graph](examples/starter/workflows/issue.md). No GitHub needed: `~/.agentgraph/<repo>-<hash>-local/` holds `instance.yaml`, the runs in `data/` and `forge/`, which stands in for GitHub.
 
 ### From source
 
@@ -44,6 +44,7 @@ Start at [What agentgraph is](docs/index.md), then:
 
 | Example               | What it is                                     |
 | --------------------- | ---------------------------------------------- |
+| `examples/starter`    | Copy this graph to start with your own repo     |
 | `examples/sandbox`    | A small JavaScript package; the place to start |
 | `examples/agentgraph` | The graph agentgraph runs on itself            |
 | `examples/bench`      | The graph the bench replays pull requests with |

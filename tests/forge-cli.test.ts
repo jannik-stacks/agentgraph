@@ -646,6 +646,19 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
 });
 
 describe('an instance', () => {
+  it.each([
+    ['no package', undefined, 0],
+    ['no test script', {}, 0],
+    ['passing tests', { test: 'exit 0' }, 0],
+    ['failing tests', { test: 'exit 1' }, 1],
+  ] as const)('runs the starter check with %s', async (_name, scripts, code) => {
+    const dir = tmp('starter-check');
+    const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'starter'), harnesses));
+    if (scripts !== undefined) writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts }));
+    const checked = spawnSync('sh', ['-c', graph.checks.tests!.run!], { cwd: dir, encoding: 'utf8' });
+    expect(checked.status, checked.stderr).toBe(code);
+  });
+
   it('runs an issue to a merge on its own forge, and writes to the repo only agentgraph refs', async () => {
     const w = world();
     git(w.seed, 'config', 'user.name', 'morgan');
@@ -668,7 +681,7 @@ describe('an instance', () => {
     expect(i).toMatchObject({ base: 'main', owner: 'morgan', made: true });
     expect((await ensureInstance(root, w.seed)).made).toBe(false);
     expect(await ensureBase(i)).toBeUndefined();
-    expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'default'));
+    expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'examples', 'starter'));
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     expect(
       await writeTriggeringIssue({ ...graph, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue')
@@ -811,7 +824,7 @@ describe('an instance', () => {
     git(w.seed, 'config', 'user.name', 'morgan');
     const i = await ensureInstance(join(w.root, 'agentgraph-data'), w.seed);
     await ensureBase(i);
-    expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'default'));
+    expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'examples', 'starter'));
     cpSync(sandboxGraph, join(w.seed, '.agentgraph'), { recursive: true });
     const onDisk = join(i.repo, '.agentgraph');
     const readOnDisk = async () => {
