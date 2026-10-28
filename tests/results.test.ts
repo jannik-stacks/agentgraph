@@ -2,14 +2,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readRunResults } from '../bin/results.ts';
+import { Schema } from 'effect';
+import { findCheckFields, ResultSheet } from '../src/results.ts';
 import type { CheckEntry } from '../src/trace.ts';
-import {
-  findCheckFields,
-  formatResultValue,
-  type RunResults,
-  splitRunsByAxis,
-  getFieldSummary,
-} from '../studio/src/results/result.ts';
+import { formatResultValue, type RunResults, splitRunsByAxis, getFieldSummary } from '../studio/src/results/result.ts';
 import { tmp } from './kit.ts';
 
 const run = (key: string, at: string, usd: number, pass = true, dead?: string): RunResults => ({
@@ -111,11 +107,41 @@ describe('results', () => {
       { checks: { 'run-stats': { ...checks['run-stats'], version: 'v1' } } as never }
     );
     expect(fields.map(f => f.field)).toEqual(['usd']);
+    expect(Schema.decodeUnknownSync(ResultSheet)({ fields, runs })).toEqual({ fields, runs });
     expect(runs[0]).toMatchObject({
       axes: { plugin: 'bench', job: 'smoke' },
       meta: { engine: { origin: { plugin: 'bench' } } },
     });
     expect(runs.find(r => r.key === 'r1')!.results['run-stats']).toEqual({ at: '2', pass: true, value: { usd: 1 } });
     expect(runs.find(r => r.key === 'r2')!.dead).toBe('ended before any step passed or any session started');
+  });
+});
+
+describe('result sheets', () => {
+  it.each([
+    { fields: [], runs: [{ ...run('a', 'now', 1), meta: { tool: { note: '<script>text</script>' } } }] },
+    {
+      fields: [],
+      runs: [
+        {
+          ...run('b', 'now', 1),
+          results: { empty: { at: 'now', pass: false, empty: true, later: true, older: true, share: 0 } },
+        },
+      ],
+    },
+  ])('round trips public measurements and owner metadata %#', sheet => {
+    expect(Schema.decodeUnknownSync(ResultSheet)(sheet)).toEqual(sheet);
+  });
+
+  it.each([
+    { fields: [], runs: [{ ...run('a', 'now', 1), href: 'javascript:alert(1)' }] },
+    { fields: [], runs: [{ ...run('a', 'now', 1), meta: { tool: 'x'.repeat(8192) } }] },
+    {
+      fields: [],
+      runs: [{ ...run('a', 'now', 1), results: { cost: { at: 'now', pass: true, value: { usd: Infinity } } } }],
+    },
+    { fields: Array.from({ length: 1001 }, () => ({ check: 'c', field: 'f' })), runs: [] },
+  ])('refuses invalid exports %#', sheet => {
+    expect(Schema.decodeUnknownEither(ResultSheet)(sheet)._tag).toBe('Left');
   });
 });

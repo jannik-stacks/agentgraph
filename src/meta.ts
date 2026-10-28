@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
 
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 const isJson = (value: unknown, parents = new Set<unknown>(), depth = 0): value is JsonValue => {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
@@ -30,12 +30,12 @@ const isJson = (value: unknown, parents = new Set<unknown>(), depth = 0): value 
   );
 };
 
-const Json = Schema.declare<JsonValue>(isJson);
+export const JsonValue = Schema.declare<JsonValue>(isJson);
 const Origin = Schema.Struct({
   plugin: Schema.String,
   version: Schema.String,
   job: Schema.String,
-  input: Json,
+  input: JsonValue,
 });
 const EngineMeta = Schema.Struct({
   origin: Schema.optionalWith(Origin, { exact: true }),
@@ -43,7 +43,7 @@ const EngineMeta = Schema.Struct({
 });
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 
-export const RunMeta = Json.pipe(
+export const RunMeta = JsonValue.pipe(
   Schema.filter(value =>
     value !== null &&
     typeof value === 'object' &&
@@ -55,7 +55,7 @@ export const RunMeta = Json.pipe(
   Schema.compose(
     Schema.Record({
       key: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9_]*$/i)),
-      value: Json,
+      value: JsonValue,
     })
   )
 ).pipe(

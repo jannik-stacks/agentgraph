@@ -1,5 +1,7 @@
 import { Schema } from 'effect';
 
+export const CheckMode = Schema.Literal('info', 'warn', 'block', 'stop');
+
 export type ResultType = {
   readonly type?: 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean';
   readonly properties?: Readonly<Record<string, ResultType>>;

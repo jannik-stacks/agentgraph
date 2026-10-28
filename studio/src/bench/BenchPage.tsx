@@ -7,7 +7,8 @@ import { makeLiveJsonAtom, queryParam, resultsAtoms } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaultBenchScoreWeights, frontier, presets, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
-import { findCheckFields, readBenchRowResults, type RunResults } from '../results/result.ts';
+import { readBenchRowResults, type RunResults } from '../results/result.ts';
+import { findCheckFields } from '../../../src/results.ts';
 import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
 
 type Row = ReturnType<typeof readBenchRows>[number];

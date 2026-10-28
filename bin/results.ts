@@ -5,10 +5,10 @@ import { sum } from '../src/stats.ts';
 import { type CheckEntry, findLatestChecks, type Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
 import { getRunOrigin } from '../src/meta.ts';
+import { findCheckFields } from '../src/results.ts';
 import {
   benchFields,
   type CheckField,
-  findCheckFields,
   readBenchRowResults,
   type ResultSource,
   type RunResults,

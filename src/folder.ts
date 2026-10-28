@@ -5,7 +5,7 @@ import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import { Kind } from './proposal.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
-import { defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
+import { CheckMode, defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
 import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 /** An agent file's frontmatter. */
@@ -76,7 +76,7 @@ const SettingsFile = Schema.Struct({
  * matches `pass`. `info` only records it, `warn` records a failure, `block` fails the try and `stop` the run.
  */
 export const Check = Schema.Struct({
-  mode: Schema.Literal('info', 'warn', 'block', 'stop'),
+  mode: CheckMode,
   returns: exact(ResultType),
   pass: exact(ResultType),
   reads: exact(Schema.Literal('traces')),

@@ -1,74 +1,19 @@
 import type { readBenchRows } from '../../../bin/bench.ts';
-import type { Check } from '../../../src/folder.ts';
-import type { ResultType } from '../../../src/result.ts';
-import type { Run, CheckResult } from '../../../src/workflow.ts';
+import type { ResultSheet } from '../../../src/results.ts';
 import { formatNumber } from '../runs/trace.ts';
 
 export const resultSources = ['runs', 'bench', 'tune'] as const;
 export type ResultSource = (typeof resultSources)[number];
 
-export type CheckField = { check: string; field: string; mode?: Check['mode'] } & Pick<
-  ResultType,
-  'type' | 'description' | 'unit'
-> & { limit?: Pick<ResultType, 'minimum' | 'maximum'> };
-
-export type RunResult = Pick<CheckResult, 'pass' | 'value' | 'share' | 'empty'> & {
-  at: string;
-  later?: true;
-  older?: true;
-};
-
-export type RunResults = Pick<Run, 'meta'> & {
-  key: string;
-  at: string;
-  href?: string;
-  dead?: string;
-  axes: Record<string, string>;
-  results: Record<string, RunResult>;
-};
-
-const scalar = (v: unknown): v is number | boolean | string =>
-  typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string';
+export type CheckField = (typeof ResultSheet.Type.fields)[number];
+export type RunResults = (typeof ResultSheet.Type.runs)[number];
+export type RunResult = RunResults['results'][string];
 
 export const readFieldValue = (run: RunResults, f: Pick<CheckField, 'check' | 'field'>) => {
   const r = run.results[f.check];
   if (!r || r.empty) return undefined;
   const v = f.field === 'share' && r.value?.share === undefined ? r.share : r.value?.[f.field];
   return typeof v === 'boolean' ? +v : v;
-};
-
-export const findCheckFields = (
-  runs: RunResults[],
-  checks: Record<string, Pick<Check, 'mode' | 'returns' | 'pass'>> = {}
-): CheckField[] => {
-  const seen = new Map<string, CheckField>();
-  for (const run of runs)
-    for (const [check, r] of Object.entries(run.results)) {
-      const values = { ...r.value, ...(r.share !== undefined && { share: r.share }) };
-      for (const [field, v] of Object.entries(values)) {
-        const key = `${check} ${field}`;
-        if (seen.has(key) || !scalar(v)) continue;
-        const c = checks[check];
-        const t = c?.returns?.properties?.[field];
-        const limit = c?.pass?.properties?.[field];
-        seen.set(key, {
-          check,
-          field,
-          ...(c && { mode: c.mode }),
-          type: t?.type ?? (typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean' : 'string'),
-          ...(t?.description && { description: t.description }),
-          ...((t?.unit ?? (field === 'share' ? 'share' : undefined)) && { unit: t?.unit ?? 'share' }),
-          ...(limit &&
-            (limit.minimum !== undefined || limit.maximum !== undefined) && {
-              limit: {
-                ...(limit.minimum !== undefined && { minimum: limit.minimum }),
-                ...(limit.maximum !== undefined && { maximum: limit.maximum }),
-              },
-            }),
-        });
-      }
-    }
-  return [...seen.values()];
 };
 
 const minutes = (m: number) =>
@@ -186,8 +131,8 @@ export const readBenchRowResults = (row: BenchRow, at = ''): RunResults => {
         pass: true,
         value: {
           ...(hidden !== undefined && { hidden }),
-          usd: row.usd,
-          checkUsd: row.checkUsd,
+          ...(row.usd !== undefined && { usd: row.usd }),
+          ...(row.checkUsd !== undefined && { checkUsd: row.checkUsd }),
           minutes: row.minutes,
         },
       },
