@@ -38,6 +38,7 @@ Start at [What agentgraph is](docs/index.md), then:
 5. [Running on GitHub](docs/github.md)
 6. [Hosting](docs/hosting.md)
 7. [CLI](docs/cli.md)
+8. [Extending agentgraph](docs/extending.md)
 
 ## Examples
 
