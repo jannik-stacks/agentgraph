@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { access, mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, writeFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -75,6 +75,86 @@ console.log(JSON.stringify({
   );
 
 describe('graph plugins', () => {
+  it('loads a page-only plugin with decoded settings without reading its data', async () => {
+    const dir = await makePluginDir({
+      'plugins/count.ts': `
+import { makePlugin } from '${pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href}';
+import { Effect, Schema } from '${import.meta.resolve('effect')}';
+export default makePlugin({ name: 'count', settingsSchema: Schema.Struct({ limit: Schema.NumberFromString }),
+studio: { title: 'Count', page: new URL('./pages/count.tsx', import.meta.url), dataSchema: Schema.NumberFromString,
+read: settings => Effect.succeed(settings.limit), watch: settings => [String(settings.limit)] } });
+`,
+      'plugins/pages/count.tsx': 'throw new Error("Node must never import a page");',
+    });
+    const typed = makePlugin({
+      name: 'typed',
+      settingsSchema: Schema.Struct({ limit: Schema.NumberFromString }),
+      studio: {
+        title: 'Typed',
+        page: pathToFileURL(join(dir, 'plugins/pages/count.tsx')),
+        dataSchema: Schema.NumberFromString,
+        read: settings => {
+          expectTypeOf(settings.limit).toEqualTypeOf<number>();
+          return Effect.succeed(settings.limit);
+        },
+      },
+    });
+    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }))).toBe(2);
+    const registry = await readCheckedPlugins(dir, { count: { limit: '7' } });
+    const page = registry.pages[0]!;
+    const data = await Effect.runPromise(page.read());
+    expect(registry.tools).toEqual({});
+    expect(page).toMatchObject({ name: 'count', title: 'Count', watch: ['7'] });
+    expect(page.page.pathname).toBe(await realpath(join(dir, 'plugins/pages/count.tsx')));
+    expect(await Effect.runPromise(Schema.encode(page.dataSchema)(data))).toBe('7');
+  });
+
+  it('uses the same validation and collision rules for built-in pages', async () => {
+    const dir = await makePluginDir({ 'Page.tsx': 'export default () => null;' });
+    const page = makePlugin({
+      name: 'results',
+      studio: {
+        title: 'Results',
+        page: pathToFileURL(join(dir, 'Page.tsx')),
+        dataSchema: Schema.String,
+        read: settings => {
+          expectTypeOf(settings).toEqualTypeOf<undefined>();
+          return Effect.succeed('ok');
+        },
+      },
+    });
+    const loaded = await readPlugins(dir, {}, undefined, [page]);
+    expect(await Effect.runPromise(loaded.pages[0]!.read())).toBe('ok');
+    await expect(readPlugins(dir, {}, undefined, [page, page])).rejects.toThrow('plugin results already defined');
+    await expect(
+      readPlugins(dir, {}, undefined, [{ ...page, studio: { ...page.studio, extra: true } }])
+    ).rejects.toThrow('extra');
+  });
+
+  it.each([
+    ['empty', {}, 'no tools or studio'],
+    [
+      'remote',
+      {
+        studio: {
+          title: 'Page',
+          page: new URL('https://example.com/Page.tsx'),
+          dataSchema: Schema.String,
+          read: () => Effect.succeed('ok'),
+        },
+      },
+      'filter',
+    ],
+    [
+      'missing reader',
+      { studio: { title: 'Page', page: pathToFileURL('/Page.tsx'), dataSchema: Schema.String } },
+      'read',
+    ],
+  ])('rejects an invalid page: %s', async (_name, parts, error) => {
+    const dir = await makePluginDir({});
+    await expect(readPlugins(dir, {}, undefined, [{ name: 'page', ...parts }])).rejects.toThrow(error);
+  });
+
   it('loads engine packages from an external graph without node_modules and shares Effect schemas', async () => {
     const dir = await makePluginDir({ 'plugins/external.ts': externalSource });
     await expect(access(join(dir, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });

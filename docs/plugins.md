@@ -71,3 +71,11 @@ until its underlying promise settles.
 Known secrets are masked before output and tracing. Plugin credentials stay on the host;
 `AGENTGRAPH_SESSION_ENV` accepts only the four documented model login variables.
 <!-- code: src/tools.ts#startTools -->
+
+## Studio pages
+
+A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect
+Schema for its data and a read-only `read(settings)` effect. Optional `watch(settings)` returns data
+roots. The reader and watch receive only this plugin's decoded settings. Loading declarations does
+not execute readers or import TSX. Host code remains trusted; namespaces are not isolation.
+<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins -->
