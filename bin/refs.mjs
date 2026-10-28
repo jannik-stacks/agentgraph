@@ -22,6 +22,8 @@ const pages = readdirSync(join(root, 'docs'))
 /** GitHub's heading anchor: lower case, punctuation dropped, spaces to dashes. */
 const slug = heading =>
   heading
+    .replace(/<!--.*?-->/g, '')
+    .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s_-]/gu, '')
     .replace(/ /g, '-');

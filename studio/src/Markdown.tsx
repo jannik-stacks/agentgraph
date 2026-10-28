@@ -1,6 +1,7 @@
 import { createMarkdownRenderer } from 'fumadocs-core/content/md';
 import { remarkGfm } from 'fumadocs-core/mdx-plugins/remark-gfm';
 import { remarkHeading } from 'fumadocs-core/mdx-plugins/remark-heading';
+import type { Root as RenderTree } from 'hast';
 import {
   type ComponentProps,
   memo,
@@ -11,12 +12,65 @@ import {
   useRef,
   useState,
 } from 'react';
+import { SKIP, visit } from 'unist-util-visit';
 import { useHighlighted } from './source/highlight.tsx';
 import { Icon } from './icons.tsx';
 import { cx, IconButton, Link } from './ui.tsx';
 
+const remarkStatus = () => (tree: Parameters<ReturnType<typeof remarkHeading>>[0]) => {
+  visit(tree, 'html', (node, index, parent) => {
+    const status = /^<!--\s*(unfinished|untested)\s*-->$/.exec(node.value)?.[1];
+    if (!status || index === undefined || (parent?.type !== 'heading' && parent?.type !== 'paragraph')) return;
+    const before = parent.children[index - 1];
+    if (before?.type === 'text' && index === parent.children.length - 1) before.value = before.value.trimEnd();
+    parent.children.splice(index, 1);
+    parent.data ??= {};
+    parent.data.hProperties = { ...parent.data.hProperties, 'data-doc-status': status };
+    return index;
+  });
+};
+
+const rehypeStatus = () => (tree: RenderTree) => {
+  visit(tree, 'element', node => {
+    const status = node.properties['data-doc-status'];
+    if (typeof status !== 'string') return;
+    delete node.properties['data-doc-status'];
+    node.properties.className = ['flex', 'items-baseline', 'gap-3'];
+    node.children = [
+      { type: 'element', tagName: 'span', properties: { className: ['min-w-0'] }, children: node.children },
+      {
+        type: 'element',
+        tagName: 'span',
+        properties: {
+          className: [
+            'ml-auto',
+            'shrink-0',
+            'rounded-full',
+            'border',
+            'border-zinc-200/60',
+            'bg-zinc-100/50',
+            'px-2',
+            'py-0.5',
+            'text-[10px]',
+            'leading-4',
+            'font-medium',
+            'text-zinc-500',
+            'dark:border-zinc-800/60',
+            'dark:bg-zinc-900/50',
+            'dark:text-zinc-400',
+          ],
+          'data-doc-status': status,
+        },
+        children: [{ type: 'text', value: status }],
+      },
+    ];
+    return SKIP;
+  });
+};
+
 const { Markdown: Render } = createMarkdownRenderer({
-  remarkPlugins: [remarkGfm, [remarkHeading, { generateToc: false }]],
+  remarkPlugins: [remarkGfm, remarkStatus, [remarkHeading, { generateToc: false }]],
+  rehypePlugins: [rehypeStatus],
 });
 
 /** The one surface every code block sits on: close to the page, a hairline border, no shadow. */

@@ -71,6 +71,8 @@ The other naming rules are in [STYLE.md](../STYLE.md#naming). <!-- code: bin/sty
 
 ## Before you commit
 
+Use `<!-- unfinished -->` or `<!-- untested -->` on the same line as a heading or paragraph for a studio status pill; GitHub hides it. <!-- code: studio/src/Markdown.tsx#remarkStatus studio/src/Markdown.tsx#rehypeStatus -->
+
 `npm run check` is what CI and the commit hook run: format, lint, unused code, docs, example graphs, types, tests and the studio build. `npm run hooks` turns the hooks on. `sh bin/precommit.sh` runs the agentgraph example's fast checks on the uncommitted change against `HEAD`, or `AGENTGRAPH_BASE`.
 
 Docs tie claims to code with hidden `<!-- code: src/engine.ts#land -->` comments. `node bin/refs.mjs` fails on a missing file or symbol, `--coverage` on a field, value, status, proposal kind, flag or `AGENTGRAPH_` variable in no docs code span, and `--diff main` lists pairs changed on one side only. `node bin/commands.mjs` fails on documented commands, flags or scripts that do not exist.

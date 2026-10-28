@@ -35,7 +35,7 @@ const sections = (() => {
   return out.filter(s => s.names.length > 0);
 })();
 
-const title = (name: string) => /^# (.+)$/m.exec(pages[name]!)?.[1] ?? name;
+const title = (name: string) => (/^# (.+)$/m.exec(pages[name]!)?.[1] ?? name).replace(/<!--.*?-->/g, '').trim();
 
 export const DocsPage = () => {
   const { id: name } = useAtomValue(pageAtom);

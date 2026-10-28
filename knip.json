@@ -30,6 +30,8 @@
     "jotai",
     "@xyflow/react",
     "fumadocs-core",
+    "hast",
+    "unist-util-visit",
     "@tailwindcss/vite",
     "@vitejs/plugin-react",
     "agentation",
