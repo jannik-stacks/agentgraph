@@ -72,6 +72,7 @@ const issue = (n: number, more: object = {}) => ({
   user: { login: 'alice' },
   author_association: 'OWNER',
   html_url: `https://github.com/o/r/issues/${n}`,
+  repository_url: 'https://api.github.com/repos/o/r',
   ...more,
 });
 const pull = (n: number, more: object = {}) => ({
@@ -136,6 +137,82 @@ const columnPages = (headers: Headers, after?: string | null) => ({
 });
 
 describe('githubForge', () => {
+  it('searches only this repository’s issues and reuses search ETags', async () => {
+    const f = fake({
+      'GET /search/issues': (_body: Body, headers: Headers) =>
+        headers.has('if-none-match')
+          ? { status: 304 }
+          : {
+              headers: { etag: 'search-v1' },
+              body: {
+                items: [
+                  issue(7, { state: 'closed' }),
+                  issue(8, { state: 'closed', user: { login: 'outsider' }, author_association: 'NONE' }),
+                  issue(9, { state: 'closed', repository_url: 'https://api.github.com/repos/other/repo' }),
+                  issue(10, { state: 'closed', pull_request: {} }),
+                  issue(11),
+                  issue(12, { state: 'closed', repository_url: 'https://api.github.com/repos/o/r/extra' }),
+                  issue(13, { state: 'closed', repository_url: 'https://api.github.com.evil/repos/o/r' }),
+                  issue(14, { state: 'closed', repository_url: undefined }),
+                ],
+              },
+            },
+    });
+    const found = await run(
+      f,
+      Effect.gen(function* () {
+        const forge = yield* Forge;
+        yield* forge.searchIssues('cache failure', { state: 'closed', limit: 5 });
+        return yield* forge.searchIssues('cache failure', { state: 'closed', limit: 5 });
+      })
+    );
+    const searches = f.calls.filter(call => call.path.startsWith('/search/issues'));
+    const params = new URL(searches[0]!.path, 'https://api.github.com').searchParams;
+    expect(params.get('q')).toBe('repo:o/r is:issue cache failure state:closed');
+    expect(params.get('per_page')).toBe('5');
+    expect(searches[1]!.headers.get('if-none-match')).toBe('search-v1');
+    expect(found.map(issue => [issue.number, issue.body])).toEqual([
+      [7, 'Do it now'],
+      [8, '(issue text by @outsider withheld: not a collaborator)'],
+    ]);
+  });
+
+  it('searches all states without adding a state qualifier', async () => {
+    const f = fake({ 'GET /search/issues': { items: [] } });
+    await run(
+      f,
+      Effect.flatMap(Forge, forge => forge.searchIssues('cache', { state: 'all' }))
+    );
+    const search = f.calls.find(call => call.path.startsWith('/search/issues'))!;
+    expect(new URL(search.path, 'https://api.github.com').searchParams.get('q')).toBe('repo:o/r is:issue cache');
+  });
+
+  it.each([
+    ['cache OR crash repo:other/repo is:pr state:all', 'cache crash'],
+    ['(cache) AND (retry) NOT -repo:o/r author:"someone else"', 'cache retry'],
+    ['"Cache failure" in:title', 'Cache failure'],
+  ])('strips search operators and qualifiers from %s', async (query, keywords) => {
+    const f = fake({ 'GET /search/issues': { items: [] } });
+    await run(
+      f,
+      Effect.flatMap(Forge, forge => forge.searchIssues(query))
+    );
+    const search = f.calls.find(call => call.path.startsWith('/search/issues'))!;
+    expect(new URL(search.path, 'https://api.github.com').searchParams.get('q')).toBe(
+      `repo:o/r is:issue ${keywords} state:open`
+    );
+  });
+
+  it.each(['repo:other/repo', '', 'a'.repeat(257)])(
+    'rejects an empty or excessive keyword query before requesting GitHub: %s',
+    async query => {
+      const f = fake({});
+      const found = await run(f, Effect.either(Effect.flatMap(Forge, forge => forge.searchIssues(query))));
+      expect(found._tag).toBe('Left');
+      expect(f.calls).toEqual([]);
+    }
+  );
+
   it('authenticates as the App installation and reuses the token', async () => {
     const f = fake({
       'GET /repos/o/r/issues/7': issue(7),

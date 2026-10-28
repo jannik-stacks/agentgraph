@@ -28,6 +28,8 @@ Who must approve the install:
 
 Each loop pass shares one open-issue listing and shared event polls across issue ticks. Issues with no prior run share a separate history poll, so their catch-up keeps live runs first. The loop keeps scoped installation tokens and ETags between passes, including when session credentials refresh. Conditional requests reuse an ETag only with the token and API version that received it. A rate-limit response holds subsequent requests until GitHub's reset time or retry delay. <!-- code: src/engine.ts#scanIssuesAndRunningRuns src/services.ts#makeProductionLayers src/github.ts#requester -->
 
+The forge offers `searchIssues(query, { state, limit })` to read this repo's issues through the same requester and text trust rules. Queries take keywords up to 256 characters; search qualifiers, operators and punctuation are stripped. Repository and issue scope stay fixed, and returned repository identities are checked. `state` defaults to `open` and also accepts `closed` or `all`; `limit` defaults to 20 and accepts integers from 1 to 100. The file forge matches the keywords in issue titles and bodies for local tests. <!-- code: src/forge.ts#Forge src/forge.ts#parseIssueSearch src/forge.ts#fileForge src/github.ts#githubForge -->
+
 ## The key
 
 On macOS the private key goes into the login Keychain, which asks before every read, and `app.env` names `/dev/fd/3`. Elsewhere, or when the Keychain refuses, it goes into `key.pem` beside `app.env`, readable only by you. Keys never go in a repo or a log.

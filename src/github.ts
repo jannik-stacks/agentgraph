@@ -12,6 +12,7 @@ import {
   ForgeError,
   makePostableProposal,
   matches,
+  parseIssueSearch,
   withheld,
 } from './forge.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
@@ -32,6 +33,7 @@ type RestIssue = {
   user?: User;
   author_association?: string;
   html_url: string;
+  repository_url: string;
   pull_request?: { merged_at?: string | null } | null;
 };
 type RestPull = {
@@ -447,6 +449,26 @@ export const githubForge = (
         const byNumber = new Map(pulls.map(p => [p.number, p]));
         const self = yield* me;
         return issues.map(i => toIssue(i, self, byNumber.get(i.number), parent)).filter(matches(filter));
+      });
+
+    const searchIssues: Forge['Type']['searchIssues'] = (query, options) =>
+      Effect.gen(function* () {
+        const { terms, state, limit } = yield* parseIssueSearch(query, options);
+        const params = new URLSearchParams({
+          q: [`repo:${app.repo}`, 'is:issue', ...terms, ...(state === 'all' ? [] : [`state:${state}`])].join(' '),
+          per_page: String(limit),
+        });
+        const found = yield* gh<{ items: RestIssue[] }>('GET', `/search/issues?${params}`);
+        const self = yield* me;
+        return found.items
+          .filter(
+            issue =>
+              !issue.pull_request &&
+              issue.repository_url?.toLowerCase() === `${api}${repo}`.toLowerCase() &&
+              (state === 'all' || issue.state === state)
+          )
+          .slice(0, limit)
+          .map(issue => toIssue(issue, self));
       });
 
     /** The checks and statuses on a commit: name and conclusion only. Without the permission to read them, none. */
@@ -1044,7 +1066,7 @@ export const githubForge = (
       return Effect.map(all<Posted>(`${repo}/${thread}/comments?per_page=100`), c => find(c, post => post.id));
     };
 
-    return { issues, issue, since, apply, findPost, slug: me, ...(studio && { studio }) };
+    return { issues, searchIssues, issue, since, apply, findPost, slug: me, ...(studio && { studio }) };
   });
 };
 

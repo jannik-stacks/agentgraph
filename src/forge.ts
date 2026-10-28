@@ -52,6 +52,10 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
   Forge,
   {
     issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], ForgeError>;
+    searchIssues: (
+      query: string,
+      options?: { state?: Exclude<Issue['state'], 'merged'> | 'all'; limit?: number }
+    ) => Effect.Effect<Issue[], ForgeError>;
     issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, ForgeError>;
     since: (cursor: string, columns?: boolean) => Stream.Stream<Event, ForgeError>;
     apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, ForgeError>;
@@ -62,6 +66,23 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
     studio?: string;
   }
 >() {}
+
+export const parseIssueSearch = (
+  query: string,
+  { state = 'open', limit = 20 }: NonNullable<Parameters<Forge['Type']['searchIssues']>[1]> = {}
+) =>
+  Effect.suspend(() => {
+    const terms = (
+      query.replace(/-?[\w-]+:(?:"[^"]*"|[^\s)]+)/g, ' ').match(/[\p{L}\p{N}_]+(?:[./-][\p{L}\p{N}_]+)*/gu) ?? []
+    ).filter(term => !/^(AND|OR|NOT)$/i.test(term));
+    if (!terms.length || query.length > 256)
+      return Effect.fail(new ForgeError({ message: 'searchIssues needs keywords up to 256 characters' }));
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+      return Effect.fail(new ForgeError({ message: 'searchIssues limit must be an integer from 1 to 100' }));
+    if (!['open', 'closed', 'all'].includes(state))
+      return Effect.fail(new ForgeError({ message: 'searchIssues state must be open, closed or all' }));
+    return Effect.succeed({ terms, state, limit });
+  });
 
 /** The comment with what it asks the bot after its first `/agent` or `@agent` outside quoted lines and fenced code. */
 export const makeCommentWithAgentRequest = (c: Comment): Comment => {
@@ -473,6 +494,19 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         });
 
       return {
+        searchIssues: (query, options) =>
+          Effect.flatMap(parseIssueSearch(query, options), ({ terms, state, limit }) =>
+            io(async () =>
+              (await Promise.all((await numbers()).map(read)))
+                .filter((issue): issue is Issue => issue !== undefined && !issue.pull)
+                .filter(issue => state === 'all' || issue.state === state)
+                .filter(issue =>
+                  terms.every(term => `${issue.title}\n${issue.body}`.toLowerCase().includes(term.toLowerCase()))
+                )
+                .slice(0, limit)
+                .map(shown)
+            )
+          ),
         issues: filter =>
           io(async () => {
             const all = await Promise.all((await numbers()).map(read));
