@@ -98,6 +98,8 @@ const events = async (s: SessionSpec, lines: string[], exit = 0) => {
 };
 
 const BAD_SETTINGS = [
+  ["export default { harnesses: [], provider: 'missing', providers: [] };\n", 'has no provider missing'],
+  ["export default { harnesses: [], harness: 'missing' };\n", 'has no harness missing'],
   ["export default { harnesses: [{ name: 'pi' }, { name: 'pi' }] };\n", 'lists the harness pi twice'],
   [
     "export default { harnesses: [], providers: [{ name: 'local' }, { name: 'local' }] };\n",
@@ -193,7 +195,7 @@ describe('the session loop', () => {
         command: (_spec, route) => ({ cmd: 'custom', args: [], input: '', readonly: false, env: { CUSTOM_AUTH: route.auth ?? '' } }),
         parse: () => () => []
       };
-      export default { harnesses: [harness], providers: [{ name: 'custom-provider', harnesses: ['custom'], ready: () => true, auth: 'custom-native' }] };
+      export default { harnesses: [{ ...harness, name: 'other' }, harness], harness: 'custom', provider: 'custom-provider', providers: [{ name: 'custom-provider', harnesses: ['custom'], ready: () => true, auth: 'custom-native' }, { name: 'other-provider', harnesses: ['other'], ready: () => true }] };
     `
     );
     const provider = ConfigProvider.fromMap(
@@ -204,6 +206,32 @@ describe('the session loop', () => {
     );
     const settings = await Effect.runPromise(readHarnessSettings.pipe(Effect.withConfigProvider(provider)));
     expect(settings.provider).toBe('custom-provider');
+    const defaults = await Effect.runPromise(
+      readHarnessSettings.pipe(
+        Effect.withConfigProvider(ConfigProvider.fromMap(new Map([['AGENTGRAPH_CONFIG', file]])))
+      )
+    );
+    expect(defaults.harness).toBe('custom');
+    expect(defaults.provider).toBe('custom-provider');
+    expect(defaults.harnesses[0]!.name).toBe('custom');
+    const override = await Effect.runPromise(
+      readHarnessSettings.pipe(
+        Effect.withConfigProvider(
+          ConfigProvider.fromMap(
+            new Map([
+              ['AGENTGRAPH_CONFIG', file],
+              ['AGENTGRAPH_PROVIDER', 'other-provider'],
+              ['AGENTGRAPH_HARNESS', 'other'],
+            ])
+          )
+        )
+      )
+    );
+    expect(override).toMatchObject({
+      provider: 'other-provider',
+      harness: 'other',
+      harnesses: [{ name: 'other' }, { name: 'custom' }],
+    });
     expect(
       (await session({ ...spec, harness: 'custom', tools: ['inspect'] }, [], settings)).command.env.CUSTOM_AUTH
     ).toBe('custom-native');
@@ -211,9 +239,12 @@ describe('the session loop', () => {
     mkdirSync(join(dir, 'agents'));
     mkdirSync(join(dir, 'workflows'));
     writeFileSync(join(dir, 'workflows', 'issue.md'), '---\non: issues\nsteps:\n  work: { agent: a }\n---\n');
-    writeFileSync(join(dir, 'agents', 'a.md'), '---\nharness: custom\ntools: [inspect, apply_patch]\n---\n');
+    writeFileSync(
+      join(dir, 'agents', 'a.md'),
+      '---\nharness: custom\nreads: traces\ntools: [inspect, apply_patch]\n---\n'
+    );
     await expect(Effect.runPromise(loadGraph(dir, settings.harnesses))).resolves.toMatchObject({
-      agents: { a: { harness: 'custom' } },
+      agents: { a: { harness: 'custom', reads: 'traces' } },
     });
     expect((await session({ ...spec, harness: 'custom', tools: ['inspect'] }, [], settings)).command.readonly).toBe(
       true

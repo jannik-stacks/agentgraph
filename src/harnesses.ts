@@ -61,12 +61,19 @@ export const readHarnessSettings = Effect.gen(function* () {
       const providers = settings.providers?.map(p => p.name) ?? [];
       const duplicate = providers.find((name, i) => providers.indexOf(name) !== i);
       if (duplicate) throw new Error(`lists the provider ${duplicate} twice`);
-      if (harness && !names.includes(harness)) throw new Error(`has no harness ${harness}`);
-      const provider = named ? settings.providers?.find(p => p.name === named) : undefined;
-      if (named && !provider) throw new Error(`has no provider ${named}`);
+      const chosenHarness = harness || settings.harness;
+      const chosenProvider = named || settings.provider;
+      if (chosenHarness && !names.includes(chosenHarness)) throw new Error(`has no harness ${chosenHarness}`);
+      const provider = chosenProvider ? settings.providers?.find(p => p.name === chosenProvider) : undefined;
+      if (chosenProvider && !provider) throw new Error(`has no provider ${chosenProvider}`);
       const rank = (name: string) => (provider?.harnesses.indexOf(name) ?? -1) >>> 0;
       const harnesses = settings.harnesses.toSorted((a, b) => rank(a.name) - rank(b.name));
-      return { ...settings, harnesses, ...(harness && { harness }), ...(named && { provider: named }) };
+      return {
+        ...settings,
+        harnesses,
+        ...(chosenHarness && { harness: chosenHarness }),
+        ...(chosenProvider && { provider: chosenProvider }),
+      };
     },
     catch: e => new GraphError({ problems: [{ path, message: (e as Error).message }] }),
   });

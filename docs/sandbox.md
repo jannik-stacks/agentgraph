@@ -73,7 +73,7 @@ A graph opts in with `image: agentgraph-sandbox:browser`. The image sets `PLAYWR
 
 An agent's `harness` picks the session program. The operator's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins in `harnesses/`; a graph never loads code. A plugin gives a `name`, its `key` variable, a `command`, a `parse` for output lines, a `classify` that returns `read`, `write` or `undefined` for each tool, and an optional `home` and `check`. An unclassified tool fails the graph check and cannot start a session. The sandbox makes the worktree read-only when all tools are classified as read; a command may also request read-only access. <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
 
-`AGENTGRAPH_HARNESS` runs every agent on one harness. Otherwise an agent without a `harness` gets the provider's first, else the config's first. A graph loads only when every harness is in the config and passes its `check`. <!-- code: src/folder.ts#loadGraph -->
+The config's `provider` and `harness` select defaults; `AGENTGRAPH_PROVIDER` and `AGENTGRAPH_HARNESS` override them. A selected harness runs every agent. Otherwise an agent without a `harness` gets the provider's first, else the config's first. A graph loads only when every harness is in the config and passes its `check`. <!-- code: src/folder.ts#loadGraph -->
 
 | Harness | Tool permissions | Aside fork |
 | --- | --- | --- |
@@ -81,6 +81,8 @@ An agent's `harness` picks the session program. The operator's `agentgraph.confi
 | `pi` | Plain tool names; a pattern fails the graph check | `--fork <id>` |
 | `claude` | Patterns; a tool it lacks fails the graph check; commit and pull request attribution is off | `--resume <id> --fork-session` |
 | `codex` | `edit`, `write` and `bash` together give every tool, else a read-only `/work`; some of the three fails the check. Codex's own sandbox stays off, as it needs namespaces the container forbids | none, a fresh session |
+
+An agent with `reads: traces` needs a tool that can read the trace files. The graph author supplies it, and a harness may validate it in `check`. The news file path is included in every agent's prompt and made available to its harness, regardless of tool names.
 
 Agent `tools` defaults to none. Session homes under `homes/` in the data folder persist across resumes; a resume finds its home by name there, so a moved data folder keeps them. <!-- code: src/harnesses.ts#harnessSession -->
 

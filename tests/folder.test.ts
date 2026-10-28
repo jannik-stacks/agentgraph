@@ -131,12 +131,23 @@ describe('loadGraph', () => {
     expect((await Effect.runPromise(loadGraph(named, harnesses, 'pi'))).agents.a!.harness).toBe('pi');
   });
 
-  it('fails on an agent that reads traces without the read tool', async () => {
+  it('lets the harness validate its own file-reading tools', async () => {
     const dir = graphDir({
       'agents/a.md': '---\nharness: opencode\nreads: traces\ntools: [grep]\n---\n',
       'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n---\n',
     });
-    expect(await problems(dir)).toEqual(['agents/a.md: reads: traces needs read in tools']);
+    const harness = harnesses.find(h => h.name === 'opencode')!;
+    const error = await Effect.runPromise(
+      Effect.flip(
+        loadGraph(dir, [
+          {
+            ...harness,
+            check: agent => (agent.reads && !agent.tools.includes('read') ? ['traces need a file reader'] : []),
+          },
+        ])
+      )
+    );
+    expect(error.message).toBe('agents/a.md: harness: opencode traces need a file reader');
   });
 
   it('refuses a pass that could never decide, a pass on an info check and an unknown schema word', async () => {

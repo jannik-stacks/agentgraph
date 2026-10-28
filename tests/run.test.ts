@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
@@ -520,8 +520,18 @@ describe('drive', () => {
     const { specs, run } = services(where, [[start('t1'), reply({ kind: 'ask', question: 'Which file?' })]]);
     const rules = { name: 'rules', path: 'skills/rules.md', body: 'Keep it small.' };
     const uses = { ...graph.skills.triage!, uses: ['rules', 'implement'] };
-    await run(drive(w, fresh(), { ...graph, skills: { ...graph.skills, rules, triage: uses } }));
+    const triage = { ...graph.agents.triager!, tools: ['inspect'] };
+    await run(
+      drive(w, fresh(), {
+        ...graph,
+        agents: { ...graph.agents, triager: triage },
+        skills: { ...graph.skills, rules, triage: uses },
+      })
+    );
     expect(specs[0]!.prompt).toContain('You are triage.\n\nKeep it small.\n\nYou are implement.');
+    const news = specs[0]!.prompt.match(/People may comment while you work: (.+) holds what is new/)?.[1];
+    expect(news).toBeDefined();
+    expect(specs[0]!.read).toEqual([dirname(news!)]);
   });
 
   it('fails an implementing try that changed nothing, with feedback, instead of passing it on', async () => {

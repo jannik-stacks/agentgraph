@@ -1261,7 +1261,6 @@ const attempt = (
       const agent = graph.agents[name]!;
       const issue = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
-      const reads = agent.tools.includes('read');
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       /** A step that judges the change, and does not fan out over it, opens on the whole of it. */
       const diff = step.back && !step.each && !kept ? yield* readCheckoutDiff(work) : '';
@@ -1286,8 +1285,7 @@ const attempt = (
             .join(', ')}.`,
         answering &&
           'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run.',
-        reads &&
-          `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
+        `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
         agent.reads && tracesAt(work),
         agent.returns.includes('issue') && (yield* filed()),
         run.feedback,
@@ -1326,7 +1324,7 @@ const attempt = (
               dir: work.dir,
               base: work.base,
               tools: agent.tools,
-              ...(reads && { read: [dirname(work.news)] }),
+              read: [dirname(work.news)],
               ...(resume && { resume }),
             },
             item,

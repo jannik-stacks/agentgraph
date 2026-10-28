@@ -107,7 +107,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `model` | model alias | `default`, or Claude Code's own | The model name the endpoint expects |
 | `tools` | list of tool names | none | Allowed tools |
 | `returns` | list of proposal kinds | `[comment]` | What it may [propose](proposals.md) |
-| `reads` | `traces` | none | [The issue's run traces](checks.md#reading-traces); needs the `read` tool |
+| `reads` | `traces` | none | [The issue's run traces](checks.md#reading-traces); needs a tool that can read files |
 
 ## Checks
 

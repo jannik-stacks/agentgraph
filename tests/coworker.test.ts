@@ -232,8 +232,9 @@ describe('coworker', () => {
     expect(specs[0]!.prompt).toContain('#7 @morgan: /agent');
     expect(specs[0]!.prompt).toContain('#8 @ana: mind the edge case');
     expect(specs[0]!.prompt).toContain('#8 check test: failure');
-    expect(specs[0]!.prompt).not.toContain('holds what is new');
-    expect(specs[0]!.read).toBeUndefined();
+    expect(specs[0]!.prompt).toContain('holds what is new');
+    expect(specs[0]!.read).toEqual([expect.any(String)]);
+    expect(specs[0]!.prompt).toContain(specs[0]!.read![0]!);
   });
 
   /** Run 7 parked on a question in its kept implement session, with pull request #8 on base b1. */

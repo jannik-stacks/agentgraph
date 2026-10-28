@@ -197,7 +197,6 @@ const compile = (
   const agents = docs(groups.agents, (data, say) => {
     const decoded = decode(Agent, data, say);
     const agent = decoded && { ...decoded, harness: forced || decoded.harness || (harnesses[0]?.name ?? '') };
-    if (agent?.reads && !agent.tools.includes('read')) say('reads: traces needs read in tools');
     const harness = agent && harnesses.find(h => h.name === agent.harness);
     if (agent && !harness)
       say(`harness: ${agent.harness} is not in the config, which has ${harnesses.map(h => h.name).join(', ')}`);
