@@ -82,6 +82,23 @@ const measure = (command: string) => ({
 const implement = (...checks: string[]) => ({ name: 'implement', does: { agent: 'implementor' }, checks, tries: 1 });
 
 describe('a check result', () => {
+  it('still blocks a step when a script returns the wrong type', async () => {
+    const where = world();
+    const h = ending({ counted: { mode: 'block', returns: count, run: 'echo \'{"n": "three"}\'' } });
+    const step = implement('counted');
+    const workflow = { ...w, steps: [step, { ...step, name: 'next', checks: [] }] };
+    const { run } = services(where, []);
+    const { outcome } = await run(runStepChecks(step, left(where), h));
+    expect(outcome).toMatchObject({
+      kind: 'failed',
+      checks: [{ check: 'counted', pass: false, empty: true, findings: expect.stringContaining('result.n') }],
+    });
+    expect(transition(workflow, { ...fresh(), step: step.name }, outcome)).toMatchObject({
+      step: 'implement',
+      status: 'waiting',
+    });
+  });
+
   it('is the exit and output of a plain script, and the JSON object a script with its own returns prints last', async () => {
     const where = world();
     const h = ending({
