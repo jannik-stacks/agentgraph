@@ -63,6 +63,14 @@ describe('studio navigation', () => {
     }
   });
 
+  it('links a declared plugin page and marks its route', () => {
+    expect(links(navs(render('/plugins/count'))[0]!)).toContainEqual({ href: '/plugins/count', current: true });
+  });
+
+  it.each(['constructor', 'toString', '__proto__', 'missing'])('shows an unknown plugin page: %s', name => {
+    expect(render(`/plugins/${name}`)).toContain('Page not found.');
+  });
+
   it('lists the runs that wait on a person with what to do, and not those that wait on another run', () => {
     const base = { workflow: 'issue', step: 'merge', tries: 0, rounds: {}, usd: 0, started: '2026-10-25T10:00:00Z' };
     expect(renderInbox([{ ...base, id: 'done-1', issue: 1, status: 'done' }])).toContain('Nothing waits for you.');

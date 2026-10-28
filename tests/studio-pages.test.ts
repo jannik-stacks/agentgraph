@@ -38,7 +38,12 @@ dataSchema: ${dataSchema}, read: ${read}, ${name === 'count' ? 'watch: settings 
 `
     );
   }
-  writeFileSync(join(graph, 'plugins/pages/Page.tsx'), 'export default function Page() { return <p>Page</p>; }');
+  writeFileSync(
+    join(graph, 'plugins/pages/Page.tsx'),
+    `import { usePluginData } from '@jannik-stacks/agi/studio';
+import { Schema } from 'effect';
+export default function Page() { const { value } = usePluginData('count', Schema.NumberFromString); return <p className="text-[27px]">{value}</p>; }`
+  );
   vi.stubEnv('VITE_PRIVATE_CANARY', 'FAKE-private-plugin-value');
   vi.stubEnv('AGI_STUDIO_DIR', graph);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
@@ -55,6 +60,12 @@ dataSchema: ${dataSchema}, read: ${read}, ${name === 'count' ? 'watch: settings 
     const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('7');
     expect(await (await fetch(`${base}/src/runs/InboxPage.tsx`)).text()).not.toContain('FAKE-private-plugin-value');
+    const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
+    expect(manifest).toContain('/@id/__x00__virtual:agentgraph-page/count');
+    expect(manifest).not.toContain(external);
+    expect(manifest).not.toContain(graph);
+    expect((await fetch(`${base}/@fs${realpathSync(join(graph, 'plugins/pages/Page.tsx'))}`)).status).toBe(200);
+    expect(await (await fetch(`${base}/src/styles.css`)).text()).toMatch(/font-size:\s*27px/);
     const errors = await Promise.all(
       ['bad', 'invalid', 'big'].map(async name => {
         const response = await fetch(`${base}/api/plugins/${name}/data`);

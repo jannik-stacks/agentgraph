@@ -2,6 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { navigateAtom, pageAtom, routes } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
+import { pages as declared } from 'virtual:agentgraph-pages';
 import { cx, Link, Loading } from './ui.tsx';
 
 const pages = {
@@ -12,6 +13,8 @@ const pages = {
   bench: lazy(() => import('./bench/BenchPage.tsx').then(m => ({ default: m.BenchPage }))),
   results: lazy(() => import('./results/ResultsPage.tsx').then(m => ({ default: m.ResultsPage }))),
 };
+
+const plugins = new Map(declared.map(page => [page.name, lazy(page.load)]));
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   override state: { error?: Error } = {};
@@ -31,8 +34,8 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
 }
 
 export const App = () => {
-  const { route } = useAtomValue(pageAtom);
-  const Page = route && pages[route];
+  const { route, id } = useAtomValue(pageAtom);
+  const Page = route === 'plugins' ? plugins.get(id ?? '') : route && pages[route];
   const navigate = useSetAtom(navigateAtom);
   useEffect(() => {
     if (!route) navigate({ href: '/runs', replace: true });
@@ -60,11 +63,24 @@ export const App = () => {
               {r}
             </Link>
           ))}
+          {declared.map(page => (
+            <Link
+              key={page.name}
+              href={page.href}
+              aria-current={route === 'plugins' && id === page.name ? 'page' : undefined}
+              className={cx(
+                'rounded-md px-2 py-0.5',
+                route === 'plugins' && id === page.name && 'bg-white shadow-sm dark:bg-zinc-700'
+              )}
+            >
+              {page.title}
+            </Link>
+          ))}
         </nav>
       </header>
       <main className="min-h-0 flex-1">
-        <Boundary key={route}>
-          <Suspense fallback={<Loading />}>{Page && <Page />}</Suspense>
+        <Boundary key={`${route}/${id ?? ''}`}>
+          <Suspense fallback={<Loading />}>{Page ? <Page /> : <p className="p-4">Page not found.</p>}</Suspense>
         </Boundary>
       </main>
     </div>

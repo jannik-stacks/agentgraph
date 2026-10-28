@@ -9,6 +9,7 @@
     "examples/*/scripts/**/*.mjs",
     "studio/dev.ts!",
     "studio/src/main.tsx!",
+    "studio/src/plugins.ts!",
     "studio/vite.config.ts!"
   ],
   "project": [

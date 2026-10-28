@@ -1,11 +1,15 @@
 import { realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { Effect, Either, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
 import type * as PluginModule from '../src/plugin.ts';
 import type * as HarnessModule from '../src/harnesses.ts';
+
+const manifest = 'virtual:agentgraph-pages';
+const entry = 'virtual:agentgraph-page/';
 
 const readStudioPages = async () => {
   const dir = process.env.AGI_STUDIO_DIR;
@@ -31,6 +35,38 @@ export const makeStudioPagesPlugin = (): Plugin => {
   let dispose: (() => void) | undefined;
   return {
     name: 'agentgraph:pages',
+    enforce: 'pre',
+    async config() {
+      const loaded = await pages;
+      return {
+        resolve: {
+          alias: { '@jannik-stacks/agi/studio': fileURLToPath(new URL('./src/plugins.ts', import.meta.url)) },
+          dedupe: ['react', 'react-dom', 'jotai', 'effect'],
+        },
+        server: { fs: { allow: loaded.map(page => dirname(fileURLToPath(page.page))) } },
+      };
+    },
+    resolveId(source) {
+      if (source === manifest || source.startsWith(entry)) return `\0${source}`;
+    },
+    async load(id) {
+      const loaded = await pages;
+      if (id === `\0${manifest}`)
+        return `export const pages = [${loaded
+          .map(
+            page =>
+              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(`/plugins/${page.name}`)},load:()=>import(${JSON.stringify(entry + page.name)})}`
+          )
+          .join(',')}];`;
+      const page = id.startsWith(`\0${entry}`) && loaded.find(page => page.name === id.slice(entry.length + 1));
+      if (page) return `export { default } from ${JSON.stringify(fileURLToPath(page.page))};`;
+    },
+    async transform(code, id) {
+      if (id !== fileURLToPath(new URL('./src/styles.css', import.meta.url))) return;
+      return (
+        code + (await pages).map(page => `\n@source ${JSON.stringify(dirname(fileURLToPath(page.page)))};`).join('')
+      );
+    },
     closeBundle() {
       dispose?.();
     },

@@ -32,6 +32,16 @@ const toolTests = [
 ];
 
 export default defineConfig({
+  plugins: [
+    {
+      name: 'studio-page-manifest-tests',
+      resolveId: id => (id === 'virtual:agentgraph-pages' ? '\0virtual:agentgraph-pages' : undefined),
+      load: id =>
+        id === '\0virtual:agentgraph-pages'
+          ? 'export const pages = [{ name: "count", title: "Count", href: "/plugins/count", load: async () => ({ default: () => null }) }];'
+          : undefined,
+    },
+  ],
   test: {
     globalSetup: ['tests/setup/global.ts'],
     setupFiles: ['tests/setup/processes.ts'],

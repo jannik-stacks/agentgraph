@@ -79,3 +79,16 @@ Schema for its data and a read-only `read(settings)` effect. Optional `watch(set
 roots. The reader and watch receive only this plugin's decoded settings. Loading declarations does
 not execute readers or import TSX. Host code remains trusted; namespaces are not isolation.
 <!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins -->
+
+A page default-exports a React component. Set `page: new URL('./Page.tsx', import.meta.url)`;
+Vite compiles it and its CSS. Import `usePluginData` from `@jannik-stacks/agi/studio` in the page.
+Pass its plugin name and a browser-safe data schema shared with the host reader. The studio also
+exports its UI, query/navigation atoms and results components through that browser entry.
+<!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
+
+Pages appear at `/plugins/<name>`. HTTP snapshots come from `/api/plugins/<name>/data`; one SSE
+connection invalidates all mounted readers when main data or declared roots change. A failed
+refresh keeps the last good data and shows an error. Snapshots are capped at 16 MiB.
+Host readers, settings and data roots never enter the page manifest. Pages share the studio origin
+and its API authority; review them like host plugins. Registering a page starts no job. Restart the
+studio after registrations change. Preview needs a host API for live data.

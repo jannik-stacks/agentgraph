@@ -24,7 +24,7 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
 /** The route and the id after it: `/inbox`, `/graph`, `/runs[/<id>]`, `/docs[/<page>]`, `/bench` or `/results`. */
 export const pageAtom = atom(get => {
   const [page, id] = get(locationAtom).path.split('/').filter(Boolean);
-  const route = routes.find(r => r === page);
+  const route = page === 'plugins' ? ('plugins' as const) : routes.find(r => r === page);
   return { route, id: route && id ? decodeURIComponent(id) : null };
 });
 
@@ -44,21 +44,47 @@ export const queryParam = (key: string) =>
 /** The step selected on the graph, as `workflow/step`, then what was opened from it, as `/check:name` and `/agent:name`. */
 export const selectedStepAtom = queryParam('step');
 
+const changes = new Set<() => void>();
+let events: EventSource | undefined;
+const reload = () => {
+  for (const change of changes) change();
+};
+
 /** Answers `path` as JSON while something reads it, and again whenever the server reports the data dir changed. */
-export const makeLiveJsonAtom = <T>(path: string) => {
+export const makeLiveJsonAtom = <T>(path: string, read: (value: unknown) => T | Promise<T> = value => value as T) => {
   const value = atom<{ value?: T; failure?: string }>({});
   value.onMount = set => {
-    const load = () =>
-      fetch(path)
+    let current = 0;
+    let active = true;
+    const load = () => {
+      const request = ++current;
+      void fetch(path)
         .then(r => (r.ok ? r.json() : Promise.reject(new Error(`${path} answered ${r.status}`))))
+        .then(read)
         .then(
-          v => set({ value: v as T }),
-          (e: Error) => set(previous => ({ ...previous, failure: e.message }))
+          next => {
+            if (active && request === current) set({ value: next });
+          },
+          (e: Error) => {
+            if (active && request === current) set(previous => ({ ...previous, failure: e.message }));
+          }
         );
-    const events = new EventSource('/api/events');
-    events.onmessage = load;
-    events.onopen = load;
-    return () => events.close();
+    };
+    changes.add(load);
+    if (!events) {
+      events = new EventSource('/api/events');
+      events.addEventListener('message', reload);
+      events.addEventListener('open', reload);
+    }
+    load();
+    return () => {
+      active = false;
+      changes.delete(load);
+      if (!changes.size) {
+        events?.close();
+        events = undefined;
+      }
+    };
   };
   return value;
 };
