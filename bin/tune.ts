@@ -34,8 +34,9 @@ import {
   waitWhileServicesDown,
 } from './resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
+import type { TuneStep } from '../tune/result.ts';
 
-export type Split = 'mine' | 'fit' | 'validate' | 'test';
+export type Split = Eval['split'];
 type Tune = {
   repo: string;
   /** The release tag at init, like `agentgraph-v0.2.0`, else the commit; every run needs its `src` tree. */
@@ -46,42 +47,11 @@ type Tune = {
   keep: Partial<{ runs: number; drops: number; save: number }>;
   clone: string;
 };
-/** A case where the candidate scores half a point off an incumbent whose runs agree; a win or loss once it held. */
-export type Flip = 'up' | 'down' | 'win' | 'loss';
-type Proposer = 'retro' | 'history' | 'manual' | 'skill' | 'structure';
-type Candidate = {
-  id: string;
-  iteration: number;
-  parent: string;
-  proposer: Proposer;
-  graph: string;
-  rationale: string;
-  diff: string;
-};
-type Eval = {
-  candidate: string;
-  split: Split;
-  cases: string[];
-  quality: number;
-  ci: [number, number];
-  delta?: number;
-  pUp?: number;
-  flips?: Record<string, Flip>;
-  usd: number;
-  minutes: number;
-  /** Mean usd and minutes of one run that was not infra, averaged over the cases. */
-  perRun?: { usd: number; minutes: number };
-  /** Against the incumbent: the mean share saved per case and the share of bootstrap draws that saved anything. */
-  saved?: Record<'usd' | 'minutes', { share: number; pDown: number }>;
-  codex: number;
-  claude5h: number;
-};
-export type Step = Candidate & {
-  evals: Eval[];
-  verdict: 'kept' | 'discarded' | 'screened-out' | 'infra';
-  why: string;
-  at: string;
-};
+export type Step = typeof TuneStep.Type;
+type Eval = Step['evals'][number];
+export type Flip = NonNullable<Eval['flips']>[string];
+type Proposer = Step['proposer'];
+type Candidate = Pick<Step, 'id' | 'iteration' | 'parent' | 'proposer' | 'graph' | 'rationale' | 'diff'>;
 type Row = ReturnType<typeof readBenchRows>[number];
 /** The latest reading of a usage window in percent, and the points used since the first, across window resets. */
 type Reading = { now: number; used: number };

@@ -119,3 +119,10 @@ Did the implementor do what its reply says it did?
 ```
 
 The studio marks checks and steps that read traces. <!-- code: src/graph.ts#makeWorkflowGraph -->
+
+## Candidate details
+
+The studio's candidate details use the persisted tune step schema. Graph and parent are commit
+identities; public snapshots carry no candidate checkout path. Evaluations retain intervals,
+usage and keep decisions. File readers remain in Tune; studio readers validate at their boundary.
+<!-- code: tune/result.ts#TuneStep -->
