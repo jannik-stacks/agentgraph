@@ -4,7 +4,7 @@ import { parse } from 'yaml';
 import type { Applied, Event } from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { Result } from './result.ts';
-import type { RunMeta } from './meta.ts';
+import type { PluginMetadata } from './meta.ts';
 
 /**
  * A check's result: whether it passed, the `value` its result held when the check has its own `returns`, and with
@@ -74,7 +74,7 @@ export type Seen = { at: string; base?: string };
 
 /** Where one workflow run on one issue stands. */
 export type Run = {
-  meta?: RunMeta;
+  meta?: PluginMetadata;
   id: string;
   workflow: string;
   issue: number;

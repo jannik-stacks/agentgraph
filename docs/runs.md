@@ -78,9 +78,9 @@ count(-1) should throw.
 
 Run and result-row `meta` holds public JSON keyed by plugin name. Each owner decodes its key with
 its own Effect Schema. `meta.engine.origin` has `plugin`, `version`, `job` and `input`; it cannot
-change after creation. `meta.engine.continued` adds `at` for the latest accepted caller input.
+change after creation. Equality follows the stored JSON: object prototypes and negative zero do not survive encoding. `meta.engine.continued` adds `at` for the latest accepted caller input.
 Results can group by the origin's plugin/job and show each owner's JSON under Run metadata.
-<!-- code: src/meta.ts#RunMeta src/meta.ts#getRunOrigin src/store.ts#fileStore -->
+<!-- code: src/meta.ts#PluginMetadata src/meta.ts#getRunOrigin src/store.ts#fileStore -->
 
 Each owner has at most 8 KiB and the whole field 32 KiB of UTF-8 JSON. Names start with a letter,
 then letters, digits or underscores. Values use finite numbers and plain JSON, nested at most

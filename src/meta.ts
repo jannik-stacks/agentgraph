@@ -37,24 +37,23 @@ const Origin = Schema.Struct({
   job: Schema.String,
   input: JsonValue,
 });
-const EngineMeta = Schema.Struct({
+const EngineMetadata = Schema.Struct({
   origin: Schema.optionalWith(Origin, { exact: true }),
   continued: Schema.optionalWith(Schema.Struct({ ...Origin.fields, at: Schema.String }), { exact: true }),
 });
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 
-export const RunMeta = JsonValue.pipe(
+const Owner = Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9_]*$/i));
+
+export const PluginMetadata = JsonValue.pipe(
   Schema.filter(value =>
-    value !== null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    Object.keys(value).every(key => /^[a-z][a-z0-9_]*$/i.test(key))
+    value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(Schema.is(Owner))
       ? true
       : 'metadata needs owner names'
   ),
   Schema.compose(
     Schema.Record({
-      key: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9_]*$/i)),
+      key: Owner,
       value: JsonValue,
     })
   )
@@ -65,18 +64,26 @@ export const RunMeta = JsonValue.pipe(
       : 'metadata exceeds 8192 bytes per owner or 32768 bytes total'
   ),
   Schema.filter(meta =>
-    !Object.hasOwn(meta, 'engine') || Schema.is(EngineMeta, { onExcessProperty: 'error' })(meta.engine)
+    !Object.hasOwn(meta, 'engine') || Schema.is(EngineMetadata, { onExcessProperty: 'error' })(meta.engine)
       ? true
       : 'meta.engine must contain engine origin or continuation data'
   )
 );
-export type RunMeta = typeof RunMeta.Type;
+export type PluginMetadata = typeof PluginMetadata.Type;
 
-export const getRunOrigin = (meta: RunMeta | undefined) =>
-  meta?.engine === undefined ? undefined : Schema.decodeUnknownSync(EngineMeta)(meta.engine).origin;
+export const getRunOrigin = (meta: PluginMetadata | undefined) => {
+  const origin = meta?.engine === undefined ? undefined : Schema.decodeUnknownSync(EngineMetadata)(meta.engine).origin;
+  if (origin === undefined) return;
+  const json = JSON.stringify(origin);
+  return Schema.decodeUnknownSync(Origin)(JSON.parse(json));
+};
 
-export const makeContinuedMeta = (before: RunMeta | undefined, input: RunMeta, at: string): RunMeta => {
-  const engine = before?.engine === undefined ? {} : Schema.decodeUnknownSync(EngineMeta)(before.engine);
+export const makeContinuedMeta = (
+  before: PluginMetadata | undefined,
+  input: PluginMetadata,
+  at: string
+): PluginMetadata => {
+  const engine = before?.engine === undefined ? {} : Schema.decodeUnknownSync(EngineMetadata)(before.engine);
   const origin = getRunOrigin(input);
   return { ...before, ...input, engine: { ...engine, ...(origin && { continued: { ...origin, at } }) } };
 };

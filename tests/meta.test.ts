@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { RunMeta } from '../src/meta.ts';
+import { PluginMetadata } from '../src/meta.ts';
 
 const cyclic: Record<string, unknown> = {};
 cyclic.self = cyclic;
@@ -14,7 +14,7 @@ describe('run metadata', () => {
     { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: {} } } },
     { engine: { continued: { plugin: 'tune', version: 'v1', job: 'round1', input: null, at: 'now' } } },
   ])('accepts public JSON %j', value => {
-    expect(Schema.decodeUnknownSync(RunMeta)(value)).toEqual(value);
+    expect(Schema.decodeUnknownSync(PluginMetadata)(value)).toEqual(value);
   });
 
   it.each([
@@ -38,6 +38,6 @@ describe('run metadata', () => {
     { bench: Array.from({ length: 34 }).reduce<unknown>(value => [value], null) },
     new Date(),
   ])('rejects invalid or oversized metadata %#', value => {
-    expect(Schema.decodeUnknownEither(RunMeta)(value)._tag).toBe('Left');
+    expect(Schema.decodeUnknownEither(PluginMetadata)(value)._tag).toBe('Left');
   });
 });

@@ -17,7 +17,7 @@ import {
 import { Forge, ForgeError, currentRunLinkRef, withheld } from './forge.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
-import { RunMeta, makeContinuedMeta } from './meta.ts';
+import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
@@ -459,8 +459,8 @@ export const instruct = (
   meta?: Run['meta']
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
-    const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(RunMeta))(meta).pipe(
-      Effect.mapError(error => new ForgeError({ message: String(error) }))
+    const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
+      Effect.mapError(() => new ForgeError({ message: 'invalid run metadata' }))
     );
     if (instruction.kind === 'check') {
       const { checks, kind: _kind, ...where } = instruction;
@@ -2289,8 +2289,8 @@ export const tick = (
   meta?: Run['meta']
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
-    const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(RunMeta))(meta).pipe(
-      Effect.mapError(error => new ForgeError({ message: String(error) }))
+    const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
+      Effect.mapError(() => new ForgeError({ message: 'invalid run metadata' }))
     );
     const store = yield* Store;
     const forge = yield* Forge;

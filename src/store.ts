@@ -19,7 +19,7 @@ import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope
 import { createLock } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
 import { isRunDone, type Run } from './workflow.ts';
-import { RunMeta, getRunOrigin } from './meta.ts';
+import { PluginMetadata, getRunOrigin } from './meta.ts';
 import { ResultSheet } from './results.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
@@ -70,8 +70,9 @@ export const readResultSheet = (path: string) => {
 
 export const writeResultSheet = (path: string, value: typeof ResultSheet.Type) => {
   const checked = parseResultSheet(value);
-  if (Buffer.byteLength(JSON.stringify(checked)) + 1 > 16_777_216) throw new Error('result sheet exceeds 16 MiB');
-  writeFileAtomic(path, checked);
+  const text = `${JSON.stringify(checked, null, 2)}\n`;
+  if (Buffer.byteLength(text) > 16_777_216) throw new Error('result sheet exceeds 16 MiB');
+  writeFileAtomic(path, text);
 };
 
 export const readResultSheets = (roots: readonly string[]) => {
@@ -257,7 +258,8 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       Effect.gen(function* () {
         const before = yield* readRun(next.id);
         yield* io(runFile(next.id), async () => {
-          if (next.meta !== undefined) Schema.decodeUnknownSync(RunMeta)(next.meta);
+          if (next.meta !== undefined && Either.isLeft(Schema.decodeUnknownEither(PluginMetadata)(next.meta)))
+            throw new Error('invalid run metadata');
           if (before && !isDeepStrictEqual(getRunOrigin(before.meta), getRunOrigin(next.meta)))
             throw new Error('engine origin cannot change after run creation');
         });

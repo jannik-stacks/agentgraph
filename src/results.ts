@@ -1,7 +1,7 @@
 import { Schema } from 'effect';
 import type { Check } from './folder.ts';
 import { CheckMode, ResultType } from './result.ts';
-import { JsonValue, RunMeta } from './meta.ts';
+import { JsonValue, PluginMetadata } from './meta.ts';
 
 const optional = <S extends Schema.Schema.Any>(schema: S) => Schema.optionalWith(schema, { exact: true });
 const Field = Schema.Struct({
@@ -45,7 +45,7 @@ const Row = Schema.Struct({
   dead: optional(Schema.String),
   axes: Schema.Record({ key: Schema.String, value: Schema.String }),
   results: Schema.Record({ key: Schema.String, value: Measurement }),
-  meta: optional(RunMeta),
+  meta: optional(PluginMetadata),
 });
 
 export const ResultSheet = Schema.Struct({

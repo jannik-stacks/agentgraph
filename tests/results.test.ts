@@ -289,9 +289,10 @@ describe('result exports', () => {
     truncateSync(path, 16_777_217);
     expect(() => readResultSheet(path)).toThrow('exceeds 16 MiB');
     const big = join(root, 'big.json');
-    expect(() =>
-      writeResultSheet(big, { fields: [], runs: [{ ...run('b', 'now', 1), axes: { text: 'x'.repeat(16_777_216) } }] })
-    ).toThrow('exceeds 16 MiB');
+    const value = { fields: [], runs: [{ ...run('b', 'now', 1), axes: { text: '' } }] };
+    value.runs[0]!.axes.text = 'x'.repeat(16_777_216 - Buffer.byteLength(JSON.stringify(value)) - 1);
+    expect(Buffer.byteLength(JSON.stringify(value))).toBeLessThan(16_777_216);
+    expect(() => writeResultSheet(big, value)).toThrow('exceeds 16 MiB');
     expect(existsSync(big)).toBe(false);
   });
 

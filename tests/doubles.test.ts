@@ -17,6 +17,7 @@ import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
+import { getRunOrigin } from '../src/meta.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { fixture, plant } from './fixtures.ts';
 import { git } from './kit.ts';
@@ -105,6 +106,26 @@ describe('fileStore', () => {
       }).pipe(Effect.provide(fileStore(temp())))
     );
     expect(saved?.meta).toEqual(next.meta);
+  });
+
+  it.each([
+    [-0, 0],
+    [Object.create(null), {}],
+  ])('keeps an origin stable across JSON encoding: %j', async (input, expected) => {
+    const run = {
+      ...begin(w, { id: 'r1', issue: 3, started: 'now' }),
+      meta: { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input } } },
+    };
+    const saved = await Effect.runPromise(
+      Effect.gen(function* () {
+        const store = yield* Store;
+        yield* store.put(run);
+        yield* store.put({ ...run, status: 'waiting' });
+        return yield* store.get(run.id);
+      }).pipe(Effect.provide(fileStore(temp())))
+    );
+    expect(saved?.status).toBe('waiting');
+    expect(getRunOrigin(saved?.meta)?.input).toEqual(expected);
   });
 
   it('traces a put before it saves the run, and lists only runs that were saved', async () => {
