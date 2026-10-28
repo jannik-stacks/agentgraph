@@ -33,6 +33,7 @@ export type Graph = {
   dir: string;
   repo: string;
   plugins?: Record<string, unknown>;
+  tools?: string[];
   sha: string;
   agents: Record<string, Doc<Agent>>;
   skills: Record<string, Doc<SkillFile>>;
@@ -396,6 +397,7 @@ export const loadGraph = (
       repo: settings.repo ?? '',
       sha: sha.digest('hex'),
       limits: settings.limits,
+      ...(Object.keys(registry.tools).length && { tools: Object.keys(registry.tools) }),
       ...(settings.plugins !== undefined && { plugins: settings.plugins }),
       ...(settings.setup !== undefined && { setup: settings.setup }),
       ...(settings.toolchain !== undefined && { toolchain: settings.toolchain }),

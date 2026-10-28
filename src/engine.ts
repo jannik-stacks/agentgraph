@@ -5,6 +5,7 @@ import { Chunk, Data, Duration, Effect, Either, Option, Schema, Stream } from 'e
 import {
   answerWith,
   formatRequest,
+  formatRedactedText,
   context,
   footer,
   formatEventLine,
@@ -22,6 +23,8 @@ import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
 import { Session } from './session.ts';
+import { readPlugins } from './plugin.ts';
+import { startTools } from './tools.ts';
 import {
   defaultPass,
   defaultReturns,
@@ -823,23 +826,54 @@ const converse = <A = never, R = never>(
       ...(item !== undefined && { item }),
       ...(aside && { aside }),
     });
-    const talked = session.open(spec).pipe(
-      Stream.runForEach(event => {
-        if (event.type === 'start') Object.assign(seen, { id: event.session, home: event.home });
-        if (event.type === 'text') seen.text = event.text;
-        if (event.type === 'usage') seen.usd += event.usd ?? 0;
-        if (event.type === 'tool' && spec.returns) seen.result = getRecordedResult(spec.returns, event) ?? seen.result;
-        if (event.type === 'end') {
-          seen.final = event.final;
-          end = { ended: event.exit === 0 ? event.ended : 'error', exit: event.exit };
-        }
-        return write({ at: now(), step, event, key });
-      }),
-      Effect.scoped,
-      getSessionGate(graph).withPermits(1),
-      Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
-      Effect.as(undefined)
-    );
+    const forge = yield* Effect.serviceOption(Forge);
+    const box = yield* Effect.serviceOption(Sandbox);
+    const custom = spec.tools.filter(name => graph.tools?.includes(name));
+    const server = custom.length
+      ? yield* Effect.acquireRelease(
+          Effect.tryPromise({
+            try: async () => {
+              if (Option.isNone(forge)) throw new Error('custom tools need a forge');
+              const registry = await readPlugins(graph.dir, graph.plugins);
+              const tools = Object.fromEntries(custom.map(name => [name, registry.tools[name]!]));
+              const route =
+                Option.isSome(box) && box.value.tools ? await Effect.runPromise(box.value.tools) : undefined;
+              return startTools(
+                tools,
+                {
+                  repo: graph.repo,
+                  forge: { searchIssues: (...args) => Effect.runPromise(forge.value.searchIssues(...args)) },
+                },
+                event => Effect.runPromise(write({ at: now(), step, event, key })),
+                route
+              );
+            },
+            catch: error =>
+              new SessionStop({ reason: 'sandbox', detail: formatRedactedText(String(error)).slice(0, 2048) }),
+          }),
+          server => Effect.promise(() => server.close())
+        )
+      : undefined;
+    const talked = session
+      .open(server ? { ...spec, tools: spec.tools.filter(name => !custom.includes(name)), mcp: server } : spec)
+      .pipe(
+        Stream.runForEach(event => {
+          if (event.type === 'start') Object.assign(seen, { id: event.session, home: event.home });
+          if (event.type === 'text') seen.text = event.text;
+          if (event.type === 'usage') seen.usd += event.usd ?? 0;
+          if (event.type === 'tool' && spec.returns)
+            seen.result = getRecordedResult(spec.returns, event) ?? seen.result;
+          if (event.type === 'end') {
+            seen.final = event.final;
+            end = { ended: event.exit === 0 ? event.ended : 'error', exit: event.exit };
+          }
+          return write({ at: now(), step, event, key });
+        }),
+        Effect.scoped,
+        getSessionGate(graph).withPermits(1),
+        Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
+        Effect.as(undefined)
+      );
     const cut = until
       ? yield* Effect.raceFirst(
           talked,
@@ -860,7 +894,7 @@ const converse = <A = never, R = never>(
       ...end,
       ...(cut && { cut: cut.a }),
     };
-  });
+  }).pipe(Effect.scoped);
 
 /**
  * A judging session that must record its result with the result tool. A session that fails is tried once more; one that

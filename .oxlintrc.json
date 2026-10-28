@@ -167,7 +167,7 @@
       }
     },
     {
-      "files": ["src/forge.ts", "src/store.ts", "src/session.ts", "src/sandbox.ts"],
+      "files": ["src/forge.ts", "src/store.ts", "src/session.ts", "src/sandbox.ts", "src/tools.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",
