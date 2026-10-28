@@ -1,7 +1,10 @@
+import { execFileSync } from 'node:child_process';
 import { configDefaults, defineConfig } from 'vitest/config';
 
 for (const name of ['BASE', 'DIR', 'ISSUE', 'PROPOSALS', 'CONTEXT', 'REPLY', 'TRACES', 'RUN_TRACE', 'ITEM'])
   delete process.env[`AGENTGRAPH_${name}`];
+for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'], { encoding: 'utf8' }).split('\n'))
+  if (name) delete process.env[name];
 
 const toolTestTimeout = 60_000;
 const toolTests = [
