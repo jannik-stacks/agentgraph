@@ -33,9 +33,9 @@ const at = (s: number) => `2026-10-16T00:00:${String(s).padStart(2, '0')}.000Z`;
 const world = (issues: [number, string, number?][] = [[1, 'morgan']]) => {
   const { root, seed, data } = seeded('triage', { 'README.md': 'demo\n' });
   dirs.push(root);
-  git(root, 'clone', '-q', '--bare', seed, 'origin.git');
   const forge = join(root, 'forge');
   mkdirSync(forge);
+  git(root, 'clone', '-q', '--bare', seed, join(forge, 'origin.git'));
   for (const [n, author, parent] of issues)
     writeFileSync(
       join(forge, `${n}.md`),
@@ -46,7 +46,7 @@ const world = (issues: [number, string, number?][] = [[1, 'morgan']]) => {
       join(forge, `${issue}.jsonl`),
       `${JSON.stringify({ issue, kind: 'label', label: 'triage', actor: 'morgan', trusted: true, at: at(issue) } satisfies Event)}\n`
     );
-  return { origin: join(root, 'origin.git'), forge, data, label };
+  return { origin: join(forge, 'origin.git'), forge, data, label };
 };
 
 const turn = (...proposals: unknown[]): SessionEvent[] => [start('s'), reply(...proposals)];

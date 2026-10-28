@@ -65,7 +65,7 @@ A committed graph with symlinks or submodules is refused. On GitHub, the runner 
 | --- | --- | --- | --- |
 | `on` | event name, or map of triggers | required | `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback` or `conflict` |
 | `branch` | template | none, a detached checkout | Work branch; expands `{issue}` and `{parent}` |
-| `base` | template | `main` | Pull request base |
+| `base` | template | repository default branch | Pull request base |
 | `concurrency` | `steer`, `queue` or `cancel` | `steer` | [Comments while it works](workflows.md#comments-while-it-works) |
 | `agent` | agent name | the graph's only agent | Agent when there are no `steps` |
 | `steps` | map of step name to step | one agent step named after the file | Steps in written order |

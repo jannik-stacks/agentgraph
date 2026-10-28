@@ -1066,7 +1066,17 @@ export const githubForge = (
       return Effect.map(all<Posted>(`${repo}/${thread}/comments?per_page=100`), c => find(c, post => post.id));
     };
 
-    return { issues, searchIssues, issue, since, apply, findPost, slug: me, ...(studio && { studio }) };
+    return {
+      base: Effect.map(gh<{ default_branch: string }>('GET', repo), r => r.default_branch),
+      issues,
+      searchIssues,
+      issue,
+      since,
+      apply,
+      findPost,
+      slug: me,
+      ...(studio && { studio }),
+    };
   });
 };
 

@@ -1255,7 +1255,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
 
 /** One try of the current step: a session, a script or a wait, then its checks, then apply proposals on a pass. */
 const attempt = (
-  w: Workflow,
+  w: Workflow & Required<Pick<Workflow, 'base'>>,
   run: Run,
   graph: Graph,
   work: Checkout,
@@ -1355,7 +1355,7 @@ const attempt = (
         context(t),
         diff && `## The change on the branch\n\n\`\`\`\`diff\n${squeeze(diff, 20_000)}\n\`\`\`\``,
         w.branch &&
-          `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
+          `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? expand(w.base, issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         step.checks.length > 0 &&
           `When you stop, the runner checks the change: ${step.checks
@@ -1938,6 +1938,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         yield* store.put(current);
       });
     const walk = Effect.gen(function* () {
+      const base = w.base ?? (yield* forge.base);
       const issue = yield* forge.issue(run.issue);
       current = yield* show(w, {
         ...current,
@@ -1956,9 +1957,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
           : named;
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
-        ((issue.state === 'open' ? issue.pull?.branch : undefined) ??
-          current.base?.branch ??
-          expand(w.base ?? 'main', issue));
+        ((issue.state === 'open' ? issue.pull?.branch : undefined) ?? current.base?.branch ?? expand(base, issue));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, graph));
       if (own && made.saved) {
         const message = yield* text(made, ['log', '-1', '--format=%B', made.saved]);
@@ -1989,7 +1988,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
 
       if (!w.on.feedback) yield* setUp(graph, work, current);
       while (current.status === 'running') {
-        const tried = yield* attempt(w, current, graph, work, own);
+        const tried = yield* attempt({ ...w, base }, current, graph, work, own);
         if (
           tried.outcome.kind === 'failed' &&
           tried.outcome.proposals.some(a => !a.ok && a.proposal.kind === 'push' && a.moved)

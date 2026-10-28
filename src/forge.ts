@@ -52,6 +52,7 @@ export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number
 export class Forge extends Context.Tag('agentgraph/Forge')<
   Forge,
   {
+    base: Effect.Effect<string, ForgeError>;
     issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], ForgeError>;
     searchIssues: (
       ...args: Parameters<ToolContext['forge']['searchIssues']>
@@ -507,6 +508,15 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
                 .map(shown)
             )
           ),
+        base: hostGit({ GIT_DIR: join(dir, 'origin.git') }, ['symbolic-ref', 'HEAD']).pipe(
+          Effect.map(out =>
+            out
+              .toString('utf8')
+              .trim()
+              .replace(/^refs\/heads\//, '')
+          ),
+          Effect.mapError(e => new ForgeError({ message: e.detail }))
+        ),
         issues: filter =>
           io(async () => {
             const all = await Promise.all((await numbers()).map(read));
