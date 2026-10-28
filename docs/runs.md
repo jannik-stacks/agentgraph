@@ -71,7 +71,23 @@ count(-1) should throw.
 | `graph`, `by` | Graph version last checked, and the run that dispatched this one |
 | `started`, `ended` | When the run started and ended |
 | `startCommit` | The commit the run's change is measured from |
+| `meta` | Public JSON keyed by owner, including engine provenance |
 | `owed` | [End checks](checks.md#end-checks) the ended run still has to run |
+
+## Metadata
+
+Run and result-row `meta` holds public JSON keyed by plugin name. Each owner decodes its key with
+its own Effect Schema. `meta.engine.origin` has `plugin`, `version`, `job` and `input`; it cannot
+change after creation. `meta.engine.continued` adds `at` for the latest accepted caller input.
+Results can group by the origin's plugin/job and show each owner's JSON under Run metadata.
+<!-- code: src/meta.ts#RunMeta src/meta.ts#getRunOrigin src/store.ts#fileStore -->
+
+Each owner has at most 8 KiB and the whole field 32 KiB of UTF-8 JSON. Names start with a letter,
+then letters, digits or underscores. Values use finite numbers and plain JSON, nested at most
+32 containers. Cycles, unsupported values and oversized metadata fail before persistence.
+Never put credentials or secrets here: metadata reaches the studio and traces. Validation checks
+shape and size, not secrecy. Owner names are conventions for trusted host code, not permissions.
+Issues and events have no metadata field.
 
 ## The trace
 

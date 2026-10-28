@@ -91,7 +91,14 @@ describe('results', () => {
       mkdirSync(join(data, id), { recursive: true });
       writeFileSync(
         join(data, id, 'run.json'),
-        JSON.stringify({ id, issue: 1, workflow: 'issue', status, started: '2026-10-01T00:00:00Z' })
+        JSON.stringify({
+          id,
+          issue: 1,
+          workflow: 'issue',
+          status,
+          started: '2026-10-01T00:00:00Z',
+          meta: { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: { arm: 'candidate' } } } },
+        })
       );
       writeFileSync(join(data, id, 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
       writeFileSync(join(data, id, 'checks.jsonl'), entries.map(e => JSON.stringify(e)).join('\n'));
@@ -104,6 +111,10 @@ describe('results', () => {
       { checks: { 'run-stats': { ...checks['run-stats'], version: 'v1' } } as never }
     );
     expect(fields.map(f => f.field)).toEqual(['usd']);
+    expect(runs[0]).toMatchObject({
+      axes: { plugin: 'bench', job: 'smoke' },
+      meta: { engine: { origin: { plugin: 'bench' } } },
+    });
     expect(runs.find(r => r.key === 'r1')!.results['run-stats']).toEqual({ at: '2', pass: true, value: { usd: 1 } });
     expect(runs.find(r => r.key === 'r2')!.dead).toBe('ended before any step passed or any session started');
   });

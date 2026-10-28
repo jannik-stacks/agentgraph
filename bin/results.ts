@@ -4,6 +4,7 @@ import type { Graph } from '../src/folder.ts';
 import { sum } from '../src/stats.ts';
 import { type CheckEntry, findLatestChecks, type Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
+import { getRunOrigin } from '../src/meta.ts';
 import {
   benchFields,
   type CheckField,
@@ -29,6 +30,7 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
     const json = readFileOrEmpty(join(data, id, 'run.json'));
     if (!json) return [];
     const run = JSON.parse(json) as Run;
+    const origin = getRunOrigin(run.meta);
     const dead = findDeadReason(run, readJsonl<Trace>(join(data, id, 'trace.jsonl')));
     const latest = findLatestChecks(readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')), versions);
     return [
@@ -37,7 +39,13 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
         at: run.started,
         href: `/runs/${encodeURIComponent(id)}`,
         ...(dead && { dead }),
-        axes: { issue: `#${run.issue}`, workflow: run.workflow, status: run.status },
+        axes: {
+          issue: `#${run.issue}`,
+          workflow: run.workflow,
+          status: run.status,
+          ...(origin && { plugin: origin.plugin, job: origin.job }),
+        },
+        ...(run.meta && { meta: run.meta }),
         results: Object.fromEntries(
           latest.map(e => [
             e.check.check,

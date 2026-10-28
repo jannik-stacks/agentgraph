@@ -1,7 +1,7 @@
 import type { readBenchRows } from '../../../bin/bench.ts';
 import type { Check } from '../../../src/folder.ts';
 import type { ResultType } from '../../../src/result.ts';
-import type { CheckResult } from '../../../src/workflow.ts';
+import type { Run, CheckResult } from '../../../src/workflow.ts';
 import { formatNumber } from '../runs/trace.ts';
 
 export const resultSources = ['runs', 'bench', 'tune'] as const;
@@ -18,7 +18,7 @@ export type RunResult = Pick<CheckResult, 'pass' | 'value' | 'share' | 'empty'> 
   older?: true;
 };
 
-export type RunResults = {
+export type RunResults = Pick<Run, 'meta'> & {
   key: string;
   at: string;
   href?: string;

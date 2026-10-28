@@ -34,6 +34,30 @@ afterEach(() => {
 const w = fixture('kit').workflows.issue!;
 
 describe('fileStore', () => {
+  it('preserves owner JSON and refuses changed origin before tracing', async () => {
+    const origin = { plugin: 'bench', version: 'v1', job: 'smoke', input: null };
+    const meta = { engine: { origin }, bench: { brief: 'unchanged', status: 'asking' } };
+    const run = { ...begin(w, { id: 'r1', issue: 3, started: 'now' }), meta };
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const store = yield* Store;
+        yield* store.put(run);
+        const refused = yield* Effect.either(
+          store.put({ ...run, meta: { ...meta, engine: { origin: { ...origin, job: 'other' } } } })
+        );
+        const invalid = yield* Effect.either(store.put({ ...run, meta: { bench: undefined } as never }));
+        return {
+          refused: refused._tag,
+          invalid: invalid._tag,
+          run: yield* store.get('r1'),
+          trace: Chunk.toArray(yield* Stream.runCollect(store.read('r1'))),
+        };
+      }).pipe(Effect.provide(fileStore(temp())))
+    );
+    expect(result).toMatchObject({ refused: 'Left', invalid: 'Left', run: { meta } });
+    expect(result.trace).toHaveLength(1);
+  });
+
   it('puts, lists and reads back runs and their trace, tracing what each put changed', async () => {
     const run = begin(w, { id: 'r1', issue: 3, started: '2026-10-16T00:00:00Z' });
     const lines = await Effect.runPromise(

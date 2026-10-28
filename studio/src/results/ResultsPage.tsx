@@ -159,6 +159,24 @@ const Data = ({ from }: { from: ResultSource }) => {
             </Button>
           )}
         </div>
+        {runs.some(r => r.meta) && (
+          <details className="text-xs">
+            <summary className="cursor-pointer">Run metadata</summary>
+            {runs
+              .filter(r => r.meta)
+              .map(r => (
+                <details key={r.key} className="ml-3 py-1">
+                  <summary className="cursor-pointer">{r.key}</summary>
+                  {Object.entries(r.meta!).map(([owner, data]) => (
+                    <div key={owner} className="p-2">
+                      <strong>{owner}</strong>
+                      <pre className="overflow-auto whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                  ))}
+                </details>
+              ))}
+          </details>
+        )}
         {runs.length === 0 ? (
           <p className="text-xs text-zinc-500">No results here yet.</p>
         ) : view === 'chart' && field ? (

@@ -8,6 +8,7 @@ import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 
 import { createLock } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
 import { isRunDone, type Run } from './workflow.ts';
+import { RunMeta, getRunOrigin } from './meta.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
 const changes = (before: Run | undefined, next: Run): Trace | undefined => {
@@ -75,6 +76,7 @@ const values: Record<string, Record<string, string>> = {
 
 /** A run or trace line as older versions wrote it, read with today's field names and values. */
 const current = (value: unknown, key = ''): unknown => {
+  if (key === 'meta') return value;
   if (typeof value === 'string') return values[key]?.[value] ?? value;
   if (key === 'said' && value && !Array.isArray(value)) return [current(value)];
   if (Array.isArray(value))
@@ -184,6 +186,11 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     put: next =>
       Effect.gen(function* () {
         const before = yield* readRun(next.id);
+        yield* io(runFile(next.id), async () => {
+          if (next.meta !== undefined) Schema.decodeUnknownSync(RunMeta)(next.meta);
+          if (before && JSON.stringify(getRunOrigin(before.meta)) !== JSON.stringify(getRunOrigin(next.meta)))
+            throw new Error('engine origin cannot change after run creation');
+        });
         const { ended: _ended, ...open } = next;
         const ended = next.ended ?? before?.ended ?? new Date().toISOString();
         const run: Run = isRunDone(next) ? { ...next, ended } : open;
