@@ -5,7 +5,7 @@ import { Effect, Exit, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, runStepChecks, tick } from '../src/engine.ts';
 import { Forge } from '../src/forge.ts';
-import { type Command, Sandbox } from '../src/sandbox.ts';
+import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent, SessionSpec, Trace } from '../src/trace.ts';
@@ -143,6 +143,61 @@ describe('a base that moved', () => {
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
     expect(rebases(where)).toEqual([true]);
+  });
+
+  it.each(['base', 'branch', 'graph'])('retries a failed catch-up only after its %s changes', async changed => {
+    const where = await moved('other.txt');
+    const broken = { ...graph, setup: 'exit 1' };
+    const first = services(where, []);
+    await first.run(tick(broken));
+    const second = services(where, []);
+    await second.run(tick(broken));
+    expect(second.commands).toHaveLength(0);
+    expect(readTrace(where.data, 'run-7').filter(t => 'outcome' in t && t.outcome.kind === 'ask')).toHaveLength(1);
+
+    const mover = join(where.root, 'mover');
+    const branch = changed === 'branch' ? 'agentgraph/7' : 'main';
+    git(mover, 'fetch', '-q', 'origin');
+    git(mover, 'checkout', '-q', '-B', branch, `origin/${branch}`);
+    writeFileSync(join(mover, 'next.txt'), 'next\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-qm', 'Next');
+    if (changed !== 'graph') git(mover, 'push', '-q', 'origin', branch);
+    if (changed === 'branch') {
+      const file = join(where.forge, '8', 'pull.json');
+      const pull = JSON.parse(readFileSync(file, 'utf8'));
+      writeFileSync(file, JSON.stringify({ ...pull, head: git(where.origin, 'rev-parse', branch) }));
+    }
+    await second.run(tick(changed === 'graph' ? { ...broken, sha: 'next' } : broken));
+    expect(second.commands.filter(c => c.args.includes('exit 1'))).toHaveLength(1);
+    expect(readTrace(where.data, 'run-7').filter(t => 'outcome' in t && t.outcome.kind === 'ask')).toHaveLength(2);
+  });
+
+  it('records a sandbox startup failure once and skips starting it on later passes', async () => {
+    const where = await parked();
+    let starts = 0;
+    const failed = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, sandbox => ({
+        ...sandbox,
+        checkout: (...args: Parameters<typeof sandbox.checkout>) =>
+          args[3]
+            ? Effect.zipRight(
+                Effect.sync(() => starts++),
+                Effect.fail(new SandboxError({ reason: 'infra', detail: 'sandbox image is missing' }))
+              )
+            : sandbox.checkout(...args),
+      }))
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
+    const { run } = services(where, []);
+    await run(Effect.provide(tick({ ...graph, sha: 'next' }), failed));
+    await run(Effect.provide(tick({ ...graph, sha: 'next' }), failed));
+    expect(starts).toBe(1);
+    expect(readTrace(where.data, 'run-7')).toContainEqual(
+      expect.objectContaining({
+        outcome: { kind: 'ask', question: expect.stringContaining('sandbox image is missing') },
+      })
+    );
   });
 
   it('runs setup again on the branch even when the base checkout came ready', async () => {

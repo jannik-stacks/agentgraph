@@ -108,6 +108,7 @@ export type Run = {
   onto?: { sha: string; merge?: true };
   /** The version of the graph the run was last checked under. */
   graph?: string;
+  blocked?: { base: string; head: string; graph: string };
   /** The run whose `run` proposal started this one. */
   by?: string;
   startCommit?: string;

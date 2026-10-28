@@ -593,6 +593,26 @@ describe('makeToolchainSetupCommands', () => {
 describe('docker checkout', () => {
   beforeAll(() => fakeDocker().restore);
 
+  it.each(['main', 'origin/HEAD'])('reads %s without starting or inspecting a sandbox image', async ref => {
+    const repo = origin();
+    const bin = tmp('docker-bin');
+    const log = join(bin, 'log');
+    writeFileSync(join(bin, 'docker'), `#!/bin/sh\necho called >> ${log}\nexit 1\n`);
+    chmodSync(join(bin, 'docker'), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    try {
+      const exit = await use(
+        dockerSandbox({ data: tmp('data'), origin: join(repo, '.git'), local: true, cache: '' }),
+        s => s.readHead(ref)
+      );
+      expect(exit).toEqual(Exit.succeed(git(repo, 'rev-parse', 'main')));
+      expect(existsSync(log)).toBe(false);
+    } finally {
+      process.env.PATH = path;
+    }
+  });
+
   it('sends the token to clone and fetch through the environment only', async () => {
     const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
     const bin = tmp('git-bin');

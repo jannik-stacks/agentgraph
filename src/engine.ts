@@ -2124,8 +2124,8 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
     const onto = work.base;
     const from = yield* text(work, ['merge-base', pull.head, onto]);
     const moved = step.follow !== 'none' && !run.base && from !== onto;
-    const renewed = (run.graph ?? graph.sha) !== graph.sha;
-    const current = { ...unthreaded(run), graph: graph.sha };
+    const renewed = run.blocked !== undefined || (run.graph ?? graph.sha) !== graph.sha;
+    const { blocked: _blocked, ...current } = { ...unthreaded(run), graph: graph.sha };
     if (!moved && !renewed) return run.graph ? undefined : { run: current };
     let same = false;
     if (moved) {
@@ -2740,14 +2740,37 @@ export const tick = (
         const step = w?.steps.find(s => s.name === r.step);
         const pull = w && issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull;
         if (!w || !step || !isHumanWaitStep(step) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
+        const sandbox = yield* Sandbox;
+        const base = yield* sandbox.readHead(pull.base);
+        if (r.blocked?.base === base && r.blocked.head === pull.head && r.blocked.graph === graph.sha) return;
+        const { blocked: _, ...ready } = r;
+        if (r.blocked) yield* store.put(ready);
         const caught = yield* catchUp(w, r, graph, pull).pipe(
-          Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
+          Effect.catchAll(e =>
+            e._tag === 'StoreError'
+              ? Effect.fail(e)
+              : Effect.gen(function* () {
+                  const head = yield* sandbox.readHead(pull.branch).pipe(Effect.orElseSucceed(() => pull.head));
+                  yield* store.trace(r.id, {
+                    at: now(),
+                    step: r.step,
+                    outcome: { kind: 'ask', question: `Catch-up failed: ${explain(e)}` },
+                    run: { step: r.step, status: r.status, tries: r.tries, rounds: r.rounds },
+                  });
+                  return { run: { ...ready, blocked: { base, head, graph: graph.sha } }, outcome: undefined };
+                })
+          )
         );
         const next = caught?.outcome && transition(w, caught.run, caught.outcome);
         if (caught?.outcome && next)
           yield* record(caught.run, caught.outcome, next.status === 'running' ? next : yield* show(w, next));
         else if (caught) yield* store.put(caught.run);
-      }).pipe(Effect.scoped);
+      }).pipe(
+        Effect.scoped,
+        Effect.catchAll(e =>
+          e._tag === 'StoreError' ? Effect.fail(e) : Effect.logError(`catch up run ${before.id}`, e)
+        )
+      );
 
     const running = (yield* store.list({ status: 'running' }))
       .filter(mine)

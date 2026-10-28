@@ -532,6 +532,47 @@ export const dockerSandbox = (o: {
           };
         });
 
+      const fetch = lock.withPermits(1)(
+        Effect.gen(function* () {
+          if (o.local) {
+            if (configured) return;
+            for (const [key, value] of Object.entries(forgeConfig(mirror)))
+              if ((yield* inMirror(['config', '--get-all', key]).pipe(Effect.orElseSucceed(() => ''))) !== value)
+                yield* inMirror(['config', '--replace-all', key, value]);
+            configured = true;
+            return;
+          }
+          const exists = yield* Effect.promise(() =>
+            readFile(join(mirror, 'HEAD')).then(
+              () => true,
+              () => false
+            )
+          );
+          const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
+          if (!exists) {
+            yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
+            const part = `${mirror}.${randomBytes(4).toString('hex')}`;
+            yield* Effect.asVoid(hostGit({}, ['init', '--bare', '-q', part]));
+            yield* Effect.asVoid(hostGit({ GIT_DIR: part }, ['config', 'remote.origin.url', o.origin]));
+            yield* Effect.promise(() => rename(part, mirror).catch(() => rm(part, { recursive: true, force: true })));
+          }
+          yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', ...fetched], env);
+        })
+      );
+      const verify = (name: string) =>
+        inMirror([
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          `${o.local && name === 'origin/HEAD' ? 'HEAD' : name}^{commit}`,
+        ]).pipe(Effect.orElseSucceed(() => ''));
+      const readHead = (ref: string) =>
+        Effect.gen(function* () {
+          yield* fetch;
+          const sha = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
+          return sha || (yield* infra(`no commit for ${ref}`));
+        });
+
       const checkout = (
         ref: string | undefined,
         branch?: string,
@@ -546,42 +587,7 @@ export const dockerSandbox = (o: {
           );
           if (!present) yield* locked('images', ensureImage(box));
           if (ref === undefined) return yield* empty(graph);
-          yield* lock.withPermits(1)(
-            Effect.gen(function* () {
-              if (o.local) {
-                if (configured) return;
-                for (const [key, value] of Object.entries(forgeConfig(mirror)))
-                  if ((yield* inMirror(['config', '--get-all', key]).pipe(Effect.orElseSucceed(() => ''))) !== value)
-                    yield* inMirror(['config', '--replace-all', key, value]);
-                configured = true;
-                return;
-              }
-              const exists = yield* Effect.promise(() =>
-                readFile(join(mirror, 'HEAD')).then(
-                  () => true,
-                  () => false
-                )
-              );
-              const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
-              if (!exists) {
-                yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
-                const part = `${mirror}.${randomBytes(4).toString('hex')}`;
-                yield* Effect.asVoid(hostGit({}, ['init', '--bare', '-q', part]));
-                yield* Effect.asVoid(hostGit({ GIT_DIR: part }, ['config', 'remote.origin.url', o.origin]));
-                yield* Effect.promise(() =>
-                  rename(part, mirror).catch(() => rm(part, { recursive: true, force: true }))
-                );
-              }
-              yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', ...fetched], env);
-            })
-          );
-          const verify = (name: string) =>
-            inMirror([
-              'rev-parse',
-              '--verify',
-              '--quiet',
-              `${o.local && name === 'origin/HEAD' ? 'HEAD' : name}^{commit}`,
-            ]).pipe(Effect.orElseSucceed(() => ''));
+          yield* fetch;
           const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
           const rev =
@@ -716,6 +722,6 @@ export const dockerSandbox = (o: {
           return work;
         });
 
-      return { checkout, exec, lines, tools };
+      return { readHead, checkout, exec, lines, tools };
     })
   );

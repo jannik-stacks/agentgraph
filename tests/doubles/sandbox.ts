@@ -29,6 +29,11 @@ const late = (command: Command) => () =>
 /** Commands on the host, with clones of the local git repo `repo` as worktrees. No network rules. */
 export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
+    readHead: ref =>
+      Effect.tryPromise({
+        try: () => git('git', ['rev-parse', '--verify', ref], { cwd: repo }).then(r => r.stdout.trim()),
+        catch: e => new SandboxError({ reason: 'infra', detail: (e as Error).message }),
+      }),
     checkout: (ref, branch, keep) => {
       if (ref === undefined)
         return Effect.acquireRelease(

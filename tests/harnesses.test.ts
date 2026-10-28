@@ -65,6 +65,7 @@ const session = (
 ) => {
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
+    readHead: () => Effect.die('readHead'),
     checkout: () => Effect.die('checkout'),
     exec: () => Effect.die('exec'),
     lines: command => {

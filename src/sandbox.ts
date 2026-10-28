@@ -59,6 +59,7 @@ export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
   Sandbox,
   {
     tools?: Effect.Effect<{ subnet: string } & Pick<NonNullable<Command['tools']>, 'host'>, SandboxError>;
+    readHead: (ref: string) => Effect.Effect<string, SandboxError>;
     checkout: (
       ref: string | undefined,
       branch?: string,

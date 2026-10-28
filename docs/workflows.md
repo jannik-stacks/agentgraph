@@ -141,6 +141,8 @@ A trusted `/agent` comment reaches a working run by the workflow's `concurrency`
 
 ## When the base or the graph moves
 
+A catch-up error is recorded once in the run trace. The run stays waiting and retries when the base head, branch head or graph changes. <!-- code: src/engine.ts#tick -->
+
 Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/engine.ts#catchUp -->
 
 If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts.
