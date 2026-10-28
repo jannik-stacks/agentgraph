@@ -70,6 +70,14 @@ export const makeCodexHarness = (): Harness => ({
               'mcp_servers.agentgraph.default_tools_approval_mode="approve"',
             ].flatMap(setting => ['-c', setting])
           : []),
+        ...(spec.mcp
+          ? [
+              `mcp_servers.tools.url=${JSON.stringify(spec.mcp.url)}`,
+              'mcp_servers.tools.bearer_token_env_var="AGENTGRAPH_TOOL_SECRET"',
+              `mcp_servers.tools.enabled_tools=${JSON.stringify(spec.mcp.tools)}`,
+              'mcp_servers.tools.default_tools_approval_mode="approve"',
+            ].flatMap(setting => ['-c', setting])
+          : []),
         ...(route.model === 'default' ? [] : ['--model', route.model]),
         '-',
       ],

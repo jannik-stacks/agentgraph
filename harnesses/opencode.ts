@@ -110,10 +110,29 @@ export const opencode = (): Harness => ({
               ? { [provider]: { options: timeouts } }
               : {},
           agent: { agentgraph: { mode: 'primary', prompt: spec.system } },
-          ...(server && { mcp: { agentgraph: { type: 'local', command: [server.command, ...server.args] } } }),
+          ...((server || spec.mcp) && {
+            mcp: {
+              ...(server && { agentgraph: { type: 'local', command: [server.command, ...server.args] } }),
+              ...(spec.mcp && {
+                tools: {
+                  type: 'remote',
+                  url: spec.mcp.url,
+                  oauth: false,
+                  headers: { Authorization: 'Bearer {env:AGENTGRAPH_TOOL_SECRET}' },
+                },
+              }),
+            },
+          }),
         }),
         OPENCODE_PERMISSION: JSON.stringify(
-          permission([...spec.tools, ...(server ? ['agentgraph_result'] : [])], spec.read)
+          permission(
+            [
+              ...spec.tools,
+              ...(server ? ['agentgraph_result'] : []),
+              ...(spec.mcp?.tools.map(name => `tools_${name}`) ?? []),
+            ],
+            spec.read
+          )
         ),
         OPENCODE_DISABLE_PROJECT_CONFIG: '1',
         OPENCODE_DISABLE_CLAUDE_CODE: '1',

@@ -66,7 +66,17 @@ export const claude = (): Harness => ({
     }),
   command: (spec, route) => {
     const list = claudeTools(spec.tools);
-    const allowed = [...list, ...(spec.returns ? [resultTool] : [])];
+    const allowed = [
+      ...list,
+      ...(spec.returns ? [resultTool] : []),
+      ...(spec.mcp?.tools.map(name => `mcp__tools__${name}`) ?? []),
+    ];
+    const servers = {
+      ...(spec.returns && { agentgraph: makeResultServer(spec.returns) }),
+      ...(spec.mcp && {
+        tools: { type: 'http', url: spec.mcp.url, headers: { Authorization: 'Bearer ${AGENTGRAPH_TOOL_SECRET}' } },
+      }),
+    };
     return {
       cmd: 'claude',
       args: [
@@ -74,9 +84,7 @@ export const claude = (): Harness => ({
         '--output-format',
         'stream-json',
         '--verbose',
-        ...(spec.returns
-          ? ['--mcp-config', JSON.stringify({ mcpServers: { agentgraph: makeResultServer(spec.returns) } })]
-          : ['--safe-mode']),
+        ...(Object.keys(servers).length ? ['--mcp-config', JSON.stringify({ mcpServers: servers })] : ['--safe-mode']),
         '--restricted',
         '--strict-mcp-config',
         '--settings',

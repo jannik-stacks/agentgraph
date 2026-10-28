@@ -38,9 +38,18 @@ export const pi = (): Harness => ({
     ),
   home: (spec, route) => ({
     files: {
-      ...(spec.returns && {
+      ...((spec.returns || spec.mcp) && {
         '.pi/agent/mcp.json': JSON.stringify({
-          mcpServers: { agentgraph: { ...makeResultServer(spec.returns), exposure: 'direct' } },
+          mcpServers: {
+            ...(spec.returns && { agentgraph: { ...makeResultServer(spec.returns), exposure: 'direct' } }),
+            ...(spec.mcp && {
+              tools: {
+                url: spec.mcp.url,
+                headers: { Authorization: 'Bearer ${AGENTGRAPH_TOOL_SECRET}' },
+                exposure: 'direct',
+              },
+            }),
+          },
         }),
       }),
       '.pi/agent/models.json':
@@ -65,7 +74,11 @@ export const pi = (): Harness => ({
   }),
   command: (spec, route) => {
     if (!route.url && route.auth && route.auth !== 'chatgpt') throw new Error(`unsupported pi auth ${route.auth}`);
-    const tools = [...spec.tools, ...(spec.returns ? [resultTool] : [])];
+    const tools = [
+      ...spec.tools,
+      ...(spec.returns ? [resultTool] : []),
+      ...(spec.mcp?.tools.map(name => `mcp__tools__${name}`) ?? []),
+    ];
     return {
       cmd: 'pi',
       args: [
@@ -76,7 +89,7 @@ export const pi = (): Harness => ({
         '--no-approve',
         '--no-context-files',
         '--no-extensions',
-        ...(spec.returns ? ['-e', 'builtin:mcp'] : []),
+        ...(spec.returns || spec.mcp ? ['-e', 'builtin:mcp'] : []),
         '--no-skills',
         '--no-prompt-templates',
         '--no-themes',

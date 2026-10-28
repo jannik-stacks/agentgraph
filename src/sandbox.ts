@@ -3,6 +3,7 @@ import type { Graph } from './folder.ts';
 
 /** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given and, with `readonly`, the only mount it can write. */
 export type Command = {
+  tools?: { url: string; host: string };
   cmd: string;
   args: string[];
   dir: string;
@@ -57,6 +58,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
 export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
   Sandbox,
   {
+    tools?: Effect.Effect<{ subnet: string } & Pick<NonNullable<Command['tools']>, 'host'>, SandboxError>;
     checkout: (
       ref: string | undefined,
       branch?: string,

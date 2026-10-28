@@ -1,10 +1,11 @@
 import { Data } from 'effect';
 import type { Applied, Event } from './event.ts';
 import type { Agent, Check } from './folder.ts';
-import type { Checkout } from './sandbox.ts';
+import type { Checkout, Command } from './sandbox.ts';
 import type { CheckResult, Outcome, Run } from './workflow.ts';
 
 export type SessionSpec = {
+  mcp?: NonNullable<Command['tools']> & { secret: string; tools: string[] };
   harness: Agent['harness'];
   model?: string;
   system: string;
