@@ -90,6 +90,16 @@ Agent `tools` defaults to none. Session homes under `homes/` in the data folder 
 
 The CLI [picks a provider](cli.md#picking-a-provider), listed in `agentgraph.config.ts`. <!-- code: harnesses/providers.ts#makeProviders -->
 
+A provider can give `setup` text for the CLI to show when none is ready or a selected provider is not ready, and `whyLogin` guidance when its recorded session ends with a rejected login. Both are optional. For example, add an entry to the config's `providers` list:
+
+```ts
+{ name: 'company', harnesses: ['opencode'], ready: () => !!process.env.COMPANY_KEY,
+  setup: 'Export COMPANY_KEY to use the company provider.',
+  whyLogin: () => 'Renew COMPANY_KEY and start again.' }
+```
+
+Recovery runs only for the latest stop caused by a login failure and uses the provider recorded on that session. If the trace has no provider, the CLI gives no provider-specific advice. <!-- code: src/status.ts#findLoginProvider -->
+
 | Provider | Harness | Ready when |
 | --- | --- | --- |
 | `claude` | `claude` | its token is in the macOS Keychain or `~/.config/agentgraph/claude-token`, or `CLAUDE_CODE_OAUTH_TOKEN` is set |

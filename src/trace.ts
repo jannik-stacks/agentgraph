@@ -52,7 +52,13 @@ export type SessionEvent =
       /** The model no list price was found for, when the harness reported no cost either. */
       unpriced?: string;
     }
-  | { type: 'end'; final: string; ended: 'stop' | 'cap' | 'error'; exit: number };
+  | {
+      type: 'end';
+      final: string;
+      ended: 'stop' | 'cap' | 'error';
+      exit: number;
+      provider?: Extract<SessionEvent, { type: 'start' }>['provider'];
+    };
 
 export class SessionStop extends Data.TaggedError('SessionStop')<{
   reason: 'timeout' | 'stalled' | 'budget' | 'provider' | 'login' | 'human' | 'sandbox';
@@ -86,7 +92,7 @@ export type Trace = { at: string; step: string } & (
   | { cache: { files: number } }
   | { env: NonNullable<Checkout['env']> }
   | { applied: Applied }
-  | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
+  | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'>; failure?: SessionStop['reason'] }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
   | { spoken: Event }
   | { told: { text: string; by: string } }

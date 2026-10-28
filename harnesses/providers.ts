@@ -48,6 +48,9 @@ const needTerminal = (how: string) => {
 const claude: Provider = {
   name: 'claude',
   harnesses: ['claude'],
+  setup: '--provider claude: Claude subscription, through claude setup-token',
+  whyLogin: () =>
+    `Claude rejected the token. ${keychain ? 'Run `security delete-generic-password -s agentgraph -a claude`' : 'Remove ~/.config/agentgraph/claude-token'} and start again.`,
   ready: () =>
     !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE) ||
     (keychain ? security(['find-generic-password']).status === 0 : existsSync(claudeToken)),
@@ -122,6 +125,7 @@ const readFreshCodexAuth = async () => {
 const chatgpt: Provider = {
   name: 'chatgpt',
   harnesses: ['codex', 'opencode', 'pi'],
+  setup: '--provider chatgpt: ChatGPT subscription, through codex login',
   ready: () => existsSync(codexAuth),
   detect: () => loggedIn('codex', ['login', 'status']),
   settings: async () => {
@@ -155,6 +159,7 @@ const chatgpt: Provider = {
 const anthropic: Provider = {
   name: 'anthropic',
   harnesses: ['claude'],
+  setup: 'export ANTHROPIC_API_KEY=... then --provider anthropic',
   ready: () => !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY_FILE),
   settings: () => ({
     AGENTGRAPH_PROXY_URL: 'claude=',
@@ -167,6 +172,7 @@ const anthropic: Provider = {
 const litellm: Provider = {
   name: 'litellm',
   harnesses: ['opencode', 'pi', 'claude', 'codex'],
+  setup: 'export AGENTGRAPH_PROXY_KEYS=... for LiteLLM at AGENTGRAPH_PROXY_URL (infra/local/README.md)',
   ready: () => !!(process.env.AGENTGRAPH_PROXY_KEYS || process.env.AGENTGRAPH_PROXY_KEYS_FILE),
   settings: () => ({ AGENTGRAPH_MODELS: process.env.AGENTGRAPH_MODELS ?? '*=smart' }),
 };

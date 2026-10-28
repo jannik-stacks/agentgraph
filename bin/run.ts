@@ -40,6 +40,7 @@ import {
 } from '../src/instance.ts';
 import { createLoopLock, isLoopHeld, readEngineEnv, start, writeTriggeringIssue } from '../src/main.ts';
 import {
+  findLoginProvider,
   findRunsWaitingOnPeople,
   formatInstanceFlags,
   formatIssueList,
@@ -156,13 +157,6 @@ const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefin
   process.exit(problems.length ? 1 : 0);
 };
 
-const noModel = `No model to use. Any one of these works:
-  export ANTHROPIC_API_KEY=...       Anthropic API, then --provider anthropic
-  --provider claude                  Claude subscription, through claude setup-token
-  --provider chatgpt                 ChatGPT subscription for codex, through codex login
-  export AGENTGRAPH_PROXY_KEYS=...   your LiteLLM at AGENTGRAPH_PROXY_URL, which also holds
-                                     a ChatGPT login (infra/local/README.md)`;
-
 const pickProvider = async (i: Instance, after: string): Promise<{ provider: Provider; ready?: boolean }> => {
   const { providers = [], provider: named } = await Effect.runPromise(
     readHarnessSettings.pipe(
@@ -180,7 +174,8 @@ const pickProvider = async (i: Instance, after: string): Promise<{ provider: Pro
     const ready = await provider.ready(host);
     if (ready || provider.detect?.(host)) found.push({ provider, ready });
   }
-  if (found.length === 0) fail(`${noModel}\n${after}`, 1);
+  if (found.length === 0)
+    fail(['No model to use.', ...providers.flatMap(p => (p.setup ? [`  ${p.setup}`] : [])), after].join('\n'), 1);
   if (found.length === 1) {
     writeInstanceProvider(i, found[0]!.provider.name);
     return found[0]!;
@@ -204,7 +199,11 @@ const applyNamedProvider = async () => {
   );
   const provider = providers.find(p => p.name === named);
   if (!provider) return;
-  if (!(await provider.ready(host))) fail(`${provider.name} is not ready; log in with agi in a repo first`, 1);
+  if (!(await provider.ready(host)))
+    fail(
+      [`${provider.name} is not ready; log in with agi in a repo first`, provider.setup].filter(Boolean).join('\n'),
+      1
+    );
   const apply = applySettings(provider);
   await apply();
   return apply;
@@ -228,9 +227,10 @@ const connect = async (i: Instance, graph: string, after: string) => {
   console.log(`agentgraph ${version}: ${harness} on ${provider.name}, ${await formatGraphName(i, graph)}, local forge`);
   console.log(`repo     ${i.repo}, base ${i.base}`);
   if (!(ready ?? (await provider.ready(host))))
-    await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))(host).catch(
-      (e: Error) => fail(`${e.message}\n${after}`, 1)
-    );
+    await (
+      provider.login ??
+      (() => Promise.reject(new Error([`${provider.name} is not ready`, provider.setup].filter(Boolean).join('\n'))))
+    )(host).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   await applySettings(provider)().catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   if (!host.sandbox) {
     const missing = await Effect.runPromise(whyModelHostsMissing).catch(() => undefined);
@@ -531,8 +531,6 @@ async function drive(i: Instance, issue: number, graph: string, provider: string
   return report(i, issue);
 }
 
-const relogin = `Claude rejected the token. ${process.platform === 'darwin' ? 'Run `security delete-generic-password -s agentgraph -a claude`' : 'Remove ~/.config/agentgraph/claude-token'} and start again.`;
-
 function openStudio(i: Instance) {
   const dir = join(import.meta.dirname, '..', 'studio');
   if (!existsSync(join(dir, 'dev.ts')))
@@ -570,8 +568,22 @@ async function report(
   for (const line of waiting.filter(l => !l.startsWith('  '))) console.log(line);
   const last = runs.toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
   if (last?.status === 'stopped') console.log(`${last.id} stopped at ${last.step}: ${last.reason}`);
-  if (last?.reason?.includes('rejected the key or login') && (values.provider ?? i.provider) === 'claude')
-    console.log(relogin);
+  if (last?.status === 'stopped') {
+    const trace = await Effect.runPromise(
+      Effect.flatMap(Store, s => Stream.runCollect(s.read(last.id))).pipe(Effect.provide(fileStore(i.data)))
+    );
+    const name = findLoginProvider([...trace], last.step);
+    if (name) {
+      const providers = await Effect.runPromise(
+        readHarnessSettings.pipe(
+          Effect.map(settings => settings.providers ?? []),
+          Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(undefined)))
+        )
+      ).catch(() => []);
+      const why = providers.find(p => p.name === name)?.whyLogin?.();
+      if (why) console.log(why);
+    }
+  }
   for (const line of await formatRunnerErrors(i.data, runs)) console.log(line);
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
   const steps = merged

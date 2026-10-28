@@ -35,6 +35,8 @@ export type Provider = {
   harnesses: string[];
   ready: (host: { image: string; sandbox: string }) => boolean | Promise<boolean>;
   detect?: (host: Parameters<Provider['ready']>[0]) => boolean;
+  setup?: string;
+  whyLogin?: () => string;
   settings?: () => Record<string, string> | Promise<Record<string, string>>;
   login?: (host: Parameters<Provider['ready']>[0]) => Promise<void>;
 };
@@ -225,7 +227,15 @@ export const harnessSession = (
               if (typeof raw !== 'string') {
                 const ended = done?.ended ?? 'error';
                 const final = reply || (ended === 'error' ? (done?.error ?? tail.trim()) : '');
-                return [{ type: 'end', final, ended, exit: raw.code }];
+                return [
+                  {
+                    type: 'end',
+                    final,
+                    ended,
+                    exit: raw.code,
+                    ...(ended === 'error' && s.provider && { provider: s.provider }),
+                  },
+                ];
               }
               const line = hidden.reduce((text, secret) => text.replaceAll(secret, '***'), raw);
               let json: unknown;

@@ -596,9 +596,14 @@ describe('drive', () => {
     'Failed to authenticate. API Error: 401 OAuth access token is invalid.',
     'Invalid API key · Fix external API key',
   ])('stops at once when the provider rejects the login: %s', async final => {
-    const { run } = services(world(), [[start('t1'), { type: 'end', final, ended: 'error', exit: 1 }]]);
+    const where = world();
+    const { run } = services(where, [[start('t1'), { type: 'end', final, ended: 'error', exit: 1 }]]);
     const stopped = await run(drive(w, fresh(), graph));
     expect(stopped).toMatchObject({ status: 'stopped', reason: expect.stringContaining('rejected the key or login') });
+    expect(readTrace(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session.ended] : []))).toContain('login');
+    expect(
+      readTrace(where.data, 'run-7').some(t => 'outcome' in t && t.outcome.kind === 'stop' && t.failure === 'login')
+    ).toBe(true);
   });
 
   it('never writes a proxy key into the trace, even when the harness prints it', async () => {

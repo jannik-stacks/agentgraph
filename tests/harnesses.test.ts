@@ -56,6 +56,7 @@ const session = (
     fail?: SandboxError;
     prices?: string;
     harnesses?: Harness[];
+    provider?: string;
     proxy?: { url: string; keys: Redacted.Redacted; models?: string };
     passed?: Record<string, Redacted.Redacted>;
   } = {}
@@ -76,7 +77,7 @@ const session = (
     ...(o.passed && { passed: o.passed }),
     ...(o.prices && { prices: o.prices }),
     harnesses: o.harnesses ?? harnesses,
-    provider: 'litellm',
+    provider: o.provider ?? 'litellm',
   }).pipe(Layer.provide(sandbox));
   const run = Session.pipe(
     Effect.flatMap(({ open }) => Stream.runCollect(open(s))),
@@ -311,8 +312,19 @@ describe('the session loop', () => {
   });
 
   it('ends with the harness error and exit code when the harness dies without a result', async () => {
-    const { events: got } = await events(spec, ['Error: cannot find module', 'at x.js:1'], 1);
-    expect(got).toEqual([{ type: 'end', final: 'Error: cannot find module\nat x.js:1', ended: 'error', exit: 1 }]);
+    const { exit } = await session(spec, ['Error: cannot find module', 'at x.js:1'], {
+      exit: 1,
+      provider: 'custom-provider',
+    });
+    expect(Exit.isSuccess(exit) && exit.value).toEqual([
+      {
+        type: 'end',
+        final: 'Error: cannot find module\nat x.js:1',
+        ended: 'error',
+        exit: 1,
+        provider: 'custom-provider',
+      },
+    ]);
   });
 
   it('turns a sandbox timeout into a session stop', async () => {
@@ -513,6 +525,7 @@ describe('opencode', () => {
         final: 'Cannot connect to API: Unable to connect. Is the computer able to access the url?',
         ended: 'error',
         exit: 1,
+        provider: 'litellm',
       },
     ]);
   });
@@ -786,6 +799,12 @@ describe('codex', () => {
       JSON.stringify({ type: 'turn.failed', error: { message: 'usage limit reached' } }),
     ];
     const { events: got } = await events(codex, lines, 1);
-    expect(got.at(-1)).toEqual({ type: 'end', final: 'usage limit reached', ended: 'error', exit: 1 });
+    expect(got.at(-1)).toEqual({
+      type: 'end',
+      final: 'usage limit reached',
+      ended: 'error',
+      exit: 1,
+      provider: 'litellm',
+    });
   });
 });

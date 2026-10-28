@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -17,6 +17,7 @@ import {
   writeReview,
   formatGraphName,
   whyGraphUncommitted,
+  writeInstanceProvider,
 } from '../src/instance.ts';
 import { formatIssueList, formatIssueTimeline } from '../src/status.ts';
 import { scanIssuesAndRunningRuns, tick, type Instruction, type Services } from '../src/engine.ts';
@@ -719,6 +720,71 @@ describe('an instance', () => {
     const exported = cli('export', '1', '--as', 'agentgraph/review-1').out;
     expect(exported).toContain('In your repo: agentgraph/review-1');
     expect(exported).toMatch(/#1 is waiting\n[\s\S]*Next:\n  agi merge 1.*\n.*\n  agi show 1.*\n  agi studio/);
+    const config = join(w.root, 'providers.mjs');
+    writeFileSync(
+      config,
+      `export default { harnesses: [], providers: [
+      { name: 'original', harnesses: [], ready: () => true, whyLogin: () => 'Renew the original account.' },
+      { name: 'other', harnesses: [], ready: () => true, whyLogin: () => 'Renew the other account.' }
+    ] };`
+    );
+    writeInstanceProvider(i, 'other');
+    const traceDir = join(i.data, 'login-test');
+    mkdirSync(traceDir);
+    writeFileSync(
+      join(traceDir, 'run.json'),
+      JSON.stringify({
+        ...first[0],
+        id: 'login-test',
+        step: 'implement',
+        status: 'stopped',
+        started: '9999-01-01',
+        reason: 'login rejected',
+      })
+    );
+    const trace = [
+      {
+        at: '1',
+        step: 'implement',
+        key: 's1',
+        event: { type: 'start', session: 's1', harness: 'custom', provider: 'original', model: 'm', home: '/tmp' },
+      },
+      { at: '2', step: 'implement', key: 's1', session: { resumed: false, ended: 'login', usd: 0 } },
+      {
+        at: '3',
+        step: 'implement',
+        outcome: { kind: 'stop', why: 'login' },
+        failure: 'login',
+        run: { step: 'implement', status: 'stopped', tries: 0, rounds: {} },
+      },
+    ];
+    const traceFile = join(traceDir, 'trace.jsonl');
+    writeFileSync(traceFile, trace.map(t => JSON.stringify(t)).join('\n') + '\n');
+    process.env.AGENTGRAPH_CONFIG = config;
+    try {
+      const recovery = cli('export', '1', '--as', 'agentgraph/review-1').out;
+      expect(recovery).toContain('Renew the original account.');
+      expect(recovery).not.toContain('Renew the other account.');
+      writeFileSync(
+        traceFile,
+        [
+          ...trace,
+          {
+            at: '4',
+            step: 'implement',
+            outcome: { kind: 'stop', why: 'other' },
+            failure: 'provider',
+            run: { step: 'implement', status: 'stopped', tries: 0, rounds: {} },
+          },
+        ]
+          .map(t => JSON.stringify(t))
+          .join('\n') + '\n'
+      );
+      expect(cli('export', '1', '--as', 'agentgraph/review-1').out).not.toContain('Renew the original account.');
+    } finally {
+      delete process.env.AGENTGRAPH_CONFIG;
+      rmSync(traceDir, { recursive: true });
+    }
     const patch = join(w.root, 'hello.patch');
     expect(cli('export', '1', '--patch', patch).code).toBe(0);
     expect(readFileSync(patch, 'utf8')).toContain('+hello world');

@@ -2,6 +2,32 @@ import type { Event, Issue } from './event.ts';
 import type { Trace } from './trace.ts';
 import type { Run } from './workflow.ts';
 
+export const findLoginProvider = (trace: Trace[], step: Run['step']) => {
+  const outcome = trace.findLast(line => 'outcome' in line);
+  if (
+    !outcome ||
+    !('outcome' in outcome) ||
+    outcome.outcome.kind !== 'stop' ||
+    outcome.failure !== 'login' ||
+    outcome.step !== step
+  )
+    return undefined;
+  const before = trace.slice(0, trace.lastIndexOf(outcome));
+  const last = before.findLast(line => 'session' in line);
+  if (!last || !('session' in last) || last.step !== step || last.session.ended !== 'login' || !last.key)
+    return undefined;
+  return before
+    .flatMap(line =>
+      'event' in line &&
+      line.key === last.key &&
+      (line.event.type === 'start' || line.event.type === 'end') &&
+      line.event.provider
+        ? [line.event.provider]
+        : []
+    )
+    .at(-1);
+};
+
 export const findRunsWaitingOnPeople = (runs: Run[]) =>
   runs
     .filter(run => run.status === 'waiting' && !runs.some(c => c.by === run.id && run.reason === `waiting on ${c.id}`))

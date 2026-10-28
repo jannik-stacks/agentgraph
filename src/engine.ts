@@ -806,11 +806,14 @@ const converse = <A = never, R = never>(
         )
       : yield* talked;
     if (cut) end = { ended: 'human' };
+    const final = seen.final || seen.text;
+    if (!cut && end.ended !== 'stop' && /Failed to authenticate|Invalid API key|\b401\b/.test(final))
+      end = { ...end, ended: 'login' };
     yield* ended(end);
     return {
       id: seen.id,
       home: seen.home ?? spec.dir,
-      final: seen.final || seen.text,
+      final,
       usd: seen.usd,
       result: seen.result,
       ...end,
@@ -1339,7 +1342,7 @@ const attempt = (
           };
           if (!r.cut && r.ended !== 'stop')
             return yield* new SessionStop({
-              reason: /Failed to authenticate|Invalid API key|\b401\b/.test(r.final) ? 'login' : 'provider',
+              reason: r.ended === 'login' ? 'login' : 'provider',
               detail: `session ended ${r.ended} (exit ${r.exit ?? 0}), final: ${squeeze(r.final, 200)}`,
             });
           return r;
@@ -1818,12 +1821,13 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
     const store = yield* Store;
     const forge = yield* Forge;
     let current = run;
-    const settle = (outcome: Outcome, next: Run) =>
+    const settle = (outcome: Outcome, next: Run, failure?: SessionStop['reason']) =>
       Effect.gen(function* () {
         yield* store.trace(next.id, {
           at: now(),
           step: current.step,
           outcome,
+          ...(failure && { failure }),
           run: {
             step: next.step,
             status: next.status,
@@ -1932,7 +1936,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
       if (e._tag === 'SessionStop' && e.reason === 'human')
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: said }));
       if (e._tag === 'SessionStop' && e.reason === 'login')
-        return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: rejected }));
+        return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: rejected }), 'login');
       const host = e._tag === 'SandboxError' && e.reason === 'host';
       if (!current.retried && !host) return settle({ kind: 'ask', question: why }, { ...current, retried: true });
       const question = host
