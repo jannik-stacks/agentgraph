@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, watch } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
@@ -18,11 +18,11 @@ const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 
 /** The served graph as the engine loads it: the graph, or the problems that stop it loading. */
 const servedGraph = async () => {
-  const dir = process.env.VITE_AGI_DIR;
+  const dir = process.env.AGI_STUDIO_DIR;
   if (!dir) return;
   const { Effect, Either } = await import('effect');
   const { makeHarnessConfigProvider, readConfiguredGraph }: typeof HarnessesModule = await from('src/harnesses.ts');
-  const choice = JSON.parse(process.env.VITE_AGI_HARNESS_CHOICE ?? '{}');
+  const choice = JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}');
   const loaded = await Effect.runPromise(
     Effect.either(readConfiguredGraph(dir).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(choice))))
   );
@@ -77,39 +77,20 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * `virtual:fixtures`, plus the served graph's workflows. `GET /api/runs` answers that graph's runs in the data dir with
  * their traces, every text in them cut short; `GET /api/runs/<id>` answers one run with every trace line, and
  * `GET /api/logs/<hash>` the full output of a check, and `GET /api/locate?gh=<link or comment id>` what `locate` finds.
- * `GET /api/bench` answers the rows of every bench out dir under the dirs `VITE_AGI_BENCH` names, where each driven
+ * `GET /api/bench` answers the rows of every bench out dir under the dirs `AGI_STUDIO_BENCH` names, where each driven
  * bench dir stands.
  * `GET /api/results?from=runs|bench|tune` answers what each run, bench row or tune candidate gave, with its fields (`bin/results.ts`);
- * tunes are under `VITE_AGI_TUNE` (default: the `bin/tune.ts` root).
+ * tunes are under `AGI_STUDIO_TUNE` (default: the `bin/tune.ts` root).
  * `GET /api/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const makeStudioDevApiPlugin = (): Plugin => ({
   name: 'agentgraph:fixtures',
   resolveId: source => (source === id ? `\0${id}` : undefined),
   configureServer(server) {
-    server.middlewares.use('/api/events', (req, res) => {
-      res.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        connection: 'keep-alive',
-      });
-      res.write(': open\n\n');
-      const data = process.env.VITE_AGI_DATA;
-      if (!data || !existsSync(data)) return;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const watcher = watch(data, { recursive: true }, () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => res.write('data: changed\n\n'), 150);
-      });
-      req.on('close', () => {
-        clearTimeout(timer);
-        watcher.close();
-      });
-    });
     server.middlewares.use('/api/bench', async (_req, res) => {
       const { readBenchRows }: typeof BenchModule = await from('bin/bench.ts');
       const { readBenchDriveState }: typeof DriveModule = await from('bench/drive.ts');
-      const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
+      const dirs = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
       json(res, {
         rows: dirs.flatMap(dir => findBenchOutDirs(dir)).flatMap(out => readBenchRows(out)),
         drives: [...new Set(dirs.flatMap(findDrivenBenchDirs))].map(readBenchDriveState),
@@ -120,17 +101,17 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       if (source !== 'runs' && source !== 'bench' && source !== 'tune' && source !== 'exports')
         return json(res, { error: 'bad from' }, 400);
       const dirs = {
-        ...(process.env.VITE_AGI_DATA && { data: process.env.VITE_AGI_DATA }),
-        bench: (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean),
+        ...(process.env.AGI_STUDIO_DATA && { data: process.env.AGI_STUDIO_DATA }),
+        bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
         benchOuts: (dir: string) => findBenchOutDirs(dir),
-        ...(process.env.VITE_AGI_TUNE && { tune: process.env.VITE_AGI_TUNE }),
+        ...(process.env.AGI_STUDIO_TUNE && { tune: process.env.AGI_STUDIO_TUNE }),
       };
       void Promise.all([from<typeof ResultsModule>('bin/results.ts'), servedGraph()])
         .then(([{ readRunResults }, served]) => json(res, readRunResults(source, dirs, served?.graph)))
         .catch((e: Error) => json(res, { error: e.message }, 500));
     });
     server.middlewares.use('/api/logs', async (req, res) => {
-      const data = process.env.VITE_AGI_DATA;
+      const data = process.env.AGI_STUDIO_DATA;
       const { Effect } = await import('effect');
       const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
       const hash = (req.url ?? '/').split('?')[0]!.slice(1);
@@ -142,7 +123,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       res.end(text || '');
     });
     server.middlewares.use('/api/locate', async (req, res) => {
-      const data = process.env.VITE_AGI_DATA;
+      const data = process.env.AGI_STUDIO_DATA;
       const { Effect, Either } = await import('effect');
       const { fileStore, locate }: typeof StoreModule = await from('src/store.ts');
       if (!data) return json(res, null, 404);
@@ -153,7 +134,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
     });
     server.middlewares.use('/api/runs', async (req, res) => {
       const served = await servedGraph();
-      const data = process.env.VITE_AGI_DATA;
+      const data = process.env.AGI_STUDIO_DATA;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');

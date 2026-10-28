@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { navigateAtom, pageAtom, routes } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
-import { cx, Link, Loading, Tooltip } from './ui.tsx';
+import { cx, Link, Loading } from './ui.tsx';
 
 const pages = {
   inbox: lazy(() => import('./runs/InboxPage.tsx').then(m => ({ default: m.InboxPage }))),
@@ -29,31 +29,6 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
     );
   }
 }
-
-const base = (dir: string | undefined, parts = 1) => dir?.split('/').filter(Boolean).slice(-parts).join('/');
-
-/** The graph and data directory the dev server reads, by folder name; the full paths on hover. */
-const Where = () => {
-  const { VITE_AGI_DIR: graph, VITE_AGI_DATA: data } = import.meta.env as Record<string, string | undefined>;
-  if (!graph && !data) return null;
-  return (
-    <Tooltip tip={[graph && `Graph: ${graph}`, data && `Data: ${data}`].filter(Boolean).join('\n')} focusable>
-      <dl className="flex min-w-0 items-center gap-3 text-xs text-zinc-500">
-        {[
-          ['graph', base(graph)],
-          ['data', base(data, 2)],
-        ].map(([name, dir]) =>
-          dir ? (
-            <div key={name} className="flex min-w-0 gap-1">
-              <dt>{name}</dt>
-              <dd className="truncate font-mono text-zinc-700 dark:text-zinc-300">{dir}</dd>
-            </div>
-          ) : null
-        )}
-      </dl>
-    </Tooltip>
-  );
-};
 
 export const App = () => {
   const { route } = useAtomValue(pageAtom);
@@ -86,9 +61,6 @@ export const App = () => {
             </Link>
           ))}
         </nav>
-        <div className="ml-auto hidden min-w-0 md:block">
-          <Where />
-        </div>
       </header>
       <main className="min-h-0 flex-1">
         <Boundary key={route}>

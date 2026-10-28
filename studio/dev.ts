@@ -6,7 +6,6 @@ import { createServer } from 'vite';
 import { makeHarnessConfigProvider, readConfiguredGraph } from '../src/harnesses.ts';
 import { ensureBase, ensureGraph, ensureInstance, findRepo } from '../src/instance.ts';
 import { readHostSettings } from '../src/services.ts';
-import { formatInstanceFlags } from '../src/status.ts';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -44,14 +43,13 @@ const loaded = await Effect.runPromise(
 if (Either.isLeft(loaded))
   console.error(`the graph does not load, so the studio shows no workflow:\n${loaded.left.message}`);
 
-process.env.VITE_AGI_DIR = graphDir;
-process.env.VITE_AGI_DATA = dataDir;
-process.env.VITE_AGI_HARNESS_CHOICE = JSON.stringify(choice);
+process.env.AGI_STUDIO_DIR = graphDir;
+process.env.AGI_STUDIO_DATA = dataDir;
+process.env.AGI_STUDIO_HARNESS_CHOICE = JSON.stringify(choice);
 const forge = instance?.forge ?? values.forge;
-if (forge) process.env.VITE_AGI_FORGE = resolve(forge);
-if (instance) process.env.VITE_AGI_FLAGS = formatInstanceFlags(instance.repo, root);
-if (values.bench) process.env.VITE_AGI_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
-if (values.tune) process.env.VITE_AGI_TUNE = resolve(values.tune);
+if (forge) process.env.AGI_STUDIO_FORGE = resolve(forge);
+if (values.bench) process.env.AGI_STUDIO_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
+if (values.tune) process.env.AGI_STUDIO_TUNE = resolve(values.tune);
 const vite = await createServer({ root: import.meta.dirname });
 await vite.listen().catch((e: Error) => {
   console.error(`agi: ${e.message}; pick another port with AGI_PORT`);

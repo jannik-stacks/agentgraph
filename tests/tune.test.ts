@@ -24,7 +24,7 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   delete process.env.AGENTGRAPH_TUNE;
-  delete process.env.VITE_AGI_TUNE;
+  delete process.env.AGI_STUDIO_TUNE;
 });
 
 const evalOf = (flips: Record<string, Flip> = {}): Parameters<typeof decide>[1] => ({
@@ -385,11 +385,11 @@ describe('status', () => {
 const tuneRoot = (dir: string) => join(dir, '..', '..');
 
 describe('/api/results', () => {
-  it('answers every tune candidate under VITE_AGI_TUNE as results', async () => {
+  it('answers every tune candidate under AGI_STUDIO_TUNE as results', async () => {
     const routes: Record<string, (req: unknown, res: unknown) => Promise<void>> = {};
     const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
     plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
-    process.env.VITE_AGI_TUNE = join(import.meta.dirname, 'fixtures/tune');
+    process.env.AGI_STUDIO_TUNE = join(import.meta.dirname, 'fixtures/tune');
     const ask = (url: string) =>
       new Promise<{ status: number; body: string }>(done => {
         const res = {

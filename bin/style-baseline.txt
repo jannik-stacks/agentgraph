@@ -67,7 +67,6 @@ no-comment src/store.ts 8
 no-comment src/trace.ts 10
 no-comment src/workflow.ts 27
 no-comment studio/fixtures.ts 5
-no-comment studio/src/App.tsx 1
 no-comment studio/src/Markdown.tsx 4
 no-comment studio/src/Problems.tsx 1
 no-comment studio/src/bench/BenchPage.tsx 2

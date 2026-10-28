@@ -4,6 +4,7 @@ import { builtinModules } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { makeStudioDevApiPlugin } from './fixtures.ts';
+import { makeStudioPagesPlugin } from './plugins.ts';
 
 const builtins = new Set(builtinModules);
 
@@ -26,8 +27,10 @@ const deny = ['.env', '.env.*', '*.env', '*.{crt,pem,key,p12,pfx,cer,der}', '.np
 
 export default defineConfig({
   appType: 'spa',
+  envPrefix: [],
+  define: { 'import.meta.env.VITE_AGI_LOCAL': JSON.stringify(process.env.AGI_STUDIO_FORGE ? '1' : '') },
   cacheDir: `node_modules/.vite-${server.port}`,
-  plugins: [noNodeInBrowser(), makeStudioDevApiPlugin(), react(), tailwindcss()],
+  plugins: [noNodeInBrowser(), makeStudioPagesPlugin(), makeStudioDevApiPlugin(), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
   optimizeDeps: { entries: ['index.html', 'src/**/*.tsx'], include: ['agentation', 'fumadocs-core/highlight'] },
   server: { ...server, fs: { allow, deny }, warmup: { clientFiles: ['./src/main.tsx'] } },
