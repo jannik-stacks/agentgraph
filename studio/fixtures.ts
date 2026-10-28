@@ -38,7 +38,7 @@ const json = (res: ServerResponse, value: unknown, status = 200) => {
 };
 
 /** The bench out dirs at or under `dir`: those with a `log.jsonl`, never looking into case dirs. */
-const findBenchOutDirs = (dir: string, depth = 3): string[] => [
+export const findBenchOutDirs = (dir: string, depth = 3): string[] => [
   ...(existsSync(join(dir, 'log.jsonl')) ? [dir] : []),
   ...(depth && existsSync(dir)
     ? readdirSync(dir, { withFileTypes: true })

@@ -1,12 +1,11 @@
-import { useAtom, useAtomValue } from 'jotai';
-import { lazy, Suspense, useMemo } from 'react';
-import { queryParam, resultsAtoms } from '../state.ts';
+import { useAtom } from 'jotai';
+import { Suspense, useMemo } from 'react';
+import { queryParam } from '../state.ts';
+import { usePluginData, ResultChart, ResultTable } from '../plugins.ts';
+import { ResultsData } from './data.ts';
 import { Button, cx, Help, Loading, Muted, Select } from '../ui.tsx';
 import { Candidate, tuneHelp } from './Candidate.tsx';
 import { type ResultSource, resultSources } from './result.ts';
-import { ResultTable } from './ResultTable.tsx';
-
-const ResultChart = lazy(() => import('./ResultChart.tsx'));
 
 const params = Object.fromEntries(
   ['from', 'view', 'by', 'trend', 'dead', 'y', 'x', 'color', 'facet', 'run', 'pick'].map(k => [k, queryParam(k)])
@@ -57,7 +56,10 @@ const makeHintedOption = (value: string, label = value) => ({ value, label, titl
 const key = (f: { check: string; field: string }) => `${f.check} ${f.field}`;
 
 const Data = ({ from }: { from: ResultSource }) => {
-  const { value, failure } = useAtomValue(resultsAtoms[from]);
+  const { value: data, failure: refreshFailure } = usePluginData('results', ResultsData);
+  const source = data?.[from];
+  const value = source?.kind === 'ready' ? source.sheet : undefined;
+  const failure = source?.kind === 'failed' ? source.why : refreshFailure;
   const [view, setView] = useAtom(params.view);
   const [by, setBy] = useAtom(params.by);
   const [trend, setTrend] = useAtom(params.trend);
@@ -90,7 +92,9 @@ const Data = ({ from }: { from: ResultSource }) => {
   if (!value) return failure ? <Muted>{failure}</Muted> : <Loading />;
   const measures = value.fields.filter(f => f.type !== 'string');
   const field = measures.find(f => key(f) === y) ?? measures.find(f => f.limit) ?? measures[0];
-  const picked = value.runs.find(r => r.key === pick && r.step);
+  const picked = value.runs.find(r => r.key === pick);
+  const candidates = source?.kind === 'ready' ? source.candidates : undefined;
+  const candidate = pick && candidates && Object.hasOwn(candidates, pick) ? candidates[pick] : undefined;
   const none = makeHintedOption('', '-');
   const measureOptions = measures.map(f => ({ value: key(f), label: key(f), title: f.description }));
   const xAxis = x ?? defaults[from].x;
@@ -229,12 +233,14 @@ const Data = ({ from }: { from: ResultSource }) => {
           />
         )}
       </div>
-      {picked?.step && <Candidate tune={picked.axes.tune ?? ''} step={picked.step} onClose={() => setPick(null)} />}
+      {picked && candidate && (
+        <Candidate tune={picked.axes.tune ?? ''} step={candidate} onClose={() => setPick(null)} />
+      )}
     </div>
   );
 };
 
-export const ResultsPage = () => {
+const ResultsPage = () => {
   const [picked, setPicked] = useAtom(params.from);
   const source = resultSources.find(s => s === picked) ?? 'runs';
   return (
@@ -259,3 +265,5 @@ export const ResultsPage = () => {
     </div>
   );
 };
+
+export default ResultsPage;

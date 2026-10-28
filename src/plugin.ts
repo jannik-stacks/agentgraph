@@ -101,7 +101,7 @@ const PluginFile = Schema.Struct({
 });
 
 export const readPlugins = async (
-  dir: string,
+  dir: string | undefined,
   settings: Record<string, unknown> = {},
   isReserved: (name: string) => boolean = () => false,
   builtins: readonly unknown[] = []
@@ -113,24 +113,26 @@ export const readPlugins = async (
     read: () => ReturnType<(typeof StudioPage.Type)['read']>;
     watch: readonly string[];
   })[] = [];
-  const root = await realpath(dir);
-  const files = (await readdir(join(dir, 'plugins')).catch(() => [])).filter(file => file.endsWith('.ts')).toSorted();
   const sources: { file: string; definition: unknown }[] = builtins.map((definition, index) => ({
     file: `built-in ${index}`,
     definition,
   }));
-  for (const file of files) {
-    const path = join(dir, 'plugins', file);
-    const actual = await realpath(path);
-    if (!actual.startsWith(root + sep)) throw new Error(`plugins/${file}: symlink escapes the graph`);
-    if ((await lstat(path)).isSymbolicLink()) throw new Error(`plugins/${file}: symlink entries are not supported`);
-    const hash = createHash('sha256')
-      .update(await readFile(actual))
-      .digest('hex');
-    const source = await import(`${pathToFileURL(actual).href}?sha=${hash}`).catch(error => {
-      throw new Error(`plugins/${file}: ${(error as Error).message}`, { cause: error });
-    });
-    sources.push({ file: `plugins/${file}`, definition: source.default });
+  if (dir !== undefined) {
+    const root = await realpath(dir);
+    const files = (await readdir(join(dir, 'plugins')).catch(() => [])).filter(file => file.endsWith('.ts')).toSorted();
+    for (const file of files) {
+      const path = join(dir, 'plugins', file);
+      const actual = await realpath(path);
+      if (!actual.startsWith(root + sep)) throw new Error(`plugins/${file}: symlink escapes the graph`);
+      if ((await lstat(path)).isSymbolicLink()) throw new Error(`plugins/${file}: symlink entries are not supported`);
+      const hash = createHash('sha256')
+        .update(await readFile(actual))
+        .digest('hex');
+      const source = await import(`${pathToFileURL(actual).href}?sha=${hash}`).catch(error => {
+        throw new Error(`plugins/${file}: ${(error as Error).message}`, { cause: error });
+      });
+      sources.push({ file: `plugins/${file}`, definition: source.default });
+    }
   }
   for (const { file, definition } of sources) {
     const decodedPlugin = Schema.decodeUnknownEither(PluginFile, { onExcessProperty: 'error' })(definition);

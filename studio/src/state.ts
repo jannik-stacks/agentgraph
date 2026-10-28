@@ -4,7 +4,7 @@ import type { Step } from '../../bin/tune.ts';
 import { type ResultSource, resultSources, type RunResults } from './results/result.ts';
 import type { ServedRun } from './runs/trace.ts';
 
-export const routes = ['inbox', 'graph', 'runs', 'docs', 'bench', 'results'] as const;
+export const routes = ['inbox', 'graph', 'runs', 'docs', 'bench'] as const;
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
 /** The current location; tests set it. @public */
@@ -24,7 +24,7 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
 /** The route and the id after it: `/inbox`, `/graph`, `/runs[/<id>]`, `/docs[/<page>]`, `/bench` or `/results`. */
 export const pageAtom = atom(get => {
   const [page, id] = get(locationAtom).path.split('/').filter(Boolean);
-  const route = page === 'plugins' ? ('plugins' as const) : routes.find(r => r === page);
+  const route = routes.find(r => r === page) ?? (['plugins', 'results'] as const).find(r => r === page);
   return { route, id: route && id ? decodeURIComponent(id) : null };
 });
 

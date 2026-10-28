@@ -7,26 +7,78 @@ import { Effect, Either, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
 import type * as PluginModule from '../src/plugin.ts';
 import type * as HarnessModule from '../src/harnesses.ts';
+import type * as ResultsModule from '../bin/results.ts';
+import { ResultsData } from './src/results/data.ts';
+import { resultSources } from './src/results/result.ts';
+import { findBenchOutDirs } from './fixtures.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 const entry = 'virtual:agentgraph-page/';
 
 const readStudioPages = async () => {
   const dir = process.env.AGI_STUDIO_DIR;
-  if (!dir) return [];
   const { readConfiguredGraph, makeHarnessConfigProvider }: typeof HarnessModule = await import(
     new URL('../src/harnesses.ts', import.meta.url).href
   );
-  const graph = await Effect.runPromise(
-    Effect.either(
-      readConfiguredGraph(dir).pipe(
-        Effect.withConfigProvider(makeHarnessConfigProvider(JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}')))
+  const result = dir
+    ? await Effect.runPromise(
+        Effect.either(
+          readConfiguredGraph(dir).pipe(
+            Effect.withConfigProvider(
+              makeHarnessConfigProvider(JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}'))
+            )
+          )
+        )
       )
-    )
+    : undefined;
+  const graph = result && Either.isRight(result) ? result.right : undefined;
+  const { readPlugins, makePlugin }: typeof PluginModule = await import(
+    new URL('../src/plugin.ts', import.meta.url).href
   );
-  if (Either.isLeft(graph)) return [];
-  const { readPlugins }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
-  return (await readPlugins(graph.right.dir, graph.right.plugins)).pages;
+  const data = process.env.AGI_STUDIO_DATA;
+  const bench = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
+  const tune = process.env.AGI_STUDIO_TUNE;
+  const results = makePlugin({
+    name: 'results',
+    studio: {
+      title: 'Results',
+      page: new URL('./src/results/ResultsPage.tsx', import.meta.url),
+      dataSchema: ResultsData,
+      watch: () => [...(data ? [data] : []), ...bench, ...(tune ? [tune] : [])],
+      read: () =>
+        Effect.gen(function* () {
+          const { readRunResults }: typeof ResultsModule = yield* Effect.promise(
+            () => import(new URL('../bin/results.ts', import.meta.url).href)
+          );
+          return Object.fromEntries(
+            resultSources.map(from => {
+              try {
+                const sheet =
+                  from === 'tune' && !tune
+                    ? { fields: [], runs: [] }
+                    : readRunResults(
+                        from,
+                        {
+                          ...(data && { data }),
+                          bench,
+                          benchOuts: findBenchOutDirs,
+                          ...(tune && { tune }),
+                        },
+                        graph
+                      );
+                const candidates = Object.fromEntries(
+                  sheet.runs.flatMap(row => ('step' in row ? [[row.key, row.step]] : []))
+                );
+                return [from, Schema.decodeUnknownSync(ResultsData.value)({ kind: 'ready', sheet, candidates })];
+              } catch {
+                return [from, { kind: 'failed', why: 'Could not read this result source' }];
+              }
+            })
+          ) as typeof ResultsData.Type;
+        }),
+    },
+  });
+  return (await readPlugins(graph?.dir, graph?.plugins, undefined, [results])).pages;
 };
 
 export const makeStudioPagesPlugin = (): Plugin => {
@@ -50,12 +102,13 @@ export const makeStudioPagesPlugin = (): Plugin => {
       if (source === manifest || source.startsWith(entry)) return `\0${source}`;
     },
     async load(id) {
+      if (id !== `\0${manifest}` && !id.startsWith(`\0${entry}`)) return;
       const loaded = await pages;
       if (id === `\0${manifest}`)
         return `export const pages = [${loaded
           .map(
             page =>
-              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(`/plugins/${page.name}`)},load:()=>import(${JSON.stringify(entry + page.name)})}`
+              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.name === 'results' ? '/results' : `/plugins/${page.name}`)},load:()=>import(${JSON.stringify(entry + page.name)})}`
           )
           .join(',')}];`;
       const page = id.startsWith(`\0${entry}`) && loaded.find(page => page.name === id.slice(entry.length + 1));

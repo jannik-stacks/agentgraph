@@ -92,3 +92,10 @@ refresh keeps the last good data and shows an error. Snapshots are capped at 16 
 Host readers, settings and data roots never enter the page manifest. Pages share the studio origin
 and its API authority; review them like host plugins. Registering a page starts no job. Restart the
 studio after registrations change. Preview needs a host API for live data.
+
+Results is a built-in plugin using this same descriptor, data endpoint and hook. It keeps `/results`
+and needs no graph-local file. The `results` plugin name is reserved. Its snapshot keeps each
+source's sheet and candidate details separate. Failed sources show an error while other sources stay
+readable. It watches the selected data, bench and tune roots.
+It remains available when the graph cannot load; the Graph page still shows configuration problems.
+<!-- code: studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage -->

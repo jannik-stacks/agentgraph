@@ -11,7 +11,6 @@ const pages = {
   runs: lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage }))),
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
   bench: lazy(() => import('./bench/BenchPage.tsx').then(m => ({ default: m.BenchPage }))),
-  results: lazy(() => import('./results/ResultsPage.tsx').then(m => ({ default: m.ResultsPage }))),
 };
 
 const plugins = new Map(declared.map(page => [page.name, lazy(page.load)]));
@@ -35,7 +34,8 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
 
 export const App = () => {
   const { route, id } = useAtomValue(pageAtom);
-  const Page = route === 'plugins' ? plugins.get(id ?? '') : route && pages[route];
+  const Page =
+    route === 'plugins' ? plugins.get(id ?? '') : route === 'results' ? plugins.get('results') : route && pages[route];
   const navigate = useSetAtom(navigateAtom);
   useEffect(() => {
     if (!route) navigate({ href: '/runs', replace: true });
@@ -63,19 +63,19 @@ export const App = () => {
               {r}
             </Link>
           ))}
-          {declared.map(page => (
-            <Link
-              key={page.name}
-              href={page.href}
-              aria-current={route === 'plugins' && id === page.name ? 'page' : undefined}
-              className={cx(
-                'rounded-md px-2 py-0.5',
-                route === 'plugins' && id === page.name && 'bg-white shadow-sm dark:bg-zinc-700'
-              )}
-            >
-              {page.title}
-            </Link>
-          ))}
+          {declared.map(page => {
+            const isCurrent = route === 'plugins' ? id === page.name : route === page.name;
+            return (
+              <Link
+                key={page.name}
+                href={page.href}
+                aria-current={isCurrent ? 'page' : undefined}
+                className={cx('rounded-md px-2 py-0.5', isCurrent && 'bg-white shadow-sm dark:bg-zinc-700')}
+              >
+                {page.title}
+              </Link>
+            );
+          })}
         </nav>
       </header>
       <main className="min-h-0 flex-1">

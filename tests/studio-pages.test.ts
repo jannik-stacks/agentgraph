@@ -45,6 +45,7 @@ import { Schema } from 'effect';
 export default function Page() { const { value } = usePluginData('count', Schema.NumberFromString); return <p className="text-[27px]">{value}</p>; }`
   );
   vi.stubEnv('VITE_PRIVATE_CANARY', 'FAKE-private-plugin-value');
+  vi.stubEnv('AGI_STUDIO_TUNE', join(import.meta.dirname, 'fixtures/tune'));
   vi.stubEnv('AGI_STUDIO_DIR', graph);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
   const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
@@ -60,8 +61,14 @@ export default function Page() { const { value } = usePluginData('count', Schema
     const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('7');
     expect(await (await fetch(`${base}/src/runs/InboxPage.tsx`)).text()).not.toContain('FAKE-private-plugin-value');
+    const snapshot = await (await fetch(`${base}/api/plugins/results/data`)).json();
+    expect(snapshot.tune.sheet.runs).toHaveLength(75);
+    expect(Object.keys(snapshot.tune.candidates)).toHaveLength(75);
+    expect(snapshot.tune.sheet.runs[0]).not.toHaveProperty('step');
+    expect(JSON.stringify(snapshot)).not.toContain(external);
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     expect(manifest).toContain('/@id/__x00__virtual:agentgraph-page/count');
+    expect(manifest).toContain('href:"/results"');
     expect(manifest).not.toContain(external);
     expect(manifest).not.toContain(graph);
     expect((await fetch(`${base}/@fs${realpathSync(join(graph, 'plugins/pages/Page.tsx'))}`)).status).toBe(200);
@@ -93,6 +100,66 @@ export default function Page() { const { value } = usePluginData('count', Schema
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('8');
   } finally {
     controller.abort();
+    await server.close();
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it.each([undefined, 'invalid'])('keeps Results available without a valid graph: %s', async mode => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-results-page-'));
+  const data = join(dir, 'data');
+  mkdirSync(join(data, 'r1'), { recursive: true });
+  writeFileSync(join(dir, 'settings.yaml'), 'unknown: true\n');
+  writeFileSync(
+    join(data, 'r1/run.json'),
+    JSON.stringify({
+      id: 'r1',
+      issue: 1,
+      workflow: 'issue',
+      status: 'done',
+      started: 'now',
+      cwd: dir,
+      config: { token: 'FAKE-private-results-value' },
+      meta: { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: { arm: 'candidate' } } } },
+    })
+  );
+  vi.stubEnv('AGI_STUDIO_DIR', mode ? dir : undefined);
+  vi.stubEnv('AGI_STUDIO_DATA', data);
+  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
+  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
+  const server = await createServer({
+    configFile: join(studioDir, 'vite.config.ts'),
+    root: studioDir,
+    server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
+    logLevel: 'silent',
+  });
+  try {
+    await server.listen();
+    const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
+    const response = await fetch(`${base}/api/plugins/results/data`);
+    const text = await response.text();
+    expect(response.status).toBe(200);
+    expect(JSON.parse(text).runs.sheet.runs[0]).toMatchObject({
+      key: 'r1',
+      axes: { plugin: 'bench', job: 'smoke' },
+      meta: { engine: { origin: { input: { arm: 'candidate' } } } },
+    });
+    expect(text).not.toContain(dir);
+    expect(text).not.toContain('FAKE-private-results-value');
+    const broken = join(data, 'plugins/broken/job');
+    mkdirSync(broken, { recursive: true });
+    writeFileSync(join(broken, 'results.json'), '{');
+    const partial = await (await fetch(`${base}/api/plugins/results/data`)).json();
+    expect(partial.runs.kind).toBe('ready');
+    expect(partial.runs.sheet.runs[0].key).toBe('r1');
+    expect(partial.exports).toEqual({ kind: 'failed', why: 'Could not read this result source' });
+    const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
+    expect(manifest).toContain('href:"/results"');
+    expect(manifest).not.toContain(dir);
+    expect((await fetch(`${base}/@id/__x00__virtual:agentgraph-page/results`)).status).toBe(200);
+  } finally {
     await server.close();
     vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });
