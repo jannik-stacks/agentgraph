@@ -122,8 +122,8 @@ describe('loadGraph', () => {
       })
     );
     expect(found).toContain('agents/a.md: harness: ghost is not in the config, which has opencode, claude, pi, codex');
-    expect(found).toContain('agents/b.md: harness: claude has no lsp tool');
-    expect(found).toContain('agents/b.md: harness: claude has no constructor tool');
+    expect(found).toContain('agents/b.md: tools: unknown tool lsp');
+    expect(found).toContain('agents/b.md: tools: unknown tool constructor');
     expect(found).toContain('agents/c.md: harness: pi cannot limit a tool to a pattern such as bash(git diff*)');
   });
 

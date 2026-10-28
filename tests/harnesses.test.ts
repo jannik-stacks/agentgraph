@@ -254,7 +254,7 @@ describe('the session loop', () => {
     );
     writeFileSync(join(dir, 'agents', 'a.md'), '---\nharness: custom\ntools: [unknown]\n---\n');
     const error = await Effect.runPromise(Effect.flip(loadGraph(dir, settings.harnesses)));
-    expect(error.message).toContain('cannot classify tool unknown');
+    expect(error.message).toContain('tools: unknown tool unknown');
     const rejected = await session({ ...spec, harness: 'custom', tools: ['unknown'] }, [], settings);
     expect(Exit.isFailure(rejected.exit)).toBe(true);
     expect(rejected.command).toBeUndefined();

@@ -1,3 +1,4 @@
+import type { ToolContext } from './plugin.ts';
 import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -53,9 +54,8 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
   {
     issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], ForgeError>;
     searchIssues: (
-      query: string,
-      options?: { state?: Exclude<Issue['state'], 'merged'> | 'all'; limit?: number }
-    ) => Effect.Effect<Issue[], ForgeError>;
+      ...args: Parameters<ToolContext['forge']['searchIssues']>
+    ) => Effect.Effect<Awaited<ReturnType<ToolContext['forge']['searchIssues']>>, ForgeError>;
     issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, ForgeError>;
     since: (cursor: string, columns?: boolean) => Stream.Stream<Event, ForgeError>;
     apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, ForgeError>;

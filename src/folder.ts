@@ -4,6 +4,7 @@ import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import { Kind } from './proposal.ts';
+import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
 import { CheckMode, defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
 import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
@@ -31,6 +32,7 @@ type Limits = typeof Limits.Type;
 export type Graph = {
   dir: string;
   repo: string;
+  plugins?: Record<string, unknown>;
   sha: string;
   agents: Record<string, Doc<Agent>>;
   skills: Record<string, Doc<SkillFile>>;
@@ -60,6 +62,7 @@ export class GraphError extends Data.TaggedError('GraphError')<{ problems: Probl
 }
 
 const SettingsFile = Schema.Struct({
+  plugins: exact(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
   repo: exact(Schema.String),
   setup: exact(Schema.String),
   toolchain: exact(Schema.String),
@@ -95,7 +98,7 @@ const SkillFile = Schema.Struct({
 type SkillFile = typeof SkillFile.Type;
 
 /** The folders a graph holds besides those a graph file reads through `$AGENTGRAPH_DIR`: the four it loads, scripts and fixtures. */
-const folders = new Set(['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures']);
+const folders = new Set(['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures', 'plugins', 'node_modules']);
 
 /** Whether a graph file reads the graph folder `name` through `$AGENTGRAPH_DIR`. */
 const reads = (texts: string[], name: string) =>
@@ -200,12 +203,6 @@ const compile = (
     const harness = agent && harnesses.find(h => h.name === agent.harness);
     if (agent && !harness)
       say(`harness: ${agent.harness} is not in the config, which has ${harnesses.map(h => h.name).join(', ')}`);
-    if (agent && harness) {
-      for (const tool of agent.tools)
-        if (typeof harness.classify !== 'function' || !['read', 'write'].includes(harness.classify(tool) ?? ''))
-          say(`harness: ${harness.name} cannot classify tool ${tool}`);
-      for (const problem of harness.check?.(agent) ?? []) say(`harness: ${harness.name} ${problem}`);
-    }
     return agent;
   });
   const skills = docs(groups.skills, (data, say) => {
@@ -313,7 +310,14 @@ export const loadGraph = (
         );
         const groups = { agents: agents!, skills: skills!, checks: checks!, workflows: workflows! };
         const scripts = await Promise.all(
-          (await readdir(join(dir, 'scripts'), { recursive: true, withFileTypes: true }).catch(() => []))
+          (
+            await Promise.all(
+              ['scripts', 'plugins'].map(sub =>
+                readdir(join(dir, sub), { recursive: true, withFileTypes: true }).catch(() => [])
+              )
+            )
+          )
+            .flat()
             .filter(e => e.isFile())
             .map(e => join(e.parentPath, e.name))
             .sort()
@@ -335,7 +339,40 @@ export const loadGraph = (
         path: name,
         message: `nothing reads ${name}/; the engine loads agents, skills, checks and workflows, and a graph script reads a folder through $AGENTGRAPH_DIR`,
       });
-    if (problems.length > 0 || !settings) return yield* new GraphError({ problems });
+    const registry = settings
+      ? yield* Effect.tryPromise({
+          try: () =>
+            readPlugins(dir, settings.plugins, name =>
+              harnesses.some(
+                harness =>
+                  typeof harness.classify === 'function' && ['read', 'write'].includes(harness.classify(name) ?? '')
+              )
+            ),
+          catch: error => ({ path: 'plugins', message: (error as Error).message }),
+        }).pipe(
+          Effect.match({
+            onFailure: problem => {
+              problems.push(problem);
+              return undefined;
+            },
+            onSuccess: registry => registry,
+          })
+        )
+      : undefined;
+    for (const agent of Object.values(parts.agents)) {
+      const harness = harnesses.find(harness => harness.name === agent.harness);
+      if (!harness) continue;
+      const builtins = agent.tools.filter(name => !registry || !Object.hasOwn(registry.tools, name));
+      const checked: Agent['tools'] = [];
+      for (const name of builtins) {
+        const kind = typeof harness.classify === 'function' ? harness.classify(name) : undefined;
+        if (kind === 'read' || kind === 'write') checked.push(name);
+        else if (registry) problems.push({ path: agent.path, message: `tools: unknown tool ${name}` });
+      }
+      for (const message of harness.check?.({ ...agent, tools: checked }) ?? [])
+        problems.push({ path: agent.path, message: `harness: ${harness.name} ${message}` });
+    }
+    if (problems.length > 0 || !settings || !registry) return yield* new GraphError({ problems });
     const scripts = read.scripts.map(f => `${f.path}\0${f.text}`).join('\0');
     const checks = Object.fromEntries(
       Object.entries(parts.checks).map(([name, check]) => [
@@ -359,6 +396,7 @@ export const loadGraph = (
       repo: settings.repo ?? '',
       sha: sha.digest('hex'),
       limits: settings.limits,
+      ...(settings.plugins !== undefined && { plugins: settings.plugins }),
       ...(settings.setup !== undefined && { setup: settings.setup }),
       ...(settings.toolchain !== undefined && { toolchain: settings.toolchain }),
       ...(settings.image !== undefined && { image: settings.image }),

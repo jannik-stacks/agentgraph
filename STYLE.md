@@ -148,6 +148,9 @@ one without that check.
   `agentgraph.config.ts` the way Vite's `vue()` does. Their schema helper `some` reads as
   `some(Str, 'type', 'id')`, a list of optional fields. `bin/style.mjs` exempts the four names.
 
+- **The public `tool()` helper keeps the AI SDK name:** plugin files use the same spelling as the
+  SDK definition it delegates to. `bin/style.mjs` exempts this helper.
+
 ## Commits
 
 56. Small linear commits, one change each; no merge commits; never rewrite pushed history.

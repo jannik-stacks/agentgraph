@@ -21,11 +21,17 @@
   "imports": {
     "#config": "./agentgraph.config.ts"
   },
+  "exports": {
+    "./plugins": {
+      "types": "./dist/plugin.d.mts",
+      "import": "./dist/plugin.mjs"
+    }
+  },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown bin/run.ts",
+    "build": "tsdown bin/run.ts && tsdown src/plugin.ts --dts --no-clean",
     "up": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile sandbox up -d --wait",
     "down": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile '*' down",
     "keys": "bash infra/local/keys.sh",
@@ -43,6 +49,7 @@
     "hooks": "git config core.hooksPath \"$(git rev-parse --show-prefix)bin/hooks\""
   },
   "dependencies": {
+    "ai": "7.0.148",
     "effect": "3.22.2",
     "yaml": "2.9.1"
   },

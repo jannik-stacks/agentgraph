@@ -21,6 +21,7 @@ const exempt = new Set([
   'claude',
   'pi',
   'some',
+  'tool',
 ]);
 const marked = /^\s*UNEXPECTED: /;
 const directive = /^\s*(oxlint-|eslint-|@ts-|\*?\s*@internal\s*$)/;
