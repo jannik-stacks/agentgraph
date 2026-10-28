@@ -9,8 +9,8 @@ export const maxAddedLines = 300;
 /** The most files outside tests/ a change may add to or change. */
 export const maxFiles = 8;
 
-/** Whether a file counts toward the caps: test files never do. */
-export const capped = path => !path.startsWith('tests/');
+/** Whether a file counts toward the caps: test files and generated lockfiles never do. */
+export const capped = path => !path.startsWith('tests/') && !path.endsWith('package-lock.json');
 
 const forbidden = [
   [/(^|\/)\.env(\.(?!example$)[^/]*)?$/, 'an environment file must not change'],
