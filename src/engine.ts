@@ -2032,7 +2032,9 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
     const forge = yield* Forge;
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
-    const made = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, undefined, undefined, graph));
+    const { ready: _, ...made } = yield* Effect.flatMap(Sandbox, s =>
+      s.checkout(pull.base, undefined, undefined, graph)
+    );
     const work = { ...made, head: pull.head };
     const onto = work.base;
     const from = yield* text(work, ['merge-base', pull.head, onto]);

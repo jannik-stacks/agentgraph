@@ -5,7 +5,7 @@ import { Effect, Exit, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, runStepChecks, tick } from '../src/engine.ts';
 import { Forge } from '../src/forge.ts';
-import { type Command } from '../src/sandbox.ts';
+import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent, SessionSpec, Trace } from '../src/trace.ts';
@@ -143,6 +143,20 @@ describe('a base that moved', () => {
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
     expect(rebases(where)).toEqual([true]);
+  });
+
+  it('runs setup again on the branch even when the base checkout came ready', async () => {
+    const where = await moved('other.txt');
+    const { run } = services(where, []);
+    const ready = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        checkout: (...a: Parameters<typeof s.checkout>) => Effect.map(s.checkout(...a), c => ({ ...c, ready: true })),
+      }))
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
+    await run(Effect.provide(tick({ ...graph, setup: 'true' }), ready));
+    expect(readTrace(where.data, 'run-7').some(t => 'setup' in t)).toBe(true);
   });
 
   it('merges the base into the branch with a plain push by default', async () => {
