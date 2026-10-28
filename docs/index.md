@@ -2,25 +2,27 @@
 
 agentgraph runs coding agents on a repository's issues. People start and steer work with `/agent` comments or labels. Agents work on branches in Docker sandboxes, scripts and judge agents check the work, and people merge it.
 
-The runner on the host polls GitHub, or a local folder that stands in for it. It starts sandbox sessions and records each run. Sessions reach models through a proxy and return [proposals](proposals.md). Only the runner holds a GitHub token, and it applies proposals after the checks pass. The studio, a local web UI, shows the graph and every run.
+The runner on the host polls GitHub, or a local folder that stands in for it. It runs agent sessions and checks in sandboxes and records each run. Sessions reach models through a proxy and return [proposals](proposals.md). Only the runner holds a GitHub token, and it applies proposals after the checks pass. Checks run in parallel; a blocking failure gives feedback for the next try. The studio, a local web UI, shows the graph and every run.
 
 ```
    /agent comment or label on an issue
                   |
                   v
-   +-----------------------------+             +-----------------------------+
-   | engine, on the host         |             | sandbox, one per session    |
-   | reads the graph and drives  |-- start --->| the agent edits a worktree  |
-   | the workflow step by step   |<-proposals--| and calls models via proxy  |
-   +-----------------------------+             +-----------------------------+
-          |                ^
-          v                | failed: feedback, next try
+   +-----------------------------+               +-----------------------------+
+   | engine, on the host         |               | sandbox, agent session      |
+   | reads the graph and drives  |-- start ----->| the agent edits a worktree  |
+   | the workflow step by step   |<-- proposals--| and calls models via proxy  |
+   |                             |               +-----------------------------+
+   |                             |
+   | runs the checks             |               +-----------------------------+
+   |                             |-- run checks->| checks, in sandboxes        |
+   |                             |<-- results ---| scripts and judge agents    |
+   |                             |               | checks run in parallel      |
+   | retries with feedback       |               +-----------------------------+
+   | applies proposals on pass   |
    +-----------------------------+
-   | checks: scripts, then judge |
-   | agents, in parallel         |
-   +-----------------------------+
-          |
-          v passed
+                  |
+                  v
    push the branch, open a pull request, wait for a person to merge
 ```
 
