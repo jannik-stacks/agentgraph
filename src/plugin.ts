@@ -1,10 +1,23 @@
 import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
-import { join, sep } from 'node:path';
+import { extname, join, sep } from 'node:path';
+import { registerHooks } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type Tool, type ToolExecutionOptions } from 'ai';
 import { Effect, Either, JSONSchema, ParseResult, Schema } from 'effect';
 import type { Issue } from './event.ts';
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === '@jannik-stacks/agi/plugins')
+      return { url: new URL(`./plugin${extname(import.meta.filename)}`, import.meta.url).href, shortCircuit: true };
+    if (['effect', 'ai'].some(name => specifier === name || specifier.startsWith(`${name}/`))) {
+      if (context.conditions.includes('require')) return { url: import.meta.resolve(specifier), shortCircuit: true };
+      return nextResolve(specifier, { ...context, parentURL: import.meta.url });
+    }
+    return nextResolve(specifier, context);
+  },
+});
 
 export type ToolContext<S = undefined> = {
   readonly repo: string;

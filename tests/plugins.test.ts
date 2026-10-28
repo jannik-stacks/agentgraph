@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { access, mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -32,7 +33,90 @@ const readCheckedPlugins = async (dir: string, settings: Record<string, unknown>
   return readPlugins(graph.dir, graph.plugins);
 };
 
+const externalSource = `
+import { Schema } from 'effect';
+import { tool as sdkTool } from 'ai';
+import { makePlugin, tool } from '@jannik-stacks/agi/plugins';
+export { sdkTool };
+export const Input = Schema.Struct({ query: Schema.String });
+export const getScalar = async () => (await import('effect/Schema')).String;
+export default makePlugin({ name: 'external', settingsSchema: Input, tools: {
+  issues: tool({ description: 'Search', inputSchema: Input, execute: input => input }),
+} });
+`;
+
+const readExternalPlugin = (dir: string) =>
+  JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        `
+import { Schema } from 'effect';
+import { asSchema, tool as aiTool } from 'ai';
+import { readPlugins } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href)};
+const registry = await readPlugins(${JSON.stringify(dir)}, { external: { query: 'cache' } });
+const plugin = await import(${JSON.stringify(pathToFileURL(join(dir, 'plugins/external.ts')).href)});
+console.log(JSON.stringify({
+  isSharedEffect: plugin.Input.fields.query === Schema.String,
+  isSharedAi: plugin.sdkTool === aiTool,
+  isSharedLazy: await plugin.getScalar() === Schema.String,
+  decoded: Schema.decodeUnknownSync(plugin.Input)({ query: 'retry' }),
+  settings: registry.tools.issues.settings,
+  validation: await asSchema(registry.tools.issues.tool.inputSchema).validate({ query: 'retry' }),
+  local: plugin.local,
+  cjs: plugin.cjsScalar && { isSharedEffect: plugin.cjsScalar === Schema.String, isSharedAi: plugin.cjsTool === aiTool },
+}));
+`,
+      ],
+      { cwd: join(import.meta.dirname, '..'), encoding: 'utf8' }
+    )
+  );
+
 describe('graph plugins', () => {
+  it('loads engine packages from an external graph without node_modules and shares Effect schemas', async () => {
+    const dir = await makePluginDir({ 'plugins/external.ts': externalSource });
+    await expect(access(join(dir, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(readExternalPlugin(dir)).toEqual({
+      isSharedEffect: true,
+      isSharedAi: true,
+      isSharedLazy: true,
+      decoded: { query: 'retry' },
+      settings: { query: 'cache' },
+      validation: { success: true, value: { query: 'retry' } },
+    });
+  });
+
+  it('keeps graph packages local while sharing engine packages, subpaths and CommonJS imports', async () => {
+    const dir = await makePluginDir({
+      'plugins/external.ts':
+        externalSource.replace("import { Schema } from 'effect';", "import * as Schema from 'effect/Schema';") +
+        "export { marker as local, cjsScalar, cjsTool } from 'graph-only';",
+      'node_modules/graph-only/package.json': '{"main":"index.cjs"}',
+      'node_modules/graph-only/index.cjs': `
+exports.marker = 'graph package';
+exports.cjsScalar = require('effect/Schema').String;
+exports.cjsTool = require('ai').tool;
+`,
+      'node_modules/effect/package.json': '{"type":"module","exports":{".":"./index.js","./Schema":"./index.js"}}',
+      'node_modules/effect/index.js': 'throw new Error("graph Effect must not load");',
+      'node_modules/ai/package.json': '{"type":"module","exports":"./index.js"}',
+      'node_modules/ai/index.js': 'throw new Error("graph AI SDK must not load");',
+      'node_modules/@jannik-stacks/agi/package.json': '{"type":"module","exports":{"./plugins":"./index.js"}}',
+      'node_modules/@jannik-stacks/agi/index.js': 'throw new Error("graph engine SDK must not load");',
+    });
+    expect(readExternalPlugin(dir)).toMatchObject({
+      isSharedEffect: true,
+      isSharedAi: true,
+      isSharedLazy: true,
+      decoded: { query: 'retry' },
+      settings: { query: 'cache' },
+      local: 'graph package',
+      cjs: { isSharedEffect: true, isSharedAi: true },
+    });
+  });
+
   it('decodes only its settings and calls an SDK tool with typed input and context', async () => {
     const settings = Schema.Struct({ limit: Schema.NumberFromString });
     const plugin = makePlugin<typeof settings.Type>({
