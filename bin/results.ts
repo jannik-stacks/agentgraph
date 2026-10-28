@@ -1,11 +1,15 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type { Graph } from '../src/folder.ts';
 import { sum } from '../src/stats.ts';
 import { type CheckEntry, findLatestChecks, type Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
 import { getRunOrigin } from '../src/meta.ts';
-import { findCheckFields } from '../src/results.ts';
+import { Effect, Schema } from 'effect';
+import { readConfiguredGraph } from '../src/harnesses.ts';
+import { findCheckFields, ResultSheet } from '../src/results.ts';
+import { readResultSheets, writeResultSheet } from '../src/store.ts';
 import {
   benchFields,
   type CheckField,
@@ -31,7 +35,11 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
     if (!json) return [];
     const run = JSON.parse(json) as Run;
     const origin = getRunOrigin(run.meta);
-    const dead = findDeadReason(run, readJsonl<Trace>(join(data, id, 'trace.jsonl')));
+    const trace = readJsonl<Trace>(join(data, id, 'trace.jsonl'));
+    const dead = findDeadReason(run, trace);
+    const started = trace.flatMap(line => ('event' in line && line.event.type === 'start' ? [line.event] : []));
+    const dimensions = (key: 'model' | 'harness') =>
+      [...new Set(started.map(event => event[key]).filter(Boolean))].toSorted().join(', ');
     const latest = findLatestChecks(readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')), versions);
     return [
       {
@@ -43,6 +51,9 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
           issue: `#${run.issue}`,
           workflow: run.workflow,
           status: run.status,
+          ...(run.graph && { graph: run.graph }),
+          ...(dimensions('model') && { model: dimensions('model') }),
+          ...(dimensions('harness') && { harness: dimensions('harness') }),
           ...(origin && { plugin: origin.plugin, job: origin.job }),
         },
         ...(run.meta && { meta: run.meta }),
@@ -112,6 +123,30 @@ export const readRunResults = (
   dirs: { data?: string; bench?: string[]; benchOuts?: (dir: string) => string[]; tune?: string },
   graph?: Pick<Graph, 'checks'>
 ) => {
+  if (from === 'exports') {
+    const roots = [
+      ...(dirs.data ? [join(dirs.data, 'plugins')] : []),
+      ...(dirs.bench ?? []),
+      ...(dirs.tune ? [dirs.tune] : []),
+    ];
+    const sheets = readResultSheets(roots);
+    const fields = new Map<string, CheckField>();
+    for (const { sheet } of sheets)
+      for (const field of sheet.fields) {
+        const key = JSON.stringify([field.check, field.field]);
+        const before = fields.get(key);
+        if (before && !isDeepStrictEqual(before, field))
+          throw new Error(`conflicting result field ${field.check}/${field.field}`);
+        fields.set(key, field);
+      }
+    return {
+      fields: [...fields.values()],
+      runs: sheets.flatMap(({ key, sheet }) =>
+        sheet.runs.map(row => ({ ...row, key: `${key}:${row.key}`, axes: { ...row.axes, export: key } }))
+      ),
+    };
+  }
+
   const runs =
     from === 'runs'
       ? readRuns(dirs.data ?? '', graph)
@@ -120,9 +155,25 @@ export const readRunResults = (
         : (dirs.bench ?? [])
             .flatMap(dir => dirs.benchOuts?.(dir) ?? [dir])
             .flatMap(out => readBenchRows(out))
-            .filter(row => !/\/(human|floor)@/.test(row.point))
             .map(row => readBenchRowResults(row));
   const fixed = from === 'bench' ? benchFields : from === 'tune' ? tuneFields : [];
   const found = findCheckFields(runs, graph?.checks).filter(f => !fixed.some(x => x.check === f.check));
   return { fields: [...found, ...fixed], runs };
 };
+
+if (import.meta.main) {
+  const [from, source, output, graphDir] = process.argv.slice(2);
+  if ((from !== 'runs' && from !== 'bench' && from !== 'tune') || !source || !output)
+    throw new Error('usage: node bin/results.ts runs|bench|tune <source> <output> [graph]');
+  const dirs = from === 'runs' ? { data: source } : from === 'bench' ? { bench: [source] } : { tune: source };
+  const graph = graphDir ? await Effect.runPromise(readConfiguredGraph(graphDir)) : undefined;
+  const sheet = Schema.decodeUnknownSync(ResultSheet)(readRunResults(from, dirs, graph));
+  const qualify = (check: string) => (from !== 'runs' && check === from ? `${from}/score` : `engine/${check}`);
+  writeResultSheet(output, {
+    fields: sheet.fields.map(field => ({ ...field, check: qualify(field.check) })),
+    runs: sheet.runs.map(row => ({
+      ...row,
+      results: Object.fromEntries(Object.entries(row.results).map(([check, result]) => [qualify(check), result])),
+    })),
+  });
+}

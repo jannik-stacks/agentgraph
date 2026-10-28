@@ -19,9 +19,15 @@ const defaults: Record<ResultSource, { x: string; color: string }> = {
   runs: { x: 'time', color: 'workflow' },
   bench: { x: 'point', color: 'model' },
   tune: { x: 'iteration', color: 'tune' },
+  exports: { x: 'order', color: 'export' },
 };
 
-const sourceLabels: Record<ResultSource, string> = { runs: 'Runs', bench: 'Benchmarks', tune: 'Tunes' };
+const sourceLabels: Record<ResultSource, string> = {
+  runs: 'Runs',
+  bench: 'Benchmarks',
+  tune: 'Tunes',
+  exports: 'Exports',
+};
 
 const optionHints: Record<string, string> = {
   none: 'All runs together.',
@@ -68,9 +74,14 @@ const Data = ({ from }: { from: ResultSource }) => {
         .filter(r => (!only || r.key === only) && (dead === '1' || !r.dead || only))
         .map(({ axes: { verdict, ...axes }, ...r }) => ({
           ...r,
-          axes: verdict && !r.dead ? { ...axes, kept: verdict === 'kept' ? 'kept' : 'not kept' } : axes,
+          axes:
+            from === 'tune'
+              ? verdict && !r.dead
+                ? { ...axes, kept: verdict === 'kept' ? 'kept' : 'not kept' }
+                : axes
+              : { ...axes, ...(verdict && { verdict }) },
         })),
-    [value, only, dead]
+    [value, only, dead, from]
   );
   const dimensions = useMemo(
     () => [...new Set(runs.flatMap(r => Object.keys(r.axes)))].filter(k => new Set(runs.map(r => r.axes[k])).size > 1),
@@ -89,6 +100,11 @@ const Data = ({ from }: { from: ResultSource }) => {
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <div className="min-w-0 flex-1 space-y-3 overflow-y-auto p-4">
+        {failure && (
+          <p role="alert" className="text-xs text-amber-600">
+            Could not refresh results; showing the previous snapshot. {failure}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-flex gap-0.5 rounded-md bg-zinc-100 p-0.5 text-xs dark:bg-zinc-900">
             {['table', 'chart'].map(v => (

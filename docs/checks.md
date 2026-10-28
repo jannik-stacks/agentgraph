@@ -70,6 +70,33 @@ The table has one row per result field: runs that gave it, failed results, value
 
 A run's page shows the gates that failed, with the fields past their limit, then every field's value, marked "at run end" or "checked later".
 
+## Result exports
+
+The shared schema is `{ fields, runs }`. Its rows keep their key, time, dimensions, measurements
+and optional owner metadata. Row keys and check/field pairs must be unique. Limits are 1,000 fields and 10,000 rows. Empty, share, later and older
+flags survive export. Links are local paths and measurements contain finite JSON numbers.
+<!-- code: src/results.ts#ResultSheet src/results.ts#findCheckFields -->
+
+Export ordinary runs, a bench out directory, or a tune root with the same command:
+
+```sh
+node bin/results.ts runs <data> <data>/plugins/myplugin/job/results.json
+node bin/results.ts bench <bench-out> <data>/plugins/bench/job/results.json
+node bin/results.ts tune <tune-root> <data>/plugins/tune/job/results.json
+```
+
+`writeResultSheet` validates and writes atomically; `readResultSheet` validates persisted files.
+Results' Exports tab finds results.json under data/plugins and selected bench/tune roots, down
+two directory levels, excluding hidden directories and node_modules. It skips symlinks and
+namespaces row IDs by export path. Check names identify an owner/scorer, such as myplugin/score,
+and stay stable across jobs. Matching check/field definitions merge; conflicting definitions fail.
+The CLI uses engine/check for workflow checks and bench/score or tune/score for derived metrics.
+SDK producers qualify check names by their owner/scorer; job IDs belong on rows, not metric names. Missing roots are empty; malformed exports report an error.
+An optional final graph directory supplies check units and current versions when exporting runs.
+Each file is at most 16 MiB; a scan reads at most 256 files, 32 MiB and 10,000 rows. Files under
+the watched data root refresh through the existing SSE stream; external roots refresh on reload.
+<!-- code: src/store.ts#writeResultSheet src/store.ts#readResultSheet src/store.ts#readResultSheets -->
+
 ## Reading traces
 
 `reads: traces` gives an agent a read-only `traces.md` with the issue's other runs, oldest first, retros left out: prompts, thinking, tool calls and results, replies, checks, proposals and outcomes, with trace line numbers to cite. Long text is cut in the middle, secrets are redacted, and past about 60,000 characters the oldest runs keep only endings and outcomes. <!-- code: src/context.ts#transcript -->

@@ -117,17 +117,17 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
     });
     server.middlewares.use('/api/results', (req, res) => {
       const source = new URL(req.url ?? '/', 'http://studio').searchParams.get('from');
-      if (source !== 'runs' && source !== 'bench' && source !== 'tune') return json(res, { error: 'bad from' }, 400);
+      if (source !== 'runs' && source !== 'bench' && source !== 'tune' && source !== 'exports')
+        return json(res, { error: 'bad from' }, 400);
       const dirs = {
         ...(process.env.VITE_AGI_DATA && { data: process.env.VITE_AGI_DATA }),
         bench: (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean),
         benchOuts: (dir: string) => findBenchOutDirs(dir),
         ...(process.env.VITE_AGI_TUNE && { tune: process.env.VITE_AGI_TUNE }),
       };
-      void Promise.all([from<typeof ResultsModule>('bin/results.ts'), servedGraph()]).then(
-        ([{ readRunResults }, served]) => json(res, readRunResults(source, dirs, served?.graph)),
-        (e: Error) => json(res, { error: e.message }, 500)
-      );
+      void Promise.all([from<typeof ResultsModule>('bin/results.ts'), servedGraph()])
+        .then(([{ readRunResults }, served]) => json(res, readRunResults(source, dirs, served?.graph)))
+        .catch((e: Error) => json(res, { error: e.message }, 500));
     });
     server.middlewares.use('/api/logs', async (req, res) => {
       const data = process.env.VITE_AGI_DATA;

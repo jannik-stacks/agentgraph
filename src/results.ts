@@ -8,7 +8,12 @@ const Field = Schema.Struct({
   check: Schema.String,
   field: Schema.String,
   mode: optional(CheckMode),
-  limit: optional(ResultType.pipe(Schema.pick('minimum', 'maximum'))),
+  limit: optional(
+    ResultType.pipe(
+      Schema.pick('minimum', 'maximum'),
+      Schema.filter(value => Object.values(value).every(Number.isFinite))
+    )
+  ),
 }).pipe(Schema.extend(ResultType.pipe(Schema.pick('type', 'description', 'unit'))));
 const ResultValue = Schema.Record({ key: Schema.String, value: Schema.Unknown }).pipe(
   Schema.filter((value): boolean => Schema.is(JsonValue)(value))
@@ -28,7 +33,13 @@ const Row = Schema.Struct({
   href: optional(
     Schema.String.pipe(
       Schema.pattern(/^\/(?!\/)/),
-      Schema.filter(value => !value.includes('\\'))
+      Schema.filter(value => {
+        try {
+          return new URL(value, 'http://studio').href === `http://studio${value}`;
+        } catch {
+          return false;
+        }
+      })
     )
   ),
   dead: optional(Schema.String),
@@ -40,7 +51,14 @@ const Row = Schema.Struct({
 export const ResultSheet = Schema.Struct({
   fields: Schema.mutable(Schema.Array(Field).pipe(Schema.maxItems(1000))),
   runs: Schema.mutable(Schema.Array(Row).pipe(Schema.maxItems(10000))),
-});
+}).pipe(
+  Schema.filter(sheet =>
+    new Set(sheet.runs.map(row => row.key)).size === sheet.runs.length &&
+    new Set(sheet.fields.map(field => JSON.stringify([field.check, field.field]))).size === sheet.fields.length
+      ? true
+      : 'result row and field keys must be unique'
+  )
+);
 
 type CheckField = typeof Field.Type;
 type RunResults = typeof Row.Type;

@@ -1,14 +1,26 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  realpathSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { open, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
-import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
+import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope } from 'effect';
 import { createLock } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
 import { isRunDone, type Run } from './workflow.ts';
 import { RunMeta, getRunOrigin } from './meta.ts';
+import { ResultSheet } from './results.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
 const changes = (before: Run | undefined, next: Run): Trace | undefined => {
@@ -35,6 +47,64 @@ export const writeFileAtomic = (path: string, v: unknown) => {
     closeSync(fd);
   }
   renameSync(tmp, path);
+};
+
+const parseResultSheet = (value: unknown) => {
+  const decoded = Schema.decodeUnknownEither(ResultSheet, { onExcessProperty: 'error' })(value);
+  if (Either.isLeft(decoded)) throw new Error('invalid result sheet');
+  return decoded.right;
+};
+
+export const readResultSheet = (path: string) => {
+  if (statSync(path).size > 16_777_216) throw new Error('result sheet exceeds 16 MiB');
+  const text = readFileSync(path, 'utf8');
+  if (Buffer.byteLength(text) > 16_777_216) throw new Error('result sheet exceeds 16 MiB');
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error('invalid result sheet JSON');
+  }
+  return parseResultSheet(value);
+};
+
+export const writeResultSheet = (path: string, value: typeof ResultSheet.Type) => {
+  const checked = parseResultSheet(value);
+  if (Buffer.byteLength(JSON.stringify(checked)) + 1 > 16_777_216) throw new Error('result sheet exceeds 16 MiB');
+  writeFileAtomic(path, checked);
+};
+
+export const readResultSheets = (roots: readonly string[]) => {
+  const found: { key: string; sheet: ReturnType<typeof readResultSheet> }[] = [];
+  const seen = new Set<string>();
+  let bytes = 0;
+  let rows = 0;
+  const visit = (dir: string, root: string, index: number, depth: number) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+    for (const entry of entries.toSorted((a, b) => a.name.localeCompare(b.name))) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory() && depth > 0 && !entry.name.startsWith('.') && entry.name !== 'node_modules')
+        visit(path, root, index, depth - 1);
+      if (!entry.isFile() || entry.name !== 'results.json') continue;
+      const real = realpathSync(path);
+      if (seen.has(real)) continue;
+      seen.add(real);
+      bytes += statSync(path).size;
+      if (found.length >= 256 || bytes > 33_554_432) throw new Error('result exports exceed 256 files or 32 MiB');
+      const sheet = readResultSheet(path);
+      rows += sheet.runs.length;
+      if (rows > 10000) throw new Error('result exports exceed 10000 rows');
+      found.push({ key: `${index}/${relative(root, path)}`, sheet });
+    }
+  };
+  roots.forEach((root, index) => visit(root, root, index, 2));
+  return found;
 };
 
 /** Which check output the store keeps: every run's, only failing ones', or none. */
