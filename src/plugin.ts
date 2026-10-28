@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdir, readFile, realpath } from 'node:fs/promises';
+import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type Tool, type ToolExecutionOptions } from 'ai';
@@ -79,6 +79,7 @@ export const readPlugins = async (
     const path = join(dir, 'plugins', file);
     const actual = await realpath(path);
     if (!actual.startsWith(root + sep)) throw new Error(`plugins/${file}: symlink escapes the graph`);
+    if ((await lstat(path)).isSymbolicLink()) throw new Error(`plugins/${file}: symlink entries are not supported`);
     const hash = createHash('sha256')
       .update(await readFile(actual))
       .digest('hex');

@@ -419,9 +419,62 @@ it('finishes cancellation tracing before closing without waiting for native work
   });
   await tracing;
   await new Promise<void>(resolve => setImmediate(resolve));
-  expect(closed).toBe(false);
-  release();
-  await closing;
-  await pending;
+  try {
+    expect(closed).toBe(false);
+    await expect(readLocalHttp(endpoint.url, { method: 'POST' })).rejects.toThrow();
+  } finally {
+    release();
+    await closing;
+    await pending;
+  }
   expect(closed).toBe(true);
+});
+
+it('releases request permits when clients disconnect', async () => {
+  let started!: () => void;
+  let stopped!: () => void;
+  const { endpoint, request, trace } = await open(
+    async (_input, { abortSignal }) =>
+      new Promise<string>(resolve => {
+        started();
+        abortSignal!.addEventListener(
+          'abort',
+          () => {
+            stopped();
+            resolve('cancelled');
+          },
+          { once: true }
+        );
+      })
+  );
+  for (let index = 0; index < 4; index++) {
+    const ready = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    const settled = new Promise<void>(resolve => {
+      stopped = resolve;
+    });
+    const controller = new AbortController();
+    const pending = readLocalHttp(endpoint.url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${endpoint.secret}`,
+        Accept: 'application/json, text/event-stream',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: index,
+        method: 'tools/call',
+        params: { name: 'issues', arguments: { query: 'cancel' } },
+      }),
+    }).catch(() => undefined);
+    await ready;
+    controller.abort();
+    await settled;
+    await pending;
+  }
+  await vi.waitFor(() => expect(trace).toHaveLength(4));
+  expect((await request({ jsonrpc: '2.0', id: 5, method: 'tools/list' })).status).toBe(200);
 });

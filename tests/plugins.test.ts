@@ -153,6 +153,13 @@ describe('graph plugins', () => {
     await expect(readCheckedPlugins(dir, { search: { limit: '10' } })).rejects.toThrow('symlink escapes');
   });
 
+  it('rejects a discovery symlink whose target would escape source hashing', async () => {
+    const dir = await makePluginDir({ 'entry.ts': source() });
+    await mkdir(join(dir, 'plugins'));
+    await symlink(join(dir, 'entry.ts'), join(dir, 'plugins/a.ts'));
+    await expect(readCheckedPlugins(dir, { search: { limit: '10' } })).rejects.toThrow('symlink entries');
+  });
+
   it('rejects settings on a plugin without a schema', async () => {
     const dir = await makePluginDir({
       'plugins/a.ts': source()

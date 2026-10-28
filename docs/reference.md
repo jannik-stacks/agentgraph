@@ -10,6 +10,7 @@ A repo keeps its graph in `.agentgraph/`: Markdown files whose frontmatter the e
   checks/tests.md        a script or a judge
   workflows/issue.md     triggers and steps
   scripts/               anything checks and steps run
+  plugins/issues.ts      reviewed host tools
 ```
 
 `agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#loadGraph -->
@@ -44,6 +45,7 @@ A committed graph with symlinks or submodules is refused. On GitHub, the runner 
 | `stacks` | boolean | `false` | Stacked pull requests; see [Proposals](proposals.md#stacks-on-and-depends-on) |
 | `milestone` | milestone title | none, every open issue | Scope for new runs |
 | `trust` | list of logins | owners, members and collaborators | Who may steer the bot |
+| `plugins` | map | none | Settings decoded by each [plugin's](plugins.md) `settingsSchema` |
 | `limits` | map | below | Caps on a run |
 
 `limits`: <!-- code: src/folder.ts#Limits -->
@@ -106,7 +108,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | --- | --- | --- | --- |
 | `harness` | harness name | the provider's first, else the config's first | See [Harnesses](sandbox.md#harnesses) |
 | `model` | model alias | `default`, or Claude Code's own | The model name the endpoint expects |
-| `tools` | list of tool names | none | Allowed tools |
+| `tools` | list of tool names | none | Allowed harness built-ins and [plugin tools](plugins.md) |
 | `returns` | list of proposal kinds | `[comment]` | What it may [propose](proposals.md) |
 | `reads` | `traces` | none | [The issue's run traces](checks.md#reading-traces); needs a tool that can read files |
 

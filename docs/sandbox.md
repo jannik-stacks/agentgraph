@@ -4,7 +4,7 @@
 
 Sessions, `run` steps, checks and checkout setup run in throwaway Docker containers. Without Docker or the internal network, the run hits a [runner error](workflows.md#order-and-limits). Images are never pulled.
 
-A container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory, 1.5 CPUs, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets only its agent's model key. <!-- code: src/docker.ts#dockerArgs -->
+A container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory, 1.5 CPUs, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets its model credentials and, when configured, its own tool bearer. <!-- code: src/docker.ts#dockerArgs -->
 
 | Path | What | Access |
 | --- | --- | --- |
@@ -24,8 +24,8 @@ Sessions and setup use the graph's `network`; scripts and checks get none. Envir
 
 | `network` | Docker network | Reachable |
 | --- | --- | --- |
-| `egress` (default) | `agentgraph-sandbox` | The model proxy, the optional Ollama relay, an HTTPS allowlist |
-| `models` | `agentgraph-models` | The model proxy only |
+| `egress` (default) | `agentgraph-sandbox` | The model proxy, the optional Ollama relay, an HTTPS allowlist, selected host tools |
+| `models` | `agentgraph-models` | The model proxy and selected host tools |
 
 `infra/local/egress/allowlist` has GitHub's download hosts, `registry.npmjs.org`, and the model login hosts. No PyPI, crates.io, SSH or browsing.
 
@@ -71,7 +71,7 @@ A graph opts in with `image: agentgraph-sandbox:browser`. The image sets `PLAYWR
 
 ## Harnesses
 
-An agent's `harness` picks the session program. The operator's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins in `harnesses/`; a graph never loads code. A plugin gives a `name`, its `key` variable, a `command`, a `parse` for output lines, a `classify` that returns `read`, `write` or `undefined` for each tool, and an optional `home` and `check`. An unclassified tool fails the graph check and cannot start a session. The sandbox makes the worktree read-only when all tools are classified as read; a command may also request read-only access. <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
+An agent's `harness` picks the session program. The operator's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins in `harnesses/`. Graphs may load reviewed [host tools](plugins.md). A harness plugin gives a `name`, its `key` variable, a `command`, a `parse` for output lines, a `classify` that returns `read`, `write` or `undefined` for each tool, and an optional `home` and `check`. A name must be classified by its harness or registered as a plugin tool; other names fail the graph check. The sandbox makes the worktree read-only when all harness tools are classified as read; a command may also request read-only access. <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
 
 The config's `provider` and `harness` select defaults; `AGENTGRAPH_PROVIDER` and `AGENTGRAPH_HARNESS` override them. A selected harness runs every agent. Otherwise an agent without a `harness` gets the provider's first, else the config's first. A graph loads only when every harness is in the config and passes its `check`. <!-- code: src/folder.ts#loadGraph -->
 

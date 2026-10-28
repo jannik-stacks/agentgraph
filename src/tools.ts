@@ -105,6 +105,8 @@ export const startTools = async (
     const mcp = new Server({ name: 'agentgraph-tools', version: '1.0.0' }, { capabilities: { tools: {} } });
     const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
     response.once('close', () => {
+      clearTimeout(timer);
+      controllers.delete(controller);
       controller.abort(new Error('tool request closed'));
       void mcp.close();
     });
@@ -227,10 +229,11 @@ export const startTools = async (
     host: route.host,
     tools: Object.keys(tools),
     close: async () => {
+      const closed = new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
       for (const controller of controllers) controller.abort(new Error('tool session closed'));
       server.closeAllConnections();
       await Promise.allSettled(calls);
-      await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+      await closed;
     },
   };
 };
