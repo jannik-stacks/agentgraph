@@ -25,6 +25,12 @@ const chatgptToken = `!node -p 'JSON.parse(process.env.AGENTGRAPH_CHATGPT_AUTH).
 
 export const pi = (): Harness => ({
   name: 'pi',
+  classify: tool => {
+    const name = splitToolPattern(tool)[1] ?? tool;
+    if (['edit', 'write', 'bash'].includes(name)) return 'write';
+    if (['read', 'grep', 'glob', 'find', 'ls'].includes(name)) return 'read';
+    return undefined;
+  },
   key: 'AGENTGRAPH_LLM_API_KEY',
   check: agent =>
     agent.tools.flatMap(tool =>

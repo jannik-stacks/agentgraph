@@ -51,6 +51,12 @@ const deniedByOpencode = 'prevents you from using this specific tool call';
 
 export const opencode = (): Harness => ({
   name: 'opencode',
+  classify: tool => {
+    const name = splitToolPattern(tool)[1] ?? tool;
+    if (['edit', 'write', 'bash', 'task', 'todowrite', 'lsp', 'batch'].includes(name)) return 'write';
+    if (['read', 'grep', 'glob', 'list', 'webfetch', 'websearch', 'todoread', 'skill'].includes(name)) return 'read';
+    return undefined;
+  },
   key: 'AGENTGRAPH_LLM_API_KEY',
   home: () => ({
     links: {

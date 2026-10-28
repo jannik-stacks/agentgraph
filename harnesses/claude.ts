@@ -53,6 +53,11 @@ const claudeTools = (tools: string[]) =>
 
 export const claude = (): Harness => ({
   name: 'claude',
+  classify: tool => {
+    const name = splitToolPattern(tool)[1] ?? tool;
+    if (!Object.hasOwn(claudeNames, name)) return undefined;
+    return ['edit', 'write', 'bash'].includes(name) ? 'write' : 'read';
+  },
   key: 'ANTHROPIC_AUTH_TOKEN',
   check: agent =>
     agent.tools.flatMap(tool => {

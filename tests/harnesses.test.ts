@@ -16,6 +16,7 @@ import { basename, dirname, join } from 'node:path';
 import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { makeCodexHarness } from '../harnesses/codex.ts';
+import { loadGraph } from '../src/folder.ts';
 import { type Harness, harnessSession, readHarnessSettings } from '../src/harnesses.ts';
 import { getListPriceUsd, isModelPriced, readPrices } from '../src/prices.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
@@ -94,6 +95,10 @@ const events = async (s: SessionSpec, lines: string[], exit = 0) => {
 
 const BAD_SETTINGS = [
   ["export default { harnesses: [{ name: 'pi' }, { name: 'pi' }] };\n", 'lists the harness pi twice'],
+  [
+    "export default { harnesses: [], providers: [{ name: 'local' }, { name: 'local' }] };\n",
+    'lists the provider local twice',
+  ],
   ['export const harnesses = [];\n', 'has no default export with a harnesses list'],
 ];
 
@@ -113,6 +118,60 @@ const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 const input = (c: Command) => readFileSync(join(c.home!, '.agentgraph', 'input'), 'utf8');
 
 describe('the session loop', () => {
+  it('loads a custom harness and provider from a config module and uses their tool classifications', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agentgraph-adapter-'));
+    const file = join(dir, 'config.mjs');
+    writeFileSync(
+      file,
+      `
+      const harness = {
+        name: 'custom', key: 'CUSTOM_KEY',
+        classify: tool => ({ inspect: 'read', apply_patch: 'write' })[tool],
+        command: () => ({ cmd: 'custom', args: [], input: '', readonly: false }),
+        parse: () => () => []
+      };
+      export default { harnesses: [harness], providers: [{ name: 'custom-provider', harnesses: ['custom'], ready: () => true }] };
+    `
+    );
+    const provider = ConfigProvider.fromMap(
+      new Map([
+        ['AGENTGRAPH_CONFIG', file],
+        ['AGENTGRAPH_PROVIDER', 'custom-provider'],
+      ])
+    );
+    const settings = await Effect.runPromise(readHarnessSettings.pipe(Effect.withConfigProvider(provider)));
+    expect(settings.provider).toBe('custom-provider');
+    expect(await settings.providers![0]!.ready({ image: 'image', sandbox: 'sandbox' })).toBe(true);
+    mkdirSync(join(dir, 'agents'));
+    mkdirSync(join(dir, 'workflows'));
+    writeFileSync(join(dir, 'workflows', 'issue.md'), '---\non: issues\nsteps:\n  work: { agent: a }\n---\n');
+    writeFileSync(join(dir, 'agents', 'a.md'), '---\nharness: custom\ntools: [inspect, apply_patch]\n---\n');
+    await expect(Effect.runPromise(loadGraph(dir, settings.harnesses))).resolves.toMatchObject({
+      agents: { a: { harness: 'custom' } },
+    });
+    expect((await session({ ...spec, harness: 'custom', tools: ['inspect'] }, [], settings)).command.readonly).toBe(
+      true
+    );
+    expect((await session({ ...spec, harness: 'custom', tools: ['apply_patch'] }, [], settings)).command.readonly).toBe(
+      false
+    );
+    writeFileSync(join(dir, 'agents', 'a.md'), '---\nharness: custom\ntools: [unknown]\n---\n');
+    const error = await Effect.runPromise(Effect.flip(loadGraph(dir, settings.harnesses)));
+    expect(error.message).toContain('cannot classify tool unknown');
+    const rejected = await session({ ...spec, harness: 'custom', tools: ['unknown'] }, [], settings);
+    expect(Exit.isFailure(rejected.exit)).toBe(true);
+    expect(rejected.command).toBeUndefined();
+  });
+
+  it.each(harnesses)('$name classifies its declared tools and refuses unknown tools', async harness => {
+    expect(harness.classify('read')).toBe('read');
+    expect(harness.classify('edit')).toBe('write');
+    expect(harness.classify('unknown-tool')).toBeUndefined();
+    const result = await session({ ...spec, harness: harness.name, tools: ['unknown-tool'] }, []);
+    expect(Exit.isFailure(result.exit)).toBe(true);
+    expect(result.command).toBeUndefined();
+  });
+
   it.each(READ_ONLY_SESSIONS)('runs %s with %j read-only: %s', async (harness, tools, readonly) => {
     expect((await session({ ...spec, harness, tools: [...tools] }, [])).command.readonly).toBe(readonly);
   });

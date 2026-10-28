@@ -55,6 +55,9 @@ export const readHarnessSettings = Effect.gen(function* () {
       const names = settings.harnesses.map(h => h.name);
       const twice = names.find((name, i) => names.indexOf(name) !== i);
       if (twice) throw new Error(`lists the harness ${twice} twice`);
+      const providers = settings.providers?.map(p => p.name) ?? [];
+      const duplicate = providers.find((name, i) => providers.indexOf(name) !== i);
+      if (duplicate) throw new Error(`lists the provider ${duplicate} twice`);
       if (harness && !names.includes(harness)) throw new Error(`has no harness ${harness}`);
       const provider = named ? settings.providers?.find(p => p.name === named) : undefined;
       if (named && !provider) throw new Error(`has no provider ${named}`);
@@ -90,8 +93,6 @@ const wrapped = (cmd: string, args: string[]) => ({
   cmd: 'sh',
   args: ['-c', `exec "$@" < "$HOME/${inputFile}" 2>&1`, 'sh', cmd, ...args],
 });
-
-const isWritingTool = (tool: string) => /^(edit|write|bash)(\(|$)/.test(tool);
 
 /** `name=value` pairs, separated by commas or white space. */
 const parseNamePairs = (text: string) =>
@@ -181,6 +182,12 @@ export const harnessSession = (
             const harness = s.harnesses.find(h => h.name === spec.harness);
             if (!harness)
               return yield* new SessionStop({ reason: 'sandbox', detail: `no harness ${spec.harness} in the config` });
+            const classes = spec.tools.map(tool => harness.classify?.(tool));
+            if (classes.some(value => value !== 'read' && value !== 'write'))
+              return yield* new SessionStop({
+                reason: 'sandbox',
+                detail: `harness ${harness.name} cannot classify a tool`,
+              });
             const named = (spec.model && models[spec.model]) ?? spec.model ?? models['*'] ?? 'default';
             const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: named };
             const key = keys[spec.agent] ?? keys['*'] ?? (route.url && 'none');
@@ -260,7 +267,7 @@ export const harnessSession = (
                 ...wrapped(cmd, args),
                 dir: spec.dir,
                 home,
-                readonly: !!readonly || !spec.tools.some(isWritingTool),
+                readonly: !!readonly || classes.every(value => value === 'read'),
                 env: { ...env, ...(spec.base && { AGENTGRAPH_BASE: spec.base }) },
                 secrets,
                 network: 'proxy',

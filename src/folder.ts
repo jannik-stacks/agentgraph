@@ -201,8 +201,12 @@ const compile = (
     const harness = agent && harnesses.find(h => h.name === agent.harness);
     if (agent && !harness)
       say(`harness: ${agent.harness} is not in the config, which has ${harnesses.map(h => h.name).join(', ')}`);
-    if (agent && harness)
+    if (agent && harness) {
+      for (const tool of agent.tools)
+        if (typeof harness.classify !== 'function' || !['read', 'write'].includes(harness.classify(tool) ?? ''))
+          say(`harness: ${harness.name} cannot classify tool ${tool}`);
       for (const problem of harness.check?.(agent) ?? []) say(`harness: ${harness.name} ${problem}`);
+    }
     return agent;
   });
   const skills = docs(groups.skills, (data, say) => {
@@ -271,7 +275,11 @@ const compile = (
   return { settings, agents, skills, checks, workflows, problems };
 };
 
-export type HarnessCheck = { name: string; check?: (agent: Agent) => string[] };
+export type HarnessCheck = {
+  name: string;
+  classify: (tool: string) => 'read' | 'write' | undefined;
+  check?: (agent: Agent) => string[];
+};
 
 /** Reads a graph directory, validates every file and fails with all problems at once. */
 const hash = (...texts: string[]) => createHash('sha256').update(texts.join('\0')).digest('hex').slice(0, 12);
