@@ -1,4 +1,4 @@
-import { Schema } from 'effect';
+import { Schema, Struct } from 'effect';
 import type { Check } from './folder.ts';
 import { CheckMode, ResultType } from './result.ts';
 import { JsonValue, PluginMetadata } from './meta.ts';
@@ -8,12 +8,7 @@ const Field = Schema.Struct({
   check: Schema.String,
   field: Schema.String,
   mode: optional(CheckMode),
-  limit: optional(
-    ResultType.pipe(
-      Schema.pick('minimum', 'maximum'),
-      Schema.filter(value => Object.values(value).every(Number.isFinite))
-    )
-  ),
+  limit: optional(ResultType.pipe(Schema.pick('minimum', 'maximum'))),
 }).pipe(Schema.extend(ResultType.pipe(Schema.pick('type', 'description', 'unit'))));
 const ResultValue = Schema.Record({ key: Schema.String, value: Schema.Unknown }).pipe(
   Schema.filter((value): boolean => Schema.is(JsonValue)(value))
@@ -30,18 +25,7 @@ const Measurement = Schema.Struct({
 const Row = Schema.Struct({
   key: Schema.String,
   at: Schema.String,
-  href: optional(
-    Schema.String.pipe(
-      Schema.pattern(/^\/(?!\/)/),
-      Schema.filter(value => {
-        try {
-          return new URL(value, 'http://studio').href === `http://studio${value}`;
-        } catch {
-          return false;
-        }
-      })
-    )
-  ),
+  href: optional(Schema.String.pipe(Schema.pattern(/^\/(?!\/)(?!.*[\s\\])/s))),
   dead: optional(Schema.String),
   axes: Schema.Record({ key: Schema.String, value: Schema.String }),
   results: Schema.Record({ key: Schema.String, value: Measurement }),
@@ -78,21 +62,15 @@ export const findCheckFields = (
         if (seen.has(key) || !isScalar(v)) continue;
         const c = checks[check];
         const t = c?.returns?.properties?.[field];
-        const limit = c?.pass?.properties?.[field];
+        const limit = Struct.pick(c?.pass?.properties?.[field] ?? {}, 'minimum', 'maximum');
         seen.set(key, {
           check,
           field,
           ...(c && { mode: c.mode }),
+          ...Struct.pick(t ?? {}, 'description', 'unit'),
           type: t?.type ?? (typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean' : 'string'),
-          ...(t?.description && { description: t.description }),
-          ...((t?.unit ?? (field === 'share' ? 'share' : undefined)) && { unit: t?.unit ?? 'share' }),
-          ...(limit &&
-            (limit.minimum !== undefined || limit.maximum !== undefined) && {
-              limit: {
-                ...(limit.minimum !== undefined && { minimum: limit.minimum }),
-                ...(limit.maximum !== undefined && { maximum: limit.maximum }),
-              },
-            }),
+          ...(field === 'share' && !t?.unit && { unit: 'share' }),
+          ...(Object.keys(limit).length > 0 && { limit }),
         });
       }
     }

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { makeCodexHarness } from '../harnesses/codex.ts';
 import type { SessionSpec } from '../src/trace.ts';
@@ -10,7 +11,7 @@ import {
   makeResultServer,
   readScriptResult,
   whyPassUndecided,
-  type ResultType,
+  ResultType,
 } from '../src/result.ts';
 import { harnesses } from './fixtures.ts';
 
@@ -41,6 +42,10 @@ const stuck: ResultType = {
 };
 
 describe('the result server', () => {
+  it.each([Infinity, -Infinity, NaN])('rejects non-finite bounds in a check schema: %s', bound => {
+    expect(Schema.decodeUnknownEither(ResultType)({ properties: { usd: { maximum: bound } } })._tag).toBe('Left');
+  });
+
   it('answers the handshake, lists the result tool typed by returns and turns away a call returns refuses', () => {
     const answers = talk(
       defaultReturns,

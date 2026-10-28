@@ -25,8 +25,8 @@ export const ResultType: Schema.Schema<ResultType> = Schema.Struct({
   items: optional(nested),
   enum: optional(Schema.Array(Schema.Unknown)),
   const: optional(Schema.Unknown),
-  minimum: optional(Schema.Number),
-  maximum: optional(Schema.Number),
+  minimum: optional(Schema.JsonNumber),
+  maximum: optional(Schema.JsonNumber),
   description: optional(Schema.String),
   unit: optional(Schema.Literal('usd', 'minutes', 'seconds', 'tokens', 'share')),
 });

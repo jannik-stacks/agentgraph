@@ -144,6 +144,7 @@ describe('result sheets', () => {
   it.each([
     { fields: [], runs: [{ ...run('a', 'now', 1), href: 'javascript:alert(1)' }] },
     { fields: [], runs: [{ ...run('a', 'now', 1), href: '/\n/evil.example' }] },
+    { fields: [], runs: [{ ...run('a', 'now', 1), href: '/results\n' }] },
     { fields: [], runs: [{ ...run('a', 'now', 1), href: '//evil.example' }] },
     { fields: [], runs: [{ ...run('a', 'now', 1), href: String.raw`/\evil.example` }] },
     { fields: [], runs: [{ ...run('a', 'now', 1), meta: { tool: 'x'.repeat(8192) } }] },

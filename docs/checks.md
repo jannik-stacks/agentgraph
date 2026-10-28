@@ -78,7 +78,8 @@ A run's page shows the gates that failed, with the fields past their limit, then
 
 The shared schema is `{ fields, runs }`. Its rows keep their key, time, dimensions, measurements
 and optional owner metadata. Row keys and check/field pairs must be unique. Limits are 1,000 fields and 10,000 rows. Empty, share, later and older
-flags survive export. Links are local paths and measurements contain finite JSON numbers.
+flags survive export. Links start with one slash and contain no whitespace or backslashes.
+Measurements and check bounds contain finite JSON numbers.
 <!-- code: src/results.ts#ResultSheet src/results.ts#findCheckFields -->
 
 Export ordinary runs, a bench out directory, or a tune root with the same command:
