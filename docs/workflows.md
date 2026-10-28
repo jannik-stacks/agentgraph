@@ -41,13 +41,15 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 
 ## What starts a run
 
+The GitHub forge uses these built-in triggers: <!-- code: src/workflow.ts#isIssueTriggered -->
+
 - `issue_comment`: a trusted comment with `/agent` or `@agent` as a word, outside quotes and code. The marker is cut before the agent reads it.
 - `issues` with a `label`: a trusted person adds that label to an open issue.
 - `issues` with a `column`: the open issue's card is in that column of a GitHub project board, the option of its Status field, spelled exactly. See [Project boards](#project-boards).
 
-Each field of an `issues` trigger names a source, and the source decides whether an event starts the workflow and whether to trust it. `label` and `column` are the built-in GitHub sources, and a new source is one more entry beside them. <!-- code: src/workflow.ts#isIssueTriggered -->
+To start a run by hand, use `agi dispatch 12 --workflow issue`. Runs can also start from an agent's [dispatch](#dispatch), a [retro](#retros), or a [conflict](#when-the-base-or-the-graph-moves). <!-- code: src/engine.ts#instruct -->
 
-`pull_request` and `branches` are accepted but start nothing yet. Other runs start through [dispatch](#dispatch), as a [retro](#retros) or on a [conflict](#when-the-base-or-the-graph-moves). <!-- code: src/forge.ts#makeCommentWithAgentRequest -->
+More triggers are planned through [plugins](extending.md#plugins-in-progress); `pull_request` and `branches` are accepted but do not trigger runs yet. <!-- code: src/workflow.ts#Front -->
 
 With several comment workflows, `/agent` starts the first, or the one its first word names (`/agent plan`). Comments without the marker are context. Comments on the issue's pull request count for the issue; bot comments never do. `/agent restart` starts the workflow again with its human answers, and `/agent restart implement` starts at that step. An eyes reaction marks the comment or issue until the engine replies. <!-- code: src/engine.ts#tick -->
 
