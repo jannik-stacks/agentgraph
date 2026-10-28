@@ -44,11 +44,27 @@ export type Settings = {
 
 const proxyUrl = Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1'));
 
-const passed = Effect.flatMap(Config.string('AGENTGRAPH_SESSION_ENV').pipe(Config.withDefault('')), names =>
-  Effect.map(
-    Effect.forEach(splitNames(names), name => Effect.map(Config.redacted(name), value => [name, value] as const)),
-    Object.fromEntries<Redacted.Redacted>
-  )
+const sessionEnv = new Set([
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_API_KEY',
+  'AGENTGRAPH_CHATGPT_AUTH',
+  'OPENCODE_AUTH_CONTENT',
+]);
+
+const passed = Effect.flatMap(
+  Config.string('AGENTGRAPH_SESSION_ENV').pipe(
+    Config.withDefault(''),
+    Config.validate({
+      message:
+        'AGENTGRAPH_SESSION_ENV may list only model login variables: CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, AGENTGRAPH_CHATGPT_AUTH, OPENCODE_AUTH_CONTENT',
+      validation: names => splitNames(names).every(name => sessionEnv.has(name)),
+    })
+  ),
+  names =>
+    Effect.map(
+      Effect.forEach(splitNames(names), name => Effect.map(Config.redacted(name), value => [name, value] as const)),
+      Object.fromEntries<Redacted.Redacted>
+    )
 );
 
 export const hostSettings = {

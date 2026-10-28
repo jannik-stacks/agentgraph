@@ -79,7 +79,7 @@ examples/deploy/cloudflare/up
 | `AGENTGRAPH_APP_ENV` | Path to the App's `app.env`; empty creates the App with `node bin/setup-app.ts` |
 | `AGENTGRAPH_REPO` | `owner/name` of the repo |
 | `GATEWAY_URL` | Your model gateway's base; the request path is appended, `/v1` included |
-| `AGENTGRAPH_PROXY_KEYS`, `GATEWAY_HEADERS`, `AGENTGRAPH_PROXY_URL`, `AGENTGRAPH_SESSION_ENV` | Optional, read from the environment only; names in `AGENTGRAPH_SESSION_ENV` are sent as secrets too |
+| `AGENTGRAPH_PROXY_KEYS`, `GATEWAY_HEADERS`, `AGENTGRAPH_PROXY_URL`, `AGENTGRAPH_SESSION_ENV` | Optional, read from the environment only; only the model login names allowed by `AGENTGRAPH_SESSION_ENV` are sent as secrets too |
 
 Values already in the environment are used without asking, so a second `up` only redeploys. A cron trigger starts the engine within five minutes; `npx wrangler tail` follows it.
 

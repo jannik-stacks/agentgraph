@@ -129,7 +129,7 @@ An agent's `model` is the name its endpoint expects. `AGENTGRAPH_MODELS` maps `a
 | --- | --- |
 | `AGENTGRAPH_PROXY_URL` | One base URL, or `harness=url` pairs. Empty leaves Claude Code on its own login; opencode and pi need one. |
 | `AGENTGRAPH_PROXY_KEYS` | `agent=key` pairs, `*` for the rest. Without a key, an agent gets `none` when its harness has a URL, else its own login. |
-| `AGENTGRAPH_SESSION_ENV` | Engine variables every session gets as secrets, such as `CLAUDE_CODE_OAUTH_TOKEN`. Values of 8 or more characters are hidden in output. |
+| `AGENTGRAPH_SESSION_ENV` | Only model login variables: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `AGENTGRAPH_CHATGPT_AUTH` and `OPENCODE_AUTH_CONTENT`. Forge and plugin service credentials cannot be forwarded through this setting. Values of 8 or more characters are hidden in output. |
 
 In the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code, passed by name, never in arguments. Every session is priced at its model's public list price, subscriptions too, so runs compare across providers. The table is LiteLLM's, pinned at `infra/local/prices.json.gz` (`AGENTGRAPH_PRICES` names another), and `infra/local/aliases.json` maps proxy aliases to its models. A model the table lacks is `unpriced`, never $0. <!-- code: src/harnesses.ts#priced src/prices.ts#readPrices -->
 
@@ -154,3 +154,5 @@ Code running as your user can still read these keys.
 `node bin/leak-probe.ts` looks where an npm worm would, such as the environment, ignored files, the process list and containers, and prints where each key-shaped value is, never the value. **Look at this** lists copies to remove; it then exits 1, and 3 when a probe could not run. `PROBE_PATHS`, `PROBE_STUDIO` and `PROBE_CANARY` change where and what it looks for. <!-- code: bin/leak-probe.ts#secret -->
 
 The harness adapters accept an engine tool endpoint and allow only its named tools. They read its bearer from the reserved session variable `AGENTGRAPH_TOOL_SECRET`. Claude, Codex, OpenCode and Pi support Streamable HTTP. <!-- code: src/trace.ts#SessionSpec src/sandbox.ts#Command harnesses/claude.ts#claude harnesses/codex.ts#makeCodexHarness harnesses/opencode.ts#opencode harnesses/pi.ts#pi -->
+
+Session output and transcripts share credential redaction before storage. Known values and common credential patterns are hidden; this cannot detect every secret. <!-- code: src/context.ts#formatRedactedText src/harnesses.ts#harnessSession src/services.ts#settings -->

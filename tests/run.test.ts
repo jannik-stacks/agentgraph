@@ -652,7 +652,7 @@ describe('drive', () => {
     await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
     const text = readFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'utf8');
     expect(text).toContain('"prompt"');
-    expect(text).toContain('AGENTGRAPH_LLM_API_KEY=***');
+    expect(text).toContain('AGENTGRAPH_LLM_API_KEY=[redacted]');
     expect(text).not.toContain(key);
   });
 });

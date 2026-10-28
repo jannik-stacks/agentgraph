@@ -1077,12 +1077,13 @@ describe('the loop', () => {
       AGENTGRAPH_REPO: 'acme/sandbox',
       AGENTGRAPH_DIR: join(import.meta.dirname, '..', 'examples', 'sandbox'),
       AGENTGRAPH_EVERY: '0.0001',
-      AGENTGRAPH_SESSION_ENV: 'AGENTGRAPH_TEST_LOGIN',
+      AGENTGRAPH_SESSION_ENV: 'ANTHROPIC_API_KEY',
     };
-    process.env.AGENTGRAPH_TEST_LOGIN = 'login-0';
+    const previous = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = 'login-0';
     const seen: string[] = [];
     const doubles = (s: Settings) => {
-      seen.push(Redacted.value(s.passed.AGENTGRAPH_TEST_LOGIN!));
+      seen.push(Redacted.value(s.passed.ANTHROPIC_API_KEY!));
       return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), hostSandbox(where.origin), replaySession([]));
     };
     const stop = new AbortController();
@@ -1090,13 +1091,14 @@ describe('the loop', () => {
     const refresh = async () => {
       if (++passes === 4) stop.abort();
       if (passes === 2) throw new Error('login server down');
-      process.env.AGENTGRAPH_TEST_LOGIN = `login-${passes}`;
+      process.env.ANTHROPIC_API_KEY = `login-${passes}`;
     };
     try {
       await expect(main(undefined, doubles, defaults, stop.signal, refresh)).rejects.toThrow();
       expect(seen.slice(0, 3)).toEqual(['login-1', 'login-1', 'login-3']);
     } finally {
-      delete process.env.AGENTGRAPH_TEST_LOGIN;
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previous;
     }
   });
 });

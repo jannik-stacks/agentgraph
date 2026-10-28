@@ -185,12 +185,18 @@ const secrets = [
   /\b(\w*(?:key|token|secret|password)\w*["']?\s*[=:]\s*["']?)[^\s"']{12,}/gi,
 ];
 
+export const formatRedactedText = (text: string, hidden: readonly string[] = []) => {
+  const known = hidden.filter(Boolean).flatMap(value => [value, JSON.stringify(value).slice(1, -1)]);
+  const cleaned = known.reduce((value, secret) => value.replaceAll(secret, '[redacted]'), text);
+  return secrets.reduce(
+    (value, pattern) => value.replace(pattern, (_, keep) => `${typeof keep === 'string' ? keep : ''}[redacted]`),
+    cleaned
+  );
+};
+
 /** Text without secrets, on one line, at most `max` long, its middle cut out. */
 const clip = (text: string, max: number) => {
-  const one = secrets
-    .reduce((t, re) => t.replace(re, (_, keep) => `${typeof keep === 'string' ? keep : ''}[redacted]`), text)
-    .replace(/\s+/g, ' ')
-    .trim();
+  const one = formatRedactedText(text).replace(/\s+/g, ' ').trim();
   return one.length <= max ? one : `${one.slice(0, max / 2)} ... ${one.slice(-max / 2)}`;
 };
 

@@ -8,6 +8,7 @@ import { type HarnessCheck, GraphError, loadGraph } from './folder.ts';
 import { type Command, type Exit, Sandbox, type SandboxError } from './sandbox.ts';
 import { getListPriceUsd, type Prices, readPrices } from './prices.ts';
 import { Session } from './session.ts';
+import { formatRedactedText } from './context.ts';
 import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
 
 export type Piece =
@@ -252,7 +253,7 @@ export const harnessSession = (
                   },
                 ];
               }
-              const line = hidden.reduce((text, secret) => text.replaceAll(secret, '***'), raw);
+              const line = formatRedactedText(raw, hidden);
               let json: unknown;
               try {
                 json = JSON.parse(line);

@@ -372,19 +372,19 @@ describe('the session loop', () => {
     });
     expect(Redacted.value(fallback.command.secrets!.AGENTGRAPH_LLM_API_KEY!)).toBe(key);
     expect(fallback.command.env.AGENTGRAPH_LLM_BASE_URL).toBe('http://gateway:4000/v1');
-    expect(JSON.stringify(fallback.exit)).toContain('leaked ***');
+    expect(JSON.stringify(fallback.exit)).toContain('leaked [redacted]');
     const quoted = 'quoted"token\\123';
     const escaped = await session({ ...spec, agent: 'gardener' }, [`leaked ${JSON.stringify(quoted)}`], {
       passed: { CLAUDE_CODE_OAUTH_TOKEN: Redacted.make(quoted) },
     });
     expect(JSON.stringify(escaped.exit)).not.toContain('token');
-    expect(JSON.stringify(escaped.exit)).toContain('leaked \\"***\\"');
+    expect(JSON.stringify(escaped.exit)).toContain('leaked \\"[redacted]\\"');
     const pem = 'BEGIN KEY BLOCK\nsecret-line-material\nEND KEY BLOCK';
     const lines = await session({ ...spec, agent: 'gardener' }, ['oops secret-line-material'], {
       passed: { APP_PEM: Redacted.make(pem) },
     });
     expect(JSON.stringify(lines.exit)).not.toContain('secret-line');
-    expect(JSON.stringify(lines.exit)).toContain('oops ***');
+    expect(JSON.stringify(lines.exit)).toContain('oops [redacted]');
   });
 
   it('stops before the harness starts when the config has no harness by that name', async () => {
@@ -401,10 +401,19 @@ describe('the session loop', () => {
     expect(error.problems).toEqual([{ path: file, message }]);
   });
 
+  it('redacts credential patterns before session output reaches the trace', async () => {
+    const credential = `ghp_${'q'.repeat(24)}`;
+    const { events: got } = await events(spec, [
+      JSON.stringify({ type: 'text', sessionID: 's', part: { type: 'text', text: `outside ${credential}` } }),
+    ]);
+    expect(got).toContainEqual({ type: 'text', text: 'outside [redacted]' });
+    expect(JSON.stringify(got)).not.toContain(credential);
+  });
+
   it('masks the key wherever the harness prints it', async () => {
     const line = JSON.stringify({ type: 'text', sessionID: 's1', part: { type: 'text', text: `env has ${key}` } });
     const { events: got } = await events(spec, [line]);
-    expect(got).toContainEqual({ type: 'text', text: 'env has ***' });
+    expect(got).toContainEqual({ type: 'text', text: 'env has [redacted]' });
   });
 
   it('ends with the harness error and exit code when the harness dies without a result', async () => {
@@ -842,7 +851,7 @@ describe('codex', () => {
     expect(args.join(' ')).not.toContain('model_provider');
     expect(Object.keys(command.secrets ?? {})).toEqual(['AGENTGRAPH_CHATGPT_AUTH']);
     expect(readlinkSync(join(command.home!, '.codex', 'auth.json'))).toBe('/tmp/codex-auth.json');
-    expect(JSON.stringify(exit)).toContain('leaked ***');
+    expect(JSON.stringify(exit)).toContain('leaked [redacted]');
     expect(JSON.stringify(exit)).not.toContain(token);
   });
 
