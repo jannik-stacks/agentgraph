@@ -16,7 +16,7 @@ Claude and ChatGPT subscriptions, Anthropic keys and LiteLLM ship as providers. 
 
 ## Graphs
 
-The packaged default graph implements, tests and reviews a change, then waits for a human merge. The clone also has [example graphs](../README.md#examples). Copy one and edit its workflows, agents, skills and checks. These are plain files; see [The graph folder](reference.md). <!-- code: src/instance.ts#ensureGraph -->
+The package ships a starter example; the clone has [more example graphs](../README.md#examples). [Copy one](local.md#first-run) and edit its workflows, agents, skills and checks. The engine requires you to choose a graph. These are plain files; see [The graph folder](reference.md). <!-- code: src/instance.ts#ensureGraph -->
 
 ## Plugins, in progress
 

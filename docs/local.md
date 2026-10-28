@@ -21,7 +21,15 @@ Pick one of these; [Providers](sandbox.md#providers) has the details.
 
 ## First run
 
-Inside any git repo:
+Choose an example graph before starting work. With the global npm install, run this once inside your git repo:
+
+```sh
+cp -R "$(npm root -g)/@jannik-stacks/agi/examples/starter" .agentgraph
+```
+
+From an agentgraph clone, including when you use `npx`, copy it with `cp -R examples/starter <repo>/.agentgraph` instead. The clone has [other examples](../README.md#examples) too.
+
+Read the copied agents, workflows and checks before running them. The starter implements, tests and reviews a change, then waits for a human merge. Its test check runs the repo's `test` script if it has one. Edit these files for your repo, then start an issue:
 
 ```sh
 agi start "padStart drops the last char when len is 0"
@@ -35,7 +43,7 @@ agi review 1 changes "also cover len 0"    # drives it again
 agi merge 1                                # then: git merge agentgraph/1
 ```
 
-Without `.agentgraph/` it uses the [default graph](reference.md#which-graph-runs). An `.agentgraph/` that git does not track, such as one in `.git/info/exclude`, is read from disk. With uncommitted changes in a committed `.agentgraph/` and no `--dir`, it says so and runs the committed version; the start banner names the graph, such as `.agentgraph/ at main 1a2b3c4`. <!-- code: src/instance.ts#whyGraphUncommitted src/instance.ts#formatGraphName --> Every verb is in the [CLI](cli.md). Keep the data root out of temporary folders, which macOS clears. <!-- code: src/main.ts#start src/main.ts#temporary -->
+Without a graph, commands that need one stop with a copy command. An `.agentgraph/` that git does not track, such as one in `.git/info/exclude`, is read from disk. With uncommitted changes in a committed `.agentgraph/` and no `--dir`, it says so and runs the committed version; the start banner names the graph, such as `.agentgraph/ at main 1a2b3c4`. <!-- code: src/instance.ts#ensureGraph src/instance.ts#whyGraphUncommitted src/instance.ts#formatGraphName --> Every verb is in the [CLI](cli.md). Keep the data root out of temporary folders, which macOS clears. <!-- code: src/main.ts#start src/main.ts#temporary -->
 
 ## Who drives
 

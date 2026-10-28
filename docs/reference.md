@@ -18,12 +18,13 @@ Nothing here is stable yet; `CHANGELOG.md` lists renames and removals.
 
 ## Which graph runs
 
-Locally, the first that exists: <!-- code: src/instance.ts#ensureGraph src/instance.ts#defaultDir -->
+Locally, the first that exists: <!-- code: src/instance.ts#ensureGraph -->
 
 1. `--dir <dir>`, or `AGENTGRAPH_DIR`; `--dir .agentgraph` uses your working tree, uncommitted edits included.
 2. `.agentgraph/` in your repo at the committed base.
 3. `.agentgraph/` in your working tree when the base does not track it. The start banner says `graph .agentgraph/ (not in git)`.
-4. The default graph in the package: implement, review, then a human merge, with a check that runs the repo's `test` script if it has one. To change it, copy the folder `agi show graph` prints to `.agentgraph/`.
+
+Without a graph, the engine stops and tells you how to copy an example. See [First run](local.md#first-run). `agi show graph` prints the graph you selected and its files.
 
 To keep a private graph out of a team repo, add `.agentgraph/` to `.git/info/exclude`. Git then ignores it without a change to `.gitignore`, and every command reads it from disk. <!-- code: src/instance.ts#formatGraphName -->
 

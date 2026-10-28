@@ -290,6 +290,21 @@ export const loadGraph = (
   harness?: string
 ): Effect.Effect<Graph, GraphError> =>
   Effect.gen(function* () {
+    const entries = yield* Effect.tryPromise({
+      try: () => readdir(dir, { withFileTypes: true }),
+      catch: e =>
+        new GraphError({
+          problems: [
+            {
+              path: dir,
+              message:
+                e instanceof Error && 'code' in e && e.code === 'ENOENT'
+                  ? 'no graph found; copy an example into this folder or choose an existing graph folder'
+                  : `unreadable: ${String(e)}`,
+            },
+          ],
+        }),
+    });
     const read = yield* Effect.tryPromise({
       try: async () => {
         const settingsText = await readFile(join(dir, 'settings.yaml'), 'utf8').catch(() => undefined);
@@ -306,7 +321,7 @@ export const loadGraph = (
         );
         const texts = [settingsText ?? '', ...scripts.map(f => f.text)];
         texts.push(...Object.values(groups).flatMap(files => files.map(f => f.text)));
-        const unread = (await readdir(dir, { withFileTypes: true }).catch(() => []))
+        const unread = entries
           .filter(e => e.isDirectory() && !e.name.startsWith('.') && !folders.has(e.name))
           .map(e => e.name)
           .filter(name => !reads(texts, name));

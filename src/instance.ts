@@ -11,6 +11,7 @@ import type { Issue } from './event.ts';
 import { fileForge, Forge, formatIssueFile, parseIssueFile, writeTimelineEvent } from './forge.ts';
 import { hostGit, makeHostEnv } from './git.ts';
 import type { Proposal } from './proposal.ts';
+import { formatShellWord } from './status.ts';
 import { writeFileAtomic } from './store.ts';
 
 export type Instance = {
@@ -24,8 +25,6 @@ export type Instance = {
   provider?: string;
   readonly?: boolean;
 };
-
-export const defaultDir = fileURLToPath(new URL('../examples/starter', import.meta.url));
 
 const git = (env: Record<string, string>, args: string[], codes: number[] = [], input?: Uint8Array) =>
   Effect.runPromise(hostGit(env, args, { codes, ...(input && { input }) })).then(out => out.toString('utf8').trim());
@@ -156,9 +155,17 @@ export const ensureBase = async (i: Instance): Promise<string | undefined> => {
 };
 
 export const ensureGraph = async (i: Instance, flag?: string) => {
-  if (flag) return resolve(flag);
-  const tree = await inForge(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
-  if (!tree) return existsSync(join(i.repo, '.agentgraph')) ? join(i.repo, '.agentgraph') : defaultDir;
+  const tree = flag
+    ? undefined
+    : await inForge(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
+  if (!tree) {
+    const dir = flag ? resolve(flag) : join(i.repo, '.agentgraph');
+    if (existsSync(dir)) return dir;
+    const example = fileURLToPath(new URL('../examples/starter', import.meta.url));
+    throw new Error(
+      `no graph found. Copy an example into this folder first:\n  cp -R ${formatShellWord(example)} ${formatShellWord(dir)}`
+    );
+  }
   const dir = join(i.dir, 'graphs', tree);
   if (existsSync(dir)) return dir;
   const linked = (await inForge(i, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
@@ -210,7 +217,6 @@ export const whyGraphUncommitted = async (i: Instance, graph: string) => {
 };
 
 export const formatGraphName = async (i: Instance, graph: string) => {
-  if (graph === defaultDir) return 'default graph';
   if (graph === join(i.repo, '.agentgraph') && !(await inRepo(i.repo, ['ls-files', '--', '.agentgraph'])))
     return 'graph .agentgraph/ (not in git)';
   if (!isCommittedGraph(i, graph)) return `graph ${graph}`;

@@ -56,6 +56,18 @@ const problems = async (dir: string) => {
 };
 
 describe('loadGraph', () => {
+  it('rejects a missing graph folder with copy guidance', async () => {
+    const dir = join(graphDir({}), 'absent');
+    expect(await problems(dir)).toEqual([
+      `${dir}: no graph found; copy an example into this folder or choose an existing graph folder`,
+    ]);
+  });
+
+  it('still allows an existing empty graph folder', async () => {
+    const graph = await Effect.runPromise(loadGraph(graphDir({}), harnesses));
+    expect(graph.workflows).toEqual({});
+  });
+
   it.each(['agentgraph', 'clarinet', 'kit', 'graph', 'loop'])('loads a graph around the %s fixture', async name => {
     const { dir, names } = fromFixture(name);
     const graph = await Effect.runPromise(loadGraph(dir, harnesses));

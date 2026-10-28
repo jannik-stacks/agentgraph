@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { cpSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { findLoginProvider } from '../src/status.ts';
@@ -99,6 +100,7 @@ describe('provider guidance', () => {
         providers: [{ name: 'custom', harnesses: ['custom'], ready: () => false, setup: 'Configure the custom account first.' }]
       };`,
     });
+    cpSync(join(import.meta.dirname, '../examples/starter'), join(repo, '.agentgraph'), { recursive: true });
     git(repo, 'init', '-q', '-b', 'main');
     git(repo, 'add', '.');
     git(repo, 'commit', '-qm', 'initial');

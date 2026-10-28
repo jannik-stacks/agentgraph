@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
@@ -646,6 +646,45 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
 });
 
 describe('an instance', () => {
+  it('requires a graph before work and accepts the suggested example copy', async () => {
+    const w = world();
+    const root = join(w.root, 'agentgraph-data');
+    writeFileSync(join(w.root, 'npm'), '#!/bin/sh\nexit 97\n', { mode: 0o755 });
+    const cli = (...args: string[]) =>
+      spawnSync(process.execPath, [runTs, ...args, '--data', root, '--provider', 'litellm'], {
+        cwd: w.seed,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${w.root}${delimiter}${process.env.PATH}`,
+          NODE_OPTIONS: '',
+          AGENTGRAPH_CONFIG: '',
+          AGENTGRAPH_APP_ENV: '',
+          AGENTGRAPH_FORGE: '',
+          AGENTGRAPH_DIR: '',
+          AGENTGRAPH_PROXY_KEYS: '',
+          AGENTGRAPH_PROXY_KEYS_FILE: '',
+        },
+      });
+    const commands = [['start', 'Fix a bug'], ['loop', '--once'], ['check'], ['show', 'graph'], ['studio']];
+    const refused = commands.flatMap(args => [cli(...args), cli(...args, '--dir', join(w.seed, 'absent'))]);
+    const message = refused[0]!.stderr.trim();
+    const guidance = expect.stringMatching(/no graph found[\s\S]*copy an example/i);
+    expect(refused.map(r => [r.status, r.stderr])).toEqual(refused.map(() => [1, guidance]));
+    expect(message).toMatch(/^no graph found\. Copy an example into this folder first:\n  cp -R /);
+    const i = await ensureInstance(root, w.seed);
+    expect(readdirSync(i.forge).filter(name => name.endsWith('.md'))).toEqual([]);
+    expect(existsSync(join(w.seed, '.agentgraph'))).toBe(false);
+    expect(cli('show').status).toBe(0);
+    const copied = spawnSync('sh', ['-c', message.split('\n')[1]!.trim()], { cwd: w.seed, encoding: 'utf8' });
+    expect(copied.status, copied.stderr).toBe(0);
+    expect(cli('check').stdout.trim()).toBe('ok');
+    const graph = join(i.repo, '.agentgraph');
+    expect(await ensureGraph(i)).toBe(graph);
+    expect(cli('show', 'graph').stdout).toContain(`graph ${graph}\n`);
+    expect(readFileSync(join(graph, 'workflows', 'issue.md'), 'utf8')).toContain('wait: human');
+  });
+
   it.each([
     ['no package', undefined, 0],
     ['no test script', {}, 0],
@@ -681,13 +720,13 @@ describe('an instance', () => {
     expect(i).toMatchObject({ base: 'main', owner: 'morgan', made: true });
     expect((await ensureInstance(root, w.seed)).made).toBe(false);
     expect(await ensureBase(i)).toBeUndefined();
-    expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'examples', 'starter'));
+    expect(await ensureGraph(i, sandboxGraph)).toBe(sandboxGraph);
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     expect(
       await writeTriggeringIssue({ ...graph, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue')
     ).toBe(1);
-    const shownGraph = cli('show', 'graph').out;
-    expect(shownGraph).toContain('(default; copy it to .agentgraph/');
+    const shownGraph = cli('show', 'graph', '--dir', sandboxGraph).out;
+    expect(shownGraph).toContain(`graph ${sandboxGraph}`);
     expect(shownGraph).toContain('agents/reviewer.md');
     await writeLabels(i.forge, i.owner, 1, ['urgent']);
     expect(readFileSync(join(i.forge, '1.md'), 'utf8')).toContain('urgent');
@@ -802,7 +841,7 @@ describe('an instance', () => {
     expect(cli('export', '1', '--patch', patch).code).toBe(0);
     expect(readFileSync(patch, 'utf8')).toContain('+hello world');
 
-    const merged = cli('merge', '1');
+    const merged = cli('merge', '1', '--dir', sandboxGraph);
     expect(merged.out).toMatch(/^main at [0-9a-f]{7} in agentgraph/);
     expect(merged.out).toContain('not written to your repo: agentgraph/1 in your repo moved');
     expect(merged.out).not.toContain('Next:');
@@ -824,7 +863,7 @@ describe('an instance', () => {
     git(w.seed, 'config', 'user.name', 'morgan');
     const i = await ensureInstance(join(w.root, 'agentgraph-data'), w.seed);
     await ensureBase(i);
-    expect(await ensureGraph(i)).toBe(join(import.meta.dirname, '..', 'examples', 'starter'));
+    await expect(ensureGraph(i)).rejects.toThrow('Copy an example into this folder first:');
     cpSync(sandboxGraph, join(w.seed, '.agentgraph'), { recursive: true });
     const onDisk = join(i.repo, '.agentgraph');
     const readOnDisk = async () => {

@@ -20,7 +20,6 @@ import {
   type Provider,
 } from '../src/harnesses.ts';
 import {
-  defaultDir,
   ensureGraph,
   ensureInstance,
   writePullToRepo,
@@ -388,6 +387,7 @@ async function runOnInstance() {
   };
   switch (verb) {
     case 'studio':
+      await synced();
       return openStudio(i);
     case 'start': {
       const text = rest.join(' ').trim();
@@ -458,9 +458,7 @@ async function runOnInstance() {
     case 'show':
       if (rest[0] === 'graph') {
         const graph = await synced();
-        console.log(
-          `graph ${graph}${graph === defaultDir ? ' (default; copy it to .agentgraph/ in your repo to change it)' : ''}`
-        );
+        console.log(`graph ${graph}`);
         for (const file of readdirSync(graph, { recursive: true, encoding: 'utf8' }).toSorted())
           console.log(`  ${file}`);
         return;

@@ -6,10 +6,11 @@ agentgraph runs coding agents on your repo's issues. The agents, checks and work
 
 You need Node 24, Docker without root and `git config user.name`. No API key: when you are logged in to Claude Code, the first `agi start` runs `claude setup-token`, tests the pasted token and keeps it in the macOS Keychain (a 0600 file on Linux). A ChatGPT login through Codex, an Anthropic key or LiteLLM also work; see [Models](docs/local.md#models).
 
-In a repo with an off-by-one bug in `padStart` and a failing test:
+In a repo with an off-by-one bug in `padStart` and a failing test, copy the starter example once, then start an issue:
 
 ```sh
 npm install -g @jannik-stacks/agi
+cp -R "$(npm root -g)/@jannik-stacks/agi/examples/starter" .agentgraph
 agi start "padStart is off by one when len is 0"
 agi show 1
 git diff main...agentgraph/1
@@ -21,7 +22,7 @@ agi studio
 
 The first run builds the sandbox images, about 3 minutes. An implementor changes the code and runs the tests, a reviewer reads it, then it waits for you. The branch lands in your repo; your checkout never moves.
 
-Without `.agentgraph/` it runs the [default graph](examples/starter/workflows/issue.md). No GitHub needed: `~/.agentgraph/<repo>-<hash>-local/` holds `instance.yaml`, the runs in `data/` and `forge/`, which stands in for GitHub.
+The engine requires a graph. Read and edit the copied agents, workflows and checks for your repo before the first run. [First run](docs/local.md#first-run) also covers copying from a clone. No GitHub needed: `~/.agentgraph/<repo>-<hash>-local/` holds `instance.yaml`, the runs in `data/` and `forge/`, which stands in for GitHub.
 
 ### From source
 
