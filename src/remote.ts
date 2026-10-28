@@ -162,6 +162,7 @@ export const remoteSandbox = (o: {
       const before = (box: BoxEntry, c: Command, home?: SyncedDir) =>
         box.sync.withPermits(1)(
           Effect.gen(function* () {
+            if (c.tools) return yield* infra('remote sandboxes do not support host tools');
             yield* op(box, 'init', []);
             if (box.restarted) {
               delete box.restarted;

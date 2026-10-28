@@ -34,7 +34,7 @@ The runner on the host polls GitHub, or a local folder that stands in for it. It
 4. [Workflows](workflows.md): triggers, steps, retries and waiting for people
 5. [Running on GitHub](github.md)
 6. [Hosting](hosting.md): VPS, Kubernetes, AWS and Cloudflare
-7. [Extending agentgraph](extending.md): forges, harnesses, providers, graphs and planned plugins
+7. [Extending agentgraph](extending.md): forges, harnesses, providers, graphs and plugins
 
 Reference: [CLI](cli.md), [Proposals](proposals.md), [Sandbox and models](sandbox.md), [Runs and data](runs.md).
 
@@ -44,7 +44,7 @@ Working on agentgraph: [Engine and code](patterns.md), [Bench](bench.md).
 
 | Term | Meaning |
 | --- | --- |
-| **graph** | What a repo keeps in `.agentgraph/`: settings, agents, skills, checks, workflows and scripts |
+| **graph** | What a repo keeps in `.agentgraph/`: settings, agents, skills, checks, workflows, scripts and plugins |
 | **agent** | A role file: harness, model, tools, allowed proposals and its system prompt |
 | **skill** | Instructions a step hands to its agent |
 | **harness** | The program that runs a session: Claude Code, Codex, opencode or pi |

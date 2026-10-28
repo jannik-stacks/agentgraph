@@ -20,7 +20,10 @@ The package ships a starter example; the clone has [more example graphs](../READ
 
 ## Plugins, in progress
 
-The planned API loads files from the graph's `plugins/` folder. Each exports `makePlugin(...)` with only the parts it needs: tools agents can call, triggers that match events, actions that apply proposals, a forge, or a studio page. The runner chooses the forge; a graph cannot replace its own forge.
+[Tool plugins](plugins.md) load now from the graph's `plugins/` folder. Other plugin parts are planned.
+<!-- code: src/plugin.ts#readPlugins -->
+
+The planned API extends those files. Each exports `makePlugin(...)` with only the parts it needs: tools agents can call, triggers that match events, actions that apply proposals, a forge, or a studio page. The runner chooses the forge; a graph cannot replace its own forge.
 
 This example shows the planned shape. It does not run today:
 

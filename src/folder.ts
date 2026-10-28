@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
-import { Data, Effect, Either, ParseResult, Schema } from 'effect';
+import { Config, Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
@@ -360,6 +360,11 @@ export const loadGraph = (
           })
         )
       : undefined;
+    const remote =
+      registry &&
+      Object.values(parts.agents).some(agent => agent.tools.some(name => Object.hasOwn(registry.tools, name)))
+        ? yield* Effect.orDie(Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')))
+        : '';
     for (const agent of Object.values(parts.agents)) {
       const harness = harnesses.find(harness => harness.name === agent.harness);
       if (!harness) continue;
@@ -372,6 +377,8 @@ export const loadGraph = (
       }
       for (const message of harness.check?.({ ...agent, tools: checked }) ?? [])
         problems.push({ path: agent.path, message: `harness: ${harness.name} ${message}` });
+      if (remote && builtins.length !== agent.tools.length)
+        problems.push({ path: agent.path, message: 'tools: remote sandboxes do not support host tools' });
     }
     if (problems.length > 0 || !settings || !registry) return yield* new GraphError({ problems });
     const scripts = read.scripts.map(f => `${f.path}\0${f.text}`).join('\0');

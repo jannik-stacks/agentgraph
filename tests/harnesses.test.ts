@@ -410,6 +410,39 @@ describe('the session loop', () => {
     expect(JSON.stringify(got)).not.toContain(credential);
   });
 
+  it('hands the generated bearer to the sandbox and leaves successful host calls to the engine trace', async () => {
+    const endpoint = {
+      url: 'http://tools-session.internal:4321/session',
+      host: '127.0.0.1',
+      secret: 'engine-session-bearer',
+      tools: ['issues'],
+    };
+    const { exit, command } = await session(
+      { ...spec, mcp: endpoint },
+      [
+        JSON.stringify({ type: 'text', sessionID: 's', part: { type: 'text', text: endpoint.secret } }),
+        JSON.stringify({
+          type: 'tool_use',
+          sessionID: 's',
+          part: {
+            type: 'tool',
+            tool: 'tools_issues',
+            callID: 'c',
+            state: { status: 'completed', input: { query: 'cache' }, output: 'found' },
+          },
+        }),
+      ],
+      { passed: { AGENTGRAPH_TOOL_SECRET: Redacted.make('should-not-win') } }
+    );
+    expect(Redacted.value(command.secrets!.AGENTGRAPH_TOOL_SECRET!)).toBe(endpoint.secret);
+    expect(command.tools).toEqual({ url: endpoint.url, host: endpoint.host });
+    expect(JSON.stringify([command.args, command.env, exit])).not.toContain(endpoint.secret);
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(
+      Exit.match(exit, { onFailure: () => [], onSuccess: events => events.filter(event => event.type === 'tool') })
+    ).toEqual([]);
+  });
+
   it('masks the key wherever the harness prints it', async () => {
     const line = JSON.stringify({ type: 'text', sessionID: 's1', part: { type: 'text', text: `env has ${key}` } });
     const { events: got } = await events(spec, [line]);

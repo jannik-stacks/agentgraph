@@ -203,7 +203,11 @@ export const harnessSession = (
             const auth = s.providers?.find(provider => provider.name === s.provider)?.auth;
             const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: named, ...(auth && { auth }) };
             const key = keys[spec.agent] ?? keys['*'] ?? (route.url && 'none');
-            const secrets = { ...s.passed, ...(key && { [harness.key]: Redacted.make(key) }) };
+            const secrets = {
+              ...s.passed,
+              ...(spec.mcp && { AGENTGRAPH_TOOL_SECRET: Redacted.make(spec.mcp.secret) }),
+              ...(key && { [harness.key]: Redacted.make(key) }),
+            };
             const {
               home: { files = {}, links = {} },
               command: { cmd, args, env = {}, readonly, input },
@@ -282,7 +286,15 @@ export const harnessSession = (
                   return [];
                 }
                 if (piece.type === 'text') reply += piece.text;
-                if (piece.type === 'tool') reply = '';
+                if (piece.type === 'tool') {
+                  reply = '';
+                  if (
+                    piece.ok !== false &&
+                    !piece.denied &&
+                    spec.mcp?.tools.some(name => piece.name === `mcp__tools__${name}` || piece.name === `tools_${name}`)
+                  )
+                    return [];
+                }
                 if (piece.type === 'usage') return [priced(prices, [model, route.model], piece)];
                 return [piece];
               });
@@ -296,6 +308,7 @@ export const harnessSession = (
                 readonly: !!readonly || classes.every(value => value === 'read'),
                 env: { ...env, ...(spec.base && { AGENTGRAPH_BASE: spec.base }) },
                 secrets,
+                ...(spec.mcp && { tools: { url: spec.mcp.url, host: spec.mcp.host } }),
                 network: 'proxy',
                 minutes: spec.minutes,
               })

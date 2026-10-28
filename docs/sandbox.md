@@ -156,3 +156,5 @@ Code running as your user can still read these keys.
 The harness adapters accept an engine tool endpoint and allow only its named tools. They read its bearer from the reserved session variable `AGENTGRAPH_TOOL_SECRET`. Claude, Codex, OpenCode and Pi support Streamable HTTP. <!-- code: src/trace.ts#SessionSpec src/sandbox.ts#Command harnesses/claude.ts#claude harnesses/codex.ts#makeCodexHarness harnesses/opencode.ts#opencode harnesses/pi.ts#pi -->
 
 Session output and transcripts share credential redaction before storage. Known values and common credential patterns are hidden; this cannot detect every secret. <!-- code: src/context.ts#formatRedactedText src/harnesses.ts#harnessSession src/services.ts#settings -->
+
+Host tools use a session TCP relay on the sandbox's selected internal network. It forwards one port to a loopback listener on macOS or the egress bridge gateway on Linux. The listener checks the relay's source subnet. The relay holds no bearer token and is removed with the session. <!-- code: src/docker.ts#dockerSandbox src/sandbox.ts#Sandbox src/harnesses.ts#harnessSession -->

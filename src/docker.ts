@@ -4,7 +4,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
+import { Duration, Effect, Layer, Redacted, Schema, Stream } from 'effect';
+import { isIP } from 'node:net';
 import type { ForgeError } from './forge.ts';
 import type { Graph } from './folder.ts';
 import {
@@ -70,10 +71,11 @@ const user = () => {
 };
 
 /** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its graph and sandbox setup. */
-export type CheckoutContainerSpec = { mounts: Mount[]; sharedMounts?: SharedMount[]; direct?: string[] } & Pick<
-  Graph,
-  'image' | 'network'
->;
+export type CheckoutContainerSpec = {
+  mounts: Mount[];
+  sharedMounts?: SharedMount[];
+  direct?: string[];
+} & Pick<Graph, 'image' | 'network'>;
 
 const volume = (name: string, dst: string, nocopy = false, readonly = false) => {
   if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
@@ -150,8 +152,8 @@ export const dockerArgs = (
         HTTP_PROXY: egress,
         https_proxy: egress,
         http_proxy: egress,
-        NO_PROXY: bypass(direct),
-        no_proxy: bypass(direct),
+        NO_PROXY: bypass([...direct, ...(c.tools ? [new URL(c.tools.url).hostname] : [])]),
+        no_proxy: bypass([...direct, ...(c.tools ? [new URL(c.tools.url).hostname] : [])]),
       }),
     ...c.env,
     ...(c.graph && { AGENTGRAPH_DIR: inside.graph }),
@@ -376,11 +378,77 @@ export const dockerSandbox = (o: {
         )
       );
 
+      const tools = yield* Effect.cached(
+        process.platform === 'linux'
+          ? Effect.flatMap(
+              run('docker', ['network', 'inspect', '--format', '{{json .IPAM.Config}}', 'agentgraph-egress']),
+              text =>
+                Effect.try({
+                  try: () => {
+                    const routes = Schema.decodeUnknownSync(
+                      Schema.Array(Schema.Struct({ Gateway: Schema.String, Subnet: Schema.String }))
+                    )(JSON.parse(text));
+                    const route = routes.find(entry => isIP(entry.Gateway) === 4);
+                    if (!route) throw new Error('the egress network has no IPv4 host gateway');
+                    return { host: route.Gateway, subnet: route.Subnet };
+                  },
+                  catch: error => infra(String(error)),
+                })
+            )
+          : Effect.succeed({ host: '127.0.0.1', subnet: '127.0.0.0/8' })
+      );
+
       const prepare = (c: Command) =>
         Effect.gen(function* () {
           yield* roomy;
           const box = made.get(c.dir) ?? { mounts: [] };
           if (c.network === 'proxy') yield* ready(networks[box.network ?? 'egress']);
+          if (c.tools) {
+            const endpoint = yield* Effect.try({
+              try: () => new URL(c.tools!.url),
+              catch: error => infra(String(error)),
+            });
+            const relay = `agentgraph-tools-${randomBytes(6).toString('hex')}`;
+            yield* Effect.acquireRelease(Effect.succeed(relay), name =>
+              run('docker', ['rm', '-f', name]).pipe(Effect.orElseSucceed(() => ''))
+            );
+            yield* run('docker', [
+              'run',
+              ...unlogged,
+              '-d',
+              '--rm',
+              '--pull',
+              'never',
+              '--name',
+              relay,
+              '--network',
+              'agentgraph-egress',
+              '--add-host',
+              `host.docker.internal:${c.tools.host === '127.0.0.1' ? 'host-gateway' : c.tools.host}`,
+              '--read-only',
+              '--cap-drop',
+              'ALL',
+              '--security-opt',
+              'no-new-privileges:true',
+              '--memory',
+              '32m',
+              '--pids-limit',
+              '64',
+              '--entrypoint',
+              'socat',
+              'agentgraph-egress:local',
+              `TCP-LISTEN:${endpoint.port},fork,reuseaddr`,
+              `TCP:host.docker.internal:${endpoint.port}`,
+            ]).pipe(Effect.uninterruptible);
+            yield* run('docker', [
+              'network',
+              'connect',
+              '--alias',
+              endpoint.hostname,
+              networks[box.network ?? 'egress'],
+              relay,
+            ]);
+          }
           const name = `agentgraph-${randomBytes(6).toString('hex')}`;
           const args = yield* Effect.try({
             try: () => dockerArgs(c, box.image ?? image, name, { ...box, direct: o.direct ?? [] }, cache),
@@ -648,6 +716,6 @@ export const dockerSandbox = (o: {
           return work;
         });
 
-      return { checkout, exec, lines };
+      return { checkout, exec, lines, tools };
     })
   );

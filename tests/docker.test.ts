@@ -59,7 +59,7 @@ describe('docker with a stand-in docker client', () => {
       join(bin, 'docker'),
       [
         '#!/bin/sh',
-        `[ "$1" = network ] && { echo true; exit 0; }`,
+        `[ "$1" = network ] && { echo "$*" >> ${log}.network; case "$*" in *tools-fail.internal*) exit 4;; *IPAM.Config*) echo '[{"Gateway":"172.30.0.1","Subnet":"172.30.0.0/16"}]'; exit 0;; esac; echo true; exit 0; }`,
         `[ "$1" = rm ] && { sleep 0.2; echo "$*" >> ${log}.rm; exit 0; }`,
         `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
         `[ "$1 $2" = "volume inspect" ] && for a; do case $a in agentgraph-*) echo /m/$a;; esac; done`,
@@ -80,6 +80,120 @@ describe('docker with a stand-in docker client', () => {
 
   const layer = dockerSandbox({ data: tmp('data'), origin: '/nowhere', direct: ['gateway'] });
   const logged = () => readFileSync(log, 'utf8').split('\n');
+
+  it('routes custom tools to their relay hostname without proxying the bearer secret', () => {
+    const args = dockerArgs(
+      command('/work', {
+        network: 'proxy',
+        tools: { url: 'http://tools-session.internal:4321/session', host: '127.0.0.1' },
+        secrets: { AGENTGRAPH_TOOL_SECRET: Redacted.make('private-session-secret') },
+      }),
+      'image',
+      'name',
+      { mounts: [], direct: ['gateway'] }
+    );
+    expect(args).not.toContain('--add-host');
+    expect(args).toContain('NO_PROXY=gateway,tools-session.internal,localhost,127.0.0.1');
+    expect(args).toContain('AGENTGRAPH_TOOL_SECRET');
+    expect(args.join(' ')).not.toContain('private-session-secret');
+  });
+
+  it.each(['egress', 'models'] as const)(
+    'relays only the session tool port on the %s network and removes the relay',
+    async network => {
+      const before = existsSync(`${log}.all`) ? readFileSync(`${log}.all`, 'utf8').length : 0;
+      const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere', cache: '' }), s =>
+        Effect.gen(function* () {
+          const checkout = yield* s.checkout(undefined, undefined, undefined, { network });
+          return yield* s.exec(
+            command(checkout.dir, {
+              network: 'proxy',
+              tools: { url: 'http://tools-session.internal:4321/session', host: '127.0.0.1' },
+            })
+          );
+        })
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
+      const relay = readFileSync(`${log}.all`, 'utf8')
+        .slice(before)
+        .split('\n')
+        .find(line => line.includes('--entrypoint socat'))!;
+      const name = /--name (agentgraph-tools-[a-f0-9]+)/.exec(relay)![1]!;
+      expect(relay).toContain('--network agentgraph-egress --add-host host.docker.internal:host-gateway');
+      expect(relay).toContain(
+        '--read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 32m --pids-limit 64'
+      );
+      expect(relay).toContain(
+        '--entrypoint socat agentgraph-egress:local TCP-LISTEN:4321,fork,reuseaddr TCP:host.docker.internal:4321'
+      );
+      expect(relay).not.toMatch(/--publish|--privileged|AGENTGRAPH_TOOL_SECRET/);
+      expect(readFileSync(`${log}.network`, 'utf8')).toContain(
+        `network connect --alias tools-session.internal ${network === 'models' ? 'agentgraph-models' : 'agentgraph-sandbox'} ${name}`
+      );
+      expect(readFileSync(`${log}.rm`, 'utf8')).toContain(`rm -f ${name}\n`);
+    }
+  );
+
+  it.each([
+    ['timeout', 'tools-session.internal', ['-c', 'sleep'], false, true],
+    ['connection failure', 'tools-fail.internal', ['-c', 'echo hi'], false, true],
+    ['stream cancellation', 'tools-session.internal', ['-c', 'chatty'], true, false],
+  ] as const)('removes the tool relay after %s', async (_reason, host, args, streamed, isFailure) => {
+    const before = existsSync(`${log}.all`) ? readFileSync(`${log}.all`, 'utf8').length : 0;
+    const task = command(tmp('work'), {
+      network: 'proxy',
+      tools: { url: `http://${host}:4321/session`, host: '127.0.0.1' },
+      args: [...args],
+      minutes: 0.001,
+    });
+    const exit = await use(layer, s => (streamed ? Stream.runDrain(s.lines(task).pipe(Stream.take(1))) : s.exec(task)));
+    expect(Exit.isFailure(exit)).toBe(isFailure);
+    const relay = readFileSync(`${log}.all`, 'utf8')
+      .slice(before)
+      .split('\n')
+      .find(line => line.includes('--entrypoint socat'))!;
+    const name = /--name (agentgraph-tools-[a-f0-9]+)/.exec(relay)![1]!;
+    expect(readFileSync(`${log}.rm`, 'utf8')).toContain(`rm -f ${name}\n`);
+  });
+
+  it('reads the Linux egress gateway once and uses it only for the host tool relay', async () => {
+    const platform = process.platform;
+    const before = existsSync(`${log}.network`) ? readFileSync(`${log}.network`, 'utf8').length : 0;
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    try {
+      const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere', cache: '' }), s =>
+        Effect.gen(function* () {
+          const first = yield* s.tools!;
+          const second = yield* s.tools!;
+          yield* s.exec(
+            command(tmp('work'), {
+              network: 'proxy',
+              tools: { url: 'http://tools-linux.internal:4321/session', host: first.host },
+            })
+          );
+          return [first, second];
+        })
+      );
+      expect(exit).toEqual(
+        Exit.succeed([
+          { host: '172.30.0.1', subnet: '172.30.0.0/16' },
+          { host: '172.30.0.1', subnet: '172.30.0.0/16' },
+        ])
+      );
+      expect(
+        readFileSync(`${log}.network`, 'utf8')
+          .slice(before)
+          .match(/IPAM.Config/g)
+      ).toHaveLength(1);
+      const relay = readFileSync(`${log}.all`, 'utf8')
+        .split('\n')
+        .findLast(line => line.includes('--entrypoint socat'))!;
+      expect(relay).toContain('--add-host host.docker.internal:172.30.0.1');
+      expect(logged()).not.toContain('--add-host');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform });
+    }
+  });
 
   it('runs a hardened container with secrets by name and their values only in the client env', async () => {
     const dir = tmp('work');
