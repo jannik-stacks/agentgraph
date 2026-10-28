@@ -1,5 +1,6 @@
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -17,7 +18,7 @@ import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'ef
 import { describe, expect, it } from 'vitest';
 import { makeCodexHarness } from '../harnesses/codex.ts';
 import { loadGraph } from '../src/folder.ts';
-import { type Harness, harnessSession, readHarnessSettings } from '../src/harnesses.ts';
+import { type Harness, type Provider, harnessSession, readHarnessSettings } from '../src/harnesses.ts';
 import { getListPriceUsd, isModelPriced, readPrices } from '../src/prices.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -57,6 +58,7 @@ const session = (
     prices?: string;
     harnesses?: Harness[];
     provider?: string;
+    providers?: Provider[];
     proxy?: { url: string; keys: Redacted.Redacted; models?: string };
     passed?: Record<string, Redacted.Redacted>;
   } = {}
@@ -78,6 +80,7 @@ const session = (
     ...(o.prices && { prices: o.prices }),
     harnesses: o.harnesses ?? harnesses,
     provider: o.provider ?? 'litellm',
+    ...(o.providers && { providers: o.providers }),
   }).pipe(Layer.provide(sandbox));
   const run = Session.pipe(
     Effect.flatMap(({ open }) => Stream.runCollect(open(s))),
@@ -119,6 +122,65 @@ const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 const input = (c: Command) => readFileSync(join(c.home!, '.agentgraph', 'input'), 'utf8');
 
 describe('the session loop', () => {
+  it.each(['pi', 'codex', 'opencode'])('keeps %s native and proxy routes free of ChatGPT setup', async name => {
+    const direct = { url: '*=', keys: Redacted.make('') };
+    const native = await session({ ...spec, harness: name }, [], { proxy: direct });
+    expect(Exit.isSuccess(native.exit)).toBe(true);
+    expect(JSON.stringify(native.command)).not.toContain('AGENTGRAPH_CHATGPT_AUTH');
+    expect(harnessArgs(native.command)).not.toContain('openai/smart');
+    expect(() => lstatSync(join(native.command.home!, '.codex/auth.json'))).toThrow();
+    expect(() => lstatSync(join(native.command.home!, '.pi/agent/models.json'))).toThrow();
+    const providers = [{ name: 'litellm', harnesses: [name], ready: () => true, auth: 'chatgpt' }];
+    const proxied = await session({ ...spec, harness: name }, [], { providers });
+    expect(Exit.isSuccess(proxied.exit)).toBe(true);
+    expect(JSON.stringify(proxied.command)).not.toContain('AGENTGRAPH_CHATGPT_AUTH');
+  });
+
+  it.each(['pi', 'codex'])('refuses unsupported %s direct auth as a session stop', async name => {
+    const proxy = { url: '*=', keys: Redacted.make('') };
+    const providers = [{ name: 'litellm', harnesses: [name], ready: () => true, auth: 'custom-native' }];
+    const rejected = await session({ ...spec, harness: name }, [], { proxy, providers });
+    expect(Exit.isFailure(rejected.exit) && JSON.stringify(rejected.exit.cause)).toContain('SessionStop');
+    expect(rejected.command).toBeUndefined();
+  });
+
+  it('uses the configured native provider in opencode without changing qualified models', async () => {
+    const direct = { url: '*=', keys: Redacted.make('') };
+    const providers = [{ name: 'litellm', harnesses: ['opencode'], ready: () => true, auth: 'custom-native' }];
+    const open = await session(spec, [], { proxy: direct, providers });
+    expect(harnessArgs(open.command)).toContain('custom-native/smart');
+    const qualified = await session({ ...spec, model: 'other/model' }, [], { proxy: direct, providers });
+    expect(harnessArgs(qualified.command)).toContain('other/model');
+  });
+
+  it.each(['pi', 'opencode'])('leaves %s native default model to its own configuration', async name => {
+    const { model: _, ...bare } = spec;
+    const result = await session({ ...bare, harness: name }, [], { proxy: { url: '*=', keys: Redacted.make('') } });
+    expect(harnessArgs(result.command)).not.toContain('--model');
+  });
+
+  it.each([
+    ['pi', '.pi/agent/models.json'],
+    ['codex', '.codex/auth.json'],
+  ])('removes stale %s auth files on resume without following links outside the home', async (name, path) => {
+    const proxy = { url: '*=', keys: Redacted.make('') };
+    const victim = join(data, 'victim');
+    writeFileSync(victim, 'keep');
+    const home = makeHome();
+    mkdirSync(dirname(join(home, path)), { recursive: true });
+    symlinkSync(victim, join(home, path));
+    const result = await session({ ...spec, harness: name, resume: { id: 's', home } }, [], { proxy });
+    expect(Exit.isSuccess(result.exit)).toBe(true);
+    expect(() => lstatSync(join(home, path))).toThrow();
+    expect(readFileSync(victim, 'utf8')).toBe('keep');
+    const unsafe = makeHome();
+    symlinkSync(dirname(victim), join(unsafe, path.split('/')[0]!));
+    const rejected = await session({ ...spec, harness: name, resume: { id: 's', home: unsafe } }, [], { proxy });
+    expect(Exit.isFailure(rejected.exit)).toBe(true);
+    expect(rejected.command).toBeUndefined();
+    expect(readFileSync(victim, 'utf8')).toBe('keep');
+  });
+
   it('loads a custom harness and provider from a config module and uses their tool classifications', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'agentgraph-adapter-'));
     const file = join(dir, 'config.mjs');
@@ -128,10 +190,10 @@ describe('the session loop', () => {
       const harness = {
         name: 'custom', key: 'CUSTOM_KEY',
         classify: tool => ({ inspect: 'read', apply_patch: 'write' })[tool],
-        command: () => ({ cmd: 'custom', args: [], input: '', readonly: false }),
+        command: (_spec, route) => ({ cmd: 'custom', args: [], input: '', readonly: false, env: { CUSTOM_AUTH: route.auth ?? '' } }),
         parse: () => () => []
       };
-      export default { harnesses: [harness], providers: [{ name: 'custom-provider', harnesses: ['custom'], ready: () => true }] };
+      export default { harnesses: [harness], providers: [{ name: 'custom-provider', harnesses: ['custom'], ready: () => true, auth: 'custom-native' }] };
     `
     );
     const provider = ConfigProvider.fromMap(
@@ -142,6 +204,9 @@ describe('the session loop', () => {
     );
     const settings = await Effect.runPromise(readHarnessSettings.pipe(Effect.withConfigProvider(provider)));
     expect(settings.provider).toBe('custom-provider');
+    expect(
+      (await session({ ...spec, harness: 'custom', tools: ['inspect'] }, [], settings)).command.env.CUSTOM_AUTH
+    ).toBe('custom-native');
     expect(await settings.providers![0]!.ready({ image: 'image', sandbox: 'sandbox' })).toBe(true);
     mkdirSync(join(dir, 'agents'));
     mkdirSync(join(dir, 'workflows'));
@@ -737,6 +802,7 @@ describe('codex', () => {
     const auth = JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: token, refresh_token: '' } });
     const { exit, command } = await session(codex, [`leaked ${token}`], {
       proxy: { url: 'codex=', keys: Redacted.make('') },
+      providers: [{ name: 'litellm', harnesses: ['codex'], ready: () => true, auth: 'chatgpt' }],
       passed: { AGENTGRAPH_CHATGPT_AUTH: Redacted.make(auth) },
     });
     const [flag, script, ...args] = codexArgs(command);
@@ -751,13 +817,14 @@ describe('codex', () => {
 
   it('lets opencode and pi use the passed ChatGPT login without a gateway', async () => {
     const proxy = { url: '*=', keys: Redacted.make(''), models: 'smart=gpt-6.1-sol' };
-    const { command: open } = await session(spec, [], { proxy });
+    const providers = [{ name: 'litellm', harnesses: ['opencode', 'pi'], ready: () => true, auth: 'chatgpt' }];
+    const { command: open } = await session(spec, [], { proxy, providers });
     expect(harnessArgs(open)).toContain('openai/gpt-6.1-sol');
     const config = JSON.parse(open.env.OPENCODE_CONFIG_CONTENT!);
     expect(config.enabled_providers).toEqual(['openai']);
     expect(Object.keys(config.provider)).toEqual(['openai']);
     expect(open.secrets ?? {}).toEqual({});
-    const { command: pi } = await session({ ...spec, harness: 'pi' }, [], { proxy });
+    const { command: pi } = await session({ ...spec, harness: 'pi' }, [], { proxy, providers });
     const models = JSON.parse(readFileSync(join(pi.home!, '.pi/agent/models.json'), 'utf8'));
     expect(models.providers.agentgraph).toMatchObject({
       baseUrl: 'https://chatgpt.com/backend-api',

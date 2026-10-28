@@ -15,14 +15,14 @@ export type Piece =
   | Extract<SessionEvent, { type: 'text' | 'thinking' | 'tool' | 'usage' }>
   | { type: 'done'; ended: Extract<SessionEvent, { type: 'end' }>['ended']; error?: string };
 
-type ModelRoute = { url: string; model: string };
+type ModelRoute = { url: string; model: string; auth?: string };
 
 export type Harness = HarnessCheck & {
   key: string;
   home?: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
-  ) => { files?: Record<string, string>; links?: Record<string, string> };
+  ) => { files?: Record<string, string | null>; links?: Record<string, string> };
   command: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
@@ -33,6 +33,7 @@ export type Harness = HarnessCheck & {
 export type Provider = {
   name: string;
   harnesses: string[];
+  auth?: ModelRoute['auth'];
   ready: (host: { image: string; sandbox: string }) => boolean | Promise<boolean>;
   detect?: (host: Parameters<Provider['ready']>[0]) => boolean;
   setup?: string;
@@ -165,7 +166,7 @@ export const harnessSession = (
     proxy: { url: string; keys: Redacted.Redacted; models?: string };
     passed?: Record<string, Redacted.Redacted>;
     prices?: string;
-  } & Pick<HarnessSettings, 'harnesses' | 'provider'>
+  } & Pick<HarnessSettings, 'harnesses' | 'providers' | 'provider'>
 ): Layer.Layer<Session, never, Sandbox> =>
   Layer.effect(
     Session,
@@ -191,11 +192,17 @@ export const harnessSession = (
                 detail: `harness ${harness.name} cannot classify a tool`,
               });
             const named = (spec.model && models[spec.model]) ?? spec.model ?? models['*'] ?? 'default';
-            const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: named };
+            const auth = s.providers?.find(provider => provider.name === s.provider)?.auth;
+            const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: named, ...(auth && { auth }) };
             const key = keys[spec.agent] ?? keys['*'] ?? (route.url && 'none');
             const secrets = { ...s.passed, ...(key && { [harness.key]: Redacted.make(key) }) };
-            const { files = {}, links = {} } = harness.home?.(spec, route) ?? {};
-            const { cmd, args, env = {}, readonly, input } = harness.command(spec, route);
+            const {
+              home: { files = {}, links = {} },
+              command: { cmd, args, env = {}, readonly, input },
+            } = yield* Effect.try({
+              try: () => ({ home: harness.home?.(spec, route) ?? {}, command: harness.command(spec, route) }),
+              catch: e => new SessionStop({ reason: 'sandbox', detail: `harness ${harness.name}: ${String(e)}` }),
+            });
             const homes = join(s.data, 'homes');
             const from = spec.resume && join(homes, basename(spec.resume.home));
             const home = (!spec.fork && from) || join(homes, randomUUID());
@@ -207,7 +214,8 @@ export const harnessSession = (
                 if (spec.fork && from) await cp(from, home, { recursive: true, verbatimSymlinks: true });
                 await mkdir(home, { recursive: true });
                 for (const [path, text] of Object.entries({ ...files, [inputFile]: input }))
-                  await writeHome(home, path, text);
+                  if (text === null) await rm(await makeHomePath(home, path), { force: true });
+                  else await writeHome(home, path, text);
                 for (const [path, target] of Object.entries(links)) await linkHome(home, path, target);
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),

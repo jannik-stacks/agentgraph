@@ -43,20 +43,28 @@ export const pi = (): Harness => ({
           mcpServers: { agentgraph: { ...makeResultServer(spec.returns), exposure: 'direct' } },
         }),
       }),
-      '.pi/agent/models.json': JSON.stringify({
-        providers: {
-          agentgraph: {
-            ...(route.url
-              ? { baseUrl: route.url, api: 'openai-completions', apiKey: '$AGENTGRAPH_LLM_API_KEY' }
-              : { baseUrl: 'https://chatgpt.com/backend-api', api: 'openai-codex-responses', apiKey: chatgptToken }),
-            models: [{ id: route.model, contextWindow: 200_000, maxTokens: 32_000 }],
-          },
-        },
-      }),
+      '.pi/agent/models.json':
+        route.url || route.auth === 'chatgpt'
+          ? JSON.stringify({
+              providers: {
+                agentgraph: {
+                  ...(route.url
+                    ? { baseUrl: route.url, api: 'openai-completions', apiKey: '$AGENTGRAPH_LLM_API_KEY' }
+                    : {
+                        baseUrl: 'https://chatgpt.com/backend-api',
+                        api: 'openai-codex-responses',
+                        apiKey: chatgptToken,
+                      }),
+                  models: [{ id: route.model, contextWindow: 200_000, maxTokens: 32_000 }],
+                },
+              },
+            })
+          : null,
       '.pi/agent/settings.json': JSON.stringify({ httpIdleTimeoutMs: modelTimeouts.idleMs }),
     },
   }),
   command: (spec, route) => {
+    if (!route.url && route.auth && route.auth !== 'chatgpt') throw new Error(`unsupported pi auth ${route.auth}`);
     const tools = [...spec.tools, ...(spec.returns ? [resultTool] : [])];
     return {
       cmd: 'pi',
@@ -73,8 +81,9 @@ export const pi = (): Harness => ({
         '--no-prompt-templates',
         '--no-themes',
         ...(tools.length ? ['--tools', tools.join(',')] : ['--no-tools']),
-        '--model',
-        `agentgraph/${route.model}`,
+        ...(route.model === 'default' && !route.url && !route.auth
+          ? []
+          : ['--model', route.url || route.auth === 'chatgpt' ? `agentgraph/${route.model}` : route.model]),
         ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
         '--append-system-prompt',
         spec.system,

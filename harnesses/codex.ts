@@ -40,8 +40,12 @@ export const makeCodexHarness = (): Harness => ({
       .map(tool => `cannot limit a tool to a pattern such as ${tool}`),
     ...(writes(tools) && !isWriter(tools) ? ['can only grant edit, write and bash together'] : []),
   ],
-  home: (_spec, route) => (route.url ? {} : { links: { '.codex/auth.json': '/tmp/codex-auth.json' } }),
+  home: (_spec, route) =>
+    !route.url && route.auth === 'chatgpt'
+      ? { links: { '.codex/auth.json': '/tmp/codex-auth.json' } }
+      : { files: { '.codex/auth.json': null } },
   command: (spec, route) => {
+    if (!route.url && route.auth && route.auth !== 'chatgpt') throw new Error(`unsupported codex auth ${route.auth}`);
     const resume = !spec.fork && spec.resume;
     const server = spec.returns && makeResultServer(spec.returns);
     const command = {
@@ -72,9 +76,9 @@ export const makeCodexHarness = (): Harness => ({
     };
     const readonly = !isWriter(spec.tools);
     const input = resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`;
-    return route.url
-      ? { ...command, readonly, input }
-      : { cmd: 'sh', args: ['-c', writeAuth, 'sh', command.cmd, ...command.args], readonly, input };
+    return !route.url && route.auth === 'chatgpt'
+      ? { cmd: 'sh', args: ['-c', writeAuth, 'sh', command.cmd, ...command.args], readonly, input }
+      : { ...command, readonly, input };
   },
   parse: () => {
     let failed: string | undefined;

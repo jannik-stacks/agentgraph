@@ -95,8 +95,12 @@ A provider can give `setup` text for the CLI to show when none is ready or a sel
 ```ts
 { name: 'company', harnesses: ['opencode'], ready: () => !!process.env.COMPANY_KEY,
   setup: 'Export COMPANY_KEY to use the company provider.',
+  settings: () => ({ AGENTGRAPH_PROXY_URL: 'https://models.example.com/v1',
+    AGENTGRAPH_PROXY_KEYS: `*=${process.env.COMPANY_KEY}` }),
   whyLogin: () => 'Renew COMPANY_KEY and start again.' }
 ```
+
+A provider can set `auth` to a non-secret mode understood by its harness. The bundled ChatGPT provider sets `auth: chatgpt`, which Pi and Codex accept for direct access. OpenCode also accepts a native provider ID; Pi and Codex reject other direct modes. A proxy URL takes precedence over that mode. With neither a proxy nor an auth mode, a harness uses its native configuration in the isolated session home; it does not inherit the host login. A harness can return `null` for a home file to remove stale configuration on resume.
 
 Recovery runs only for the latest stop caused by a login failure and uses the provider recorded on that session. If the trace has no provider, the CLI gives no provider-specific advice. <!-- code: src/status.ts#findLoginProvider -->
 

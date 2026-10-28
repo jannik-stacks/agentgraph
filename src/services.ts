@@ -188,7 +188,7 @@ export const makeProductionLayers = () => {
           fileStore(s.data, s.checkLogs),
           harnessSession({
             ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
-            ...Struct.pick(config, 'harnesses', 'provider'),
+            ...Struct.pick(config, 'harnesses', 'providers', 'provider'),
           }).pipe(Layer.provideMerge(sandbox))
         )
       )

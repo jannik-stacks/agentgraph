@@ -66,7 +66,8 @@ export const opencode = (): Harness => ({
   }),
   command: (spec, route) => {
     const server = spec.returns && makeResultServer(spec.returns);
-    const provider = route.url ? 'agentgraph' : 'openai';
+    const provider = route.url ? 'agentgraph' : route.auth === 'chatgpt' ? 'openai' : route.auth;
+    const model = provider && (route.url || !route.model.includes('/')) ? `${provider}/${route.model}` : route.model;
     const timeouts = { headerTimeout: modelTimeouts.headersMs, chunkTimeout: modelTimeouts.idleMs };
     return {
       cmd: 'opencode',
@@ -78,8 +79,7 @@ export const opencode = (): Harness => ({
         'agentgraph',
         '--agent',
         'agentgraph',
-        '--model',
-        `${provider}/${route.model}`,
+        ...(route.model === 'default' && !route.url ? [] : ['--model', model]),
         ...(spec.resume ? ['--session', spec.resume.id, ...(spec.fork ? ['--fork'] : [])] : []),
       ],
       input: spec.prompt,
@@ -92,7 +92,7 @@ export const opencode = (): Harness => ({
           snapshot: false,
           compaction: { auto: false, prune: false },
           tool_output: { max_lines: 300, max_bytes: 16_384 },
-          enabled_providers: [provider],
+          ...(provider && { enabled_providers: [provider] }),
           provider: route.url
             ? {
                 agentgraph: {
@@ -106,7 +106,9 @@ export const opencode = (): Harness => ({
                   models: { [route.model]: {} },
                 },
               }
-            : { openai: { options: timeouts } },
+            : provider
+              ? { [provider]: { options: timeouts } }
+              : {},
           agent: { agentgraph: { mode: 'primary', prompt: spec.system } },
           ...(server && { mcp: { agentgraph: { type: 'local', command: [server.command, ...server.args] } } }),
         }),

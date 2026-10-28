@@ -124,6 +124,7 @@ const readFreshCodexAuth = async () => {
 
 const chatgpt: Provider = {
   name: 'chatgpt',
+  auth: 'chatgpt',
   harnesses: ['codex', 'opencode', 'pi'],
   setup: '--provider chatgpt: ChatGPT subscription, through codex login',
   ready: () => existsSync(codexAuth),
