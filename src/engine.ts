@@ -1098,11 +1098,14 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
           ...(item !== undefined && { AGENTGRAPH_ITEM: item }),
         };
         const out = check.run ? yield* sh(check.run, graph.dir, work.dir, env, minutes) : undefined;
-        if (out?.code === 127)
-          return yield* new SandboxError({
-            reason: 'infra',
-            detail: `${check.name}: command not found: ${squeeze(out.output, 400)}`,
-          });
+        if (out?.code === 127) {
+          const command = check.run?.match(/^[\t ]*([A-Za-z0-9_./][A-Za-z0-9_./-]*)(?:\s|$)/)?.[1];
+          if (command && (yield* sh(`command -v '${command}'`, graph.dir, work.dir, env, minutes)).code !== 0)
+            return yield* new SandboxError({
+              reason: 'infra',
+              detail: `${check.name}: command not found: ${squeeze(out.output, 400)}`,
+            });
+        }
         if (!check.agent) {
           const output = out?.output ?? '';
           const value = check.returns ? readScriptResult(output) : { pass: (out?.code ?? 0) === 0, why: output };

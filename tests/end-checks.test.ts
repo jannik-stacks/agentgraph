@@ -122,6 +122,25 @@ describe('a check result', () => {
     expect(by.exited).toMatchObject({ pass: false, value: { n: 3 }, findings: 'exit 1' });
   });
 
+  it.each([
+    ['npm test', 'not-installed-tool'],
+    ["sh -c 'not-installed-tool'", 'not-installed-tool'],
+    ['exit 127', 'exit 127'],
+    ['(not-installed-tool)', 'not-installed-tool'],
+  ])('records exit 127 from %s as a failed check with its output', async (script, output) => {
+    const where = world();
+    const work = left(where);
+    writeFileSync(join(work.dir, 'package.json'), JSON.stringify({ scripts: { test: 'not-installed-tool' } }));
+    const h = ending({ tests: { mode: 'block', run: script } });
+    const { run } = services(where, []);
+    const { outcome } = await run(runStepChecks(implement('tests'), work, h));
+    expect(outcome).toMatchObject({
+      kind: 'failed',
+      checks: [{ check: 'tests', pass: false, findings: expect.stringContaining(output) }],
+    });
+    expect(readChecks(where.data, 'run-7')[0]).toMatchObject({ exit: 127 });
+  });
+
   it('passes when it matches pass, so a threshold fails a valid result', async () => {
     const where = world();
     const cheap = { properties: { n: { maximum: 2 } } };
