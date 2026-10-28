@@ -17,6 +17,7 @@ import {
 import { Forge, ForgeError, currentRunLinkRef, withheld } from './forge.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
+import { RunMeta, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
@@ -399,7 +400,7 @@ const dispatch = (
   graph: Graph,
   run: Pick<Run, 'id'>,
   p: Extract<Proposal, { kind: 'run' }>,
-  seed?: Pick<Run, 'onto' | 'feedback' | 'said'>
+  seed?: Pick<Run, 'onto' | 'feedback' | 'said' | 'meta'>
 ) =>
   Effect.gen(function* () {
     const at = now();
@@ -454,9 +455,13 @@ export type Instruction =
 /** CLI instructions use the event handling and dispatch checks of router proposals. */
 export const instruct = (
   graph: Graph,
-  instruction: Instruction
+  instruction: Instruction,
+  meta?: Run['meta']
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
+    const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(RunMeta))(meta).pipe(
+      Effect.mapError(error => new ForgeError({ message: String(error) }))
+    );
     if (instruction.kind === 'check') {
       const { checks, kind: _kind, ...where } = instruction;
       const unknown = checks.filter(name => !(name in graph.checks));
@@ -471,10 +476,18 @@ export const instruct = (
       const { text, ...p } = { ...instruction, kind: 'run' as const };
       const refused = yield* undispatchable(graph, { id: 'cli' }, [p], true);
       if (refused.length) return yield* new ForgeError({ message: refused[0]!.reason! });
-      const child = yield* dispatch(graph, { id: 'cli' }, p, text ? { said: [{ issue: p.issue }] } : undefined);
+      const child = yield* dispatch(graph, { id: 'cli' }, p, {
+        ...(text && { said: [{ issue: p.issue }] }),
+        ...(supplied && { meta: supplied }),
+      });
       if (text)
         yield* Effect.flatMap(Store, s =>
-          s.trace(child.id, { at: child.started, step: child.step, spoken: spokenByCli(p.issue, text, child.started) })
+          s.trace(child.id, {
+            at: child.started,
+            step: child.step,
+            spoken: spokenByCli(p.issue, text, child.started),
+            ...(supplied && { meta: supplied }),
+          })
         );
       return [child];
     }
@@ -501,8 +514,11 @@ export const instruct = (
       )
       .sort((a, b) => a.started.localeCompare(b.started))
       .at(-1);
-    if (target) yield* Effect.flatMap(Store, store => store.trace(target.id, { at, step: target.step, spoken: event }));
-    return yield* tick(graph, owner?.issue ?? issue.number, true).pipe(
+    if (target)
+      yield* Effect.flatMap(Store, store =>
+        store.trace(target.id, { at, step: target.step, spoken: event, ...(supplied && { meta: supplied }) })
+      );
+    return yield* tick(graph, owner?.issue ?? issue.number, true, 0, supplied).pipe(
       Effect.provideService(Forge, {
         ...forge,
         since: () => Stream.make(event),
@@ -572,6 +588,31 @@ const readRunEvents = (run: Run) =>
     )
   );
 
+const readContinuedRun = (run: Run, events: Event[]) =>
+  Effect.gen(function* () {
+    if (!events.some(event => event.source === 'cli')) return run;
+    const lines = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id)));
+    const accepted = lines
+      .flatMap(line =>
+        'spoken' in line &&
+        line.meta &&
+        events.some(
+          event =>
+            event.source === 'cli' &&
+            line.spoken.source === 'cli' &&
+            event.issue === line.spoken.issue &&
+            event.at === line.spoken.at &&
+            event.comment?.id === line.spoken.comment?.id &&
+            event.comment?.body === line.spoken.comment?.body
+        )
+          ? [{ meta: line.meta, at: line.spoken.at }]
+          : []
+      )
+      .toSorted((a, b) => a.at.localeCompare(b.at))
+      .at(-1);
+    return accepted ? { ...run, meta: makeContinuedMeta(run.meta, accepted.meta, accepted.at) } : run;
+  });
+
 /** The comment workflow whose agent may `tell`, which then hears every `/agent` on behalf of the other runs. */
 const router = (graph: Graph) =>
   Object.values(graph.workflows).find(
@@ -595,10 +636,10 @@ const told = (graph: Graph, w: Workflow, run: Run, t: IssueWithPull) =>
       .filter(m => m.at > since)
       .flatMap(m => {
         const o = getEventOutcome(w, run, { ...m, issue: run.issue });
-        return o ? [{ o, at: m.at }] : [];
+        return o ? [{ o, at: m.at, event: m }] : [];
       });
     const outcome = fold(said.map(s => s.o));
-    return outcome && { outcome, at: newest(...said.map(s => s.at))! };
+    return outcome && { outcome, at: newest(...said.map(s => s.at))!, events: said.map(s => s.event) };
   });
 
 /** A trusted person's comment, review or pushed commit; a bare stop, cancel or restart is a command, not feedback. */
@@ -1331,6 +1372,10 @@ const attempt = (
             watch(tried, seen)
           );
           spoke = r.id ?? spoke;
+          tried = yield* readContinuedRun(
+            tried,
+            [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.at > (run.seen ?? run.started))
+          );
           tried = {
             ...tried,
             ...(step.each === undefined &&
@@ -1357,13 +1402,14 @@ const attempt = (
           kept,
           item
         );
-        if (r.cut) return done(r.cut.outcome, { ...tried, seen: r.cut.at });
+        if (r.cut) return done(r.cut.outcome, yield* readContinuedRun({ ...tried, seen: r.cut.at }, r.cut.events));
         replies.push(r.final);
       }
       const session = step.each === undefined ? tried.sessions[step.name] : undefined;
       const now = session && Option.getOrUndefined(yield* Effect.option(readIssueWithPull(w, run)));
       const late = now ? yield* told(graph, w, tried, now) : undefined;
-      if (late && late.outcome.kind !== 'answer') return done(late.outcome, { ...tried, seen: late.at });
+      if (late && late.outcome.kind !== 'answer')
+        return done(late.outcome, yield* readContinuedRun({ ...tried, seen: late.at }, late.events));
       if (now && late && w.concurrency === 'steer') {
         const since = news(now, caught.seen);
         const r = yield* talk(
@@ -1371,9 +1417,9 @@ const attempt = (
           since.seen,
           session
         );
-        if (r.cut) return done(r.cut.outcome, { ...tried, seen: r.cut.at });
+        if (r.cut) return done(r.cut.outcome, yield* readContinuedRun({ ...tried, seen: r.cut.at }, r.cut.events));
         replies.splice(0, replies.length, r.final);
-        tried = { ...tried, seen: newest(tried.seen, late.at, lastHeard(now))! };
+        tried = yield* readContinuedRun({ ...tried, seen: newest(tried.seen, late.at, lastHeard(now))! }, late.events);
       }
     }
 
@@ -1471,7 +1517,8 @@ const attempt = (
           ),
           Effect.map(watch(tried, { at: tried.seen ?? run.started }), cut => ({ cut }))
         );
-    if ('cut' in checked) return done(checked.cut.outcome, { ...tried, seen: checked.cut.at });
+    if ('cut' in checked)
+      return done(checked.cut.outcome, yield* readContinuedRun({ ...tried, seen: checked.cut.at }, checked.cut.events));
     const { outcome: gated } = checked;
     if (gated.kind === 'failed' || (gated.kind === 'pass' && problems.length > 0))
       return done(
@@ -1923,7 +1970,11 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         }
         const t = !isRunDone(current) ? yield* Effect.option(readIssueWithPull(w, current)) : Option.none();
         const queued = Option.isSome(t) ? yield* told(graph, w, current, t.value) : undefined;
-        if (queued) yield* settle(queued.outcome, { ...transition(w, current, queued.outcome), seen: queued.at });
+        if (queued)
+          yield* settle(
+            queued.outcome,
+            yield* readContinuedRun({ ...transition(w, current, queued.outcome), seen: queued.at }, queued.events)
+          );
       }
       const files = made.written && (yield* Effect.promise(made.written));
       if (files !== undefined) yield* store.trace(run.id, { at: now(), step: current.step, cache: { files } });
@@ -2234,9 +2285,13 @@ export const tick = (
   graph: Graph,
   only?: number,
   marked = false,
-  debounce = 0
+  debounce = 0,
+  meta?: Run['meta']
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
+    const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(RunMeta))(meta).pipe(
+      Effect.mapError(error => new ForgeError({ message: String(error) }))
+    );
     const store = yield* Store;
     const forge = yield* Forge;
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
@@ -2299,7 +2354,8 @@ export const tick = (
               t.spoken.issue === spoken.issue &&
               t.spoken.comment?.body === spoken.comment?.body
           );
-          if (!recorded) yield* store.trace(run.id, { at: m.at, step: run.step, spoken });
+          if (!recorded)
+            yield* store.trace(run.id, { at: m.at, step: run.step, spoken, ...(supplied && { meta: supplied }) });
           return run;
         });
       if (m.kind !== 'comment' && m.kind !== 'label' && m.kind !== 'column') return Effect.succeed(run);
@@ -2375,9 +2431,10 @@ export const tick = (
         const w = graph.workflows[run.workflow];
         const tells = w ? yield* readRunEvents(run) : [];
         const spoken = Chunk.toArray(yield* Stream.runCollect(store.read(run.id))).flatMap(t =>
-          'spoken' in t ? [t.spoken] : []
+          'spoken' in t ? [t] : []
         );
         const pending = spoken
+          .map(t => t.spoken)
           .filter(
             m =>
               !events.some(
@@ -2462,10 +2519,13 @@ export const tick = (
           yield* store.put(asked.run);
           return;
         }
-        const moved = {
-          ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
-          seen: newest(...took.map(a => a.at))!,
-        };
+        const moved = yield* readContinuedRun(
+          {
+            ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
+            seen: newest(...took.map(a => a.at))!,
+          },
+          took.map(event => ({ ...event, issue: origin.get(event) ?? event.issue }))
+        );
         const kept =
           run.status === 'waiting' && run.reason && moved.status !== 'waiting' ? yield* past(run, moved) : moved;
         const next = kept.status === 'running' ? kept : yield* show(w, kept);
@@ -2513,6 +2573,7 @@ export const tick = (
         const step = w.steps.find(s => s.name === restart);
         const begun = {
           ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }, step),
+          ...(supplied && { meta: supplied }),
           ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
@@ -2682,7 +2743,8 @@ export const tick = (
  */
 export const scanIssuesAndRunningRuns = (
   graph: Graph,
-  debounce = 0
+  debounce = 0,
+  meta?: Run['meta']
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
@@ -2707,7 +2769,7 @@ export const scanIssuesAndRunningRuns = (
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
     const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
     const look = (n: number) =>
-      tick(graph, n, true, debounce).pipe(
+      tick(graph, n, true, debounce, meta).pipe(
         Effect.provideService(Forge, {
           ...forge,
           issues: filter =>

@@ -26,6 +26,8 @@ describe('run metadata', () => {
     { bench: new Date() },
     { bench: cyclic },
     { bench: accessor },
+    { bench: Object.defineProperty({}, 'toJSON', { value: () => 'unexpected' }) },
+    { bench: Object.assign(Array(1), { extra: true }) },
     { bench: { [Symbol('key')]: 1 } },
     { bench: Array(1) },
     { 'bad-owner': {} },

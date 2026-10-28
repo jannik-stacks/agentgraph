@@ -107,6 +107,7 @@ export const start = (
     issue: number | 'all';
     data: string;
     instruction?: Instruction;
+    meta?: Run['meta'];
     marked?: true;
     base?: string;
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
@@ -142,10 +143,10 @@ export const start = (
         yield* warnTemporary(one.data);
         return yield* provided(
           one.instruction
-            ? instruct(graph, one.instruction)
+            ? instruct(graph, one.instruction, one.meta)
             : one.issue === 'all'
-              ? scanIssuesAndRunningRuns(graph)
-              : tick(graph, one.issue, one.marked)
+              ? scanIssuesAndRunningRuns(graph, 0, one.meta)
+              : tick(graph, one.issue, one.marked, 0, one.meta)
         ).pipe(choose(provider));
       })
     : Effect.gen(function* () {

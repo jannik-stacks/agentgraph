@@ -106,6 +106,69 @@ describe('tick', () => {
     if (source === 'cli') expect(readTrace(where.data, 'run-7').filter(t => 'spoken' in t)).toHaveLength(1);
   });
 
+  it('persists caller metadata on dispatch and ordinary tick starts before the first trace', async () => {
+    const where = world();
+    const meta = { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: null } } };
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    const [begun] = await run(instruct(small, { kind: 'dispatch', workflow: 'issue', issue: 7 }, meta));
+    expect(readTrace(where.data, begun!.id)[0]).toMatchObject({ saved: { meta } });
+    const other = world();
+    const direct = services(other, [[start('b'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    const [ticked] = await direct.run(tick(small, 7, false, 0, meta));
+    expect(readTrace(other.data, ticked!.id)[0]).toMatchObject({ saved: { meta } });
+  });
+
+  it.each(['waiting', 'running'] as const)('keeps pending input metadata until acceptance while %s', async status => {
+    const where = world();
+    const origin = { plugin: 'bench', version: 'v1', job: 'smoke', input: null };
+    const caller = { plugin: 'tune', version: 'v2', job: 'candidate', input: { answer: 1 } };
+    const at = '2026-10-17T00:00:00.000Z';
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Next?' })]]);
+    await run(
+      Effect.flatMap(Store, store =>
+        store.put({
+          ...begin(small.workflows.issue!, { id: 'run-7', issue: 7, started: fresh().started }),
+          status,
+          reason: 'Continue?',
+          meta: { engine: { origin } },
+        })
+      )
+    );
+    await run(
+      Effect.flatMap(Store, store =>
+        store.trace('run-7', {
+          at,
+          step: 'implement',
+          meta: { engine: { origin: caller }, tune: { candidate: 'next' } },
+          spoken: {
+            source: 'cli',
+            kind: 'comment',
+            issue: 7,
+            actor: 'cli',
+            trusted: true,
+            at,
+            comment: { id: '', author: 'cli', body: '/agent continue', agentRequest: 'continue', at },
+          },
+        })
+      )
+    );
+    const before = await run(Effect.flatMap(Store, store => store.get('run-7')));
+    expect(before!.meta).toEqual({ engine: { origin } });
+    await run(tick(small, 7));
+    const after = await run(Effect.flatMap(Store, store => store.get('run-7')));
+    expect(after!.meta).toEqual({ engine: { origin, continued: { ...caller, at } }, tune: { candidate: 'next' } });
+    expect(await run(tick(small, 7))).toEqual([]);
+  });
+
+  it('rejects invalid metadata before dispatch records anything', async () => {
+    const where = world();
+    const { run } = services(where, []);
+    await expect(
+      run(instruct(small, { kind: 'dispatch', workflow: 'issue', issue: 7 }, { bench: undefined } as never))
+    ).rejects.toThrow();
+    expect(await run(Effect.flatMap(Store, store => store.list()))).toEqual([]);
+  });
+
   it('begins a run from a trusted command, drives it, and begins again only on a new command', async () => {
     const where = world();
     const at = '2026-10-16T00:00:01.000Z';
@@ -972,7 +1035,7 @@ describe('start with one issue', () => {
       seen.push(s);
       return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), hostSandbox(where.origin), replaySession(turns));
     };
-    const one = { graph: sandbox, issue: 7, data: where.data };
+    const one = { graph: sandbox, issue: 7, data: where.data, meta: { bench: { case: 'greeting' } } };
     writeFileSync(join(where.forge, '7.jsonl'), '');
     say(where, {
       issue: 7,
@@ -985,6 +1048,7 @@ describe('start with one issue', () => {
     try {
       const parked = await main(one, doubles);
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
+      expect(parked[0]!.meta).toEqual(one.meta);
       expect(seen[0]).toMatchObject({
         repo: 'acme/sandbox',
         data: where.data,

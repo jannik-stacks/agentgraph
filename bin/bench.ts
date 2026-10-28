@@ -486,7 +486,25 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   let status: string | undefined;
   let reason: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
-    const [run] = await start({ graph, issue: 1, data: join(at, 'data') }, undefined, keys);
+    const [run] = await start(
+      {
+        graph,
+        issue: 1,
+        data: join(at, 'data'),
+        meta: {
+          engine: {
+            origin: {
+              plugin: 'bench',
+              version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
+              job: basename(dirname(dirname(at))),
+              input: { case: c.id, arm, repeat: options.repeat },
+            },
+          },
+        },
+      },
+      undefined,
+      keys
+    );
     status = run?.status;
     reason = run?.reason;
     if (!run || run.status === 'done' || run.status === 'stopped') break;

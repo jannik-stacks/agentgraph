@@ -88,6 +88,25 @@ describe('fileStore', () => {
     ]);
   });
 
+  it('accepts an unchanged origin when JSON object keys have another order', async () => {
+    const run = {
+      ...begin(w, { id: 'r1', issue: 3, started: 'now' }),
+      meta: {
+        engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: { a: 1, b: 2 } } },
+      },
+    };
+    const next = { ...run, meta: { engine: { origin: { ...run.meta.engine.origin, input: { b: 2, a: 1 } } } } };
+    const saved = await Effect.runPromise(
+      Effect.gen(function* () {
+        const store = yield* Store;
+        yield* store.put(run);
+        yield* store.put(next);
+        return yield* store.get(run.id);
+      }).pipe(Effect.provide(fileStore(temp())))
+    );
+    expect(saved?.meta).toEqual(next.meta);
+  });
+
   it('traces a put before it saves the run, and lists only runs that were saved', async () => {
     const dir = temp();
     const run = begin(w, { id: 'r1', issue: 3, started: '2026-10-16T00:00:00Z' });

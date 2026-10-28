@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';
 import { open, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
 import { createLock } from './owner.ts';
@@ -188,7 +188,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
         const before = yield* readRun(next.id);
         yield* io(runFile(next.id), async () => {
           if (next.meta !== undefined) Schema.decodeUnknownSync(RunMeta)(next.meta);
-          if (before && JSON.stringify(getRunOrigin(before.meta)) !== JSON.stringify(getRunOrigin(next.meta)))
+          if (before && !isDeepStrictEqual(getRunOrigin(before.meta), getRunOrigin(next.meta)))
             throw new Error('engine origin cannot change after run creation');
         });
         const { ended: _ended, ...open } = next;

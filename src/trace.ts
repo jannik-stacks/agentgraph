@@ -94,7 +94,7 @@ export type Trace = { at: string; step: string } & (
   | { applied: Applied }
   | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'>; failure?: SessionStop['reason'] }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
-  | { spoken: Event }
+  | ({ spoken: Event } & Pick<Run, 'meta'>)
   | { told: { text: string; by: string } }
 );
 

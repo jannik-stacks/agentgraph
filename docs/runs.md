@@ -89,6 +89,12 @@ Never put credentials or secrets here: metadata reaches the studio and traces. V
 shape and size, not secrecy. Owner names are conventions for trusted host code, not permissions.
 Issues and events have no metadata field.
 
+Programmatic `start({ graph, issue, data, meta })` tags new runs before their first save.
+`instruct(graph, instruction, meta)` also accepts metadata. A spoken trace keeps it while an input
+waits; only an accepted input updates the run's latest continuation. Origin stays unchanged.
+Ordinary polls and rejected inputs add no continuation. Bench replays use this same start path.
+<!-- code: src/main.ts#start src/engine.ts#instruct src/engine.ts#tick src/meta.ts#makeContinuedMeta -->
+
 ## The trace
 
 Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session share a `key`. <!-- code: src/trace.ts#Trace src/store.ts#fileStore -->
