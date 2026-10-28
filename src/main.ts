@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
-import { ConfigProvider, Effect, Exit, Layer, Scope } from 'effect';
+import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Runtime, Scope } from 'effect';
 import {
   instruct,
   issueDebounceMs,
@@ -16,7 +16,8 @@ import { makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './ha
 import { readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
 import { graphAt, makeProductionLayers, settings, type Settings } from './services.ts';
-import { fileStore, Store } from './store.ts';
+import { fileStore, Store, StoreError } from './store.ts';
+import { LockHeldError } from './owner.ts';
 import type { Run } from './workflow.ts';
 
 export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
@@ -77,13 +78,21 @@ const warnTemporary = (data: string) =>
 const configured = (env: Record<string, string>, extra: Record<string, string> = {}) =>
   ConfigProvider.fromMap(new Map(Object.entries({ ...env, ...extra })));
 
+const failLoopLock = (error: unknown): never => {
+  const failure = Runtime.isFiberFailure(error)
+    ? Cause.failureOption(error[Runtime.FiberFailureCauseId])
+    : Option.none();
+  const cause = Option.isSome(failure) && failure.value instanceof StoreError ? failure.value.cause : undefined;
+  throw cause instanceof LockHeldError ? cause : error;
+};
+
 export const createLoopLock = async (data: string) => {
   const scope = Effect.runSync(Scope.make());
   await Effect.runPromise(
     Effect.flatMap(Store, s => s.lock('loop')).pipe(Effect.provide(fileStore(data)), Scope.extend(scope))
   ).catch(async (e: unknown) => {
     await Effect.runPromise(Scope.close(scope, Exit.void));
-    throw e;
+    failLoopLock(e);
   });
   return () => Effect.runPromise(Scope.close(scope, Exit.void));
 };
@@ -168,5 +177,5 @@ export const start = (
         );
         return yield* Effect.forever(Effect.zipRight(pass, Effect.sleep(`${s.every} minutes`)));
       }).pipe(Effect.scoped);
-  return Effect.runPromise(program, { signal });
+  return Effect.runPromise(program, { signal }).catch(failLoopLock);
 };

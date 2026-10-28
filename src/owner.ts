@@ -59,6 +59,21 @@ const release = (path: string, holder: string) => async () => {
   if ((await readFile(path, 'utf8').catch(() => undefined)) === holder) await rm(path, { force: true });
 };
 const exists = (e: unknown) => (e as NodeJS.ErrnoException).code === 'EEXIST';
+
+export class LockHeldError extends Error {
+  readonly seconds: number;
+
+  constructor(holder: string, writtenAt: number) {
+    super(`held by ${holder || 'an initializing owner'}`);
+    let until = writtenAt + 120_000;
+    try {
+      const owner = holder.split(':')[1];
+      if (owner) until = statSync(join(heartbeats(), owner)).mtimeMs + 120_000;
+    } catch {}
+    this.seconds = Math.max(1, Math.ceil((until - Date.now()) / 1000));
+  }
+}
+
 const succeed = async (path: string, before: string, candidate: string) => {
   let claim = `${path}.${createHash('sha256').update(before).digest('hex')}.next`;
   for (;;) {
@@ -93,8 +108,9 @@ export const createLock = async (path: string) => {
         if (!exists(e)) throw e;
         const before = await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
         if (before === undefined) continue;
-        if (before ? isOwnerRunning(before) : Date.now() - (await stat(path)).mtimeMs < 120_000)
-          throw new Error(`held by ${before || 'an initializing owner'}`, { cause: e });
+        const writtenAt = before ? Date.now() : (await stat(path)).mtimeMs;
+        if (before ? isOwnerRunning(before) : Date.now() - writtenAt < 120_000)
+          throw new LockHeldError(before, writtenAt);
         if (await succeed(path, before, candidate)) return release(path, holder);
         break;
       }

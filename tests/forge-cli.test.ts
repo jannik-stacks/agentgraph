@@ -1,5 +1,15 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -912,6 +922,49 @@ const BAD_FLAGS = [
 ] as const;
 
 describe('the CLI flags', () => {
+  it.each(['forge', 'instance'])('prints the remaining heartbeat wait when a %s loop restarts', async kind => {
+    const w = world();
+    const root = join(w.root, 'loop-data');
+    const data = kind === 'forge' ? root : (await ensureInstance(root, w.seed)).data;
+    const state = join(w.root, 'state');
+    const heartbeat = join(state, 'owners', 'old-owner');
+    mkdirSync(join(state, 'owners'), { recursive: true });
+    writeFileSync(heartbeat, '');
+    const at = new Date(Date.now() - 45_000);
+    utimesSync(heartbeat, at, at);
+    mkdirSync(join(data, '.locks'), { recursive: true });
+    const dead = spawnSync(process.execPath, ['-e', ''], { env: { ...process.env, NODE_OPTIONS: '' } });
+    writeFileSync(join(data, '.locks', 'loop.lock'), `${dead.pid}:old-owner:lease`);
+    const ran = spawnSync(
+      process.execPath,
+      [
+        runTs,
+        'loop',
+        '--data',
+        root,
+        '--dir',
+        sandboxGraph,
+        ...(kind === 'forge' ? ['--forge', root] : ['--provider', 'litellm']),
+      ],
+      {
+        cwd: w.seed,
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '',
+          AGENTGRAPH_STATE: state,
+          AGENTGRAPH_FORGE: '',
+          AGENTGRAPH_APP_ENV: '',
+          AGENTGRAPH_PROXY_KEYS: 'implementor=test,reviewer=test',
+          AGENTGRAPH_SANDBOX_URL: 'http://unused.invalid',
+        },
+        encoding: 'utf8',
+        timeout: 10_000,
+      }
+    );
+    expect(ran.status, ran.stderr).toBe(1);
+    expect(ran.stderr).toMatch(/^another loop holds this data dir, try again in (?:6[5-9]|7[0-5]) seconds\n$/);
+  });
+
   it.each(BAD_FLAGS)('fails %o %o before it runs anything', (env, args, message) => {
     const root = tmp('cli-flags');
     dirs.push(root);

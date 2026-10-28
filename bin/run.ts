@@ -38,6 +38,7 @@ import {
   type Instance,
 } from '../src/instance.ts';
 import { createLoopLock, isLoopHeld, readEngineEnv, start, writeTriggeringIssue } from '../src/main.ts';
+import { LockHeldError } from '../src/owner.ts';
 import {
   findLoginProvider,
   findRunsWaitingOnPeople,
@@ -101,6 +102,11 @@ const [verb = '', ...rest] = positionals;
 const fail = (message: string, code = 2): never => {
   console.error(message);
   process.exit(code);
+};
+const failLoopLock = (error: unknown): never => {
+  if (error instanceof LockHeldError)
+    fail(`another loop holds this data dir, try again in ${error.seconds} seconds`, 1);
+  throw error;
 };
 if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
 const isIssueNumber = (k: number) => Number.isInteger(k) && k > 0;
@@ -305,7 +311,7 @@ async function runOnForge() {
           AGENTGRAPH_DIR: graph,
           AGENTGRAPH_REPO: (await Effect.runPromise(readConfiguredGraph(graph))).repo,
         });
-      await start(undefined, undefined, {}, undefined, refresh);
+      await start(undefined, undefined, {}, undefined, refresh).catch(failLoopLock);
       return;
     }
     case 'show': {
@@ -597,7 +603,7 @@ async function loop(i: Instance) {
   const uncommitted = await whyGraphUncommitted(i, first);
   if (uncommitted) console.error(uncommitted);
   const connection = await connect(i, first, 'Nothing was driven.');
-  const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
+  const release = await createLoopLock(i.data).catch(failLoopLock);
   trapInterrupt();
   try {
     while (!stopping.signal.aborted) {
