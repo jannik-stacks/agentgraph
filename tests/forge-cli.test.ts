@@ -31,6 +31,8 @@ import {
 } from '../src/instance.ts';
 import { formatIssueList, formatIssueTimeline } from '../src/status.ts';
 import { scanIssuesAndRunningRuns, tick, type Instruction, type Services } from '../src/engine.ts';
+import { stoppedByRunner } from '../src/context.ts';
+import { begin } from '../src/workflow.ts';
 import { loadGraph } from '../src/folder.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { createLoopLock, isLoopHeld, start as main, writeTriggeringIssue } from '../src/main.ts';
@@ -510,6 +512,46 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       .split('\n')
       .map(l => JSON.parse(l));
     expect(trace.filter(t => t.prompt).at(-1).prompt.prompt).toContain('Remember the original request');
+  });
+
+  it('queues parked runs through the CLI without posting on the forge', async () => {
+    const w = world();
+    await w.forge('init', w.seed);
+    await w.forge('issue', 'A task');
+    const data = join(w.root, 'data');
+    const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
+    const parked = {
+      ...begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: '2026-10-16T00:00:01.000Z' }),
+      status: 'waiting' as const,
+      retried: true as const,
+      reason: `${stoppedByRunner} (SandboxError). Reply to try triage again.`,
+    };
+    await Effect.runPromise(Effect.flatMap(Store, store => store.put(parked)).pipe(Effect.provide(fileStore(data))));
+    const before = await w.forge('show', '1');
+    const flags = ['--dir', sandboxGraph, '--data', data, '--forge', w.dir];
+    const resumed = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', ...flags], {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: '' },
+    });
+    expect(resumed.status, resumed.stderr).toBe(0);
+    expect(resumed.stdout).toContain('triage-1 triage running');
+    expect(await w.forge('show', '1')).toBe(before);
+    const stored = await Effect.runPromise(
+      Effect.flatMap(Store, store => store.get('triage-1')).pipe(Effect.provide(fileStore(data)))
+    );
+    expect(stored).toMatchObject({ status: 'running' });
+    const empty = spawnSync(process.execPath, [runTs, 'resume', '--parked', ...flags], {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: '' },
+    });
+    expect(empty.status, empty.stderr).toBe(0);
+    expect(empty.stdout).toContain('0 runs parked');
+    const invalid = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', '--parked', ...flags], {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: '' },
+    });
+    expect(invalid.status).not.toBe(0);
+    expect(invalid.stderr).toContain('usage: agi resume');
   });
 
   it('dispatches with the router checks through the CLI without an App', async () => {

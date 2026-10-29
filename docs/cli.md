@@ -22,8 +22,18 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | `loop` | Drives every open issue, then again when something changes or every `AGENTGRAPH_EVERY` minutes | yes |
 | `check` | Validates a graph without a model or container; prints each problem or `ok` | yes |
 | `check <name>... --runs` | Runs the named checks on ended runs; see [Checks](checks.md#end-checks) | yes |
+| `resume <run id>` or `resume --parked` | Queues one or all runs parked by a runner error for the next loop pass | yes |
 | `dispatch <n> ["<text>"]` | Starts any `--workflow` on issue n, with the text as what it was [asked](workflows.md#dispatch) | yes |
 | `prune-logs` | Counts [check logs](runs.md#check-logs) no trace names | yes |
+
+`resume` keeps the run ID, step, saved files, sessions and feedback. It clears the runner error and records a retry locally; it posts no comment. Human questions, cancelled runs and ended runs are excluded. A running `loop` picks it up on its next pass; `loop --once` makes one pass. Retros remain quiet when they run again. As a GitHub runner, use the same graph and runs folder as the loop:
+
+```sh
+agi resume --parked --forge github --dir <graph> --data <runs>
+agi resume <run-id> --forge github --dir <graph> --data <runs>
+```
+
+<!-- code: src/engine.ts#instruct -->
 
 Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-drives).
 
@@ -45,6 +55,7 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--workflow <name>` | `start`, `dispatch`, `check --runs` | Which workflow |
 | `--step <step>` | `dispatch` | The step to start at |
 | `--issue <n>` | `check --runs` | Only runs on this issue |
+| `--parked` | `resume` | Resume all runs waiting after a runner error |
 | `--runs` | `check` | Run checks on ended runs |
 | `--line <path>:<line>` | `say` | Comment on a line of the pull request |
 | `--as <branch>` | `export` | Write under another `agentgraph/` branch name |

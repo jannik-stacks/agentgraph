@@ -63,6 +63,7 @@ const usage = `usage: agi <verb> [flags]
   export <n> [--as <branch>] [--patch <file>]     writes issue n's branch into your repo again
   close <n>                                       closes issue n
   check [<check>... --runs [--issue <n>]]        validates the graph, or runs checks again on ended runs
+  resume <run id>|--parked                     queues runs parked by runner errors for the next loop pass
   dispatch <n> ["<text>"] --workflow <name>       starts any workflow on issue n, asked the text; --step <step> picks the step
   studio                                          starts the studio for this repo and prints its URL
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
@@ -88,6 +89,7 @@ const { values, positionals } = parseArgs({
     once: { type: 'boolean' },
     apply: { type: 'boolean' },
     runs: { type: 'boolean' },
+    parked: { type: 'boolean' },
     harness: { type: 'string' },
     provider: { type: 'string' },
     model: { type: 'string' },
@@ -127,6 +129,7 @@ if (!verbs.includes(verb)) fail(`no verb ${verb}\n${usage}`);
 const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
 const printRuns = (runs: Run[]) => {
+  if (verb === 'resume' && !runs.length) console.log('0 runs parked by runner errors');
   for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
 const formatRunnerErrors = async (data: string, runs: Run[]) => {
@@ -300,7 +303,7 @@ async function runOnForge() {
     fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the graph and its env');
   const folder = values.forge && values.forge !== 'github' ? resolve(values.forge) : undefined;
   if (folder) process.env.AGENTGRAPH_FORGE = folder;
-  const refresh = ['loop', 'check', 'dispatch'].includes(verb) ? await applyNamedProvider() : undefined;
+  const refresh = ['loop', 'check', 'dispatch', 'resume'].includes(verb) ? await applyNamedProvider() : undefined;
   const graph = values.dir && resolve(values.dir);
   const needGraph = () => graph ?? fail(`${verb} on a forge needs --dir`);
   switch (verb) {
@@ -330,6 +333,7 @@ async function runOnForge() {
       return;
     }
     case 'check':
+    case 'resume':
     case 'dispatch':
       return printRuns(await start({ graph: needGraph(), issue: 'all', data: root, instruction: instructed() }));
     case 'prune-logs':
@@ -340,6 +344,11 @@ async function runOnForge() {
 }
 
 function instructed(): Instruction {
+  if (verb === 'resume') {
+    if (values.parked && rest.length === 0) return { kind: 'resume', parked: true };
+    if (!values.parked && rest.length === 1) return { kind: 'resume', id: rest[0]! };
+    return fail('usage: agi resume <run id>|--parked');
+  }
   if (verb === 'dispatch') {
     if (!values.workflow) fail('dispatch takes --workflow <name>');
     return {
@@ -473,6 +482,7 @@ async function runOnInstance() {
       }
       return rest[0] ? showIssue(await getForge(), numbered(), i) : showAll(i, await getForge());
     case 'check':
+    case 'resume':
     case 'dispatch': {
       if (verb === 'check' && !values.runs) return checkGraph(await synced(), i);
       const graph = await synced();

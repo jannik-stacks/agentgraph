@@ -453,7 +453,11 @@ const spokenByCli = (issue: number, text: string, at: string, parent?: Comment):
 export type Instruction =
   | { kind: 'say'; issue: number; text: string; comment?: string }
   | ({ kind: 'dispatch'; text?: string } & Omit<Extract<Proposal, { kind: 'run' }>, 'kind'>)
-  | { kind: 'check'; checks: string[]; workflow?: string; issue?: number };
+  | { kind: 'check'; checks: string[]; workflow?: string; issue?: number }
+  | ({ kind: 'resume' } & (Pick<Run, 'id'> | { parked: true }));
+
+const isParked = (run: Run) =>
+  run.status === 'waiting' && run.retried === true && run.reason?.startsWith(stoppedByRunner) === true;
 
 /** CLI instructions use the event handling and dispatch checks of router proposals. */
 export const instruct = (
@@ -465,6 +469,34 @@ export const instruct = (
     const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
       Effect.mapError(() => new ForgeError({ message: 'invalid run metadata' }))
     );
+    if (instruction.kind === 'resume') {
+      const store = yield* Store;
+      const runs = yield* store.list();
+      const selected = 'id' in instruction ? runs.filter(r => r.id === instruction.id) : runs.filter(isParked);
+      if ('id' in instruction && !selected.length)
+        return yield* new ForgeError({ message: `no run ${instruction.id}` });
+      return yield* Effect.forEach(selected, before =>
+        Effect.gen(function* () {
+          yield* store.lock(before.id);
+          const run = yield* store.get(before.id);
+          if (!run || !isParked(run))
+            return yield* new ForgeError({ message: `run ${before.id} is not parked by a runner error` });
+          const workflow = graph.workflows[run.workflow];
+          if (!workflow?.steps.some(s => s.name === run.step))
+            return yield* new ForgeError({ message: `the graph has no step ${run.workflow}/${run.step}` });
+          const outcome = { kind: 'answer', text: '' } as const;
+          const next = transition(workflow, run, outcome);
+          yield* store.trace(run.id, {
+            at: now(),
+            step: run.step,
+            outcome,
+            run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
+          });
+          yield* store.put(next);
+          return next;
+        }).pipe(Effect.scoped)
+      );
+    }
     if (instruction.kind === 'check') {
       const { checks, kind: _kind, ...where } = instruction;
       const unknown = checks.filter(name => !(name in graph.checks));
