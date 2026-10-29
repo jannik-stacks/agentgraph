@@ -17,8 +17,6 @@ import { fakeDocker, harnesses, makeTestGraph, reply, start, wrote } from './fix
 import { git } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
-  foot,
-  replyHint,
   graph,
   w,
   world,
@@ -253,9 +251,7 @@ describe('drive', () => {
     const forge = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(bodies(forge)).toEqual([
       '/agent',
-      'Waiting for an answer to the question below, at review.\n\nPull request: ' +
-        join(where.forge, '8.md') +
-        `\n\n${foot(replyHint)}`,
+      expect.stringContaining('| issue / review | waiting for your answer below.'),
       'Brief: add hello.txt',
       'still not right',
     ]);
@@ -364,7 +360,6 @@ describe('drive', () => {
       ['pull_request', landed('implement', 'i1')],
       ['comment', at('review')],
       ['comment', at('implement', 'i1')],
-      ['comment', landed('implement', 'i1')],
       ['label', at('implement', 'i1')],
       ['comment', at('implement', 'i1')],
     ]);
@@ -438,7 +433,7 @@ describe('drive', () => {
     expect(specs).toHaveLength(3);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'agentgraph/7')).toThrow();
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
-    expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\n${foot('Cost: $0.25.')}`);
+    expect(bodies(issue)[1]).toContain(`| issue / implement | stopped: ${stopped.reason} | $0.25 |`);
     expect(issue.labels).toEqual(['agentgraph:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
@@ -577,7 +572,7 @@ describe('drive', () => {
     const parked = await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
     expect(parked).toMatchObject({
       status: 'waiting',
-      reason: `Stopped by a runner error (SandboxError): ${detail}\nThen reply to try triage again.`,
+      reason: 'Stopped by a runner error.',
     });
     expect(readTrace(where.data, 'run-7').filter(t => 'outcome' in t)).toHaveLength(1);
   });
@@ -587,9 +582,7 @@ describe('drive', () => {
     const { run } = services(where, []);
     const parked = await run(drive(w, { ...fresh(), feedback: 'fix the typo' }, graph));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', feedback: 'fix the typo' });
-    expect(parked.reason).toBe(
-      'Stopped by a runner error (SessionStop). The details are in the trace of run run-7. Reply to try triage again from where it was.'
-    );
+    expect(parked.reason).toBe('Stopped by a runner error.');
     const stops = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
     expect(stops).toContainEqual({ kind: 'ask', question: 'SessionStop: no scripted session left' });
     const sessions = readTrace(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));

@@ -282,7 +282,7 @@ describe('the human verbs on a forge folder', () => {
     );
     expect(runs.map(r => [r.workflow, r.step, r.status])).toEqual([['issue', 'merge', 'waiting']]);
     expect(await w.forge('show', '2')).toContain('+hello');
-    expect(await w.forge('show', '1')).toMatch(/, edited \S+ \S+ comment\nWaiting for a human at merge\./);
+    expect(await w.forge('show', '1')).toMatch(/, edited \S+ \S+ comment\nAgentgraph status: waiting for you/);
   });
 
   it('sends a pull request back with the line comments posted just before the review in its reason', async () => {
@@ -514,7 +514,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     expect(trace.filter(t => t.prompt).at(-1).prompt.prompt).toContain('Remember the original request');
   });
 
-  it('queues parked runs through the CLI without posting on the forge', async () => {
+  it('queues parked runs through the CLI and refreshes the sticky', async () => {
     const w = world();
     await w.forge('init', w.seed);
     await w.forge('issue', 'A task');
@@ -527,7 +527,6 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       reason: `${stoppedByRunner} (SandboxError). Reply to try triage again.`,
     };
     await Effect.runPromise(Effect.flatMap(Store, store => store.put(parked)).pipe(Effect.provide(fileStore(data))));
-    const before = await w.forge('show', '1');
     const flags = ['--dir', sandboxGraph, '--data', data, '--forge', w.dir];
     const resumed = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', ...flags], {
       encoding: 'utf8',
@@ -535,7 +534,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     });
     expect(resumed.status, resumed.stderr).toBe(0);
     expect(resumed.stdout).toContain('triage-1 triage running');
-    expect(await w.forge('show', '1')).toBe(before);
+    expect(await w.forge('show', '1')).toContain('Agentgraph status: working');
     const stored = await Effect.runPromise(
       Effect.flatMap(Store, store => store.get('triage-1')).pipe(Effect.provide(fileStore(data)))
     );

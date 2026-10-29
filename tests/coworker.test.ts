@@ -16,7 +16,6 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import {
-  foot,
   replyHint,
   world,
   push,
@@ -110,7 +109,9 @@ describe('stacks', () => {
     expect(specs[0]!.prompt).toContain('pull requests go into agentgraph/7.');
     const pr = pr10(where);
     expect(pr.pull).toMatchObject({ branch: 'agentgraph/9', base: 'agentgraph/7' });
-    expect(pr.body).toMatch(/\n\nCloses #9\n\nStacks on #8\n\n<!-- agentgraph run=run-9 [^\n]*-->\n?$/);
+    expect(pr.body).toMatch(
+      /\n\nCloses #9\n\nStacks on #8\n\n<details><summary>⁂<\/summary>\n\n<\/details>\n<!-- agentgraph run=run-9 [^\n]*-->\n?$/
+    );
     expect(pr.diff).toContain('bye.txt');
     expect(pr.diff).not.toContain('hello.txt');
     expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(head);
@@ -223,7 +224,7 @@ describe('stacks', () => {
     expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9^')).toBe(moved);
-    expect(readFileSync(join(where.forge, '9.jsonl'), 'utf8').split('could not follow')).toHaveLength(2);
+    expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(9)))).join('\n')).not.toContain('could not follow');
   });
 
   it('says on the issue when the branch does not rebase cleanly and leaves it where it was', async () => {
@@ -542,20 +543,16 @@ describe('coworker', () => {
     ]);
     const asked = await run(drive(flow, begun(), small));
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
-    const status = issue.events.find(m => m.comment?.body.startsWith('Waiting'))?.comment?.id;
+    const status = issue.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))?.comment?.id;
     expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: status });
     expect(issue.labels).toEqual(['agentgraph:waiting']);
-    expect(bodies(issue)).toEqual([
-      '/agent',
-      `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint)}`,
-      'Hello or hi?',
-    ]);
+    expect(bodies(issue)).toEqual(['/agent', expect.stringContaining('waiting for your answer below'), 'Hello or hi?']);
     const edits = readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit
         ? [t.applied.proposal.body]
         : []
     );
-    expect(edits).toEqual([expect.stringMatching(/^Waiting for an answer/)]);
+    expect(edits.at(-1)).toContain('waiting for your answer below');
   });
 
   it.each([false, true])('uses every check retry before asking a human (fixed: %s)', async fixed => {
@@ -587,8 +584,9 @@ describe('coworker', () => {
       expect(done.reason).toBe(
         'implement failed after 3 tries (checks: types).\n\ntypes: hello.txt:1: TODO remains\n\nHow should I proceed?'
       );
-      expect(issue).toContain(done.reason);
     }
+    expect(issue.filter(b => b === 'How should I proceed?')).toHaveLength(fixed ? 0 : 1);
+    expect(issue.filter(b => b.includes('implement failed after'))).toHaveLength(fixed ? 0 : 1);
     const outcomes = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome.kind] : []));
     expect(outcomes).toEqual(['failed', 'failed', fixed ? 'pass' : 'failed']);
   });
@@ -611,16 +609,41 @@ describe('coworker', () => {
     expect(specs[1]!.prompt).toMatch(/## The change on the branch\n\n````diff\n[\s\S]*\+hello\n````/);
   });
 
+  it('updates cost in the sticky between sessions while the run is working', async () => {
+    const where = world();
+    const { branch: _branch, ...base } = flow;
+    const unbranched = {
+      ...base,
+      steps: [
+        { name: 'implement', does: { agent: 'implementor' }, checks: [], tries: 1 },
+        { name: 'review', does: { agent: 'reviewer' }, checks: [], tries: 1 },
+      ],
+    };
+    const { run } = services(where, [
+      [start('a'), { type: 'usage', input: 1, output: 1, usd: 0.12 }, reply()],
+      [start('r'), { type: 'usage', input: 1, output: 1, usd: 0.22 }, reply()],
+    ]);
+    await run(drive(unbranched, begun(), { ...small, workflows: { issue: unbranched } }));
+    const updates = readTrace(where.data, 'run-7').flatMap(t =>
+      'applied' in t && t.applied.proposal.kind === 'comment' ? [t.applied.proposal.body] : []
+    );
+    expect(updates).toEqual([
+      expect.stringContaining('| issue / implement | working | $0.00 |'),
+      expect.stringContaining('| issue / review | working | $0.12 |'),
+      expect.stringContaining('| issue / review | done | $0.34 |'),
+    ]);
+  });
+
   it('tells a waiting run how to be answered in its status footer, and posts the question itself plain', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     await run(drive(flow, begun(), small));
     const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
-    expect(issue.filter(b => b.includes('Hello or hi?'))).toEqual(['Hello or hi?']);
+    expect(issue.filter(b => b === 'Hello or hi?')).toEqual(['Hello or hi?']);
     expect(issue.filter(b => b.includes(replyHint))).toHaveLength(1);
   });
 
-  it('moves the status below an answered question, so it never sits above a question already answered', async () => {
+  it('edits the same sticky after an answered question', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     await run(drive(flow, begun(), small));
@@ -628,10 +651,9 @@ describe('coworker', () => {
     await services(where, [[start('a'), reply({ kind: 'ask', question: 'Hi with a dot?' })]]).run(tick(small, 7));
     expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))).toEqual([
       '/agent',
-      'Asked the question below at implement.',
+      expect.stringContaining('waiting for your answer below'),
       'Hello or hi?',
       '/agent hi',
-      `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint)}`,
       'Hi with a dot?',
     ]);
   });
@@ -781,7 +803,12 @@ describe('compound engineering', () => {
     );
 
     expect(commands.map(c => c.args.join(' ')).join('\n')).not.toContain('setup-ran');
-    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8').trim().split('\n')).toHaveLength(5);
+    const sticky = bodies(await run(Effect.flatMap(Forge, f => f.issue(7)))).filter(b =>
+      b.startsWith('Agentgraph status: ')
+    );
+    expect(sticky).toHaveLength(1);
+    expect(sticky[0]).toContain('| issue / implement | done |');
+    expect(sticky[0]).toContain('| retro / implement | done |');
     expect(readFileSync(join(where.forge, '7.md'), 'utf8')).toContain('labels: []');
     expect(await run(tick(looking))).toEqual([]);
     say(where, pushed(7, '2026-10-16T00:00:08.000Z'));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { proposeStatusUpdates, type IssueWithPull } from '../src/context.ts';
-import type { Issue } from '../src/event.ts';
+import { type Issue } from '../src/event.ts';
 import type { Run } from '../src/workflow.ts';
 
 const run: Run = {
@@ -55,7 +55,7 @@ describe('the status comment', () => {
   it('links the run in the studio, where tries, rounds and cost so far show', () => {
     const body = proposeStatusUpdates(run, holding(''), 'http://studio:5492/').find(p => p.kind === 'comment');
     expect(body).toMatchObject({
-      body: expect.stringContaining('[Progress in the studio](http://studio:5492/runs/issue-7)'),
+      body: expect.stringContaining('[Open](http://studio:5492/runs/issue-7)'),
     });
     const t = holding((body as { body: string }).body);
     expect(proposeStatusUpdates({ ...run, tries: 2 }, t, 'http://studio:5492/')).toEqual([]);
@@ -75,14 +75,39 @@ describe('the status comment', () => {
       url: 'https://github.com/o/r/pull/8',
       pull: { branch: 'b', base: 'main', head: 'h' },
     };
-    expect(getCommentBody({ ...run, step: 'review' }, t)).toBe('Working on review.');
-    expect(getCommentBody({ ...run, status: 'waiting', reason: 'Which one?' }, t)).toMatch(/^Waiting for an answer/);
+    expect(getCommentBody({ ...run, step: 'review' }, t)).toContain('| issue / review | working |');
+    expect(getCommentBody({ ...run, status: 'waiting', reason: 'Which one?' }, t)).toContain(
+      'waiting for your answer below'
+    );
     expect(
       getCommentBody({ ...run, status: 'waiting', reason: 'Stopped by a runner error (SessionStop).' }, t)
-    ).toMatch(/^Stopped by a runner error at implement\./);
-    expect(getCommentBody(run, holding(getCommentBody(run)!, pr))).toContain(`Pull request: ${pr.url}`);
-    expect(getCommentBody({ ...run, status: 'done' }, t)).toMatch(/^Done\./);
+    ).toContain('paused on an agentgraph problem, not this change; reply `/agent` to retry');
+    expect(getCommentBody(run, holding(getCommentBody(run)!, pr))).toContain(pr.url);
+    expect(getCommentBody({ ...run, status: 'done' }, t)).toContain('Agentgraph status: done');
     const done = proposeStatusUpdates({ ...run, status: 'done' }, t, undefined, 2).find(p => p.kind === 'comment');
-    expect(done?.kind === 'comment' && done.body).toMatch(/Cost: \$2\.00\./);
+    expect(done?.kind === 'comment' && done.body).toContain('$2.00');
+  });
+  it('edits the shared sticky when running cost changes', () => {
+    const first = proposeStatusUpdates(run, holding(''), undefined, 0.12).find(p => p.kind === 'comment')!;
+    const next = proposeStatusUpdates(run, holding(first.body), undefined, 0.34).find(p => p.kind === 'comment');
+    expect(next).toMatchObject({ edit: 'c1', body: expect.stringContaining('$0.34') });
+  });
+
+  it('keeps the per-run table inside the common footer', () => {
+    const body = getCommentBody(run)!;
+    expect(body.split('\n\n')[0]).toBe('Agentgraph status: working');
+    expect(body).toMatch(/<details><summary>⁂<\/summary>\n\n\| Workflow \/ step \|[\s\S]*<\/details>$/);
+  });
+  it('shows the latest failing checks with the pull request inside the table', () => {
+    const t = holding('', { ...issue, number: 8, url: 'https://github.com/o/r/pull/8' });
+    t.pull!.events = ['failure', 'success', 'timed_out'].map((conclusion, i) => ({
+      issue: 8,
+      kind: 'check',
+      actor: 'ci',
+      trusted: false,
+      at: String(i),
+      check: { name: i < 2 ? 'types' : 'tests', conclusion },
+    }));
+    expect(getCommentBody(run, t)).toContain('| https://github.com/o/r/pull/8 | tests |');
   });
 });

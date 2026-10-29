@@ -765,8 +765,8 @@ describe('tick', () => {
       await run(tick(kit, 7));
       expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.seen).not.toBe(at);
       await run(tick(kit, 7));
-      expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.seen).toBe(at);
-      expect(readFileSync(join(where.forge, `${kind === 'no-pull' ? 7 : 8}.jsonl`), 'utf8')).toContain(
+      expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.reason).toBe('Stopped by a runner error.');
+      expect(readFileSync(join(where.forge, `${kind === 'no-pull' ? 7 : 8}.jsonl`), 'utf8')).not.toContain(
         'Could not answer'
       );
     }
@@ -800,7 +800,7 @@ describe('tick', () => {
     );
   });
 
-  it('retries an aside that errors once, then answers the human with a short comment and moves on', async () => {
+  it('retries an aside once, then pauses in the sticky without a separate reply', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
@@ -814,12 +814,22 @@ describe('tick', () => {
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
     await run(tick(merging, 7));
     const second = await stored();
-    expect(second).toMatchObject({ step: 'merge', status: 'waiting', seen: '2026-10-16T00:00:05.000Z' });
-    expect(second.retried).toBeUndefined();
+    expect(second).toMatchObject({
+      step: 'merge',
+      status: 'waiting',
+      reason: 'Stopped by a runner error.',
+      retried: true,
+    });
+    expect(second.seen).not.toBe('2026-10-16T00:00:05.000Z');
     expect(specs).toHaveLength(2);
-    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain(
-      'Could not answer: SessionStop. Reply again to retry.'
-    );
+    await run(tick(merging, 7));
+    expect(specs).toHaveLength(2);
+    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
+    const resumed = services(where, [[start('f'), reply({ kind: 'comment', body: 'For the example.' })]]);
+    await resumed.run(instruct(merging, { kind: 'resume', parked: true }));
+    await resumed.run(tick(merging, 7));
+    expect(resumed.specs).toHaveLength(1);
+    expect((await stored()).reason).toBeUndefined();
   });
 
   it.each([
@@ -1386,7 +1396,7 @@ describe('scanIssuesAndRunningRuns', () => {
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status, r.reason]).toSorted()).toEqual([
       [7, 'waiting', 'Which file?'],
-      [8, 'waiting', expect.stringMatching(/^Stopped by a runner error \(SandboxError\)/)],
+      [8, 'waiting', 'Stopped by a runner error.'],
     ]);
   });
 });

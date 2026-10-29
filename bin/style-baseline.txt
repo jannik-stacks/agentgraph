@@ -46,14 +46,14 @@ no-comment examples/agentgraph/scripts/transitions.mjs 4
 no-comment examples/agentgraph/scripts/triage-brief.mjs 8
 no-comment examples/agentgraph/scripts/unused-exports.mjs 5
 no-comment examples/bench/scripts/review.mjs 2
-no-comment src/context.ts 12
+no-comment src/context.ts 10
 no-comment src/disk.ts 14
 no-comment src/docker.ts 10
-no-comment src/engine.ts 70
+no-comment src/engine.ts 68
 no-comment src/env.ts 23
-no-comment src/event.ts 7
+no-comment src/event.ts 6
 no-comment src/folder.ts 18
-no-comment src/forge.ts 17
+no-comment src/forge.ts 16
 no-comment src/git.ts 3
 no-comment src/github.ts 20
 no-comment src/graph.ts 3
@@ -207,7 +207,6 @@ verb-first bin/tune.ts step
 verb-first bin/tune.ts tuneRows
 verb-first bin/tune.ts tunesOf
 verb-first src/context.ts context
-verb-first src/context.ts footer
 verb-first src/context.ts news
 verb-first src/context.ts transcript
 verb-first src/disk.ts collect

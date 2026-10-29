@@ -149,20 +149,22 @@ If `git patch-id` shows the same change, the wait step's `checks` run again, wit
 
 A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. A second conflict at the same base asks for a manual update. <!-- code: src/engine.ts#following -->
 
-A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the same branch, so give it the same `branch`. Like a retro it posts no status, hears no comments and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/engine.ts#catchUp src/workflow.ts#isQuiet -->
+A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the same branch, so give it the same `branch`. Like a retro it shares the issue’s sticky status, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/engine.ts#catchUp src/workflow.ts#isQuiet -->
 
 ## Status on the issue
 
-One status comment shows the step, an open question, the stop reason, the pull request, failing GitHub checks and the final cost, and links the studio when `AGENTGRAPH_STUDIO_URL` is set. One label shows `agentgraph:working`, `agentgraph:waiting`, `agentgraph:done` or `agentgraph:stopped`. <!-- code: src/context.ts#proposeStatusUpdates -->
+One sticky comment on the issue covers every run, including retros and conflict runs. Its visible line shows the current state. The collapsed ⁂ footer holds one table row per run: workflow, step, state, cost so far, pull request, failing checks and studio link when configured. Cost updates at the existing status update points. Every engine comment and PR body uses that footer, linked to the studio when configured and plain ⁂ otherwise, followed by its hidden marker.
+
+The sticky stays on the issue because the PR description already links there. Conflict notices and exhausted-check details stay in the sticky. Questions stay separate plain comments, with the shared ⁂ footer; the sticky says “waiting for your answer below”. Resuming edits the same sticky. One label shows `agentgraph:working`, `agentgraph:waiting`, `agentgraph:done` or `agentgraph:stopped`. <!-- code: src/context.ts#proposeStatusUpdates -->
 
 ## Order and limits
 
 `limits.parallel` caps issues driven at once and `limits.sessions` caps sessions, judges included. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/engine.ts#tick src/engine.ts#getSessionGate -->
 
-Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run with details in the trace. A missing image parks at once and says what to run. A key or login the provider rejects stops the run at once. Any reply retries. <!-- code: src/engine.ts#drive -->
+Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The sticky says “paused on an agentgraph problem, not this change; reply `/agent` to retry”. No separate runner error comment is posted, including for quiet runs. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs, and clears the pause in the sticky. <!-- code: src/engine.ts#drive -->
 
 ## Retros
 
 `on: feedback` starts a retro on trusted comments, change requests, approvals with a comment, and commits people push where a run worked, also after merge. A bare `/agent stop`, `cancel` or `restart` is not feedback. Feedback is batched after 30 seconds of quiet. <!-- code: src/engine.ts#feedback -->
 
-A retro never holds an issue or posts a status, skips setup, and stops where another workflow would wait. It ends with nothing, a [graph change](proposals.md#filing-issues) for a recurring miss, or a follow-up issue. <!-- code: src/workflow.ts#transition -->
+A retro never holds an issue, shares its sticky status without changing labels, skips setup, and stops where another workflow would wait. Its problems remain visible in the sticky and `show`. It ends with nothing, a [graph change](proposals.md#filing-issues) for a recurring miss, or a follow-up issue. <!-- code: src/workflow.ts#transition -->

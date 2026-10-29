@@ -1,4 +1,4 @@
-import { makeStudioRunUrl, removeRunLink, type Event, type Issue } from './event.ts';
+import { formatFooter, makeStudioRunUrl, removeRunLink, type Event, type Issue } from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { CheckEntry, Trace } from './trace.ts';
 import { formatFailedTryFeedback, type Run, type Seen } from './workflow.ts';
@@ -66,7 +66,7 @@ const bot = (m: Event) => m.actor.endsWith('[bot]');
 const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined ? m.comment.id : undefined);
 
 const status =
-  /^(Working on |Waiting for |Done\.$|Stopped at |Asked the question below at |Stopped by a runner error at )/;
+  /^(Agentgraph status: |Working on |Waiting for |Done\.$|Stopped at |Asked the question below at |Stopped by a runner error at )/;
 
 const isRunnerStatus = (m: Event) =>
   bot(m) && (m.kind === 'label' || m.kind === 'unlabel' || status.test(m.comment?.body.split('\n')[0] ?? ''));
@@ -114,50 +114,73 @@ const statuses: Record<Run['status'], string> = {
 };
 const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
 
-/** Housekeeping lines as a collapsed, small-print footer. */
-export const footer = (...lines: string[]): string =>
-  `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
-
 export const stoppedByRunner = 'Stopped by a runner error';
 
-export const answerWith = 'Answer with <code>/agent</code> and your reply, or <code>/agent stop</code> to end the run.';
+const answerWith = 'Reply `/agent` and your answer, or `/agent stop` to end the run.';
 
-/**
- * The labels and status comment for a run, as proposals; only what differs from the issue now. The comment holds what
- * a human acts on, so tries, rounds and cost so far never edit it; they show in the studio, linked when `studio` is set.
- */
-export function proposeStatusUpdates(run: Run, t: IssueWithPull, studio?: string, usd?: number): Proposal[] {
+export function proposeStatusUpdates(
+  run: Run,
+  t: IssueWithPull,
+  studio?: string,
+  usd = 0,
+  others: { run: Run; t: IssueWithPull; usd: number }[] = []
+): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
   const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
-  const pull = t.pull ?? (t.issue.pull ? t.issue : undefined);
-  const checks = new Map((pull?.events ?? []).flatMap(m => (m.check ? [[m.check.name, m.check.conclusion]] : [])));
-  const failing = [...checks].filter(([, c]) => failures.has(c)).map(([name]) => name);
-  const ended = run.status === 'done' || run.status === 'stopped';
-  const notes = [
-    ...(run.status === 'waiting' && run.reason ? [answerWith] : []),
-    ...(ended && usd !== undefined ? [`Cost: $${usd.toFixed(2)}.`] : []),
-  ];
-  const body = [
-    {
-      running: `Working on ${run.step}.`,
-      waiting: run.reason?.startsWith(stoppedByRunner)
-        ? `${stoppedByRunner} at ${run.step}. Reply to try again.`
-        : run.reason
-          ? `Waiting for an answer to the question below, at ${run.step}.`
-          : `Waiting for a human at ${run.step}.`,
-      done: 'Done.',
-      stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,
-    }[run.status],
-    pull && `Pull request: ${pull.url}`,
-    studio && `[Progress in the studio](${makeStudioRunUrl(studio, run.id)})`,
-    failing.length > 0 && `Failing checks: ${failing.join(', ')}`,
-    notes.length > 0 && footer(...notes),
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-  const now = run.comment && t.issue.events.find(m => m.comment?.id === run.comment)?.comment?.body;
-  const same = now !== undefined && removeRunLink(now) === body;
+  const rows = [...others, { run, t, usd }].toSorted((a, b) => a.run.started.localeCompare(b.run.started));
+  const states = rows.map(({ run }) =>
+    run.reason?.startsWith(stoppedByRunner)
+      ? 'paused on an agentgraph problem, not this change; reply `/agent` to retry'
+      : {
+          running: 'working',
+          waiting: rows.some(r => r.run.by === run.id && run.reason === `waiting on ${r.run.id}`)
+            ? 'working'
+            : run.reason
+              ? `waiting for your answer below. ${answerWith}`
+              : 'waiting for you',
+          done: 'done',
+          stopped: `stopped${run.reason ? `: ${run.reason}` : ''}`,
+        }[run.status]
+  );
+  const active =
+    states.find(s => s.startsWith('paused')) ??
+    states.find(s => s.startsWith('waiting')) ??
+    states.find(s => s === 'working') ??
+    rows.at(-1)!.run.status;
+  const table = [
+    '| Workflow / step | State | Cost | Pull request | Failing checks | Studio |',
+    '| --- | --- | --- | --- | --- | --- |',
+    ...rows.map(({ run, t, usd }, i) => {
+      const pull = t.pull ?? (t.issue.pull ? t.issue : rows.findLast(r => r.t.pull)?.t.pull);
+      const checks = new Map((pull?.events ?? []).flatMap(m => (m.check ? [[m.check.name, m.check.conclusion]] : [])));
+      const failing = [...checks].filter(([, c]) => failures.has(c)).map(([name]) => name);
+      return `| ${[
+        `${run.workflow} / ${run.step}`,
+        [
+          states[i]!,
+          run.status !== 'stopped' &&
+            run.reason &&
+            !run.reason.startsWith(stoppedByRunner) &&
+            (states[i] !== 'working' || run.status === 'running') &&
+            run.reason,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        `$${usd.toFixed(2)}`,
+        pull?.url ?? '',
+        failing.join(', '),
+        studio ? `[Open](${makeStudioRunUrl(studio, run.id)})` : '',
+      ]
+        .map(text => text.replaceAll('|', '&#124;').replaceAll('\n', ' '))
+        .join(' | ')} |`;
+    }),
+  ].join('\n');
+  const body = `Agentgraph status: ${active}\n\n${formatFooter(table)}`;
+  const comment =
+    t.issue.events.find(m => bot(m) && m.comment?.body.startsWith('Agentgraph status: '))?.comment ??
+    t.issue.events.find(m => m.comment && rows.some(r => r.run.comment === m.comment?.id))?.comment;
+  const same = comment !== undefined && removeRunLink(comment.body) === removeRunLink(body);
   return [
     ...(labels.includes(label) && stale.length === 0
       ? []
@@ -168,7 +191,7 @@ export function proposeStatusUpdates(run: Run, t: IssueWithPull, studio?: string
             ...(stale.length > 0 && { remove: stale }),
           },
         ]),
-    ...(same ? [] : [{ kind: 'comment' as const, body, ...(run.comment && { edit: run.comment }) }]),
+    ...(same ? [] : [{ kind: 'comment' as const, body, ...(comment && { edit: comment.id }) }]),
   ];
 }
 

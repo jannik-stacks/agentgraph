@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { Effect, FiberRef, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
 import { drive } from '../src/engine.ts';
-import { answerWith } from '../src/context.ts';
 import { fileForge, Forge, currentRunLinkRef } from '../src/forge.ts';
 import type { Event, RunLink } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -18,9 +17,7 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, result, seeded, start } from './fixtures.ts';
 import { git } from './kit.ts';
 
-export const foot = (...lines: string[]) =>
-  `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
-export const replyHint = answerWith;
+export const replyHint = 'Reply `/agent` and your answer, or `/agent stop` to end the run.';
 export const graph = makeTestGraph('kit', {
   types: { run: '! grep -q TODO hello.txt' },
   safety: { run: '! test -e secret.txt' },

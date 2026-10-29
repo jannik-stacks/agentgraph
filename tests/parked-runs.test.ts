@@ -3,11 +3,13 @@ import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { stoppedByRunner } from '../src/context.ts';
-import { drive, instruct } from '../src/engine.ts';
+import { drive, instruct, tick } from '../src/engine.ts';
+import { Forge } from '../src/forge.ts';
+import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
 import { Store } from '../src/store.ts';
 import { begin, type Run } from '../src/workflow.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
-import { services, world } from './world.ts';
+import { bodies, services, world } from './world.ts';
 
 const small = makeTestGraph('graph');
 const { branch: _branch, ...unbranched } = small.workflows.issue!;
@@ -28,10 +30,9 @@ const parked = (id: string): Run => ({
 
 describe('resume', () => {
   it.each(['id', 'parked'] as const)(
-    'queues a parked retro by %s and completes it without posting',
+    'clears a parked retro in the shared sticky by %s',
     async selection => {
       const where = world();
-      const before = readFileSync(join(where.forge, '7.jsonl'), 'utf8');
       const { run, marks, specs } = services(where, [[start('r'), reply()]]);
       const original = {
         ...parked('retro-7'),
@@ -48,9 +49,58 @@ describe('resume', () => {
       expect((await run(drive(flow, resumed[0]!, graph))).status).toBe('done');
       expect(specs).toHaveLength(1);
       expect(specs[0]!.resume).toEqual(original.sessions.implement);
-      expect(marks).toEqual([]);
-      expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toBe(before);
-    }
+      expect(marks.map(([kind]) => kind)).toEqual(['comment', 'comment']);
+      const comments = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
+      expect(comments.filter(b => b.startsWith('Agentgraph status: '))).toEqual([
+        expect.stringContaining('| retro / implement | done |'),
+      ]);
+      expect(comments.join('\n')).not.toContain('paused');
+      expect(readFileSync(join(where.forge, '7.md'), 'utf8')).toContain('labels: []');
+    },
+    60_000
+  );
+
+  it.each(['cli', 'reply'] as const)(
+    'shows a retro problem only in the shared sticky and clears it by %s',
+    async via => {
+      const where = world();
+      const { run } = services(where, []);
+      const parentFlow = { ...flow, name: 'issue', on: { issue_comment: {} } };
+      const combined = { ...graph, workflows: { ...graph.workflows, issue: parentFlow } };
+      const parent = await services(where, [[start('i'), reply()]]).run(
+        drive(parentFlow, begin(parentFlow, { id: 'issue-7', issue: 7, started: '2026-10-16T00:00:00.000Z' }), combined)
+      );
+      const { reason: _reason, ...working } = parked('retro-7');
+      const paused = await run(drive(flow, { ...working, status: 'running' }, combined));
+      const before = await run(Effect.flatMap(Forge, f => f.issue(7)));
+      const sticky = before.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))!.comment!;
+      expect(bodies(before)).toEqual([
+        '/agent',
+        expect.stringContaining('paused on an agentgraph problem, not this change; reply `/agent` to retry'),
+      ]);
+      expect(sticky.id).toBe(parent.comment);
+      expect(before.labels).toEqual(['agentgraph:done']);
+      expect(sticky.body).toContain('| issue / implement | done |');
+      expect(sticky.body).toContain('| retro / implement | paused');
+      expect(sticky.body).not.toMatch(/SessionStop|retro-7|runner error/);
+      const next = services(where, [[start('r'), reply()]]);
+      if (via === 'cli') await next.run(instruct(combined, { kind: 'resume', parked: true }));
+      else {
+        where.human('/agent retry', new Date(Date.now() + 1).toISOString());
+        await next.run(tick(combined, 7));
+      }
+      const after = await next.run(Effect.flatMap(Forge, f => f.issue(7)));
+      expect(
+        after.events.filter(m => m.comment?.body.startsWith('Agentgraph status: ')).map(m => m.comment?.id)
+      ).toEqual([sticky.id]);
+      expect(bodies(after).join('\n')).not.toContain('paused');
+      expect(
+        findRunsWaitingOnPeople([paused])
+          .flatMap(r => formatNextSteps(r))
+          .join('\n')
+      ).toContain('retro-7 retro #7 is waiting: Stopped by a runner error.');
+    },
+    60_000
   );
 
   it('selects only runner errors when resuming all parked runs', async () => {

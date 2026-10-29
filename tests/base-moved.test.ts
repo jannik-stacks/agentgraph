@@ -367,7 +367,7 @@ describe('a base that moved', () => {
     ).toHaveLength(2);
   });
 
-  it('says a conflict at the top of the pull request, not under a thread the run already answered', async () => {
+  it('keeps conflict details in the issue sticky after answering a review thread', async () => {
     const where = await parked();
     const at = new Date().toISOString();
     const line = { id: 'r1', author: 'morgan', body: '/agent why hello?', at, path: 'hello.txt', line: 1 };
@@ -389,7 +389,10 @@ describe('a base that moved', () => {
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body.split(':')[0], c.under])).toEqual([
       ['Looks right.', undefined],
       ['Asked for.', 'r1'],
-      ['agentgraph/7 no longer rebases onto main', undefined],
+    ]);
+    const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
+    expect(issue.events.flatMap(m => m.comment?.body ?? []).filter(b => b.includes('Update it by hand.'))).toEqual([
+      expect.stringContaining('Agentgraph status: waiting'),
     ]);
   });
 
