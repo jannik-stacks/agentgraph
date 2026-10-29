@@ -115,7 +115,7 @@ Every minute the engine writes new issue activity to a news file, which agents w
 
 ## Tries and going back
 
-A successful step passes its reply text, without proposal blocks, to the next step as feedback. It stays in the run record, outside the checkout. <!-- code: src/engine.ts#tick src/workflow.ts#transition -->
+Set `carry: true` on a step to pass its successful reply text, without proposal blocks, to the next step under `## What the <step> step reported`. Steps omit replies by default; carried text stays in the run record, outside the checkout. <!-- code: src/engine.ts#tick src/workflow.ts#transition -->
 
 Failed checks or proposals retry in the same session with the findings as feedback, answered in code, not in a comment. When `tries` run out, the run waits and says why. <!-- code: src/workflow.ts#transition -->
 

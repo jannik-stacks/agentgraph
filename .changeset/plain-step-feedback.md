@@ -2,4 +2,4 @@
 '@jannik-stacks/agi': patch
 ---
 
-Pass successful step replies to the next step as feedback without writing into the checkout. Keep image staging on the sandbox CLI.
+Let steps opt into carrying successful replies to the next step under a heading naming their source. Keep image staging on the sandbox CLI.

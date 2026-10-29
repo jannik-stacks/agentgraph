@@ -54,6 +54,16 @@ describe('compileWorkflow', () => {
     });
   });
 
+  it.each([true, false])('reads carry: %s on a step', carry => {
+    const { workflow, problems } = compileWorkflow(
+      'workflows/issue.md',
+      file(`on: issues\nsteps:\n  implement: { agent: implementor, carry: ${carry} }`),
+      names
+    );
+    expect(problems).toEqual([]);
+    expect(workflow!.steps[0]!.carry).toBe(carry);
+  });
+
   it('gives a step with checks three tries and an agent way back three rounds', () => {
     const w = fixture('loop').workflows.align!;
     expect(w.steps.find(s => s.name === 'write')!.tries).toBe(3);

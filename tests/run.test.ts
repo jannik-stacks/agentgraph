@@ -365,9 +365,9 @@ describe('drive', () => {
     ]);
   });
 
-  it('hands a screenshot reply to the describer without checkout files or proposal blocks', async () => {
+  it.each([undefined, true])('carries a framed screenshot reply only when enabled: %s', async carry => {
     const where = world();
-    const screenshots = { name: 'screenshots', does: { agent: 'reviewer' }, checks: [], tries: 1 };
+    const screenshots = { name: 'screenshots', does: { agent: 'reviewer' }, checks: [], tries: 1, carry };
     const describe = { name: 'describe', does: { agent: 'reviewer' }, checks: [], tries: 1 };
     const flow = { ...w, steps: [screenshots, describe, w.steps.at(-1)!] };
     const table =
@@ -378,7 +378,8 @@ describe('drive', () => {
     ]);
     const done = await run(drive(flow, begin(flow, fresh()), graph));
     expect(done).toMatchObject({ step: 'merge', status: 'waiting' });
-    expect(specs[1]!.prompt).toContain(table);
+    expect(specs[1]!.prompt.includes(table)).toBe(carry === true);
+    expect(specs[1]!.prompt.includes(`## What the screenshots step reported\n\n${table}`)).toBe(carry === true);
     expect(specs[1]!.prompt).not.toContain('```agentgraph');
     expect(git(where.origin, 'ls-tree', '-r', 'refs/agentgraph/runs/run-7')).not.toContain('.screenshots');
   });

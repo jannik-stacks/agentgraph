@@ -56,10 +56,16 @@ describe('transition, running', () => {
     expect(next.sessions.triage).toEqual(session('s-triage'));
   });
 
-  it('passes successful reply text forward once, replacing earlier feedback', () => {
+  it('drops successful reply text unless the step carries it', () => {
+    const next = transition(w, at('triage', { feedback: 'old result' }), { kind: 'pass', text: 'summary' });
+    expect(next.feedback).toBeUndefined();
+  });
+
+  it('carries framed reply text forward once, replacing earlier feedback', () => {
+    const flow = { ...w, steps: w.steps.map(s => ({ ...s, carry: s.name === 'triage' })) };
     const text = '| Before | After |';
-    const next = transition(w, at('triage', { feedback: 'old result' }), { kind: 'pass', text });
-    expect(next.feedback).toBe(text);
+    const next = transition(flow, at('triage', { feedback: 'old result' }), { kind: 'pass', text });
+    expect(next.feedback).toBe(`## What the triage step reported\n\n${text}`);
     expect(transition(w, next, { kind: 'pass' }).feedback).toBeUndefined();
     expect(transition(w, at('review'), { kind: 'back', why: 'capture again' }).feedback).not.toContain(text);
   });

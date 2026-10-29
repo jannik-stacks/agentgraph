@@ -56,6 +56,7 @@ export type Step = {
   checks: string[];
   follow?: 'merge' | 'rebase' | 'none';
   tries: number;
+  carry?: boolean;
   back?: { to: string; until?: string; rounds?: number };
   each?: 'files' | 'hunks' | { run: string };
 };
@@ -140,6 +141,7 @@ const StepFile = Schema.Struct({
   skill: exact(Schema.String),
   checks: exact(Names),
   tries: exact(Count),
+  carry: exact(Schema.Boolean),
   back: exact(Schema.String),
   until: exact(Schema.String),
   rounds: exact(Count),
@@ -259,6 +261,7 @@ export function compileWorkflow(
           ...(rounds !== undefined && { rounds }),
         },
       }),
+      ...(s.carry !== undefined && { carry: s.carry }),
       ...(s.each !== undefined && { each: s.each }),
       ...(s.wait !== undefined && { follow: s.follow ?? 'merge' }),
     };
@@ -348,7 +351,11 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
       status: entered(next),
       tries: 0,
       sessions,
-      ...(o.kind === 'pass' && o.text && { feedback: o.text }),
+      ...(step.carry &&
+        o.kind === 'pass' &&
+        o.text && {
+          feedback: `## What the ${step.name} step reported\n\n${o.text}`,
+        }),
     };
   };
 
