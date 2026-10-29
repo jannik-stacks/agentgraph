@@ -67,6 +67,24 @@ const trace = [
 describe('a run as rows', () => {
   const row = runRow({ fixture: 'kit/issue', repo: 'o/r', run, trace }, true);
 
+  it('labels an empty check skipped even when it does not block the workflow', () => {
+    const skipped = runRow(
+      {
+        fixture: 'kit/issue',
+        repo: 'o/r',
+        run,
+        trace: trace.map(line =>
+          'check' in line
+            ? { ...line, check: { check: 'tests', pass: true, ms: 5, empty: true, findings: 'no files' } }
+            : line
+        ),
+      },
+      true
+    );
+    expect(text(skipped.children?.[0]?.children?.[1])).toContain('skipped');
+    expect(text(skipped.children?.[0]?.children?.[1])).not.toContain('pass');
+  });
+
   it('opens to its visits, each holding its sessions and the other lines, with the run in its body', () => {
     expect(row.raw).toBeUndefined();
     expect(row.body?.props.r.run).toBe(run);

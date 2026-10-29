@@ -163,7 +163,8 @@ describe('bench helpers', () => {
     const ok = { applied: true, hidden: { ok: true }, suite: { ok: true } };
     const red = { applied: true, hidden: { ok: false } };
     expect(invalid(red, ok)).toBeUndefined();
-    expect(invalid({ applied: true }, { applied: true })).toBeUndefined();
+    expect(invalid({ applied: true }, { applied: true })).toMatch(/no hidden tests run/);
+    expect(invalid({ applied: true }, { applied: true }, false)).toBeUndefined();
     expect(invalid({ applied: true }, ok, true)).toMatch(/no hidden tests run/);
     expect(invalid(ok, ok)).toMatch(/base already passes/);
     expect(invalid(red, { ...ok, hidden: { ok: false } })).toMatch(/human fails the hidden/);
@@ -172,10 +173,10 @@ describe('bench helpers', () => {
     expect(invalid(red, { ...ok, setup: { ok: false } })).toMatch(/setup fails/);
     expect(invalid(red, { ...ok, typecheck: { ok: false } })).toMatch(/human fails the typecheck/);
     expect(invalid({ ...red, typecheck: { ok: false } }, { ...ok, typecheck: { ok: false } })).toBeUndefined();
-    expect(invalid({ applied: true }, { applied: true, typecheck: { ok: false } })).toMatch(
+    expect(invalid({ applied: true }, { applied: true, typecheck: { ok: false } }, false)).toMatch(
       /human fails the typecheck/
     );
-    expect(invalid({ applied: true }, { applied: true, typecheck: { ok: true } })).toBeUndefined();
+    expect(invalid({ applied: true }, { applied: true, typecheck: { ok: true } }, false)).toBeUndefined();
   });
 
   it('calls hidden tests coupled when they import what only the human adds, or check a snapshot', () => {
@@ -299,7 +300,7 @@ describe('bin/bench.ts score and report', () => {
     });
     expect(gate.status, gate.stderr).toBe(0);
     expect(gate.stdout).toContain('gate unknown: invalid: no test command for leather-io/mono');
-    expect(gate.stdout).toContain('base hidden=0 suite=0 typecheck=0');
+    expect(gate.stdout).toContain('base hidden=not run suite=not run typecheck=not run tests={"passed":0,"total":0}');
     expect(JSON.parse(readFileSync(join(out, 'unknown', 'valid.json'), 'utf8')).invalid).toContain('set case.test');
     const report = spawnSync(process.execPath, [cli, 'report', out], { encoding: 'utf8', env: hostDocker() });
     expect(report.status, report.stderr).toBe(0);
@@ -352,6 +353,10 @@ describe('bin/bench.ts score and report', () => {
     expect(missing.stderr).toContain('score needs docker');
     expect(existsSync(join(out, 'demo', 'base', 'score.json'))).toBe(false);
 
+    mkdirSync(join(out, 'demo', 'base'), { recursive: true });
+    writeFileSync(join(out, 'demo', 'base', 'score.json'), '{}');
+    writeFileSync(join(out, 'demo', 'human', 'score.json'), '{}');
+    writeFileSync(join(out, 'demo', 'valid.json'), '{}');
     const env = hostDocker();
     const bench = (...args: string[]) => {
       const r = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', env });

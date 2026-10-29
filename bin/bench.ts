@@ -573,7 +573,7 @@ export const armSlot = (
   {
     point,
     repeat,
-    tree = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./src'], { encoding: 'utf8' }).stdout.trim(),
+    tree = sh('git', ['-C', engine, 'rev-parse', 'HEAD:./src']).trim(),
   }: Pick<typeof options, 'point' | 'repeat'> & { tree?: string } = options
 ) =>
   slot(
@@ -759,6 +759,7 @@ const exec = (
   });
   if (r.error) spawnSync('docker', ['rm', '-f', name]);
   if (r.error) throw new Error(`infra: score container did not finish: ${r.error.message}`);
+  if (r.status === null) throw new Error(`infra: score container stopped by ${r.signal ?? 'an unknown signal'}`);
   if (
     r.status === 125 ||
     /Cannot connect to the Docker daemon|^docker: Error response from daemon/m.test(r.stderr ?? '')
@@ -1021,7 +1022,12 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
     if (!existsSync(tree)) sh('git', ['clone', '-q', '--shared', '--no-checkout', resolve(repo), tree]);
     for (const arm of which) {
       const at = join(root, arm);
-      if (!existsSync(join(at, 'diff.patch')) || existsSync(join(at, 'score.json'))) continue;
+      if (!existsSync(join(at, 'diff.patch'))) continue;
+      if (
+        existsSync(join(at, 'score.json')) &&
+        isBenchScoreComplete(c, JSON.parse(readFileSync(join(at, 'score.json'), 'utf8')) as Tests)
+      )
+        continue;
       const diff = readFileOrEmpty(join(at, 'diff.patch'));
       const meta = JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
       const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
@@ -1054,11 +1060,16 @@ type Tests = {
   setup?: { ok: boolean };
   suite?: { ok: boolean };
   typecheck?: { ok: boolean };
-  hidden?: { ok: boolean };
+  hidden?: Pick<ReturnType<typeof exec>, 'ok'> & Partial<Pick<ReturnType<typeof exec>, 'tail'>>;
 };
 
+const isBenchScoreComplete = (c: Commands, tests: Tests) =>
+  (c.hasTests === false || typeof tests.hidden?.ok === 'boolean') &&
+  (!(c.suite || c.test) || typeof tests.suite?.ok === 'boolean') &&
+  (!c.typecheck || typeof tests.typecheck?.ok === 'boolean');
+
 /** Why a case cannot tell arms apart, when it cannot: the hidden tests must fail on base and pass on the human. */
-export const invalid = (base: Tests, human: Tests, tested = false) => {
+export const invalid = (base: Tests, human: Tests, tested = true) => {
   if (human.applied === false) return 'the human diff does not apply to base';
   if (base.setup?.ok === false || human.setup?.ok === false) return 'setup fails';
   if (!base.hidden || !human.hidden) {
@@ -1193,6 +1204,17 @@ const scorer = () =>
 
 const prepare = async (c: Case & Commands, out: string, repo: string) => {
   const file = join(out, c.id, 'valid.json');
+  const tests = (arm: string) => JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
+  const old = existsSync(file)
+    ? (JSON.parse(readFileSync(file, 'utf8')) as Pick<Scored, 'invalid' | 'skipped'>)
+    : undefined;
+  if (
+    old &&
+    (!c.why || c.hasTests === false) &&
+    (!old.invalid || old.invalid === 'no hidden tests run') &&
+    (old.invalid === 'no hidden tests run' || !['base', 'human'].every(arm => isBenchScoreComplete(c, tests(arm))))
+  )
+    rmSync(file);
   if (c.why && c.hasTests !== false) {
     writeFileAtomic(join(out, c.id, 'case.json'), readFileOrEmpty(join(c.dir, 'case.json')));
     writeFileAtomic(file, { invalid: c.why });
@@ -1228,7 +1250,6 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
   }
   if (!existsSync(file)) {
     await scoreArms(c, out, repo, ['base', 'human']);
-    const tests = (arm: string) => JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
     const why = invalid(tests('base'), tests('human'), c.hasTests !== false);
     writeFileAtomic(file, { invalid: why, ...(c.hasTests === false && { skipped: c.why }) });
     if (kept && why !== 'setup fails')
@@ -1238,13 +1259,20 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
         p => !/\/(tree|v2|floor|judge|\.attic)$/.test(p) && !p.endsWith('.lock')
       );
   }
-  const verdict = JSON.parse(readFileSync(file, 'utf8')) as { invalid?: string; skipped?: string };
-  const tests = (arm: string) => JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
+  const verdict = JSON.parse(readFileSync(file, 'utf8')) as Pick<Scored, 'invalid' | 'skipped'>;
+  if (c.hasTests === false && c.why && verdict.skipped !== c.why) {
+    verdict.skipped = c.why;
+    writeFileAtomic(file, verdict);
+  }
   const testCounts = ['base', 'human']
-    .map(
-      arm =>
-        `${arm} hidden=${Number(Boolean(tests(arm).hidden))} suite=${Number(Boolean(tests(arm).suite))} typecheck=${Number(Boolean(tests(arm).typecheck))} counts=${JSON.stringify(counts((tests(arm).hidden as { tail?: string } | undefined)?.tail) ?? 'unreported')}`
-    )
+    .map(arm => {
+      const result = tests(arm);
+      const states = (['hidden', 'suite', 'typecheck'] as const).map(
+        name => `${name}=${result[name] ? (result[name].ok ? 'pass' : 'fail') : 'not run'}`
+      );
+      const measured = result.hidden ? counts(result.hidden.tail) : { passed: 0, total: 0 };
+      return `${arm} ${states.join(' ')} tests=${JSON.stringify(measured ?? 'unreported')}`;
+    })
     .join(', ');
   console.log(
     `gate ${c.id}: ${verdict.invalid ? 'invalid' : verdict.skipped ? 'skipped' : 'valid'}: ${verdict.invalid ?? verdict.skipped ?? 'hidden tests distinguish base and human'}; ${testCounts}; skips=${Number(Boolean(verdict.skipped))}`

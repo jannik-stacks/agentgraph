@@ -23,6 +23,7 @@ export const findCheckVerdicts = (
       issue: number;
       at: string;
       pass: boolean;
+      empty: boolean;
       findings?: string | undefined;
       items: number;
       failed: number;
@@ -33,8 +34,17 @@ export const findCheckVerdicts = (
     for (const line of trace) {
       if (!('check' in line) || line.step !== step || line.check.check !== check) continue;
       const key = `${run.id}@${line.at}`;
-      const v = byTime.get(key) ?? { run: run.id, issue: run.issue, at: line.at, pass: true, items: 0, failed: 0 };
+      const v = byTime.get(key) ?? {
+        run: run.id,
+        issue: run.issue,
+        at: line.at,
+        pass: true,
+        empty: false,
+        items: 0,
+        failed: 0,
+      };
       v.pass &&= line.check.pass;
+      v.empty ||= line.check.empty === true;
       if (line.item === undefined) v.findings = line.check.findings;
       else {
         v.items++;

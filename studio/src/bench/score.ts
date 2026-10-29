@@ -25,7 +25,8 @@ export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: s
       : [[w.suite, (row.suite ?? 1) * (row.typecheck ?? 1)] as [number, number]]),
   ];
   const weight = parts.reduce((a, [wt]) => a + wt, 0);
-  const base = weight ? parts.reduce((a, [wt, v]) => a + wt * v, 0) / weight : 0;
+  if (!weight) throw new Error(`no scored components for ${row.case}`);
+  const base = parts.reduce((a, [wt, v]) => a + wt * v, 0) / weight;
   const bad = (r?: Row) => (r ? r.findings.critical + r.findings.high : 0);
   const crit = Math.min(1, Math.max(0, bad(row) - bad(human)) / 3);
   return base - w.crit * crit - w.help * Math.min(1, row.answers);

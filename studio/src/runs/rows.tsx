@@ -292,10 +292,11 @@ const lines: {
   check: line => ({
     summary: (
       <>
-        <Pill of="line" kind="check" /> {line.check.check} {line.check.pass ? 'pass' : muted('fail')}
+        <Pill of="line" kind="check" /> {line.check.check}{' '}
+        {line.check.empty ? muted('skipped') : line.check.pass ? 'pass' : muted('fail')}
         {formatCheckValue(line.check) && ` ${formatCheckValue(line.check)}`}
         {muted(
-          `${line.check.empty ? ', empty' : ''}${line.later ? ', checked later' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.usd > 0 ? `, ${usd(line.usd)}` : ''}${line.exit === undefined ? '' : `, exit ${line.exit}`}`
+          `${line.later ? ', checked later' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.usd > 0 ? `, ${usd(line.usd)}` : ''}${line.exit === undefined ? '' : `, exit ${line.exit}`}`
         )}
       </>
     ),

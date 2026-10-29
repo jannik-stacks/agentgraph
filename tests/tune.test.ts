@@ -16,9 +16,10 @@ import {
   step,
   tuneRows,
 } from '../bin/tune.ts';
+import { readJsonl } from '../bin/resume.ts';
 import type { readRunResults } from '../bin/results.ts';
 import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
-import { tmp } from './kit.ts';
+import { git, tmp } from './kit.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -41,6 +42,10 @@ const evalOf = (flips: Record<string, Flip> = {}): Parameters<typeof decide>[1] 
 });
 
 describe('paired, flips and decide', () => {
+  it('rejects an absent comparison instead of substituting zero', () => {
+    expect(() => paired([], [1])).toThrow('paired scores must have the same length');
+  });
+
   it('measures the gain of b over a case by case', () => {
     expect(paired([0, 0, 0, 0], [1, 1, 1, 1])).toEqual({ delta: 1, pUp: 1, ci: [1, 1] });
     expect(paired([1, 0, 1, 0], [1, 0, 1, 0])).toEqual({ delta: 0, pUp: 0, ci: [0, 0] });
@@ -212,6 +217,32 @@ const setup = () => {
 };
 
 describe('tune loop', () => {
+  it('counts invalid proposer replies instead of treating them as no proposal', async () => {
+    const io = fakeBench([]);
+    const dir = await init('demo', setup(), io as unknown as Parameters<typeof step>[2]);
+    const broken = {
+      ...io,
+      propose: async () => ({ rationale: 'invalid', problems: ['bad reply'] }),
+    } as unknown as Parameters<typeof step>[2];
+    await expect(step(dir, { k: 1, proposers: ['retro'] }, broken)).rejects.toThrow('every proposer failed');
+    expect(readJsonl(join(dir, 'log.jsonl')).filter(e => e.event === 'proposer-failed')).toEqual([
+      expect.objectContaining({ why: expect.stringContaining('bad reply') }),
+    ]);
+  });
+
+  it.each(['f1', 'v1'])('records missing candidate case %s as infra', async missing => {
+    const ran: Parameters<typeof fakeBench>[0] = [];
+    const io = fakeBench(ran);
+    const dir = await init('demo', setup(), io as unknown as Parameters<typeof step>[2]);
+    const broken = {
+      ...io,
+      rows: (d: string, id: string) => io.rows(d, id).filter(r => id === 'i000-init' || r.case !== missing),
+    } as unknown as Parameters<typeof step>[2];
+    const results = await step(dir, { k: 1, proposers: ['retro'] }, broken);
+    expect(results[0]?.verdict).toBe('infra');
+    expect(results[0]?.why).toBe(`1 cases lack scored runs: ${missing}`);
+  });
+
   it('starts from the minimal graph, keeps a gain, drops a loss and resumes', async () => {
     const ran: Parameters<typeof fakeBench>[0] = [];
     const io = fakeBench(ran) as unknown as Parameters<typeof step>[2];
@@ -225,6 +256,14 @@ describe('tune loop', () => {
       }
     );
     expect(check.status, check.stdout + check.stderr).toBe(0);
+    const empty = tmp('empty-tests');
+    git(empty, 'init', '-q');
+    const tested = spawnSync('sh', [join(dir, 'cands/i000-init/graph/scripts/tests.sh')], {
+      cwd: empty,
+      encoding: 'utf8',
+    });
+    expect(tested.status).toBe(1);
+    expect(tested.stderr).toContain('tests skipped: no changed test files');
     const { tune } = tuneRows(dir);
     expect(Object.entries(tune.cases).sort()).toEqual([
       ['f1', 'fit'],
@@ -336,6 +375,14 @@ describe('tune loop', () => {
 });
 
 describe('usage', () => {
+  it('stops when usage is unavailable instead of reusing a stale reading', () => {
+    const dir = tmp('guard');
+    dirs.push(dir);
+    expect(() => guard(dir, { codex: () => undefined }, { codex: 10, claude5h: 10, claudeWeek: 10 })).toThrow(
+      'Codex usage unreadable'
+    );
+  });
+
   it('counts usage across a window reset and stops past a cap', () => {
     const dir = tmp('guard');
     dirs.push(dir);

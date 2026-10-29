@@ -11,6 +11,7 @@ afterEach(() => {
   delete process.env.AGENTGRAPH_TUNE;
   delete process.env.AGENTGRAPH_CLAUDE;
   delete process.env.STUB_HOT;
+  delete process.env.STUB_NO_USAGE;
 });
 
 /** A bench stand-in: a case passes when the candidate's implementor prompt says `Mind <case>.` */
@@ -60,7 +61,7 @@ process.stdin.on('end', () => {
     { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'cases/v1/issue.md' } }] } },
     { type: 'result', session_id: 's1', total_cost_usd: 0.5, result: 'd1 skill line' },
   ])
-    console.log(JSON.stringify(e));
+    if (!process.env.STUB_NO_USAGE || e.type !== 'rate_limit_event') console.log(JSON.stringify(e));
 });
 `;
 
@@ -146,6 +147,16 @@ describe('skill benchmark', () => {
     await skill(like, options(2), io);
     expect(readFileSync(join(dir, 'skill/r002/tried.md'), 'utf8')).toMatch(/i001-skill, skill, kept/);
     expect(readFileSync(join(dir, 'skill/r002/tried.md'), 'utf8')).not.toMatch(/\bv1\b/);
+  });
+
+  it('records a stopped round when the session omits usage', async () => {
+    const s = setup();
+    const io = fakeBench([]);
+    const like = await init('demo', s, io);
+    process.env.STUB_NO_USAGE = '1';
+    await expect(skill(like, options(1), io)).rejects.toThrow('Claude usage unreadable');
+    const stopped = join(s.root, 'tune/demo/skill@t/skill/r001/stopped.json');
+    expect(JSON.parse(readFileSync(stopped, 'utf8')).stopped).toBe('Claude usage unreadable');
   });
 
   it('stops a session past a cap and asks the round again on resume', async () => {

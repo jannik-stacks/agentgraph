@@ -29,6 +29,10 @@ const row = (over: Partial<Row>): Row => ({
 });
 
 describe('bench score', () => {
+  it('rejects missing measurements instead of treating them as zero quality', () => {
+    expect(() => quality(row({}), defaultBenchScoreWeights)).toThrow('no scored components for a');
+  });
+
   it('puts nothing useful at 0 and the human at 1', () => {
     const nothing = row({ hidden: 0, suite: 0, vsHuman: { opus: 0 } });
     const parity = row({ hidden: 1, suite: 1, vsHuman: { opus: 0.5, sol: 0.5 } });

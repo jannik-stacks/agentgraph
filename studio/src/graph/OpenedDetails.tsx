@@ -15,11 +15,12 @@ const Verdicts = ({ fixture, step, name }: { fixture: string; step: string; name
   const { value: runs = [] } = useAtomValue(runsAtom);
   const verdicts = findCheckVerdicts(runs, fixture, step, name);
   if (!verdicts.length) return <p className="text-zinc-500">No run has run it here yet.</p>;
-  const failed = verdicts.filter(v => !v.pass).length;
+  const failed = verdicts.filter(v => !v.empty && !v.pass).length;
+  const skipped = verdicts.filter(v => v.empty).length;
   return (
     <>
       <p className="text-zinc-500">
-        Ran {verdicts.length} {verdicts.length === 1 ? 'time' : 'times'}, failed {failed}.
+        Ran {verdicts.length} {verdicts.length === 1 ? 'time' : 'times'}, failed {failed}, skipped {skipped}.
       </p>
       <ul className="space-y-0.5">
         {verdicts.slice(0, latest).map(v => (
@@ -27,7 +28,9 @@ const Verdicts = ({ fixture, step, name }: { fixture: string; step: string; name
             <Disclosure
               summary={
                 <span className="flex min-w-0 items-baseline gap-1.5 tabular-nums">
-                  <span className={cx(!v.pass && accent.text)}>{v.pass ? 'passed' : 'failed'}</span>
+                  <span className={cx(!v.pass && accent.text)}>
+                    {v.empty ? 'skipped' : v.pass ? 'passed' : 'failed'}
+                  </span>
                   <span className="truncate text-zinc-500">
                     #{v.issue}, {v.at.slice(5, 16).replace('T', ' ')}
                     {v.items > 0 && `, ${v.failed} of ${v.items} items failed`}

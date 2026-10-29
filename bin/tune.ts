@@ -84,7 +84,8 @@ export const tunesOf = (root = tuneRoot()) =>
 
 /** The mean gain of `b` over `a` case by case, the share of bootstrap draws above 0 and its 95% interval. */
 export const paired = (a: number[], b: number[], n = 2000) => {
-  const d = b.map((x, i) => x - (a[i] ?? 0));
+  if (a.length !== b.length) throw new Error('paired scores must have the same length');
+  const d = b.map((x, i) => x - a[i]!);
   if (!d.length) return { delta: 0, pUp: 0, ci: [0, 0] as [number, number] };
   const next = random(1);
   const draws = Array.from({ length: n }, () => getMean(d.map(() => d[Math.floor(next() * d.length)]!))).sort(
@@ -148,21 +149,25 @@ const ids = (t: Tune, ...splits: Split[]) =>
 const scores = (rows: Row[], preset: Tune['preset']) => {
   const w = preset === 'hidden' ? { ...presets['hidden tests only']!, suite: 0.15 } : presets.composite!;
   const human = new Map(rows.filter(r => r.point.includes('/human@')).map(r => [r.case, r]));
-  type Case = { qs: number[]; paid: number[]; took: number[]; runs: number; usd: number; min: number; infra: boolean };
-  const out = new Map<string, Case>();
+  const out = new Map<
+    string,
+    { qs: number[]; paid: number[]; took: number[]; runs: number; usd: number; min: number }
+  >();
   for (const r of rows.filter(r => r.point.includes('/v2@'))) {
-    const s = out.get(r.case) ?? { qs: [], paid: [], took: [], runs: 0, usd: 0, min: 0, infra: true };
+    const s = out.get(r.case) ?? { qs: [], paid: [], took: [], runs: 0, usd: 0, min: 0 };
     if (!r.infra) {
       s.qs.push(quality(r, w, undefined, human.get(r.case)));
       s.paid.push(r.usd ?? 0);
       s.took.push(r.minutes);
     }
-    out.set(r.case, { ...s, runs: s.runs + 1, usd: s.usd + (r.usd ?? 0), min: s.min + r.minutes, infra: !s.qs.length });
+    out.set(r.case, { ...s, runs: s.runs + 1, usd: s.usd + (r.usd ?? 0), min: s.min + r.minutes });
   }
   return out;
 };
 type Scores = ReturnType<typeof scores>;
 const qsOf = (s: Scores, cases: string[]) => Object.fromEntries(cases.map(c => [c, s.get(c)?.qs ?? []]));
+const findUnscoredCases = (cases: string[], mine: Scores, incumbent?: Scores) =>
+  cases.filter(c => !mine.get(c)?.qs.length || (incumbent !== undefined && !incumbent.get(c)?.qs.length));
 
 const evalOf = (
   candidate: string,
@@ -294,8 +299,11 @@ type Io = typeof bench;
 /** The engine dir to run, after checking its `src` tree is the pinned engine's. */
 const engineAt = (t: Tune) => {
   const dir = process.env.BENCH_ENGINE ?? agentgraphDir;
-  const tree = (rev: string) =>
-    spawnSync('git', ['-C', dir, 'rev-parse', `${rev}:./src`], { encoding: 'utf8' }).stdout.trim();
+  const tree = (rev: string) => {
+    const result = spawnSync('git', ['-C', dir, 'rev-parse', `${rev}:./src`], { encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(`engine tree ${rev}: ${result.error?.message ?? result.stderr}`);
+    return result.stdout.trim();
+  };
   if (tree('HEAD') !== tree(t.engine)) throw new Error(`the engine at ${dir} is not the tune's ${t.engine}`);
   return dir;
 };
@@ -408,7 +416,9 @@ export const guard = (
   const file = join(dir, 'budget.json');
   const b = JSON.parse(readFileOrEmpty(file) || '{}') as Budget;
   const mark = (r: Reading | undefined, now: number | undefined) => (now === undefined ? r : reading(r, now));
-  const codex = mark(b.codex, io.codex());
+  const now = io.codex();
+  if (now === undefined || !Number.isFinite(now)) throw new Error('Codex usage unreadable; tuning stopped');
+  const codex = mark(b.codex, now);
   const fiveHour = mark(b.claude?.fiveHour, claude?.fiveHour);
   const week = mark(b.claude?.week, claude?.week);
   const next: Budget = { ...(codex && { codex }), claude: { ...(fiveHour && { fiveHour }), ...(week && { week }) } };
@@ -476,12 +486,17 @@ export const init = async (
       clone: resolve(o.repos, short),
     };
     const first = meta(train[0] ?? gated[0] ?? '');
-    const mined = Object.fromEntries(
-      (['setup', 'runner'] as const).flatMap(k => (typeof first[k] === 'string' ? [[k, first[k]]] : []))
-    );
     minimal(
       join(dir, 'cands', 'i000-init', 'graph'),
-      { ...pickBenchTestCommands(t.repo, (first.tests as string[]) ?? []), ...mined },
+      pickBenchTestCommands(
+        t.repo,
+        Array.isArray(first.tests) ? (first.tests as string[]) : [],
+        Object.fromEntries(
+          ['test', 'suite', 'setup', 'typecheck', 'runner'].flatMap(k =>
+            typeof first[k] === 'string' ? [[k, first[k]]] : []
+          )
+        )
+      ),
       readFileOrEmpty(join(agentgraphDir, 'examples', short, 'settings.yaml')).match(/^toolchain: .*$/m)?.[0]
     );
     execFileSync('git', ['init', '-q', '--bare', join(dir, 'graph.git')]);
@@ -494,6 +509,7 @@ export const init = async (
     : enqueue(dir, { id: 'i000-init', iteration: 0, parent: '', proposer: 'manual', rationale: 'The minimal graph.' });
   git(dir, ['update-ref', 'refs/heads/main', cand.graph]);
   const select = ids(t, 'fit', 'validate');
+  if (!select.length) throw new Error('no fit or validate cases to score');
   const before = guard(dir, io, o.limits ?? limitsDefault);
   await io.run(
     dir,
@@ -503,6 +519,8 @@ export const init = async (
   );
   const after = guard(dir, io, o.limits ?? limitsDefault);
   const mine = scores(io.rows(dir, cand.id), t.preset);
+  const missing = findUnscoredCases(select, mine);
+  if (missing.length) throw new Error(`${missing.length} initial cases lack scored runs: ${missing.join(', ')}`);
   const usage = { codex: spent(before, after, 'codex'), claude5h: 0 };
   const evals = (['fit', 'validate'] as const)
     .filter(s => ids(t, s).length)
@@ -540,16 +558,17 @@ One issue becomes one pull request. The implementor changes the repo until the t
     readFileOrEmpty(join(graph, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_DIR/scripts/tests.sh"')
   );
   const each = commands.runner
-    ? `[ -z "$files" ] || ${commands.runner} $files`
+    ? `${commands.runner} $files`
     : `for f in $files; do
   d=$(dirname "$f")
   while [ "$d" != . ] && [ ! -f "$d/package.json" ]; do d=$(dirname "$d"); done
   if grep -q '"jest"' "$d/package.json"; then (cd "$d" && npx jest --runTestsByPath "\${f#"$d"/}") || exit 1
-  else (cd "$d" && npx vitest run "\${f#"$d"/}") || exit 1; fi
+  elif grep -q '"vitest"' "$d/package.json"; then (cd "$d" && npx vitest run "\${f#"$d"/}") || exit 1
+  else echo "unknown test runner in $d/package.json" >&2; exit 1; fi
 done`;
   writeFileAtomic(
     join(graph, 'scripts/tests.sh'),
-    `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n${each}\n`
+    `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n[ -n "$files" ] || { echo "tests skipped: no changed test files" >&2; exit 1; }\n${each}\n`
   );
   if (toolchain)
     writeFileAtomic(join(graph, 'settings.yaml'), `${toolchain}\n${readFileOrEmpty(join(graph, 'settings.yaml'))}`);
@@ -599,12 +618,18 @@ export const step = async (
         ...(o.model && { model: o.model }),
       })
       .catch((e: unknown) => void failed.push(`${id}: ${String(e)}`));
-    if (!made?.graph) continue;
+    if (!made?.graph) {
+      if (made?.problems?.length) failed.push(`${id}: ${made.problems.join('; ')}`);
+      continue;
+    }
     const after = guard(dir, io, limits, made.usage);
     claude[id] = spent(before, after, 'fiveHour');
     queued.push(enqueue(dir, { id, iteration, parent: inc.graph, proposer, rationale: made.rationale }));
   }
-  for (const f of failed) console.error(f);
+  for (const f of failed) {
+    console.error(f);
+    tuneLog(dir)({ event: 'proposer-failed', why: f });
+  }
   if (!queued.length && failed.length) throw new Error(`every proposer failed; rerun to resume\n${failed.join('\n')}`);
   if (!queued.length) return [];
   const { runs } = keepOf(t);
@@ -627,8 +652,8 @@ export const step = async (
   const results = queued.map(c => {
     const mine = scores(io.rows(dir, c.id), t.preset);
     const screen = evalOf(c.id, 'fit', screened, mine, usage(c, screenCodex), before, runs);
-    const infra = screened.filter(k => mine.get(k)?.infra !== false).length > screened.length / 2;
-    return { c, screen, evals: [screen], verdict: infra ? ('infra' as const) : decide(t, screen) };
+    const missing = findUnscoredCases(screened, mine, before);
+    return { c, screen, evals: [screen], missing, verdict: missing.length ? ('infra' as const) : decide(t, screen) };
   });
   const survivors = results.filter(r => r.verdict === 'discarded');
   const fullCodex = await phase(
@@ -667,7 +692,14 @@ export const step = async (
     );
     const all = evalOf(r.c.id, 'fit', select, mine, usage(r.c, 0), after, runs);
     const screen = evalOf(r.c.id, 'fit', screened, mine, usage(r.c, screenCodex), after, runs);
-    return { ...r, evals: [screen, ...splits], all, verdict: decide(t, r.screen, all) };
+    const missing = findUnscoredCases(select, mine, after);
+    return {
+      ...r,
+      evals: [screen, ...splits],
+      all,
+      missing,
+      verdict: missing.length ? ('infra' as const) : decide(t, r.screen, all),
+    };
   });
   const net = (e: Eval) => count(e, 'win') - count(e, 'loss');
   const best = full
@@ -689,7 +721,7 @@ export const step = async (
         : '';
     const on = (e: Eval) =>
       `won ${named(e, 'win')}, lost ${named(e, 'loss')}, delta ${e.delta} over ${e.cases.length} cases${cost(e)}`;
-    if (r.verdict === 'infra') return 'most screen runs said nothing (infra)';
+    if (r.verdict === 'infra') return `${r.missing.length} cases lack scored runs: ${r.missing.join(', ')}`;
     if (r.verdict === 'screened-out') return `screen dropped ${named(r.screen, 'down', 'loss')}`;
     if (!r.all) return 'no select cases beyond the screen';
     if (r === best) return `select ${on(r.all)}`;
@@ -718,7 +750,10 @@ export const checkpoint = async (dir: string, o: { parallel?: number; keys?: str
     test.map(c => ({ id: inc.id, case: c })),
     { parallel: o.parallel ?? 6, judged: true, ...(o.keys && { keys: o.keys }) }
   );
-  const e = evalOf(inc.id, 'test', test, scores(io.rows(dir, inc.id), 'composite'), { codex: 0, claude5h: 0 });
+  const mine = scores(io.rows(dir, inc.id), 'composite');
+  const missing = findUnscoredCases(test, mine);
+  if (missing.length) throw new Error(`${missing.length} test cases lack scored runs: ${missing.join(', ')}`);
+  const e = evalOf(inc.id, 'test', test, mine, { codex: 0, claude5h: 0 });
   const lines = steps.map(s => (s === inc ? { ...s, evals: [...s.evals, e] } : s));
   writeFileAtomic(join(dir, 'iterations.jsonl'), lines.map(s => `${JSON.stringify(s)}\n`).join(''));
   return e;

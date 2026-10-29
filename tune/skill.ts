@@ -311,6 +311,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
   }
   r.minutes = getRounded((Date.now() - began) / 60_000);
   const after = live.usage;
+  if (!after) live.stopped ??= 'Claude usage unreadable';
   const first = before ?? live.first;
   r.claude = { ...(first && { before: first }), ...(after && { after }) };
   if (live.stopped) {

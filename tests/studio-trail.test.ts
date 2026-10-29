@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { studioModule } from './studio.ts';
 
 type Opened = { kind: 'check' | 'agent'; name: string };
-type Verdict = { run: string; at: string; pass: boolean; findings?: string; items: number; failed: number };
+type Verdict = {
+  run: string;
+  at: string;
+  pass: boolean;
+  empty: boolean;
+  findings?: string;
+  items: number;
+  failed: number;
+};
 type Uses = { steps: { name: string; path: string }[]; checks: { name: string; path?: string }[] };
 const { splitSelection, findCheckVerdicts, findAgentUses } = await studioModule<{
   splitSelection: (selected: string | null) => { workflow?: string; step?: string; trail: Opened[] };
@@ -33,6 +41,16 @@ describe('findCheckVerdicts', () => {
     ...(item && { item }),
   });
   const run = (id: string, fixture: string, trace: unknown[]) => ({ fixture, run: { id, issue: 7 }, trace });
+
+  it('preserves an empty check and its reason for the skip count', () => {
+    const empty = {
+      ...line('1', 'review', true),
+      check: { check: 'review', pass: true, empty: true, findings: 'no files', ms: 0 },
+    };
+    expect(findCheckVerdicts([run('a', 'graph/issue', [empty])], 'graph/issue', 'implement', 'review')).toEqual([
+      expect.objectContaining({ empty: true, findings: 'no files' }),
+    ]);
+  });
 
   it('folds item lines into one verdict per time it ran, newest first, in the one fixture', () => {
     const verdicts = findCheckVerdicts(
