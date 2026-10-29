@@ -14,3 +14,6 @@ Send it back, quoting the lines, when:
 
 Say exactly what to change or delete. Style and edge cases the issue does not raise are follow-ups
 to list in your reply, never a reason to send it back.
+Also send it back when it adds a silent skip: a default, fallback, early return or caught error that
+turns unknown, missing or failed input into a skip, an empty result or a pass without a visible reason.
+Quote the line and say what it hides.
