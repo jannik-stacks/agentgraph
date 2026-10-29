@@ -70,6 +70,7 @@ type Case = {
 type Commands = {
   author?: string;
   hasTests?: boolean;
+  why?: string;
   test?: string;
   suite?: string;
   typecheck?: string;
@@ -246,7 +247,7 @@ const blockchainApi = (tests: string[]): Commands => {
         setup: `${npmCi} && if [ -f client/package-lock.json ]; then (cd client && ${npmCi}); fi`,
         test: ['services', ...runs].join(' && '),
       }
-    : { hasTests: false };
+    : {};
 };
 
 /** Each repo's typecheck and the setup it needs, run on every case whether or not it has hidden tests. */
@@ -254,16 +255,22 @@ const typechecks: Record<string, Commands> = {
   explorer: { setup: install('10.28.2'), typecheck: 'node_modules/.bin/tsc --noEmit' },
   'stacks.js': {
     setup: npmCi,
-    typecheck: 'npm run typecheck --workspaces --if-present',
+    typecheck: 'npm run typecheck --workspaces',
   },
   clarinet: { typecheck: 'cargo check --tests' },
 };
 
 /** The test command, the typecheck and their setup, from the repo and the test files a merged change touches. */
-export const pickBenchTestCommands = (repo: string, tests: string[]): Commands => ({
-  ...typechecks[repo.split('/').pop() ?? ''],
-  ...tested(repo, tests),
-});
+export const pickBenchTestCommands = (repo: string, tests: string[], fields: Commands = {}): Commands => {
+  const recipe = tested(repo, tests);
+  const commands = { ...typechecks[repo.split('/').pop() ?? ''], ...recipe, ...fields };
+  delete commands.why;
+  if (fields.hasTests === false) return { ...commands, why: 'case disables hidden tests' };
+  if (commands.test?.trim()) return commands;
+  if (!tests.some(p => testPath.test(p) && !noise.test(p)) && fields.hasTests !== true)
+    return { ...commands, hasTests: false, why: 'case touches no test files' };
+  return { ...commands, why: `no test command for ${repo}: set case.test for ${tests.join(', ') || 'declared tests'}` };
+};
 
 const tested = (repo: string, tests: string[]): Commands => {
   const name = repo.split('/').pop();
@@ -308,9 +315,9 @@ const tested = (repo: string, tests: string[]): Commands => {
           setup: [oldRust, warm, ...matrix].join(' && '),
           test: [oldRust, ...(name === 'clarity-wasm' ? ['export PROPTEST_CASES=100'] : []), ...test].join(' && '),
         }
-      : { hasTests: false };
+      : {};
   }
-  if (name !== 'clarinet') return { hasTests: false };
+  if (name !== 'clarinet') return {};
   const sdk = js.filter(p => p.startsWith('components/clarinet-sdk/'));
   const older = { setup: `(cd components/clarinet-sdk && ${npmCi})`, test: perPackage(sdk, 2, 'npx vitest run') };
   const run = !sdk.length
@@ -323,18 +330,35 @@ const tested = (repo: string, tests: string[]): Commands => {
   const setup = [...(run.setup ? [run.setup] : []), ...(cargo.length ? [oldRust, warm] : [])].join(' && ');
   return test.length
     ? { ...run, ...(cargo.length && { toolchain: pinRust }), ...(setup && { setup }), test: test.join(' && ') }
-    : { hasTests: false };
+    : {};
 };
 
 const loadCase = (dir: string): Case & Commands => {
-  const c = JSON.parse(readFileOrEmpty(join(dir, 'case.json'))) as Omit<Case, 'id' | 'dir' | 'body'> &
+  const c = JSON.parse(readFileSync(join(dir, 'case.json'), 'utf8')) as Omit<Case, 'id' | 'dir' | 'body'> &
     Commands & { tests?: unknown };
-  const issue = readFileOrEmpty(join(dir, 'issue.md'));
+  const issue = readFileSync(join(dir, 'issue.md'), 'utf8');
+  const tests = splitUnifiedDiffByFile(readFileSync(join(dir, 'merged.diff'), 'utf8')).map(f => f.path);
+  if (
+    c.tests !== undefined &&
+    typeof c.tests !== 'string' &&
+    (!Array.isArray(c.tests) || !c.tests.every(p => typeof p === 'string'))
+  )
+    throw new Error('case.tests must be a command or an array of paths');
   return {
-    ...(Array.isArray(c.tests) && pickBenchTestCommands(c.repo, c.tests as string[])),
     ...c,
-    ...(typeof c.tests === 'string' && !c.test && { test: c.tests }),
-    ...(c.bucket === 'no-tests' && { hasTests: false }),
+    ...pickBenchTestCommands(
+      c.repo,
+      [...new Set([...tests, ...(Array.isArray(c.tests) ? (c.tests as string[]) : [])])],
+      {
+        ...c,
+        ...(typeof c.tests === 'string' && !c.test && { test: c.tests }),
+        ...(c.bucket === 'no-tests' &&
+          c.hasTests === undefined &&
+          !c.test &&
+          typeof c.tests !== 'string' && { hasTests: false }),
+        ...(c.bucket === 'tests' && c.hasTests === undefined && { hasTests: true }),
+      }
+    ),
     id: basename(resolve(dir)),
     dir: resolve(dir),
     title: /^# (.+)$/m.exec(issue)?.[1] ?? c.title,
@@ -379,7 +403,8 @@ const guard = (out: string, claude: boolean) => {
   const b = JSON.parse(readFileOrEmpty(file) || '{}') as { start?: number; now?: number; at?: number };
   if (!b.at || Date.now() - b.at > 600_000) {
     const now = codexUsed();
-    if (now !== undefined) Object.assign(b, { start: b.start ?? now, now });
+    if (now === undefined || !Number.isFinite(now)) throw new Error('Codex usage unreadable; no paid work started');
+    Object.assign(b, { start: b.start ?? now, now });
     writeFileAtomic(file, { ...b, at: Date.now() });
   }
   if (b.now !== undefined && b.now - (b.start ?? b.now) > limits.codex)
@@ -784,7 +809,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     diff &&
     spawnSync('git', ['-C', tree, 'apply', '--whitespace=nowarn', '-'], {
       input: diff.endsWith('\n') ? diff : `${diff}\n`,
-    }).status
+    }).status !== 0
   )
     return { applied: false };
   const git = existsSync(join(repo, '.git')) ? join(repo, '.git') : repo;
@@ -826,12 +851,14 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
       ...(suite && { suite: exec(suite, tree, box, from) }),
       ...(c.typecheck && { typecheck: exec(c.typecheck, tree, box, from) }),
     };
-    if (!c.test || !hidden.length) return result;
-    for (const path of hidden)
-      if (spawnSync('git', ['-C', tree, 'checkout', c.merged, '--', path]).status)
-        rmSync(join(tree, path), { force: true });
+    if (!c.test || c.hasTests === false) return result;
+    for (const path of hidden) {
+      if (sh('git', ['-C', tree, 'ls-tree', '--name-only', c.merged, '--', path]).trim())
+        sh('git', ['-C', tree, 'checkout', c.merged, '--', path]);
+      else rmSync(join(tree, path), { force: true });
+    }
     const relaxed = readFileOrEmpty(join(c.dir, 'hidden.relaxed.diff'));
-    if (relaxed && spawnSync('git', ['-C', tree, 'apply', '-'], { input: relaxed }).status)
+    if (relaxed && spawnSync('git', ['-C', tree, 'apply', '-'], { input: relaxed }).status !== 0)
       throw new Error(`${c.id}: hidden.relaxed.diff does not apply to the hidden tests`);
     const run = exec(c.test, tree, box, from);
     return { ...result, hidden: run.ok ? run : { ...run, class: failureClass(run.tail) } };
@@ -1002,7 +1029,13 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
       );
       const offline = (tests as Tests).setup?.ok === false && (await down(true));
       if (offline) throw new Error(`infra: setup failed while ${offline}, ${c.id}/${arm} stays unscored`);
-      writeFileAtomic(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...meta, ...usage(at) });
+      writeFileAtomic(join(at, 'score.json'), {
+        ...tests,
+        ...(c.hasTests === false && { skipped: c.why }),
+        ...stats(diff, human),
+        ...meta,
+        ...usage(at),
+      });
     }
   } finally {
     rmSync(tree, { recursive: true, force: true });
@@ -1028,8 +1061,11 @@ type Tests = {
 export const invalid = (base: Tests, human: Tests, tested = false) => {
   if (human.applied === false) return 'the human diff does not apply to base';
   if (base.setup?.ok === false || human.setup?.ok === false) return 'setup fails';
-  if (!base.hidden || !human.hidden)
-    return tested ? 'no hidden tests run' : human.typecheck?.ok === false ? 'the human fails the typecheck' : undefined;
+  if (!base.hidden || !human.hidden) {
+    if (tested || base.hidden || human.hidden) return 'no hidden tests run';
+    if (human.suite?.ok === false) return 'the human fails the suite';
+    return human.typecheck?.ok === false ? 'the human fails the typecheck' : undefined;
+  }
   if (base.hidden.ok) return 'base already passes the hidden tests';
   if (!human.hidden.ok) return 'the human fails the hidden tests';
   if (human.suite?.ok === false) return 'the human fails the suite';
@@ -1040,14 +1076,16 @@ export const invalid = (base: Tests, human: Tests, tested = false) => {
 /** The base commit's file list, a file's text, and whether a word occurs anywhere in it. */
 type Base = { files: string[]; text: (path: string) => string; has: (word: string) => boolean };
 
-const readRepoBase = (repo: string, base: string): Base => {
-  const at = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer: 1 << 28 });
-  return {
-    files: at('ls-tree', '-r', '--name-only', base).stdout.split('\n').filter(Boolean),
-    text: path => at('show', `${base}:${path}`).stdout ?? '',
-    has: word => at('grep', '-q', '-w', '-F', word, base).status === 0,
-  };
-};
+const readRepoBase = (repo: string, base: string): Base => ({
+  files: sh('git', ['-C', repo, 'ls-tree', '-r', '--name-only', base]).split('\n').filter(Boolean),
+  text: path => sh('git', ['-C', repo, 'show', `${base}:${path}`]),
+  has: word => {
+    const result = spawnSync('git', ['-C', repo, 'grep', '-q', '-w', '-F', word, base], { encoding: 'utf8' });
+    if (result.status !== 0 && result.status !== 1)
+      throw new Error(`git grep failed: ${result.error?.message ?? result.stderr}`);
+    return result.status === 0;
+  },
+});
 
 const flat = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '/index.ts', '/index.tsx', '/index.js'];
@@ -1149,12 +1187,16 @@ let tools: string | undefined;
 /** The bench's scoring code and the image the score step starts from, which a validity verdict depends on. */
 const scorer = () =>
   (tools ??= hash(
-    [check, invalid, exec, image].join('\0') +
+    [pickBenchTestCommands, check, invalid, exec, image].join('\0') +
       spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', image], { encoding: 'utf8' }).stdout
   ));
 
 const prepare = async (c: Case & Commands, out: string, repo: string) => {
   const file = join(out, c.id, 'valid.json');
+  if (c.why && c.hasTests !== false) {
+    writeFileAtomic(join(out, c.id, 'case.json'), readFileOrEmpty(join(c.dir, 'case.json')));
+    writeFileAtomic(file, { invalid: c.why });
+  }
   if (!existsSync(file) && !existsSync(join(c.dir, 'hidden.relaxed.diff'))) {
     const coupled = couplings(
       readFileOrEmpty(join(c.dir, 'merged.diff')),
@@ -1169,6 +1211,9 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     c.base,
     c.merged,
     c.runner,
+    c.hasTests,
+    c.why,
+    c.suite,
     c.setup,
     c.test,
     ...(c.toolchain ? [c.toolchain] : []),
@@ -1184,8 +1229,8 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
   if (!existsSync(file)) {
     await scoreArms(c, out, repo, ['base', 'human']);
     const tests = (arm: string) => JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
-    const why = invalid(tests('base'), tests('human'), c.bucket === 'tests' || Boolean(c.test));
-    writeFileAtomic(file, { invalid: why });
+    const why = invalid(tests('base'), tests('human'), c.hasTests !== false);
+    writeFileAtomic(file, { invalid: why, ...(c.hasTests === false && { skipped: c.why }) });
     if (kept && why !== 'setup fails')
       copyDirIfAbsentAtomic(
         join(out, c.id),
@@ -1193,7 +1238,18 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
         p => !/\/(tree|v2|floor|judge|\.attic)$/.test(p) && !p.endsWith('.lock')
       );
   }
-  return (JSON.parse(readFileOrEmpty(file)) as { invalid?: string }).invalid;
+  const verdict = JSON.parse(readFileSync(file, 'utf8')) as { invalid?: string; skipped?: string };
+  const tests = (arm: string) => JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
+  const testCounts = ['base', 'human']
+    .map(
+      arm =>
+        `${arm} hidden=${Number(Boolean(tests(arm).hidden))} suite=${Number(Boolean(tests(arm).suite))} typecheck=${Number(Boolean(tests(arm).typecheck))} counts=${JSON.stringify(counts((tests(arm).hidden as { tail?: string } | undefined)?.tail) ?? 'unreported')}`
+    )
+    .join(', ');
+  console.log(
+    `gate ${c.id}: ${verdict.invalid ? 'invalid' : verdict.skipped ? 'skipped' : 'valid'}: ${verdict.invalid ?? verdict.skipped ?? 'hidden tests distinguish base and human'}; ${testCounts}; skips=${Number(Boolean(verdict.skipped))}`
+  );
+  return verdict.invalid;
 };
 
 /** Removes the sandbox setup images a case's scores ran in and their dependency volumes; docker keeps one a container still uses. */
@@ -1458,6 +1514,15 @@ const judge = async (caseDir: string, out: string) => {
                 const v = parseBenchJudgeVerdict(raw);
                 if (v) writeFileAtomic(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
                 if (v && kept && !hit) writeFileAtomic(kept, raw);
+                if (!v)
+                  logger(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name })({
+                    event: 'invalid',
+                    reason: 'judge returned no valid verdict',
+                    attempt,
+                  });
+              }
+              if (!existsSync(join(dir, `${name}.json`))) {
+                throw new Error(`${c.id}/${a}-${b}/${name}: no valid judge verdict after 3 attempts`);
               }
             })
         );
@@ -1494,6 +1559,7 @@ type Judged = Verdict & { judge: string; order: [string, string] };
 type Scored = {
   id: string;
   invalid?: string;
+  skipped?: string;
   infra: Record<string, string>;
   strata: Record<string, string>;
   rows: [string, Record<string, number>][];
@@ -1514,21 +1580,21 @@ const loadScored = (out: string, id: string): Scored => {
     })
   );
   if (scores.human) strata.tests = scores.human.hidden ? 'hidden' : 'judge-only';
-  const skipped = Object.fromEntries(
+  const excluded = Object.fromEntries(
     bots.flatMap(arm => {
       const reason = scores[arm] && infra(scores[arm]);
       return reason ? [[arm, reason]] : [];
     })
   );
   const rows = Object.entries(scores)
-    .filter(([arm]) => !(arm in skipped))
+    .filter(([arm]) => !(arm in excluded))
     .map(([arm, s]): [string, Record<string, number>] => {
       const u = { ...s, ...usage(join(out, id, arm)) };
       return [arm, metrics({ ...u, usd: getBenchUsageCost(u).usd })];
     });
   const failures = bots.flatMap(arm => {
     const h = (scores[arm] as { hidden?: { ok: boolean; tail: string; class?: string } } | undefined)?.hidden;
-    return h && !h.ok && !(arm in skipped) ? [`${id}/${arm}: ${h.class ?? failureClass(h.tail)}`] : [];
+    return h && !h.ok && !(arm in excluded) ? [`${id}/${arm}: ${h.class ?? failureClass(h.tail)}`] : [];
   });
   const judged = join(out, id, 'judge');
   const verdicts = (existsSync(judged) ? readdirSync(judged) : [])
@@ -1537,9 +1603,21 @@ const loadScored = (out: string, id: string): Scored => {
         .filter(f => /^\w+\.json$/.test(f))
         .map(f => JSON.parse(readFileOrEmpty(join(judged, pair, f))) as Judged)
     )
-    .filter(v => !v.order.some(arm => arm in skipped));
-  const { invalid } = JSON.parse(readFileOrEmpty(join(out, id, 'valid.json')) || '{}') as { invalid?: string };
-  return { id, ...(invalid && { invalid }), infra: skipped, strata, rows, failures, verdicts };
+    .filter(v => !v.order.some(arm => arm in excluded));
+  const { invalid, skipped } = JSON.parse(readFileOrEmpty(join(out, id, 'valid.json')) || '{}') as {
+    invalid?: string;
+    skipped?: string;
+  };
+  return {
+    id,
+    ...(invalid && { invalid }),
+    ...((skipped || (!invalid && !scores.human?.hidden)) && { skipped: skipped ?? 'no recorded hidden test result' }),
+    infra: excluded,
+    strata,
+    rows,
+    failures,
+    verdicts,
+  };
 };
 
 /**
@@ -1599,6 +1677,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
             repeat: p.repeat,
             strata: c.strata,
             ...(c.infra[arm] && { infra: c.infra[arm] }),
+            ...(c.skipped && { skipped: c.skipped }),
             ...(!c.infra[arm] && arm !== 'human' && s.files === 0 && { outcome: 'no-change' as const }),
             ...(hidden !== undefined && { hidden }),
             ...(share !== undefined && { hiddenShare: share }),
@@ -1683,6 +1762,7 @@ const judging = (out: string, ids: string[]) => {
 
 const headline = (cases: Scored[], valid: Scored[]) => {
   const infras = valid.flatMap(c => Object.entries(c.infra).map(([arm, why]) => `${c.id}/${arm}: ${why}`));
+  const skips = cases.flatMap(c => (c.skipped ? [`${c.id}: ${c.skipped}`] : []));
   const invalids = cases.flatMap(c => (c.invalid ? [`${c.id}: ${c.invalid}`] : []));
   const rate = ([arm, passes]: [string, number[]]): [string, Record<string, number>] => [
     arm,
@@ -1696,6 +1776,9 @@ const headline = (cases: Scored[], valid: Scored[]) => {
   return [
     `${valid.length} valid cases, ${invalids.length} invalid, ${infras.length} infra arm runs.`,
     '',
+    `Hidden test skips: ${skips.length}.`,
+    '',
+    ...list('Hidden test skip reasons', skips),
     ...(hidden.length
       ? ['Hidden tests passed, valid cases, infra arms left out', '', table(hidden.map(rate)), '']
       : []),
@@ -1769,13 +1852,17 @@ export const statusText = (p: ReturnType<typeof progress>) =>
   ].join('\n');
 
 const report = (out: string) => {
-  const ids = readdirSync(out).filter(id => existsSync(join(out, id, 'human')));
+  const ids = readdirSync(out).filter(
+    id => existsSync(join(out, id, 'valid.json')) || existsSync(join(out, id, 'human'))
+  );
   const all = ids.map(id => loadScored(out, id)).filter(c => benched(c.strata.repo));
   const cases = all.filter(c => !c.invalid);
   const md = [
     '# Bench report',
     '',
     ...headline(all, cases),
+    `Invalid judge attempts: ${readJsonl(join(out, 'log.jsonl')).filter(e => e.step === 'judge' && e.event === 'invalid').length}.`,
+    '',
     ...judging(
       out,
       cases.map(c => c.id)

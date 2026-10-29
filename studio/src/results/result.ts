@@ -106,8 +106,9 @@ export const benchFields: CheckField[] = [
 ];
 
 export const readBenchRowResults = (row: BenchRow, at = ''): RunResults => {
-  const [, harness = '', model = '', arm = '', engine = '', graph = '', set = ''] =
-    /^([^:]*):([^/]*)\/([^@]*)@([^/]*)\/([^/]*)\/(.*)$/.exec(row.point) ?? [];
+  const point = /^([^:]*):([^/]*)\/([^@]*)@([^/]*)\/([^/]*)\/(.*)$/.exec(row.point);
+  if (!point) throw new Error(`Invalid bench point: ${row.point}`);
+  const [, harness = '', model = '', arm = '', engine = '', graph = '', set = ''] = point;
   const hidden = row.hiddenShare ?? row.hidden;
   return {
     key: `${row.point} ${row.case} ${row.repeat}`,
@@ -123,12 +124,14 @@ export const readBenchRowResults = (row: BenchRow, at = ''): RunResults => {
       set,
       case: row.case,
       ...(row.strata.repo && { repo: row.strata.repo }),
+      ...(row.skipped && { hiddenTests: `skipped: ${row.skipped}` }),
     },
     results: {
       ...row.checks,
       bench: {
         at,
-        pass: true,
+        pass: !row.infra && hidden === 1 && row.suite !== 0 && row.typecheck !== 0,
+        ...(row.skipped && { empty: true }),
         value: {
           ...(hidden !== undefined && { hidden }),
           ...(row.usd !== undefined && { usd: row.usd }),

@@ -284,6 +284,29 @@ describe('bench helpers', () => {
 });
 
 describe('bin/bench.ts score and report', () => {
+  it('reports unsupported hidden tests as invalid before scoring or judging', () => {
+    const root = tmp('bench-invalid');
+    dirs.push(root);
+    const kase = join(root, 'cases', 'unknown');
+    const out = join(root, 'out');
+    mkdirSync(kase, { recursive: true });
+    writeFileSync(join(kase, 'case.json'), JSON.stringify({ repo: 'leather-io/mono', tests: ['tests/a.test.ts'] }));
+    writeFileSync(join(kase, 'issue.md'), '# Unknown case');
+    writeFileSync(join(kase, 'merged.diff'), '');
+    const gate = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', join(root, 'missing')], {
+      encoding: 'utf8',
+      env: hostDocker(),
+    });
+    expect(gate.status, gate.stderr).toBe(0);
+    expect(gate.stdout).toContain('gate unknown: invalid: no test command for leather-io/mono');
+    expect(gate.stdout).toContain('base hidden=0 suite=0 typecheck=0');
+    expect(JSON.parse(readFileSync(join(out, 'unknown', 'valid.json'), 'utf8')).invalid).toContain('set case.test');
+    const report = spawnSync(process.execPath, [cli, 'report', out], { encoding: 'utf8', env: hostDocker() });
+    expect(report.status, report.stderr).toBe(0);
+    expect(report.stdout).toContain('0 valid cases, 1 invalid');
+    expect(report.stdout).toContain('unknown: no test command');
+  });
+
   it('runs the merged tests on each arm, keeps scores, and skips them on a rerun', () => {
     const root = tmp('bench');
     dirs.push(root);
@@ -308,6 +331,7 @@ describe('bin/bench.ts score and report', () => {
       merged,
       title: 'Fix sum',
       test: 'node test/run.js',
+      tests: ['test/run.js'],
       kind: 'bug',
       flags: ['no-issue-pr-body'],
     };
@@ -334,7 +358,9 @@ describe('bin/bench.ts score and report', () => {
       expect(r.status, r.stderr).toBe(0);
       return r.stdout;
     };
-    bench('score', kase, out, '--repo', repo);
+    expect(bench('score', kase, out, '--repo', repo)).toContain(
+      'gate demo: valid: hidden tests distinguish base and human'
+    );
     expect(JSON.parse(readFileSync(join(out, 'env.json'), 'utf8'))).toMatchObject({ image: 'sha256:one' });
     const moved = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
       encoding: 'utf8',
@@ -456,9 +482,11 @@ describe('bin/bench.ts typecheck', () => {
     const score = (arm: string) => JSON.parse(readFileSync(join(out, 'demo', arm, 'score.json'), 'utf8'));
     expect(score('base')).toMatchObject({ applied: true, typecheck: { ok: true } });
     expect(score('base')).not.toHaveProperty('hidden');
+    expect(score('base').skipped).toBe('case disables hidden tests');
     expect(score('human')).toMatchObject({ typecheck: { ok: false } });
     expect(JSON.parse(readFileSync(join(out, 'demo', 'valid.json'), 'utf8'))).toEqual({
       invalid: 'the human fails the typecheck',
+      skipped: 'case disables hidden tests',
     });
   });
 });
@@ -668,6 +696,55 @@ describe('prices', () => {
 });
 
 describe('pickBenchTestCommands', () => {
+  it.each(
+    [
+      'leather-io/mono',
+      'acme/explorer',
+      'acme/stacks.js',
+      'acme/clarinet',
+      'acme/stacks-core',
+      'acme/clarity-wasm',
+      'acme/stacks-blockchain-api',
+      'acme/token-metadata-api',
+      'acme/api-toolkit',
+      'acme/connect',
+      'acme/workers',
+      'acme/stacks-mesh-api',
+    ].flatMap(repo =>
+      [[], ['README.md'], ['tests/a.test.ts'], ['tests/a.rs'], ['tests/fixture.json']].flatMap(files =>
+        [{}, { hasTests: false }, { hasTests: true }, { test: 'custom test' }, { suite: 'custom suite' }].map(
+          fields => ({ repo, files, fields })
+        )
+      )
+    )
+  )('runs hidden tests or explains their absence: $repo $files $fields', ({ repo, files, fields }) => {
+    const commands = pickBenchTestCommands(repo, files, fields);
+    expect(Boolean(commands.test && commands.hasTests !== false) || Boolean(commands.why)).toBe(true);
+    expect(commands.hasTests === false && !commands.why).toBe(false);
+  });
+
+  it.each([
+    { fields: { test: 'custom test' }, expected: { test: 'custom test' } },
+    {
+      fields: { suite: 'custom suite', setup: 'custom setup', typecheck: 'custom types', test: 'custom test' },
+      expected: { suite: 'custom suite', setup: 'custom setup', typecheck: 'custom types', test: 'custom test' },
+    },
+    { fields: { hasTests: false }, expected: { hasTests: false, why: 'case disables hidden tests' } },
+  ])('honors case commands: $fields', ({ fields, expected }) => {
+    expect(pickBenchTestCommands('leather-io/mono', ['tests/a.test.ts'], fields)).toMatchObject(expected);
+    expect(pickBenchTestCommands('acme/explorer', ['tests/a.test.ts'], fields)).toMatchObject(expected);
+  });
+
+  it.each(['leather-io/mono', 'acme/clarinet', 'acme/stacks-blockchain-api'])(
+    'rejects unsupported test files in %s',
+    repo => {
+      expect(pickBenchTestCommands(repo, ['other/unknown.test.ts'])).toMatchObject({
+        why: expect.stringContaining('no test command'),
+      });
+      expect(pickBenchTestCommands(repo, ['other/unknown.test.ts']).hasTests).not.toBe(false);
+    }
+  );
+
   it('turns the miner test file list into a test command per repo', () => {
     expect(pickBenchTestCommands('acme/explorer', ['src/a/[id]/x.test.ts', 'src/a/fixture.json'])).toMatchObject({
       test: expect.stringContaining("--runTestsByPath 'src/a/[id]/x.test.ts'"),
@@ -702,14 +779,15 @@ describe('pickBenchTestCommands', () => {
     );
     expect(pickBenchTestCommands('acme/stacks.js', [])).toEqual({
       hasTests: false,
+      why: 'case touches no test files',
       setup: 'npm ci --no-audit --no-fund --ignore-scripts',
-      typecheck: 'npm run typecheck --workspaces --if-present',
+      typecheck: 'npm run typecheck --workspaces',
     });
     expect(pickBenchTestCommands('acme/explorer', ['README.md'])).toMatchObject({
       hasTests: false,
       typecheck: expect.any(String),
     });
-    expect(pickBenchTestCommands('acme/app', [])).toEqual({ hasTests: false });
+    expect(pickBenchTestCommands('acme/app', [])).toMatchObject({ hasTests: false, why: 'case touches no test files' });
   });
 
   it('runs one cargo command per hidden Rust file and builds the workspace tests during setup', () => {
@@ -751,6 +829,7 @@ describe('pickBenchTestCommands', () => {
     );
     expect(pickBenchTestCommands('stacks-network/stacks-core', ['stackslib/src/net/api/mod.rs'])).toEqual({
       hasTests: false,
+      why: 'case touches no test files',
     });
   });
 
@@ -768,7 +847,7 @@ describe('pickBenchTestCommands', () => {
       test: "services && npm run test -- --coverage=false --runTestsByPath 'src/tests/tx-tests.ts' && npm run test:api -- --coverage=false --runTestsByPath 'tests/api/a.test.ts'",
     });
     expect(pickBenchTestCommands('acme/stacks-blockchain-api', ['tests/utils/b.ts', 'tests/2.5/c.test.ts'])).toEqual({
-      hasTests: false,
+      why: expect.stringContaining('no test command'),
     });
     expect(pickBenchTestCommands('acme/token-metadata-api', ['tests/a.test.ts'])).toMatchObject({
       image: 'agentgraph-sandbox:services',

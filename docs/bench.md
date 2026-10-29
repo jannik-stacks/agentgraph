@@ -24,9 +24,11 @@ A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden
 | `repo`, `base`, `merged` | Repo and commits to replay |
 | `test`, `suite`, `typecheck`, `setup`, `build` | Optional commands; `suite` defaults to `test` |
 | `image` | Local scoring image, such as `agentgraph-sandbox:node20` |
-| `hasTests: false` | Metrics and judges only |
+| `hasTests: false` | Metrics and judges only; hidden tests are recorded as skipped with a reason |
 | `size`, `kind`, `area` | Report strata |
 | `control` | `bug` flips an added comparison; `padded` adds trivial tests |
+
+Case commands override repo recipes. A case that touches test files without a test command is invalid, including repos without a recipe. Cases without test files record a hidden-test skip. The gate prints its verdict, reason and test counts; reports count skips and list their reasons.
 
 A tested case is valid only if its hidden tests fail on base and pass on the human change, and the human change applies, sets up and passes the suite and typecheck. A coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json`. Repos whose tests start containers are left out.
 

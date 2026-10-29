@@ -5,6 +5,8 @@ Read [STYLE.md](STYLE.md) and [docs/patterns.md](docs/patterns.md) before writin
 
 ## Code style
 
+A skip is a visible, counted status with a reason. Unknown input is an error, never a default.
+
 The full rules are in [STYLE.md](STYLE.md). The ones that matter most:
 
 - **Check the exceptions every loop.** Before finishing a change, reread [STYLE.md#exceptions](STYLE.md#exceptions)

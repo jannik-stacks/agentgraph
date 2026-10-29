@@ -238,7 +238,12 @@ describe('result exports', () => {
     }
     const output = join(root, 'output.json');
     execFileSync(process.execPath, ['bin/results.ts', 'bench', root, output]);
-    expect(readResultSheet(output).runs.map(row => row.axes.arm)).toEqual(['human', 'v2', 'floor']);
+    const rows = readResultSheet(output).runs;
+    expect(rows.map(row => row.axes.arm)).toEqual(['human', 'v2', 'floor']);
+    expect(rows.map(row => row.results['bench/score'])).toEqual(
+      Array.from({ length: 3 }, () => expect.objectContaining({ pass: false, empty: true }))
+    );
+    expect(rows.map(row => row.axes.hiddenTests)).toEqual(Array(3).fill('skipped: no recorded hidden test result'));
   });
 
   it('exports tune summaries without embedding their candidate details', () => {
