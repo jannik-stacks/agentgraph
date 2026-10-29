@@ -149,6 +149,8 @@ one without that check.
   `some(Str, 'type', 'id')`, a list of optional fields. `bin/style.mjs` exempts the four names.
 - **The public `tool()` helper keeps the AI SDK name:** plugin files use the same spelling as the
   SDK definition it delegates to. `bin/style.mjs` exempts this helper.
+- **`ToolContext.dir` has TSDoc:** plugin authors need the host checkout's read-only contract in their editor.
+  A rename cannot express the write restriction. `bin/style-baseline.txt` allows this one comment.
 
 ## Commits
 

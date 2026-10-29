@@ -262,3 +262,4 @@ verb-first tune/propose.ts claudeUsed
 verb-first tune/propose.ts fitting
 verb-first tune/propose.ts graphProblems
 verb-first tune/skill.ts skill
+no-comment src/plugin.ts 1

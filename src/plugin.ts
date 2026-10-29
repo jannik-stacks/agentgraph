@@ -21,6 +21,8 @@ registerHooks({
 
 export type ToolContext<S = undefined> = {
   readonly repo: string;
+  /** The session's checkout on the host; read it, never write. */
+  readonly dir: string;
   readonly settings: S;
   readonly forge: {
     readonly searchIssues: (

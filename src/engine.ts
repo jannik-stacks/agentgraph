@@ -873,6 +873,7 @@ const converse = <A = never, R = never>(
                 tools,
                 {
                   repo: graph.repo,
+                  dir: spec.dir,
                   forge: { searchIssues: (...args) => Effect.runPromise(forge.value.searchIssues(...args)) },
                 },
                 event => Effect.runPromise(write({ at: now(), step, event, key })),

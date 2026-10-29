@@ -218,7 +218,13 @@ exports.cjsTool = require('ai').tool;
             expectTypeOf(ctx.settings.limit).toEqualTypeOf<number>();
             expectTypeOf(ctx.forge.searchIssues).parameter(0).toEqualTypeOf<string>();
             expectTypeOf(ctx.abortSignal).toEqualTypeOf<AbortSignal | undefined>();
-            return { query, repo: ctx.repo, limit: ctx.settings.limit, isAborted: ctx.abortSignal?.aborted };
+            return {
+              query,
+              repo: ctx.repo,
+              dir: ctx.dir,
+              limit: ctx.settings.limit,
+              isAborted: ctx.abortSignal?.aborted,
+            };
           },
         }),
       },
@@ -235,13 +241,13 @@ exports.cjsTool = require('ai').tool;
         toolCallId: 'search',
         messages: [],
         abortSignal: AbortSignal.abort(),
-        context: { repo: 'o/r', settings: decoded, forge: { searchIssues: async () => [] } },
+        context: { repo: 'o/r', dir: '/checkout', settings: decoded, forge: { searchIssues: async () => [] } },
       }
     );
     const invalid = await schema.validate!({ query: 'cache', extra: true });
     expect(invalid.success).toBe(false);
     expect(parsed).toEqual({ success: true, value: { query: 'cache' } });
-    expect(result).toEqual({ query: 'cache', repo: 'o/r', limit: 10, isAborted: true });
+    expect(result).toEqual({ query: 'cache', repo: 'o/r', dir: '/checkout', limit: 10, isAborted: true });
   });
 
   it('loads plugins in filename order and decodes separate namespaces', async () => {

@@ -32,6 +32,7 @@ tools: [read, grep, glob, issues]
 Names outside the harness's built-ins must name registered plugin tools; unknown names fail `check`.
 `execute` receives typed input and a context with `repo`, read-only `forge.searchIssues`,
 `abortSignal` and its own `settings`. Search stays within this repo and applies the forge's text trust rules.
+`dir` is the session's host checkout; plugins may read it but must never write it.
 <!-- code: src/plugin.ts#ToolContext src/folder.ts#loadGraph src/forge.ts#parseIssueSearch -->
 
 A plugin can declare `settingsSchema`; it decodes only `plugins.<name>` in `settings.yaml`.

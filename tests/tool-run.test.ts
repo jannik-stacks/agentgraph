@@ -31,6 +31,7 @@ const search = tool({
   inputSchema: Schema.Struct({ query: Schema.String }),
   execute: async ({ query }, ctx) => ({
     repo: ctx.repo,
+    dir: ctx.dir,
     issues: (await ctx.forge.searchIssues(query, { state: 'all' })).map(issue => issue.number),
   }),
 });
@@ -89,7 +90,9 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
     expect(listed).toEqual([['issues']]);
     expect(results).toEqual([
       expect.objectContaining({
-        content: [{ type: 'text', text: JSON.stringify({ repo: 'owner/repository', issues: [7] }) }],
+        content: [
+          { type: 'text', text: JSON.stringify({ repo: 'owner/repository', dir: specs[0]!.dir, issues: [7] }) },
+        ],
         isError: false,
       }),
     ]);
@@ -108,7 +111,7 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
           input: { query: 'greeting' },
           ok: true,
           ms: expect.any(Number),
-          output: JSON.stringify({ repo: 'owner/repository', issues: [7] }),
+          output: JSON.stringify({ repo: 'owner/repository', dir: specs[0]!.dir, issues: [7] }),
         }),
       }),
     ]);
