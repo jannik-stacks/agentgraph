@@ -80,6 +80,17 @@ export type RunLink = { run: string; step: string; session?: string; operation?:
 export const makeStudioRunUrl = (studio: string, run: string) =>
   `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}`;
 
-/** The body without any provenance marker or ⁂ link in it. */
-export const removeRunLink = (body: string) =>
-  body.replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
+export const formatFooter = (content = '', url?: string) =>
+  `<details><summary>${url ? `<a href="${url.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}">⁂</a>` : '⁂'}</summary>\n\n${content ? `${content}\n\n` : ''}</details>`;
+
+export const splitFooter = (body: string) => {
+  const details = /<details><summary>(?:<a href="[^"]*">⁂<\/a>|⁂)<\/summary>\s*([\s\S]*?)\s*<\/details>/.exec(body);
+  return { text: details ? body.replace(details[0], '') : body, content: details?.[1] ?? '' };
+};
+
+export const removeRunLink = (body: string) => {
+  const { text, content } = splitFooter(body);
+  return [text.replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd(), content]
+    .filter(Boolean)
+    .join('\n\n');
+};

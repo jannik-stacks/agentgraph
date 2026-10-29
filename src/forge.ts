@@ -6,6 +6,8 @@ import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
 import {
   makeStudioRunUrl,
+  formatFooter,
+  splitFooter,
   removeRunLink,
   type Applied,
   type Comment,
@@ -23,16 +25,12 @@ export const currentRunLinkRef = FiberRef.unsafeMake<RunLink | undefined>(undefi
 /** The studio page of a run, opened at the trace line written at or after `at`. */
 const makeStudioRunUrlAt = (studio: string, run: string, at: string) => `${makeStudioRunUrl(studio, run)}?at=${at}`;
 
-/**
- * A body ending in a hidden marker of where it came from, after a ⁂ that links to it when the studio has a URL. Any
- * marker or link already in the body is dropped first.
- */
 const formatBodyWithRunLink = (body: string, mark: RunLink, at: string, studio = '') => {
   const fields = Object.entries({ ...mark, at })
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}=${v.replace(/[^\w.:-]/g, '')}`);
-  const link = studio ? `[⁂](${makeStudioRunUrlAt(studio, mark.run, at)}) ` : '';
-  return `${removeRunLink(body)}\n\n${link}<!-- agentgraph ${fields.join(' ')} -->`;
+  const { text, content } = splitFooter(body);
+  return `${removeRunLink(text)}\n\n${formatFooter(removeRunLink(content), studio ? makeStudioRunUrlAt(studio, mark.run, at) : undefined)}\n<!-- agentgraph ${fields.join(' ')} -->`;
 };
 
 /** The proposal as posted: its body stamped with `provenance`, and when, if the fiber writes for a run; else unstamped. */
