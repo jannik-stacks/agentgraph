@@ -338,10 +338,50 @@ describe('docker with a stand-in docker client', () => {
     const mirror = join(data, 'mirror.git');
     const binds = Exit.isSuccess(exit) ? exit.value : [];
     expect(binds.join('\n')).not.toContain('/tmp/x');
-    expect(binds).toHaveLength(4);
+    expect(binds).toHaveLength(5);
     expect(binds[1]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror},dst=.*,readonly$`));
     expect(binds[2]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror}/worktrees/\\w+,dst=`));
     expect(binds[3]).toMatch(new RegExp(`^type=bind,src=${data}/news/(\\w+),dst=${data}/news/\\1,readonly$`));
+  });
+
+  it.each([
+    ['main', false],
+    ['main', true],
+    [undefined, false],
+    [undefined, true],
+  ] as const)('isolates writable scratch outside %s and cleans it after failure=%s', async (ref, isFailure) => {
+    const data = tmp('data');
+    const keep = ref && 'refs/agentgraph/runs/scratch';
+    let scratch = '';
+    const exit = await use(dockerSandbox({ data, origin: origin(), cache: '' }), s =>
+      Effect.gen(function* () {
+        const first = yield* s.checkout(ref, undefined, keep);
+        const second = yield* s.checkout(ref);
+        scratch = join(data, 'scratch', basename(first.dir));
+        writeFileSync(join(scratch, 'capture.png'), 'pixels');
+        yield* s.exec(command(first.dir, { readonly: true }));
+        const mounts = logged().filter(a => a.startsWith('type=bind'));
+        const result = {
+          path: s.scratch,
+          mount: mounts.find(m => m.endsWith('dst=/scratch')),
+          work: mounts.find(m => m.includes('dst=/work')),
+          separate: readdirSync(join(data, 'scratch', basename(second.dir))),
+          checkout: readdirSync(first.dir),
+        };
+        return isFailure ? yield* Effect.fail(result) : result;
+      })
+    );
+    const result = Exit.isSuccess(exit) ? exit.value : Exit.isFailure(exit) && exit.cause;
+    expect(JSON.stringify(result)).toContain(`type=bind,src=${scratch},dst=/scratch`);
+    expect(JSON.stringify(result)).toContain('dst=/work,readonly');
+    expect(JSON.stringify(result)).toContain('"path":"/scratch"');
+    expect(JSON.stringify(result)).toContain('"separate":[]');
+    expect(JSON.stringify(result)).not.toContain('capture.png');
+    expect(existsSync(scratch)).toBe(false);
+    expect(readdirSync(join(data, 'scratch'))).toEqual([]);
+    expect(keep ? git(join(data, 'mirror.git'), 'ls-tree', '-r', '--name-only', keep) : '').not.toContain(
+      'capture.png'
+    );
   });
 
   it('runs every command of a checkout in its graph image and, with network models, on the proxy-only network', async () => {
@@ -1115,11 +1155,15 @@ describe('disk lifecycle', () => {
   it('reaps checkouts whose owner is gone and keeps live ones', async () => {
     await faked({}, async () => {
       const data = tmp('data');
-      for (const id of ['mine', 'none', 'gone']) mkdirSync(join(data, 'work', id, 'node_modules'), { recursive: true });
+      for (const id of ['mine', 'none', 'gone']) {
+        mkdirSync(join(data, 'work', id, 'node_modules'), { recursive: true });
+        mkdirSync(join(data, 'scratch', id), { recursive: true });
+      }
       writeCheckoutOwner(join(data, 'work', 'mine'));
       writeFileSync(join(data, 'work', 'gone.owner'), `${spawnSync('true').pid}:0123456789ab`);
       expect(reap(data)).toBe(2);
       expect(readdirSync(join(data, 'work')).sort()).toEqual(['mine', 'mine.owner']);
+      expect(readdirSync(join(data, 'scratch'))).toEqual(['mine']);
       expect(isOwnerRunning(startHeartbeat())).toBe(true);
     });
   });

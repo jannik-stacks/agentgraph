@@ -31,7 +31,14 @@ import { gitIdentity, hostGit, makeHostEnv } from './git.ts';
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
 const egress = 'http://egress:8888';
 const bypass = (direct: string[]) => [...direct, 'localhost', '127.0.0.1'].join(',');
-const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', graph: '/graph', cache: '/cache' };
+const inside = {
+  work: '/work',
+  home: '/home/agent',
+  tmp: '/tmp',
+  scratch: '/scratch',
+  graph: '/graph',
+  cache: '/cache',
+};
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
 /** The mirror takes branches and tags only, so fork code in `refs/pull/*` never reaches a session. */
@@ -94,7 +101,7 @@ const getMounts = (c: Command, mounts: Mount[]): Mount[] => [
   { src: c.dir, dst: inside.work, readonly: !!c.readonly },
   ...(c.home ? [{ src: c.home, dst: inside.home }] : []),
   ...(c.graph ? [{ src: c.graph, dst: inside.graph, readonly: true }] : []),
-  ...mounts.map(m => ({ ...m, readonly: !!(m.readonly || c.readonly) })),
+  ...mounts.map(m => ({ ...m, readonly: !!(m.readonly || (c.readonly && m.dst !== inside.scratch)) })),
 ];
 
 /**
@@ -102,7 +109,7 @@ const getMounts = (c: Command, mounts: Mount[]): Mount[] => [
  * the only routes out are the `direct` model hosts and, unless the graph's network is `models`, the egress allowlist; with
  * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`, read-only unless a shared
  * mount overlays it there; each shared mount is a volume at its path. A `readonly` command gets every mount read-only
- * but its home.
+ * but its home and scratch.
  */
 export const dockerArgs = (
   c: Command,
@@ -540,21 +547,26 @@ export const dockerSandbox = (o: {
       const empty = (graph?: Pick<Graph, 'image' | 'network'>) =>
         Effect.gen(function* () {
           const id = randomBytes(6).toString('hex');
-          const [dir, news] = [join(o.data, 'work', id), join(o.data, 'news', id)];
+          const dir = join(o.data, 'work', id);
+          const news = join(o.data, 'news', id);
+          const scratch = join(o.data, 'scratch', id);
           const remove = Effect.promise(() => {
             made.delete(dir);
-            return Promise.all([dir, `${dir}.owner`, news].map(p => rm(p, { recursive: true, force: true })));
+            return Promise.all([dir, `${dir}.owner`, news, scratch].map(p => rm(p, { recursive: true, force: true })));
           });
           yield* Effect.acquireRelease(
             Effect.tryPromise({
               try: async () => {
                 writeCheckoutOwner(dir);
-                await Promise.all([dir, news].map(p => mkdir(p, { recursive: true })));
+                await Promise.all([dir, news, scratch].map(p => mkdir(p, { recursive: true })));
                 made.set(dir, {
                   ...(graph?.image !== undefined && { image: graph.image }),
                   ...(graph?.network !== undefined && { network: graph.network }),
                   sharedMounts: [],
-                  mounts: [{ src: news, dst: news, readonly: true }],
+                  mounts: [
+                    { src: news, dst: news, readonly: true },
+                    { src: scratch, dst: inside.scratch },
+                  ],
                 });
               },
               catch: e => infra((e as Error).message),
@@ -662,6 +674,7 @@ export const dockerSandbox = (o: {
           const dir = join(o.data, 'work', id);
           const index = join(o.data, 'index', id);
           const news = join(o.data, 'news', id);
+          const scratch = join(o.data, 'scratch', id);
           const work: Checkout = {
             dir,
             base,
@@ -712,6 +725,7 @@ export const dockerSandbox = (o: {
               try: async () => {
                 await mkdir(dirname(index), { recursive: true });
                 await mkdir(news, { recursive: true });
+                await mkdir(scratch, { recursive: true });
                 await copyFile(join(admin, 'index'), index);
               },
               catch: e => infra((e as Error).message),
@@ -739,13 +753,14 @@ export const dockerSandbox = (o: {
                 { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
                 { src: admin, dst: admin },
                 { src: news, dst: news, readonly: true },
+                { src: scratch, dst: inside.scratch },
               ],
             });
           });
           const remove = Effect.promise(() => {
             made.delete(dir);
             return Promise.all([
-              ...[dir, `${dir}.owner`, index, news, admin].filter(Boolean).map(p =>
+              ...[dir, `${dir}.owner`, index, news, scratch, admin].filter(Boolean).map(p =>
                 rm(p, { recursive: true, force: true }).catch(e => {
                   if ((e as NodeJS.ErrnoException).code !== 'ENOTDIR') throw e;
                 })
@@ -759,6 +774,6 @@ export const dockerSandbox = (o: {
           return work;
         });
 
-      return { readHead, checkout, exec, lines, tools };
+      return { readHead, checkout, exec, lines, tools, scratch: inside.scratch };
     })
   );

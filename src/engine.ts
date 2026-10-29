@@ -1381,6 +1381,7 @@ const attempt = (
         'opens pull requests and posts comments from them, so do not run git or gh yourself. The shape of each kind:',
         ...kinds.map(k => shapes[k as keyof typeof shapes]),
       ].join('\n');
+      const scratch = (yield* Sandbox).scratch;
       const prompt = [
         formatRequest(t, run.started),
         ...[step.does.skill, ...(graph.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && graph.skills[s]?.body),
@@ -1397,6 +1398,8 @@ const attempt = (
         answering &&
           'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run.',
         `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
+        scratch &&
+          `Use ${scratch} for large temporary files, isolated source trees and build outputs outside the checkout. It is disk-backed, writable and removed when the checkout ends. /tmp is a small memory-backed filesystem.`,
         agent.reads && tracesAt(work),
         agent.returns.includes('issue') && (yield* filed()),
         run.feedback,

@@ -666,7 +666,13 @@ export const reap = (data: string) => {
     }
   });
   for (const id of gone)
-    for (const p of [join(work, id), join(work, `${id}.owner`), join(data, 'index', id), join(data, 'news', id)])
+    for (const p of [
+      join(work, id),
+      join(work, `${id}.owner`),
+      join(data, 'index', id),
+      join(data, 'news', id),
+      join(data, 'scratch', id),
+    ])
       rmSync(p, { recursive: true, force: true });
   return gone.length;
 };

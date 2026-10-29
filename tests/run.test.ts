@@ -10,6 +10,7 @@ import { fileForge, Forge } from '../src/forge.ts';
 import { Sandbox, SandboxError, type Checkout } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
+import { Session } from '../src/session.ts';
 import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
@@ -90,6 +91,29 @@ describe('drive', () => {
       );
       expect(readFileSync(join(work!.dir, 'pending.txt'), 'utf8')).toBe('keep me\n');
     }
+  });
+
+  it.each(['docker', 'host'])('announces scratch only when the %s sandbox provides it', async kind => {
+    const where = world();
+    const specs: string[] = [];
+    const layer = Layer.mergeAll(
+      fileForge(where.forge),
+      fileStore(where.data),
+      kind === 'docker'
+        ? dockerSandbox({ data: where.data, origin: where.origin, cache: '' })
+        : hostSandbox(where.origin),
+      Layer.effect(
+        Session,
+        Effect.map(Session, session => ({
+          open: spec => {
+            specs.push(spec.prompt);
+            return session.open(spec);
+          },
+        }))
+      ).pipe(Layer.provide(replaySession([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]])))
+    );
+    await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
+    expect(specs[0]?.includes('Use /scratch for large temporary files')).toBe(kind === 'docker');
   });
 
   it('cleans a partially acquired checkout after index setup fails', async () => {

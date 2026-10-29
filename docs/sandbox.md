@@ -9,12 +9,16 @@ A container has a read-only root, your non-root uid, no capabilities, `no-new-pr
 | Path | What | Access |
 | --- | --- | --- |
 | `/work` | The checkout | writable; read only for a session with no `edit`, `write` or `bash` tool |
+| `/scratch` | Private disk-backed temporary files, outside the checkout; removed with it | writable |
+| `/tmp` | Small memory-backed temporary files; 1 GiB, charged to the memory limit | writable |
 | `/home/agent` | The session home | writable |
 | `/graph` | The graph, `AGENTGRAPH_DIR`; scripts and setup only | read only |
 | `/cache` | The shared toolchain cache | overlay |
 | the mirror | The repo's git objects | read only |
 
 Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerSandbox -->
+
+Docker advertises its `scratch` path in agent prompts. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerSandbox src/env.ts#reap -->
 
 A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box server can't enforce that, so it refuses read-only sessions. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#remoteSandbox -->
 

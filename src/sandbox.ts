@@ -1,7 +1,7 @@
 import { Context, Data, type Effect, type Redacted, type Stream, type Scope } from 'effect';
 import type { Graph } from './folder.ts';
 
-/** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given and, with `readonly`, the only mount it can write. */
+/** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given and, with `readonly`, writable alongside scratch. */
 export type Command = {
   tools?: { url: string; host: string };
   cmd: string;
@@ -58,6 +58,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
 export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
   Sandbox,
   {
+    scratch?: string;
     tools?: Effect.Effect<{ subnet: string } & Pick<NonNullable<Command['tools']>, 'host'>, SandboxError>;
     readHead: (ref: string) => Effect.Effect<string, SandboxError>;
     checkout: (
