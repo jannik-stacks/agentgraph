@@ -16,7 +16,7 @@ import { dirname, join, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope } from 'effect';
-import { createLock } from './owner.ts';
+import { createLock, LockHeldError } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
 import { isRunDone, type Run } from './workflow.ts';
 import { PluginMetadata, getRunOrigin } from './meta.ts';
@@ -286,6 +286,8 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
           io(path, () => mkdir(join(dir, '.locks'), { recursive: true }).then(() => createLock(path))),
           release => Effect.promise(release)
         )
+      ).pipe(
+        Effect.tapError(e => (e.cause instanceof LockHeldError ? Effect.void : Effect.logError(`lock ${path}`, e)))
       );
     },
     log,

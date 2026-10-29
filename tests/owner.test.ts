@@ -15,6 +15,12 @@ const lock = (pid: number, at?: Date) => {
 };
 
 describe('isLockedByOtherProcess', () => {
+  it('rejects an empty owner instead of treating reserved work as free', () => {
+    const unit = lock(process.pid);
+    writeFileSync(`${unit}.lock`, '');
+    expect(() => isLockedByOtherProcess(unit)).toThrow('owner record is empty');
+  });
+
   it('is locked while another running process holds it', () => {
     expect(isLockedByOtherProcess(lock(process.ppid))).toBe(true);
   });

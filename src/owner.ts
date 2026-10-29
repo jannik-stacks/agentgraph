@@ -35,6 +35,7 @@ export const isPidRunning = (pid: number) => {
 const bootedAt = () => Date.now() - uptime() * 1000;
 
 export const isOwnerRunning = (label: string, writtenAt = Date.now()) => {
+  if (!label) throw new Error('owner record is empty');
   const [pid, owner] = label.split(':');
   if (owner === ownerId) return true;
   try {
@@ -120,7 +121,7 @@ export const createLock = async (path: string) => {
         break;
       }
     }
-    throw new Error('lock contended');
+    throw new LockHeldError('', Date.now());
   } finally {
     await rm(candidate, { force: true });
   }
@@ -130,9 +131,7 @@ export const waitForLock = async (name: string) => {
   const path = join(readStateDir(), 'locks', `${name}.lock`);
   await mkdir(dirname(path), { recursive: true });
   for (;;) {
-    const taken = await createLock(path).catch((e: NodeJS.ErrnoException) =>
-      e.code === undefined ? undefined : Promise.reject(e)
-    );
+    const taken = await createLock(path).catch(e => (e instanceof LockHeldError ? undefined : Promise.reject(e)));
     if (taken) return taken;
     await setTimeout(500);
   }
