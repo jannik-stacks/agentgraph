@@ -361,7 +361,13 @@ export const dockerSandbox = (o: {
       const mirror = o.local ? o.origin : join(o.data, 'mirror.git');
       let configured = false;
       const lock = yield* Effect.makeSemaphore(1);
-      if (cache) yield* Effect.promise(() => removeOrphanedVolumes(30_000).catch(() => 0));
+      if (cache)
+        yield* Effect.promise(() =>
+          removeOrphanedVolumes(30_000).catch(e => {
+            console.error(`1 skipped orphan cleanup: ${String(e)}`);
+            return 0;
+          })
+        );
       reap(o.data);
       const disk = { dir: o.data, ...(cache && { image, volume: cache }) };
       const roomy = Effect.tryPromise({ try: () => ensureFreeDisk(disk), catch: e => infra((e as Error).message) });
@@ -594,7 +600,7 @@ export const dockerSandbox = (o: {
             own || (saved ? yield* verify(`${saved}^`) : (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`)));
           if (!rev) return yield* infra(`no commit for ${ref}`);
           const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
-          const base = onto ? yield* inMirror(['merge-base', rev, onto]).pipe(Effect.orElseSucceed(() => rev)) : rev;
+          const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
           yield* roomy;
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
           const env =

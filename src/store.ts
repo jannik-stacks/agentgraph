@@ -178,7 +178,10 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
             try {
               return [current(JSON.parse(line)) as A];
             } catch (e) {
-              if (i === lines.length - 1) return [];
+              if (i === lines.length - 1) {
+                console.error(`${path}: 1 skipped incomplete JSONL row at line ${i + 1}: ${String(e)}`);
+                return [];
+              }
               throw e;
             }
           }),
@@ -237,7 +240,8 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     const hash = createHash('sha256').update(output).digest('hex');
     const path = logFile(hash);
     return io(path, async () => {
-      if (!(await stat(path).catch(() => undefined))) writeFileAtomic(path, await promisify(gzip)(output));
+      if (!(await stat(path).catch(e => (missing(e) ? undefined : Promise.reject(e)))))
+        writeFileAtomic(path, await promisify(gzip)(output));
       return { hash, bytes: Buffer.byteLength(output) };
     });
   };
@@ -331,13 +335,15 @@ export const locate = (input: unknown) =>
 /** The check logs in `<dir>/logs` that no run's trace or check record names; they are deleted only when `apply` is set. */
 export const pruneLogs = async (dir: string, apply = false) => {
   const named = new Set<string>();
-  for (const id of await readdir(dir).catch(() => []))
+  for (const id of await readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e))))
     for (const file of ['trace.jsonl', 'checks.jsonl']) {
-      const text = await readFile(join(dir, id, file), 'utf8').catch(() => '');
+      const text = await readFile(join(dir, id, file), 'utf8').catch(e =>
+        missing(e) || e.code === 'ENOTDIR' ? '' : Promise.reject(e)
+      );
       for (const [hash] of text.matchAll(/[0-9a-f]{64}/g)) named.add(hash);
     }
   const unused = { files: 0, bytes: 0 };
-  for (const name of await readdir(join(dir, 'logs')).catch(() => [])) {
+  for (const name of await readdir(join(dir, 'logs')).catch(e => (missing(e) ? [] : Promise.reject(e)))) {
     const hash = /^([0-9a-f]{64})\.gz$/.exec(name)?.[1];
     if (!hash || named.has(hash)) continue;
     const path = join(dir, 'logs', name);

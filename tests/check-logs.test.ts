@@ -66,6 +66,16 @@ describe('check logs', () => {
 });
 
 describe('prune logs', () => {
+  it('refuses to delete logs when a trace cannot be read', async () => {
+    const dir = data();
+    mkdirSync(join(dir, 'run-1', 'trace.jsonl'), { recursive: true });
+    mkdirSync(join(dir, 'logs'));
+    const name = `${'0'.repeat(64)}.gz`;
+    writeFileSync(join(dir, 'logs', name), 'keep');
+    await expect(pruneLogs(dir, true)).rejects.toThrow('EISDIR');
+    expect(readdirSync(join(dir, 'logs'))).toEqual([name]);
+  });
+
   it('counts logs no trace names, and deletes them only when asked', async () => {
     const dir = data();
     const [kept, dropped] = await Effect.runPromise(

@@ -38,7 +38,8 @@ const isAncestor = async (i: Pick<Instance, 'forge'>, a: string, b: string) =>
 export const readRealPath = (path: string): string => {
   try {
     return realpathSync(path);
-  } catch {
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     const parent = dirname(resolve(path));
     return parent === resolve(path) ? parent : join(readRealPath(parent), basename(path));
   }
@@ -177,7 +178,9 @@ export const ensureGraph = async (i: Instance, flag?: string) => {
   try {
     await git(index, ['read-tree', tree]);
     await git(index, ['checkout-index', '-a']);
-    await rename(draft, dir).catch(() => undefined);
+    await rename(draft, dir).catch(e => {
+      if (!['EEXIST', 'ENOTEMPTY'].includes(e.code)) throw e;
+    });
   } finally {
     await rm(draft, { recursive: true, force: true });
     await rm(index.GIT_INDEX_FILE, { force: true });

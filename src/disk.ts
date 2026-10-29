@@ -35,14 +35,13 @@ export type DiskCacheEntry = {
 
 /** Bytes of a size like `60g`, `1.2GB` or `512MB`, in powers of 1000 as docker prints them. */
 export const parseByteSize = (size: string) => {
-  const m = /^([\d.]+)\s*([kmgt]?)b?$/i.exec(size.trim());
+  const m = /^(\d+(?:\.\d+)?)\s*([kmgt]?)b?$/i.exec(size.trim());
   if (!m) throw new Error(`not a size: ${size}`);
   return Number(m[1]) * 1000 ** ' kmgt'.indexOf(m[2]!.toLowerCase() || ' ');
 };
 
 const cap = () => parseByteSize(process.env.AGENTGRAPH_ENV_CAP || '60g');
 const lines = (out: string) => out.split('\n').filter(Boolean);
-const ask = (args: string[], timeout?: number) => runDockerCli(args, timeout).catch(() => '');
 const pins = () => join(readStateDir(), 'pins');
 
 /** Holds every cache item one of the `match` globs names, for `days`. */
@@ -58,11 +57,16 @@ const unexpired = () => {
   let files: string[] = [];
   try {
     files = readdirSync(pins()).filter(f => f.endsWith('.json'));
-  } catch {}
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
   return files.flatMap(f => {
     try {
       const p = JSON.parse(readFileSync(join(pins(), f), 'utf8')) as { match: string[]; until: string };
-      if (!(Date.parse(p.until) > Date.now())) return [];
+      const until = Date.parse(p.until);
+      if (!Number.isFinite(until) || !Array.isArray(p.match) || !p.match.every(g => typeof g === 'string'))
+        throw new Error('pin needs a valid expiry and match patterns');
+      if (until <= Date.now()) return [];
       const globs = p.match.map(
         g =>
           new RegExp(
@@ -73,8 +77,8 @@ const unexpired = () => {
           )
       );
       return [{ name: f.slice(0, -5), test: (ref: string) => globs.some(g => g.test(ref)) }];
-    } catch {
-      return [];
+    } catch (e) {
+      throw new Error(`invalid cache pin ${f}: ${String(e)}`, { cause: e });
     }
   });
 };
@@ -90,8 +94,9 @@ export const findBuildDirs = (root: string, depth = 5): string[] => {
   let entries: Dirent[] = [];
   try {
     entries = readdirSync(root, { withFileTypes: true });
-  } catch {
-    return [];
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw e;
   }
   const here = new Set(entries.map(e => e.name));
   return entries
@@ -105,28 +110,21 @@ export const findBuildDirs = (root: string, depth = 5): string[] => {
 };
 
 const du = (path: string) =>
-  new Promise<number>(done =>
+  new Promise<number>((done, reject) =>
     execFile('du', ['-sk', path], { env: makeHostEnv(), timeout: 600_000 }, (e, out) =>
-      done(e ? 0 : Number(out.split('\t')[0]) * 1024)
+      e ? reject(e) : done(Number(out.split('\t')[0]) * 1024)
     )
   );
 
 /** Unique bytes of each image by id and bytes of each volume by name, as `docker system df` counts them. */
 const usage = async () => {
-  const size = (s = '') => {
-    try {
-      return parseByteSize(s);
-    } catch {
-      return 0;
-    }
-  };
-  let df: { Images?: { ID: string; UniqueSize: string }[]; Volumes?: { Name: string; Size: string }[] } = {};
-  try {
-    df = JSON.parse((await ask(['system', 'df', '-v', '--format', 'json'])) || '{}');
-  } catch {}
+  const df = JSON.parse(await runDockerCli(['system', 'df', '-v', '--format', 'json'])) as Partial<{
+    Images: { ID: string; UniqueSize: string }[];
+    Volumes: { Name: string; Size: string }[];
+  }>;
   return {
-    images: new Map((df.Images ?? []).map(i => [i.ID, size(i.UniqueSize)])),
-    volumes: new Map((df.Volumes ?? []).map(v => [v.Name, size(v.Size)])),
+    images: new Map((df.Images ?? []).map(i => [i.ID, parseByteSize(i.UniqueSize)])),
+    volumes: new Map((df.Volumes ?? []).map(v => [v.Name, parseByteSize(v.Size)])),
   };
 };
 
@@ -144,16 +142,18 @@ const parseDockerLabels = (text = '') =>
  * objects are data and never appear. Volumes without a recorded size count 0 bytes unless `measure`.
  */
 export const inventory = async (o: { roots?: string[]; measure?: boolean } = {}): Promise<DiskCacheEntry[]> => {
-  const df = usage();
+  const df = await usage();
   const tagsById = new Map<string, string[]>();
   const others = new Set<string>();
-  for (const l of lines(await ask(['image', 'ls', '--no-trunc', '--format', '{{.ID}} {{.Repository}}:{{.Tag}}']))) {
+  for (const l of lines(
+    await runDockerCli(['image', 'ls', '--no-trunc', '--format', '{{.ID}} {{.Repository}}:{{.Tag}}'])
+  )) {
     const [id = '', tag = ''] = l.split(' ');
     if (tag.startsWith('agentgraph-env/')) tagsById.set(id, [...(tagsById.get(id) ?? []), tag]);
     else if (!tag.includes('<none>')) others.add(id);
   }
   const bases = others.size
-    ? lines(await ask(['image', 'inspect', '--format', '{{json .RootFS.Layers}}', ...others])).map(
+    ? lines(await runDockerCli(['image', 'inspect', '--format', '{{json .RootFS.Layers}}', ...others])).map(
         l => JSON.parse(l) as string[]
       )
     : [];
@@ -163,12 +163,12 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       : bases.length && !bases.some(b => b.length === layers.length - 1 && b.every((x, i) => x === layers[i]))
         ? 'base replaced'
         : undefined;
-  const containers = lines(await ask(['ps', '-a', '--no-trunc', '--format', '{{.Image}}|{{.Mounts}}'])).map(l =>
-    l.split('|')
+  const containers = lines(await runDockerCli(['ps', '-a', '--no-trunc', '--format', '{{.Image}}|{{.Mounts}}'])).map(
+    l => l.split('|')
   );
   const runImages = new Set(containers.map(([image]) => image));
   const mounted = new Set(containers.flatMap(([, mounts = '']) => mounts.split(',')));
-  const vols = lines(await ask(['volume', 'ls', '--format', '{{.Name}}\t{{.Labels}}']))
+  const vols = lines(await runDockerCli(['volume', 'ls', '--format', '{{.Name}}\t{{.Labels}}']))
     .map(l => {
       const [name = '', labels] = l.split('\t');
       return { name, labels: parseDockerLabels(labels) };
@@ -186,7 +186,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
   const keys = new Set<string>();
   const inspected = tagsById.size
     ? lines(
-        await ask([
+        await runDockerCli([
           'image',
           'inspect',
           '--format',
@@ -202,7 +202,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
     const tags = tagsById.get(id) ?? [];
     if (!key || !tags.length || isData(labels)) continue;
     const why = gone(labels, JSON.parse(layers) as string[]);
-    const unique = (await df).images.get(id) ?? 0;
+    const unique = df.images.get(id) ?? 0;
     const lastUsedMs = existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
     keys.add(key);
     items.push({
@@ -216,7 +216,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       ...(held(key, false) && { held: 'recent use' }),
     });
   }
-  const measured = o.measure ? (await df).volumes : new Map<string, number>();
+  const measured = o.measure ? df.volumes : new Map<string, number>();
   for (const v of vols) {
     const key = v.name.slice('agentgraph-lower-'.length);
     if (v.name !== makeSetupVolumeName(key) || keys.has(key)) continue;
@@ -273,7 +273,10 @@ const remove = async (i: DiskCacheEntry) => {
   const ok = (args: string[]) =>
     runDockerCli(args).then(
       () => true,
-      () => false
+      e => {
+        console.error(`1 skipped cache removal (${args.join(' ')}): ${String(e)}`);
+        return false;
+      }
     );
   const tags = i.refs.filter(r => r.includes(':'));
   if (tags.length && !(await ok(['rmi', ...tags]))) return false;
@@ -324,22 +327,19 @@ const dockerFree = (image: string, volume: string) => {
       '/disk',
     ],
     60_000
-  ).then(
-    out => Number(out.split('\n').at(-1)?.trim().split(/\s+/)[3] ?? NaN) * 1024 || Infinity,
-    () => Infinity
-  );
+  ).then(out => {
+    const free = Number(out.trim().split('\n').at(-1)?.trim().split(/\s+/)[3]) * 1024;
+    if (!Number.isFinite(free) || free < 0) throw new Error('docker df did not report free bytes');
+    return free;
+  });
   inDocker.set(key, { at: Date.now(), free });
   return free;
 };
 
 /** Free bytes where `disk` writes, the smaller of the host dir and the docker disk. */
 const getFreeBytes = async ({ dir, image, volume }: Disk) => {
-  let host = Infinity;
-  try {
-    const s = statfsSync(dir);
-    host = s.bavail * s.bsize;
-  } catch {}
-  return Math.min(host, image && volume ? await dockerFree(image, volume) : Infinity);
+  const s = statfsSync(dir);
+  return Math.min(s.bavail * s.bsize, image && volume ? await dockerFree(image, volume) : Infinity);
 };
 
 const gb = (b: number) => (b / 1e9).toFixed(1);
@@ -375,7 +375,7 @@ export class DiskLow extends Error {
  * running container.
  */
 export const ensureFreeDisk = async (disk: Disk, min = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40)) => {
-  if ((await getFreeBytes(disk)) >= min * 1e9) return;
+  if (min === 0 || (await getFreeBytes(disk)) >= min * 1e9) return;
   inDocker.clear();
   await removeOrphanedVolumes(60_000);
   const roots = (process.env.AGENTGRAPH_GC_ROOTS ?? '').split(':').filter(Boolean);

@@ -12,10 +12,8 @@ export const ownerId = randomBytes(6).toString('hex');
 let beating: NodeJS.Timeout | undefined;
 
 const beat = () => {
-  try {
-    mkdirSync(heartbeats(), { recursive: true });
-    writeFileSync(join(heartbeats(), ownerId), '');
-  } catch {}
+  mkdirSync(heartbeats(), { recursive: true });
+  writeFileSync(join(heartbeats(), ownerId), '');
 };
 
 export const startHeartbeat = () => {
@@ -41,7 +39,9 @@ export const isOwnerRunning = (label: string, writtenAt = Date.now()) => {
   if (owner === ownerId) return true;
   try {
     if (owner && Date.now() - statSync(join(heartbeats(), owner)).mtimeMs < 120_000) return true;
-  } catch {}
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
   return writtenAt > bootedAt() - 60_000 && Number(pid) > 0 && isPidRunning(Number(pid));
 };
 
@@ -49,14 +49,16 @@ export const isLockedByOtherProcess = (path: string) => {
   try {
     const pid = readFileSync(`${path}.lock`, 'utf8').trim();
     return Number(pid) !== process.pid && isOwnerRunning(pid, statSync(`${path}.lock`).mtimeMs);
-  } catch {
-    return false;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw e;
   }
 };
 
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 const release = (path: string, holder: string) => async () => {
-  if ((await readFile(path, 'utf8').catch(() => undefined)) === holder) await rm(path, { force: true });
+  if ((await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)))) === holder)
+    await rm(path, { force: true });
 };
 const exists = (e: unknown) => (e as NodeJS.ErrnoException).code === 'EEXIST';
 
@@ -69,7 +71,9 @@ export class LockHeldError extends Error {
     try {
       const owner = holder.split(':')[1];
       if (owner) until = statSync(join(heartbeats(), owner)).mtimeMs + 120_000;
-    } catch {}
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    }
     this.seconds = Math.max(1, Math.ceil((until - Date.now()) / 1000));
   }
 }
@@ -88,7 +92,8 @@ const succeed = async (path: string, before: string, candidate: string) => {
     }
   }
   try {
-    if ((await readFile(path, 'utf8').catch(() => undefined)) !== before) return false;
+    if ((await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)))) !== before)
+      return false;
     await rename(candidate, path);
     return true;
   } finally {

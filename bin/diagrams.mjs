@@ -148,12 +148,7 @@ if (process.argv[1] === import.meta.filename) {
   let total = 0;
   let bad = 0;
   for (const file of files) {
-    let text;
-    try {
-      text = readFileSync(file, 'utf8');
-    } catch {
-      continue;
-    }
+    const text = readFileSync(file, 'utf8');
     const { problems, diagrams } = checkDiagrams(text);
     total += diagrams;
     for (const p of problems) {

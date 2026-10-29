@@ -165,32 +165,35 @@ const build = [
   '    done | while read -r n; do RUSTUP_AUTO_INSTALL=0 cargo clean --offline -q -p "$n" || true; done',
   '  fi',
   '  export GIT_DIR="$1" GIT_WORK_TREE=/work GIT_INDEX_FILE=/tmp/index',
-  '  { echo @@ignored; git ls-files -o -i --exclude-standard --directory | grep -v "^.agentgraph-env/$" || true;',
-  '    echo @@untracked; git ls-files -o --exclude-standard --directory | grep -v "^.agentgraph-env/$" || true; } > $out/listing.part',
+  '  git ls-files -o -i --exclude-standard --directory > $out/ignored.part',
+  '  git ls-files -o --exclude-standard --directory > $out/untracked.part',
+  '  { echo @@ignored; grep -v "^.agentgraph-env/$" $out/ignored.part || [ "$?" -eq 1 ];',
+  '    echo @@untracked; grep -v "^.agentgraph-env/$" $out/untracked.part || [ "$?" -eq 1 ]; } > $out/listing.part',
   '  mkdir -p $out/data $out/rest && n=0',
   '  sed -n "/^@@ignored$/,/^@@untracked$/p" $out/listing.part | grep "/$" | while read -r d; do',
-  '    case "$d" in node_modules/|*/node_modules/|target/|*/target/) mv "${d%/}" "$out/data/$n" && n=$((n + 1));;',
-  '      *) mkdir -p "$out/rest/$(dirname "$d")" && mv "${d%/}" "$out/rest/${d%/}";; esac',
-  '  done || true',
+  '    case "$d" in node_modules/|*/node_modules/|target/|*/target/) mv "${d%/}" "$out/data/$n" || exit 1; n=$((n + 1));;',
+  '      *) mkdir -p "$out/rest/$(dirname "$d")" || exit 1; mv "${d%/}" "$out/rest/${d%/}" || exit 1;; esac',
+  '  done',
   '  find /work -mindepth 1 -maxdepth 1 ! -name .agentgraph-env -exec rm -rf {} +',
-  '  mv $out/listing.part $out/listing && du -sk $out | cut -f1 > $out/kb && touch $out/done',
+  '  mv $out/listing.part $out/listing && du -sk $out > $out/size.part && cut -f1 $out/size.part > $out/kb && touch $out/done',
   'fi',
   'cat $out/listing',
   'echo @@lower',
   'cat $out/kb',
 ].join('\n');
 
-const section = (out: string, name: string) =>
-  (out.split(`@@${name}\n`)[1] ?? '').split(/^@@/m)[0]!.split('\n').filter(Boolean);
+const section = (out: string, name: string) => {
+  const text = out.split(`@@${name}\n`)[1];
+  if (text === undefined) throw new Error(`env build omitted the ${name} section`);
+  return text.split(/^@@/m)[0]!.split('\n').filter(Boolean);
+};
 
 export const used = () => join(readStateDir(), 'envs');
 const holds = () => join(readStateDir(), 'holds');
 const writeTimestampFile = (file: string) => {
-  try {
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, '', { flag: 'a' });
-    utimesSync(file, new Date(), new Date());
-  } catch {}
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, '', { flag: 'a' });
+  utimesSync(file, new Date(), new Date());
 };
 const touch = (key: string) => {
   writeTimestampFile(join(used(), key));
@@ -205,7 +208,9 @@ export const held = (key: string, prune = true) => {
   let owners: string[] = [];
   try {
     owners = readdirSync(dir);
-  } catch {}
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
   const running = owners.filter(o => isOwnerRunning(`0:${o}`));
   if (prune) for (const owner of owners.filter(o => !running.includes(o))) rmSync(join(dir, owner), { force: true });
   return running.some(o => o !== ownerId && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000);
@@ -382,7 +387,8 @@ const createSandboxSetup = async (
         mode,
         inputs: b.inputs,
       };
-      const kb = Number(section(out.output, 'lower')[0]) || 0;
+      const kb = Number(section(out.output, 'lower')[0]);
+      if (!Number.isFinite(kb) || kb < 0) throw new Error('env build omitted its size');
       await runDockerCli([
         'commit',
         '--change',
@@ -646,14 +652,17 @@ export const reap = (data: string) => {
   let ids: string[] = [];
   try {
     ids = readdirSync(work).filter(n => !n.endsWith('.owner') && !n.endsWith('.failed'));
-  } catch {}
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
   const gone = ids.filter(id => {
     if (existsSync(join(work, `${id}.failed`))) return false;
     const owner = join(work, `${id}.owner`);
     try {
       return !isOwnerRunning(readFileSync(owner, 'utf8').trim(), statSync(owner).mtimeMs);
-    } catch {
-      return true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return true;
+      throw e;
     }
   });
   for (const id of gone)
@@ -673,13 +682,12 @@ const volumes = async (label: string, timeout?: number) =>
     .filter(Boolean)
     .map(l => l.split(' ') as [string, string]);
 
-/** Removes dependency volumes whose owner is gone; a docker that does not answer within `timeout` ms sweeps nothing. */
 export const removeOrphanedVolumes = async (timeout = 600_000) => {
   startHeartbeat();
-  const dead = (await volumes('agentgraph.layer', timeout).catch(() => []))
+  const dead = (await volumes('agentgraph.layer', timeout))
     .filter(([, owner]) => !isOwnerRunning(owner))
     .map(([name]) => name)
     .sort((a, b) => Number(b.endsWith('-o')) - Number(a.endsWith('-o')));
-  if (dead.length) await runDockerCli(['volume', 'rm', '-f', ...dead], timeout).catch(() => '');
+  if (dead.length) await runDockerCli(['volume', 'rm', '-f', ...dead], timeout);
   return dead.length;
 };

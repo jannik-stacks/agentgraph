@@ -79,6 +79,23 @@ const box = {
 };
 
 describe('inventory', () => {
+  it('rejects unreadable inventory instead of reporting an empty cache', async () => {
+    await faked({ 'system df': 'broken' }, async () => {
+      await expect(inventory()).rejects.toThrow(SyntaxError);
+    });
+  });
+
+  it.each(['broken', '{"until":"bad","match":["*"]}'])(
+    'rejects malformed pin %s instead of allowing removal',
+    async text => {
+      await faked({ 'system df': '{}' }, async () => {
+        pin('broken', ['*'], 1);
+        writeFileSync(join(process.env.AGENTGRAPH_STATE!, 'pins', 'broken.json'), text);
+        await expect(inventory()).rejects.toThrow('invalid cache pin broken.json');
+      });
+    }
+  );
+
   it('counts unique bytes of our caches only, and holds what a container uses', async () => {
     await faked(box, async () => {
       const items = await inventory();
@@ -127,6 +144,7 @@ describe('inventory', () => {
     const env = (id: string, labels: string, layers: string) => `sha256:${id} 2026-10-01T00:00:00Z ${layers} ${labels}`;
     await faked(
       {
+        'system df': '{}',
         'image ls': [
           'sha256:a agentgraph-env/r:a',
           'sha256:b agentgraph-env/r:b',
@@ -188,7 +206,7 @@ describe('collect', () => {
   });
 
   it('removes a score tree nobody holds, and a tagged target dir only past the limit', async () => {
-    await faked({}, async () => {
+    await faked({ 'system df': '{}' }, async () => {
       const root = tmp('runs');
       write(root, { 'r/i0/case-1/case.json': '{}' });
       write(root, { 'r/i0/case-1/tree/target/x': 'x'.repeat(5000) });

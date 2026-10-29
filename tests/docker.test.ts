@@ -69,6 +69,7 @@ describe('docker with a stand-in docker client', () => {
         `echo "secret=\${AGENTGRAPH_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
         `case "$*" in *"skelfail deps"*) exit 98;; *"skeltool x deps"*) exit 97;; *"skelfail tree"*) ;; *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
+        `case "$*" in *agentgraph.envbuild*) printf '@@ignored\\n@@untracked\\n@@lower\\n0\\n';; esac`,
       ].join('\n')
     );
     chmodSync(join(bin, 'docker'), 0o755);
@@ -1097,7 +1098,7 @@ describe('disk lifecycle', () => {
 });
 
 describe('removeOrphanedVolumes', () => {
-  it('removes nothing when docker does not answer in time', async () => {
+  it('reports an error when docker does not answer in time', async () => {
     const bin = tmp('bin');
     writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexec sleep 5\n');
     chmodSync(join(bin, 'docker'), 0o755);
@@ -1105,7 +1106,7 @@ describe('removeOrphanedVolumes', () => {
     process.env.PATH = `${bin}${delimiter}${path}`;
     try {
       const started = Date.now();
-      expect(await removeOrphanedVolumes(200)).toBe(0);
+      await expect(removeOrphanedVolumes(200)).rejects.toThrow('docker volume');
       expect(Date.now() - started).toBeLessThan(3000);
     } finally {
       process.env.PATH = path;
