@@ -467,13 +467,19 @@ export const dockerSandbox = (o: {
         Stream.unwrapScoped(
           Effect.map(prepare(c), ({ name, args }) => {
             let code = 0;
+            let tail = '';
             return Stream.asyncPush<string, SandboxError>(emit =>
               Effect.acquireRelease(
                 Effect.sync(() => {
-                  const proc = start(args, c.secrets, name, chunk => void emit.single(chunk));
+                  const proc = start(args, c.secrets, name, chunk => {
+                    tail = (tail + chunk).slice(-2000);
+                    void emit.single(chunk);
+                  });
                   void proc.closed.then(closed => {
                     code = closed;
-                    return code === 125 ? emit.fail(infra('docker could not start the container')) : emit.end();
+                    return code === 125
+                      ? emit.fail(infra(`docker could not start the container: ${tail.trim()}`))
+                      : emit.end();
                   });
                   return proc;
                 }),
