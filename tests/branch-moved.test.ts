@@ -1,13 +1,4 @@
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Deferred, Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
@@ -235,7 +226,7 @@ describe('a run branch that moved', () => {
     expect((await run(Effect.flatMap(Forge, f => f.issue(8)))).state).toBe('merged');
   });
 
-  it.each(['workflow', 'symlink', 'oversize'])('file forge refuses unsafe push content: %s', async kind => {
+  it.each(['symlink', 'oversize'])('file forge refuses unsafe push content: %s', async kind => {
     const where = world();
     const { run } = services(
       where,
@@ -245,10 +236,7 @@ describe('a run branch that moved', () => {
       ],
       undefined,
       spec => {
-        if (kind === 'workflow') {
-          mkdirSync(join(spec.dir, '.github', 'workflows'), { recursive: true });
-          writeFileSync(join(spec.dir, '.github', 'workflows', 'x.yml'), 'run: bad\n');
-        } else if (kind === 'symlink') {
+        if (kind === 'symlink') {
           rmSync(join(spec.dir, 'link.txt'), { force: true });
           symlinkSync('README.md', join(spec.dir, 'link.txt'));
         } else writeFileSync(join(spec.dir, 'big.txt'), 'x'.repeat((1 << 20) + 1));
@@ -558,6 +546,32 @@ describe('a run branch that moved', () => {
     expect(specs[1]!.prompt).toContain('Use blue');
     expect(specs[1]!.prompt).toContain('types');
   });
+
+  it.each([false, true])(
+    'returns held files to the proposing agent before posting replies (held only: %s)',
+    async only => {
+      const where = world();
+      const { specs, run } = services(where, [
+        [
+          start('a'),
+          ...(only ? [] : [wrote('hello.txt', 'hello\n')]),
+          wrote('.github/workflows/socket.yml', 'on: push\n'),
+          reply(push, { kind: 'comment', body: 'Added .github/workflows/socket.yml' }, pull),
+        ],
+        [start('a'), reply({ kind: 'ask', question: 'Please have a maintainer push the workflow.' })],
+      ]);
+      const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+      expect(done.status).toBe('waiting');
+      expect(specs[1]!.prompt).toContain('.github/workflows/socket.yml');
+      expect(specs[1]!.prompt).toContain(only ? 'Nothing pushed' : 'Not pushed');
+      expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Added .github/workflows/socket.yml');
+      const applied = readTrace(where.data, 'run-7').flatMap(t =>
+        'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied] : []
+      );
+      expect(applied[0]).toMatchObject({ ok: false, held: ['.github/workflows/socket.yml'] });
+      expect(Boolean(applied[0]!.url)).toBe(!only);
+    }
+  );
 
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
     const where = world();

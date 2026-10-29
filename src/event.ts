@@ -66,6 +66,7 @@ export type Applied = {
   proposal: Proposal;
   ok: boolean;
   url?: string;
+  held?: string[];
   id?: string;
   reason?: string;
   moved?: true;

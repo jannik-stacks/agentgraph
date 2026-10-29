@@ -14,6 +14,7 @@ import {
   matches,
   parseIssueSearch,
   withheld,
+  makePushResult,
 } from './forge.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import type { Proposal } from './proposal.ts';
@@ -759,6 +760,7 @@ export const githubForge = (
           yield* git(work, ['reset', '-q', from, '--', '.github']);
           tree = yield* gitText(work, ['write-tree']);
           held.set(branch, new Set([...(held.get(branch) ?? []), ...left]));
+          if (tree === from) return makePushResult(undefined, left);
         }
         let head = parent;
         if (tree !== from || follow) {
@@ -766,7 +768,7 @@ export const githubForge = (
           const commit = { message, tree, parents };
           head = (yield* gh<{ sha: string }>('POST', `${repo}/git/commits`, commit, 'push')).sha;
         }
-        if (head === tip) return head;
+        if (head === tip) return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left);
         const force = !!follow && !merge;
         if (
           force &&
@@ -779,7 +781,7 @@ export const githubForge = (
         } else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
         yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
-        return head;
+        return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left);
       });
 
     /** Builds tree `to` on GitHub from tree `from`, from the checkout's objects. */
@@ -937,7 +939,7 @@ export const githubForge = (
       number: number,
       p: Proposal,
       work?: Checkout
-    ): Effect.Effect<{ url?: string; id?: string }, ForgeError> => {
+    ): Effect.Effect<Partial<Omit<Applied, 'proposal'>>, ForgeError> => {
       switch (p.kind) {
         case 'comment':
           return p.under === undefined
@@ -978,9 +980,7 @@ export const githubForge = (
           });
         case 'push':
           if (work === undefined) return Effect.fail(refuse('push needs a checkout'));
-          return Effect.map(push(work, p.branch, p.message, p.onto, p.merge), head => ({
-            url: `https://github.com/${app.repo}/commit/${head}`,
-          }));
+          return push(work, p.branch, p.message, p.onto, p.merge);
         case 'rebase':
           if (work === undefined) return Effect.fail(refuse('rebase needs a checkout'));
           return Effect.map(rebase(work, p.branch, p.from, p.onto, p.head), head => ({

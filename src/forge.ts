@@ -130,6 +130,15 @@ export const unpushable = (path: string, modes: string[]) =>
       ? `${path} is under .github/ or .git/`
       : undefined;
 
+export const makePushResult = (url: string | undefined, held: string[]): Omit<Applied, 'proposal'> => ({
+  ok: held.length === 0,
+  held,
+  ...(url && { url }),
+  ...(held.length > 0 && {
+    reason: `${url ? `Pushed ${url}.` : 'Nothing pushed.'} Not pushed: ${held.map(f => `\`${f}\``).join(', ')}. Files under .github/ need a maintainer; do not claim they were added.`,
+  }),
+});
+
 export const parseIssueFile = (text: string) => {
   const [, head = '', body = text] = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text) ?? [];
   return { front: (parse(head) ?? {}) as Partial<Issue>, body };
@@ -222,6 +231,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       };
       /** The last commit pushed from each checkout; the next push from it builds on that commit. */
       const pushed = new Map<string, string>();
+      const held = new Map<string, Set<string>>();
 
       const numbers = async () =>
         ((await optional(readdir(dir))) ?? []).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
@@ -371,18 +381,30 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             if (was && was !== parent) return no(`${p.branch} is at ${was}, the checkout builds on ${parent}`, true);
             const parents = onto ? (p.merge ? [parent, onto] : [onto]) : [parent];
             await git(work, 'add', '-A');
-            const tree = await git(work, 'write-tree');
-            const problem = await findPushProblem(work, `${parent}^{tree}`, tree);
+            const from = await git(work, 'rev-parse', `${parent}^{tree}`);
+            let tree = await git(work, 'write-tree');
+            const left = (
+              await git(work, 'diff-tree', '-r', '--name-only', '--no-renames', from, tree, '--', '.github')
+            )
+              .split('\n')
+              .filter(Boolean);
+            if (left.length) {
+              await git(work, 'reset', '-q', from, '--', '.github');
+              tree = await git(work, 'write-tree');
+              held.set(p.branch, new Set([...(held.get(p.branch) ?? []), ...left]));
+              if (tree === from) return { proposal: p, ...makePushResult(undefined, left) };
+            }
+            const problem = await findPushProblem(work, from, tree);
             if (problem) return no(problem);
             const head =
-              !onto && tree === (await git(work, 'rev-parse', `${parent}^{tree}`))
+              !onto && tree === from
                 ? parent
                 : await git(work, 'commit-tree', tree, ...parents.flatMap(c => ['-p', c]), '-m', p.message);
             const lease = `--force-with-lease=refs/heads/${p.branch}:${was ?? ''}`;
             await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
             await Effect.runPromise(commitPublishedTree(work, tree));
             pushed.set(work.dir, head);
-            return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
+            return { proposal: p, ...makePushResult(`${p.branch}@${await moved(work, p.branch, head)}`, left) };
           }
           case 'rebase': {
             if (!isAgentBranch(p.branch)) return no(`a rebase goes to a ${pushLimits.prefix} branch`);
@@ -432,16 +454,22 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
           case 'pull_request': {
+            const left = [...(held.get(p.branch) ?? [])];
+            const body =
+              p.body +
+              (left.length
+                ? `\n\nNot pushed: ${left.map(f => `\`${f}\``).join(', ')}. Files under .github/ need a maintainer.`
+                : '');
             if (!isAgentBranch(p.branch)) return no(`a pull request goes from a ${pushLimits.prefix} branch`);
             for (const k of await numbers()) {
               const pr = await read(k);
               if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;
-              await write({ ...pr, title: p.title, body: p.body });
+              await write({ ...pr, title: p.title, body });
               return { proposal: p, ok: true, url: pr.url };
             }
             const head = work ? await tip(work, p.branch).catch(() => '') : '';
             if (!head) return no(`branch ${p.branch} is not pushed`);
-            const k = await open({ title: p.title, body: p.body, pull: { branch: p.branch, base: p.base, head } });
+            const k = await open({ title: p.title, body, pull: { branch: p.branch, base: p.base, head } });
             if (work)
               await writeFile(
                 join(dir, String(k), 'diff.patch'),

@@ -324,13 +324,60 @@ describe('fileForge push', () => {
           f.apply(1, { kind: 'push', branch: 'agentgraph/1', message: 'add hello' }, checkout)
         ).pipe(Effect.provide(fileForge(dir)))
       );
-    return { dir, origin, work, push };
+    return { dir, origin, work, checkout, push };
   };
 
   it('pushes from a worktree of a mirror clone, as the docker sandbox makes them', async () => {
     const { dir, origin, push } = setup();
     expect((await push()).ok).toBe(true);
     expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
+  });
+
+  it.each([false, true])('names held files and reports whether anything was pushed (held only: %s)', async only => {
+    const { dir, origin, work, push } = setup();
+    mkdirSync(join(work, '.github/workflows'), { recursive: true });
+    writeFileSync(join(work, '.github/workflows/x.yml'), 'on: push\n');
+    if (only) rmSync(join(work, 'hello.txt'));
+    const applied = await push();
+    expect(applied).toMatchObject({
+      ok: false,
+      held: ['.github/workflows/x.yml'],
+      reason: expect.stringContaining(only ? 'Nothing pushed' : 'Not pushed'),
+    });
+    expect(Boolean(applied.url)).toBe(!only);
+    expect(git(dir, '--git-dir', origin, 'ls-tree', '-r', '--name-only', only ? 'main' : 'agentgraph/1')).toBe(
+      only ? '' : 'hello.txt'
+    );
+    expect(readFileSync(join(work, '.github/workflows/x.yml'), 'utf8')).toBe('on: push\n');
+  });
+
+  it('keeps the previous commit when the next push has only held changes and names them in the pull request', async () => {
+    const { dir, origin, work, checkout } = setup();
+    const [first, second, opened] = await Effect.runPromise(
+      Effect.gen(function* () {
+        const forge = yield* Forge;
+        const proposal = { kind: 'push', branch: 'agentgraph/1', message: 'Add hello' } as const;
+        const first = yield* forge.apply(1, proposal, checkout);
+        mkdirSync(join(work, '.github/workflows'), { recursive: true });
+        writeFileSync(join(work, '.github/workflows/x.yml'), 'on: push\n');
+        const second = yield* forge.apply(1, proposal, checkout);
+        const opened = yield* forge.apply(
+          1,
+          { kind: 'pull_request', branch: proposal.branch, base: 'main', title: 'Hello', body: 'Closes #1' },
+          checkout
+        );
+        return [first, second, opened];
+      }).pipe(Effect.provide(fileForge(dir)))
+    );
+    expect(first).toMatchObject({ ok: true, held: [] });
+    expect(second).toMatchObject({
+      ok: false,
+      held: ['.github/workflows/x.yml'],
+      reason: expect.stringContaining('Nothing pushed'),
+    });
+    expect(second!.url).toBeUndefined();
+    expect(git(dir, '--git-dir', origin, 'rev-parse', 'agentgraph/1')).toBe(first!.url!.split('@').at(-1));
+    expect(readFileSync(opened!.url!, 'utf8')).toContain('Not pushed: `.github/workflows/x.yml`');
   });
 
   it('refuses a push onto a branch that moved away from what the checkout builds on, as moved', async () => {

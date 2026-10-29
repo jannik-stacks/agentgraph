@@ -1294,7 +1294,7 @@ describe('githubForge', () => {
       expect(commit).toEqual({ message: 'Fix the typo', tree: git('write-tree'), parents: [base] });
       const head = f.calls.find(c => c.path === '/repos/o/r/git/refs')!.body!;
       expect(head.ref).toBe('refs/heads/agentgraph/7');
-      expect(applied).toMatchObject({ ok: true, url: `https://github.com/o/r/commit/${head.sha}` });
+      expect(applied).toMatchObject({ ok: true, held: [], url: `https://github.com/o/r/commit/${head.sha}` });
       expect(f.calls.filter(c => c.path === '/repos/o/r/git/blobs')).toHaveLength(2);
     });
 
@@ -1592,11 +1592,58 @@ describe('githubForge', () => {
           ])
         )
       );
-      expect([pushed.ok, opened.ok]).toEqual([true, true]);
+      expect([pushed.ok, opened.ok]).toEqual([false, true]);
+      expect(pushed).toMatchObject({
+        held: ['.github/workflows/x.yml'],
+        url: expect.stringContaining('/commit/'),
+        reason: expect.stringContaining('Not pushed'),
+      });
       const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body!;
       expect(git('ls-tree', '-r', '--name-only', commit.tree!)).toBe('a.txt');
       const body = f.calls.find(c => c.path === '/repos/o/r/pulls')!.body?.body;
       expect(body).toMatch(/^Closes #7\n\nNot pushed: `\.github\/workflows\/x\.yml`\..*Workflows permission/);
+    });
+
+    it('does not return the previous push URL when the next push has only held changes', async () => {
+      const { dir, work } = repo();
+      writeFileSync(join(dir, 'a.txt'), 'two\n');
+      const f = dataApi(work);
+      const [first, second] = await run(
+        f,
+        Effect.flatMap(Forge, forge =>
+          Effect.gen(function* () {
+            const proposal = { kind: 'push', branch: 'agentgraph/7', message: 'Fix' } as const;
+            const first = yield* forge.apply(7, proposal, work);
+            workflow(dir);
+            return [first, yield* forge.apply(7, proposal, work)];
+          })
+        )
+      );
+      expect(first).toMatchObject({ ok: true, held: [] });
+      expect(second).toMatchObject({
+        ok: false,
+        held: ['.github/workflows/x.yml'],
+        reason: expect.stringContaining('Nothing pushed'),
+      });
+      expect(second!.url).toBeUndefined();
+      expect(f.calls.filter(c => c.path === '/repos/o/r/git/commits')).toHaveLength(1);
+      expect(f.remote(['rev-parse', 'refs/heads/agentgraph/7'])).toBe(first!.url!.split('/').at(-1));
+    });
+
+    it.each([false, true])('reports a held-only push without a commit URL (existing branch: %s)', async existing => {
+      const { dir, base, work } = repo();
+      workflow(dir);
+      const f = dataApi(work);
+      if (existing) f.remote(['update-ref', 'refs/heads/agentgraph/7', base]);
+      const applied = await pushTo(f, work);
+      expect(applied).toMatchObject({
+        ok: false,
+        held: ['.github/workflows/x.yml'],
+        reason: expect.stringContaining('Nothing pushed'),
+      });
+      expect(applied.url).toBeUndefined();
+      expect(writes(f)).toEqual([]);
+      expect(readFileSync(join(dir, '.github/workflows/x.yml'), 'utf8')).toBe('on: push\n');
     });
 
     it.each([

@@ -51,6 +51,8 @@ A `pull_request` on a branch whose pull request is open rewrites its title and b
 
 A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/forge.ts#unpushable -->
 
+Both forges report held paths in the push result's `held` list, recorded in the trace. A push with held files is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. Later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/forge.ts#makePushResult src/engine.ts#land -->
+
 ## Filing issues
 
 Every `issue` body ends with a `## Done when` section of one to three observable checks.
