@@ -13,6 +13,8 @@
     "dist",
     "examples/starter",
     "infra/local/sandbox/Dockerfile",
+    "infra/local/sandbox/file.ts",
+    "infra/local/sandbox/agi.mjs",
     "infra/local/egress",
     "infra/local/prices.json.gz",
     "infra/local/aliases.json"

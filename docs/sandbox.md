@@ -160,3 +160,9 @@ The harness adapters accept an engine tool endpoint and allow only its named too
 Session output and transcripts share credential redaction before storage. Known values and common credential patterns are hidden; this cannot detect every secret. <!-- code: src/context.ts#formatRedactedText src/harnesses.ts#harnessSession src/services.ts#settings -->
 
 Host tools use a session TCP relay on the sandbox's selected internal network. It forwards one port to a loopback listener on macOS or the egress bridge gateway on Linux. The listener checks the relay's source subnet. The relay holds no bearer token and is removed with the session. <!-- code: src/docker.ts#dockerSandbox src/sandbox.ts#Sandbox src/harnesses.ts#harnessSession -->
+
+The sandbox image supplies `agi file put <path>` for selected host-tool sessions. It uses
+`AGENTGRAPH_TOOL_URL` and the reserved session bearer to stream a local PNG/JPEG to the session endpoint and prints an opaque handle, with no path or image bytes in model
+context. Capture outside `/work`, for example in `/tmp`. Rebuild custom images to include this command.
+Remote sandboxes still reject host tools and file passing. See [Plugins](plugins.md).
+<!-- code: src/files.ts#makeFiles src/tools.ts#startTools infra/local/sandbox/file.ts#runFile -->

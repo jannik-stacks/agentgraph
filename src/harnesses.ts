@@ -307,7 +307,11 @@ export const harnessSession = (
                 dir: spec.dir,
                 home,
                 readonly: !!readonly || classes.every(value => value === 'read'),
-                env: { ...env, ...(spec.base && { AGENTGRAPH_BASE: spec.base }) },
+                env: {
+                  ...env,
+                  ...(spec.base && { AGENTGRAPH_BASE: spec.base }),
+                  ...(spec.mcp && { AGENTGRAPH_TOOL_URL: spec.mcp.url }),
+                },
                 secrets,
                 ...(spec.mcp && { tools: { url: spec.mcp.url, host: spec.mcp.host } }),
                 network: 'proxy',

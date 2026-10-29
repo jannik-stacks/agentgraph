@@ -443,6 +443,7 @@ describe('the session loop', () => {
     );
     expect(Redacted.value(command.secrets!.AGENTGRAPH_TOOL_SECRET!)).toBe(endpoint.secret);
     expect(command.tools).toEqual({ url: endpoint.url, host: endpoint.host });
+    expect(command.env.AGENTGRAPH_TOOL_URL).toBe(endpoint.url);
     expect(JSON.stringify([command.args, command.env, exit])).not.toContain(endpoint.secret);
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(

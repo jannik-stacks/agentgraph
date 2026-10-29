@@ -33,7 +33,7 @@ Names outside the harness's built-ins must name registered plugin tools; unknown
 `execute` receives typed input and a context with `repo`, read-only `forge.searchIssues`,
 `abortSignal` and its own `settings`. Search stays within this repo and applies the forge's text trust rules.
 `readFile(ref)` returns fresh image bytes and their PNG or JPEG media type from a session handle.
-Images arrive through the authenticated session upload route; tools receive only handles.
+Save images in sandbox `/tmp`, run `agi file put <path>`, then pass the handles to a tool.
 The host opens no agent-supplied path. Handles expire at session close; unknown and cross-session
 handles fail. Bytes stay in memory; put/read traces contain handle, size and type only.
 Binary uploads reuse session authentication and relay with a separate route: 10 MiB per file,
