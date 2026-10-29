@@ -573,6 +573,30 @@ describe('a run branch that moved', () => {
     }
   );
 
+  it('finishes after reporting a held file once without retrying the next push', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [
+        start('a'),
+        wrote('hello.txt', 'hello\n'),
+        wrote('.github/workflows/socket.yml', 'on: push\n'),
+        reply(push, pull),
+      ],
+      [start('a'), wrote('other.txt', 'other\n'), reply(push, pull)],
+    ]);
+    const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    const applied = readTrace(where.data, 'run-7').flatMap(t =>
+      'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied] : []
+    );
+    expect(done.status).toBe('done');
+    expect(specs).toHaveLength(2);
+    expect(applied.map(p => ({ ok: p.ok, held: p.held }))).toEqual([
+      { ok: false, held: ['.github/workflows/socket.yml'] },
+      { ok: true, held: ['.github/workflows/socket.yml'] },
+    ]);
+    expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('other');
+  });
+
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
     const where = world();
     const attempted: Proposal[] = [];

@@ -130,14 +130,22 @@ export const unpushable = (path: string, modes: string[]) =>
       ? `${path} is under .github/ or .git/`
       : undefined;
 
-export const makePushResult = (url: string | undefined, held: string[]): Omit<Applied, 'proposal'> => ({
-  ok: held.length === 0,
-  held,
-  ...(url && { url }),
-  ...(held.length > 0 && {
-    reason: `${url ? `Pushed ${url}.` : 'Nothing pushed.'} Not pushed: ${held.map(f => `\`${f}\``).join(', ')}. Files under .github/ need a maintainer; do not claim they were added.`,
-  }),
-});
+export const makePushResult = (
+  url: string | undefined,
+  held: string[],
+  reported: Set<string>
+): Omit<Applied, 'proposal'> => {
+  const fresh = held.filter(f => !reported.has(f));
+  for (const path of held) reported.add(path);
+  return {
+    ok: fresh.length === 0,
+    held,
+    ...(url && { url }),
+    ...(fresh.length > 0 && {
+      reason: `${url ? `Pushed ${url}.` : 'Nothing pushed.'} Not pushed: ${fresh.map(f => `\`${f}\``).join(', ')}. Files under .github/ need a maintainer; do not claim they were added.`,
+    }),
+  };
+};
 
 export const parseIssueFile = (text: string) => {
   const [, head = '', body = text] = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text) ?? [];
@@ -373,6 +381,8 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           case 'push': {
             if (!isAgentBranch(p.branch)) return no(`a push goes to a ${pushLimits.prefix} branch`);
             if (!work) return no('a push needs a worktree');
+            const reported = held.get(p.branch) ?? new Set<string>();
+            held.set(p.branch, reported);
             const last = pushed.get(work.dir);
             const was = await tip(work, p.branch).catch(() => undefined);
             const onto = last === undefined ? p.onto : undefined;
@@ -391,8 +401,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             if (left.length) {
               await git(work, 'reset', '-q', from, '--', '.github');
               tree = await git(work, 'write-tree');
-              held.set(p.branch, new Set([...(held.get(p.branch) ?? []), ...left]));
-              if (tree === from) return { proposal: p, ...makePushResult(undefined, left) };
+              if (tree === from) return { proposal: p, ...makePushResult(undefined, left, reported) };
             }
             const problem = await findPushProblem(work, from, tree);
             if (problem) return no(problem);
@@ -404,7 +413,10 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
             await Effect.runPromise(commitPublishedTree(work, tree));
             pushed.set(work.dir, head);
-            return { proposal: p, ...makePushResult(`${p.branch}@${await moved(work, p.branch, head)}`, left) };
+            return {
+              proposal: p,
+              ...makePushResult(`${p.branch}@${await moved(work, p.branch, head)}`, left, reported),
+            };
           }
           case 'rebase': {
             if (!isAgentBranch(p.branch)) return no(`a rebase goes to a ${pushLimits.prefix} branch`);

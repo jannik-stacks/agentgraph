@@ -734,6 +734,8 @@ export const githubForge = (
       Effect.gen(function* () {
         if (!isAgentBranch(branch)) return yield* refuse(`a push goes to a ${pushLimits.prefix} branch`);
         const ref = yield* refPath(branch);
+        const reported = held.get(branch) ?? new Set<string>();
+        held.set(branch, reported);
         const last = pushed.get(work.dir);
         const parent = last?.sha ?? work.head ?? work.base;
         const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
@@ -759,8 +761,7 @@ export const githubForge = (
         if (left.length) {
           yield* git(work, ['reset', '-q', from, '--', '.github']);
           tree = yield* gitText(work, ['write-tree']);
-          held.set(branch, new Set([...(held.get(branch) ?? []), ...left]));
-          if (tree === from) return makePushResult(undefined, left);
+          if (tree === from) return makePushResult(undefined, left, reported);
         }
         let head = parent;
         if (tree !== from || follow) {
@@ -768,7 +769,7 @@ export const githubForge = (
           const commit = { message, tree, parents };
           head = (yield* gh<{ sha: string }>('POST', `${repo}/git/commits`, commit, 'push')).sha;
         }
-        if (head === tip) return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left);
+        if (head === tip) return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left, reported);
         const force = !!follow && !merge;
         if (
           force &&
@@ -781,7 +782,7 @@ export const githubForge = (
         } else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
         yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
-        return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left);
+        return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left, reported);
       });
 
     /** Builds tree `to` on GitHub from tree `from`, from the checkout's objects. */

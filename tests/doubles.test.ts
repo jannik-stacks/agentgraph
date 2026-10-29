@@ -351,6 +351,29 @@ describe('fileForge push', () => {
     expect(readFileSync(join(work, '.github/workflows/x.yml'), 'utf8')).toBe('on: push\n');
   });
 
+  it('reports each held path once while later mixed and held-only pushes succeed', async () => {
+    const { dir, origin, work, checkout } = setup();
+    mkdirSync(join(work, '.github/workflows'), { recursive: true });
+    writeFileSync(join(work, '.github/workflows/x.yml'), 'on: push\n');
+    const results = await Effect.runPromise(
+      Effect.gen(function* () {
+        const forge = yield* Forge;
+        const proposal = { kind: 'push', branch: 'agentgraph/1', message: 'Add hello' } as const;
+        const first = yield* forge.apply(1, proposal, checkout);
+        writeFileSync(join(work, 'other.txt'), 'other\n');
+        const second = yield* forge.apply(1, proposal, checkout);
+        return [first, second, yield* forge.apply(1, proposal, checkout)];
+      }).pipe(Effect.provide(fileForge(dir)))
+    );
+    expect(results.map(r => r.ok)).toEqual([false, true, true]);
+    expect(results.map(r => r.held)).toEqual(Array.from({ length: 3 }, () => ['.github/workflows/x.yml']));
+    expect(results[1]!.url).toContain('agentgraph/1@');
+    expect(results[2]!.url).toBeUndefined();
+    expect(results.slice(1).map(r => r.reason)).toEqual([undefined, undefined]);
+    expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:other.txt')).toBe('other');
+    expect(git(dir, '--git-dir', origin, 'rev-list', '--count', 'agentgraph/1')).toBe('3');
+  });
+
   it('keeps the previous commit when the next push has only held changes and names them in the pull request', async () => {
     const { dir, origin, work, checkout } = setup();
     const [first, second, opened] = await Effect.runPromise(

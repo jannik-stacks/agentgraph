@@ -1604,6 +1604,32 @@ describe('githubForge', () => {
       expect(body).toMatch(/^Closes #7\n\nNot pushed: `\.github\/workflows\/x\.yml`\..*Workflows permission/);
     });
 
+    it('reports each held path once while later mixed and held-only pushes succeed', async () => {
+      const { dir, work } = repo();
+      workflow(dir);
+      writeFileSync(join(dir, 'a.txt'), 'two\n');
+      const f = dataApi(work);
+      const results = await run(
+        f,
+        Effect.flatMap(Forge, forge =>
+          Effect.gen(function* () {
+            const proposal = { kind: 'push', branch: 'agentgraph/7', message: 'Fix' } as const;
+            const first = yield* forge.apply(7, proposal, work);
+            writeFileSync(join(dir, 'a.txt'), 'three\n');
+            const second = yield* forge.apply(7, proposal, work);
+            return [first, second, yield* forge.apply(7, proposal, work)];
+          })
+        )
+      );
+      expect(results.map(r => r.ok)).toEqual([false, true, true]);
+      expect(results.map(r => r.held)).toEqual(Array.from({ length: 3 }, () => ['.github/workflows/x.yml']));
+      expect(results[1]!.url).toContain('/commit/');
+      expect(results[2]!.url).toBeUndefined();
+      expect(results.slice(1).map(r => r.reason)).toEqual([undefined, undefined]);
+      expect(f.remote(['show', 'agentgraph/7:a.txt'])).toBe('three');
+      expect(f.calls.filter(c => c.path === '/repos/o/r/git/commits')).toHaveLength(2);
+    });
+
     it('does not return the previous push URL when the next push has only held changes', async () => {
       const { dir, work } = repo();
       writeFileSync(join(dir, 'a.txt'), 'two\n');
