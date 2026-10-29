@@ -64,3 +64,36 @@ it('fails for a missing queue instead of reporting no work', async () => {
   const run = spawn('sh', [script, join(dir, 'missing')], { stdio: 'ignore' });
   expect(await new Promise(done => run.on('close', done))).toBe(1);
 });
+
+it('fails if the queue disappears after a command instead of reporting completion', async () => {
+  const dir = tmp('overnight');
+  dirs.push(dir);
+  const queue = join(dir, 'queue.txt');
+  writeFileSync(queue, `rm '${queue}'\n`);
+  const run = spawn('sh', [script, queue], { stdio: 'ignore' });
+  expect(await new Promise(done => run.on('close', done))).toBe(1);
+  expect(readFileSync(`${queue}.log`, 'utf8')).toContain('queue or status files unreadable');
+});
+
+it.each(['', '0', 'not-pid'])('rejects invalid queue owner %s', async owner => {
+  const dir = tmp('overnight');
+  dirs.push(dir);
+  const queue = join(dir, 'queue.txt');
+  writeFileSync(queue, 'true\n');
+  writeFileSync(`${queue}.pid`, owner);
+  const run = spawn('sh', [script, queue], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let error = '';
+  run.stderr.on('data', data => (error += String(data)));
+  expect(await new Promise(done => run.on('close', done))).toBe(1);
+  expect(error).toContain('invalid queue owner');
+});
+
+it('reports an unreadable receipt even when another receipt matches', async () => {
+  const dir = tmp('overnight');
+  dirs.push(dir);
+  const queue = join(dir, 'queue.txt');
+  writeFileSync(queue, `rm -f '${queue}.done'; exit 1\n`);
+  const run = spawn('sh', [script, queue], { stdio: 'ignore', env: { ...process.env, OVERNIGHT_BACKOFF: '0' } });
+  expect(await new Promise(done => run.on('close', done))).toBe(1);
+  expect(readFileSync(`${queue}.log`, 'utf8')).toContain('queue or status files unreadable');
+});

@@ -8,25 +8,39 @@
 #   sh bin/overnight.sh status <dir>/queue.txt
 set -u
 [ "$1" = status ] && { show=1; shift; } || show=
-queue=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+queue_dir=$(cd "$(dirname "$1")" && pwd) || exit 1
+queue="$queue_dir/$(basename "$1")"
 finished="$queue.done" log="$queue.log" lock="$queue.pid" failed="$queue.failed"
 [ -f "$queue" ] && [ -r "$queue" ] || { echo "queue is missing or unreadable: $queue" >&2; exit 1; }
 touch "$finished" "$log" || exit 1
 
-lines() { grep -v '^[[:space:]]*#' "$queue" | grep -v '^[[:space:]]*$'; }
+holder=
+if [ -f "$lock" ]; then
+  holder=$(cat "$lock") || exit 1
+  expr "$holder" : '[1-9][0-9]*$' >/dev/null && [ "$holder" -le 2147483647 ] 2>/dev/null || {
+    echo "invalid queue owner: $lock" >&2
+    exit 1
+  }
+fi
+
+lines() { sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "$queue"; }
 if [ -n "$show" ]; then
-  echo "$(grep -cxFf "$finished" "$queue" || true) of $(lines | wc -l | tr -d ' ') commands done"
-  if [ -f "$lock" ] && kill -0 "$(cat "$lock")" 2>/dev/null; then echo "running as pid $(cat "$lock")"; else echo 'not running'; fi
-  grep -E '^[0-9TZ:-]+ (start|exit|paused)' "$log" | tail -3
+  commands=$(lines) || exit 1
+  done_count=$(printf '%s\n' "$commands" | grep -cxFf "$finished" || [ "$?" -eq 1 ]) || exit 1
+  total=$(printf '%s\n' "$commands" | grep -c .)
+  echo "$done_count of $total commands done"
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then echo "running as pid $holder"; else echo 'not running'; fi
+  recent=$(grep -E '^[0-9TZ:-]+ (start|exit|paused)' "$log" || [ "$?" -eq 1 ]) || exit 1
+  printf '%s\n' "$recent" | tail -3
   exit 0
 fi
 
-if [ -f "$lock" ] && kill -0 "$(cat "$lock")" 2>/dev/null; then
-  echo "already running as pid $(cat "$lock")"
+if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+  echo "already running as pid $holder"
   exit 1
 fi
-echo $$ >"$lock"
-: >"$failed"
+echo $$ >"$lock" || exit 1
+: >"$failed" || exit 1
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 child=
 # Each line runs in its own process group, so a stop reaches all it started.
@@ -34,8 +48,26 @@ if command -v setsid >/dev/null; then group=setsid; else group=; set -m; fi
 trap 'echo "$(now) paused" >>"$log"; [ -n "$child" ] && { kill -s TERM -- "-$child"; wait "$child"; }; rm -f "$lock"; exit 130' INT TERM HUP
 command -v caffeinate >/dev/null && caffeinate -i -w $$ &
 
-next() { lines | while IFS= read -r l; do grep -qxF -- "$l" "$finished" "$failed" || { printf '%s\n' "$l"; break; }; done; }
-while line=$(next) && [ -n "$line" ]; do
+next() {
+  [ -r "$finished" ] && [ -r "$failed" ] || return 1
+  commands=$(lines) || return 1
+  printf '%s\n' "$commands" | while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    grep -qxF -- "$l" "$finished" "$failed" && continue
+    [ "$?" -eq 1 ] || return 1
+    printf '%s\n' "$l"
+    break
+  done
+}
+while :; do
+  if ! line=$(next); then
+    why="$(now) queue or status files unreadable: $queue"
+    echo "$why" >&2
+    echo "$why" >>"$log"
+    rm -f "$lock"
+    exit 1
+  fi
+  [ -n "$line" ] || break
   for try in 1 2 3; do
     echo "$(now) start $try: $line" >>"$log"
     $group sh -c "$line" >>"$log" 2>&1 </dev/null &
@@ -44,8 +76,8 @@ while line=$(next) && [ -n "$line" ]; do
     code=$?
     child=
     echo "$(now) exit $code: $line" >>"$log"
-    [ "$code" -eq 0 ] && { printf '%s\n' "$line" >>"$finished"; break; }
-    [ "$try" -eq 3 ] && { printf '%s\n' "$line" >>"$failed"; break; }
+    [ "$code" -eq 0 ] && { printf '%s\n' "$line" >>"$finished" || exit 1; break; }
+    [ "$try" -eq 3 ] && { printf '%s\n' "$line" >>"$failed" || exit 1; break; }
     sleep $((try * try * ${OVERNIGHT_BACKOFF:-60})) &
     wait $!
   done
