@@ -115,6 +115,8 @@ Every minute the engine writes new issue activity to a news file, which agents w
 
 ## Tries and going back
 
+A successful step passes its reply text, without proposal blocks, to the next step as feedback. It stays in the run record, outside the checkout. <!-- code: src/engine.ts#tick src/workflow.ts#transition -->
+
 Failed checks or proposals retry in the same session with the findings as feedback, answered in code, not in a comment. When `tries` run out, the run waits and says why. <!-- code: src/workflow.ts#transition -->
 
 `back: implement` lets a step send the run back with a reason. An agent step with `back` also needs `until`. `rounds` caps the returns, then the run waits. Going forward starts a fresh session; going back resumes the earlier one.

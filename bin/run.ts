@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { runFile } from '../infra/local/sandbox/file.ts';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { watch } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
@@ -55,7 +54,6 @@ import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import type { Run } from '../src/workflow.ts';
 
 const usage = `usage: agi <verb> [flags]
-  file put <path>                                 stages a sandbox image and prints its session handle
   start "<title>[\\n<body>]" [--workflow <name>]   files an issue and drives it until it waits or ends
   loop [--once]                                   drives every open issue, again every AGENTGRAPH_EVERY minutes
   show [<n>|graph]                                  what needs you and every issue, one issue in full, or the graph
@@ -128,14 +126,6 @@ if (values.help || !verb) {
   process.exit(0);
 }
 if (!verbs.includes(verb)) fail(`no verb ${verb}\n${usage}`);
-if (verb === 'file') {
-  try {
-    console.log(await runFile(rest));
-    process.exit(0);
-  } catch (error) {
-    fail(error instanceof Error ? error.message : String(error), 1);
-  }
-}
 const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
 const printRuns = (runs: Run[]) => {

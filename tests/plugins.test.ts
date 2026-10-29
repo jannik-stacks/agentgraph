@@ -33,6 +33,12 @@ const readCheckedPlugins = async (dir: string, settings: Record<string, unknown>
   return readPlugins(graph.dir, graph.plugins);
 };
 
+it('loads settings under a hyphenated plugin name', async () => {
+  const dir = await makePluginDir({ 'plugins/pr-img.ts': source('pr-img') });
+  const loaded = await readCheckedPlugins(dir, { 'pr-img': { limit: '10' } });
+  expect(loaded.tools.issues!.settings).toEqual({ limit: 10 });
+});
+
 const externalSource = `
 import { Schema } from 'effect';
 import { tool as sdkTool } from 'ai';

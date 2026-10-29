@@ -504,8 +504,16 @@ it('uploads binary files through the authenticated session route and reads copie
 
 it('counts binary chunks before a lying Content-Length finishes', async () => {
   const { endpoint, trace } = await open(async () => 'unused');
+  const completed = await readLocalHttp(`${endpoint.url}/files`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${endpoint.secret}` },
+    body: new Uint8Array(10 * 1024 * 1024 + 1),
+  });
+  expect(completed.status).toBe(400);
+  expect(await completed.text()).toBe('File upload: exceeds 10 MiB');
+  expect(trace).toEqual([]);
   const url = new URL(`${endpoint.url}/files`);
-  const response = await new Promise<{ status: number; text: string }>((resolve, reject) => {
+  const response = await new Promise<{ status: number; text: string } | { code: string }>((resolve, reject) => {
     const pending = httpRequest(
       {
         hostname: '127.0.0.1',
@@ -529,11 +537,30 @@ it('counts binary chunks before a lying Content-Length finishes', async () => {
         });
       }
     );
-    pending.on('error', reject);
+    pending.on('error', error => {
+      const { code } = error as NodeJS.ErrnoException;
+      if (code === 'ECONNRESET' || code === 'EPIPE') resolve({ code });
+      else reject(error);
+    });
     pending.write(Buffer.alloc(11 * 1024 * 1024));
   });
-  expect(response).toEqual({ status: 400, text: 'File upload: exceeds 10 MiB' });
+  expect([
+    { status: 400, text: 'File upload: exceeds 10 MiB' },
+    { code: 'ECONNRESET' },
+    { code: 'EPIPE' },
+  ]).toContainEqual(response);
   expect(trace).toEqual([]);
+  const small = await readLocalHttp(`${endpoint.url}/files`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${endpoint.secret}` },
+    body: new Uint8Array([255, 216, 255]),
+  });
+  const ref = await small.text();
+  expect(small.status).toBe(201);
+  expect(ref).toMatch(/^file_[a-f0-9]{64}$/);
+  expect(trace).toEqual([
+    expect.objectContaining({ name: 'file_put', input: { ref, bytes: 3, type: 'image/jpeg' }, ok: true }),
+  ]);
 });
 
 it('cancels an incomplete binary upload when the session closes', async () => {

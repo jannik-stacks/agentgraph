@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 const runFile = async (args: string[]) => {
   const { stdout } = await promisify(execFile)(
     process.execPath,
-    [join(import.meta.dirname, '../bin/run.ts'), 'file', ...args],
+    [join(import.meta.dirname, '../infra/local/sandbox/agi.mjs'), 'file', ...args],
     {
       env: {
         PATH: process.env.PATH,

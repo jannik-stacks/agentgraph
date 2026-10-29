@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync } from 'node:fs';
+import { cpSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { tmp, write } from './kit.ts';
@@ -14,8 +14,10 @@ describe('commands', () => {
     write(dir, {
       'README.md':
         'Run `node bin/run.ts check --dir x` and `npm run dev`.\n' +
-        '`node bin/run.ts say 1 hi --line a:1` and `node bin/run.ts dispatch 1 --workflow triage`.\n',
+        '`node bin/run.ts say 1 hi --line a:1` and `node bin/run.ts dispatch 1 --workflow triage`.\n' +
+        '`agi file put /tmp/image.png` runs in the sandbox.\n',
       'infra/github/README.md': '',
+      'infra/local/sandbox/agi.mjs': readFileSync(join(root, 'infra/local/sandbox/agi.mjs'), 'utf8'),
       'docs/local.md':
         'Run `node bin/run.ts serve`, `node bin/sim.ts`, `npm run retro` and `agi sim`.\nUse `node bin/run.ts --dir x --watch`; `--dir` and `--nope` are flags.\n',
       'examples/agentgraph/README.md': '`npm run -s check`\n',

@@ -365,6 +365,24 @@ describe('drive', () => {
     ]);
   });
 
+  it('hands a screenshot reply to the describer without checkout files or proposal blocks', async () => {
+    const where = world();
+    const screenshots = { name: 'screenshots', does: { agent: 'reviewer' }, checks: [], tries: 1 };
+    const describe = { name: 'describe', does: { agent: 'reviewer' }, checks: [], tries: 1 };
+    const flow = { ...w, steps: [screenshots, describe, w.steps.at(-1)!] };
+    const table =
+      '| Page / region | Theme / width | Before | After |\n| --- | --- | --- | --- |\n| Home | dark desktop | ![before](https://images.example/before.png) | ![after](https://images.example/after.png) |';
+    const { specs, run } = services(where, [
+      [start('s1'), { type: 'end', final: table + '\n\n```agentgraph\n[]\n```', ended: 'stop', exit: 0 }],
+      [start('d1'), reply()],
+    ]);
+    const done = await run(drive(flow, begin(flow, fresh()), graph));
+    expect(done).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(specs[1]!.prompt).toContain(table);
+    expect(specs[1]!.prompt).not.toContain('```agentgraph');
+    expect(git(where.origin, 'ls-tree', '-r', 'refs/agentgraph/runs/run-7')).not.toContain('.screenshots');
+  });
+
   it('lets a later step rewrite the title and body of the open pull request', async () => {
     const where = world();
     const describe = { name: 'describe', does: { agent: 'implementor' }, checks: [], tries: 1 };

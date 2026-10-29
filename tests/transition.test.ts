@@ -56,6 +56,14 @@ describe('transition, running', () => {
     expect(next.sessions.triage).toEqual(session('s-triage'));
   });
 
+  it('passes successful reply text forward once, replacing earlier feedback', () => {
+    const text = '| Before | After |';
+    const next = transition(w, at('triage', { feedback: 'old result' }), { kind: 'pass', text });
+    expect(next.feedback).toBe(text);
+    expect(transition(w, next, { kind: 'pass' }).feedback).toBeUndefined();
+    expect(transition(w, at('review'), { kind: 'back', why: 'capture again' }).feedback).not.toContain(text);
+  });
+
   it('pass into a wait step: waiting', () => {
     expect(transition(w, at('review'), { kind: 'pass' })).toMatchObject({ step: 'merge', status: 'waiting' });
   });

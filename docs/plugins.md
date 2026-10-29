@@ -43,6 +43,7 @@ no host image parser runs. Isolated decoding and re-encoding remain a later opti
 Host plugins still run as trusted code.
 <!-- code: src/plugin.ts#ToolContext src/folder.ts#loadGraph src/forge.ts#parseIssueSearch -->
 
+Plugin names may contain letters, digits, underscores and hyphens, starting with a letter.
 A plugin can declare `settingsSchema`; it decodes only `plugins.<name>` in `settings.yaml`.
 Bind its type once with `makePlugin<typeof settings.Type>({ name, settingsSchema: settings, tools: { ... } })`;
 handlers then infer `ctx.settings`. Without a schema, that plugin's settings must be absent.

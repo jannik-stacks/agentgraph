@@ -1668,7 +1668,14 @@ const attempt = (
         ? { kind: 'failed', checks: [], proposals: failed, problems: [] }
         : child
           ? { kind: 'ask', question: waitingOn(child) }
-          : { kind: 'pass', ...(answered && { answered: true as const }) },
+          : {
+              kind: 'pass',
+              text: replies
+                .map(reply => reply.replace(block, '').trim())
+                .filter(Boolean)
+                .join('\n\n'),
+              ...(answered && { answered: true as const }),
+            },
       tried
     );
   });

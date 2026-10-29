@@ -78,7 +78,7 @@ const StudioPage = Schema.Struct({
 });
 
 const PluginFile = Schema.Struct({
-  name: Schema.String.pipe(Schema.pattern(/^[a-zA-Z][a-zA-Z0-9_]*$/)),
+  name: Schema.String.pipe(Schema.pattern(/^[a-zA-Z][a-zA-Z0-9_-]*$/)),
   settingsSchema: Schema.optional(
     Schema.declare((value): value is Schema.Schema.AnyNoContext => Schema.isSchema(value))
   ),
