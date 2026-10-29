@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { copyFile, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Duration, Effect, Layer, Redacted, Schema, Stream } from 'effect';
@@ -90,6 +90,13 @@ const scratch = Object.fromEntries(
   Object.entries(packageManagerCacheEnv).map(([k, v]) => [k, v.replace(/^\/cache/, '/tmp')])
 );
 
+const getMounts = (c: Command, mounts: Mount[]): Mount[] => [
+  { src: c.dir, dst: inside.work, readonly: !!c.readonly },
+  ...(c.home ? [{ src: c.home, dst: inside.home }] : []),
+  ...(c.graph ? [{ src: c.graph, dst: inside.graph, readonly: true }] : []),
+  ...mounts.map(m => ({ ...m, readonly: !!(m.readonly || c.readonly) })),
+];
+
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
  * the only routes out are the `direct` model hosts and, unless the graph's network is `models`, the egress allowlist; with
@@ -131,10 +138,7 @@ export const dockerArgs = (
   size.cpus,
   '--pids-limit',
   size.pids,
-  ...bind({ src: c.dir, dst: inside.work, readonly: !!c.readonly }),
-  ...(c.home ? bind({ src: c.home, dst: inside.home }) : []),
-  ...(c.graph ? bind({ src: c.graph, dst: inside.graph, readonly: true }) : []),
-  ...mounts.flatMap(m => bind({ ...m, readonly: !!(m.readonly || c.readonly) })),
+  ...getMounts(c, mounts).flatMap(bind),
   ...(cache && !sharedMounts.some(l => l.dst === inside.cache) ? volume(cache, inside.cache, false, true) : []),
   ...sharedMounts.flatMap(l => volume(l.name, l.dst, true, c.readonly)),
   '--workdir',
@@ -459,6 +463,27 @@ export const dockerSandbox = (o: {
           const args = yield* Effect.try({
             try: () => dockerArgs(c, box.image ?? image, name, { ...box, direct: o.direct ?? [] }, cache),
             catch: e => e as SandboxError,
+          });
+          yield* Effect.tryPromise({
+            try: async () => {
+              const mounts = getMounts(c, box.mounts);
+              const destinations = [...mounts, ...(box.sharedMounts ?? [])];
+              for (const mount of destinations) {
+                const parent = destinations
+                  .filter(m => mount.dst.startsWith(`${m.dst}/`))
+                  .toSorted((a, b) => b.dst.length - a.dst.length)[0];
+                if (parent && 'src' in parent) {
+                  let path = parent.src;
+                  for (const part of mount.dst.slice(parent.dst.length + 1).split('/')) {
+                    if (part === '..' || part === '.') throw new Error(`invalid mountpoint: ${mount.dst}`);
+                    path = join(path, part);
+                    await mkdir(path, { recursive: true });
+                    if ((await lstat(path)).isSymbolicLink()) throw new Error(`symlink mountpoint: ${path}`);
+                  }
+                }
+              }
+            },
+            catch: e => infra((e as Error).message),
           });
           return { name, args };
         });

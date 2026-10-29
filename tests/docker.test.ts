@@ -1,5 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -368,6 +377,42 @@ describe('docker with a stand-in docker client', () => {
       s.exec(command(tmp('work')))
     );
     expect(JSON.stringify(exit)).toContain('volume name not allowed');
+  });
+
+  it.each([false, true])('creates missing mountpoints for a read-only command (streamed: %s)', async streamed => {
+    const repo = origin();
+    write(repo, { 'package.json': '{}', 'packages/app/package.json': '{}' });
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'packages');
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: repo }), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main', undefined, undefined, { setup: 'withdeps' });
+        const task = command(work.dir, { readonly: true });
+        yield* streamed ? Stream.runDrain(s.lines(task)) : s.exec(task);
+        return {
+          exists: ['node_modules', 'packages/app/node_modules'].map(p => existsSync(join(work.dir, p))),
+          args: logged(),
+        };
+      })
+    );
+    expect(Exit.isSuccess(exit) && exit.value.exists).toEqual([true, true]);
+    expect(Exit.isSuccess(exit) && exit.value.args.join(' ')).toMatch(
+      /dst=\/work\/node_modules,volume-nocopy,readonly/
+    );
+  });
+
+  it('reports a symlink mountpoint before starting the command', async () => {
+    const outside = tmp('outside');
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main', undefined, undefined, { setup: 'withdeps' });
+        symlinkSync(outside, join(work.dir, 'node_modules'));
+        return yield* s.exec(command(work.dir, { readonly: true }));
+      })
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(JSON.stringify(exit)).toContain('symlink mountpoint:');
+    expect(readdirSync(outside)).toEqual([]);
   });
 
   it("builds a graph's sandbox setup once on the base's files with open network and starts every checkout from it", async () => {
