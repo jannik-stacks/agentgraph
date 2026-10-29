@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { nodePath, runLogged, spendGuard } from '../bench/drive.ts';
+import { configure, nodePath, runLogged, spendGuard } from '../bench/drive.ts';
 import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
@@ -10,6 +10,13 @@ afterEach(() => {
 });
 
 describe('bench driver', () => {
+  it('rejects corrupt recorded settings rather than applying defaults', () => {
+    const dir = tmp('drive');
+    dirs.push(dir);
+    writeFileSync(join(dir, 'drive.json'), '{broken');
+    expect(() => configure(dir, { SHA: 'test' })).toThrow('drive.json');
+  });
+
   it('finds node on PATH at each spawn', () => {
     const node = nodePath();
     expect(node.startsWith('/')).toBe(true);
@@ -26,14 +33,14 @@ describe('bench driver', () => {
     expect(readFileSync(log, 'utf8')).toMatch(/### .* score case\nout\nerr\n|### .* score case\nerr\nout\n/);
   });
 
-  it('survives a log file it cannot write', async () => {
+  it('reports a failed log write as a failed job', async () => {
     const dir = tmp('drive');
     dirs.push(dir);
     const script = join(dir, 'job.mjs');
-    writeFileSync(script, 'process.exit(0);');
+    writeFileSync(script, 'setInterval(() => {}, 1000);');
     const said: string[] = [];
     const code = await runLogged([script], join(dir, 'missing', 'job.log'), process.env, m => said.push(m));
-    expect(code).toBe(0);
+    expect(code).toBe(1);
     expect(said.join('\n')).toMatch(/ENOENT/);
   });
 });

@@ -20,8 +20,15 @@ const waits = [];
 let sessions = 0;
 for (const id of readdirSync(data)) {
   const file = join(data, id, 'trace.jsonl');
-  if (!existsSync(file)) continue;
+  if (!existsSync(file)) {
+    if (existsSync(join(data, id, 'run.json'))) findings.push(`${id}: trace.jsonl missing`);
+    continue;
+  }
   const trace = readJsonl(file);
+  const rows = readFileSync(file, 'utf8')
+    .split('\n')
+    .filter(line => line.trim()).length;
+  if (trace.length !== rows) findings.push(`${id}: ${rows - trace.length} invalid trace rows skipped`);
   for (const { step, session, event } of trace) {
     if (event?.type === 'tool' && event.denied)
       findings.push(`${id} ${step}: denied ${event.name} ${JSON.stringify(event.input)}`);
@@ -36,9 +43,10 @@ for (const id of readdirSync(data)) {
   }
   const run = existsSync(join(data, id, 'run.json'))
     ? JSON.parse(readFileSync(join(data, id, 'run.json'), 'utf8'))
-    : {};
-  const kinds = required[run.workflow];
-  if (run.status === 'done' && kinds && !trace.some(t => t.applied?.ok && kinds.includes(t.applied.proposal?.kind)))
+    : undefined;
+  if (!run) findings.push(`${id}: run.json missing`);
+  const kinds = run && required[run.workflow];
+  if (run?.status === 'done' && kinds && !trace.some(t => t.applied?.ok && kinds.includes(t.applied.proposal?.kind)))
     findings.push(`${id}: done without ${kinds.join(' or ')}`);
 }
 if (waits.length) console.log(waits.join('\n'));

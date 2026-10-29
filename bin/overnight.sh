@@ -10,7 +10,8 @@ set -u
 [ "$1" = status ] && { show=1; shift; } || show=
 queue=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 finished="$queue.done" log="$queue.log" lock="$queue.pid" failed="$queue.failed"
-touch "$finished" "$log"
+[ -f "$queue" ] && [ -r "$queue" ] || { echo "queue is missing or unreadable: $queue" >&2; exit 1; }
+touch "$finished" "$log" || exit 1
 
 lines() { grep -v '^[[:space:]]*#' "$queue" | grep -v '^[[:space:]]*$'; }
 if [ -n "$show" ]; then
@@ -51,3 +52,5 @@ while line=$(next) && [ -n "$line" ]; do
 done
 rm -f "$lock"
 echo "$(now) queue finished, $(wc -l <"$failed" | tr -d ' ') failed: rerun to retry them" >>"$log"
+
+[ ! -s "$failed" ]

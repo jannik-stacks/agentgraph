@@ -922,6 +922,18 @@ const BAD_FLAGS = [
 ] as const;
 
 describe('the CLI flags', () => {
+  it('rejects an explicit missing repo instead of showing all instances', () => {
+    const dir = tmp('missing-repo');
+    dirs.push(dir);
+    const result = spawnSync(
+      process.execPath,
+      [runTs, 'show', '--repo', join(dir, 'missing'), '--data', join(dir, 'data')],
+      { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('runs inside a git repo');
+  });
+
   it.each(['forge', 'instance'])('prints the remaining heartbeat wait when a %s loop restarts', async kind => {
     const w = world();
     const root = join(w.root, 'loop-data');

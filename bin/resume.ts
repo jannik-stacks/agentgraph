@@ -42,15 +42,20 @@ export const agentgraphDir = join(import.meta.dirname, '..');
 
 export const readFileOrEmpty = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 
-/** The JSON lines of `text`, skipping any a crash cut off. */
-export const parseJsonl = <T = Record<string, unknown>>(text: string): T[] =>
-  text.split('\n').flatMap(l => {
+export const parseJsonl = <T = Record<string, unknown>>(text: string): T[] => {
+  const skipped: string[] = [];
+  const rows = text.split('\n').flatMap((line, i) => {
+    if (!line.trim()) return [];
     try {
-      return l ? [JSON.parse(l) as T] : [];
-    } catch {
+      return [JSON.parse(line) as T];
+    } catch (e) {
+      skipped.push(`line ${i + 1}: ${String(e)}`);
       return [];
     }
   });
+  if (skipped.length) console.warn(`${skipped.length} skipped invalid JSONL rows: ${skipped.join('; ')}`);
+  return rows;
+};
 
 export const readJsonl = <T = Record<string, unknown>>(path: string) => parseJsonl<T>(readFileOrEmpty(path));
 
@@ -93,7 +98,8 @@ export const claim = (path: string) => {
       writeSync(fd, String(process.pid));
       closeSync(fd);
       return true;
-    } catch {
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
       if (isLockedByOtherProcess(path)) return false;
       rmSync(`${path}.lock`, { force: true });
     }

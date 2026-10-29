@@ -7,7 +7,7 @@ no-comment bin/env.ts 1
 no-comment bin/fields.mjs 2
 no-comment bin/lsp.ts 1
 no-comment bin/refs.mjs 18
-no-comment bin/resume.ts 14
+no-comment bin/resume.ts 13
 no-comment bin/run.ts 1
 no-comment bin/setup-app.ts 3
 no-comment bin/traces.mjs 6

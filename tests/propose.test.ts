@@ -119,6 +119,7 @@ beforeEach(() => {
       id.startsWith('m-') ? `### src/a.ts:1 (rev)\n\nplease add a changelog entry for ${id}, ${'x'.repeat(80)}\n` : ''
     );
     const arm = join(tune, 'runs', 'inc', id, 'v2');
+    save(join(tune, 'runs', 'inc', id, 'valid.json'), '{}');
     save(join(tune, 'runs', 'inc', id, 'human', 'score.json'), '{}');
     save(join(arm, 'score.json'), JSON.stringify({ files: 1, hidden: { ok: id === 'a-3', tail: `hidden of ${id}` } }));
     save(join(arm, 'diff.patch'), `diff --git a/src/x.ts b/src/x.ts\n+bot ${id}\n`);
@@ -145,6 +146,11 @@ const run = (proposer: Proposer, id = `i1-${proposer}`) =>
 const graphOk = (graph: string) => Effect.runPromise(Effect.either(loadGraph(graph, harnesses))).then(Either.isRight);
 
 describe('propose', () => {
+  it('rejects missing case results instead of treating them as passing cases', async () => {
+    rmSync(join(tune, 'runs/inc/a-1'), { recursive: true });
+    await expect(run('retro')).rejects.toThrow('a-1: no scored case');
+  });
+
   it.each(['retro', 'history', 'structure'] as const)('%s writes a valid graph and a rationale', async proposer => {
     const p = await run(proposer);
     expect(p.problems).toEqual([]);
@@ -230,6 +236,17 @@ describe('propose', () => {
   it('refuses a candidate id that already has a proposal', async () => {
     await run('history', 'dup');
     await expect(run('history', 'dup')).rejects.toThrow(/already has a proposal/);
+  });
+
+  it('rejects usage windows without utilization instead of reporting zero', () => {
+    expect(() =>
+      claudeUsed(
+        JSON.stringify({
+          type: 'rate_limit_event',
+          rate_limit_info: { unifiedWindows: { five_hour: {}, seven_day: {} } },
+        })
+      )
+    ).toThrow('lacks utilization');
   });
 
   it('reads no usage from a stream without a rate limit event', () => {

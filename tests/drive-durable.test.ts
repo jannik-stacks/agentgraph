@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { configure, readBenchDriveState } from '../bench/drive.ts';
 import { readJsonl } from '../bin/resume.ts';
 import { isPidRunning } from '../src/owner.ts';
-import { tmp } from './kit.ts';
+import { git, tmp } from './kit.ts';
 
 const driver = resolve(import.meta.dirname, '../bench/drive.ts');
 
@@ -19,8 +19,10 @@ if (import.meta.main) {
   const id = basename(cmd === 'run' ? b : a);
   appendFileSync(process.env.FAKE_CALLS, JSON.stringify({ cmd, arm: cmd === 'run' ? a : undefined, id }) + '\\n');
   const fail = (process.env.FAKE_FAIL ?? '').split(',');
+  if (cmd === 'report') process.exit(fail.includes('report') ? 1 : 0);
   const at = join(out, id);
   if (cmd === 'score') {
+    if (fail.includes('gate')) process.exit(1);
     mkdirSync(at, { recursive: true });
     if (!existsSync(join(at, 'valid.json'))) writeFileSync(join(at, 'valid.json'), id.startsWith('bad') ? '{"invalid":"x"}' : '{}');
     for (const arm of ['v2', 'floor'])
@@ -55,6 +57,13 @@ const bench = (cases = ['c1', 'c2']) => {
   dirs.push(dir);
   mkdirSync(join(dir, 'eng/bin'), { recursive: true });
   writeFileSync(join(dir, 'eng/bin/bench.ts'), fake);
+  mkdirSync(join(dir, 'eng/examples'), { recursive: true });
+  mkdirSync(join(dir, 'eng/bench/floor'), { recursive: true });
+  writeFileSync(join(dir, 'eng/examples/graph.txt'), 'graph');
+  writeFileSync(join(dir, 'eng/bench/floor/graph.txt'), 'floor');
+  git(join(dir, 'eng'), 'init', '-q', '-b', 'main');
+  git(join(dir, 'eng'), 'add', '-A');
+  git(join(dir, 'eng'), 'commit', '-q', '-m', 'fixture');
   writeFileSync(join(dir, 'set.json'), JSON.stringify({ cases: cases.map(id => ({ id, repo: 'o/r' })) }));
   return dir;
 };
@@ -90,6 +99,33 @@ const until = async (ok: () => boolean) => {
 const run = (dir: string) => join(dir, 'abc/opencode-m/r1');
 
 describe('bench driver durability', () => {
+  it('records an invalid parallel setting as a stopped run', async () => {
+    const dir = bench(['c1']);
+    writeFileSync(join(dir, 'parallel'), 'broken');
+    const result = await drive(dir, settings(dir));
+    expect(result.code).toBe(1);
+    expect(events(dir).at(-1)).toMatchObject({ event: 'stop', reason: 'parallel must be a positive integer' });
+    expect(calls(dir).filter(c => c.cmd === 'run')).toEqual([]);
+  });
+
+  it('does not run arms after a failed gate even when an old verdict exists', async () => {
+    const dir = bench(['c1']);
+    mkdirSync(join(run(dir), 'c1'), { recursive: true });
+    writeFileSync(join(run(dir), 'c1/valid.json'), '{}');
+    const result = await drive(dir, { ...settings(dir), FAKE_FAIL: 'gate' });
+    expect(result.code).toBe(1);
+    expect(calls(dir).filter(c => c.cmd === 'run')).toEqual([]);
+    expect(events(dir).find(e => e.event === 'job-fail')?.reason).toBe('gate score exit 1');
+  });
+
+  it('fails when reporting fails instead of claiming completion', async () => {
+    const dir = bench(['c1']);
+    const result = await drive(dir, { ...settings(dir), FAKE_FAIL: 'report' });
+    expect(result.code).toBe(1);
+    expect(result.out).toContain('report');
+    expect(events(dir).at(-1)?.event).toBe('crash');
+  });
+
   it('runs every job, logs it, and a resume reruns nothing finished', async () => {
     const dir = bench(['c1', 'bad1']);
     writeFileSync(join(dir, 'budget-log.jsonl'), '{"label":"start"}\n{"label":"cut');
@@ -125,7 +161,7 @@ describe('bench driver durability', () => {
     expect(first.code).toBe(1);
     expect(events(dir).find(e => e.event === 'job-fail')).toMatchObject({
       job: 'opencode-m/r1/c2',
-      reason: 'no floor diff',
+      reason: 'floor exit 1',
     });
     expect(events(dir).at(-1)).toMatchObject({ event: 'stop', reason: '1 jobs failed: resume to retry them' });
     expect(readFileSync(join(run(dir), 'c2/v2/diff.patch'), 'utf8')).toBe('d');

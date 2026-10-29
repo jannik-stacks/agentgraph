@@ -52,8 +52,15 @@ it('records a line that passes as done and one that fails three times as failed'
   const queue = join(dir, 'queue.txt');
   writeFileSync(queue, 'echo hi\nexit 3\n');
   const run = spawn('sh', [script, queue], { stdio: 'ignore', env: { ...process.env, OVERNIGHT_BACKOFF: '0' } });
-  expect(await new Promise(done => run.on('close', done))).toBe(0);
+  expect(await new Promise(done => run.on('close', done))).toBe(1);
   expect(readFileSync(`${queue}.done`, 'utf8')).toBe('echo hi\n');
   expect(readFileSync(`${queue}.failed`, 'utf8')).toBe('exit 3\n');
   expect(readFileSync(`${queue}.log`, 'utf8')).toMatch(/hi\n[\s\S]*exit 3: exit 3\n[\s\S]*1 failed/);
+});
+
+it('fails for a missing queue instead of reporting no work', async () => {
+  const dir = tmp('overnight');
+  dirs.push(dir);
+  const run = spawn('sh', [script, join(dir, 'missing')], { stdio: 'ignore' });
+  expect(await new Promise(done => run.on('close', done))).toBe(1);
 });

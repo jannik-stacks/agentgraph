@@ -71,8 +71,9 @@ const readText = (file: string) => {
   try {
     const bytes = readFileSync(file);
     return bytes.includes(0) ? '' : bytes.toString('utf8');
-  } catch {
-    return '';
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw e;
   }
 };
 

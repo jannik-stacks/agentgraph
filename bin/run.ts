@@ -238,7 +238,7 @@ const connect = async (i: Instance, graph: string, after: string) => {
     )(host).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   await applySettings(provider)().catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   if (!host.sandbox) {
-    const missing = await Effect.runPromise(whyModelHostsMissing).catch(() => undefined);
+    const missing = await Effect.runPromise(whyModelHostsMissing).catch((e: Error) => fail(e.message, 1));
     if (missing) fail(`${missing}\n${after}`, 1);
     const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`), host.image)).catch(
       (e: Error) => fail(`${e.message}\n${after}`, 1)
@@ -288,6 +288,7 @@ const selected = formatInstanceFlags(values.repo && resolve(values.repo), values
 
 if (verb === 'check' && values.dir && !values.runs) {
   const repo = onForge ? undefined : await findRepo(resolve(values.repo ?? '.'));
+  if (values.repo && !repo) fail('--repo must name a readable git repo');
   const saved = repo ? findInstances(root).find(i => i.repo === realpathSync(repo)) : undefined;
   await checkGraph(resolve(values.dir), saved);
 }
@@ -368,7 +369,8 @@ async function prune(data: string) {
 async function runOnInstance() {
   const repo = await findRepo(resolve(values.repo ?? '.'));
   if (!repo) {
-    if (verb !== 'show') fail(`${verb || 'agentgraph'} runs inside a git repo, or pass --repo <dir>\n${usage}`);
+    if (values.repo || verb !== 'show')
+      fail(`${verb || 'agentgraph'} runs inside a git repo, or pass --repo <dir>\n${usage}`);
     return showInstances(root);
   }
   const i = await ensureInstance(root, repo, values.base, values['read-only']).catch((e: Error) => fail(e.message));
@@ -492,7 +494,10 @@ async function runOnInstance() {
 function watchRuns(i: Instance, issue: number) {
   const shown = new Map<string, string>();
   const look = async () => {
-    for (const run of await listRuns(i.data, { issue }).catch(() => [])) {
+    for (const run of await listRuns(i.data, { issue }).catch((e: Error) => {
+      console.error(`Could not read runs: ${e.message}`);
+      return [];
+    })) {
       const now = `${run.step}: ${run.status === 'running' ? 'working' : run.status}`;
       if (shown.get(run.id) !== now) console.log(`#${issue} ${now}`);
       shown.set(run.id, now);
@@ -583,7 +588,10 @@ async function report(
           Effect.map(settings => settings.providers ?? []),
           Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(undefined)))
         )
-      ).catch(() => []);
+      ).catch((e: Error) => {
+        console.error(`Could not read login providers: ${e.message}`);
+        return [];
+      });
       const why = providers.find(p => p.name === name)?.whyLogin?.();
       if (why) console.log(why);
     }

@@ -36,8 +36,13 @@ export const runLogged = (
   log: (message: string) => void = console.error
 ) =>
   new Promise<number>(done => {
+    let failed = false;
     const stream = createWriteStream(logFile, { flags: 'a' });
-    stream.on('error', e => log(`log ${logFile}: ${e.message}`));
+    stream.on('error', e => {
+      failed = true;
+      log(`log ${logFile}: ${e.message}`);
+      child.kill('SIGTERM');
+    });
     stream.write(`\n### ${new Date().toISOString()} ${args.slice(1, 3).join(' ')}\n`);
     const child = startChildProcess(nodePath(), args, { env });
     child.stdout?.pipe(stream, { end: false });
@@ -46,14 +51,15 @@ export const runLogged = (
       log(`spawn: ${e.message}`);
       stream.end(() => done(1));
     });
-    child.on('close', code => stream.end(() => done(code ?? 1)));
+    child.on('close', code => stream.end(() => done(failed ? 1 : (code ?? 1))));
   });
 
 const json = <T>(path: string, fallback: T): T => {
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as T;
-  } catch {
-    return fallback;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return fallback;
+    throw new Error(`${path}: ${String(e)}`, { cause: e });
   }
 };
 
@@ -119,10 +125,12 @@ type Job = { point: string; k: number; c: Entry };
 const arms = ['v2', 'floor'];
 
 const readBenchJobs = (dir: string, s: Settings): Job[] => {
-  const cases = json<{ cases: Entry[] }>(join(dir, 'set.json'), { cases: [] }).cases.filter(
+  const cases = (JSON.parse(readFileSync(join(dir, 'set.json'), 'utf8')) as { cases: Entry[] }).cases.filter(
     c => c.split !== 'gate' || c.use
   );
   const points = s.POINTS!.split(',').map(p => (p.includes(':') ? p : `opencode:${p}`));
+  if (!Number.isInteger(Number(s.REPEAT ?? s.REPEATS)) || Number(s.REPEAT ?? s.REPEATS) < 1)
+    throw new Error('REPEAT or REPEATS must be a positive integer');
   const repeats = s.REPEAT ? [Number(s.REPEAT)] : Array.from({ length: Number(s.REPEATS) }, (_, i) => i + 1);
   return points.flatMap(point => repeats.flatMap(k => cases.map(c => ({ point, k, c }))));
 };
@@ -261,6 +269,13 @@ if (import.meta.main) {
     const judges = s.JUDGES!;
     const maxCodex = s.MAX_CODEX ? Number(s.MAX_CODEX) : undefined;
     const cap = s.CAP ? Number(s.CAP) : undefined;
+    for (const [name, value] of Object.entries({
+      MAX_CODEX: maxCodex,
+      CAP: cap,
+      PER: s.PER === undefined ? undefined : Number(s.PER),
+    }))
+      if (value !== undefined && (!Number.isFinite(value) || value < 0))
+        throw new Error(`${name} must be a nonnegative number`);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       NODE_OPTIONS: '',
@@ -271,6 +286,7 @@ if (import.meta.main) {
     const bench = (args: string[], logFile: string) =>
       runLogged([join(engine, 'bin/bench.ts'), ...args, ...(s.KEYS ? ['--keys', s.KEYS] : [])], logFile, env, log);
 
+    mkdirSync(join(dir, 'logs'), { recursive: true });
     const jobs = readBenchJobs(dir, s);
     const total = jobs.length;
     const done = () => jobs.filter(j => finished(dir, s, j)).length;
@@ -286,6 +302,7 @@ if (import.meta.main) {
         : ((await import(join(engine, 'bin/bench.ts'))) as { codexUsed: () => number | undefined });
     const reading = (label: string) => {
       const now = codexUsed();
+      if (now === undefined || !Number.isFinite(now)) throw new Error('Codex usage unreadable; driver stopped');
       appendJsonl(budgetLog, { at: new Date().toISOString(), label, codex: now });
       seen.add(label);
       log('codex', label, now);
@@ -340,8 +357,11 @@ if (import.meta.main) {
       release(lock);
     });
 
-    const tree = (path: string) =>
-      spawnSync('git', ['-C', engine, 'rev-parse', `HEAD:./${path}`], { encoding: 'utf8' }).stdout.trim();
+    const tree = (path: string) => {
+      const result = spawnSync('git', ['-C', engine, 'rev-parse', `HEAD:./${path}`], { encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(`engine tree ${path}: ${result.error?.message ?? result.stderr}`);
+      return result.stdout.trim();
+    };
     const graphs = { v2: tree('examples'), floor: tree('bench/floor') };
     for (const j of jobs) {
       const at = runDir(dir, s, j);
@@ -360,7 +380,7 @@ if (import.meta.main) {
     const first = maxCodex === undefined ? undefined : reading(seen.has('start') ? 'restart' : 'start');
     // The bench guard counts points over a dir's first reading; this keeps its stop at MAX_CODEX absolute.
     const codexCap = (at: string) =>
-      maxCodex === undefined ? '100' : String(Math.max(0, maxCodex - (budget(at).start ?? first ?? maxCodex - 10)));
+      maxCodex === undefined ? '100' : String(Math.max(0, maxCodex - (budget(at).start ?? first!)));
     const spend = cap === undefined ? undefined : await spendGuard(cap, Number(s.PER ?? 0.3), usage);
 
     const overBudget = async () => {
@@ -374,13 +394,13 @@ if (import.meta.main) {
       const at = runDir(dir, s, j);
       const id = j.c.id;
       while (arms.some(a => isLockedByOtherProcess(join(at, id, a)))) await sleep(tick);
-      mkdirSync(join(dir, 'logs'), { recursive: true });
       const logFile = join(dir, 'logs', `${several ? `${j.point.split(':')[1]}-` : ''}r${j.k}-${id}.log`);
       const caseDir = join(dir, 'cases', id);
       const common = [caseDir, at, '--repo', join(s.REPOS!, j.c.repo.split('/').pop()!)];
       const paid = ['--max-codex', codexCap(at), '--max-claude-calls', '400'];
       const t0 = Date.now();
-      await bench(['score', ...common], logFile);
+      const gated = await bench(['score', ...common], logFile);
+      if (gated) return `gate score exit ${gated}`;
       const valid = json<{ invalid?: string } | null>(join(at, id, 'valid.json'), null);
       if (!valid) return 'no validity: the first score failed';
       if (valid.invalid) log(`${formatJobName(j)} invalid: ${valid.invalid}`);
@@ -391,6 +411,7 @@ if (import.meta.main) {
             logFile
           );
           log(`${formatJobName(j)} ${arm} exit ${code}`);
+          if (code) return `${arm} exit ${code}`;
         }
         const missing = arms.filter(arm => !existsSync(join(at, id, arm, 'diff.patch')));
         if (missing.length) return `no ${missing.join(', ')} diff`;
@@ -409,7 +430,15 @@ if (import.meta.main) {
     const failed: string[] = [];
     let stopped: string | undefined;
     let paused = false;
-    const width = () => Number(readFileOrEmpty(join(dir, 'parallel')).trim()) || 3;
+    const width = () => {
+      const text = readFileOrEmpty(join(dir, 'parallel')).trim();
+      const n = text ? Number(text) : 3;
+      if (!Number.isInteger(n) || n < 1) {
+        stopped = 'parallel must be a positive integer';
+        return 0;
+      }
+      return n;
+    };
     await new Promise<void>((finish, fail) => {
       const step = async () => {
         if (existsSync(join(dir, 'PAUSE')) !== paused) {
@@ -453,7 +482,10 @@ if (import.meta.main) {
       };
       step().catch(fail);
     });
-    for (const at of dirs) await bench(['report', at], join(dir, 'logs', `report-${basename(at)}.log`));
+    for (const at of dirs) {
+      const code = await bench(['report', at], join(dir, 'logs', `report-${basename(at)}.log`));
+      if (code) throw new Error(`report ${at} exit ${code}`);
+    }
     if (maxCodex !== undefined) reading('end');
     const n = done();
     if (n === total) event('finish', { done: n, total });

@@ -7,9 +7,19 @@ const script = join(resolve(import.meta.dirname, '..'), 'bin/traces.mjs');
 const session = (step: string, s: object) => JSON.stringify({ at: '', step, session: { resumed: false, ...s } });
 
 describe('traces', () => {
+  it('counts invalid trace rows as findings instead of passing an empty trace', () => {
+    const data = tmp('traces');
+    write(data, { 'a/run.json': '{}', 'a/trace.jsonl': 'broken\n' });
+    const result = spawnSync(process.execPath, [script, data], { encoding: 'utf8' });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('a: 1 invalid trace rows skipped');
+    expect(result.stdout).toContain('1 findings over 0 sessions');
+  });
+
   it('fails on a started session that cost nothing, and skips one that never started', () => {
     const data = tmp('traces');
     write(data, {
+      'run-1/run.json': '{}',
       'run-1/trace.jsonl': [
         JSON.stringify({
           at: '',
@@ -26,7 +36,8 @@ describe('traces', () => {
     expect(status).toBe(1);
     expect(stdout.trim().split('\n')).toEqual([
       'run-1 implement: session s1 ended stop with usd 0',
-      '1 findings over 2 sessions',
+      'run-2: trace.jsonl missing',
+      '2 findings over 2 sessions',
     ]);
   });
 

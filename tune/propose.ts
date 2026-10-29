@@ -4,7 +4,16 @@
  *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--runs <dir>] [--iteration n]
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
@@ -109,23 +118,21 @@ const files = (dir: string): string[] =>
 type Material = { id: string; text: string; files: Record<string, string> };
 
 const titleOf = (dir: string) =>
-  (JSON.parse(readFileOrEmpty(join(dir, 'case.json')) || '{}') as { title?: string; pr?: number }).title ?? '';
+  (JSON.parse(readFileSync(join(dir, 'case.json'), 'utf8')) as { title?: string; pr?: number }).title ?? '';
 
 /** The newest run of each bot arm of a case whose change failed the hidden tests, infra failures left out. */
 const failing = (runs: string, id: string) => {
   const dir = join(runs, id);
-  if (
-    !existsSync(dir) ||
-    (JSON.parse(readFileOrEmpty(join(dir, 'valid.json')) || '{}') as { invalid?: string }).invalid
-  )
-    return [];
+  if (!existsSync(dir)) throw new Error(`${id}: no scored case at ${dir}`);
+  if ((JSON.parse(readFileSync(join(dir, 'valid.json'), 'utf8')) as { invalid?: string }).invalid) return [];
   return readdirSync(dir)
-    .filter(arm => !['human', 'base', 'judge', 'tree'].includes(arm) && !arm.includes('.'))
+    .filter(arm => !['human', 'base', 'judge', 'tree', 'control'].includes(arm) && !arm.includes('.'))
     .flatMap(arm => {
-      const s = JSON.parse(readFileOrEmpty(join(dir, arm, 'score.json')) || 'null') as
+      const s = JSON.parse(readFileSync(join(dir, arm, 'score.json'), 'utf8')) as
         | (Parameters<typeof infra>[0] & { hidden?: { ok: boolean; tail: string; class?: string } })
         | null;
-      return s?.hidden && !s.hidden.ok && !infra(s) ? [{ at: join(dir, arm), hidden: s.hidden }] : [];
+      if (!s || typeof s !== 'object') throw new Error(`${id}/${arm}: invalid score record`);
+      return s.hidden && !s.hidden.ok && !infra(s) ? [{ at: join(dir, arm), hidden: s.hidden }] : [];
     })
     .slice(0, 1);
 };
@@ -149,9 +156,9 @@ const failures = (cases: string, runs: string, ids: string[], small: boolean): M
     .flatMap(id => failing(runs, id).map(f => ({ id, ...f })))
     .slice(0, small ? 4 : 6)
     .map(({ id, at, hidden }) => {
-      const issue = readFileOrEmpty(join(cases, id, 'issue.md'));
-      const human = readFileOrEmpty(join(cases, id, 'merged.diff'));
-      const bot = readFileOrEmpty(join(at, 'diff.patch'));
+      const issue = readFileSync(join(cases, id, 'issue.md'), 'utf8');
+      const human = readFileSync(join(cases, id, 'merged.diff'), 'utf8');
+      const bot = readFileSync(join(at, 'diff.patch'), 'utf8');
       const out = hidden.tail.replace(ansi, '').replace(noise, '');
       const full = traces(at, 60_000);
       const text = [
@@ -225,7 +232,7 @@ const history = (cases: string, ids: string[], seed: number): Material[] => {
   const order = shuffle(ids, seed + 1);
   return [...order.filter(said), ...order.filter(id => !said(id))].slice(0, 8).map(id => {
     const c = JSON.parse(readFileOrEmpty(join(cases, id, 'case.json')) || '{}') as { pr?: number; title?: string };
-    const issue = readFileOrEmpty(join(cases, id, 'issue.md'));
+    const issue = readFileSync(join(cases, id, 'issue.md'), 'utf8');
     const diff = readFileOrEmpty(join(cases, id, 'merged.diff'));
     const reviews = readFileOrEmpty(join(cases, id, 'reviews.md'));
     const touched = [...diff.matchAll(/^diff --git a\/(\S+)/gm)].map(m => m[1]).join('\n');
@@ -264,7 +271,10 @@ export const claudeUsed = (stream: string): Usage | undefined => {
       e.type === 'rate_limit_event' && e.rate_limit_info?.unifiedWindows ? [e.rate_limit_info.unifiedWindows] : []
     )
     .at(-1);
-  const pct = (u?: number) => Math.round((u ?? 0) * 1000) / 10;
+  const pct = (u?: number) => {
+    if (u === undefined || !Number.isFinite(u)) throw new Error('Claude usage window lacks utilization');
+    return Math.round(u * 1000) / 10;
+  };
   return w?.five_hour && w.seven_day
     ? { fiveHour: pct(w.five_hour.utilization), week: pct(w.seven_day.utilization) }
     : undefined;
@@ -425,7 +435,7 @@ export const propose = async (o: {
       ? history(cases, split('mine'), iteration)
       : failures(cases, o.runs!, split('fit'), o.proposer === 'structure');
   const ids = material.map(m => m.id);
-  const menu = await Effect.runPromise(readConfiguredGraph(o.from).pipe(Effect.map(fitting))).catch(() => [...edits]);
+  const menu = await Effect.runPromise(readConfiguredGraph(o.from).pipe(Effect.map(fitting)));
   const turn = iteration % edits.length;
   const edit = [...edits.slice(turn), ...edits.slice(0, turn)].find(e => menu.includes(e));
   const before = tried(o.tune);

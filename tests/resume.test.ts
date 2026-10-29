@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { harnessError, progress, runnerError, statusText } from '../bin/bench.ts';
 import {
   appendJsonl,
@@ -37,6 +37,17 @@ describe('crash-safe files', () => {
     writeFileAtomic(join(dir, 'a/score.json'), { ok: false });
     expect(JSON.parse(readFileSync(join(dir, 'a/score.json'), 'utf8'))).toEqual({ ok: false });
     expect(readdirSync(join(dir, 'a'))).toEqual(['score.json']);
+  });
+
+  it('counts corrupt JSONL rows and reports their line numbers', () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = join(root(), 'log.jsonl');
+    writeFileSync(file, '{"ok":true}\nbroken\n');
+    const rows = readJsonl(file);
+    const messages = warning.mock.calls.flat().join(' ');
+    warning.mockRestore();
+    expect(rows).toEqual([{ ok: true }]);
+    expect(messages).toContain('1 skipped invalid JSONL rows: line 2');
   });
 
   it('skips a line a crash cut off and starts the next append on a new line', () => {
