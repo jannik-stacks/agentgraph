@@ -18,7 +18,7 @@ import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'ef
 import { describe, expect, it } from 'vitest';
 import { makeCodexHarness } from '../harnesses/codex.ts';
 import { loadGraph } from '../src/folder.ts';
-import { type Harness, type Provider, harnessSession, readHarnessSettings } from '../src/harnesses.ts';
+import { type Harness, type Provider, harnessSession, readHarnessSettings, parseModelUrls } from '../src/harnesses.ts';
 import { getListPriceUsd, isModelPriced, readPrices } from '../src/prices.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -123,6 +123,12 @@ const READ_ONLY_SESSIONS = [
 
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 const input = (c: Command) => readFileSync(join(c.home!, '.agentgraph', 'input'), 'utf8');
+
+describe('model URL pairs', () => {
+  it.each(['sol=http://localhost bad', 'sol=http://localhost broken'])('rejects malformed input %s', text => {
+    expect(() => parseModelUrls(text)).toThrow('invalid name=value pair');
+  });
+});
 
 describe('the session loop', () => {
   it.each(['pi', 'codex', 'opencode'])('keeps %s native and proxy routes free of ChatGPT setup', async name => {

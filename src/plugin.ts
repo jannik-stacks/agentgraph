@@ -119,7 +119,13 @@ export const readPlugins = async (
   }));
   if (dir !== undefined) {
     const root = await realpath(dir);
-    const files = (await readdir(join(dir, 'plugins')).catch(() => [])).filter(file => file.endsWith('.ts')).toSorted();
+    const files = (
+      await readdir(join(dir, 'plugins')).catch((e: NodeJS.ErrnoException) =>
+        e.code === 'ENOENT' ? [] : Promise.reject(e)
+      )
+    )
+      .filter(file => file.endsWith('.ts'))
+      .toSorted();
     for (const file of files) {
       const path = join(dir, 'plugins', file);
       const actual = await realpath(path);

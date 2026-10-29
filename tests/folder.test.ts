@@ -55,6 +55,16 @@ const problems = async (dir: string) => {
   return result.left.message.split('\n');
 };
 
+describe('graph directory errors', () => {
+  it('reports unreadable graph sections instead of dropping them', async () => {
+    const dir = graphDir({ 'settings.yaml': '{}', agents: 'unreadable directory' });
+    const result = await Effect.runPromise(Effect.either(loadGraph(dir, harnesses)));
+    expect(Either.isLeft(result) && result.left.problems).toEqual(
+      expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('ENOTDIR') })])
+    );
+  });
+});
+
 describe('loadGraph', () => {
   it('rejects a missing graph folder with copy guidance', async () => {
     const dir = join(graphDir({}), 'absent');

@@ -74,6 +74,13 @@ console.log(JSON.stringify({
     )
   );
 
+describe('plugin directory errors', () => {
+  it('rejects a plugin directory that is a file', async () => {
+    const dir = await makePluginDir({ plugins: 'unreadable directory' });
+    await expect(readPlugins(dir)).rejects.toThrow('ENOTDIR');
+  });
+});
+
 describe('graph plugins', () => {
   it('loads a page-only plugin with decoded settings without reading its data', async () => {
     const dir = await makePluginDir({

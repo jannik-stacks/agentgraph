@@ -205,7 +205,12 @@ export const remoteSandbox = (o: {
             yield* Effect.timeoutFail(before(box, c, home), bounded);
             if (c !== box.toolchain) yield* provision(box);
             yield* Effect.timeoutFail(news(box), bounded);
-            yield* Effect.forkScoped(Effect.repeat(Effect.ignore(news(box)), Schedule.spaced('1 minute')));
+            yield* Effect.forkScoped(
+              Effect.repeat(
+                news(box).pipe(Effect.catchAll(e => Effect.logWarning('box news refresh failed', e))),
+                Schedule.spaced('1 minute')
+              )
+            );
             const env: Record<string, string> = {
               TMPDIR: '/tmp',
               HOME: home?.box ?? '/tmp',

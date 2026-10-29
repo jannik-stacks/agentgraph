@@ -108,9 +108,10 @@ const wrapped = (cmd: string, args: string[]) => ({
 /** `name=value` pairs, separated by commas or white space. */
 const parseNamePairs = (text: string) =>
   Object.fromEntries(
-    splitNames(text).flatMap(pair => {
+    splitNames(text).map(pair => {
       const at = pair.indexOf('=');
-      return at > 0 ? [[pair.slice(0, at), pair.slice(at + 1)]] : [];
+      if (at <= 0) throw new Error(`invalid name=value pair: ${pair}`);
+      return [pair.slice(0, at), pair.slice(at + 1)];
     })
   );
 

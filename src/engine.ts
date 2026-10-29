@@ -1295,7 +1295,9 @@ const attempt = (
             continue;
           }
           yield* refresh(run, work, seen, now.right);
-          const cut = yield* Effect.orElseSucceed(told(graph, w, by, now.right), () => undefined);
+          const cut = yield* told(graph, w, by, now.right).pipe(
+            Effect.catchAll(e => Effect.as(Effect.logWarning(`interrupt for run ${run.id}`, e), undefined))
+          );
           if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
         }
       });
@@ -2546,13 +2548,16 @@ export const tick = (
                         again: true,
                       };
                     const body = `Could not answer: ${(e as { _tag?: string })._tag ?? 'Error'}. Reply again to retry.`;
-                    const landed = yield* land(seen, [{ kind: 'comment', body }]).pipe(Effect.orElseSucceed(() => []));
+                    const landed = yield* land(seen, [{ kind: 'comment', body }]);
                     yield* store.trace(
                       run.id,
                       ...landed.filter(a => !a.operation).map(applied => ({ at: now(), step: run.step, applied }))
                     );
                     if (!landed.some(a => a.ok)) return { run: { ...seen, retried: true as const }, again: true };
-                    if (seen.eyes) yield* forge.apply(seen.eyes.issue, seen.eyes.undo).pipe(Effect.ignore);
+                    if (seen.eyes)
+                      yield* forge
+                        .apply(seen.eyes.issue, seen.eyes.undo)
+                        .pipe(Effect.catchAll(e => Effect.logWarning(`reaction for run ${run.id}`, e)));
                     const { retried: _retried, eyes: _eyes, ...rest } = seen;
                     return { run: rest, again: false };
                   })

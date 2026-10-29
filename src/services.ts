@@ -195,7 +195,13 @@ export const makeProductionLayers = () => {
           Effect.provide(sandbox),
           Effect.catchAll(() => Effect.succeed<string[]>([]))
         );
-    const config = readHarnessSettings.pipe(Effect.orElseSucceed((): HarnessSettings => ({ harnesses: [] })));
+    const config = readHarnessSettings.pipe(
+      Effect.catchAll(e =>
+        Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {
+          harnesses: [],
+        } as HarnessSettings)
+      )
+    );
     return Layer.unwrapEffect(
       Effect.map(Effect.all([trust, config]), ([trust, config]) =>
         Layer.mergeAll(

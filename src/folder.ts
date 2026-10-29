@@ -141,18 +141,18 @@ const decode = <A, I>(schema: Schema.Schema<A, I>, data: unknown, say: (message:
 
 type File = { path: string; text: string };
 
+const optional = <A>(read: Promise<A>) =>
+  read.catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? undefined : Promise.reject(e)));
+
 const markdown = async (dir: string, sub: string): Promise<File[]> => {
-  const entries = await readdir(join(dir, sub), { withFileTypes: true }).catch(() => []);
+  const entries = (await optional(readdir(join(dir, sub), { withFileTypes: true }))) ?? [];
   const paths = entries
     .map(e => (e.isDirectory() ? `${sub}/${e.name}/SKILL.md` : e.name.endsWith('.md') ? `${sub}/${e.name}` : ''))
     .filter(path => path && (sub === 'skills' || !path.endsWith('/SKILL.md')))
     .sort();
   const files = await Promise.all(
     paths.map(path =>
-      readFile(join(dir, path), 'utf8').then(
-        text => ({ path, text }),
-        () => undefined
-      )
+      optional(readFile(join(dir, path), 'utf8')).then(text => (text === undefined ? undefined : { path, text }))
     )
   );
   return files.filter(f => f !== undefined);
@@ -305,7 +305,7 @@ export const loadGraph = (
     });
     const read = yield* Effect.tryPromise({
       try: async () => {
-        const settingsText = await readFile(join(dir, 'settings.yaml'), 'utf8').catch(() => undefined);
+        const settingsText = await optional(readFile(join(dir, 'settings.yaml'), 'utf8'));
         const [agents, skills, checks, workflows] = await Promise.all(
           (['agents', 'skills', 'checks', 'workflows'] as const).map(sub => markdown(dir, sub))
         );
@@ -314,7 +314,9 @@ export const loadGraph = (
           (
             await Promise.all(
               ['scripts', 'plugins'].map(sub =>
-                readdir(join(dir, sub), { recursive: true, withFileTypes: true }).catch(() => [])
+                optional(readdir(join(dir, sub), { recursive: true, withFileTypes: true })).then(
+                  entries => entries ?? []
+                )
               )
             )
           )
