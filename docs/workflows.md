@@ -105,7 +105,7 @@ An `issue_comment` workflow whose agent may `tell` is a router and runs beside o
 {"kind": "tell", "issue": 12, "text": "stop"}
 ```
 
-The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/engine.ts#readRunEvents -->
+The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/engine.ts#recipient src/engine.ts#readRunEvents src/engine.ts#tick -->
 
 ## The session
 

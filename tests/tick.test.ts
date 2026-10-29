@@ -326,6 +326,48 @@ describe('tick', () => {
     );
   };
 
+  it.each(['a-retro', 'z-retro'])('tells the work run at merge to go back beside live %s', async id => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    const step = { ...merging.workflows.issue.steps[0]!, checks: [] };
+    const router = { ...merging.workflows.issue, name: 'router', on: { issue_comment: {} }, steps: [step] };
+    const retro = { ...router, name: 'retro', on: { feedback: {} } };
+    const kit = {
+      ...merging,
+      workflows: { ...merging.workflows, router, retro },
+      agents: {
+        ...merging.agents,
+        implementor: { ...merging.agents.implementor!, returns: ['tell' as const, 'ask' as const] },
+      },
+    };
+    const text = 'Add screenshots and rewrite the description';
+    const { run } = services(where, [[start('router'), reply({ kind: 'tell', issue: 7, text })]]);
+    await run(waiting(where));
+    const before = {
+      ...begin(retro, { id, issue: 7, started: fresh().started }),
+      status: 'waiting' as const,
+      reason: 'Search issues?',
+    };
+    await run(Effect.flatMap(Store, s => s.put(before)));
+    await run(drive(router, begin(router, { id: 'router-7', issue: 7, started: fresh().started }), kit));
+    expect(readTrace(where.data, 'run-7').flatMap(t => ('told' in t ? [t.told] : []))).toEqual([
+      { text, by: 'router-7' },
+    ]);
+    expect(readTrace(where.data, id).filter(t => 'told' in t)).toEqual([]);
+    const resumed = services(where, [[start('a'), reply({ kind: 'ask', question: 'Which page?' })]]);
+    await resumed.run(tick(kit, 7));
+    expect(await run(Effect.flatMap(Store, s => s.get(id)))).toEqual(before);
+    expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({
+      step: 'implement',
+      status: 'waiting',
+      reason: 'Which page?',
+    });
+    expect(resumed.specs).toHaveLength(1);
+    expect(resumed.specs[0]).toMatchObject({ resume: { id: 'a' } });
+    expect(resumed.specs[0]!.fork).toBeUndefined();
+    expect(resumed.specs[0]!.prompt).toContain(`the merge step sent this back: ${text}`);
+  });
+
   it.each([false, true])('does not replay published changes over a human revert (pending: %s)', async pending => {
     const where = world();
     const implementation = merging.workflows.issue.steps[0]!;

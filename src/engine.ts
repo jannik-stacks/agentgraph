@@ -420,13 +420,18 @@ const dispatch = (
     return child;
   });
 
-const recipient = (issue: number, by: string) =>
-  Effect.flatMap(Store, s => Effect.map(s.list({ issue }), rs => rs.find(r => !isRunDone(r) && r.id !== by)));
+const recipient = (graph: Graph, issue: number, by: string) =>
+  Effect.flatMap(Store, s =>
+    s.list({ issue }).pipe(
+      Effect.map(rs => rs.filter(r => !isRunDone(r) && r.id !== by)),
+      Effect.map(rs => rs.find(r => !retro(graph, r)) ?? rs[0])
+    )
+  );
 
 /** Passes trusted text to a live run, as a router proposal or CLI instruction. */
-const tell = (issue: number, text: string, by: string) =>
+const tell = (graph: Graph, issue: number, text: string, by: string) =>
   Effect.gen(function* () {
-    const to = yield* recipient(issue, by);
+    const to = yield* recipient(graph, issue, by);
     if (!to) return yield* new ForgeError({ message: `no live run on #${issue} to tell` });
     yield* Effect.flatMap(Store, s => s.trace(to.id, { at: now(), step: to.step, told: { text, by } }));
     return to;
@@ -1613,7 +1618,7 @@ const attempt = (
         Effect.gen(function* () {
           const key = operation(tried, p.issue, p, `tell:${i}`);
           const prior = yield* findAppliedBefore(tried, p.issue, key);
-          const to = prior?.id ? yield* store.get(prior.id) : yield* recipient(p.issue, run.id);
+          const to = prior?.id ? yield* store.get(prior.id) : yield* recipient(graph, p.issue, run.id);
           return { p, to, key };
         })
     );
@@ -1629,7 +1634,7 @@ const attempt = (
         tried,
         p.issue,
         key,
-        Effect.map(tell(p.issue, p.text, run.id), to => ({ proposal: p, ok: true, id: to.id }))
+        Effect.map(tell(graph, p.issue, p.text, run.id), to => ({ proposal: p, ok: true, id: to.id }))
       )
     );
     const children = world.filter((p): p is Child => p.kind === 'issue');
@@ -2566,7 +2571,7 @@ export const tick = (
           outcome.kind !== 'answer' || !step || !isHumanWaitStep(step)
             ? undefined
             : yield* (
-                pr?.pull
+                pr?.pull && !(tells.includes(m) && step.back)
                   ? aside(w, seen, graph, outcome.text, pr.pull, pr.number)
                   : step.back
                     ? Effect.succeed({ run: seen, outcome: { kind: 'back', why: outcome.text } as const })
