@@ -56,7 +56,7 @@ const open = async (
   const trace: Parameters<Parameters<typeof startTools>[2]>[0][] = [];
   const endpoint = await startRegistered(
     { issues: { tool: tool({ inputSchema, execute }), settings: {}, plugin: 'issues' } },
-    { repo: 'owner/repo', dir: '/checkout', forge: { searchIssues: async () => [] } },
+    { repo: 'owner/repo', forge: { searchIssues: async () => [] } },
     event => {
       trace.push(event);
     },
@@ -194,7 +194,7 @@ it('rejects the wrong session path and peers outside its allowed subnet', async 
   expect((await readLocalHttp(wrong, { method: 'POST' })).status).toBe(404);
   const blocked = await startRegistered(
     { issues: { tool: tool({ inputSchema: schema, execute: async () => 'ok' }), settings: {}, plugin: 'issues' } },
-    { repo: 'o/r', dir: '/checkout', forge: { searchIssues: async () => [] } },
+    { repo: 'o/r', forge: { searchIssues: async () => [] } },
     () => {},
     {
       host: '127.0.0.1',
@@ -221,7 +221,7 @@ it('scrubs tool errors and supplied credentials from descriptions and schemas', 
 it('does not expose errors thrown by its trace sink', async () => {
   const endpoint = await startRegistered(
     { issues: { tool: tool({ inputSchema: schema, execute: async () => 'ok' }), settings: {}, plugin: 'issues' } },
-    { repo: 'o/r', dir: '/checkout', forge: { searchIssues: async () => [] } },
+    { repo: 'o/r', forge: { searchIssues: async () => [] } },
     () => {
       throw new Error(credential);
     }
@@ -253,7 +253,7 @@ it('bounds and scrubs descriptions, schemas and large trace inputs', async () =>
     inputSchema: jsonSchema({ type: 'object', properties: { query: { type: 'string', default: credential } } }),
     execute: async () => 'ok',
   });
-  const context = { repo: 'o/r', dir: '/checkout', forge: { searchIssues: async () => [] } };
+  const context = { repo: 'o/r', forge: { searchIssues: async () => [] } };
   const endpoint = await startRegistered(
     { issues: { tool: definition, settings: {}, plugin: 'issues' } },
     context,
@@ -319,15 +319,10 @@ it.each(['', '0.0.0.0', '::', '::0', '0:0:0:0:0:0:0:0', '::ffff:0.0.0.0'])(
       issues: { tool: tool({ inputSchema: schema, execute: async () => 'ok' }), settings: {}, plugin: 'issues' },
     };
     await expect(
-      startRegistered(
-        definitions,
-        { repo: 'o/r', dir: '/checkout', forge: { searchIssues: async () => [] } },
-        () => {},
-        {
-          host,
-          subnet: '127.0.0.0/8',
-        }
-      )
+      startRegistered(definitions, { repo: 'o/r', forge: { searchIssues: async () => [] } }, () => {}, {
+        host,
+        subnet: '127.0.0.0/8',
+      })
     ).rejects.toThrow('tools need a specific IP listen address');
   }
 );
@@ -397,7 +392,7 @@ it('finishes cancellation tracing before closing without waiting for native work
         plugin: 'issues',
       },
     },
-    { repo: 'o/r', dir: '/checkout', forge: { searchIssues: async () => [] } },
+    { repo: 'o/r', forge: { searchIssues: async () => [] } },
     async () => {
       recorded();
       await gate;
@@ -482,4 +477,164 @@ it('releases request permits when clients disconnect', async () => {
   }
   await vi.waitFor(() => expect(trace).toHaveLength(4));
   expect((await request({ jsonrpc: '2.0', id: 5, method: 'tools/list' })).status).toBe(200);
+});
+
+it('uploads binary files through the authenticated session route and reads copied bytes', async () => {
+  const { endpoint, call, trace } = await open(async ({ query }, { context }) => {
+    const file = await context.readFile(query);
+    return JSON.stringify({ type: file.type, bytes: [...file.bytes] });
+  });
+  const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const put = await readLocalHttp(`${endpoint.url}/files`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${endpoint.secret}` },
+    body: bytes,
+  });
+  const ref = await put.text();
+  const result = await call(ref);
+  expect(put.status).toBe(201);
+  expect(await result.json()).toMatchObject({
+    result: { isError: false, content: [{ text: JSON.stringify({ type: 'image/png', bytes: [...bytes] }) }] },
+  });
+  expect(trace.filter(event => event.name.startsWith('file_'))).toEqual([
+    expect.objectContaining({ name: 'file_put', input: { ref, bytes: 8, type: 'image/png' } }),
+    expect.objectContaining({ name: 'file_read', input: { ref, bytes: 8, type: 'image/png' } }),
+  ]);
+});
+
+it('counts binary chunks before a lying Content-Length finishes', async () => {
+  const { endpoint, trace } = await open(async () => 'unused');
+  const url = new URL(`${endpoint.url}/files`);
+  const response = await new Promise<{ status: number; text: string }>((resolve, reject) => {
+    const pending = httpRequest(
+      {
+        hostname: '127.0.0.1',
+        port: url.port,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          Host: url.host,
+          Authorization: `Bearer ${endpoint.secret}`,
+          'Content-Length': String(20 * 1024 * 1024),
+        },
+      },
+      incoming => {
+        let text = '';
+        incoming.on('data', chunk => {
+          text += chunk.toString();
+        });
+        incoming.on('end', () => {
+          resolve({ status: incoming.statusCode!, text });
+          pending.destroy();
+        });
+      }
+    );
+    pending.on('error', reject);
+    pending.write(Buffer.alloc(11 * 1024 * 1024));
+  });
+  expect(response).toEqual({ status: 400, text: 'File upload: exceeds 10 MiB' });
+  expect(trace).toEqual([]);
+});
+
+it('cancels an incomplete binary upload when the session closes', async () => {
+  const { endpoint, trace } = await open(async () => 'unused');
+  const uploaded = await readLocalHttp(`${endpoint.url}/files`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${endpoint.secret}` },
+    body: new Uint8Array([255, 216, 255]),
+  });
+  expect(uploaded.status).toBe(201);
+  trace.length = 0;
+  const url = new URL(`${endpoint.url}/files`);
+  const pending = httpRequest({
+    hostname: '127.0.0.1',
+    port: url.port,
+    path: url.pathname,
+    method: 'POST',
+    headers: { Host: url.host, Authorization: `Bearer ${endpoint.secret}` },
+  });
+  const stopped = new Promise<void>(resolve => pending.once('error', () => resolve()));
+  pending.write(Buffer.from('89504e470d0a1a0a', 'hex'));
+  await new Promise<void>(resolve => setImmediate(resolve));
+  endpoints.splice(endpoints.indexOf(endpoint), 1);
+  await endpoint.close();
+  await stopped;
+  expect(trace).toEqual([]);
+});
+
+it('rejects a read callback retained after its tool call ends', async () => {
+  let read!: (ref: string) => Promise<unknown>;
+  const { call } = await open(async (_input, { context }) => {
+    read = context.readFile;
+    return 'done';
+  });
+  await call('unused');
+  await expect(read('retained')).rejects.toThrow('File retained: tool request closed');
+});
+
+it('waits for detached file-read traces before closing the session', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  let recorded!: () => void;
+  const tracing = new Promise<void>(resolve => {
+    recorded = resolve;
+  });
+  let read: Promise<unknown> | undefined;
+  const endpoint = await startRegistered(
+    {
+      issues: {
+        tool: tool({
+          inputSchema: schema,
+          execute: async ({ query }, { context }) => {
+            read = context.readFile(query).catch((error: Error) => error.message);
+            return 'done';
+          },
+        }),
+        settings: {},
+        plugin: 'issues',
+      },
+    },
+    { repo: 'o/r', forge: { searchIssues: async () => [] } },
+    async event => {
+      if (event.name === 'file_read') {
+        recorded();
+        await gate;
+      }
+    }
+  );
+  const put = await readLocalHttp(`${endpoint.url}/files`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${endpoint.secret}` },
+    body: new Uint8Array([255, 216, 255]),
+  });
+  const ref = await put.text();
+  await readLocalHttp(endpoint.url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${endpoint.secret}`,
+      Accept: 'application/json, text/event-stream',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'issues', arguments: { query: ref } },
+    }),
+  });
+  await tracing;
+  let closed = false;
+  const closing = endpoint.close().then(() => {
+    closed = true;
+  });
+  await new Promise<void>(resolve => setImmediate(resolve));
+  try {
+    expect(closed).toBe(false);
+  } finally {
+    release();
+    await closing;
+  }
+  expect(await read).toContain(`File ${ref}:`);
 });

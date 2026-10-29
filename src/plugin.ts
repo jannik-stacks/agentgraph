@@ -21,8 +21,7 @@ registerHooks({
 
 export type ToolContext<S = undefined> = {
   readonly repo: string;
-  /** The session's checkout on the host; read it, never write. */
-  readonly dir: string;
+  readonly readFile: (ref: string) => Promise<{ bytes: Uint8Array; type: 'image/png' | 'image/jpeg' }>;
   readonly settings: S;
   readonly forge: {
     readonly searchIssues: (

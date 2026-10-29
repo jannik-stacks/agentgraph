@@ -10,12 +10,13 @@ import {
   type CallToolRequest,
 } from '@modelcontextprotocol/sdk/types.js';
 import { formatRedactedText } from './context.ts';
+import { makeFiles } from './files.ts';
 import type { SessionEvent } from './trace.ts';
 import type { readPlugins, ToolContext } from './plugin.ts';
 
 export const startTools = async (
   tools: Awaited<ReturnType<typeof readPlugins>>['tools'],
-  context: Omit<ToolContext<unknown>, 'settings' | 'abortSignal'>,
+  context: Omit<ToolContext<unknown>, 'settings' | 'abortSignal' | 'readFile'>,
   trace: (event: Extract<SessionEvent, { type: 'tool' }>) => void | Promise<void>,
   route = { host: '127.0.0.1', subnet: '127.0.0.0/8' },
   hidden: readonly string[] = [],
@@ -33,6 +34,9 @@ export const startTools = async (
   const controllers = new Set<AbortController>();
   const running = new Set<Promise<unknown>>();
   const calls = new Set<Promise<unknown>>();
+  const files = makeFiles(async (action, ref, bytes, type) => {
+    await trace({ type: 'tool', id: randomUUID(), name: `file_${action}`, input: { ref, bytes, type }, ok: true });
+  });
   const peers = new BlockList();
   const [address, prefix] = route.subnet.split('/');
   peers.addSubnet(address!, Number(prefix), isIP(address!) === 6 ? 'ipv6' : 'ipv4');
@@ -75,7 +79,7 @@ export const startTools = async (
       response.writeHead(403).end();
       return;
     }
-    if (request.url !== path) {
+    if (request.url !== path && request.url !== `${path}/files`) {
       response.writeHead(404).end();
       return;
     }
@@ -102,6 +106,32 @@ export const startTools = async (
         request.destroy();
       }
     }, timeout);
+    if (request.url === `${path}/files`) {
+      response.once('close', () => {
+        clearTimeout(timer);
+        controllers.delete(controller);
+        controller.abort(new Error('file request closed'));
+        request.destroy();
+      });
+      const pending = (async () => {
+        try {
+          const ref = await files.put(request.iterator({ destroyOnReturn: false }), controller.signal);
+          received = true;
+          response.writeHead(201, { 'Content-Type': 'text/plain' }).end(ref);
+        } catch (error) {
+          if (!response.headersSent)
+            response
+              .writeHead(400, { 'Content-Type': 'text/plain' })
+              .end(formatRedactedText(error instanceof Error ? error.message : String(error), known));
+        } finally {
+          clearTimeout(timer);
+          controllers.delete(controller);
+        }
+      })();
+      calls.add(pending);
+      await pending.finally(() => calls.delete(pending));
+      return;
+    }
     const mcp = new Server({ name: 'agentgraph-tools', version: '1.0.0' }, { capabilities: { tools: {} } });
     const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
     response.once('close', () => {
@@ -139,7 +169,16 @@ export const startTools = async (
             toolCallId: call,
             messages: [],
             abortSignal: controller.signal,
-            context: { ...context, settings: entry.settings },
+            context: {
+              ...context,
+              settings: entry.settings,
+              readFile: (ref: string) => {
+                const pending = files.read(ref, controller.signal);
+                calls.add(pending);
+                void pending.finally(() => calls.delete(pending)).catch(() => {});
+                return pending;
+              },
+            },
           });
         });
         running.add(execution);
@@ -229,6 +268,7 @@ export const startTools = async (
     host: route.host,
     tools: Object.keys(tools),
     close: async () => {
+      files.close();
       const closed = new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
       for (const controller of controllers) controller.abort(new Error('tool session closed'));
       server.closeAllConnections();

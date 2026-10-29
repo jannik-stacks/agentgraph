@@ -32,7 +32,15 @@ tools: [read, grep, glob, issues]
 Names outside the harness's built-ins must name registered plugin tools; unknown names fail `check`.
 `execute` receives typed input and a context with `repo`, read-only `forge.searchIssues`,
 `abortSignal` and its own `settings`. Search stays within this repo and applies the forge's text trust rules.
-`dir` is the session's host checkout; plugins may read it but must never write it.
+`readFile(ref)` returns fresh image bytes and their PNG or JPEG media type from a session handle.
+Images arrive through the authenticated session upload route; tools receive only handles.
+The host opens no agent-supplied path. Handles expire at session close; unknown and cross-session
+handles fail. Bytes stay in memory; put/read traces contain handle, size and type only.
+Binary uploads reuse session authentication and relay with a separate route: 10 MiB per file,
+32 files, 64 MiB retained, 256 MiB cumulative input and two concurrent uploads per session.
+Chunk counts enforce limits regardless of Content-Length. PNG/JPEG magic bytes are checked;
+no host image parser runs. Isolated decoding and re-encoding remain a later option.
+Host plugins still run as trusted code.
 <!-- code: src/plugin.ts#ToolContext src/folder.ts#loadGraph src/forge.ts#parseIssueSearch -->
 
 A plugin can declare `settingsSchema`; it decodes only `plugins.<name>` in `settings.yaml`.

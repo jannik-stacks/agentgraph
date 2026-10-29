@@ -221,7 +221,6 @@ exports.cjsTool = require('ai').tool;
             return {
               query,
               repo: ctx.repo,
-              dir: ctx.dir,
               limit: ctx.settings.limit,
               isAborted: ctx.abortSignal?.aborted,
             };
@@ -241,13 +240,18 @@ exports.cjsTool = require('ai').tool;
         toolCallId: 'search',
         messages: [],
         abortSignal: AbortSignal.abort(),
-        context: { repo: 'o/r', dir: '/checkout', settings: decoded, forge: { searchIssues: async () => [] } },
+        context: {
+          readFile: async () => ({ bytes: new Uint8Array(), type: 'image/png' }),
+          repo: 'o/r',
+          settings: decoded,
+          forge: { searchIssues: async () => [] },
+        },
       }
     );
     const invalid = await schema.validate!({ query: 'cache', extra: true });
     expect(invalid.success).toBe(false);
     expect(parsed).toEqual({ success: true, value: { query: 'cache' } });
-    expect(result).toEqual({ query: 'cache', repo: 'o/r', dir: '/checkout', limit: 10, isAborted: true });
+    expect(result).toEqual({ query: 'cache', repo: 'o/r', limit: 10, isAborted: true });
   });
 
   it('loads plugins in filename order and decodes separate namespaces', async () => {
