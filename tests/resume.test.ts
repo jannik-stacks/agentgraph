@@ -82,10 +82,10 @@ describe('crash-safe files', () => {
 
   it('drops checkouts from a unit it moves aside and keeps the records', () => {
     const dir = root();
-    mkdirSync(join(dir, 'case/v2/data/work/abc/node_modules'), { recursive: true });
+    mkdirSync(join(dir, 'case/v2/data/cache/work/abc/node_modules'), { recursive: true });
     writeFileSync(join(dir, 'case/v2/data/trace.jsonl'), 'x');
     const to = moveDirToAttic(join(dir, 'case/v2'))!;
-    expect(existsSync(join(to, 'data/work'))).toBe(false);
+    expect(existsSync(join(to, 'data/cache'))).toBe(false);
     expect(readFileSync(join(to, 'data/trace.jsonl'), 'utf8')).toBe('x');
   });
 

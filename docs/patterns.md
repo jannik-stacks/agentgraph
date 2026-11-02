@@ -21,7 +21,7 @@ The engine is the runner code in `src/`. [STYLE.md](../STYLE.md) has the code ru
 │  │ sandbox                  │  │ data folder                 │  │
 │  │ one session              │  │ <run id>/run.json           │  │
 │  │ /work: git worktree      │  │ <run id>/trace.jsonl        │  │
-│  │ no GitHub token          │  │ mirror.git, work/, homes/   │  │
+│  │ no GitHub token          │  │ mirror.git, homes/, cache/  │  │
 │  └────────────┬─────────────┘  └──────────────┬──────────────┘  │
 │               │ model calls                   │                 │
 │               v                               v                 │

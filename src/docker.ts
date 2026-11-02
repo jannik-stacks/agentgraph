@@ -635,9 +635,9 @@ export const dockerSandbox = (o: {
       const empty = (graph?: Pick<Graph, 'image' | 'network'>) =>
         Effect.gen(function* () {
           const id = randomBytes(6).toString('hex');
-          const dir = join(o.data, 'work', id);
-          const news = join(o.data, 'news', id);
-          const scratch = join(o.data, 'scratch', id);
+          const dir = join(o.data, 'cache', 'work', id);
+          const news = join(o.data, 'cache', 'news', id);
+          const scratch = join(o.data, 'cache', 'scratch', id);
           const remove = Effect.promise(() => {
             made.delete(dir);
             return Promise.all([dir, `${dir}.owner`, news, scratch].map(p => rm(p, { recursive: true, force: true })));
@@ -710,17 +710,18 @@ export const dockerSandbox = (o: {
           return sha || (yield* infra(`no commit for ${ref}`));
         });
 
-      for (const id of findDeadCheckouts(o.data)) {
-        mkdirSync(join(o.data, 'index'), { recursive: true });
-        const dir = join(o.data, 'work', id);
-        const git = { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: join(o.data, 'index', id) };
+      const cached = join(o.data, 'cache');
+      for (const id of findDeadCheckouts(cached)) {
+        mkdirSync(join(cached, 'index'), { recursive: true });
+        const dir = join(cached, 'work', id);
+        const git = { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: join(cached, 'index', id) };
         if (
           yield* (existsSync(dir) ? commitCheckoutOnce(git, `refs/agentgraph/reaped/${id}`, []) : Effect.void).pipe(
             Effect.as(true),
             Effect.catchAll(e => Effect.as(Effect.logWarning(`kept unsaved checkout ${dir}: ${e.detail}`), false))
           )
         )
-          removeCheckout(o.data, id);
+          removeCheckout(cached, id);
       }
 
       const checkout = (
@@ -768,10 +769,10 @@ export const dockerSandbox = (o: {
               )
             : false;
           const id = randomBytes(6).toString('hex');
-          const dir = join(o.data, 'work', id);
-          const index = join(o.data, 'index', id);
-          const news = join(o.data, 'news', id);
-          const scratch = join(o.data, 'scratch', id);
+          const dir = join(o.data, 'cache', 'work', id);
+          const index = join(o.data, 'cache', 'index', id);
+          const news = join(o.data, 'cache', 'news', id);
+          const scratch = join(o.data, 'cache', 'scratch', id);
           const work: Checkout = {
             dir,
             base,

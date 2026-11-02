@@ -132,13 +132,16 @@ describe('drive', () => {
         ...s,
         checkout: (...args: Parameters<typeof s.checkout>) =>
           Effect.zipRight(
-            Effect.sync(() => writeFileSync(join(where.data, 'index'), 'blocked')),
+            Effect.sync(() => {
+              mkdirSync(join(where.data, 'cache'), { recursive: true });
+              writeFileSync(join(where.data, 'cache', 'index'), 'blocked');
+            }),
             s.checkout(...args)
           ).pipe(
             Effect.onError(() =>
               Effect.sync(() => {
-                preserved = readFileSync(join(where.data, 'index'), 'utf8') === 'blocked';
-                rmSync(join(where.data, 'index'));
+                preserved = readFileSync(join(where.data, 'cache', 'index'), 'utf8') === 'blocked';
+                rmSync(join(where.data, 'cache', 'index'));
               })
             )
           ),
@@ -149,7 +152,7 @@ describe('drive', () => {
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
     );
     expect(done).toMatchObject({ status: 'waiting', retried: true });
-    expect(readdirSync(join(where.data, 'work')).filter(name => !name.endsWith('.owner'))).toEqual([]);
+    expect(readdirSync(join(where.data, 'cache', 'work')).filter(name => !name.endsWith('.owner'))).toEqual([]);
     const admin = join(where.data, 'mirror.git', 'worktrees');
     expect(existsSync(admin) ? readdirSync(admin) : []).toEqual([]);
     expect(preserved).toBe(true);

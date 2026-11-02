@@ -65,7 +65,7 @@ export const readJsonl = <T = Record<string, unknown>>(path: string) => parseJso
  */
 export const moveDirToAttic = (path: string) => {
   if (!existsSync(path)) return undefined;
-  for (const copy of ['data/work', 'tree']) rmSync(join(path, copy), { recursive: true, force: true });
+  for (const copy of ['data/cache', 'tree']) rmSync(join(path, copy), { recursive: true, force: true });
   const atticPath = join(
     dirname(path),
     '.attic',

@@ -191,8 +191,8 @@ describe("the user's repo", () => {
     expect(await ensureBase(i)).toBeUndefined();
     expect(await writePullToRepo(i, 1, { auto: true })).toMatchObject({ ref: 'agentgraph/1' });
     expect(git(join(i.forge, 'origin.git'), 'show', 'main:hello.txt')).toBe('hello world');
-    expect(findDeadCheckouts(i.data)).toEqual([]);
-    expect(readdirSync(join(i.data, 'work'))).toEqual([]);
+    expect(findDeadCheckouts(join(i.data, 'cache'))).toEqual([]);
+    expect(readdirSync(join(i.data, 'cache', 'work'))).toEqual([]);
     expect(readdirSync(join(i.forge, 'origin.git', 'worktrees'))).toEqual([]);
 
     expect(look(seed)).toEqual(before);

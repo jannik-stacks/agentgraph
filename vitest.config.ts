@@ -22,6 +22,7 @@ const toolTests = [
   'tests/example-checks.test.ts',
   'tests/folder.test.ts',
   'tests/precommit.test.ts',
+  'tests/record-root.test.ts',
   'tests/remote.test.ts',
   'tests/run.test.ts',
   'tests/skill.test.ts',

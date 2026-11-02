@@ -368,7 +368,9 @@ describe('docker with a stand-in docker client', () => {
     expect(binds).toHaveLength(5);
     expect(binds[1]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror},dst=.*,readonly$`));
     expect(binds[2]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror}/worktrees/\\w+,dst=`));
-    expect(binds[3]).toMatch(new RegExp(`^type=bind,src=${data}/news/(\\w+),dst=${data}/news/\\1,readonly$`));
+    expect(binds[3]).toMatch(
+      new RegExp(`^type=bind,src=${data}/cache/news/(\\w+),dst=${data}/cache/news/\\1,readonly$`)
+    );
   });
 
   it.each([
@@ -384,7 +386,7 @@ describe('docker with a stand-in docker client', () => {
       Effect.gen(function* () {
         const first = yield* s.checkout(ref, undefined, keep);
         const second = yield* s.checkout(ref);
-        scratch = join(data, 'scratch', basename(first.dir));
+        scratch = join(data, 'cache', 'scratch', basename(first.dir));
         writeFileSync(join(scratch, 'capture.png'), 'pixels');
         yield* s.exec(command(first.dir, { readonly: true }));
         const mounts = logged().filter(a => a.startsWith('type=bind'));
@@ -392,7 +394,7 @@ describe('docker with a stand-in docker client', () => {
           path: s.scratch,
           mount: mounts.find(m => m.endsWith('dst=/scratch')),
           work: mounts.find(m => m.includes('dst=/work')),
-          separate: readdirSync(join(data, 'scratch', basename(second.dir))),
+          separate: readdirSync(join(data, 'cache', 'scratch', basename(second.dir))),
           checkout: readdirSync(first.dir),
         };
         return isFailure ? yield* Effect.fail(result) : result;
@@ -405,7 +407,7 @@ describe('docker with a stand-in docker client', () => {
     expect(JSON.stringify(result)).toContain('"separate":[]');
     expect(JSON.stringify(result)).not.toContain('capture.png');
     expect(existsSync(scratch)).toBe(false);
-    expect(readdirSync(join(data, 'scratch'))).toEqual([]);
+    expect(readdirSync(join(data, 'cache', 'scratch'))).toEqual([]);
     expect(keep ? git(join(data, 'mirror.git'), 'ls-tree', '-r', '--name-only', keep) : '').not.toContain(
       'capture.png'
     );
@@ -1228,18 +1230,18 @@ describe('disk lifecycle', () => {
     await faked({}, async () => {
       const data = tmp('data');
       for (const id of ['mine', 'none', 'gone']) {
-        mkdirSync(join(data, 'work', id, 'node_modules'), { recursive: true });
-        mkdirSync(join(data, 'scratch', id), { recursive: true });
+        mkdirSync(join(data, 'cache', 'work', id, 'node_modules'), { recursive: true });
+        mkdirSync(join(data, 'cache', 'scratch', id), { recursive: true });
       }
-      writeCheckoutOwner(join(data, 'work', 'mine'));
-      writeFileSync(join(data, 'work', 'gone.owner'), `${spawnSync('true').pid}:0123456789ab`);
-      expect(findDeadCheckouts(data).toSorted()).toEqual(['gone', 'none']);
+      writeCheckoutOwner(join(data, 'cache', 'work', 'mine'));
+      writeFileSync(join(data, 'cache', 'work', 'gone.owner'), `${spawnSync('true').pid}:0123456789ab`);
+      expect(findDeadCheckouts(join(data, 'cache')).toSorted()).toEqual(['gone', 'none']);
       const mirror = join(data, 'mirror.git');
       git(data, 'init', '-q', '--bare', mirror);
-      writeFileSync(join(data, 'work', 'gone', 'left.txt'), 'unfinished\n');
+      writeFileSync(join(data, 'cache', 'work', 'gone', 'left.txt'), 'unfinished\n');
       expect(Exit.isSuccess(await use(dockerSandbox({ data, origin: '/nowhere' }), () => Effect.void))).toBe(true);
-      expect(readdirSync(join(data, 'work')).sort()).toEqual(['mine', 'mine.owner']);
-      expect(readdirSync(join(data, 'scratch'))).toEqual(['mine']);
+      expect(readdirSync(join(data, 'cache', 'work')).toSorted()).toEqual(['mine', 'mine.owner']);
+      expect(readdirSync(join(data, 'cache', 'scratch'))).toEqual(['mine']);
       expect(git(mirror, 'show', 'refs/agentgraph/reaped/gone:left.txt')).toBe('unfinished');
       expect(isOwnerRunning(startHeartbeat())).toBe(true);
     });
@@ -1248,10 +1250,10 @@ describe('disk lifecycle', () => {
   it('keeps a dead checkout it cannot save', async () => {
     await faked({}, async () => {
       const data = tmp('data');
-      mkdirSync(join(data, 'work', 'lost'), { recursive: true });
-      writeFileSync(join(data, 'work', 'lost', 'left.txt'), 'unfinished\n');
+      mkdirSync(join(data, 'cache', 'work', 'lost'), { recursive: true });
+      writeFileSync(join(data, 'cache', 'work', 'lost', 'left.txt'), 'unfinished\n');
       expect(Exit.isSuccess(await use(dockerSandbox({ data, origin: '/nowhere' }), () => Effect.void))).toBe(true);
-      expect(readFileSync(join(data, 'work', 'lost', 'left.txt'), 'utf8')).toBe('unfinished\n');
+      expect(readFileSync(join(data, 'cache', 'work', 'lost', 'left.txt'), 'utf8')).toBe('unfinished\n');
     });
   });
 
