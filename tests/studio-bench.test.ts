@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readBenchRowResults } from '../studio/src/results/result.ts';
 import type { readBenchRows } from '../bin/bench.ts';
 import {
   bootstrap,
@@ -13,10 +14,9 @@ import {
 type Row = ReturnType<typeof readBenchRows>[number];
 
 const row = (over: Partial<Row>): Row => ({
-  point: 'opencode:smart/v2@unknown//runs-3',
+  labels: { harness: 'opencode', model: 'smart', arm: 'v2', engine: 'unknown', graph: '', set: 'runs-3', repo: 'me/a' },
   case: 'a',
   repeat: 1,
-  strata: { repo: 'me/a' },
   vsHuman: {},
   findings: { critical: 0, high: 0 },
   answers: 0,
@@ -92,13 +92,13 @@ describe('bench score', () => {
     const rows = [
       row({ case: 'a', hidden: 1, suite: 1 }),
       row({ case: 'b', infra: 'docker unreachable' }),
-      row({ point: 'opencode:smart/floor@unknown//runs-3', case: 'a', hidden: 0, suite: 1 }),
-      row({ point: 'opencode:smart/human@unknown//runs-3', case: 'a', hidden: 1 }),
+      row({ labels: { ...row({}).labels, arm: 'floor' }, case: 'a', hidden: 0, suite: 1 }),
+      row({ labels: { ...row({}).labels, arm: 'human' }, case: 'a', hidden: 1 }),
     ];
     const s = summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes });
-    expect(s.map(p => [p.key.split('/')[1], p.n, p.completion])).toEqual([
-      ['v2@unknown', 1, 0.5],
-      ['floor@unknown', 1, 1],
+    expect(s.map(p => [p.labels.arm, p.n, p.completion])).toEqual([
+      ['v2', 1, 0.5],
+      ['floor', 1, 1],
     ]);
     expect(summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes, infraZero: true })[0]!.y).toBeCloseTo(0.5);
     const points = [
@@ -112,18 +112,49 @@ describe('bench score', () => {
 
   it('reports judge-only cases as their own point, never averaged with tested ones', () => {
     const rows = [
-      row({ case: 'a', strata: { repo: 'me/a', tests: 'hidden' }, hidden: 1 }),
-      row({ case: 'b', strata: { repo: 'me/a', tests: 'judge-only' }, vsHuman: { opus: 0 } }),
+      row({ case: 'a', labels: { ...row({}).labels, tests: 'hidden' }, hidden: 1 }),
+      row({ case: 'b', labels: { ...row({}).labels, tests: 'judge-only' }, vsHuman: { opus: 0 } }),
     ];
     const s = summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes });
-    expect(s.map(p => [p.key, p.n, p.y])).toEqual([
-      ['opencode:smart/v2@unknown//runs-3', 1, 1],
-      ['opencode:smart/v2@unknown//runs-3, judge-only', 1, 0],
+    expect(s.map(p => [p.labels.tests, p.n, p.y])).toEqual([
+      ['hidden', 1, 1],
+      ['judge-only', 1, 0],
     ]);
     expect(s.map(p => p.judgeOnly)).toEqual([false, true]);
-    expect(frontier([...s.map(p => ({ ...p, x: 2 })), { key: 'cheap', x: 1, y: 0.5 }])).toEqual([
-      'cheap',
-      'opencode:smart/v2@unknown//runs-3',
-    ]);
+    expect(frontier([...s.map(p => ({ ...p, x: 2 })), { key: 'cheap', x: 1, y: 0.5 }])).toEqual(['cheap', s[0]!.key]);
+  });
+  it('filters any label, groups and colours independently, and retains the matching human baseline', () => {
+    const labels = { ...row({}).labels, size: 'S', skills: 'true' };
+    const rows = [
+      row({ labels: { ...labels, arm: 'human', graph: '' }, findings: { critical: 3, high: 0 } }),
+      row({ labels, hidden: 1, findings: { critical: 3, high: 0 } }),
+      row({ labels: { ...labels, repo: 'me/b', skills: 'false' }, case: 'b', hidden: 0 }),
+      row({ labels: { ...labels, size: 'L' }, case: 'c', hidden: 0 }),
+    ];
+    const lens = { w: defaultBenchScoreWeights, x: (r: Row) => r.minutes, by: ['size'], color: 'skills' };
+    const filtered = summarise(rows, { ...lens, where: { arm: ['v2'], size: ['S'], repo: ['me/a'] } });
+    expect(filtered.map(p => [p.labels, p.n, p.y])).toEqual([[{ size: 'S', skills: 'true' }, 1, 1]]);
+    expect(summarise(rows, lens).map(p => p.n)).toEqual([1, 1, 1]);
+    expect(summarise(rows, { ...lens, color: '' }).map(p => p.n)).toEqual([2, 1]);
+  });
+
+  it('matches human findings within each repeat and avoids delimiter collisions', () => {
+    const labels = row({}).labels;
+    const rows = [
+      row({ labels: { ...labels, arm: 'human' }, findings: { critical: 0, high: 0 } }),
+      row({ labels: { ...labels, arm: 'human' }, repeat: 2, findings: { critical: 3, high: 0 } }),
+      row({ repeat: 2, hidden: 1, findings: { critical: 3, high: 0 } }),
+      row({ labels: { ...labels, repo: 'a,b', size: 'c' }, case: 'b', hidden: 1 }),
+      row({ labels: { ...labels, repo: 'a', size: 'b,c' }, case: 'c', hidden: 0 }),
+    ];
+    const points = summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes, by: ['repo', 'size'] });
+    expect(points.map(p => p.y)).toEqual([1, 1, 0]);
+  });
+  it('preserves every free label in Results, with distinct identities for combined setups', () => {
+    const labels = { ...row({}).labels, point: 'experiment', case: 'category', hiddenTests: 'custom' };
+    const result = readBenchRowResults(row({ labels, skipped: 'no hidden tests' }));
+    const other = readBenchRowResults(row({ labels: { ...labels, model: 'other' } }));
+    expect(result.axes).toMatchObject(labels);
+    expect(other.key).not.toBe(result.key);
   });
 });

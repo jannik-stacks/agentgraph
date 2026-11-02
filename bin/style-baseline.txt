@@ -143,7 +143,6 @@ no-of-for bin/tune.ts overOf
 no-of-for bin/tune.ts qsOf
 no-of-for bin/tune.ts tunesOf
 no-of-for bin/tune.ts unitOf
-no-of-for studio/src/bench/score.ts humanOf
 no-of-for tests/tune.test.ts evalOf
 no-of-for tune/propose.ts answerOf
 no-of-for tune/propose.ts diffOf

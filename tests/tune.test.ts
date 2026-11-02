@@ -160,14 +160,13 @@ describe('paired, flips and decide', () => {
 /** A bench stand-in: a case passes when the candidate graph has `skills/<case>.md` or `skills/all.md`. */
 const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) => ({
   run: async (_dir: string, _t: unknown, jobs: typeof ran) => void ran.push(...jobs),
-  rows: (dir: string, id: string) =>
+  rows: (dir: string, id: string): ReturnType<NonNullable<Parameters<typeof step>[2]>['rows']> =>
     ran
       .filter(j => j.id === id)
       .map(j => ({
-        point: 'opencode:luna/v2@e/h/s',
+        labels: { harness: 'opencode', model: 'luna', arm: 'v2', engine: 'e', graph: 'h', set: 's' },
         case: j.case,
         repeat: j.repeat ?? 1,
-        strata: {},
         hidden: +['all', j.case].some(n => existsSync(join(dir, 'cands', id, 'graph/skills', `${n}.md`))) as 0 | 1,
         vsHuman: {},
         findings: { critical: 0, high: 0 },
@@ -175,6 +174,8 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) => ({
         minutes: 2,
         tokens: {},
         usd: 0.1,
+        usdUncached: 0.1,
+        checkUsd: 0,
       })),
   codex: () => 10,
   propose: async (o: { tune: string; proposer: string; id: string; from: string }) => {

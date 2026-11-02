@@ -3,6 +3,8 @@ import { getMean } from '../../../src/stats.ts';
 
 type Row = ReturnType<typeof readBenchRows>[number];
 
+export const defaultBenchBy = ['harness', 'model', 'arm', 'engine', 'graph', 'set'];
+
 export const defaultBenchScoreWeights = { test: 0.5, judge: 0.35, suite: 0.15, crit: 0.1, help: 0.1 };
 export const presets: Record<string, typeof defaultBenchScoreWeights> = {
   composite: defaultBenchScoreWeights,
@@ -60,7 +62,7 @@ export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, see
   const samples = Array.from({ length: draws }, () => stat(pick(cases).map(pick)));
   const point = stat(cases);
   const ci = (k: 0 | 1): [number, number] => {
-    const sorted = samples.map(s => s[k]).sort((a, b) => a - b);
+    const sorted = samples.map(s => s[k]).toSorted((a, b) => a - b);
     return [sorted[Math.floor(draws * 0.025)] ?? point[k], sorted[Math.floor(draws * 0.975)] ?? point[k]];
   };
   return { y: point[0], x: point[1], yCi: ci(0), xCi: ci(1) };
@@ -69,19 +71,39 @@ export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, see
 /** One summary per point of the bot rows, judge-only cases apart: quality and x with their intervals, cases, repeats and completion. */
 export const summarise = (
   rows: Row[],
-  o: { w: typeof defaultBenchScoreWeights; x: (row: Row) => number; judges?: string[]; infraZero?: boolean }
+  o: {
+    w: typeof defaultBenchScoreWeights;
+    x: (row: Row) => number;
+    judges?: string[];
+    infraZero?: boolean;
+    where?: Record<string, string[]>;
+    by?: string[];
+    color?: string;
+  }
 ) => {
-  const humans = new Map(rows.filter(r => r.point.includes('/human@')).map(r => [`${r.point}|${r.case}`, r]));
-  const humanOf = (r: Row) => humans.get(`${r.point.replace(/\/\w+@/, '/human@')}|${r.case}`);
+  const baseline = (r: Row) =>
+    JSON.stringify([
+      r.case,
+      r.repeat,
+      Object.entries(r.labels)
+        .filter(([k]) => k !== 'arm' && k !== 'graph')
+        .toSorted(([a], [b]) => a.localeCompare(b)),
+    ]);
+  const humans = new Map(rows.filter(r => r.labels.arm === 'human').map(r => [baseline(r), r]));
+  const keys = [...new Set([...(o.by ?? defaultBenchBy), ...(o.color ? [o.color] : []), 'tests'])];
   const byPoint = group(
-    rows.filter(r => !r.point.includes('/human@')),
-    r => (r.strata.tests === 'judge-only' ? `${r.point}, judge-only` : r.point)
+    rows.filter(
+      r =>
+        r.labels.arm !== 'human' &&
+        Object.entries(o.where ?? {}).every(([k, vs]) => !vs.length || vs.includes(r.labels[k]!))
+    ),
+    r => JSON.stringify(keys.map(k => [k, r.labels[k] ?? null]))
   );
   return [...byPoint].map(([key, all]) => {
     const kept = all.filter(r => o.infraZero || !r.infra);
     const scored = kept.map(r => ({
       row: r,
-      y: r.infra ? 0 : quality(r, o.w, o.judges, humanOf(r)),
+      y: r.infra ? 0 : quality(r, o.w, o.judges, humans.get(baseline(r))),
       x: o.x(r),
     }));
     const cases = [...group(scored, s => s.row.case).values()];
@@ -92,7 +114,8 @@ export const summarise = (
     const tested = kept.flatMap(r => (r.hidden === undefined ? [] : [r.hidden]));
     return {
       key,
-      judgeOnly: all[0]!.strata.tests === 'judge-only',
+      labels: Object.fromEntries(keys.flatMap(k => (all[0]!.labels[k] === undefined ? [] : [[k, all[0]!.labels[k]!]]))),
+      judgeOnly: all[0]!.labels.tests === 'judge-only',
       n: cases.length,
       repeats: kept.length,
       completion: all.filter(r => !r.infra).length / all.length,

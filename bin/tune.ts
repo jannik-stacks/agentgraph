@@ -148,12 +148,12 @@ const ids = (t: Tune, ...splits: Split[]) =>
  */
 const scores = (rows: Row[], preset: Tune['preset']) => {
   const w = preset === 'hidden' ? { ...presets['hidden tests only']!, suite: 0.15 } : presets.composite!;
-  const human = new Map(rows.filter(r => r.point.includes('/human@')).map(r => [r.case, r]));
+  const human = new Map(rows.filter(r => r.labels.arm === 'human').map(r => [r.case, r]));
   const out = new Map<
     string,
     { qs: number[]; paid: number[]; took: number[]; runs: number; usd: number; min: number }
   >();
-  for (const r of rows.filter(r => r.point.includes('/v2@'))) {
+  for (const r of rows.filter(r => r.labels.arm === 'v2')) {
     const s = out.get(r.case) ?? { qs: [], paid: [], took: [], runs: 0, usd: 0, min: 0 };
     if (!r.infra) {
       s.qs.push(quality(r, w, undefined, human.get(r.case)));

@@ -100,7 +100,7 @@ const findExampleGraphName = (repo: string) => {
   const graph = graphAliases[name] ?? name;
   return existsSync(join(engine, 'examples', graph, 'settings.yaml')) ? graph : 'bench';
 };
-const strataKeys = ['repo', 'tests', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
+const caseLabelKeys = ['repo', 'tests', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/agent No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
 const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all' };
@@ -1013,7 +1013,11 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
   const merged = readFileOrEmpty(join(c.dir, 'merged.diff'));
   if (!existsSync(join(root, 'human/diff.patch'))) writeFileAtomic(join(root, 'human/diff.patch'), merged);
   if (!existsSync(join(root, 'base/diff.patch'))) writeFileAtomic(join(root, 'base/diff.patch'), '');
-  writeFileAtomic(join(root, 'case.json'), readFileOrEmpty(join(c.dir, 'case.json')));
+  const fields = JSON.parse(readFileSync(join(c.dir, 'case.json'), 'utf8'));
+  writeFileAtomic(join(root, 'case.json'), {
+    ...fields,
+    labels: { ...fields.labels, ...readBenchSetupLabels(repo, c.base) },
+  });
   const human = splitUnifiedDiffByFile(merged).map(f => f.path);
   const hidden = human.filter(p => testPath.test(p) && !noise.test(p));
   const tree = join(root, 'tree');
@@ -1097,6 +1101,17 @@ const readRepoBase = (repo: string, base: string): Base => ({
     return result.status === 0;
   },
 });
+
+export const readBenchSetupLabels = (repo: string, base: string): Record<string, string> => {
+  const { files } = readRepoBase(repo, base);
+  return {
+    'agents-md': String(files.some(p => /(^|\/)AGENTS\.md$/.test(p))),
+    'claude-md': String(files.some(p => /(^|\/)CLAUDE\.md$/.test(p))),
+    skills: String(
+      files.some(p => /(^|\/)(\.(claude|agents)\/skills|\.cursor\/rules|\.github\/skills)(?:\/|$)/.test(p))
+    ),
+  };
+};
 
 const flat = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '/index.ts', '/index.tsx', '/index.js'];
@@ -1589,25 +1604,59 @@ type Scored = {
   invalid?: string;
   skipped?: string;
   infra: Record<string, string>;
-  strata: Record<string, string>;
+  labels: Record<string, string>;
   rows: [string, Record<string, number>][];
   failures: string[];
   verdicts: Judged[];
 };
 
+const readBenchPoint = (out: string) => ({
+  harness: 'opencode',
+  model: 'smart',
+  engine: 'unknown',
+  set: basename(resolve(out)),
+  repeat: 1,
+  graphs: undefined as Record<string, string> | undefined,
+  labels: {} as Record<string, string>,
+  ...(JSON.parse(readFileOrEmpty(join(out, 'point.json')) || '{}') as Partial<Record<'hubs', Record<string, string>>>),
+});
+
 const loadScored = (out: string, id: string): Scored => {
   const c = JSON.parse(readFileOrEmpty(join(out, id, 'case.json')) || '{}') as Record<string, unknown>;
-  const strata = Object.fromEntries(
-    strataKeys.flatMap(k => (c[k] === undefined || typeof c[k] === 'object' ? [] : [[k, String(c[k])]]))
-  );
-  if (c.repo) strata.issue = Array.isArray(c.flags) && c.flags.includes('no-issue-pr-body') ? 'pr-body' : 'issue';
+  const p = readBenchPoint(out);
+  const labels: Record<string, string> = {
+    ...p.labels,
+    harness: p.harness,
+    model: p.model,
+    engine: p.engine,
+    set: p.set,
+    ...(c.labels as Record<string, string>),
+    ...Object.fromEntries(
+      caseLabelKeys.flatMap(k => (c[k] === undefined || typeof c[k] === 'object' ? [] : [[k, String(c[k])]]))
+    ),
+  };
+  if (
+    typeof c.base === 'string' &&
+    !['agents-md', 'claude-md', 'skills'].every(k => k in ((c.labels ?? {}) as Record<string, string>))
+  ) {
+    const repo = [
+      join(out, id, 'tree'),
+      join(homedir(), '.agentgraph/tune/repos', String(c.repo).split('/').pop()!),
+    ].find(
+      repo =>
+        existsSync(join(repo, '.git')) &&
+        spawnSync('git', ['-C', repo, 'cat-file', '-e', `${c.base}^{commit}`]).status === 0
+    );
+    if (repo) Object.assign(labels, readBenchSetupLabels(repo, c.base));
+  }
+  if (c.repo) labels.issue = Array.isArray(c.flags) && c.flags.includes('no-issue-pr-body') ? 'pr-body' : 'issue';
   const scores = Object.fromEntries(
     ['base', ...arms].flatMap(arm => {
       const s = readFileOrEmpty(join(out, id, arm, 'score.json'));
       return s ? [[arm, JSON.parse(s) as Record<string, unknown>]] : [];
     })
   );
-  if (scores.human) strata.tests = scores.human.hidden ? 'hidden' : 'judge-only';
+  if (scores.human) labels.tests = scores.human.hidden ? 'hidden' : 'judge-only';
   const excluded = Object.fromEntries(
     bots.flatMap(arm => {
       const reason = scores[arm] && infra(scores[arm]);
@@ -1641,7 +1690,7 @@ const loadScored = (out: string, id: string): Scored => {
     ...(invalid && { invalid }),
     ...((skipped || (!invalid && !scores.human?.hidden)) && { skipped: skipped ?? 'no recorded hidden test result' }),
     infra: excluded,
-    strata,
+    labels,
     rows,
     failures,
     verdicts,
@@ -1653,20 +1702,12 @@ const loadScored = (out: string, id: string): Scored => {
  * repeat 1, engine unknown, with the dir name as its set.
  */
 export const readBenchRows = (out: string, repos?: string[]) => {
-  const p = {
-    harness: 'opencode',
-    model: 'smart',
-    engine: 'unknown',
-    set: basename(resolve(out)),
-    repeat: 1,
-    graphs: {} as Record<string, string>,
-    ...(JSON.parse(readFileOrEmpty(join(out, 'point.json')) || '{}') as object),
-  };
+  const p = readBenchPoint(out);
   const ok = (v: unknown) => (v && typeof v === 'object' && 'ok' in v ? (+Boolean(v.ok) as 0 | 1) : undefined);
   return readdirSync(out)
     .filter(id => existsSync(join(out, id, 'human')))
     .map(id => loadScored(out, id))
-    .filter(c => !c.invalid && benched(c.strata.repo) && (!repos || repos.includes(c.strata.repo ?? '')))
+    .filter(c => !c.invalid && benched(c.labels.repo) && (!repos || repos.includes(c.labels.repo ?? '')))
     .flatMap(c => {
       const base = JSON.parse(readFileOrEmpty(join(out, c.id, 'base', 'score.json')) || '{}') as Record<
         string,
@@ -1700,10 +1741,17 @@ export const readBenchRows = (out: string, repos?: string[]) => {
         );
         return [
           {
-            point: `${p.harness}:${p.model}/${arm}@${p.engine}/${p.graphs[arm] ?? ''}/${p.set}`,
+            labels: {
+              ...c.labels,
+              harness: p.harness,
+              model: p.model,
+              arm,
+              engine: p.engine,
+              graph: (p.graphs ?? p['hubs'] ?? {})[arm] ?? '',
+              set: p.set,
+            } as Record<string, string>,
             case: c.id,
             repeat: p.repeat,
-            strata: c.strata,
             ...(c.infra[arm] && { infra: c.infra[arm] }),
             ...(c.skipped && { skipped: c.skipped }),
             ...(!c.infra[arm] && arm !== 'human' && s.files === 0 && { outcome: 'no-change' as const }),
@@ -1883,7 +1931,7 @@ const report = (out: string) => {
   const ids = readdirSync(out).filter(
     id => existsSync(join(out, id, 'valid.json')) || existsSync(join(out, id, 'human'))
   );
-  const all = ids.map(id => loadScored(out, id)).filter(c => benched(c.strata.repo));
+  const all = ids.map(id => loadScored(out, id)).filter(c => benched(c.labels.repo));
   const cases = all.filter(c => !c.invalid);
   const md = [
     '# Bench report',
@@ -1899,9 +1947,9 @@ const report = (out: string) => {
     '',
     ...summary(cases),
   ];
-  for (const key of strataKeys)
-    for (const value of [...new Set(cases.flatMap(c => c.strata[key] ?? []))].sort()) {
-      const some = cases.filter(c => c.strata[key] === value);
+  for (const key of [...new Set(cases.flatMap(c => Object.keys(c.labels)))].toSorted())
+    for (const value of [...new Set(cases.flatMap(c => c.labels[key] ?? []))].toSorted()) {
+      const some = cases.filter(c => c.labels[key] === value);
       md.push(`## ${key} ${value}, ${some.length} cases`, '', ...summary(some));
     }
   for (const c of cases) md.push(`## ${c.id}`, '', table(c.rows), '');

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -22,6 +22,7 @@ import {
   repoint,
   reuse,
   readBenchRows,
+  readBenchSetupLabels,
   scrub,
   readArmUsageOverAttempts,
   stats,
@@ -416,15 +417,11 @@ describe('bin/bench.ts score and report', () => {
     expect(report).toContain('| v2 | 1 | 1 | 1 | 1 | 1 | 1 |');
 
     const rows = readBenchRows(out);
-    expect(rows.map(r => r.point)).toEqual([
-      'opencode:smart/human@unknown//out',
-      'opencode:smart/v2@unknown//out',
-      'opencode:smart/floor@unknown//out',
-    ]);
+    expect(rows.map(r => r.labels.arm)).toEqual(['human', 'v2', 'floor']);
     expect(rows[1]).toMatchObject({
       case: 'demo',
       repeat: 1,
-      strata: { kind: 'bug', issue: 'pr-body', tests: 'hidden' },
+      labels: { kind: 'bug', issue: 'pr-body', tests: 'hidden', harness: 'opencode', model: 'smart' },
       hidden: 1,
       suite: 1,
       vsHuman: { opus: 0, sonnet: 0.5 },
@@ -437,9 +434,22 @@ describe('bin/bench.ts score and report', () => {
     expect(rows[2]).toMatchObject({ outcome: 'no-change', hidden: 0, vsHuman: {} });
     expect(rows[2]).not.toHaveProperty('infra');
     expect(rows[1]).not.toHaveProperty('outcome');
-    const point = { harness: 'pi', model: 'luna', engine: 'abc', graphs: { v2: 'h2' }, set: 'core@1', repeat: 2 };
+    const point = {
+      harness: 'pi',
+      model: 'luna',
+      engine: 'abc',
+      graphs: { v2: 'h2' },
+      labels: { experiment: 'new' },
+      set: 'core@1',
+      repeat: 2,
+    };
     writeFileSync(join(out, 'point.json'), JSON.stringify(point));
-    expect(readBenchRows(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);
+    expect(readBenchRows(out)[1]).toMatchObject({
+      labels: { harness: 'pi', model: 'luna', arm: 'v2', engine: 'abc', graph: 'h2', set: 'core@1' },
+      repeat: 2,
+    });
+    writeFileSync(join(out, 'point.json'), JSON.stringify({ ...point, graphs: undefined, hubs: { v2: 'old-tree' } }));
+    expect(readBenchRows(out)[1]!.labels).toMatchObject({ graph: 'old-tree', experiment: 'new' });
     writeFileSync(join(out, 'demo', 'base', 'score.json'), JSON.stringify({ ...score('base'), suite: { ok: false } }));
     expect(readBenchRows(out)[1]).not.toHaveProperty('suite');
     mkdirSync(join(out, 'nope', 'human'), { recursive: true });
@@ -493,6 +503,35 @@ describe('bin/bench.ts typecheck', () => {
       invalid: 'the human fails the typecheck',
       skipped: 'case disables hidden tests',
     });
+  });
+});
+
+describe('bench labels', () => {
+  it('reads setup at the base commit without inspecting or changing the working tree', () => {
+    const repo = tmp('labels');
+    dirs.push(repo);
+    git(repo, 'init', '-q');
+    mkdirSync(join(repo, '.agents/skills/review'), { recursive: true });
+    writeFileSync(join(repo, 'AGENTS.md'), 'rules');
+    writeFileSync(join(repo, '.agents/skills/review/SKILL.md'), 'review');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'base');
+    const base = git(repo, 'rev-parse', 'HEAD');
+    rmSync(join(repo, 'AGENTS.md'));
+    writeFileSync(join(repo, 'CLAUDE.md'), 'uncommitted');
+    const status = git(repo, 'status', '--porcelain');
+    expect(readBenchSetupLabels(repo, base)).toEqual({ 'agents-md': 'true', 'claude-md': 'false', skills: 'true' });
+    expect(git(repo, 'status', '--porcelain')).toBe(status);
+  });
+  it('counts a tracked skills symlink as present', () => {
+    const repo = tmp('labels');
+    dirs.push(repo);
+    git(repo, 'init', '-q');
+    mkdirSync(join(repo, '.cursor'), { recursive: true });
+    symlinkSync('../rules', join(repo, '.cursor/rules'));
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'base');
+    expect(readBenchSetupLabels(repo, 'HEAD')).toEqual({ 'agents-md': 'false', 'claude-md': 'false', skills: 'true' });
   });
 });
 

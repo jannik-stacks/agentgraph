@@ -150,6 +150,8 @@ one without that check.
 - **The public `tool()` helper keeps the AI SDK name:** plugin files use the same spelling as the
   SDK definition it delegates to. `bin/style.mjs` exempts this helper.
 
+- **Bench readers accept the recorded `hubs` tree field:** old runs use it for graph trees. Those results retain their graph identity during read-only exploration without migrating run directories. New runs write `graphs`.
+
 ## Commits
 
 56. Small linear commits, one change each; no merge commits; never rewrite pushed history.

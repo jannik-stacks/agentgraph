@@ -1,11 +1,12 @@
 import { useAtom, useAtomValue } from 'jotai';
+import { Schema } from 'effect';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { DriveState } from '../../../bench/drive.ts';
 import type { readBenchRows } from '../../../bin/bench.ts';
 import { getMean } from '../../../src/stats.ts';
 import { makeLiveJsonAtom, queryParam, resultsAtoms } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
-import { cost, defaultBenchScoreWeights, frontier, presets, summarise } from './score.ts';
+import { cost, defaultBenchBy, defaultBenchScoreWeights, frontier, presets, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
 import { readBenchRowResults, type RunResults } from '../results/result.ts';
 import { findCheckFields } from '../../../src/results.ts';
@@ -17,19 +18,23 @@ const benchAtom = makeLiveJsonAtom<{ rows: Row[]; drives?: DriveState[] }>('/api
 const params = {
   w: queryParam('w'),
   x: queryParam('x'),
-  repo: queryParam('repo'),
+  where: queryParam('where'),
+  by: queryParam('by'),
+  color: queryParam('color'),
   cache: queryParam('cache'),
   infra: queryParam('infra'),
   drop: queryParam('drop'),
   point: queryParam('point'),
 };
 const names = Object.keys(defaultBenchScoreWeights) as (keyof typeof defaultBenchScoreWeights)[];
-const tones: Record<string, string> = {
-  opencode: 'text-sky-600 dark:text-sky-400',
-  pi: 'text-violet-600 dark:text-violet-400',
-  claude: 'text-amber-600 dark:text-amber-400',
-  'claude-sub': 'text-orange-600 dark:text-orange-400',
-};
+const tones = [
+  'text-sky-600 dark:text-sky-400',
+  'text-violet-600 dark:text-violet-400',
+  'text-amber-600 dark:text-amber-400',
+  'text-orange-600 dark:text-orange-400',
+  'text-emerald-600 dark:text-emerald-400',
+  'text-rose-600 dark:text-rose-400',
+];
 const help: Record<keyof typeof defaultBenchScoreWeights, string> = {
   test: 'Test files added by the merged pull request, run on the arm’s finished change. Passing scores 1, failing scores 0.',
   judge:
@@ -109,11 +114,6 @@ const BenchResults = ({ runs }: { runs: RunResults[] }) => {
 /** Judges outside the default panel, unticked unless the page says otherwise. */
 const unpanelled = 'sol';
 
-const parse = (key: string) => {
-  const [, harness = '', model = '', arm = '', engine = '', tree = '', set = ''] =
-    /^(.+?):(.+?)\/(\w+)@([^/]*)\/([^/]*)\/(.*)$/.exec(key) ?? [];
-  return { harness, model, arm, engine, tree, set };
-};
 const fmt = (v: number | undefined, digits = 2) => (v === undefined || Number.isNaN(v) ? '' : v.toFixed(digits));
 const usd = (v: number) => `$${v.toFixed(3)}`;
 const ci = ([lo, hi]: [number, number], f: (v: number) => string) => `${f(lo)} to ${f(hi)}`;
@@ -176,11 +176,45 @@ const Control = ({ label, tip, children }: { label: string; tip?: string; childr
   </div>
 );
 
+const LabelChoices = ({
+  values,
+  selected,
+  onChange,
+}: {
+  values: string[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+}) => (
+  <div className="max-h-40 overflow-y-auto">
+    {values.map(v => (
+      <label key={v} className="flex items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={selected.includes(v)}
+          onChange={e => onChange(e.target.checked ? [...selected, v] : selected.filter(s => s !== v))}
+        />
+        {v || '(empty)'}
+      </label>
+    ))}
+  </div>
+);
+
 export const BenchPage = () => {
   const { value, failure } = useAtomValue(benchAtom);
   const [w, setW] = useAtom(params.w);
   const [xAxis, setX] = useAtom(params.x);
-  const [repo, setRepo] = useAtom(params.repo);
+  const [whereParam, setWhere] = useAtom(params.where);
+  const [byParam, setBy] = useAtom(params.by);
+  const [colorParam, setColor] = useAtom(params.color);
+  const where = useMemo(
+    () =>
+      Schema.decodeUnknownSync(
+        Schema.Record({ key: Schema.String, value: Schema.mutable(Schema.Array(Schema.String)) })
+      )(JSON.parse(whereParam ?? '{}')),
+    [whereParam]
+  );
+  const groupKeys = useMemo(() => (byParam === null ? defaultBenchBy : byParam.split(',').filter(Boolean)), [byParam]);
+  const color = colorParam ?? 'harness';
   const [cache, setCache] = useAtom(params.cache);
   const [infra, setInfra] = useAtom(params.infra);
   const [drop, setDrop] = useAtom(params.drop);
@@ -195,18 +229,20 @@ export const BenchPage = () => {
   const dropped = useMemo(() => (drop ?? unpanelled).split(',').filter(Boolean), [drop]);
   const minutes = xAxis === 'minutes';
   const rows = value?.rows;
-  const judges = useMemo(() => [...new Set(rows?.flatMap(r => Object.keys(r.vsHuman)))].sort(), [rows]);
-  const repos = useMemo(() => [...new Set(rows?.flatMap(r => r.strata.repo ?? []))].sort(), [rows]);
+  const judges = useMemo(() => [...new Set(rows?.flatMap(r => Object.keys(r.vsHuman)))].toSorted(), [rows]);
+  const labelKeys = useMemo(() => [...new Set(rows?.flatMap(r => Object.keys(r.labels)))].toSorted(), [rows]);
   const points = useMemo(() => {
     if (!value) return [];
-    const shown = value.rows.filter(r => !repo || r.strata.repo === repo);
-    return summarise(shown, {
+    return summarise(value.rows, {
+      where,
+      by: groupKeys,
+      color,
       w: weights,
       x: r => (minutes ? r.minutes : cost(r, cache === 'off')),
       judges: judges.filter(j => !dropped.includes(j)),
       infraZero: infra === 'zero',
     }).filter(p => p.n > 0);
-  }, [value, repo, weights, minutes, cache, judges, dropped, infra]);
+  }, [value, where, groupKeys, color, weights, minutes, cache, judges, dropped, infra]);
 
   if (!value) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (!value.rows.length)
@@ -222,18 +258,14 @@ export const BenchPage = () => {
   const onFront = points.filter(p => front.includes(p.key));
   const rough = onFront.some(p => p.n < 10);
   const stair = (x: number) => Math.max(-Infinity, ...onFront.filter(p => p.x <= x).map(p => p.y));
-  const harnesses = new Set(points.map(p => parse(p.key).harness + parse(p.key).model));
-  const label = (key: string) => {
-    const p = parse(key);
-    return `${harnesses.size > 1 ? `${p.harness}:${p.model} ` : ''}${p.arm} ${p.set}`;
-  };
-  const describe = (key: string) => {
-    const p = parse(key);
-    return [
-      `${p.harness}:${p.model} on ${p.arm}, set ${p.set}`,
-      `engine ${p.engine.slice(0, 10)}${p.tree ? `, graph tree ${p.tree.slice(0, 10)}` : ''}`,
-    ].join('\n');
-  };
+  const varying = [...new Set(points.flatMap(p => Object.keys(p.labels)))].filter(
+    k => new Set(points.map(p => p.labels[k])).size > 1
+  );
+  const label = (p: (typeof points)[number]) =>
+    varying.map(k => (p.labels[k] ?? '(missing)').slice(0, 12)).join(' / ') || 'all runs';
+  const colors = [...new Set(points.map(p => p.labels[color]))].toSorted();
+  const tone = (v: string | undefined) =>
+    color ? tones[colors.indexOf(v) % tones.length]! : 'text-zinc-600 dark:text-zinc-400';
   const xLabel = minutes ? 'minutes per task' : `notional USD per task${cache === 'off' ? ', cache off' : ''}, log`;
   const fx = (v: number) => (minutes ? `${v.toFixed(1)} min` : usd(v));
   const tokens = (rs: Row[]) => {
@@ -251,11 +283,11 @@ export const BenchPage = () => {
   const all: [string, string, (p: Point) => number | string, (p: Point) => ReactNode][] = [
     [
       'point',
-      'Each dot is one harness and model on one arm, with an engine commit, graph tree and case set. Labels show the arm and case set, plus the harness and model when there are several.',
-      p => label(p.key),
+      'Each dot groups runs by the selected labels, colour and test status.',
+      p => label(p),
       p => (
-        <Tooltip tip={describe(p.key)}>
-          <span>{label(p.key)}</span>
+        <Tooltip tip={JSON.stringify(p.labels, null, 2)}>
+          <span>{label(p)}</span>
         </Tooltip>
       ),
     ],
@@ -350,16 +382,49 @@ export const BenchPage = () => {
             }}
           />
         </Control>
-        <Control label="Filter" tip="Show only cases from one repo, and choose how infra runs count.">
+        <Control
+          label="Where"
+          tip="Values within a label are alternatives; labels must all match. Clear a selection to include every value."
+        >
+          {whereParam && <Button onClick={() => setWhere(null)}>clear filters</Button>}
+          {labelKeys.map(k => (
+            <Disclosure key={k} summary={`${k}${where[k]?.length ? ` (${where[k]!.join(', ')})` : ''}`}>
+              <LabelChoices
+                values={[...new Set(rows?.flatMap(r => (r.labels[k] === undefined ? [] : [r.labels[k]!])))].toSorted()}
+                selected={where[k] ?? []}
+                onChange={vs =>
+                  setWhere(
+                    JSON.stringify(
+                      Object.fromEntries(Object.entries({ ...where, [k]: vs }).filter(([, vs]) => vs.length))
+                    )
+                  )
+                }
+              />
+            </Disclosure>
+          ))}
+        </Control>
+        <Control
+          label="By"
+          tip="Select the labels that define each chart point. Colour also splits points. Judge-only cases stay separate."
+        >
+          <LabelChoices values={labelKeys} selected={groupKeys} onChange={vs => setBy(vs.join(','))} />
           <Select
-            label="repo"
-            value={repo ?? ''}
-            options={[
-              { value: '', label: 'every repo' },
-              ...repos.map(r => ({ value: r, label: r.split('/').pop()! })),
-            ]}
-            onChange={v => setRepo(v || null)}
+            label="color"
+            value={color}
+            options={[{ value: '', label: 'no colour' }, ...labelKeys.map(k => ({ value: k, label: k }))]}
+            onChange={setColor}
           />
+          {color && (
+            <div>
+              {colors.map(v => (
+                <span key={JSON.stringify(v ?? null)} className={cx('mr-2', tone(v))}>
+                  {v ?? '(missing)'}
+                </span>
+              ))}
+            </div>
+          )}
+        </Control>
+        <Control label="Infra">
           <Tooltip tip="Give infra runs a quality of 0 instead of leaving them out.">
             <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
               <input
@@ -394,8 +459,7 @@ export const BenchPage = () => {
         <Benches drives={value.drives ?? []} />
         <section className="max-w-3xl">
           <p className="mb-2 text-xs text-pretty text-zinc-600 dark:text-zinc-400">
-            Each point is a harness and model running one arm <Help tip={arm} /> on one case set <Help tip={set} />. The
-            human’s merged pull request is the baseline and scores 1.
+            Each point groups the selected labels. The human’s merged pull request is the baseline and scores 1.
           </p>
           <Scatter
             log={!minutes}
@@ -415,7 +479,6 @@ export const BenchPage = () => {
             picked={picked ?? undefined}
             onPick={key => setPicked(key === picked ? null : key)}
             dots={points.map(p => {
-              const { harness, arm } = parse(p.key);
               const dominated = !front.includes(p.key);
               return {
                 key: p.key,
@@ -423,13 +486,13 @@ export const BenchPage = () => {
                 y: p.y,
                 xCi: p.xCi,
                 yCi: p.yCi,
-                label: label(p.key),
-                tone: tones[harness] ?? 'text-zinc-600 dark:text-zinc-400',
-                square: arm === 'floor',
+                label: label(p),
+                tone: tone(p.labels[color]),
+                square: p.labels.arm === 'floor',
                 dim: dominated,
                 open: dominated && !p.judgeOnly && p.yCi[1] >= stair(p.x),
                 tip: [
-                  label(p.key),
+                  JSON.stringify(p.labels, null, 2),
                   `quality ${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`,
                   `${fx(p.x)} per task (${ci(p.xCi, fx)})`,
                   `${p.n} cases, ${p.repeats} runs, ${fmt(p.completion * 100, 0)}% complete`,
@@ -466,7 +529,7 @@ export const BenchPage = () => {
               tip="Each dot is one run. Green means hidden tests passed, red means they failed, and grey means infra or no hidden tests."
               focusable
             >
-              <h3 className="text-xs font-medium">{label(one.key)}, per case</h3>
+              <h3 className="text-xs font-medium">{label(one)}, per case</h3>
             </Tooltip>
             <Scatter
               log={!minutes}
@@ -475,7 +538,7 @@ export const BenchPage = () => {
               yLabel="quality"
               hLine={1}
               dots={one.perCase.map(({ row, x, y }) => ({
-                key: `${row.case}/${row.repeat}`,
+                key: readBenchRowResults(row).key,
                 x,
                 y,
                 tone:
@@ -486,6 +549,7 @@ export const BenchPage = () => {
                       : 'text-rose-500 dark:text-rose-400',
                 tip: [
                   `${row.case}${row.repeat > 1 ? `, repeat ${row.repeat}` : ''}`,
+                  JSON.stringify(row.labels, null, 2),
                   row.infra
                     ? `infra: ${row.infra}`
                     : row.hidden === undefined

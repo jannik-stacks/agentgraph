@@ -29,7 +29,8 @@ A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden
 | `test`, `suite`, `typecheck`, `setup`, `build` | Optional commands; `suite` defaults to `test` |
 | `image` | Local scoring image, such as `agentgraph-sandbox:node20` |
 | `hasTests: false` | Metrics and judges only; hidden tests are recorded as skipped with a reason |
-| `size`, `kind`, `area` | Report strata |
+| `size`, `kind`, `area` | Case labels |
+| `labels` | Extra case labels as a map of strings to strings |
 | `control` | `bug` flips an added comparison; `padded` adds trivial tests |
 
 Case commands override repo recipes. A case that touches test files without a test command is invalid, including repos without a recipe. Cases without test files record a hidden-test skip. The gate prints its verdict, reason and test counts; reports count skips and list their reasons.
@@ -56,7 +57,7 @@ node bin/bench.ts report <out>
 node bin/bench.ts status <out>
 ```
 
-`run` writes `diff.patch`, `meta.json` and `usage.json`, and refuses a model without a list price. `score` runs the suite, typecheck and hidden tests, offline except setup, and counts lines, overlap, tests, sessions, cost and answers; `--drop-env` removes its environments. `judge` compares pairs blind through `claude -p` and the `smart` alias; `--judges opus:1,sonnet:2` sets the panel and diff orders, and a judge from the contestant's maker is swapped. `bench/judge.md` puts correctness first, then scope. `report` writes rates, win rates with bootstrap intervals, means, judge agreement and strata, with cost at list price; an unpriced model is listed, never $0.
+`run` writes `diff.patch`, `meta.json` and `usage.json`, and refuses a model without a list price. `score` runs the suite, typecheck and hidden tests, offline except setup, and counts lines, overlap, tests, sessions, cost and answers; `--drop-env` removes its environments. `judge` compares pairs blind through `claude -p` and the `smart` alias; `--judges opus:1,sonnet:2` sets the panel and diff orders, and a judge from the contestant's maker is swapped. `bench/judge.md` puts correctness first, then scope. `report` writes rates, win rates with bootstrap intervals, means, judge agreement and label sections, with cost at list price; an unpriced model is listed, never $0.
 
 Keys come from `--keys` (`infra/local/.keys.env`). Paid steps stop past `--max-codex` weekly Codex points (30) or `--max-claude-calls` judge calls (60).
 
@@ -67,6 +68,16 @@ cd studio && npm run dev -- --bench <runs dir> <runs dir>
 ```
 
 The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests, judge preference (doubled, capped at 1) and suite scores, weighted by sliders, minus penalties. Cases without hidden tests form a `judge-only` point. Checking cost stays out of an arm's cost. Crosses show 95% intervals; the staircase joins the points no cheaper point beats. Check fields are summed per point below; the [Results](checks.md#the-results-tab) tab has them all.
+
+Each row has one `labels` map containing case attributes, explicit case labels, free run labels, and the harness, model, arm, engine, graph and set. Case attributes override free labels. Generated run attributes override both. Results makes every label available as an axis; its point axis is a display grouping when no explicit point label exists.
+
+`agents-md`, `claude-md` and `skills` are `true` or `false` from read-only `git ls-tree` at the case base commit. Skills include `.claude/skills`, `.agents/skills`, `.cursor/rules` and `.github/skills`. New scores save them in the result's case record. Old runs derive them from their case tree clone or the standard repo clone when the base is available; otherwise those labels are absent. Old JSON needs no migration, including graph trees recorded as `"hubs"`.
+
+<!-- code: bin/bench.ts#readBenchRows bin/bench.ts#readBenchSetupLabels studio/src/results/result.ts#readBenchRowResults -->
+
+The Bench controls discover every label key. URL `where` is a JSON object of label keys to allowed value arrays, `by` is a comma-separated list of grouping keys, and `color` is a label key (empty means no colour). Values within a filter are alternatives; all filtered keys must match. Colour also splits points. For example, `/bench?where=%7B%22repo%22%3A%5B%22stx-labs%2Fexplorer%22%5D%7D&by=model,graph&color=skills` compares model and graph on explorer, coloured by skill presence. Judge-only cases always stay separate. Omitting `by` groups by harness, model, arm, engine, graph and set; an empty `by` combines them.
+
+<!-- code: studio/src/bench/score.ts#summarise studio/src/bench/BenchPage.tsx#BenchPage -->
 
 ## Long runs
 

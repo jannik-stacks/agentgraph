@@ -106,25 +106,16 @@ export const benchFields: CheckField[] = [
 ];
 
 export const readBenchRowResults = (row: BenchRow, at = ''): RunResults => {
-  const point = /^([^:]*):([^/]*)\/([^@]*)@([^/]*)\/([^/]*)\/(.*)$/.exec(row.point);
-  if (!point) throw new Error(`Invalid bench point: ${row.point}`);
-  const [, harness = '', model = '', arm = '', engine = '', graph = '', set = ''] = point;
   const hidden = row.hiddenShare ?? row.hidden;
   return {
-    key: `${row.point} ${row.case} ${row.repeat}`,
+    key: JSON.stringify([Object.entries(row.labels).toSorted(([a], [b]) => a.localeCompare(b)), row.case, row.repeat]),
     at: Object.values(row.checks ?? {})[0]?.at ?? at,
     ...(row.infra && { dead: row.infra }),
     axes: {
-      point: `${harness}:${model}/${arm}`,
-      harness,
-      model,
-      arm,
-      engine,
-      graph,
-      set,
+      point: ['harness', 'model', 'arm', 'engine', 'graph', 'set'].map(k => `${k}=${row.labels[k] ?? ''}`).join(', '),
       case: row.case,
-      ...(row.strata.repo && { repo: row.strata.repo }),
       ...(row.skipped && { hiddenTests: `skipped: ${row.skipped}` }),
+      ...row.labels,
     },
     results: {
       ...row.checks,
