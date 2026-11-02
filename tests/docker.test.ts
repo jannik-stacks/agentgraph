@@ -13,12 +13,13 @@ import { basename, delimiter, dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox, dockerArgs, readImage } from '../src/docker.ts';
+import { commitCheckoutOnce } from '../src/git.ts';
 import {
   dependencyDirs,
   discard,
   createSharedMounts,
   writeCheckoutOwner,
-  reap,
+  findDeadCheckouts,
   readDependencySkeleton,
   readSandboxSetup,
   removeOrphanedVolumes,
@@ -822,6 +823,40 @@ describe('docker checkout', () => {
     expect(git(join(data, 'mirror.git'), 'rev-list', '--count', keep)).toBe('4');
   });
 
+  it('saves a checkout whose runner died before it saved, on the next start', async () => {
+    const data = tmp('data');
+    const repo = origin();
+    let id = '';
+    const exit = await use(dockerSandbox({ data, origin: repo }), s =>
+      Effect.flatMap(s.checkout('main'), c =>
+        Effect.promise(() => {
+          id = basename(c.dir);
+          writeFileSync(join(c.dir, 'b.txt'), 'unfinished\n');
+          writeFileSync(`${c.dir}.owner`, `${spawnSync('true').pid}:0123456789ab`);
+          return use(dockerSandbox({ data, origin: repo }), () => Effect.void);
+        })
+      )
+    );
+    expect(exit).toEqual(Exit.succeed(Exit.succeed(undefined)));
+    expect(git(join(data, 'mirror.git'), 'show', `refs/agentgraph/reaped/${id}:b.txt`)).toBe('unfinished');
+  });
+
+  it('commits an attempt once, so a repeat keeps the first commit', async () => {
+    const data = tmp('data');
+    const name = 'refs/agentgraph/attempts/r4/1';
+    const exit = await use(dockerSandbox({ data, origin: origin() }), s =>
+      Effect.gen(function* () {
+        const c = yield* s.checkout('main');
+        writeFileSync(join(c.dir, 'b.txt'), 'first\n');
+        yield* commitCheckoutOnce(c.git, name, [c.base]);
+        writeFileSync(join(c.dir, 'b.txt'), 'second\n');
+        yield* commitCheckoutOnce(c.git, name, [c.base]);
+      })
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(git(join(data, 'mirror.git'), 'show', `${name}:b.txt`)).toBe('first');
+  });
+
   it('puts kept files on the run branch after the branch moved on', async () => {
     const data = tmp('data');
     const repo = origin();
@@ -1173,10 +1208,25 @@ describe('disk lifecycle', () => {
       }
       writeCheckoutOwner(join(data, 'work', 'mine'));
       writeFileSync(join(data, 'work', 'gone.owner'), `${spawnSync('true').pid}:0123456789ab`);
-      expect(reap(data)).toBe(2);
+      expect(findDeadCheckouts(data).toSorted()).toEqual(['gone', 'none']);
+      const mirror = join(data, 'mirror.git');
+      git(data, 'init', '-q', '--bare', mirror);
+      writeFileSync(join(data, 'work', 'gone', 'left.txt'), 'unfinished\n');
+      expect(Exit.isSuccess(await use(dockerSandbox({ data, origin: '/nowhere' }), () => Effect.void))).toBe(true);
       expect(readdirSync(join(data, 'work')).sort()).toEqual(['mine', 'mine.owner']);
       expect(readdirSync(join(data, 'scratch'))).toEqual(['mine']);
+      expect(git(mirror, 'show', 'refs/agentgraph/reaped/gone:left.txt')).toBe('unfinished');
       expect(isOwnerRunning(startHeartbeat())).toBe(true);
+    });
+  });
+
+  it('keeps a dead checkout it cannot save', async () => {
+    await faked({}, async () => {
+      const data = tmp('data');
+      mkdirSync(join(data, 'work', 'lost'), { recursive: true });
+      writeFileSync(join(data, 'work', 'lost', 'left.txt'), 'unfinished\n');
+      expect(Exit.isSuccess(await use(dockerSandbox({ data, origin: '/nowhere' }), () => Effect.void))).toBe(true);
+      expect(readFileSync(join(data, 'work', 'lost', 'left.txt'), 'utf8')).toBe('unfinished\n');
     });
   });
 

@@ -286,6 +286,11 @@ describe('drive', () => {
     expect(pr.pull?.head).toBe(git(where.origin, 'rev-parse', 'agentgraph/7'));
     expect(existsSync(join(where.forge, '8', 'diff.patch'))).toBe(true);
 
+    const tried = git(where.origin, 'for-each-ref', '--format=%(refname)', 'refs/agentgraph/attempts/run-7/');
+    expect(tried.split('\n')).toHaveLength(8);
+    expect(git(where.origin, 'show', 'refs/agentgraph/attempts/run-7/2:hello.txt')).toBe('TODO');
+    expect(git(where.origin, 'show', 'refs/agentgraph/attempts/run-7/3:hello.txt')).toBe('hello');
+
     // retry and ways back resume the implementor's session; review is fresh every time
     expect(specs.map(s => s.resume?.id)).toEqual([
       undefined,

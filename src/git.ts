@@ -124,6 +124,38 @@ export const hostGit = (
 
 export const gitIdentity = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
+const readGit = (git: Checkout['git'], args: string[]) =>
+  Effect.map(hostGit(git, args), out => out.toString('utf8').trim());
+
+/** Commits the checkout's files on `parents` and moves `name` there from `old`, empty when `name` must not exist yet. */
+export const commitCheckout = (
+  git: Checkout['git'],
+  name: string,
+  old: string,
+  parents: (string | undefined)[],
+  message = name
+) =>
+  Effect.gen(function* () {
+    yield* hostGit(git, ['add', '-A']);
+    const tree = yield* readGit(git, ['write-tree']);
+    const commit = yield* readGit(git, [
+      ...gitIdentity,
+      'commit-tree',
+      tree,
+      ...parents.flatMap(p => (p ? ['-p', p] : [])),
+      '-m',
+      message,
+    ]);
+    yield* hostGit(git, ['update-ref', name, commit, old]);
+  });
+
+/** Commits the checkout's files under `name` unless `name` exists, so a repeat keeps the first commit. */
+export const commitCheckoutOnce = (git: Checkout['git'], name: string, parents: (string | undefined)[]) =>
+  Effect.gen(function* () {
+    if (yield* Effect.isSuccess(hostGit(git, ['rev-parse', '--verify', '--quiet', name]))) return;
+    yield* indexLock.withPermits(1)(commitCheckout(git, name, '', parents));
+  });
+
 /** Keeps the last published tree as a local commit for saved-work replay. */
 export const commitPublishedTree = (work: Checkout, tree: string) =>
   Effect.map(hostGit(work.git, [...gitIdentity, 'commit-tree', tree, '-m', 'Published work']), out => {

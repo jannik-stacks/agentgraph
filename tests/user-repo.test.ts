@@ -17,7 +17,7 @@ import { basename, delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
-import { reap } from '../src/env.ts';
+import { findDeadCheckouts } from '../src/env.ts';
 import { fileForge } from '../src/forge.ts';
 import {
   ensureBase,
@@ -191,7 +191,7 @@ describe("the user's repo", () => {
     expect(await ensureBase(i)).toBeUndefined();
     expect(await writePullToRepo(i, 1, { auto: true })).toMatchObject({ ref: 'agentgraph/1' });
     expect(git(join(i.forge, 'origin.git'), 'show', 'main:hello.txt')).toBe('hello world');
-    reap(i.data);
+    expect(findDeadCheckouts(i.data)).toEqual([]);
     expect(readdirSync(join(i.data, 'work'))).toEqual([]);
     expect(readdirSync(join(i.forge, 'origin.git', 'worktrees'))).toEqual([]);
 

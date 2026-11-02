@@ -646,8 +646,8 @@ export const writeCheckoutOwner = (dir: string) => {
   writeFileSync(`${dir}.owner`, startHeartbeat());
 };
 
-/** Removes the checkouts under `data` whose owner is gone, with their index and news dirs. */
-export const reap = (data: string) => {
+/** The checkouts under `data` whose owner is gone, except those whose save failed. */
+export const findDeadCheckouts = (data: string) => {
   const work = join(data, 'work');
   let ids: string[] = [];
   try {
@@ -655,7 +655,7 @@ export const reap = (data: string) => {
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
   }
-  const gone = ids.filter(id => {
+  return ids.filter(id => {
     if (existsSync(join(work, `${id}.failed`))) return false;
     const owner = join(work, `${id}.owner`);
     try {
@@ -665,16 +665,12 @@ export const reap = (data: string) => {
       throw e;
     }
   });
-  for (const id of gone)
-    for (const p of [
-      join(work, id),
-      join(work, `${id}.owner`),
-      join(data, 'index', id),
-      join(data, 'news', id),
-      join(data, 'scratch', id),
-    ])
-      rmSync(p, { recursive: true, force: true });
-  return gone.length;
+};
+
+/** Removes checkout `id` under `data` with its owner, index, news and scratch dirs. */
+export const removeCheckout = (data: string, id: string) => {
+  for (const p of [`work/${id}`, `work/${id}.owner`, `index/${id}`, `news/${id}`, `scratch/${id}`])
+    rmSync(join(data, p), { recursive: true, force: true });
 };
 
 const volumes = async (label: string, timeout?: number) =>

@@ -20,7 +20,7 @@ import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
+import { commitCheckoutOnce, gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
 import { Session } from './session.ts';
 import { readPlugins } from './plugin.ts';
 import { startTools } from './tools.ts';
@@ -2045,8 +2045,15 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
       current = { ...current, startCommit: work.base };
 
       if (!w.on.feedback) yield* setUp(graph, work, current);
+      const attempts = `refs/agentgraph/attempts/${run.id}/`;
+      let count = (yield* text(work, ['rev-parse', `--glob=${attempts}*`])).split('\n').filter(Boolean).length;
       while (current.status === 'running') {
         const tried = yield* attempt({ ...w, base }, current, graph, work, own);
+        yield* commitCheckoutOnce(work.git, `${attempts}${++count}`, [
+          work.head ?? work.base,
+          work.saved,
+          work.published,
+        ]);
         if (
           tried.outcome.kind === 'failed' &&
           tried.outcome.proposals.some(a => !a.ok && a.proposal.kind === 'push' && a.moved)

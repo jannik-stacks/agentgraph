@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +16,8 @@ import {
   createSharedMounts,
   type SharedMount,
   writeCheckoutOwner,
-  reap,
+  findDeadCheckouts,
+  removeCheckout,
   packageManagerCacheEnv,
   unlogged,
   written,
@@ -24,7 +25,7 @@ import {
 import { ensureFreeDisk, readEnvRefs, writeEnvRef } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { gitIdentity, hostGit, makeHostEnv } from './git.ts';
+import { commitCheckout, commitCheckoutOnce, hostGit, makeHostEnv } from './git.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
@@ -439,7 +440,6 @@ export const dockerSandbox = (o: {
       const mirror = o.local ? o.origin : join(o.data, 'mirror.git');
       let configured = false;
       const lock = yield* Effect.makeSemaphore(1);
-      reap(o.data);
       const roomy = (base: string) =>
         Effect.tryPromise({
           try: () =>
@@ -690,6 +690,19 @@ export const dockerSandbox = (o: {
           return sha || (yield* infra(`no commit for ${ref}`));
         });
 
+      for (const id of findDeadCheckouts(o.data)) {
+        mkdirSync(join(o.data, 'index'), { recursive: true });
+        const dir = join(o.data, 'work', id);
+        const git = { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: join(o.data, 'index', id) };
+        if (
+          yield* (existsSync(dir) ? commitCheckoutOnce(git, `refs/agentgraph/reaped/${id}`, []) : Effect.void).pipe(
+            Effect.as(true),
+            Effect.catchAll(e => Effect.as(Effect.logWarning(`kept unsaved checkout ${dir}: ${e.detail}`), false))
+          )
+        )
+          removeCheckout(o.data, id);
+      }
+
       const checkout = (
         ref: string | undefined,
         branch?: string,
@@ -749,27 +762,14 @@ export const dockerSandbox = (o: {
             git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index },
             news: join(news, 'news.md'),
           };
-          const inWork = (args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
           const save = (name: string) =>
-            Effect.gen(function* () {
-              yield* inWork(['add', '-A']);
-              const tree = yield* inWork(['write-tree']);
-              const parents = [
-                '-p',
-                rev,
-                ...(saved ? ['-p', saved] : []),
-                ...(work.published ? ['-p', work.published] : []),
-              ];
-              const commit = yield* inWork([
-                ...gitIdentity,
-                'commit-tree',
-                tree,
-                ...parents,
-                '-m',
-                name + (work.published ? `\n\nbaseline ${work.published}` : ''),
-              ]);
-              yield* inWork(['update-ref', name, commit, saved]);
-            }).pipe(
+            commitCheckout(
+              work.git,
+              name,
+              saved,
+              [rev, saved, work.published],
+              name + (work.published ? `\n\nbaseline ${work.published}` : '')
+            ).pipe(
               Effect.tapError(() => Effect.promise(() => rename(`${dir}.owner`, `${dir}.failed`))),
               Effect.mapError(
                 e => new Error(`${e.detail}; unsaved checkout preserved at ${dir}, index ${index}`, { cause: e })
@@ -794,7 +794,7 @@ export const dockerSandbox = (o: {
               },
               catch: e => infra((e as Error).message),
             });
-            if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
+            if (saved) yield* hostGit(work.git, ['read-tree', '-u', '--reset', saved]);
             if (graph && cache)
               sharedMounts = yield* Effect.tryPromise({
                 try: async () =>
