@@ -2,3 +2,11 @@ limits:
   minutes: 20
   usd-per-run: 2
   parallel: 1
+plugins:
+  board:
+    project: jannik-stacks/1
+    status:
+      working: In Progress
+      needs-review: In Review
+      needs-answer: Waiting
+      done: Done

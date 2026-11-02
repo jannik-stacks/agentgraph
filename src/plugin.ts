@@ -32,9 +32,11 @@ export type ToolContext<S = undefined> = {
   };
 } & Pick<ToolExecutionOptions<unknown>, 'abortSignal'>;
 
+export { issueStatuses } from './event.ts';
+
 export type StatusChange = { issue: number; repo: string; from?: IssueStatus; to: IssueStatus };
 
-type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abortSignal'> & {
+export type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abortSignal'> & {
   readonly forge: { readonly graphql?: (query: string, variables: Record<string, unknown>) => Promise<unknown> };
 };
 

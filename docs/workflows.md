@@ -73,6 +73,15 @@ With both `label` and `column`, either starts the run, and a run started from th
 
 A GitHub App cannot read the boards of a personal account, so the board is read with a user token that has the `read:project` scope: `AGENTGRAPH_PROJECT_TOKEN`, or else `gh auth token`. Without one, each pass logs once which scope is missing and how to get it, and column triggers start nothing. Labels and comments still go through the App. <!-- code: src/github.ts#readProjectToken -->
 
+To mirror the [status label](#status-on-the-issue) onto the board, add the board plugin from `examples/board/plugins/board.ts` to the graph's `plugins/` and map statuses to the board's Status options. It adds the issue to the project when missing and leaves unmapped statuses alone. Moving cards needs the `project` scope on the same token: `gh auth refresh -s project`. <!-- code: examples/board/plugins/board.ts src/github.ts#githubForge -->
+
+```yaml
+plugins:
+  board:
+    project: jannik-stacks/1
+    status: { working: In Progress, needs-review: In Review, needs-answer: Waiting, done: Done }
+```
+
 ## Trust and scope
 
 Owners, members and collaborators steer the bot; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins, read at startup. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. Locally, the instance owner is the only trusted login. <!-- code: src/github.ts#githubForge -->

@@ -101,6 +101,9 @@ export default makePlugin({
 });
 ```
 
+`examples/board/plugins/board.ts` uses it to move the issue's card on a GitHub project board.
+<!-- code: examples/board/plugins/board.ts -->
+
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect
