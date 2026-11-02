@@ -147,7 +147,7 @@ const usage = async () => {
   }>;
   return {
     images: new Map((df.Images ?? []).map(i => [i.ID, parseByteSize(i.UniqueSize)])),
-    volumes: new Map((df.Volumes ?? []).map(v => [v.Name, parseByteSize(v.Size)])),
+    volumes: new Map((df.Volumes ?? []).map(v => [v.Name, v.Size.startsWith('-') ? 0 : parseByteSize(v.Size)])),
   };
 };
 

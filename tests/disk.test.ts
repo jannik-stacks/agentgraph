@@ -100,6 +100,14 @@ describe('inventory', () => {
     }
   );
 
+  it('counts a volume docker cannot measure yet as empty', async () => {
+    const df = JSON.stringify({ Images: [], Volumes: [{ Name: 'agentgraph-lower-gone', Size: '-1B' }] });
+    await faked({ ...box, 'system df': df }, async () => {
+      const items = await inventory();
+      expect(items.find(i => i.refs[0] === 'agentgraph-lower-gone')?.bytes).toBe(0);
+    });
+  });
+
   it('counts unique bytes of our caches only, and holds what a container uses', async () => {
     await faked(box, async () => {
       const items = await inventory();
