@@ -1,3 +1,4 @@
+import { readOrUndefined } from './read.ts';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
@@ -39,7 +40,7 @@ export const readRealPath = (path: string): string => {
   try {
     return realpathSync(path);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    readOrUndefined(e);
     const parent = dirname(resolve(path));
     return parent === resolve(path) ? parent : join(readRealPath(parent), basename(path));
   }

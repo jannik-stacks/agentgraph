@@ -1,3 +1,4 @@
+import { readOrUndefined } from '../src/read.ts';
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -72,8 +73,8 @@ const readText = (file: string) => {
     const bytes = readFileSync(file);
     return bytes.includes(0) ? '' : bytes.toString('utf8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return '';
-    throw e;
+    readOrUndefined(e);
+    return '';
   }
 };
 

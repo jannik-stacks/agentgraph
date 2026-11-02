@@ -1,3 +1,4 @@
+import { readOrUndefined } from './read.ts';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { link, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -41,7 +42,7 @@ export const isOwnerRunning = (label: string, writtenAt = Date.now()) => {
   try {
     if (owner && Date.now() - statSync(join(heartbeats(), owner)).mtimeMs < 120_000) return true;
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    readOrUndefined(e);
   }
   return writtenAt > bootedAt() - 60_000 && Number(pid) > 0 && isPidRunning(Number(pid));
 };
@@ -51,15 +52,12 @@ export const isLockedByOtherProcess = (path: string) => {
     const pid = readFileSync(`${path}.lock`, 'utf8').trim();
     return Number(pid) !== process.pid && isOwnerRunning(pid, statSync(`${path}.lock`).mtimeMs);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw e;
+    return readOrUndefined(e) ?? false;
   }
 };
 
-const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 const release = (path: string, holder: string) => async () => {
-  if ((await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)))) === holder)
-    await rm(path, { force: true });
+  if ((await readFile(path, 'utf8').catch(readOrUndefined)) === holder) await rm(path, { force: true });
 };
 const exists = (e: unknown) => (e as NodeJS.ErrnoException).code === 'EEXIST';
 
@@ -73,7 +71,7 @@ export class LockHeldError extends Error {
       const owner = holder.split(':')[1];
       if (owner) until = statSync(join(heartbeats(), owner)).mtimeMs + 120_000;
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      readOrUndefined(e);
     }
     this.seconds = Math.max(1, Math.ceil((until - Date.now()) / 1000));
   }
@@ -87,14 +85,13 @@ const succeed = async (path: string, before: string, candidate: string) => {
       break;
     } catch (e) {
       if (!exists(e)) throw e;
-      const other = await readFile(claim, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
+      const other = await readFile(claim, 'utf8').catch(readOrUndefined);
       if (other === undefined || isOwnerRunning(other)) return false;
       claim = `${path}.${createHash('sha256').update(`${claim}\0${other}`).digest('hex')}.next`;
     }
   }
   try {
-    if ((await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)))) !== before)
-      return false;
+    if ((await readFile(path, 'utf8').catch(readOrUndefined)) !== before) return false;
     await rename(candidate, path);
     return true;
   } finally {
@@ -112,7 +109,7 @@ export const createLock = async (path: string) => {
         return release(path, holder);
       } catch (e) {
         if (!exists(e)) throw e;
-        const before = await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
+        const before = await readFile(path, 'utf8').catch(readOrUndefined);
         if (before === undefined) continue;
         const writtenAt = before ? Date.now() : (await stat(path)).mtimeMs;
         if (before ? isOwnerRunning(before) : Date.now() - writtenAt < 120_000)

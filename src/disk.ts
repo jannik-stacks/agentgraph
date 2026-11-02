@@ -1,16 +1,7 @@
+import { readOrUndefined } from './read.ts';
 import { execFile } from 'node:child_process';
 import { makeHostEnv } from './git.ts';
-import {
-  type Dirent,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statfsSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { runDockerCli, envVersion, held, makeSetupVolumeName, removeOrphanedVolumes, unlogged, used } from './env.ts';
 import { isLockedByOtherProcess, isOwnerRunning, readStateDir } from './owner.ts';
@@ -58,7 +49,7 @@ const unexpired = () => {
   try {
     files = readdirSync(pins()).filter(f => f.endsWith('.json'));
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    readOrUndefined(e);
   }
   return files.flatMap(f => {
     try {
@@ -91,12 +82,12 @@ const skipped = new Set(['data', 'forge', 'graph', 'engine', 'cases', 'done', 'l
  * entered.
  */
 export const findBuildDirs = (root: string, depth = 5): string[] => {
-  let entries: Dirent[] = [];
+  let entries;
   try {
     entries = readdirSync(root, { withFileTypes: true });
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw e;
+    readOrUndefined(e);
+    return [];
   }
   const here = new Set(entries.map(e => e.name));
   return entries

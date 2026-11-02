@@ -1,3 +1,4 @@
+import { readOrUndefined } from './read.ts';
 import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { extname, join, sep } from 'node:path';
@@ -120,11 +121,7 @@ export const readPlugins = async (
   }));
   if (dir !== undefined) {
     const root = await realpath(dir);
-    const files = (
-      await readdir(join(dir, 'plugins')).catch((e: NodeJS.ErrnoException) =>
-        e.code === 'ENOENT' ? [] : Promise.reject(e)
-      )
-    )
+    const files = ((await readdir(join(dir, 'plugins')).catch(readOrUndefined)) ?? [])
       .filter(file => file.endsWith('.ts'))
       .toSorted();
     for (const file of files) {

@@ -1,3 +1,4 @@
+import { readOrUndefined } from './read.ts';
 import type { ToolContext } from './plugin.ts';
 import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -205,8 +206,6 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
     Effect.map(Effect.makeSemaphore(1), lock => {
       const md = (n: number) => join(dir, `${n}.md`);
       const pullFile = (n: number) => join(dir, String(n), 'pull.json');
-      const optional = <A>(p: Promise<A>) =>
-        p.catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? undefined : Promise.reject(e)));
       const who = as ?? me;
       const git = (work: Checkout, ...args: string[]) =>
         Effect.runPromise(
@@ -240,13 +239,13 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       const held = new Map<string, Set<string>>();
 
       const numbers = async () =>
-        ((await optional(readdir(dir))) ?? []).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
+        ((await readdir(dir).catch(readOrUndefined)) ?? []).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
       const read = async (n: number): Promise<Issue | undefined> => {
-        const text = await optional(readFile(md(n), 'utf8'));
+        const text = await readFile(md(n), 'utf8').catch(readOrUndefined);
         if (text === undefined) return undefined;
         const { front, body } = parseIssueFile(text);
         const [, first = '', rest = ''] = /^#*\s*(.*)\n?([\s\S]*)$/.exec(body.trim()) ?? [];
-        const pull = await optional(readFile(pullFile(n), 'utf8'));
+        const pull = await readFile(pullFile(n), 'utf8').catch(readOrUndefined);
         return {
           number: n,
           state: 'open',
@@ -275,8 +274,8 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         await writePull(number, pull);
       };
       const adopt = async (n: number) => {
-        if (await optional(stat(timelinePath(dir, n)))) return;
-        const [t, file] = await Promise.all([read(n), optional(stat(md(n)))]);
+        if (await stat(timelinePath(dir, n)).catch(readOrUndefined)) return;
+        const [t, file] = await Promise.all([read(n), stat(md(n)).catch(readOrUndefined)]);
         if (!t?.author || t.author === me || t.labels.length === 0 || !file) return;
         const at = file.mtime.toISOString();
         const trusted = !t.author.endsWith('[bot]');
@@ -285,7 +284,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       };
       const readTimeline = async (n: number) => {
         await adopt(n);
-        return ((await optional(readFile(timelinePath(dir, n), 'utf8'))) ?? '')
+        return ((await readFile(timelinePath(dir, n), 'utf8').catch(readOrUndefined)) ?? '')
           .split('\n')
           .filter(Boolean)
           .map(line => JSON.parse(line) as Event);
@@ -511,7 +510,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               await appendFile(file, `eyes ${id}\n`);
               return { proposal: p, ok: true, id };
             }
-            const lines = ((await optional(readFile(file, 'utf8'))) ?? '').split('\n').filter(Boolean);
+            const lines = ((await readFile(file, 'utf8').catch(readOrUndefined)) ?? '').split('\n').filter(Boolean);
             const at = lines.indexOf(`eyes ${p.remove}`);
             if (at < 0) return no(`no reaction ${p.remove} of ours on #${n}`);
             lines.splice(at, 1);
