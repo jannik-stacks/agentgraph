@@ -1,5 +1,5 @@
 ---
-on: { issue_comment: { command: /agentgraph } }
+on: { issue_comment: {} }
 branch: agentgraph/{issue}
 steps:
   implement: { agent: implementor, tries: 1 }
