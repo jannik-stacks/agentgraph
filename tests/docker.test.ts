@@ -12,7 +12,7 @@ import {
 import { basename, delimiter, dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { dockerSandbox, dockerArgs } from '../src/docker.ts';
+import { dockerSandbox, dockerArgs, readImage } from '../src/docker.ts';
 import {
   dependencyDirs,
   discard,
@@ -68,6 +68,7 @@ describe('docker with a stand-in docker client', () => {
       join(bin, 'docker'),
       [
         '#!/bin/sh',
+        'case "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; esac',
         `[ "$1" = network ] && { echo "$*" >> ${log}.network; case "$*" in *tools-fail.internal*) exit 4;; *IPAM.Config*) echo '[{"Gateway":"172.30.0.1","Subnet":"172.30.0.0/16"}]'; exit 0;; esac; echo true; exit 0; }`,
         `[ "$1" = rm ] && { sleep 0.2; echo "$*" >> ${log}.rm; exit 0; }`,
         `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
@@ -148,13 +149,13 @@ describe('docker with a stand-in docker client', () => {
     ['timeout', 'tools-session.internal', ['-c', 'sleep'], false, true],
     ['connection failure', 'tools-fail.internal', ['-c', 'echo hi'], false, true],
     ['stream cancellation', 'tools-session.internal', ['-c', 'chatty'], true, false],
-  ] as const)('removes the tool relay after %s', async (_reason, host, args, streamed, isFailure) => {
+  ] as const)('removes the tool relay after %s', async (why, host, args, streamed, isFailure) => {
     const before = existsSync(`${log}.all`) ? readFileSync(`${log}.all`, 'utf8').length : 0;
     const task = command(tmp('work'), {
       network: 'proxy',
       tools: { url: `http://${host}:4321/session`, host: '127.0.0.1' },
       args: [...args],
-      minutes: 0.001,
+      minutes: why === 'timeout' ? 0.001 : 1,
     });
     const exit = await use(layer, s => (streamed ? Stream.runDrain(s.lines(task).pipe(Stream.take(1))) : s.exec(task)));
     expect(Exit.isFailure(exit)).toBe(isFailure);
@@ -403,8 +404,19 @@ describe('docker with a stand-in docker client', () => {
     const build = readFileSync(`${log}.all`, 'utf8')
       .split('\n')
       .findLast(l => l.includes('agentgraph.envbuild'));
-    expect(build).toContain(' acme-rust:1 sh -c ');
+    expect(build).toContain(' sha256:base sh -c ');
     expect(build).toContain('run --log-driver none ');
+  });
+
+  it.each([undefined, 'main'])('pins the graph image without cache for checkout %s', async ref => {
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin(), cache: '' }), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout(ref, undefined, undefined, { image: 'custom:1' });
+        yield* s.exec(command(work.dir));
+        return logged();
+      })
+    );
+    expect(Exit.isSuccess(exit) && exit.value).toContain('sha256:base');
   });
 
   it('mounts the cache volume read-only in every container, and none with an empty name', async () => {
@@ -1203,6 +1215,29 @@ describe('removeOrphanedVolumes', () => {
   });
 });
 
+describe('image precedence', () => {
+  it.each([null, 12, {}])('rejects an unknown case image %j without a fallback', async override => {
+    await faked({}, async log => {
+      const exit = await Effect.runPromiseExit(readImage({}, undefined, override as never));
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(log()).toBe('');
+    });
+  });
+
+  it.each([
+    [{ image: 'graph:1' }, 'operator:1', 'case:1', 'case:1'],
+    [{ image: 'graph:1' }, 'operator:1', undefined, 'graph:1'],
+    [{}, 'operator:1', undefined, 'operator:1'],
+    [{}, undefined, undefined, 'agentgraph-sandbox:local'],
+  ] as const)('resolves %j with fallback %s and override %s', async (graph, fallback, override, tag) => {
+    await faked({ 'image inspect': 'sha256:pinned' }, async log => {
+      const id = await Effect.runPromise(readImage(graph, fallback, override));
+      expect(id).toBe('sha256:pinned');
+      expect(log()).toContain(`{{.Id}} ${tag}`);
+    });
+  });
+});
+
 describe('deployment image startup', () => {
   it('fails a missing custom tag without building stock contents', () => {
     const bin = tmp('startup');
@@ -1224,5 +1259,22 @@ describe('deployment image startup', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('missing custom image custom:missing');
     expect(readFileSync(log, 'utf8')).not.toContain('build');
+  });
+});
+
+describe('image command contract', () => {
+  it('rejects an entrypoint that ignores the supplied command', async () => {
+    const bin = tmp('image-contract');
+    writeFileSync(
+      join(bin, 'docker'),
+      '#!/bin/sh\ncase "$1" in image) echo sha256:bad-entrypoint;; run) echo service-started;; esac\n'
+    );
+    chmodSync(join(bin, 'docker'), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    const exit = await Effect.runPromiseExit(readImage({ image: 'custom:entrypoint' }));
+    process.env.PATH = path;
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(JSON.stringify(exit)).toContain('must run supplied commands directly');
   });
 });

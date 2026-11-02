@@ -16,18 +16,10 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
-import { dockerArgs, type CheckoutContainerSpec } from '../src/docker.ts';
+import { dockerArgs, readImage, type CheckoutContainerSpec } from '../src/docker.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
-import {
-  dependencyDirs,
-  discard,
-  readSandboxSetup,
-  createSharedMounts,
-  manifest,
-  removeOrphanedVolumes,
-  written,
-} from '../src/env.ts';
-import { collect, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
+import { dependencyDirs, discard, readSandboxSetup, createSharedMounts, manifest, written } from '../src/env.ts';
+import { collect, ensureFreeDisk, findBuildDirs, readEnvRefs, writeEnvRef } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
 import type { CheckResult } from '../src/workflow.ts';
 import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
@@ -52,7 +44,9 @@ import {
   readFileOrEmpty,
   removeSandboxContainersMountingDir,
 } from './resume.ts';
-import { isLockedByOtherProcess } from '../src/owner.ts';
+import { isLockedByOtherProcess, waitForLock } from '../src/owner.ts';
+import { parseGraphSettings } from '../src/folder.ts';
+import { parse, stringify } from 'yaml';
 import { hostSettings } from '../src/services.ts';
 let engine = process.env.BENCH_ENGINE ?? agentgraphDir;
 
@@ -80,7 +74,6 @@ type Commands = {
   /** The part of setup that builds from the repo's files, run again on every scored diff. */
   build?: string;
   runner?: string;
-  /** The image the score step starts from, in place of the sandbox image. */
   image?: string;
 };
 type Verdict = {
@@ -458,7 +451,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   if (resolve(engine) !== resolve(agentgraphDir)) Object.assign(process.env, keys);
   const own = process.env.BENCH_DIR ?? `examples/${findExampleGraphName(c.repo)}`;
   const graph = join(at, 'graph');
-  cpSync(resolve(engine, own), graph, { recursive: true });
+  cpSync(findCaseGraphDir(c), graph, { recursive: true });
   if (own === 'examples/bench' && c.runner) {
     writeFileAtomic(
       join(graph, 'scripts/tests.sh'),
@@ -500,6 +493,10 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     rmSync(join(graph, 'checks'), { recursive: true, force: true });
     cpSync(join(agentgraphDir, 'bench/floor'), graph, { recursive: true });
   }
+  writeFileAtomic(
+    join(graph, 'settings.yaml'),
+    stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image })
+  );
   if (options.point) repoint(graph, options.point);
   const dir = join(at, 'forge');
   sh('git', ['init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git')]);
@@ -564,11 +561,36 @@ export const infra = (s: { infra?: string; setup?: { ok: boolean }; status?: str
 
 /** The graph an arm of the case starts from: `BENCH_DIR` when set, else the example graph of its repo. */
 const findCaseGraphDir = (c: Pick<Case, 'repo'>) =>
-  process.env.BENCH_DIR ?? join(engine, 'examples', findExampleGraphName(c.repo));
+  resolve(engine, process.env.BENCH_DIR ?? join('examples', findExampleGraphName(c.repo)));
+
+export const readCaseImage = async (c: Case & Commands, out: string) => {
+  const file = join(out, c.id, 'image.json');
+  const release = await waitForLock(`bench-image-${hash(file)}`);
+  try {
+    const saved = JSON.parse(readFileOrEmpty(file) || '{}') as Pick<Commands, 'image'>;
+    if (existsSync(file) && (typeof saved.image !== 'string' || !saved.image.startsWith('sha256:')))
+      throw new Error(`invalid image pin in ${file}`);
+    let selected = saved.image;
+    if (!selected) {
+      const dir = findCaseGraphDir(c);
+      if (!existsSync(dir)) throw new Error(`case graph is missing: ${dir}`);
+      const problems: string[] = [];
+      const settings = parseGraphSettings(readFileOrEmpty(join(dir, 'settings.yaml')), m => problems.push(m));
+      if (!settings || problems.length) throw new Error(`invalid case graph: ${problems.join('; ')}`);
+      selected = await Effect.runPromise(readImage(settings, image, c.image));
+      writeFileAtomic(file, { image: selected });
+    } else {
+      await Effect.runPromise(readImage({ image: selected }));
+    }
+    return { ...c, image: selected };
+  } finally {
+    await release();
+  }
+};
 
 /** Where an arm run is kept: by case, arm, engine, graph (`BENCH_DIR` when set) and commands, and the point and repeat when given. */
 export const armSlot = (
-  c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup' | 'toolchain'>,
+  c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup' | 'toolchain' | 'image'>,
   arm: string,
   {
     point,
@@ -580,6 +602,7 @@ export const armSlot = (
     'arm',
     c.id,
     c.base,
+    c.image,
     arm,
     tree,
     treeText(findCaseGraphDir(c)),
@@ -621,10 +644,14 @@ const patience = 6;
  * until it works or fails `patience` times.
  */
 const runArm = async (arm: string, caseDir: string, out: string, repo: string) => {
-  const c = loadCase(caseDir);
+  const c = await readCaseImage(loadCase(caseDir), out);
   const at = join(out, c.id, arm);
   if (!benched(c.repo)) throw new Error(`${c.repo} is never benched`);
-  if (existsSync(join(at, 'diff.patch'))) return;
+  if (
+    existsSync(join(at, 'diff.patch')) &&
+    (JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}') as Pick<Commands, 'image'>).image === c.image
+  )
+    return;
   const missing = unpriced(arm, findCaseGraphDir(c));
   if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to infra/local/aliases.json`);
   if (!keys.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
@@ -648,7 +675,13 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     const failed = () =>
       readJsonl(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
     for (let attempt = 0, empty = 0; ; attempt++) {
-      await waitWhileServicesDown(log, false, net => down(net, { dir: out, ...(cache && { image, volume: cache }) }));
+      await waitWhileServicesDown(log, false, net =>
+        down(net, {
+          dir: join(out, c.id),
+          eligible: readEnvRefs(join(out, c.id)),
+          ...(cache && { image: c.image, volume: cache }),
+        })
+      );
       aside();
       guard(out, false);
       const started = Date.now();
@@ -670,6 +703,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
         (nothing || !diff.trim() ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
       writeFileAtomic(join(at, 'meta.json'), {
         ...meta,
+        image: c.image,
         ms: Date.now() - started - time.missed(),
         ...(time.missed() && { slept: time.missed() }),
         ...((env ?? nothing) && { infra: env ?? nothing }),
@@ -734,7 +768,6 @@ export const stats = (diff: string, human: string[] = []) => {
 };
 let image = Effect.runSync(hostSettings.image);
 
-/** The id of the image a tag names now, so a bench keeps one sandbox even when the tag moves or goes. */
 const imageId = (tag: string) =>
   spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', tag], { encoding: 'utf8' }).stdout?.trim() ||
   undefined;
@@ -814,11 +847,12 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   )
     return { applied: false };
   const git = existsSync(join(repo, '.git')) ? join(repo, '.git') : repo;
-  const start = c.image ?? image;
+  const start = c.image!;
   const found = spawnSync('docker', ['image', 'inspect', start], { encoding: 'utf8' });
   if (found.status !== 0)
     throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
-  if (cache) await ensureFreeDisk({ dir: tree, image: start, volume: cache });
+  if (cache)
+    await ensureFreeDisk({ dir: dirname(tree), image: start, volume: cache, eligible: readEnvRefs(dirname(tree)) });
   const env = cache
     ? await readSandboxSetup({
         repo: c.repo,
@@ -830,6 +864,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
         ...(c.toolchain && { toolchain: c.toolchain }),
       })
     : undefined;
+  if (env) writeEnvRef(dirname(tree), env.image);
   const sharedMounts = cache
     ? await createSharedMounts(
         env ?? { image: start, outputs: [] },
@@ -847,6 +882,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     const suite = c.suite ?? c.test;
     const result = {
       applied: true,
+      image: start,
       ...(env && { env: env.image }),
       ...(prep && { setup: exec(prep, tree, box, from, 'open') }),
       ...(suite && { suite: exec(suite, tree, box, from) }),
@@ -1027,11 +1063,8 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
     for (const arm of which) {
       const at = join(root, arm);
       if (!existsSync(join(at, 'diff.patch'))) continue;
-      if (
-        existsSync(join(at, 'score.json')) &&
-        isBenchScoreComplete(c, JSON.parse(readFileSync(join(at, 'score.json'), 'utf8')) as Tests)
-      )
-        continue;
+      const saved = JSON.parse(readFileOrEmpty(join(at, 'score.json')) || '{}') as Tests & Pick<Commands, 'image'>;
+      if (saved.image === c.image && isBenchScoreComplete(c, saved)) continue;
       const diff = readFileOrEmpty(join(at, 'diff.patch'));
       const meta = JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
       const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
@@ -1045,6 +1078,7 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
         ...stats(diff, human),
         ...meta,
         ...usage(at),
+        image: c.image,
       });
     }
   } finally {
@@ -1209,16 +1243,12 @@ export const couplings = (diff: string, issue: string, base: Base) => {
   return found;
 };
 
-let tools: string | undefined;
-/** The bench's scoring code and the image the score step starts from, which a validity verdict depends on. */
-const scorer = () =>
-  (tools ??= hash(
-    [pickBenchTestCommands, check, invalid, exec, image].join('\0') +
-      spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', image], { encoding: 'utf8' }).stdout
-  ));
+const scorer = (c: Pick<Commands, 'image'>) => hash([pickBenchTestCommands, check, invalid, exec, c.image].join('\0'));
 
 const prepare = async (c: Case & Commands, out: string, repo: string) => {
   const file = join(out, c.id, 'valid.json');
+  if (existsSync(file) && (JSON.parse(readFileOrEmpty(file)) as Pick<Commands, 'image'>).image !== c.image)
+    rmSync(file);
   const tests = (arm: string) => JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
   const old = existsSync(file)
     ? (JSON.parse(readFileSync(file, 'utf8')) as Pick<Scored, 'invalid' | 'skipped'>)
@@ -1232,7 +1262,7 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     rmSync(file);
   if (c.why && c.hasTests !== false) {
     writeFileAtomic(join(out, c.id, 'case.json'), readFileOrEmpty(join(c.dir, 'case.json')));
-    writeFileAtomic(file, { invalid: c.why });
+    writeFileAtomic(file, { image: c.image, invalid: c.why });
   }
   if (!existsSync(file) && !existsSync(join(c.dir, 'hidden.relaxed.diff'))) {
     const coupled = couplings(
@@ -1240,7 +1270,7 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
       `${c.title}\n${c.body}`,
       readRepoBase(repo, c.base)
     );
-    if (coupled.length) writeFileAtomic(file, { invalid: 'coupled', coupled });
+    if (coupled.length) writeFileAtomic(file, { image: c.image, invalid: 'coupled', coupled });
   }
   const kept = slot(
     'valid',
@@ -1257,16 +1287,19 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     ...[readFileOrEmpty(join(c.dir, 'hidden.relaxed.diff'))].filter(Boolean),
     ...(c.image ? [c.image] : []),
     ...(c.typecheck ? [c.typecheck] : []),
-    scorer()
+    scorer(c)
   );
   if (!existsSync(file) && reusable(kept)) {
-    cpSync(kept!, join(out, c.id), { recursive: true, filter: p => !p.endsWith('/valid.json') });
+    cpSync(kept!, join(out, c.id), {
+      recursive: true,
+      filter: p => !p.endsWith('/valid.json') && !p.endsWith('/image.json') && !p.endsWith('/.envs'),
+    });
     writeFileAtomic(file, readFileOrEmpty(join(kept!, 'valid.json')));
   }
   if (!existsSync(file)) {
     await scoreArms(c, out, repo, ['base', 'human']);
     const why = invalid(tests('base'), tests('human'), c.hasTests !== false);
-    writeFileAtomic(file, { invalid: why, ...(c.hasTests === false && { skipped: c.why }) });
+    writeFileAtomic(file, { image: c.image, invalid: why, ...(c.hasTests === false && { skipped: c.why }) });
     if (kept && why !== 'setup fails')
       copyDirIfAbsentAtomic(
         join(out, c.id),
@@ -1295,20 +1328,11 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
   return verdict.invalid;
 };
 
-/** Removes the sandbox setup images a case's scores ran in and their dependency volumes; docker keeps one a container still uses. */
-const dropEnvs = (root: string) => {
-  const used = readdirSync(root).flatMap(arm => {
-    const env = (JSON.parse(readFileOrEmpty(join(root, arm, 'score.json')) || '{}') as { env?: string }).env;
-    return env ? [env] : [];
-  });
-  for (const image of new Set(used)) spawnSync('docker', ['rmi', image], { stdio: 'ignore' });
-};
-
 const score = async (caseDir: string, out: string, repo: string, drop = false) => {
-  const c = loadCase(caseDir);
+  const c = await readCaseImage(loadCase(caseDir), out);
   if (!(await prepare(c, out, repo))) await scoreArms(c, out, repo, bots);
-  if (drop && existsSync(join(out, c.id))) dropEnvs(join(out, c.id));
-  if (cache) await collect();
+  const root = join(out, c.id);
+  if (cache) await collect({ eligible: readEnvRefs(root), ...(drop && { limit: 0 }) });
 };
 
 const flips: [RegExp, string][] = [
@@ -1502,7 +1526,7 @@ export const parsePanel = (spec: string) =>
   );
 
 const judge = async (caseDir: string, out: string) => {
-  const c = loadCase(caseDir);
+  const c = await readCaseImage(loadCase(caseDir), out);
   const root = join(out, c.id);
   if ((JSON.parse(readFileOrEmpty(join(root, 'valid.json')) || '{}') as { invalid?: string }).invalid) return;
   const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
@@ -1973,7 +1997,11 @@ if (import.meta.main) {
   });
   const [command, a, b, c] = positionals;
   const out = command === 'run' ? c : ['score', 'judge'].includes(command ?? '') ? b : undefined;
-  const sandbox = out && command !== 'judge' && !image.startsWith('sha256:') ? imageId(image) : undefined;
+  const savedImage = out
+    ? (JSON.parse(readFileOrEmpty(join(resolve(out), 'env.json')) || '{}') as Pick<Commands, 'image'>).image
+    : undefined;
+  const sandbox =
+    savedImage ?? (out && command !== 'judge' && !image.startsWith('sha256:') ? imageId(image) : undefined);
   const env = out
     ? ensureRunSettingsPinned(join(resolve(out), 'env.json'), {
         ...readBenchResultEnv(),
@@ -1986,7 +2014,6 @@ if (import.meta.main) {
   if (env.image) process.env.AGENTGRAPH_IMAGE = image = env.image;
   engine = process.env.BENCH_ENGINE ?? engine;
   if (out && command !== 'judge') reapTrees(resolve(out));
-  if (cache && command !== 'judge') await removeOrphanedVolumes();
   const point = env.point ?? values.point ?? process.env.BENCH_POINT;
   if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
   if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);

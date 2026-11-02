@@ -27,7 +27,7 @@ A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden
 | --- | --- |
 | `repo`, `base`, `merged` | Repo and commits to replay |
 | `test`, `suite`, `typecheck`, `setup`, `build` | Optional commands; `suite` defaults to `test` |
-| `image` | Local scoring image, such as `agentgraph-sandbox:node20` |
+| `image` | Local image for scoring and both arms, such as `agentgraph-sandbox:node22` |
 | `hasTests: false` | Metrics and judges only; hidden tests are recorded as skipped with a reason |
 | `size`, `kind`, `area` | Case labels |
 | `labels` | Extra case labels as a map of strings to strings |
@@ -36,6 +36,10 @@ A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden
 Case commands override repo recipes. A case that touches test files without a test command is invalid, including repos without a recipe. Cases without test files record a hidden-test skip. The gate prints its verdict, reason and test counts; reports count skips and list their reasons.
 
 A tested case is valid only if its hidden tests fail on base and pass on the human change, and the human change applies, sets up and passes the suite and typecheck. A coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json`. Repos whose tests start containers are left out.
+
+Image selection uses case `image`, then the selected graph's `image`, then the operator fallback and stock sandbox. `BENCH_DIR` selects an external graph; floor replacement keeps that graph's resolved image. Each case saves its Docker ID in `image.json` before validity checks or arm reuse. Resume uses that ID even if the tag moves; restore a missing ID by rebuilding or pulling the original image. A new output dir selects a new image. Validity, scores and arm caches include the ID, and arm `meta.json` and score records expose it. Old records without image identity are recomputed. <!-- code: bin/bench.ts#readCaseImage bin/bench.ts#armSlot -->
+
+Bench cleanup only considers labelled environment tags recorded in that case's `.envs/refs.jsonl`. It preserves live holds, pins and lower volumes still used by retained environments. Low disk blocks when scoped cleanup cannot free enough. <!-- code: src/disk.ts#collect src/disk.ts#ensureFreeDisk -->
 
 ## Arms
 

@@ -1,9 +1,21 @@
 import { readOrUndefined } from './read.ts';
+import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { makeHostEnv } from './git.ts';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs';
+import {
+  type Dirent,
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statfsSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, join } from 'node:path';
-import { runDockerCli, envVersion, held, makeSetupVolumeName, removeOrphanedVolumes, unlogged, used } from './env.ts';
+import { runDockerCli, envVersion, held, makeSetupVolumeName, unlogged, used } from './env.ts';
 import { isLockedByOtherProcess, isOwnerRunning, readStateDir } from './owner.ts';
 
 /** What a cache item is: a sandbox setup image with its dependency volume, a dependency volume no image uses, or a host build dir. */
@@ -29,6 +41,27 @@ export const parseByteSize = (size: string) => {
   const m = /^(\d+(?:\.\d+)?)\s*([kmgt]?)b?$/i.exec(size.trim());
   if (!m) throw new Error(`not a size: ${size}`);
   return Number(m[1]) * 1000 ** ' kmgt'.indexOf(m[2]!.toLowerCase() || ' ');
+};
+
+export const readEnvRefs = (dir: string): string[] => {
+  const file = join(dir, '.envs', 'refs.jsonl');
+  const refs: unknown[] = existsSync(file)
+    ? readFileSync(file, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map(line => JSON.parse(line))
+    : [];
+  if (
+    !refs.every((ref): ref is string => typeof ref === 'string' && /^agentgraph-env\/[a-z0-9._-]+:[a-z0-9]+$/.test(ref))
+  )
+    throw new Error(`invalid environment refs in ${file}`);
+  return [...new Set(refs)];
+};
+
+export const writeEnvRef = (dir: string, tag: string) => {
+  if (readEnvRefs(dir).includes(tag)) return;
+  mkdirSync(join(dir, '.envs'), { recursive: true });
+  appendFileSync(join(dir, '.envs', 'refs.jsonl'), `${JSON.stringify(tag)}\n`);
 };
 
 const cap = () => parseByteSize(process.env.AGENTGRAPH_ENV_CAP || '60g');
@@ -132,7 +165,9 @@ const parseDockerLabels = (text = '') =>
  * Every cache item agentgraph left in docker, and the host build dirs under `roots`. Only our names count; compose
  * objects are data and never appear. Volumes without a recorded size count 0 bytes unless `measure`.
  */
-export const inventory = async (o: { roots?: string[]; measure?: boolean } = {}): Promise<DiskCacheEntry[]> => {
+export const inventory = async (
+  o: { roots?: string[]; measure?: boolean } & Pick<Disk, 'eligible'> = {}
+): Promise<DiskCacheEntry[]> => {
   const df = await usage();
   const tagsById = new Map<string, string[]>();
   const others = new Set<string>();
@@ -172,9 +207,12 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
         v.labels['agentgraph.layer'] &&
         isOwnerRunning(v.labels['agentgraph.layer'])
     );
-  const names = new Set(vols.map(v => v.name));
+  const names = new Set(
+    vols.filter(v => v.name === makeSetupVolumeName(v.labels['agentgraph.lower'] ?? '')).map(v => v.name)
+  );
   const items: DiskCacheEntry[] = [];
   const keys = new Set<string>();
+  let excluded = 0;
   const inspected = tagsById.size
     ? lines(
         await runDockerCli([
@@ -190,19 +228,27 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
     const [id = '', created = '', layers = '[]', ...rest] = l.split(' ');
     const labels = (JSON.parse(rest.join(' ') || 'null') ?? {}) as Record<string, string>;
     const key = labels['agentgraph.env'];
-    const tags = tagsById.get(id) ?? [];
-    if (!key || !tags.length || isData(labels)) continue;
+    const allTags = tagsById.get(id) ?? [];
+    const tags =
+      o.eligible === undefined ? allTags : allTags.filter(t => o.eligible!.includes(t) && t.endsWith(`:${key}`));
+    if (!key || isData(labels)) continue;
+    keys.add(key);
+    if (!tags.length) {
+      excluded += allTags.length;
+      continue;
+    }
     const why = gone(labels, JSON.parse(layers) as string[]);
     const unique = df.images.get(id) ?? 0;
     const lastUsedMs = existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
-    keys.add(key);
     items.push({
       kind: 'env',
       refs: [...tags, ...(names.has(makeSetupVolumeName(key)) ? [makeSetupVolumeName(key)] : [])],
       bytes: unique + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
       used: lastUsedMs,
       ...(why && { always: true, gone: why }),
+      ...(tags.length !== allTags.length && { held: 'retained image tag' }),
       ...((tags.some(t => runImages.has(t)) || runImages.has(id)) && { held: 'container' }),
+      ...(mounted.has(makeSetupVolumeName(key)) && { held: 'container' }),
       ...(overlaid(key) && { held: 'live checkout' }),
       ...(held(key, false) && { held: 'recent use' }),
     });
@@ -210,7 +256,9 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
   const measured = o.measure ? df.volumes : new Map<string, number>();
   for (const v of vols) {
     const key = v.name.slice('agentgraph-lower-'.length);
-    if (v.name !== makeSetupVolumeName(key) || keys.has(key)) continue;
+    if (v.name !== makeSetupVolumeName(key) || keys.has(key) || v.labels['agentgraph.lower'] !== key) continue;
+    if (o.eligible !== undefined && !o.eligible.some(t => t.startsWith('agentgraph-env/') && t.endsWith(`:${key}`)))
+      continue;
     items.push({
       kind: 'lower',
       refs: [v.name],
@@ -218,6 +266,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       used: 0,
       always: true,
       ...(mounted.has(v.name) ? { held: 'container' } : overlaid(key) && { held: 'live checkout' }),
+      ...(held(key, false) && { held: 'recent use' }),
     });
   }
   for (const path of (o.roots ?? []).flatMap(root => findBuildDirs(root))) {
@@ -231,6 +280,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       ...(isLockedByOtherProcess(path) && { held: 'busy' }),
     });
   }
+  if (excluded) console.error(`${excluded} skipped environment tags: outside cleanup scope`);
   const active = unexpired();
   return items.map(i => {
     const p = !i.held && active.find(p => i.refs.some(p.test));
@@ -271,7 +321,22 @@ const remove = async (i: DiskCacheEntry) => {
     );
   const tags = i.refs.filter(r => r.includes(':'));
   if (tags.length && !(await ok(['rmi', ...tags]))) return false;
-  for (const v of i.refs.filter(r => !r.includes(':'))) if (!(await ok(['volume', 'rm', v]))) return false;
+  for (const v of i.refs.filter(r => !r.includes(':'))) {
+    const key = v.slice('agentgraph-lower-'.length);
+    const retained = await runDockerCli([
+      'image',
+      'ls',
+      '--filter',
+      `label=agentgraph.env=${key}`,
+      '--format',
+      '{{.Repository}}:{{.Tag}}',
+    ]);
+    if (retained.trim()) {
+      console.error(`1 skipped cache removal (${v}): retained environment`);
+      continue;
+    }
+    if (!(await ok(['volume', 'rm', v]))) return false;
+  }
   return true;
 };
 
@@ -280,17 +345,22 @@ const remove = async (i: DiskCacheEntry) => {
  * bytes. Docker refuses anything a container still uses, and that item stays. `dry` removes nothing.
  */
 export const collect = async (
-  o: { limit?: number; dry?: boolean; roots?: string[]; measure?: boolean; free?: number; floor?: number } = {}
+  o: { limit?: number; dry?: boolean; free?: number; floor?: number } & NonNullable<
+    Parameters<typeof inventory>[0]
+  > = {}
 ) => {
   const items = await inventory(o);
   const removed: DiskCacheEntry[] = [];
+  const held = items.filter(i => i.held);
+  if (o.eligible !== undefined && held.length)
+    console.error(`${held.length} skipped cache removals: ${held.map(i => i.held).join(', ')}`);
   for (const i of pickCacheRemovals(items, { limit: o.limit ?? cap(), free: o.free ?? Infinity, floor: o.floor ?? 0 }))
     if (o.dry || (await remove(i))) removed.push(i);
   return { removed, items };
 };
 
 /** Where room() measures: the data dir on this host, and through `volume` and `image`, the disk docker writes to. */
-export type Disk = { dir: string; image?: string; volume?: string };
+export type Disk = { dir: string; image?: string; volume?: string; eligible?: string[] };
 
 const inDocker = new Map<string, { at: number; free: Promise<number> }>();
 
@@ -304,6 +374,8 @@ const dockerFree = (image: string, volume: string) => {
       'run',
       ...unlogged,
       '--rm',
+      '--name',
+      `agentgraph-disk-${randomBytes(6).toString('hex')}`,
       '--pull',
       'never',
       '--network',
@@ -360,17 +432,15 @@ export class DiskLow extends Error {
   }
 }
 
-/**
- * Makes sure `disk` has `min` GB free (`AGENTGRAPH_MIN_FREE_GB`, 40): below it, sweeps dead runners' volumes and
- * collects cache, also under `AGENTGRAPH_GC_ROOTS`, then throws `DiskLow` if that was not enough. It never stops a
- * running container.
- */
 export const ensureFreeDisk = async (disk: Disk, min = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40)) => {
   if (min === 0 || (await getFreeBytes(disk)) >= min * 1e9) return;
   inDocker.clear();
-  await removeOrphanedVolumes(60_000);
-  const roots = (process.env.AGENTGRAPH_GC_ROOTS ?? '').split(':').filter(Boolean);
-  const { items, removed } = await collect({ roots, free: await getFreeBytes(disk), floor: min * 1e9 });
+  const { items, removed } = await collect({
+    roots: [disk.dir],
+    eligible: disk.eligible ?? readEnvRefs(disk.dir),
+    free: await getFreeBytes(disk),
+    floor: min * 1e9,
+  });
   inDocker.clear();
   const free = await getFreeBytes(disk);
   if (free < min * 1e9)

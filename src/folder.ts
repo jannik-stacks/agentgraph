@@ -76,6 +76,16 @@ const SettingsFile = Schema.Struct({
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
+export const parseGraphSettings = (text: string | undefined, say: (message: string) => void) => {
+  let data: unknown = {};
+  try {
+    data = (text && parse(text)) ?? {};
+  } catch (e) {
+    say(`yaml: ${(e as Error).message}`);
+  }
+  return decode(SettingsFile, data, say);
+};
+
 /**
  * A check is items, a command and an agent that judges. Each gives a result `returns` describes, which passes when it
  * matches `pass`. `info` only records it, `warn` records a failure, `block` fails the try and `stop` the run.
@@ -177,14 +187,7 @@ const compile = (
     }
   };
 
-  const say = sayer('settings.yaml');
-  let settingsData: unknown = {};
-  try {
-    settingsData = (settingsText && parse(settingsText)) ?? {};
-  } catch (e) {
-    say(`yaml: ${(e as Error).message}`);
-  }
-  const settings = decode(SettingsFile, settingsData, say);
+  const settings = parseGraphSettings(settingsText, sayer('settings.yaml'));
 
   const docs = <T>(files: File[], read: (data: unknown, say: (m: string) => void) => T | undefined) => {
     const out: Record<string, Doc<T>> = {};

@@ -1,5 +1,5 @@
 no-comment bench/drive.ts 17
-no-comment bin/bench.ts 64
+no-comment bin/bench.ts 60
 no-comment bin/commands.mjs 5
 no-comment bin/commit-msg.mjs 1
 no-comment bin/diagrams.mjs 8
@@ -47,7 +47,7 @@ no-comment examples/agentgraph/scripts/triage-brief.mjs 8
 no-comment examples/agentgraph/scripts/unused-exports.mjs 5
 no-comment examples/bench/scripts/review.mjs 2
 no-comment src/context.ts 10
-no-comment src/disk.ts 14
+no-comment src/disk.ts 13
 no-comment src/docker.ts 10
 no-comment src/engine.ts 67
 no-comment src/env.ts 23

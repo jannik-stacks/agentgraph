@@ -120,7 +120,10 @@ export const fakeDocker = (out: Record<string, string> = {}) => {
           .join('*')}*) printf '${v}' ;;`
     )
     .join('\n');
-  writeFileSync(join(bin, 'docker'), `#!/bin/sh\necho "$*" >> ${log}\ncase "$*" in\n${cases}\nesac\n`);
+  writeFileSync(
+    join(bin, 'docker'),
+    `#!/bin/sh\necho "$*" >> ${log}\ncase "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; esac\ncase "$*" in\n${cases}\nesac\n`
+  );
   chmodSync(join(bin, 'docker'), 0o755);
   const saved = { PATH: process.env.PATH, AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE };
   process.env.PATH = `${bin}${delimiter}${saved.PATH}`;

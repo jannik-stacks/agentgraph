@@ -17,12 +17,11 @@ import {
   type SharedMount,
   writeCheckoutOwner,
   reap,
-  removeOrphanedVolumes,
   packageManagerCacheEnv,
   unlogged,
   written,
 } from './env.ts';
-import { ensureFreeDisk } from './disk.ts';
+import { ensureFreeDisk, readEnvRefs, writeEnvRef } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { gitIdentity, hostGit, makeHostEnv } from './git.ts';
@@ -214,7 +213,9 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
         ? false
         : yield* new SandboxError({
             reason: 'host',
-            detail: `The image ${tag} is missing on the runner host. Run \`docker pull ${tag}\` there.`,
+            detail: tag.startsWith('sha256:')
+              ? `Pinned image ${tag} is missing. Rebuild or pull the original image to restore this ID before resuming.`
+              : `The image ${tag} is missing on the runner host. Run \`docker pull ${tag}\` there.`,
           });
     const source = fileURLToPath(new URL(`../infra/local/${dir}`, import.meta.url));
     const hash = createHash('sha256');
@@ -233,6 +234,72 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
       )
     );
     return true;
+  });
+
+const checkedImages = new Set<string>();
+
+export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxImage, override?: string) =>
+  Effect.gen(function* () {
+    if ([override, graph.image, fallback].some(value => value !== undefined && typeof value !== 'string'))
+      return yield* new SandboxError({ reason: 'host', detail: 'Image references must be strings.' });
+    const tag = override ?? graph.image ?? fallback;
+    yield* locked('images', ensureImage(tag));
+    const id = yield* run('docker', ['image', 'inspect', '--format', '{{.Id}}', tag]);
+    if (!checkedImages.has(id)) {
+      const uid = yield* Effect.try({ try: user, catch: error => error as SandboxError });
+      const name = `agentgraph-image-${randomBytes(6).toString('hex')}`;
+      const out = yield* run('docker', [
+        'run',
+        '--rm',
+        '--name',
+        name,
+        '--pull',
+        'never',
+        '--network',
+        'none',
+        '--read-only',
+        '--user',
+        uid,
+        '--tmpfs',
+        '/tmp:rw,exec,nosuid,nodev,size=64m',
+        '--workdir',
+        '/tmp',
+        '-e',
+        'HOME=/tmp',
+        '--memory',
+        limits.memory,
+        '--memory-swap',
+        limits.memory,
+        '--cpus',
+        limits.cpus,
+        '--pids-limit',
+        limits.pids,
+        '--cap-drop=ALL',
+        '--security-opt',
+        'no-new-privileges=true',
+        id,
+        'sh',
+        '-c',
+        'printf agentgraph-command-ready',
+      ]).pipe(
+        Effect.timeoutFail({
+          duration: '10 seconds',
+          onTimeout: () => infra(`image ${id} did not run the command probe`),
+        }),
+        Effect.onError(() =>
+          run('docker', ['rm', '-f', name]).pipe(
+            Effect.catchAll(e => Effect.sync(() => console.error(`1 skipped image probe cleanup: ${e.detail}`)))
+          )
+        )
+      );
+      if (out !== 'agentgraph-command-ready')
+        return yield* new SandboxError({
+          reason: 'host',
+          detail: `Image ${id} must run supplied commands directly; check its entrypoint.`,
+        });
+      checkedImages.add(id);
+    }
+    return id;
   });
 
 export const findMissingModelHosts = (hosts: string[]) =>
@@ -372,16 +439,17 @@ export const dockerSandbox = (o: {
       const mirror = o.local ? o.origin : join(o.data, 'mirror.git');
       let configured = false;
       const lock = yield* Effect.makeSemaphore(1);
-      if (cache)
-        yield* Effect.promise(() =>
-          removeOrphanedVolumes(30_000).catch(e => {
-            console.error(`1 skipped orphan cleanup: ${String(e)}`);
-            return 0;
-          })
-        );
       reap(o.data);
-      const disk = { dir: o.data, ...(cache && { image, volume: cache }) };
-      const roomy = Effect.tryPromise({ try: () => ensureFreeDisk(disk), catch: e => infra((e as Error).message) });
+      const roomy = (base: string) =>
+        Effect.tryPromise({
+          try: () =>
+            ensureFreeDisk({
+              dir: o.data,
+              ...(cache && { image: base, volume: cache }),
+              eligible: readEnvRefs(o.data),
+            }),
+          catch: e => infra((e as Error).message),
+        });
       /** Each live checkout as the host made it. */
       const made = new Map<string, CheckoutContainerSpec>();
       const inMirror = (args: string[], env: Record<string, string> = {}) =>
@@ -417,8 +485,8 @@ export const dockerSandbox = (o: {
 
       const prepare = (c: Command) =>
         Effect.gen(function* () {
-          yield* roomy;
           const box = made.get(c.dir) ?? { mounts: [] };
+          yield* roomy(box.image ?? image);
           if (c.network === 'proxy') yield* ready(networks[box.network ?? 'egress']);
           if (c.tools) {
             const endpoint = yield* Effect.try({
@@ -629,13 +697,8 @@ export const dockerSandbox = (o: {
         graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
       ) =>
         Effect.gen(function* () {
-          const box = graph?.image ?? image;
-          const present = yield* run('docker', ['image', 'inspect', '--format', '{{.Id}}', box]).pipe(
-            Effect.as(true),
-            Effect.orElseSucceed(() => false)
-          );
-          if (!present) yield* locked('images', ensureImage(box));
-          if (ref === undefined) return yield* empty(graph);
+          const box = yield* readImage(graph, image);
+          if (ref === undefined) return yield* empty({ ...graph, image: box });
           yield* fetch;
           const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
@@ -644,7 +707,7 @@ export const dockerSandbox = (o: {
           if (!rev) return yield* infra(`no commit for ${ref}`);
           const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
           const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
-          yield* roomy;
+          yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
           const env =
             graph && cache
@@ -652,7 +715,7 @@ export const dockerSandbox = (o: {
                   try: () =>
                     readSandboxSetup({
                       repo: graph.repo ?? 'repo',
-                      image: graph.image ?? image,
+                      image: box,
                       git: mirror,
                       base,
                       cache,
@@ -662,6 +725,7 @@ export const dockerSandbox = (o: {
                   catch: e => infra((e as Error).message),
                 })
               : undefined;
+          if (env) yield* Effect.sync(() => writeEnvRef(o.data, env.image));
           const match = env
             ? yield* Effect.promise(() =>
                 readSetupInputKey(mirror, rev, env.mode).then(
@@ -735,7 +799,7 @@ export const dockerSandbox = (o: {
               sharedMounts = yield* Effect.tryPromise({
                 try: async () =>
                   createSharedMounts(
-                    env ?? { image: graph.image ?? image, outputs: [] },
+                    env ?? { image: box, outputs: [] },
                     id,
                     dir,
                     await dependencyDirs(mirror, rev),
@@ -743,10 +807,10 @@ export const dockerSandbox = (o: {
                   ),
                 catch: e => infra((e as Error).message),
               });
-            const own = env?.image ?? graph?.image;
-            work.written = () => written(sharedMounts, own ?? image);
+            const own = env?.image ?? box;
+            work.written = () => written(sharedMounts, own);
             made.set(dir, {
-              ...(own !== undefined && { image: own }),
+              image: own,
               ...(graph?.network !== undefined && { network: graph.network }),
               sharedMounts,
               mounts: [

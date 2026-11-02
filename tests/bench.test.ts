@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   parseBenchJudgeResponse,
   armSlot,
+  readCaseImage,
   bootstrap,
   getBenchUsageCost,
   couplings,
@@ -30,6 +31,7 @@ import {
   unpriced,
   parseBenchJudgeVerdict,
 } from '../bin/bench.ts';
+import { faked } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
 import { getRounded } from '../src/stats.ts';
 
@@ -42,8 +44,11 @@ const hostDocker = (image = true) => {
     join(bin, 'docker'),
     [
       '#!/bin/sh',
+      `echo "$*" >> ${join(bin, 'calls')}`,
+      'case "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; esac',
       ...(image ? [] : ['[ "$1" = image ] && exit 1']),
-      '[ "$1 $3" = "image --format" ] && echo "${FAKE_IMAGE_ID:-sha256:one}" && exit 0',
+      `[ ! -e ${join(bin, 'fail-pin')} ] || case "$*" in *sha256:one*) exit 1;; esac`,
+      `[ "$1 $3" = "image --format" ] && { case "$*" in *sha256:one*) echo sha256:one;; *sha256:two*) echo sha256:two;; *) cat ${join(bin, 'image-id')};; esac; exit 0; }`,
       '[ "$1" = run ] || exit 0',
       'for a; do case "$a" in type=bind,src=*,dst=/work) dir=${a#type=bind,src=}; dir=${dir%,dst=/work};; esac; done',
       'while [ $# -gt 1 ] && [ "$1" != -c ]; do shift; done',
@@ -51,6 +56,7 @@ const hostDocker = (image = true) => {
     ].join('\n')
   );
   chmodSync(join(bin, 'docker'), 0o755);
+  writeFileSync(join(bin, 'image-id'), 'sha256:one');
   return { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, AGENTGRAPH_CACHE_VOLUME: '' };
 };
 const dirs: string[] = [];
@@ -285,6 +291,53 @@ describe('bench helpers', () => {
   });
 });
 
+describe('case image pins', () => {
+  it('rejects a missing graph before selecting a fallback image', async () => {
+    const graph = join(tmp('graph'), 'missing');
+    const out = tmp('out');
+    process.env.BENCH_DIR = graph;
+    const c = { id: 'demo', dir: graph, repo: 'me/demo', base: 'a', merged: 'b', title: '', body: '' };
+    await expect(readCaseImage(c, out)).rejects.toThrow('case graph is missing');
+    delete process.env.BENCH_DIR;
+    expect(existsSync(join(out, 'demo/image.json'))).toBe(false);
+  });
+
+  it('reads graph settings strictly before saving a pin', async () => {
+    const graph = tmp('graph');
+    const out = tmp('out');
+    writeFileSync(join(graph, 'settings.yaml'), 'image: graph:1\nunknown: true\n');
+    process.env.BENCH_DIR = graph;
+    const c = { id: 'demo', dir: graph, repo: 'me/demo', base: 'a', merged: 'b', title: '', body: '' };
+    await expect(readCaseImage(c, out)).rejects.toThrow('unknown');
+    delete process.env.BENCH_DIR;
+    expect(existsSync(join(out, 'demo/image.json'))).toBe(false);
+  });
+
+  it('pins separate repos and resumes by ID even after graph changes', async () => {
+    const graph = tmp('graph');
+    const out = tmp('out');
+    writeFileSync(join(graph, 'settings.yaml'), 'image: graph:1\n');
+    process.env.BENCH_DIR = graph;
+    const c = { id: 'demo', dir: graph, repo: 'me/demo', base: 'a', merged: 'b', title: '', body: '' };
+    await faked({ 'image inspect': 'sha256:one' }, async () => {
+      await readCaseImage(c, out);
+    });
+    writeFileSync(join(graph, 'settings.yaml'), 'image: graph:2\n');
+    await faked(
+      { 'image inspect --format {{.Id}} sha256:one': 'sha256:one', 'image inspect': 'sha256:two' },
+      async log => {
+        const resumed = await readCaseImage(c, out);
+        const second = await readCaseImage({ ...c, id: 'other', repo: 'me/other' }, out);
+        expect(resumed.image).toBe('sha256:one');
+        expect(second.image).toBe('sha256:two');
+        expect(log()).toContain('{{.Id}} sha256:one');
+        expect(log()).toContain('{{.Id}} graph:2');
+      }
+    );
+    delete process.env.BENCH_DIR;
+  });
+});
+
 describe('bin/bench.ts score and report', () => {
   it('reports unsupported hidden tests as invalid before scoring or judging', () => {
     const root = tmp('bench-invalid');
@@ -351,10 +404,11 @@ describe('bin/bench.ts score and report', () => {
       env: hostDocker(false),
     });
     expect(missing.status).not.toBe(0);
-    expect(missing.stderr).toContain('score needs docker');
+    expect(missing.stderr).toContain('docker image inspect');
     expect(existsSync(join(out, 'demo', 'base', 'score.json'))).toBe(false);
 
     mkdirSync(join(out, 'demo', 'base'), { recursive: true });
+    mkdirSync(join(out, 'demo', 'human'), { recursive: true });
     writeFileSync(join(out, 'demo', 'base', 'score.json'), '{}');
     writeFileSync(join(out, 'demo', 'human', 'score.json'), '{}');
     writeFileSync(join(out, 'demo', 'valid.json'), '{}');
@@ -368,18 +422,29 @@ describe('bin/bench.ts score and report', () => {
       'gate demo: valid: hidden tests distinguish base and human'
     );
     expect(JSON.parse(readFileSync(join(out, 'env.json'), 'utf8'))).toMatchObject({ image: 'sha256:one' });
+    writeFileSync(join(env.PATH.split(delimiter)[0]!, 'image-id'), 'sha256:two');
     const moved = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
       encoding: 'utf8',
-      env: { ...env, FAKE_IMAGE_ID: 'sha256:two' },
+      env,
     });
-    expect(moved.stderr).toContain('image is sha256:two, but this run started with sha256:one');
+    expect(moved.status, moved.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(join(out, 'demo/image.json'), 'utf8'))).toEqual({ image: 'sha256:one' });
+    const failPin = join(env.PATH.split(delimiter)[0]!, 'fail-pin');
+    writeFileSync(failPin, '');
+    const gone = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
+      encoding: 'utf8',
+      env,
+    });
+    expect(gone.status).not.toBe(0);
+    expect(gone.stderr).toContain('sha256:one');
+    rmSync(failPin);
     const score = (arm: string) => JSON.parse(readFileSync(join(out, 'demo', arm, 'score.json'), 'utf8'));
     expect(score('base')).toMatchObject({ applied: true, suite: { ok: true }, hidden: { ok: false } });
     expect(score('v2')).toMatchObject({ applied: true, hidden: { ok: true }, srcAdded: 1, overlap: 0.5, usd: 0.25 });
     expect(score('human')).toMatchObject({ hidden: { ok: true }, testsAdded: 1, overlap: 1 });
 
     bench('score', kase, out, '--repo', repo);
-    expect(JSON.parse(readFileSync(join(out, 'demo', 'valid.json'), 'utf8'))).toEqual({});
+    expect(JSON.parse(readFileSync(join(out, 'demo', 'valid.json'), 'utf8'))).toEqual({ image: 'sha256:one' });
     const log = readFileSync(join(out, 'log.jsonl'), 'utf8').trim().split('\n');
     expect(log.filter(l => l.includes('"event":"end"'))).toHaveLength(3);
     const said = (order: string, judge: string, prefer: string) => {
@@ -462,6 +527,77 @@ describe('bin/bench.ts score and report', () => {
     expect(readBenchRows(out, ['me/other'])).toEqual([]);
     expect(readBenchRows(out, ['me/demo'])).toHaveLength(3);
     expect(bench('report', out)).not.toContain('nope');
+    writeFileSync(join(out, 'demo/image.json'), JSON.stringify({ image: 'sha256:two' }));
+    bench('score', kase, out, '--repo', repo);
+    expect(score('base').image).toBe('sha256:two');
+    expect(score('human').image).toBe('sha256:two');
+    expect(JSON.parse(readFileSync(join(out, 'demo/valid.json'), 'utf8')).image).toBe('sha256:two');
+  });
+});
+
+describe('arm image propagation', () => {
+  it.each([
+    ['v2', undefined, 'graph:1'],
+    ['floor', 'case:1', 'case:1'],
+  ] as const)('injects the selected pin into %s before the engine runs', (arm, override, tag) => {
+    const root = tmp('arm-image');
+    dirs.push(root);
+    const repo = join(root, 'repo');
+    const engine = join(root, 'engine');
+    const graph = join(engine, 'external');
+    const kase = join(root, 'cases/demo');
+    const out = join(root, 'out');
+    mkdirSync(repo, { recursive: true });
+    git(repo, 'init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'a'), 'base');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'base');
+    const base = git(repo, 'rev-parse', 'HEAD');
+    mkdirSync(join(engine, 'src'), { recursive: true });
+    const captured = join(root, 'captured.json');
+    writeFileSync(
+      join(engine, 'src/main.ts'),
+      `import { readFileSync, writeFileSync } from 'node:fs';
+export const start = async ({ graph }) => {
+  writeFileSync(${JSON.stringify(captured)}, JSON.stringify({ settings: readFileSync(graph + '/settings.yaml', 'utf8'), workflow: readFileSync(graph + '/workflows/issue.md', 'utf8') }));
+  return [{ status: 'waiting' }];
+};`
+    );
+    mkdirSync(join(graph, 'workflows'), { recursive: true });
+    mkdirSync(join(graph, 'agents'), { recursive: true });
+    writeFileSync(join(graph, 'settings.yaml'), 'repo: me/demo\nimage: graph:1\n');
+    writeFileSync(join(graph, 'workflows/issue.md'), 'external workflow');
+    git(engine, 'init', '-q');
+    git(engine, 'add', '.');
+    git(engine, 'commit', '-qm', 'engine');
+    mkdirSync(kase, { recursive: true });
+    writeFileSync(
+      join(kase, 'case.json'),
+      JSON.stringify({ repo: 'me/demo', base, merged: base, hasTests: false, image: override })
+    );
+    writeFileSync(join(kase, 'issue.md'), '# Demo');
+    writeFileSync(join(kase, 'merged.diff'), '');
+    mkdirSync(out);
+    writeFileSync(join(out, 'budget.json'), JSON.stringify({ now: 0, start: 0, at: Date.now() }));
+    const env = hostDocker();
+    const result = spawnSync(process.execPath, [cli, 'run', arm, kase, out, '--repo', repo], {
+      encoding: 'utf8',
+      env: {
+        ...env,
+        BENCH_ENGINE: engine,
+        BENCH_DIR: 'external',
+        AGENTGRAPH_STATE: join(root, 'state'),
+        AGENTGRAPH_MIN_FREE_GB: '0',
+        AGENTGRAPH_PROXY_URL: '',
+        AGENTGRAPH_PROXY_KEYS: 'implementor=fake',
+      },
+    });
+    expect(result.status, result.stderr).toBe(0);
+    const seen = JSON.parse(readFileSync(captured, 'utf8'));
+    expect(seen.settings).toContain('image: sha256:one');
+    expect(readFileSync(join(env.PATH.split(delimiter)[0]!, 'calls'), 'utf8')).toContain(`{{.Id}} ${tag}`);
+    expect(seen.workflow.includes('external workflow')).toBe(arm === 'v2');
+    expect(JSON.parse(readFileSync(join(out, 'demo', arm, 'meta.json'), 'utf8')).image).toBe('sha256:one');
   });
 });
 
@@ -500,6 +636,7 @@ describe('bin/bench.ts typecheck', () => {
     expect(score('base').skipped).toBe('case disables hidden tests');
     expect(score('human')).toMatchObject({ typecheck: { ok: false } });
     expect(JSON.parse(readFileSync(join(out, 'demo', 'valid.json'), 'utf8'))).toEqual({
+      image: 'sha256:one',
       invalid: 'the human fails the typecheck',
       skipped: 'case disables hidden tests',
     });
@@ -598,6 +735,14 @@ describe('points', () => {
     delete process.env.BENCH_CACHE;
     expect(new Set([plain, luna, again]).size).toBe(3);
     expect(armSlot(c, 'floor')).toBeUndefined();
+  });
+
+  it.each(['v2', 'floor'])('keys %s by the pinned image', arm => {
+    process.env.BENCH_CACHE = tmp('cache');
+    const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
+    const slots = [undefined, 'sha256:one', 'sha256:two'].map(image => armSlot({ ...c, ...(image && { image }) }, arm));
+    delete process.env.BENCH_CACHE;
+    expect(new Set(slots).size).toBe(3);
   });
 
   it('keys the floor by the engine tree too, and stamps where a reused arm came from', () => {

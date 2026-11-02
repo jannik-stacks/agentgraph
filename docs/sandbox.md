@@ -49,7 +49,7 @@ Bases that differ only in source share one. A `setup` that reads `$AGENTGRAPH_DI
 
 `bin/env.ts` frees disk. It removes unused volumes, environments no run can reuse, and score trees nobody holds (under `--root` or `AGENTGRAPH_GC_ROOTS`), then the least recently used until the total is under `AGENTGRAPH_ENV_CAP` (`60g`). It keeps what a container, a live checkout or a pin uses, and what a live runner used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2). <!-- code: src/disk.ts#collect -->
 
-Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `unpin` and `sweep`, which drops dead runners' dependency volumes. Collection also runs after each bench case and below `AGENTGRAPH_MIN_FREE_GB` (40) free. If that is not enough, `disk low` names what holds the space and bench work waits. <!-- code: src/disk.ts#ensureFreeDisk -->
+Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `unpin` and `sweep`, which drops dead runners' dependency volumes. Bench collection and automatic low-disk collection only consider environment tags recorded in the case or runner data dir (`.envs/refs.jsonl`). A retained environment keeps its shared lower volume. Global collection stays an explicit operator action. Collection runs below `AGENTGRAPH_MIN_FREE_GB` (40) free. If that is not enough, `disk low` names what holds the space and bench work waits. <!-- code: src/disk.ts#ensureFreeDisk -->
 
 ### Toolchains
 
@@ -64,6 +64,8 @@ A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` names another volu
 ## A graph's own image
 
 Graph `image` names a local image for every command and environment build, instead of `AGENTGRAPH_IMAGE` or `agentgraph-sandbox:local`. Build it yourself, with the harnesses, for example `FROM agentgraph-sandbox:local` plus an `npm ci` into `/node_modules` on the `PATH`. Those dependencies stay as built even when a pull request changes the lockfile. Pair it with `network: models`.
+
+The runner resolves the tag to its Docker ID once per checkout, including when caches are disabled. Bench uses the same resolver, with case `image` first, graph `image` second, then `AGENTGRAPH_IMAGE` and the stock sandbox. Custom images must run commands directly and include the harnesses and `agi`; missing custom tags fail without building stock contents. Remote boxes still reject graph image selection. <!-- code: src/docker.ts#readImage -->
 
 For a repo requiring Node 22, build the derived recipe, whose Node source is pinned by digest:
 

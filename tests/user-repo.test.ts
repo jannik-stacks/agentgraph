@@ -113,6 +113,7 @@ beforeAll(() => {
     join(binDir, 'docker'),
     [
       '#!/bin/sh',
+      'case "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; esac',
       '[ "$1" = network ] && { echo true; exit 0; }',
       '[ "$1" = image ] && { echo sha256:x; exit 0; }',
       'exit 0',

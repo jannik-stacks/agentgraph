@@ -11,7 +11,10 @@ import {
   ensureFreeDisk,
   findBuildDirs,
   unpin,
+  readEnvRefs,
+  writeEnvRef,
 } from '../src/disk.ts';
+import { startHeartbeat } from '../src/owner.ts';
 import { envVersion } from '../src/env.ts';
 import { faked } from './fixtures.ts';
 import { tmp, write } from './kit.ts';
@@ -43,6 +46,7 @@ describe('pickCacheRemovals', () => {
 
 /** A docker holding two current sandbox setups, an unlabeled and a compose image, an orphan lower, and volumes that are data. */
 const box = {
+  'image ls --filter': '',
   'image ls': [
     'sha256:e1 agentgraph-env/r:k1',
     'sha256:e2 agentgraph-env/r:k2',
@@ -145,6 +149,7 @@ describe('inventory', () => {
     await faked(
       {
         'system df': '{}',
+        'image ls --filter': '',
         'image ls': [
           'sha256:a agentgraph-env/r:a',
           'sha256:b agentgraph-env/r:b',
@@ -250,12 +255,112 @@ describe('findBuildDirs', () => {
   });
 });
 
+describe('environment ownership ledger', () => {
+  it('rejects unknown recorded refs', () => {
+    const dir = tmp('data');
+    write(dir, { '.envs/refs.jsonl': '42\n' });
+    expect(() => readEnvRefs(dir)).toThrow('invalid environment refs');
+  });
+
+  it('records refs in a directory without confusing the run store', async () => {
+    const dir = tmp('data');
+    writeEnvRef(dir, 'agentgraph-env/r:k1');
+    writeEnvRef(dir, 'agentgraph-env/r:k2');
+    expect(readEnvRefs(dir)).toEqual(['agentgraph-env/r:k1', 'agentgraph-env/r:k2']);
+    const { Effect } = await import('effect');
+    const { fileStore, Store } = await import('../src/store.ts');
+    const runs = await Effect.runPromise(
+      Store.pipe(
+        Effect.flatMap(s => s.list()),
+        Effect.provide(fileStore(dir))
+      )
+    );
+    expect(runs).toEqual([]);
+  });
+});
+
+describe('scoped collection', () => {
+  it('drops only recorded, labelled envs beside another repo', async () => {
+    await faked(box, async log => {
+      await collect({ eligible: ['agentgraph-env/r:k1', 'agentgraph-env/unlabeled:abc'], limit: 0 });
+      const removals = log()
+        .split('\n')
+        .filter(l => /^(rmi|volume rm)/.test(l));
+      expect(removals).toEqual(['rmi agentgraph-env/r:k1', 'volume rm agentgraph-lower-k1']);
+    });
+  });
+
+  it('keeps a lower when another repo retains its key', async () => {
+    await faked(
+      {
+        'image ls --filter': 'agentgraph-env/other:k1',
+        ...Object.fromEntries(Object.entries(box).filter(([k]) => k !== 'image ls --filter')),
+      },
+      async log => {
+        await collect({ eligible: ['agentgraph-env/r:k1'], limit: 0 });
+        expect(log()).toContain('rmi agentgraph-env/r:k1');
+        expect(log()).not.toContain('volume rm');
+      }
+    );
+  });
+
+  it('keeps aliases, container holds and pins', async () => {
+    const images = `${box['image ls']}sha256:e1 agentgraph-env/other:k1\\n`;
+    await faked({ ...box, 'image ls': images }, async log => {
+      pin('owned', ['agentgraph-env/r:k*'], 1);
+      await collect({ eligible: ['agentgraph-env/r:k1', 'agentgraph-env/r:k2'], limit: 0 });
+      expect(
+        log()
+          .split('\n')
+          .filter(l => /^(rmi|volume rm)/.test(l))
+      ).toEqual([]);
+    });
+  });
+
+  it('keeps a lower held by a live checkout', async () => {
+    const owner = startHeartbeat();
+    await faked(
+      {
+        ...box,
+        'volume ls --format': `${box['volume ls --format']}agentgraph-layer-live\tagentgraph.lower=k1,agentgraph.layer=${owner}\\n`,
+      },
+      async log => {
+        await collect({ eligible: ['agentgraph-env/r:k1'], limit: 0 });
+        expect(
+          log()
+            .split('\n')
+            .filter(l => /^(rmi|volume rm)/.test(l))
+        ).toEqual([]);
+      }
+    );
+  });
+
+  it.each([undefined, []])(
+    'blocks on low disk without global sweeping or unrelated removals with scope %j',
+    async eligible => {
+      await faked(box, async log => {
+        await expect(ensureFreeDisk({ dir: tmp('disk'), ...(eligible && { eligible }) }, 1e9)).rejects.toBeInstanceOf(
+          DiskLow
+        );
+        expect(
+          log()
+            .split('\n')
+            .filter(l => /^(rmi|volume rm|volume ls --filter)/.test(l))
+        ).toEqual([]);
+      });
+    }
+  );
+});
+
 describe('ensureFreeDisk', () => {
   it('collects, then refuses with the held cache and the command that frees it', async () => {
     await faked(box, async () => {
       await expect(ensureFreeDisk({ dir: tmp('disk') }, 0)).resolves.toBeUndefined();
       pin('luna', ['agentgraph-env/*'], 14);
-      const low = await ensureFreeDisk({ dir: tmp('disk') }, 1e9).catch((e: unknown) => e);
+      const low = await ensureFreeDisk(
+        { dir: tmp('disk'), eligible: ['agentgraph-env/r:k1', 'agentgraph-env/r:k2'] },
+        1e9
+      ).catch((e: unknown) => e);
       expect(low).toBeInstanceOf(DiskLow);
       expect(String((low as Error).message)).toMatch(/^disk low: [\d.]+ GB free, need 1000000000 GB/);
       expect((low as Error).message).toContain('pin luna');
