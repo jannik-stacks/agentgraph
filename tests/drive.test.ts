@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { configure, nodePath, runLogged, spendGuard } from '../bench/drive.ts';
+import { configure, parseBenchLabels, nodePath, runLogged, spendGuard } from '../bench/drive.ts';
 import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
@@ -15,6 +15,13 @@ describe('bench driver', () => {
     dirs.push(dir);
     writeFileSync(join(dir, 'drive.json'), '{broken');
     expect(() => configure(dir, { SHA: 'test' })).toThrow('drive.json');
+  });
+
+  it('parses free labels and rejects malformed entries', () => {
+    expect(parseBenchLabels('team=bench,experiment=skill=v2')).toEqual({ team: 'bench', experiment: 'skill=v2' });
+    expect(parseBenchLabels('')).toEqual({});
+    expect(() => parseBenchLabels('team')).toThrow('expected key=value');
+    expect(() => parseBenchLabels('=bench')).toThrow('expected key=value');
   });
 
   it('finds node on PATH at each spawn', () => {

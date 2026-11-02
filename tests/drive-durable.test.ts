@@ -130,7 +130,7 @@ describe('bench driver durability', () => {
   it('runs every job, logs it, and a resume reruns nothing finished', async () => {
     const dir = bench(['c1', 'bad1']);
     writeFileSync(join(dir, 'budget-log.jsonl'), '{"label":"start"}\n{"label":"cut');
-    const first = await drive(dir, settings(dir));
+    const first = await drive(dir, { ...settings(dir), LABELS: 'experiment=skills' });
     expect(first.code, first.out).toBe(0);
     expect(events(dir).map(e => e.event)).toEqual([
       'start',
@@ -143,6 +143,8 @@ describe('bench driver durability', () => {
     expect(JSON.parse(readFileSync(join(dir, 'drive.json'), 'utf8'))).toMatchObject({ SHA: 'abc', JUDGES: 'none' });
     expect(existsSync(join(dir, 'done/opencode-m/r1/c1'))).toBe(true);
     expect(existsSync(join(dir, 'drive.lock'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(run(dir), 'point.json'), 'utf8')).labels).toEqual({ experiment: 'skills' });
+    expect(() => configure(dir, { LABELS: 'experiment=other' })).toThrow('this run started with experiment=skills');
     const before = calls(dir).length;
     const again = await drive(dir);
     expect(again.code, again.out).toBe(0);

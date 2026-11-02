@@ -64,7 +64,7 @@ const json = <T>(path: string, fallback: T): T => {
 };
 
 /** Settings that give a dir's results their meaning, fixed after the first start. */
-const fixed = ['SHA', 'POINTS', 'REPEATS', 'REPEAT', 'JUDGES', 'KEYS', 'SET', 'ENGINE', 'REPOS'];
+const fixed = ['SHA', 'POINTS', 'REPEATS', 'REPEAT', 'JUDGES', 'KEYS', 'SET', 'ENGINE', 'REPOS', 'LABELS'];
 /** Budgets, kept too, that a resume may change. */
 const budgets = ['MAX_CODEX', 'CAP', 'PER', 'ORENV'];
 type Settings = Record<string, string>;
@@ -84,11 +84,23 @@ const queued = (dir: string) =>
       .flatMap(l => [...l.matchAll(/\b([A-Z_]+)=(\S+)/g)].map(m => [m[1]!, m[2]!]))
   ) as Settings;
 
+export const parseBenchLabels = (text: string): Record<string, string> =>
+  Object.fromEntries(
+    text
+      ? text.split(',').map(pair => {
+          const match = /^([^=,\s]+)=(.*)$/.exec(pair);
+          if (!match) throw new Error(`invalid LABELS entry: ${pair}; expected key=value`);
+          return [match[1]!, match[2]!];
+        })
+      : []
+  );
+
 const defaults = (dir: string, sha = '') => {
   const engine = ['engine/agentgraph', 'engine']
     .map(path => join(dir, sha, path))
     .find(path => existsSync(join(path, 'bin/bench.ts')));
   return {
+    LABELS: '',
     POINTS: 'opencode:luna',
     REPEATS: '3',
     JUDGES: 'opus:1,sonnet:2',
@@ -116,6 +128,7 @@ export const configure = (dir: string, env: Record<string, string | undefined> =
   const given = pick(env, fixed);
   const sha = given.SHA ?? was.SHA;
   if (!sha) throw new Error(`no SHA for ${dir}: start it with SHA=<engine commit>`);
+  parseBenchLabels(given.LABELS ?? was.LABELS ?? '');
   writeFileAtomic(file, { ...was, ...pick(env, budgets) });
   return ensureRunSettingsPinned(file, given, defaults(dir, sha));
 };
@@ -371,6 +384,7 @@ if (import.meta.main) {
       writeFileAtomic(join(at, 'point.json'), {
         harness,
         model,
+        labels: parseBenchLabels(s.LABELS!),
         engine: s.SHA,
         graphs,
         set: s.SET,

@@ -15,6 +15,10 @@ node bench/drive.ts resume <dir>
 
 Each run dir, `<dir>/<sha>/<harness>-<model>/r<k>`, gets `report.md` and `point.json`. Points take aliases such as `opencode:glm` ([OpenRouter](../infra/local/README.md#openrouter-models)). `BENCH_EXCLUDE=<repo>,<repo>` skips repos. Results are cached in `<dir>/.cache` (`BENCH_CACHE`) by case, arm, graph, engine `src` tree, point and repeat; `BENCH_FRESH=1` ignores it.
 
+`LABELS=experiment=skills,team=bench` adds free labels to `point.json`. Like the engine and model, `LABELS` is fixed on first start and restored on resume.
+
+<!-- code: bench/drive.ts#parseBenchLabels bench/drive.ts#configure -->
+
 ## Cases
 
 A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden.relaxed.diff` loosens merged tests that pin more than the issue says.
