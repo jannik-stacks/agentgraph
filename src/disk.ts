@@ -3,7 +3,6 @@ import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { makeHostEnv } from './git.ts';
 import {
-  type Dirent,
   appendFileSync,
   existsSync,
   mkdirSync,
