@@ -16,7 +16,7 @@ import { makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './ha
 import { readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
 import { graphAt, makeProductionLayers, settings, type Settings } from './services.ts';
-import { fileStore, Store, StoreError } from './store.ts';
+import { writeIdleRunsCompressed, fileStore, Store, StoreError } from './store.ts';
 import { LockHeldError } from './owner.ts';
 import type { Run } from './workflow.ts';
 
@@ -162,6 +162,9 @@ export const start = (
         const s = yield* settings.pipe(Effect.withConfigProvider(configured(yield* read)));
         yield* Effect.flatMap(Store, store => store.lock('loop')).pipe(Effect.provide(fileStore(s.data)));
         yield* warnTemporary(s.data);
+        const compress = Effect.tryPromise(() => writeIdleRunsCompressed(s.data, s.compress)).pipe(
+          Effect.catchAll(e => Effect.logWarning(`compressing idle runs failed: ${e.cause}`))
+        );
         const pass = Effect.tryPromise(refresh).pipe(
           Effect.catchAll(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
           Effect.zipRight(read),
@@ -175,7 +178,9 @@ export const start = (
           ),
           Effect.catchAll(e => Effect.logError(e))
         );
-        return yield* Effect.forever(Effect.zipRight(pass, Effect.sleep(`${s.every} minutes`)));
+        return yield* Effect.forever(
+          Effect.zipRight(Effect.zipRight(compress, pass), Effect.sleep(`${s.every} minutes`))
+        );
       }).pipe(Effect.scoped);
   return Effect.runPromise(program, { signal }).catch(failLoopLock);
 };

@@ -13,7 +13,7 @@ Locally, each repo gets an instance under the data root. As a runner (`--forge`)
     forge/                          issues, timelines, origin.git (the checkouts' git and run refs)
     data/                           the runs folder:
       <run id>/run.json               current state
-      <run id>/trace.jsonl            append-only events
+      <run id>/trace.jsonl            append-only events, .zst once idle
       files/<sha256>                  uploaded files
       homes/<id>/                     harness homes, kept for resuming and forking
       logs/<sha256>.gz                full check output, shared by content
@@ -22,6 +22,8 @@ Locally, each repo gets an instance under the data root. As a runner (`--forge`)
 ```
 
 A data folder inside the repo is refused. A moved repo is a new instance. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
+
+Each pass of `loop` compresses `trace.jsonl` and `checks.jsonl` of a run that ended and was not written for `AGENTGRAPH_COMPRESS_DAYS` days (14) to `trace.jsonl.zst` and `checks.jsonl.zst`. Readers open either; a new line unpacks the file first. Check logs are gzipped from the start. <!-- code: src/store.ts#writeIdleRunsCompressed src/store.ts#readRecord -->
 
 ## Backup and restore
 

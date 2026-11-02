@@ -7,6 +7,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJsonl } from './resume.ts';
+import { readRecord } from '../src/store.ts';
 
 const [data, ...rules] = process.argv.slice(2);
 if (!data) {
@@ -20,14 +21,13 @@ const waits = [];
 let sessions = 0;
 for (const id of readdirSync(data)) {
   const file = join(data, id, 'trace.jsonl');
-  if (!existsSync(file)) {
+  const text = readRecord(file);
+  if (!text) {
     if (existsSync(join(data, id, 'run.json'))) findings.push(`${id}: trace.jsonl missing`);
     continue;
   }
   const trace = readJsonl(file);
-  const rows = readFileSync(file, 'utf8')
-    .split('\n')
-    .filter(line => line.trim()).length;
+  const rows = text.split('\n').filter(line => line.trim()).length;
   if (trace.length !== rows) findings.push(`${id}: ${rows - trace.length} invalid trace rows skipped`);
   for (const { step, session, event } of trace) {
     if (event?.type === 'tool' && event.denied)

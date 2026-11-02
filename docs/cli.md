@@ -89,6 +89,7 @@ The runner reads these. The CLI sets `AGENTGRAPH_DIR`, `AGENTGRAPH_DATA`, `AGENT
 | `AGENTGRAPH_APP_KEY_FILE` | File with the App key; `/dev/fd/3` reads it from the Keychain |
 | `AGENTGRAPH_DATA` | Data root, `~/.agentgraph`; `--data` wins |
 | `AGENTGRAPH_EVERY` | Poll interval in minutes, 5 |
+| `AGENTGRAPH_COMPRESS_DAYS` | Days after which `loop` compresses an untouched ended run's trace and check record with zstd, 14; 0 never |
 | `AGENTGRAPH_REPO` | `owner/name` to work on instead of the graph's `repo` |
 | `AGENTGRAPH_TRUST` | Comma-separated logins trusted instead of the graph's `trust` |
 | `AGENTGRAPH_PROVIDER` | The provider; agents that name no harness get its first |

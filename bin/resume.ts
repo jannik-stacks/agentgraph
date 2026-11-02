@@ -23,7 +23,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { type Disk, ensureFreeDisk } from '../src/disk.ts';
 import { parseModelUrls } from '../src/harnesses.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
-import { writeFileAtomic } from '../src/store.ts';
+import { readRecord, writeFileAtomic } from '../src/store.ts';
 
 /** Appends one JSON line, first ending a line a crash left open. */
 export const appendJsonl = (path: string, v: unknown) => {
@@ -57,7 +57,7 @@ export const parseJsonl = <T = Record<string, unknown>>(text: string): T[] => {
   return rows;
 };
 
-export const readJsonl = <T = Record<string, unknown>>(path: string) => parseJsonl<T>(readFileOrEmpty(path));
+export const readJsonl = <T = Record<string, unknown>>(path: string) => parseJsonl<T>(readRecord(path));
 
 /**
  * Moves `path` into `.attic/` beside it, keeping its records; answers where it went. Its checkouts and scoring tree

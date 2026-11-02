@@ -26,6 +26,7 @@ export type Settings = {
   graph: string;
   data: string;
   every: number;
+  compress: number;
   proxy: { url: string; keys: Redacted.Redacted; models: string };
   passed: Record<string, Redacted.Redacted>;
   prices: string;
@@ -72,6 +73,7 @@ export const hostSettings = {
     Config.validate({ message: 'Expected minutes above 0', validation: n => n > 0 }),
     Config.withDefault(5)
   ),
+  compress: Config.number('AGENTGRAPH_COMPRESS_DAYS').pipe(Config.withDefault(14)),
   image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault(sandboxImage)),
   sandbox: Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
 };

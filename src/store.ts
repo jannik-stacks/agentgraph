@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
+  existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -14,7 +15,7 @@ import {
 import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
-import { gunzip, gzip } from 'node:zlib';
+import { gunzip, gzip, zstdCompress, zstdDecompressSync } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope } from 'effect';
 import { createLock, LockHeldError } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
@@ -169,6 +170,24 @@ const current = (value: unknown, key = ''): unknown => {
 
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 
+export const readRecord = (path: string) => {
+  if (existsSync(path)) return readFileSync(path, 'utf8');
+  return existsSync(`${path}.zst`) ? zstdDecompressSync(readFileSync(`${path}.zst`)).toString('utf8') : '';
+};
+
+export const writeIdleRunsCompressed = async (dir: string, days: number) => {
+  const before = Date.now() - days * 86_400_000;
+  for (const id of days ? await readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e))) : []) {
+    const run = readRecord(join(dir, id, 'run.json'));
+    if (!run || !JSON.parse(run).ended) continue;
+    for (const path of ['trace.jsonl', 'checks.jsonl'].map(file => join(dir, id, file))) {
+      if (!existsSync(path) || statSync(path).mtimeMs > before) continue;
+      writeFileAtomic(`${path}.zst`, await promisify(zstdCompress)(readFileSync(path)));
+      await rm(path);
+    }
+  }
+};
+
 /**
  * A run is `<dir>/<id>/run.json`, stamped `ended` when first stored done or stopped, its trace `<dir>/<id>/trace.jsonl` and its check record `<dir>/<id>/checks.jsonl`;
  * every put that changes the run first traces what changed, so a trace may hold a change its run.json missed. Locks carry a process owner and an acquisition id.
@@ -181,23 +200,21 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
   const traceFile = (id: string) => join(dir, id, 'trace.jsonl');
   const checksFile = (id: string) => join(dir, id, 'checks.jsonl');
   const readLines = <A>(path: string) =>
-    io(path, () =>
-      readFile(path, 'utf8').then(
-        text =>
-          text.split('\n').flatMap((line, i, lines): A[] => {
-            if (!line) return [];
-            try {
-              return [current(JSON.parse(line)) as A];
-            } catch (e) {
-              if (i === lines.length - 1) {
-                console.error(`${path}: 1 skipped incomplete JSONL row at line ${i + 1}: ${String(e)}`);
-                return [];
-              }
-              throw e;
+    io(path, async () =>
+      readRecord(path)
+        .split('\n')
+        .flatMap((line, i, lines): A[] => {
+          if (!line) return [];
+          try {
+            return [current(JSON.parse(line)) as A];
+          } catch (e) {
+            if (i === lines.length - 1) {
+              console.error(`${path}: 1 skipped incomplete JSONL row at line ${i + 1}: ${String(e)}`);
+              return [];
             }
-          }),
-        e => (missing(e) ? [] : Promise.reject(e))
-      )
+            throw e;
+          }
+        })
     );
   const readRun = (id: string) =>
     io(runFile(id), () =>
@@ -213,6 +230,10 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     return writer.withPermits(1)(
       io(path, async () => {
         await mkdir(dirname(path), { recursive: true });
+        if (existsSync(`${path}.zst`)) {
+          writeFileAtomic(path, readRecord(path));
+          await rm(`${path}.zst`);
+        }
         const file = await open(path, 'a+');
         try {
           const { size } = await file.stat();
@@ -384,12 +405,8 @@ export const locate = (input: unknown) =>
 export const pruneLogs = async (dir: string, apply = false) => {
   const named = new Set<string>();
   for (const id of await readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e))))
-    for (const file of ['trace.jsonl', 'checks.jsonl']) {
-      const text = await readFile(join(dir, id, file), 'utf8').catch(e =>
-        missing(e) || e.code === 'ENOTDIR' ? '' : Promise.reject(e)
-      );
-      for (const [hash] of text.matchAll(/[0-9a-f]{64}/g)) named.add(hash);
-    }
+    for (const file of ['trace.jsonl', 'checks.jsonl'])
+      for (const [hash] of readRecord(join(dir, id, file)).matchAll(/[0-9a-f]{64}/g)) named.add(hash);
   const unused = { files: 0, bytes: 0 };
   for (const name of await readdir(join(dir, 'logs')).catch(e => (missing(e) ? [] : Promise.reject(e)))) {
     const hash = /^([0-9a-f]{64})\.gz$/.exec(name)?.[1];
