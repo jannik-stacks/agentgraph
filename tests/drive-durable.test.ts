@@ -19,6 +19,7 @@ if (import.meta.main) {
   const id = basename(cmd === 'run' ? b : a);
   appendFileSync(process.env.FAKE_CALLS, JSON.stringify({ cmd, arm: cmd === 'run' ? a : undefined, id }) + '\\n');
   const fail = (process.env.FAKE_FAIL ?? '').split(',');
+  if (!existsSync(process.env.BENCH_CACHE)) throw new Error('missing BENCH_CACHE');
   if (cmd === 'report') process.exit(fail.includes('report') ? 1 : 0);
   const at = join(out, id);
   if (cmd === 'score') {

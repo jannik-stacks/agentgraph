@@ -283,6 +283,7 @@ if (import.meta.main) {
       BENCH_CACHE: join(dir, '.cache'),
     };
     for (const v of ['BENCH_PATH', 'BENCH_FRESH', 'BENCH_DIR', 'BENCH_POINT']) delete env[v];
+    mkdirSync(env.BENCH_CACHE!, { recursive: true });
     const bench = (args: string[], logFile: string) =>
       runLogged([join(engine, 'bin/bench.ts'), ...args, ...(s.KEYS ? ['--keys', s.KEYS] : [])], logFile, env, log);
 
