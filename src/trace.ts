@@ -1,7 +1,7 @@
 import { Data } from 'effect';
 import type { Applied, Event } from './event.ts';
 import type { Agent, Check } from './folder.ts';
-import type { Checkout, Command } from './sandbox.ts';
+import type { Checkout, Command, Exit } from './sandbox.ts';
 import type { CheckResult, Outcome, Run } from './workflow.ts';
 
 export type SessionSpec = {
@@ -58,6 +58,7 @@ export type SessionEvent =
       final: string;
       ended: 'stop' | 'cap' | 'error';
       exit: number;
+      used?: Exit['used'];
       provider?: Extract<SessionEvent, { type: 'start' }>['provider'];
     };
 
@@ -86,10 +87,11 @@ export type Trace = { at: string; step: string } & (
         aside?: true;
         ended: Extract<SessionEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
         exit?: number;
+        used?: Exit['used'];
         usd: number;
       };
     }
-  | { setup: { ms: number; exit: number } }
+  | { setup: Pick<Exit, 'used'> & { ms: number; exit: number } }
   | { cache: { files: number } }
   | { env: NonNullable<Checkout['env']> }
   | { applied: Applied }
@@ -110,6 +112,7 @@ export type CheckEntry = {
   usd: number;
   item?: string;
   exit?: number;
+  used?: Exit['used'];
   log?: Log;
   later?: true;
 };

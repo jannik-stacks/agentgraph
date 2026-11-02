@@ -244,7 +244,7 @@ export const harnessSession = (
             let done: Extract<Piece, { type: 'done' }> | undefined;
             let tail = '';
 
-            const step = (raw: string | Pick<Exit, 'code'>): SessionEvent[] => {
+            const step = (raw: string | Pick<Exit, 'code' | 'used'>): SessionEvent[] => {
               if (typeof raw !== 'string') {
                 const ended = done?.ended ?? 'error';
                 const final = reply || (ended === 'error' ? (done?.error ?? tail.trim()) : '');
@@ -254,6 +254,7 @@ export const harnessSession = (
                     final,
                     ended,
                     exit: raw.code,
+                    ...(raw.used && { used: raw.used }),
                     ...(ended === 'error' && s.provider && { provider: s.provider }),
                   },
                 ];

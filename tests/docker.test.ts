@@ -79,7 +79,7 @@ describe('docker with a stand-in docker client', () => {
         `echo "$*" >> ${log}.all`,
         `echo "secret=\${AGENTGRAPH_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
-        `case "$*" in *"skelfail deps"*) exit 98;; *"skeltool x deps"*) exit 97;; *"skelfail tree"*) ;; *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
+        `case "$*" in *"skelfail deps"*) exit 98;; *"skeltool x deps"*) exit 97;; *"skelfail tree"*) ;; *exit125*) exit 125;; *measured*) printf '\\nagentgraph-used 104857600 usage_usec 2500000 oom_kill 0\\n';; *oomed*) printf '\\nagentgraph-used 67108864 usage_usec 1500 oom_kill 1\\n'; exit 137;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
         `case "$*" in *agentgraph.envbuild*) printf '@@ignored\\n@@untracked\\n@@lower\\n0\\n';; esac`,
       ].join('\n')
     );
@@ -232,7 +232,16 @@ describe('docker with a stand-in docker client', () => {
     ]);
     expect(args.join(' ')).not.toContain('sk-value-123456=');
     expect(args.filter(a => a.includes('sk-value'))).toEqual(['secret=sk-value-123456']);
-    expect(args.slice(-6, -2)).toEqual(['agentgraph-sandbox:local', 'sh', '-c', 'echo hi']);
+    expect(args.slice(-10, -2)).toEqual([
+      'agentgraph-sandbox:local',
+      'sh',
+      '-c',
+      expect.stringContaining('/sys/fs/cgroup/memory.peak'),
+      'sh',
+      'sh',
+      '-c',
+      'echo hi',
+    ]);
   });
 
   it('keeps no docker log of any container it runs, since the runner reads the output itself', async () => {
@@ -303,6 +312,22 @@ describe('docker with a stand-in docker client', () => {
   it('streams lines until the process exits, whatever its code', async () => {
     const exit = await use(layer, s => Stream.runCollect(s.lines(command(tmp('work'), { args: ['-c', 'fail'] }))));
     expect(Exit.map(exit, Chunk.toArray)).toEqual(Exit.succeed(['line one', 'line two', { code: 3 }]));
+  });
+
+  it('records the peak memory and CPU time the container reported, and none when it reported none', async () => {
+    const exit = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'measured'] })));
+    expect(Exit.map(exit, e => e)).toEqual(
+      Exit.succeed({ code: 0, output: 'line one\nline two\n', used: { peak: 104857600, cpu: 2500 } })
+    );
+    const silent = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'fail'] })));
+    expect(Exit.map(silent, e => e)).toEqual(Exit.succeed({ code: 3, output: 'line one\nline two\n' }));
+  });
+
+  it('marks a container the kernel killed a process of for memory', async () => {
+    const exit = await use(layer, s => Stream.runCollect(s.lines(command(tmp('work'), { args: ['-c', 'oomed'] }))));
+    const pieces = Exit.isSuccess(exit) ? Chunk.toArray(exit.value) : [];
+    expect(pieces.at(-1)).toEqual({ code: 137, used: { peak: 67108864, cpu: 2, oom: true } });
+    expect(pieces.filter(p => typeof p === 'string' && p.includes('agentgraph-used'))).toEqual([]);
   });
 
   it('fails as infra when docker cannot start the container', async () => {
@@ -401,7 +426,7 @@ describe('docker with a stand-in docker client', () => {
     const args = Exit.isSuccess(exit) ? exit.value : [];
     expect(args[args.indexOf('--network') + 1]).toBe('agentgraph-models');
     expect(args.join('\n')).not.toContain('HTTPS_PROXY');
-    expect(args.slice(-6, -4)).toEqual([expect.stringMatching(/^agentgraph-env\/repo:\w+$/), 'sh']);
+    expect(args.slice(-10, -8)).toEqual([expect.stringMatching(/^agentgraph-env\/repo:\w+$/), 'sh']);
     const build = readFileSync(`${log}.all`, 'utf8')
       .split('\n')
       .findLast(l => l.includes('agentgraph.envbuild'));

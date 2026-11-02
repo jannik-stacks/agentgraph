@@ -7,7 +7,7 @@ import { dockerSandbox } from '../src/docker.ts';
 import { drive } from '../src/engine.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { fileForge, Forge } from '../src/forge.ts';
-import { Sandbox, SandboxError, type Checkout } from '../src/sandbox.ts';
+import { Sandbox, SandboxError, type Checkout, type Command } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { Session } from '../src/session.ts';
@@ -716,6 +716,29 @@ describe('setup', () => {
     expect(commands.slice(1).every(c => c.network === 'none')).toBe(true);
     const setup = readTrace(where.data, 'run-7').flatMap(t => ('setup' in t ? [t] : []));
     expect(setup).toEqual([expect.objectContaining({ step: 'triage', setup: { ms: expect.any(Number), exit: 0 } })]);
+  });
+
+  it('traces the memory and CPU time the setup and session containers reported', async () => {
+    const where = world();
+    const used = { peak: 2 ** 30, cpu: 1200, oom: true as const };
+    const sandbox = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        exec: (c: Command) => Effect.map(s.exec(c), e => ({ ...e, used })),
+        lines: () => Stream.fromIterable([{ code: 0, used }]),
+      }))
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
+    const session = harnessSession({
+      data: where.data,
+      proxy: { url: 'http://proxy', keys: Redacted.make('') },
+      harnesses,
+    }).pipe(Layer.provide(sandbox));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, session);
+    await Effect.runPromise(drive(w, fresh(), { ...graph, setup: 'test -e README.md' }).pipe(Effect.provide(layer)));
+    const trace = readTrace(where.data, 'run-7');
+    expect(trace.flatMap(t => ('setup' in t ? [t.setup.used] : []))).toContainEqual(used);
+    expect(trace.flatMap(t => ('session' in t ? [t.session.used] : []))).toContainEqual(used);
   });
 
   it('traces how many files the checkout wrote over the shared cache', async () => {

@@ -19,7 +19,7 @@ import type { Applied, Comment, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
-import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
+import { Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
 import { commitCheckoutOnce, gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
 import { Session } from './session.ts';
 import { readPlugins } from './plugin.ts';
@@ -722,7 +722,7 @@ const setUp = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
     if (!graph.setup || work.ready) return;
     const started = Date.now();
     const out = yield* sh(graph.setup, graph, work.dir, { AGENTGRAPH_BASE: work.base }, graph.limits.minutes, 'proxy');
-    const setup = { ms: Date.now() - started, exit: out.code };
+    const setup = { ms: Date.now() - started, exit: out.code, ...(out.used && { used: out.used }) };
     yield* Effect.flatMap(Store, s => s.trace(run.id, { at: now(), step: run.step, setup }));
     if (out.code !== 0)
       return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });
@@ -791,7 +791,7 @@ const refresh = (run: Run, work: Checkout, seen: Seen, t: IssueWithPull) =>
     Effect.catchAll(e => Effect.logWarning(`news for run ${run.id}`, e))
   );
 
-type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit'>;
+type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit' | 'used'>;
 
 let gate: { size: number; permits: Effect.Semaphore } | undefined;
 
@@ -894,7 +894,11 @@ const converse = <A = never, R = never>(
             seen.result = getRecordedResult(spec.returns, event) ?? seen.result;
           if (event.type === 'end') {
             seen.final = event.final;
-            end = { ended: event.exit === 0 ? event.ended : 'error', exit: event.exit };
+            end = {
+              ended: event.exit === 0 ? event.ended : 'error',
+              exit: event.exit,
+              ...(event.used && { used: event.used }),
+            };
           }
           return write({ at: now(), step, event, key });
         }),
@@ -1052,6 +1056,7 @@ type Item = {
   value?: Result;
   findings: string;
   exit?: number;
+  used?: Exit['used'];
   output?: string;
   unread?: true;
   usd: number;
@@ -1138,7 +1143,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
         if (!check.agent) {
           const output = out?.output ?? '';
           const value = check.returns ? readScriptResult(output) : { pass: (out?.code ?? 0) === 0, why: output };
-          return settle(item, value, out?.code, output);
+          return { ...settle(item, value, out?.code, output), ...(out?.used && { used: out.used }) };
         }
         const agent = graph.agents[check.agent]!;
         const reads = agent.reads ?? check.reads;
@@ -1267,6 +1272,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
           usd: r.usd,
           item: r.item!,
           ...(r.exit !== undefined && { exit: r.exit }),
+          ...(r.used && { used: r.used }),
           ...(r.log && { log: r.log }),
         })),
       {
@@ -1274,6 +1280,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
         check: result,
         usd: check.each ? 0 : usd,
         ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }),
+        ...(!check.each && results[0]?.used && { used: results[0].used }),
         ...(!check.each && logs[0] && { log: logs[0] }),
       }
     );
@@ -1353,6 +1360,7 @@ const attempt = (
         version: graph.sha.slice(0, 12),
         usd: 0,
         exit: out.code,
+        ...(out.used && { used: out.used }),
         ...(log && { log }),
       });
       if (!result.pass)

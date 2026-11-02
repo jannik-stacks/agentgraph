@@ -18,7 +18,7 @@ export type Command = {
   minutes: number;
 };
 
-export type Exit = { code: number; output: string };
+export type Exit = { code: number; output: string; used?: { peak: number; cpu: number; oom?: true } };
 
 /**
  * A checkout: the work tree `dir`, the commit `base` its change is measured from, and `git`, the repo and index host git
@@ -68,6 +68,6 @@ export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
       graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
     ) => Effect.Effect<Checkout, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
-    lines: (command: Command) => Stream.Stream<string | Pick<Exit, 'code'>, SandboxError, Scope.Scope>;
+    lines: (command: Command) => Stream.Stream<string | Pick<Exit, 'code' | 'used'>, SandboxError, Scope.Scope>;
   }
 >() {}

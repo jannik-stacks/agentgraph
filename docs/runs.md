@@ -103,8 +103,8 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 | --- | --- |
 | `prompt` | Harness, model, system prompt, prompt and tools |
 | `event` | Harness start (with provider and model), text, tool calls with `ms`, usage and end |
-| `session` | End reason, whether it resumed, and cost |
-| `setup` | `ms` and `exit` of setup in a checkout |
+| `session` | End reason, whether it resumed, cost, and `used` |
+| `setup` | `ms`, `exit` and `used` of setup in a checkout |
 | `env`, `cache` | The [environment](sandbox.md#environments) a checkout used, and files it cached |
 | `applied` | A proposal with its URL or why it failed |
 | `outcome` | Pass, failure, back, ask, answer or stop, and the next state |
@@ -112,11 +112,13 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 | `spoken` | A CLI command, where it came from and where to reply |
 | `told` | Forwarded text, with the sender in `by`: a router run id or `cli` |
 
+`used` is what the command's container reported from its cgroup as it exited: `peak` memory in bytes, `cpu` time in ms, and `oom` when the kernel killed a process of it for memory. It is missing when the container reported nothing, as on cgroup v1, after a timeout, or from a box server. Studio shows it on the session, setup and check rows. <!-- code: src/docker.ts#dockerArgs src/sandbox.ts#Exit studio/src/runs/rows.tsx -->
+
 `node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push'` fails on denied tool calls, sessions that cost nothing, and finished workflows without their listed applied kinds.
 
 ## The check record
 
-Each `checks.jsonl` line is one result: `at`, `step`, the check's `version`, the result with short findings, `value`, `share` or `empty`, the item, and `usd`, the judging cost. `later` marks a result from [`check --runs`](checks.md#end-checks), and `log` points at the full output. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
+Each `checks.jsonl` line is one result: `at`, `step`, the check's `version`, the result with short findings, `value`, `share` or `empty`, the item, `usd`, the judging cost, and a script's `exit` and `used`. `later` marks a result from [`check --runs`](checks.md#end-checks), and `log` points at the full output. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
 
 The version hashes the check's file, its judge's file and the graph's scripts. Readers take each check's newest result under its current version, else its newest, marked as older. A run's cost sums its sessions; its checking cost sums its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
 

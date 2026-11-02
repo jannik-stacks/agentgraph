@@ -171,9 +171,23 @@ export const dockerArgs = (
   }).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
   ...Object.keys(c.secrets ?? {}).flatMap(key => ['-e', key]),
   image,
+  'sh',
+  '-c',
+  `"$@"; s=$?; { p=$(cat /sys/fs/cgroup/memory.peak) && echo && echo agentgraph-used $p $(grep -hw -e usage_usec -e oom_kill /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/memory.events); } 2>/dev/null; exit $s`,
+  'sh',
   c.cmd,
   ...c.args,
 ];
+
+const readUsed = (output: string): Pick<Exit, 'output' | 'used'> => {
+  const m = /\n?agentgraph-used (\d+) usage_usec (\d+) oom_kill (\d+)\n?$/.exec(output);
+  if (!m) return { output };
+  const [peak = 0, cpu = 0, oom = 0] = m.slice(1).map(Number);
+  return {
+    output: output.slice(0, m.index),
+    used: { peak, cpu: Math.round(cpu / 1000), ...(oom > 0 && { oom: true }) },
+  };
+};
 
 const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
   Effect.async<string, SandboxError>(done => {
@@ -568,6 +582,7 @@ export const dockerSandbox = (o: {
           Effect.map(prepare(c), ({ name, args }) => {
             let code = 0;
             let tail = '';
+            let measured: Exit['used'];
             return Stream.asyncPush<string, SandboxError>(emit =>
               Effect.acquireRelease(
                 Effect.sync(() => {
@@ -587,7 +602,12 @@ export const dockerSandbox = (o: {
               )
             ).pipe(
               Stream.splitLines,
-              Stream.concat(Stream.sync(() => ({ code }))),
+              Stream.filter(line => {
+                const { used } = readUsed(line);
+                measured = used ?? measured;
+                return !used;
+              }),
+              Stream.concat(Stream.sync(() => ({ code, ...(measured && { used: measured }) }))),
               Stream.interruptWhen(
                 Effect.zipRight(Effect.sleep(Duration.minutes(c.minutes)), Effect.failSync(timeout(c)))
               )
@@ -609,7 +629,7 @@ export const dockerSandbox = (o: {
             Effect.timeoutFail({ onTimeout: timeout(c), duration: Duration.minutes(c.minutes) })
           );
           if (code === 125) return yield* infra(`docker could not start the container: ${output.trim().slice(-2000)}`);
-          return { code, output } satisfies Exit;
+          return { code, ...readUsed(output) } satisfies Exit;
         });
 
       const empty = (graph?: Pick<Graph, 'image' | 'network'>) =>

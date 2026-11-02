@@ -1,6 +1,7 @@
 import { useAtomValue } from 'jotai';
 import { type ReactNode, useState } from 'react';
 import type { Proposal } from '../../../src/proposal.ts';
+import type { Exit } from '../../../src/sandbox.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
@@ -35,6 +36,10 @@ export type Row = {
 };
 
 const usd = (n: number) => (n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
+const used = (u: Exit['used']) =>
+  u
+    ? `, ${Math.round(u.peak / 2 ** 20)} MB peak, ${(u.cpu / 1000).toFixed(1)} s cpu${u.oom ? ', out of memory' : ''}`
+    : '';
 const tokens = (n: number) =>
   n < 1000 ? String(n) : n < 1e6 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1e6).toFixed(2)}M`;
 const short = (text: string, max = 140) => {
@@ -288,7 +293,9 @@ const lines: {
     ),
   }),
   event: ({ event }) => (events[event.type] as (e: Event) => Row)(event),
-  session: ({ session: s }) => ({ summary: muted(`session ${s.id ?? ''} ended ${s.ended}, ${usd(s.usd)}`) }),
+  session: ({ session: s }) => ({
+    summary: muted(`session ${s.id ?? ''} ended ${s.ended}, ${usd(s.usd)}${used(s.used)}`),
+  }),
   check: line => ({
     summary: (
       <>
@@ -296,7 +303,7 @@ const lines: {
         {line.check.empty ? muted('skipped') : line.check.pass ? 'pass' : muted('fail')}
         {formatCheckValue(line.check) && ` ${formatCheckValue(line.check)}`}
         {muted(
-          `${line.later ? ', checked later' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.usd > 0 ? `, ${usd(line.usd)}` : ''}${line.exit === undefined ? '' : `, exit ${line.exit}`}`
+          `${line.later ? ', checked later' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.usd > 0 ? `, ${usd(line.usd)}` : ''}${line.exit === undefined ? '' : `, exit ${line.exit}`}${used(line.used)}`
         )}
       </>
     ),
@@ -362,7 +369,7 @@ const lines: {
       </>
     ),
   }),
-  setup: ({ setup: s }) => ({ summary: muted(`setup exited ${s.exit} in ${s.ms} ms`) }),
+  setup: ({ setup: s }) => ({ summary: muted(`setup exited ${s.exit} in ${s.ms} ms${used(s.used)}`) }),
   cache: ({ cache: c }) => ({ summary: muted(`cache, ${c.files} files`) }),
   env: ({ env: e }) => ({ summary: muted(`env ${e.mode} ${e.key}${e.match ? '' : ', inputs changed'}`) }),
   told: ({ told: t }) => ({
@@ -399,7 +406,9 @@ const sessionRow = (
   const id = end?.session.id ?? spec?.resume?.id ?? started?.session;
   const usage = events.flatMap(e => (e.event.type === 'usage' ? [e.event] : []));
   const first = (prompt ?? events[0])?.at;
-  const how = end && `${end.session.ended}${end.session.exit === undefined ? '' : `, exit ${end.session.exit}`}`;
+  const how =
+    end &&
+    `${end.session.ended}${end.session.exit === undefined ? '' : `, exit ${end.session.exit}`}${used(end.session.used)}`;
   return {
     at: first ?? end?.at,
     open: expand || (running && !end) || [prompt, ...events, end].some(l => l && l === target),
