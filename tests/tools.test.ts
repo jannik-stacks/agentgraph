@@ -8,13 +8,20 @@ import { rmSync } from 'node:fs';
 import { Effect } from 'effect';
 import { loadGraph } from '../src/folder.ts';
 import { tmp, write } from './kit.ts';
+import { fileStore, Store } from '../src/store.ts';
 import { startTools } from '../src/tools.ts';
 
 const endpoints: Awaited<ReturnType<typeof startTools>>[] = [];
 const credential = 'engine-credential-material';
 const directories: string[] = [];
-const startRegistered = async (...args: Parameters<typeof startTools>) => {
-  const [definitions, context, trace, route, hidden, timeout] = args;
+const startRegistered = async (
+  definitions: Parameters<typeof startTools>[0],
+  context: Parameters<typeof startTools>[1],
+  trace: Parameters<typeof startTools>[2],
+  route?: Parameters<typeof startTools>[4],
+  hidden?: Parameters<typeof startTools>[5],
+  timeout?: Parameters<typeof startTools>[6]
+) => {
   const first = Object.values(definitions)[0]!;
   const available: typeof definitions = { private: first, ...definitions };
   const dir = tmp('endpoint');
@@ -37,7 +44,21 @@ const startRegistered = async (...args: Parameters<typeof startTools>) => {
   const selected = Object.fromEntries(
     graph.tools!.filter(name => graph.agents.reader!.tools.includes(name)).map(name => [name, available[name]!])
   );
-  return startTools(selected, context, trace, route, hidden, timeout);
+  return startTools(
+    selected,
+    context,
+    trace,
+    {
+      save: (bytes, signal) =>
+        Effect.runPromise(
+          Effect.flatMap(Store, store => store.putFile(bytes, signal)).pipe(Effect.provide(fileStore(dir)))
+        ),
+      session: 'test-session',
+    },
+    route,
+    hidden,
+    timeout
+  );
 };
 const schema = jsonSchema<{ query: string }>(
   { type: 'object', properties: { query: { type: 'string' } } },
@@ -497,8 +518,26 @@ it('uploads binary files through the authenticated session route and reads copie
     result: { isError: false, content: [{ text: JSON.stringify({ type: 'image/png', bytes: [...bytes] }) }] },
   });
   expect(trace.filter(event => event.name.startsWith('file_'))).toEqual([
-    expect.objectContaining({ name: 'file_put', input: { ref, bytes: 8, type: 'image/png' } }),
-    expect.objectContaining({ name: 'file_read', input: { ref, bytes: 8, type: 'image/png' } }),
+    expect.objectContaining({
+      name: 'file_put',
+      input: {
+        ref,
+        bytes: 8,
+        type: 'image/png',
+        hash: '4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6',
+        session: 'test-session',
+      },
+    }),
+    expect.objectContaining({
+      name: 'file_read',
+      input: {
+        ref,
+        bytes: 8,
+        type: 'image/png',
+        hash: '4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6',
+        session: 'test-session',
+      },
+    }),
   ]);
 });
 
@@ -559,7 +598,17 @@ it('counts binary chunks before a lying Content-Length finishes', async () => {
   expect(small.status).toBe(201);
   expect(ref).toMatch(/^file_[a-f0-9]{64}$/);
   expect(trace).toEqual([
-    expect.objectContaining({ name: 'file_put', input: { ref, bytes: 3, type: 'image/jpeg' }, ok: true }),
+    expect.objectContaining({
+      name: 'file_put',
+      input: {
+        ref,
+        bytes: 3,
+        type: 'image/jpeg',
+        hash: '6e568e1f67fba258184c78181539e5e8fdee447e49bb706fc0ea34fbf12336a5',
+        session: 'test-session',
+      },
+      ok: true,
+    }),
   ]);
 });
 

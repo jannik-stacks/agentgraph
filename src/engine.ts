@@ -881,6 +881,7 @@ const converse = <A = never, R = never>(
                   forge: { searchIssues: (...args) => Effect.runPromise(forge.value.searchIssues(...args)) },
                 },
                 event => Effect.runPromise(write({ at: now(), step, event, key })),
+                { save: (bytes, signal) => Effect.runPromise(store.putFile(bytes, signal)), session: key },
                 route
               );
             },

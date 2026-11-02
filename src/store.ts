@@ -11,7 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { open, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
@@ -34,6 +34,15 @@ const changes = (before: Run | undefined, next: Run): Trace | undefined => {
     saved: Object.fromEntries(changed.filter(k => next[k] !== undefined).map(k => [k, next[k]])),
     ...(cleared.length > 0 && { cleared }),
   };
+};
+
+const syncDirectory = async (path: string) => {
+  const directory = await open(path, 'r');
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
 };
 
 export const writeFileAtomic = (path: string, v: unknown) => {
@@ -127,6 +136,8 @@ export class Store extends Context.Tag('agentgraph/Store')<
     lock: (name: string) => Effect.Effect<void, StoreError, Scope.Scope>;
     log: (output: string, pass: boolean) => Effect.Effect<Log | undefined, StoreError>;
     readLog: (hash: string) => Effect.Effect<string | undefined, StoreError>;
+    putFile: (bytes: Uint8Array, signal: AbortSignal) => Effect.Effect<string, StoreError>;
+    readFile: (hash: string) => Effect.Effect<Uint8Array, StoreError>;
   }
 >() {}
 
@@ -226,9 +237,11 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
             }
           }
           await file.appendFile(lines.map(line => `${JSON.stringify(line)}\n`).join(''));
+          await file.sync();
         } finally {
           await file.close();
         }
+        await syncDirectory(dirname(path));
       })
     );
   };
@@ -247,6 +260,39 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
   };
 
   return Layer.succeed(Store, {
+    putFile: (input, signal) =>
+      io(join(dir, 'files'), async () => {
+        signal.throwIfAborted();
+        const bytes = new Uint8Array(input);
+        const hash = createHash('sha256').update(bytes).digest('hex');
+        const folder = join(dir, 'files');
+        const path = join(folder, hash);
+        const temporary = `${path}.${randomUUID()}.tmp`;
+        await mkdir(folder, { recursive: true });
+        try {
+          const file = await open(temporary, 'wx', 0o600);
+          try {
+            await file.writeFile(bytes, { signal });
+            await file.sync();
+          } finally {
+            await file.close();
+          }
+          signal.throwIfAborted();
+          await rename(temporary, path);
+          await syncDirectory(folder);
+          await syncDirectory(dir);
+          return hash;
+        } finally {
+          await rm(temporary, { force: true });
+        }
+      }),
+    readFile: hash =>
+      io(join(dir, 'files', hash), async () => {
+        if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('invalid file hash');
+        const bytes = await readFile(join(dir, 'files', hash));
+        if (createHash('sha256').update(bytes).digest('hex') !== hash) throw new Error('file hash mismatch');
+        return bytes;
+      }),
     get: readRun,
     list: filter =>
       io(dir, () => readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e)))).pipe(

@@ -18,6 +18,7 @@ export const startTools = async (
   tools: Awaited<ReturnType<typeof readPlugins>>['tools'],
   context: Omit<ToolContext<unknown>, 'settings' | 'abortSignal' | 'readFile'>,
   trace: (event: Extract<SessionEvent, { type: 'tool' }>) => void | Promise<void>,
+  storage: { save: Parameters<typeof makeFiles>[1]; session: string },
   route = { host: '127.0.0.1', subnet: '127.0.0.0/8' },
   hidden: readonly string[] = [],
   timeout = 30_000
@@ -34,9 +35,15 @@ export const startTools = async (
   const controllers = new Set<AbortController>();
   const running = new Set<Promise<unknown>>();
   const calls = new Set<Promise<unknown>>();
-  const files = makeFiles(async (action, ref, bytes, type) => {
-    await trace({ type: 'tool', id: randomUUID(), name: `file_${action}`, input: { ref, bytes, type }, ok: true });
-  });
+  const files = makeFiles(async (action, ref, bytes, hash, type) => {
+    await trace({
+      type: 'tool',
+      id: randomUUID(),
+      name: `file_${action}`,
+      input: { ref, bytes, type, hash, session: storage.session },
+      ok: true,
+    });
+  }, storage.save);
   const peers = new BlockList();
   const [address, prefix] = route.subnet.split('/');
   peers.addSubnet(address!, Number(prefix), isIP(address!) === 6 ? 'ipv6' : 'ipv4');

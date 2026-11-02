@@ -35,7 +35,11 @@ Names outside the harness's built-ins must name registered plugin tools; unknown
 `readFile(ref)` returns fresh image bytes and their PNG or JPEG media type from a session handle.
 Save images in sandbox `/tmp`, run `agi file put <path>`, then pass the handles to a tool.
 The host opens no agent-supplied path. Handles expire at session close; unknown and cross-session
-handles fail. Bytes stay in memory; put/read traces contain handle, size and type only.
+handles fail. Uploads are acknowledged only after raw bytes are saved at `data/files/<sha256>`
+with a synced temporary file and atomic rename, and the trace is synced. Put/read traces contain
+handle, size, type, hash and the trace session key. Closing a session drops its handles, while durable
+bytes remain available to the store by hash. Durable reads reject a hash mismatch.
+<!-- code: src/files.ts#makeFiles src/store.ts#fileStore src/tools.ts#startTools -->
 Binary uploads reuse session authentication and relay with a separate route: 10 MiB per file,
 32 files, 64 MiB retained, 256 MiB cumulative input and two concurrent uploads per session.
 Chunk counts enforce limits regardless of Content-Length. PNG/JPEG magic bytes are checked;

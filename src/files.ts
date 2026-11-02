@@ -6,10 +6,12 @@ export const makeFiles = (
     action: 'put' | 'read',
     ref: string,
     bytes: number,
+    hash: string,
     type: Awaited<ReturnType<ToolContext['readFile']>>['type']
-  ) => Promise<void>
+  ) => Promise<void>,
+  save: (bytes: Uint8Array, signal: AbortSignal) => Promise<string>
 ) => {
-  const files = new Map<string, Awaited<ReturnType<ToolContext['readFile']>>>();
+  const files = new Map<string, Awaited<ReturnType<ToolContext['readFile']>> & { hash: string }>();
   let pending = 0;
   let total = 0;
   let received = 0;
@@ -19,10 +21,10 @@ export const makeFiles = (
       signal.throwIfAborted();
       const file = files.get(ref);
       if (closed || !file) throw new Error('unknown, expired or outside this session');
-      await trace('read', ref, file.bytes.length, file.type);
+      await trace('read', ref, file.bytes.length, file.hash, file.type);
       signal.throwIfAborted();
       if (closed) throw new Error('session closed');
-      return { ...file, bytes: new Uint8Array(file.bytes) };
+      return { type: file.type, bytes: new Uint8Array(file.bytes) };
     } catch (error) {
       throw new Error(`File ${ref}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
@@ -59,10 +61,13 @@ export const makeFiles = (
         const ref = `file_${randomBytes(32).toString('hex')}`;
         total += size;
         try {
-          await trace('put', ref, size, type);
+          const hash = await save(bytes, signal);
           signal.throwIfAborted();
           if (closed) throw new Error('File upload: session closed');
-          files.set(ref, { bytes, type });
+          await trace('put', ref, size, hash, type);
+          signal.throwIfAborted();
+          if (closed) throw new Error('File upload: session closed');
+          files.set(ref, { bytes, type, hash });
           return ref;
         } catch (error) {
           if (!closed) total -= size;
