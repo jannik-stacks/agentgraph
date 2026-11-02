@@ -12,7 +12,7 @@ npm run up       # start LiteLLM, Postgres, egress and the Ollama relay, wait un
 npm run keys -- local   # one proxy key for every agent, in infra/local/.keys.env.local
 npm run keys     # one proxy key per bot of the example graphs, in infra/local/.keys.env
 npm run down     # stop everything, keep volumes
-npm run prices   # fetch prices.json.gz again, LiteLLM's price table pinned to its release
+npm run prices   # fetch prices.json.gz again, LiteLLM's price table pinned to a commit
 ```
 
 Run `npm run up` again after changing `.env` or `litellm.config.yaml`, and `npm run keys` again to converge key limits; `ROTATE=1` replaces every key. Subscription models spend $0, so their limits are rpm and tpm. `e2e.sh` turns `.keys.env` into `AGENTGRAPH_PROXY_KEYS` for a data folder; see [Running on GitHub](../../docs/github.md#start-the-runner).

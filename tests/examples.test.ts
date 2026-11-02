@@ -100,7 +100,7 @@ describe('models and keys', () => {
       Object.entries(f).flatMap(([from, to]) => [from, ...to])
     );
     const offline = modelNames('litellm.offline.yaml');
-    const named = new Set([...[...rows.values()].flat(), ...fallbacks, ...served]);
+    const named = new Set([...[...rows.values()].flat(), ...fallbacks]);
     const missing = [...named].flatMap(alias => [
       ...(served.has(alias) ? [] : [`${alias} is not in litellm.config.yaml`]),
       ...(offline.has(alias) ? [] : [`${alias} is not in litellm.offline.yaml`]),

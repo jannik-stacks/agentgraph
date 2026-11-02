@@ -9,6 +9,8 @@ model_list:
   - { model_name: writer, model_info: { mode: responses }, litellm_params: { model: os.environ/AGENTGRAPH_MODEL_WRITER } }
   # A small, fast chat model, called without tools or streaming, so plain chat completions work.
   - { model_name: luna, litellm_params: { model: chatgpt/gpt-6-luna } }
+  - { model_name: terra, model_info: { mode: responses }, litellm_params: { model: chatgpt/gpt-6.1-terra } }
+  - { model_name: sol, model_info: { mode: responses }, litellm_params: { model: chatgpt/gpt-6.1-sol } }
 
   # Local models through Ollama. qwen3.5 thinks by default; think: false keeps replies short.
   - model_name: fast

@@ -2,6 +2,8 @@
   "smart": "chatgpt/gpt-6.1-sol",
   "writer": "chatgpt/gpt-6.1-sol",
   "luna": "chatgpt/gpt-6-luna",
+  "sol": "chatgpt/gpt-6.1-sol",
+  "terra": "chatgpt/gpt-6.1-terra",
   "fast": "ollama_chat/qwen3.5:4b",
   "local": "ollama_chat/qwen3.5:4b",
   "glm": "openrouter/z-ai/glm-5.3",
