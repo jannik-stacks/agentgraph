@@ -1346,7 +1346,15 @@ const attempt = (
     const answering = asked && held;
     if ('run' in step.does) {
       const started = Date.now();
-      const out = yield* sh(step.does.run, graph, work.dir, { AGENTGRAPH_BASE: work.base }, minutes);
+      yield* traced(graph, run.issue, run.id, work);
+      const { AGENTGRAPH_TRACES, AGENTGRAPH_RUN_TRACE } = checkFiles(work);
+      const env = {
+        AGENTGRAPH_BASE: work.base,
+        AGENTGRAPH_ISSUE: String(run.issue),
+        AGENTGRAPH_TRACES,
+        AGENTGRAPH_RUN_TRACE,
+      };
+      const out = yield* sh(step.does.run, graph, work.dir, env, minutes);
       const result: CheckResult = {
         check: step.name,
         pass: out.code === 0,

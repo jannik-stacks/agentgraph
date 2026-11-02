@@ -24,6 +24,7 @@ const toolTests = [
   'tests/precommit.test.ts',
   'tests/record-root.test.ts',
   'tests/remote.test.ts',
+  'tests/retro-gate.test.ts',
   'tests/run.test.ts',
   'tests/skill.test.ts',
   'tests/tick.test.ts',
