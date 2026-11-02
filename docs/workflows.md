@@ -39,6 +39,12 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 
 `each` on an agent step opens one fresh session per changed file (`files`), hunk (`hunks`) or output line of `{ run: <command> }`. These never resume. Past 20 items, one session gets them all. <!-- code: src/engine.ts#most -->
 
+### Gates
+
+A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's. A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. <!-- code: src/engine.ts#attempt -->
+
+`examples/retro-gate` counts the failed tool calls in the run's trace after the implement step. Past five, it starts a `retro` workflow whose agent reads the traces and files a `graph` issue per recurring cause with the edit to a skill, agent prompt or `AGENTS.md` that would have prevented it.
+
 ## What starts a run
 
 The GitHub forge uses these built-in triggers: <!-- code: src/workflow.ts#isIssueTriggered -->
