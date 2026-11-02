@@ -157,7 +157,19 @@ A graph with an `on: conflict` workflow sends conflicts there instead. The waiti
 
 One sticky comment on the issue covers every run, including retros and conflict runs. Its visible line shows the current state. The collapsed ⁂ footer holds one table row per run: workflow, step, state, cost so far, pull request, failing checks and studio link when configured. Cost updates at the existing status update points. Every engine comment and PR body uses that footer, linked to the studio when configured and plain ⁂ otherwise, followed by its hidden marker.
 
-The sticky stays on the issue because the PR description already links there. Conflict notices and exhausted-check details stay in the sticky. Questions stay separate plain comments, with the shared ⁂ footer; the sticky says “waiting for your answer below”. Resuming edits the same sticky. One label shows `agentgraph:working`, `agentgraph:waiting`, `agentgraph:done` or `agentgraph:stopped`. <!-- code: src/context.ts#proposeStatusUpdates -->
+The sticky stays on the issue because the PR description already links there. Conflict notices and exhausted-check details stay in the sticky. Questions stay separate plain comments, with the shared ⁂ footer; the sticky says “waiting for your answer below”. Resuming edits the same sticky. <!-- code: src/context.ts#proposeStatusUpdates -->
+
+The issue also carries exactly one status label, so a label filter shows what needs you. It follows the sticky's visible line and replaces the previous status label; GitHub creates a missing label on first use. Quiet workflows (feedback and conflict runs) set none. <!-- code: src/event.ts#issueStatuses src/context.ts#proposeStatusUpdates -->
+
+| Label | When |
+| --- | --- |
+| `agentgraph:working` | A step runs, or a run waits on a run it started |
+| `agentgraph:needs-review` | A run waits at a `wait: human` step, usually a pull request to review and merge |
+| `agentgraph:needs-answer` | A run asked a question, or paused on a runner error until someone replies `/agent` |
+| `agentgraph:done` | The latest run finished |
+| `agentgraph:stopped` | The latest run stopped |
+
+With several runs on one issue, a waiting run wins over a working one. <!-- code: src/context.ts#proposeStatusUpdates -->
 
 ## Order and limits
 

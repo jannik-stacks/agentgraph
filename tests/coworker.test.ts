@@ -545,7 +545,7 @@ describe('coworker', () => {
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
     const status = issue.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))?.comment?.id;
     expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: status });
-    expect(issue.labels).toEqual(['agentgraph:waiting']);
+    expect(issue.labels).toEqual(['agentgraph:needs-answer']);
     expect(bodies(issue)).toEqual(['/agent', expect.stringContaining('waiting for your answer below'), 'Hello or hi?']);
     const edits = readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit

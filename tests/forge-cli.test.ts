@@ -183,7 +183,7 @@ describe('the human verbs on a forge folder', () => {
     expect(first.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
     expect(readFileSync(join(w.dir, '2', 'diff.patch'), 'utf8')).toContain('+hello');
     expect(await w.forge('show')).toBe(
-      '#1 open Add a greeting [agent:ready, agentgraph:waiting]\n#2 open Add hello (agentgraph/1 into main)'
+      '#1 open Add a greeting [agent:ready, agentgraph:needs-review]\n#2 open Add hello (agentgraph/1 into main)'
     );
 
     await w.forge('comment', '2', '/agent say hello world');
@@ -200,7 +200,7 @@ describe('the human verbs on a forge folder', () => {
     expect(await w.forge('merge', '2')).toMatch(/^main at [0-9a-f]{40}$/);
     expect(git(w.origin, 'show', 'main:hello.txt')).toBe('hello world');
     expect(await w.forge('show')).toBe(
-      '#1 closed Add a greeting [agent:ready, agentgraph:waiting]\n#2 merged Add hello (agentgraph/1 into main)'
+      '#1 closed Add a greeting [agent:ready, agentgraph:needs-review]\n#2 merged Add hello (agentgraph/1 into main)'
     );
     const last = await w.run([]);
     expect(last.map(r => [r.issue, r.step, r.status])).toEqual([[1, 'merge', 'done']]);

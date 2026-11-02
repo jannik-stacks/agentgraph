@@ -300,7 +300,7 @@ describe('triage', () => {
     where.label(3);
     await run(where, [turn(part('a big part', 'XL'))], tick(unbounded, 3));
     expect((await issues(where)).filter(t => t.parent === 3).map(t => [t.number, t.labels])).toEqual([
-      [4, ['agentgraph:waiting']],
+      [4, ['agentgraph:needs-answer']],
       [5, ['size/XL']],
     ]);
     expect((await runs(where)).some(r => r.issue === 5)).toBe(false);
@@ -556,7 +556,7 @@ describe('router input', () => {
       actor: 'agentgraph[bot]',
       trusted: false,
       at: at(4),
-      label: 'agentgraph:waiting',
+      label: 'agentgraph:needs-review',
     });
     sayOn(where, {
       issue: 1,
@@ -576,7 +576,7 @@ describe('router input', () => {
     expect(prompt).toMatch(
       /^## What you were asked\n\n@morgan on docs\/x.md:8, id r1: \/agent handle all five review comments\n\nEarlier in its review thread:\n\n@morgan on docs\/x.md:8, id r0: what is slot\?\n\n@agentgraph\[bot\] on docs\/x.md:8, id b1: Slot is the index.\n\n/
     );
-    expect(prompt).not.toContain('agentgraph:waiting');
+    expect(prompt).not.toContain('agentgraph:needs-review');
     expect(prompt).not.toContain('Waiting for a human at merge.');
   });
 });

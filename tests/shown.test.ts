@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { proposeStatusUpdates, type IssueWithPull } from '../src/context.ts';
+import { proposeStatusUpdates, stoppedByRunner, type IssueWithPull } from '../src/context.ts';
 import { type Issue } from '../src/event.ts';
 import type { Run } from '../src/workflow.ts';
 
@@ -109,5 +109,36 @@ describe('the status comment', () => {
       check: { name: i < 2 ? 'types' : 'tests', conclusion },
     }));
     expect(getCommentBody(run, t)).toContain('| https://github.com/o/r/pull/8 | tests |');
+  });
+});
+
+const label = (r: Run, others: Run[] = []) =>
+  proposeStatusUpdates(
+    r,
+    holding(''),
+    undefined,
+    0,
+    others.map(o => ({ run: o, t: holding(''), usd: 0 }))
+  ).find(p => p.kind === 'label');
+
+describe('the status label', () => {
+  it('swaps the previous status label for the one the runs are in', () => {
+    expect(label({ ...run, status: 'waiting' })).toEqual({
+      kind: 'label',
+      add: ['agentgraph:needs-review'],
+      remove: ['agentgraph:working'],
+    });
+    expect(label({ ...run, status: 'waiting', reason: 'Which one?' })?.add).toEqual(['agentgraph:needs-answer']);
+    expect(label({ ...run, status: 'waiting', reason: `${stoppedByRunner}: x` })?.add).toEqual([
+      'agentgraph:needs-answer',
+    ]);
+    expect(label({ ...run, status: 'done' })?.add).toEqual(['agentgraph:done']);
+    expect(label({ ...run, status: 'stopped', reason: 'no' })?.add).toEqual(['agentgraph:stopped']);
+  });
+
+  it('is left alone when the issue already shows it', () => {
+    expect(label(run)).toBeUndefined();
+    const child = { ...run, id: 'child', by: 'issue-7', started: '2026-10-22T11:00:00Z' };
+    expect(label({ ...run, status: 'waiting', reason: 'waiting on child' }, [child])).toBeUndefined();
   });
 });

@@ -1,4 +1,12 @@
-import { formatFooter, makeStudioRunUrl, removeRunLink, type Event, type Issue } from './event.ts';
+import {
+  formatFooter,
+  issueStatuses,
+  makeStudioRunUrl,
+  removeRunLink,
+  type Event,
+  type Issue,
+  type IssueStatus,
+} from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { CheckEntry, Trace } from './trace.ts';
 import { formatFailedTryFeedback, type Run, type Seen } from './workflow.ts';
@@ -106,12 +114,8 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
   };
 }
 
-const statuses: Record<Run['status'], string> = {
-  running: 'agentgraph:working',
-  waiting: 'agentgraph:waiting',
-  done: 'agentgraph:done',
-  stopped: 'agentgraph:stopped',
-};
+const formatStatusLabel = (status: IssueStatus) => `agentgraph:${status}`;
+
 const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
 
 export const stoppedByRunner = 'Stopped by a runner error';
@@ -125,29 +129,25 @@ export function proposeStatusUpdates(
   usd = 0,
   others: { run: Run; t: IssueWithPull; usd: number }[] = []
 ): Proposal[] {
-  const label = statuses[run.status];
-  const labels = t.issue.labels;
-  const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
   const rows = [...others, { run, t, usd }].toSorted((a, b) => a.run.started.localeCompare(b.run.started));
-  const states = rows.map(({ run }) =>
+  const states = rows.map(({ run }): [IssueStatus, string] =>
     run.reason?.startsWith(stoppedByRunner)
-      ? 'paused on an agentgraph problem, not this change; reply `/agent` to retry'
-      : {
-          running: 'working',
-          waiting: rows.some(r => r.run.by === run.id && run.reason === `waiting on ${r.run.id}`)
-            ? 'working'
-            : run.reason
-              ? `waiting for your answer below. ${answerWith}`
-              : 'waiting for you',
-          done: 'done',
-          stopped: `stopped${run.reason ? `: ${run.reason}` : ''}`,
-        }[run.status]
+      ? ['needs-answer', 'paused on an agentgraph problem, not this change; reply `/agent` to retry']
+      : run.status === 'running' ||
+          (run.status === 'waiting' && rows.some(r => r.run.by === run.id && run.reason === `waiting on ${r.run.id}`))
+        ? ['working', 'working']
+        : run.status === 'waiting'
+          ? run.reason
+            ? ['needs-answer', `waiting for your answer below. ${answerWith}`]
+            : ['needs-review', 'waiting for you']
+          : [run.status, run.status === 'stopped' && run.reason ? `stopped: ${run.reason}` : run.status]
   );
-  const active =
-    states.find(s => s.startsWith('paused')) ??
-    states.find(s => s.startsWith('waiting')) ??
-    states.find(s => s === 'working') ??
-    rows.at(-1)!.run.status;
+  const [status, active] = states.find(([, s]) => s.startsWith('paused')) ??
+    states.find(([s]) => s.startsWith('needs')) ??
+    states.find(([s]) => s === 'working') ?? [states.at(-1)![0], states.at(-1)![0]];
+  const label = formatStatusLabel(status);
+  const labels = t.issue.labels;
+  const stale = labels.filter(l => issueStatuses.some(s => formatStatusLabel(s) === l) && l !== label);
   const table = [
     '| Workflow / step | State | Cost | Pull request | Failing checks | Studio |',
     '| --- | --- | --- | --- | --- | --- |',
@@ -158,11 +158,11 @@ export function proposeStatusUpdates(
       return `| ${[
         `${run.workflow} / ${run.step}`,
         [
-          states[i]!,
+          states[i]![1],
           run.status !== 'stopped' &&
             run.reason &&
             !run.reason.startsWith(stoppedByRunner) &&
-            (states[i] !== 'working' || run.status === 'running') &&
+            (states[i]![1] !== 'working' || run.status === 'running') &&
             run.reason,
         ]
           .filter(Boolean)
@@ -184,13 +184,7 @@ export function proposeStatusUpdates(
   return [
     ...(labels.includes(label) && stale.length === 0
       ? []
-      : [
-          {
-            kind: 'label' as const,
-            ...(!labels.includes(label) && { add: [label] }),
-            ...(stale.length > 0 && { remove: stale }),
-          },
-        ]),
+      : [{ kind: 'label' as const, add: [label], ...(stale.length > 0 && { remove: stale }) }]),
     ...(same ? [] : [{ kind: 'comment' as const, body, ...(comment && { edit: comment.id }) }]),
   ];
 }

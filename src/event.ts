@@ -1,5 +1,8 @@
 import type { Proposal } from './proposal.ts';
 
+export const issueStatuses = ['working', 'needs-review', 'needs-answer', 'done', 'stopped'] as const;
+export type IssueStatus = (typeof issueStatuses)[number];
+
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
 export type Issue = {
   number: number;

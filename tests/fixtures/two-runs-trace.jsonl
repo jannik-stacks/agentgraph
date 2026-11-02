@@ -6,7 +6,7 @@
 {"at": "2026-01-02T17:17:19.723Z", "step": "merge", "session": {"id": "ses_aside0001", "resumed": true, "aside": true, "ended": "stop", "exit": 0, "usd": 0.048815}}
 {"at": "2026-01-02T17:17:22.155Z", "step": "merge", "applied": {"proposal": {"kind": "comment", "body": "Yes, the other errors in this file read the same way...", "under": "100"}, "ok": true, "url": "https://github.com/o/r/pull/17#discussion_...", "id": "101"}}
 {"at": "2026-01-02T17:17:22.155Z", "step": "merge", "applied": {"proposal": {"kind": "react", "comment": "100", "review": true, "remove": "102"}, "ok": true}}
-{"at": "2026-01-02T17:17:28.455Z", "step": "merge", "applied": {"proposal": {"kind": "label", "add": ["agentgraph:waiting"]}, "ok": true}}
+{"at": "2026-01-02T17:17:28.455Z", "step": "merge", "applied": {"proposal": {"kind": "label", "add": ["agentgraph:needs-review"]}, "ok": true}}
 {"at": "2026-01-02T17:17:28.455Z", "step": "merge", "applied": {"proposal": {"kind": "comment", "body": "Waiting for a human at merge.\n\nPull request: https://github...."}, "ok": true, "url": "https://github.com/o/r/issues/14#issuecomm...", "id": "103"}}
 {"at": "2026-01-02T17:17:28.455Z", "step": "merge", "outcome": {"kind": "answer", "text": "does this error read like the others?"}, "run": {"step": "merge", "status": "waiting", "tries": 0, "rounds": {"review": 1}}}
 {"at": "2026-01-02T17:17:28.456Z", "step": "merge", "saved": {"usd": 0.00000000000000000, "said": {"issue": 17, "under": "100"}, "seen": "2026-01-02T16:54:25Z", "comment": "103"}}

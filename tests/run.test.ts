@@ -279,7 +279,7 @@ describe('drive', () => {
       'Brief: add hello.txt',
       'still not right',
     ]);
-    expect(forge.labels).toEqual(['agentgraph:waiting']);
+    expect(forge.labels).toEqual(['agentgraph:needs-answer']);
     const pr = await run(Effect.flatMap(Forge, f => f.issue(8)));
     expect(pr.pull).toMatchObject({ branch: 'agentgraph/7', base: 'main' });
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello world');
