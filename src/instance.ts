@@ -1,6 +1,7 @@
+import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
 import { execFileSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
@@ -113,7 +114,7 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
       );
   };
   assertOutside(root);
-  const key = createHash('sha256').update(real).digest('hex').slice(0, 6);
+  const key = getSha(real, 6);
   const dir = join(resolve(root), `${basename(real)}-${key}-local`);
   const found = readInstance(dir);
   const paths = [dir, found?.data ?? join(dir, 'data'), origin(found ?? { forge: join(dir, 'forge') })];

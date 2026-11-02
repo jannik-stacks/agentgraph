@@ -1,5 +1,6 @@
+import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { link, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, uptime } from 'node:os';
@@ -78,7 +79,7 @@ export class LockHeldError extends Error {
 }
 
 const succeed = async (path: string, before: string, candidate: string) => {
-  let claim = `${path}.${createHash('sha256').update(before).digest('hex')}.next`;
+  let claim = `${path}.${getSha(before)}.next`;
   for (;;) {
     try {
       await link(candidate, claim);
@@ -87,7 +88,7 @@ const succeed = async (path: string, before: string, candidate: string) => {
       if (!exists(e)) throw e;
       const other = await readFile(claim, 'utf8').catch(readOrUndefined);
       if (other === undefined || isOwnerRunning(other)) return false;
-      claim = `${path}.${createHash('sha256').update(`${claim}\0${other}`).digest('hex')}.next`;
+      claim = `${path}.${getSha(`${claim}\0${other}`)}.next`;
     }
   }
   try {

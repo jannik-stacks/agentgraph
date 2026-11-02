@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { getSha } from './hash.ts';
+import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Data, Duration, Effect, Either, Option, Schedule, Schema, Stream } from 'effect';
@@ -208,20 +209,18 @@ const writing =
     );
 
 const operation = (run: Run, issue: number, proposal: Proposal, slot: string, tree?: string) =>
-  createHash('sha256')
-    .update(
-      JSON.stringify([
-        run.id,
-        run.step,
-        run.tries,
-        run.rounds,
-        issue,
-        slot,
-        Object.entries(proposal).sort(([a], [b]) => a.localeCompare(b)),
-        tree,
-      ])
-    )
-    .digest('hex');
+  getSha(
+    JSON.stringify([
+      run.id,
+      run.step,
+      run.tries,
+      run.rounds,
+      issue,
+      slot,
+      Object.entries(proposal).toSorted(([a], [b]) => a.localeCompare(b)),
+      tree,
+    ])
+  );
 
 const writeApplied = (run: Run, issue: number, key: string, applied: Applied) =>
   Effect.flatMap(Store, store => {
@@ -1159,11 +1158,9 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
         ]
           .filter(Boolean)
           .join('\n\n');
-        const key = createHash('sha256')
-          .update(
-            [run, check.name, check.agent, agent.model, agent.harness, agent.body, agent.tools, prompt, diff].join('\0')
-          )
-          .digest('hex');
+        const key = getSha(
+          [run, check.name, check.agent, agent.model, agent.harness, agent.body, agent.tools, prompt, diff].join('\0')
+        );
         if (!reads && !check.returns && passed.has(key)) return settle(item, { pass: true });
         const lines: Trace[] = [];
         const transcript = () => lines.map(line => JSON.stringify(line) + '\n').join('');

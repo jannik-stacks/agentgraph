@@ -1,5 +1,5 @@
+import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
-import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import { Config, Data, Effect, Either, ParseResult, Schema } from 'effect';
@@ -278,8 +278,6 @@ export type HarnessCheck = {
   check?: (agent: Agent) => string[];
 };
 
-/** Reads a graph directory, validates every file and fails with all problems at once. */
-const hash = (...texts: string[]) => createHash('sha256').update(texts.join('\0')).digest('hex').slice(0, 12);
 const readDocText = (files: File[], name?: string) => files.find(f => getDocName(f.path) === name)?.text ?? '';
 
 export const loadGraph = (
@@ -390,22 +388,25 @@ export const loadGraph = (
         name,
         {
           ...check,
-          version: hash(readDocText(read.groups.checks, name), readDocText(read.groups.agents, check.agent), scripts),
+          version: getSha(
+            [readDocText(read.groups.checks, name), readDocText(read.groups.agents, check.agent), scripts].join('\0'),
+            12
+          ),
         },
       ])
     );
-    const sha = createHash('sha256');
-    for (const file of [
-      { path: 'settings.yaml', text: read.settingsText ?? '' },
-      ...Object.values(read.groups).flat(),
-      ...read.scripts,
-    ]) {
-      sha.update(`${file.path}\0${file.text}\0`);
-    }
     return {
       dir: resolve(dir),
       repo: settings.repo ?? '',
-      sha: sha.digest('hex'),
+      sha: getSha(
+        [
+          { path: 'settings.yaml', text: read.settingsText ?? '' },
+          ...Object.values(read.groups).flat(),
+          ...read.scripts,
+        ]
+          .map(file => `${file.path}\0${file.text}\0`)
+          .join('')
+      ),
       limits: settings.limits,
       ...(tools.length && { tools }),
       ...(settings.plugins !== undefined && { plugins: settings.plugins }),

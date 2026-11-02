@@ -1,5 +1,5 @@
+import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
-import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
@@ -129,9 +129,7 @@ export const readPlugins = async (
       const actual = await realpath(path);
       if (!actual.startsWith(root + sep)) throw new Error(`plugins/${file}: symlink escapes the graph`);
       if ((await lstat(path)).isSymbolicLink()) throw new Error(`plugins/${file}: symlink entries are not supported`);
-      const hash = createHash('sha256')
-        .update(await readFile(actual))
-        .digest('hex');
+      const hash = getSha(await readFile(actual));
       const source = await import(`${pathToFileURL(actual).href}?sha=${hash}`).catch(error => {
         throw new Error(`plugins/${file}: ${(error as Error).message}`, { cause: error });
       });

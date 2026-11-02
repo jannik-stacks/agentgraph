@@ -6,7 +6,7 @@
  *   node tune/skill.ts <loop tune dir> --version 1 [--name skill@1] [--rounds 6] [--k 4] [--parallel 6] [--keys f]
  *     [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12] [--stop-claude-5h 100] [--stop-claude-week 100]
  */
-import { createHash } from 'node:crypto';
+import { getSha } from '../src/hash.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -62,11 +62,6 @@ const idsOf = (cases: Record<string, Split>, ...splits: Split[]) =>
   Object.keys(cases)
     .filter(id => splits.includes(cases[id]!))
     .sort();
-const skillSha = () =>
-  createHash('sha256')
-    .update(readFileOrEmpty(join(skillDir, 'SKILL.md')))
-    .digest('hex')
-    .slice(0, 12);
 
 /** Copies the loop tune's settings, cases and minimal graph into `skill@<version>` and scores that graph as the start. */
 const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parallel' | 'keys' | 'limits'>, io?: Io) => {
@@ -264,7 +259,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
   const r: Round = {
     iteration,
     version: o.version,
-    skill: skillSha(),
+    skill: getSha(readFileOrEmpty(join(skillDir, 'SKILL.md')), 12),
     usd: 0,
     minutes: 0,
     claude: { ...(before && { before }) },
@@ -357,7 +352,7 @@ const flatSince = (steps: Step[]) => {
  */
 export const skill = async (like: string, o: Options, io?: Io) => {
   const dir = await start(like, o, io);
-  const sha = skillSha();
+  const sha = getSha(readFileOrEmpty(join(skillDir, 'SKILL.md')), 12);
   const pinned = rounds(dir).find(r => r.skill !== sha);
   if (pinned) throw new Error(`SKILL.md changed since round ${pinned.iteration}: start a new --version`);
   for (;;) {
