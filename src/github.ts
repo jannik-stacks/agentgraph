@@ -1076,6 +1076,16 @@ export const githubForge = (
       apply,
       findPost,
       slug: me,
+      graphql: (query, variables) =>
+        Effect.flatMap(projectToken, auth =>
+          request<{ data?: unknown; errors?: { message: string }[] }>('POST', '/graphql', auth, { query, variables })
+        ).pipe(
+          Effect.filterOrFail(
+            ({ data }) => !data.errors?.length,
+            ({ data }) => new ForgeError({ message: data.errors!.map(e => e.message).join('; ') })
+          ),
+          Effect.map(({ data }) => data.data)
+        ),
       ...(studio && { studio }),
     };
   });

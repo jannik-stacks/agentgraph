@@ -10,19 +10,20 @@ import {
   formatEventLine,
   news,
   proposeStatusUpdates,
+  formatStatusLabel,
   stoppedByRunner,
   transcript,
   type IssueWithPull,
 } from './context.ts';
 import { Forge, ForgeError, currentRunLinkRef, withheld } from './forge.ts';
-import type { Applied, Comment, Event, Issue } from './event.ts';
+import { issueStatuses, type Applied, type Comment, type Event, type Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
 import { commitCheckoutOnce, gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
 import { Session } from './session.ts';
-import { readPlugins } from './plugin.ts';
+import { readPlugins, type StatusChange } from './plugin.ts';
 import { startTools } from './tools.ts';
 import {
   defaultPass,
@@ -1869,6 +1870,11 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
       proposeStatusUpdates(run, t, forge.studio, usd, others).filter(p => !isQuiet(w) || p.kind !== 'label'),
       p => forge.apply(run.issue, p)
     );
+    const labelled = status.flatMap(a => (a.ok && a.proposal.kind === 'label' ? [a.proposal] : []))[0];
+    const [to, from] = [labelled?.add, labelled?.remove].map(names =>
+      issueStatuses.find(s => names?.includes(formatStatusLabel(s)))
+    );
+    if (to) yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
@@ -1895,6 +1901,24 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
     writing(run),
     Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run))
   );
+
+const announce = (graph: Graph, change: StatusChange) =>
+  Effect.gen(function* () {
+    const forge = yield* Forge;
+    const { graphql } = forge;
+    const { hooks } = yield* Effect.tryPromise(() => readPlugins(graph.dir, graph.plugins));
+    for (const hook of hooks)
+      yield* Effect.tryPromise(async () =>
+        hook.status(change, {
+          repo: graph.repo,
+          settings: hook.settings,
+          forge: {
+            searchIssues: (...args) => Effect.runPromise(forge.searchIssues(...args)),
+            ...(graphql && { graphql: (query, variables) => Effect.runPromise(graphql(query, variables)) }),
+          },
+        })
+      ).pipe(Effect.catchAll(e => Effect.logWarning(`status hook of plugin ${hook.plugin}`, e)));
+  }).pipe(Effect.catchAll(e => Effect.logWarning('status hooks', e)));
 
 const past = (w: Workflow, asked: Run, moved: Run, graph: Graph) => {
   const { reason, retried: _retried, ...rest } = moved;

@@ -6,7 +6,7 @@ import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type Tool, type ToolExecutionOptions } from 'ai';
 import { Effect, Either, JSONSchema, ParseResult, Schema } from 'effect';
-import type { Issue } from './event.ts';
+import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -32,6 +32,14 @@ export type ToolContext<S = undefined> = {
   };
 } & Pick<ToolExecutionOptions<unknown>, 'abortSignal'>;
 
+export type StatusChange = { issue: number; repo: string; from?: IssueStatus; to: IssueStatus };
+
+type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abortSignal'> & {
+  readonly forge: { readonly graphql?: (query: string, variables: Record<string, unknown>) => Promise<unknown> };
+};
+
+type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;
+
 export const tool = <A, I, S = undefined>(definition: {
   description: string;
   inputSchema: Schema.Schema<A, I>;
@@ -54,13 +62,14 @@ export const tool = <A, I, S = undefined>(definition: {
   });
 
 export const makePlugin = <S = undefined, D = unknown, I = D>(
-  definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'studio'> & {
+  definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'studio' | 'on'> & {
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Schema<D, I>;
       read: (settings: S) => Effect.Effect<D, unknown>;
       watch?: (settings: S) => readonly string[];
     };
     tools?: Record<string, Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, ToolContext<S>>>;
+    on?: { status?: StatusHook<S> };
   } & ([S] extends [undefined]
       ? { settingsSchema?: Schema.Schema<S, Schema.Schema.Any['Encoded']> }
       : { settingsSchema: Schema.Schema<S, Schema.Schema.Any['Encoded']> })
@@ -84,6 +93,11 @@ const PluginFile = Schema.Struct({
     Schema.declare((value): value is Schema.Schema.AnyNoContext => Schema.isSchema(value))
   ),
   studio: Schema.optional(StudioPage),
+  on: Schema.optional(
+    Schema.Struct({
+      status: Schema.optional(Schema.declare((value): value is StatusHook<unknown> => typeof value === 'function')),
+    })
+  ),
   tools: Schema.optionalWith(
     Schema.Record({
       key: Schema.String,
@@ -110,6 +124,7 @@ export const readPlugins = async (
 ) => {
   const plugins = new Map<string, string>();
   const tools: Record<string, { tool: Tool; settings: unknown; plugin: string }> = {};
+  const hooks: { plugin: string; settings: unknown; status: StatusHook<unknown> }[] = [];
   const pages: (Pick<typeof StudioPage.Type, 'title' | 'page' | 'dataSchema'> & {
     name: string;
     read: () => ReturnType<(typeof StudioPage.Type)['read']>;
@@ -159,7 +174,9 @@ export const readPlugins = async (
       decoded = result.right;
     }
     const names = Object.keys(plugin.tools);
-    if (!names.length && !plugin.studio) throw new Error(`${file}: plugin has no tools or studio`);
+    if (!names.length && !plugin.studio && !plugin.on?.status)
+      throw new Error(`${file}: plugin has no tools, studio or hooks`);
+    if (plugin.on?.status) hooks.push({ plugin: plugin.name, settings: decoded, status: plugin.on.status });
     if (plugin.studio) {
       const { title, dataSchema, page, read, watch } = plugin.studio;
       const actual = await realpath(fileURLToPath(page));
@@ -194,5 +211,5 @@ export const readPlugins = async (
   for (const name of Object.keys(settings)) {
     if (!plugins.has(name)) throw new Error(`plugins.${name}: unknown plugin`);
   }
-  return { tools, pages };
+  return { tools, pages, hooks };
 };

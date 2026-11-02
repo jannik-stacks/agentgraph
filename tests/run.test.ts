@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Chunk, Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
@@ -235,6 +236,26 @@ describe('drive', () => {
     });
     await run(drive(w, fresh(), graph));
     expect(readFileSync(lock, 'utf8')).toBe('replacement');
+  });
+
+  it('tells status hooks about the label change, and a failing hook does not stop the run', async () => {
+    const where = world();
+    const dir = join(where.data, 'graph');
+    const plugin = pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href;
+    const hook = (name: string, body: string) =>
+      `import { makePlugin } from '${plugin}';\nexport default makePlugin({ name: '${name}', on: { status: change => { ${body} } } });\n`;
+    mkdirSync(join(dir, 'plugins'), { recursive: true });
+    writeFileSync(join(dir, 'plugins', 'a.ts'), hook('a', "throw new Error('board down');"));
+    writeFileSync(join(dir, 'plugins', 'b.ts'), hook('b', '(globalThis.statusChanges ??= []).push(change);'));
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    const asked = await run(drive(w, fresh(), { ...graph, dir }));
+    expect(asked).toMatchObject({ status: 'waiting', reason: 'Continue?' });
+    expect((globalThis as { statusChanges?: unknown[] }).statusChanges?.at(-1)).toEqual({
+      issue: 7,
+      repo: graph.repo,
+      from: 'working',
+      to: 'needs-answer',
+    });
   });
 
   it('drives the run as stored once it holds the lock, not the snapshot it was given', async () => {

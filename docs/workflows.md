@@ -169,7 +169,7 @@ The issue also carries exactly one status label, so a label filter shows what ne
 | `agentgraph:done` | The latest run finished |
 | `agentgraph:stopped` | The latest run stopped |
 
-With several runs on one issue, a waiting run wins over a working one. <!-- code: src/context.ts#proposeStatusUpdates -->
+With several runs on one issue, a waiting run wins over a working one. After each change, [status hooks](plugins.md#status-hooks) hear about it. <!-- code: src/context.ts#proposeStatusUpdates src/engine.ts#announce -->
 
 ## Order and limits
 

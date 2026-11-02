@@ -86,6 +86,21 @@ Known secrets are masked before output and tracing. Plugin credentials stay on t
 `AGENTGRAPH_SESSION_ENV` accepts only the four documented model login variables.
 <!-- code: src/tools.ts#startTools -->
 
+## Status hooks
+
+A plugin can declare `on.status` instead of, or next to, tools. The engine calls it after it changes an issue's
+[status label](workflows.md#status-on-the-issue), with `{ issue, repo, from, to }`; `from` is absent on the first label.
+The context holds `repo`, the plugin's `settings`, `forge.searchIssues` and, on GitHub, `forge.graphql(query, variables)`,
+which sends with the project token. Hooks run in filename order. A hook that throws is logged and the run goes on.
+<!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/engine.ts#announce src/forge.ts#Forge -->
+
+```ts
+export default makePlugin({
+  name: 'notify',
+  on: { status: async ({ issue, to }) => { if (to.startsWith('needs')) await fetch(/* ... */) } },
+});
+```
+
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect

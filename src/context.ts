@@ -114,7 +114,7 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
   };
 }
 
-const formatStatusLabel = (status: IssueStatus) => `agentgraph:${status}`;
+export const formatStatusLabel = (status: IssueStatus) => `agentgraph:${status}`;
 
 const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
 

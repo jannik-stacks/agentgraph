@@ -62,6 +62,7 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
     findPost: (number: number, proposal: Proposal, operation: string) => Effect.Effect<Applied | undefined, ForgeError>;
     /** The login people mention to talk to the bot, when the forge has one. */
     slug?: Effect.Effect<string, ForgeError>;
+    graphql?: (query: string, variables: Record<string, unknown>) => Effect.Effect<unknown, ForgeError>;
     /** The studio's URL that bodies link back to, when set. */
     studio?: string;
   }
