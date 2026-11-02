@@ -161,7 +161,7 @@ The sticky stays on the issue because the PR description already links there. Co
 
 ## Order and limits
 
-`limits.parallel` caps issues driven at once and `limits.sessions` caps sessions, judges included. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/engine.ts#tick src/engine.ts#getSessionGate -->
+`limits.parallel` caps issues driven at once and `limits.sessions` caps sessions and scripts across the process, judges included. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/engine.ts#tick src/engine.ts#getGate -->
 
 Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The sticky says “paused on an agentgraph problem, not this change; reply `/agent` to retry”. No separate runner error comment is posted, including for quiet runs. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs, and clears the pause in the sticky. <!-- code: src/engine.ts#drive -->
 

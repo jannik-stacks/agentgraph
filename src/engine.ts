@@ -695,7 +695,7 @@ const lastHeard = (t: IssueWithPull) =>
 
 const sh = (
   script: string,
-  graph: string,
+  graph: Graph,
   dir: string,
   env: Record<string, string>,
   minutes: number,
@@ -707,12 +707,12 @@ const sh = (
         cmd: 'sh',
         args: ['-c', script],
         dir,
-        graph,
+        graph: graph.dir,
         env,
         network,
         minutes,
       })
-    )
+    ).pipe(getGate(graph).withPermits(1))
   );
 
 /** Runs the graph's setup in a checkout, so its checks find what it installs, and traces how long it took. */
@@ -721,14 +721,7 @@ const setUp = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
     if (work.env) yield* Effect.flatMap(Store, s => s.trace(run.id, { at: now(), step: run.step, env: work.env! }));
     if (!graph.setup || work.ready) return;
     const started = Date.now();
-    const out = yield* sh(
-      graph.setup,
-      graph.dir,
-      work.dir,
-      { AGENTGRAPH_BASE: work.base },
-      graph.limits.minutes,
-      'proxy'
-    );
+    const out = yield* sh(graph.setup, graph, work.dir, { AGENTGRAPH_BASE: work.base }, graph.limits.minutes, 'proxy');
     const setup = { ms: Date.now() - started, exit: out.code };
     yield* Effect.flatMap(Store, s => s.trace(run.id, { at: now(), step: run.step, setup }));
     if (out.code !== 0)
@@ -769,7 +762,7 @@ class EachFailed extends Data.TaggedError('EachFailed')<{ detail: string }> {}
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
 const findFanOutItems = (
   each: string | { run: string },
-  graph: string,
+  graph: Graph,
   work: Checkout,
   minutes: number,
   env: Record<string, string> = { AGENTGRAPH_BASE: work.base }
@@ -800,16 +793,16 @@ const refresh = (run: Run, work: Checkout, seen: Seen, t: IssueWithPull) =>
 
 type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit'>;
 
-const gates = new Map<string, { size: number; gate: Effect.Semaphore }>();
+let gate: { size: number; permits: Effect.Semaphore } | undefined;
 
-/** The one semaphore every session on a repo starts behind, so containers never exceed `limits.sessions`. */
-const getSessionGate = (graph: Graph) => {
-  const size = graph.limits.sessions;
-  const kept = gates.get(graph.repo);
-  if (kept?.size === size) return kept.gate;
-  const gate = Effect.unsafeMakeSemaphore(size);
-  gates.set(graph.repo, { size, gate });
-  return gate;
+const getGate = (graph: Graph) => {
+  const size = Math.min(graph.limits.sessions, gate?.size ?? Infinity);
+  if (!gate) gate = { size, permits: Effect.unsafeMakeSemaphore(size) };
+  else if (gate.size !== size) {
+    Effect.runSync(gate.permits.resize(size));
+    gate.size = size;
+  }
+  return gate.permits;
 };
 
 /**
@@ -906,7 +899,7 @@ const converse = <A = never, R = never>(
           return write({ at: now(), step, event, key });
         }),
         Effect.scoped,
-        getSessionGate(graph).withPermits(1),
+        getGate(graph).withPermits(1),
         Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
         Effect.as(undefined)
       );
@@ -1090,7 +1083,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
       ...checkFiles(work),
     };
     const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
-      ? findFanOutItems(check.each, graph.dir, work, minutes, base)
+      ? findFanOutItems(check.each, graph, work, minutes, base)
       : Effect.succeed([undefined]);
     const listed = yield* all.pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
     const items: (string | undefined)[] = listed instanceof EachFailed ? [] : listed;
@@ -1133,10 +1126,10 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
           ...base,
           ...(item !== undefined && { AGENTGRAPH_ITEM: item }),
         };
-        const out = check.run ? yield* sh(check.run, graph.dir, work.dir, env, minutes) : undefined;
+        const out = check.run ? yield* sh(check.run, graph, work.dir, env, minutes) : undefined;
         if (out?.code === 127) {
           const command = check.run?.match(/^[\t ]*([A-Za-z0-9_./][A-Za-z0-9_./-]*)(?:\s|$)/)?.[1];
-          if (command && (yield* sh(`command -v '${command}'`, graph.dir, work.dir, env, minutes)).code !== 0)
+          if (command && (yield* sh(`command -v '${command}'`, graph, work.dir, env, minutes)).code !== 0)
             return yield* new SandboxError({
               reason: 'infra',
               detail: `${check.name}: command not found: ${squeeze(out.output, 400)}`,
@@ -1345,7 +1338,7 @@ const attempt = (
     const answering = asked && held;
     if ('run' in step.does) {
       const started = Date.now();
-      const out = yield* sh(step.does.run, graph.dir, work.dir, { AGENTGRAPH_BASE: work.base }, minutes);
+      const out = yield* sh(step.does.run, graph, work.dir, { AGENTGRAPH_BASE: work.base }, minutes);
       const result: CheckResult = {
         check: step.name,
         pass: out.code === 0,
@@ -1411,7 +1404,7 @@ const attempt = (
         .filter(Boolean)
         .join('\n\n');
       const listed: (string | undefined)[] = step.each
-        ? yield* findFanOutItems(step.each, graph.dir, work, minutes).pipe(
+        ? yield* findFanOutItems(step.each, graph, work, minutes).pipe(
             Effect.catchTag('EachFailed', e =>
               Effect.fail(
                 new SandboxError({
