@@ -65,6 +65,15 @@ A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` names another volu
 
 Graph `image` names a local image for every command and environment build, instead of `AGENTGRAPH_IMAGE` or `agentgraph-sandbox:local`. Build it yourself, with the harnesses, for example `FROM agentgraph-sandbox:local` plus an `npm ci` into `/node_modules` on the `PATH`. Those dependencies stay as built even when a pull request changes the lockfile. Pair it with `network: models`.
 
+For a repo requiring Node 22, build the derived recipe, whose Node source is pinned by digest:
+
+```sh
+docker build -t agentgraph-sandbox:node22 infra/local/sandbox/node22
+infra/local/sandbox/smoke.sh agentgraph-sandbox:node22
+```
+
+Set `image: agentgraph-sandbox:node22` in the repo graph. Node 20, browser and services recipes remain separate.
+
 ### A browser
 
 `infra/local/sandbox/browser` adds Playwright's headless Chromium, the libraries it links and one font, about 380 MB. Each Playwright release finds only its own browser build, so build it with the repo's `@playwright/test` version:

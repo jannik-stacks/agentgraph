@@ -1202,3 +1202,27 @@ describe('removeOrphanedVolumes', () => {
     }
   });
 });
+
+describe('deployment image startup', () => {
+  it('fails a missing custom tag without building stock contents', () => {
+    const bin = tmp('startup');
+    const log = join(bin, 'calls');
+    writeFileSync(
+      join(bin, 'docker'),
+      `#!/bin/sh\necho "$*" >> ${log}\ncase "$*" in "image inspect custom:missing") exit 1;; esac\n`
+    );
+    chmodSync(join(bin, 'docker'), 0o755);
+    const result = spawnSync('sh', [join(import.meta.dirname, '../examples/deploy/engine/start.sh')], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}${delimiter}${process.env.PATH}`,
+        AGENTGRAPH_IMAGE: 'custom:missing',
+        AGENTGRAPH_SANDBOX_URL: '',
+      },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('missing custom image custom:missing');
+    expect(readFileSync(log, 'utf8')).not.toContain('build');
+  });
+});

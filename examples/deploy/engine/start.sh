@@ -12,6 +12,12 @@ if [ -z "${AGENTGRAPH_SANDBOX_URL:-}" ]; then
   done
   docker compose -f examples/deploy/engine/sidecars.yaml up -d --wait
   image=${AGENTGRAPH_IMAGE:-agentgraph-sandbox:local}
-  docker image inspect "$image" > /dev/null 2>&1 || docker build -q -t "$image" infra/local/sandbox
+  if ! docker image inspect "$image" > /dev/null 2>&1; then
+    if [ "$image" != agentgraph-sandbox:local ]; then
+      echo "missing custom image $image; run docker pull $image on the runner host" >&2
+      exit 1
+    fi
+    docker build -q -t "$image" infra/local/sandbox
+  fi
 fi
 exec node bin/run.ts loop --data "$AGENTGRAPH_DATA"

@@ -8,9 +8,17 @@ set -eu
 image=${1:-${AGENTGRAPH_SANDBOX_IMAGE:-agentgraph-sandbox:local}}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-docker run --rm --pull never --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g --user "$(id -u):$(id -g)" \
+docker run --name "agentgraph-smoke-$$" --rm --pull never --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g --user "$(id -u):$(id -g)" \
   --cap-drop=ALL --security-opt no-new-privileges=true --network none -e HOME=/tmp -v "$work:/work" --workdir /work \
   "$image" sh -c '
+    set -e
+    NODE_OPTIONS= node --version
+    codex --version
+    claude --version
+    pi --version
+    opencode --version
+    client=$(agi 2>&1) && exit 1
+    echo "$client" | grep -q "^usage: agi file put <path>$" || { echo "$client"; exit 1; }
     for tool in ps rg git cc oxlint oxfmt opencode rustup-init; do
       command -v "$tool" >/dev/null || { echo "missing tool: $tool"; exit 1; }
     done
