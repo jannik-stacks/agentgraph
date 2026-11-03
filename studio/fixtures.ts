@@ -4,7 +4,7 @@ import { basename, join, sep } from 'node:path';
 import type { Plugin } from 'vite';
 import { readRealPath } from './plugins.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
-import { findTraceLinks, mergeCheckEntries } from './src/runs/trace.ts';
+import { findTraceLinks, makeRunSummary, mergeCheckEntries } from './src/runs/trace.ts';
 import { resultSources } from './src/results/result.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as HarnessesModule from '../src/harnesses.ts';
@@ -40,17 +40,6 @@ const json = (res: ServerResponse, value: unknown, status = 200) => {
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify(value));
 };
-
-const cut = (value: unknown): unknown =>
-  typeof value === 'string'
-    ? value.length > 160
-      ? `${value.slice(0, 160)}...`
-      : value
-    : Array.isArray(value)
-      ? value.map(cut)
-      : value && typeof value === 'object'
-        ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, cut(v)]))
-        : value;
 
 const isInside = async (path: string, roots: string[]) => {
   const [real, ...reals] = await Promise.all([path, ...roots].map(p => realpath(p).catch(() => undefined)));
@@ -169,7 +158,8 @@ export const makeStudioDevApiPlugin = (): Plugin => {
                   repo: served?.graph?.repo ?? '',
                   run,
                   labels: readRunLabels(data, run.id),
-                  trace: all ? lines : lines.map(line => cut(line) as typeof line),
+                  ...makeRunSummary(run, lines),
+                  ...(all && { trace: lines }),
                   ...findTraceLinks(trace),
                   ...(bench && { data: bench }),
                 };

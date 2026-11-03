@@ -11,7 +11,7 @@ export const splitSelection = (selected: string | null) => {
 };
 
 export const findCheckVerdicts = (
-  runs: Pick<ServedRun, 'fixture' | 'run' | 'trace'>[],
+  runs: Pick<ServedRun, 'fixture' | 'run' | 'checks'>[],
   fixture: string,
   step: string,
   check: string
@@ -29,10 +29,10 @@ export const findCheckVerdicts = (
       failed: number;
     }
   >();
-  for (const { fixture: from, run, trace } of runs) {
+  for (const { fixture: from, run, checks } of runs) {
     if (from !== fixture) continue;
-    for (const line of trace) {
-      if (!('check' in line) || line.step !== step || line.check.check !== check) continue;
+    for (const line of checks) {
+      if (line.step !== step || line.check.check !== check) continue;
       const key = `${run.id}@${line.at}`;
       const v = byTime.get(key) ?? {
         run: run.id,

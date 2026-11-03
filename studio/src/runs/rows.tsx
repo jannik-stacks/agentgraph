@@ -6,8 +6,8 @@ import type { RunRecord } from '../../../src/workflow.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultLines } from '../results/ResultTable.tsx';
-import { dataParam, runResultsAtom } from '../state.ts';
-import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
+import { dataParam, runAtom, runResultsAtom } from '../state.ts';
+import { accent, Badge, cx, Disclosure, Link, Loading, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
   atLink,
@@ -472,7 +472,8 @@ const Issue = ({ r }: { r: ServedRun }) =>
   );
 
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
-const RunInfo = ({ r: { run, data } }: { r: ServedRun }) => {
+const RunInfo = ({ r }: { r: ServedRun }) => {
+  const { run, data } = r;
   const [raw, setRaw] = useState(false);
   const { value } = useAtomValue(runResultsAtom(data));
   const results = value?.runs.find(x => x.key === run.id);
@@ -491,6 +492,7 @@ const RunInfo = ({ r: { run, data } }: { r: ServedRun }) => {
           {run.reason}
         </p>
       )}
+      {!r.trace && <Visits r={r} />}
     </>
   );
 };
@@ -507,9 +509,8 @@ export const RunLine = ({ r }: { r: ServedRun }) => (
   </Link>
 );
 
-/** A run as a row: where it stands, what it cost and left on the tracker; open, the steps it visited. */
-export const runRow = (r: ServedRun, open = false, expand = false, target?: Line): Row => {
-  const { run, trace } = r;
+const makeVisitRows = (r: ServedRun, trace: Line[], expand: boolean, target?: Line): Row[] => {
+  const { run } = r;
   const visits = splitTraceIntoVisitedSteps(trace);
   let by: string | undefined;
   const partRow = (part: SessionTraceLines | Line): Row => {
@@ -531,6 +532,36 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
       }),
     };
   };
+  return visits.map((visit, i) => {
+    const checks = new Map(
+      visit.parts.flatMap(part =>
+        'check' in part && part.item === undefined ? [[part.check.check, part.check.pass] as const] : []
+      )
+    );
+    const failed = [...checks].flatMap(([name, pass]) => (pass ? [] : [name]));
+    return {
+      open: true,
+      summary: (
+        <span className="flex min-w-0 items-baseline gap-x-2">
+          <span className={cx('font-medium', r.run.status === 'running' && i === visits.length - 1 && accent.text)}>
+            {visit.step}
+          </span>
+          {checks.size > 0 && muted(`${checks.size} checks${failed.length ? `, failed ${failed.join(', ')}` : ''}`)}
+        </span>
+      ),
+      children: visit.parts.map(partRow),
+    };
+  });
+};
+
+const Visits = ({ r }: { r: ServedRun }) => {
+  const { value } = useAtomValue(runAtom(r.run.id, r.data));
+  return value?.trace ? <Rows rows={makeVisitRows(value, value.trace, false)} /> : <Loading />;
+};
+
+/** A run as a row: where it stands, what it cost and left on the tracker; open, the steps it visited, read from its trace or fetched when it has none. */
+export const runRow = (r: ServedRun, open = false, expand = false, target?: Line): Row => {
+  const { run } = r;
   return {
     key: run.id,
     open,
@@ -559,11 +590,9 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
         <Link href={graphLink(r, target?.step ?? run.step)} className="shrink-0 underline">
           graph
         </Link>
-        <Col className="w-[6ch] text-right text-zinc-500">
-          {usd(trace.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0))}
-        </Col>
+        <Col className="w-[6ch] text-right text-zinc-500">{usd(r.usd)}</Col>
         <Col className="w-[8ch] text-right text-zinc-500">
-          {took(run.started, r.run.status === 'running' ? undefined : (run.ended ?? trace.at(-1)?.at))}
+          {took(run.started, r.run.status === 'running' ? undefined : (run.ended ?? r.lastAt))}
         </Col>
         {Object.entries(r.labels).map(([key, value]) => (
           <Badge key={key}>{`${key}=${value}`}</Badge>
@@ -575,34 +604,13 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
           ) : (
             <span className="text-zinc-500">{r.branch}</span>
           ))}
-        {trace.flatMap((line, i) =>
-          'applied' in line && line.applied.url && ['issue', 'merge'].includes(line.applied.proposal.kind)
-            ? [<Url key={i} url={line.applied.url} />]
-            : []
-        )}
+        {r.urls.map(url => (
+          <Url key={url} url={url} />
+        ))}
       </span>
     ),
     body: <RunInfo r={r} />,
-    children: visits.map((visit, i) => {
-      const checks = new Map(
-        visit.parts.flatMap(part =>
-          'check' in part && part.item === undefined ? [[part.check.check, part.check.pass] as const] : []
-        )
-      );
-      const failed = [...checks].flatMap(([name, pass]) => (pass ? [] : [name]));
-      return {
-        open: true,
-        summary: (
-          <span className="flex min-w-0 items-baseline gap-x-2">
-            <span className={cx('font-medium', r.run.status === 'running' && i === visits.length - 1 && accent.text)}>
-              {visit.step}
-            </span>
-            {checks.size > 0 && muted(`${checks.size} checks${failed.length ? `, failed ${failed.join(', ')}` : ''}`)}
-          </span>
-        ),
-        children: visit.parts.map(partRow),
-      };
-    }),
+    ...(r.trace && { children: makeVisitRows(r, r.trace, expand, target) }),
   };
 };
 

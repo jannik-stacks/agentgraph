@@ -43,7 +43,9 @@ beforeAll(async () => {
   const { runsAtom } = await studioModule<{ runsAtom: Atom }>('state.ts');
   renderInbox = runs => {
     const store = jotai.createStore();
-    store.set(runsAtom, { value: runs.map(run => ({ fixture: '', repo: '', labels: {}, run, trace: [] })) });
+    store.set(runsAtom, {
+      value: runs.map(run => ({ fixture: '', repo: '', labels: {}, run, usd: 0, trail: [], urls: [], checks: [] })),
+    });
     return renderToString(createElement(jotai.Provider, { store }, createElement(InboxPage)));
   };
   const ui = await studioModule<{ KeyPicker: unknown; makeHiddenKeysAtom: (name: string) => Atom }>('ui.tsx');

@@ -30,10 +30,13 @@ type ServedRun = {
   data?: string;
 };
 Object.assign(globalThis, { location: new URL('http://localhost/runs') });
-const { runRow } = await studioModule<{
+const rows = await studioModule<{
   runRow: (r: ServedRun, open?: boolean, expand?: boolean, target?: Trace) => Row;
 }>('runs/rows.tsx');
-const { lineAt, findTraceLinks, locatedLink, isGitHubRef } = await studioModule<typeof TraceModule>('runs/trace.ts');
+const { lineAt, findTraceLinks, locatedLink, isGitHubRef, makeRunSummary } =
+  await studioModule<typeof TraceModule>('runs/trace.ts');
+const runRow = (r: ServedRun, ...rest: [open?: boolean, expand?: boolean, target?: Trace]) =>
+  rows.runRow({ ...r, ...makeRunSummary(r.run as never, r.trace) }, ...rest);
 const dependency = <T>(name: string) =>
   import(
     /* @vite-ignore */ pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href
@@ -285,6 +288,7 @@ describe('a deep link into a run', () => {
         labels: {},
         run: { ...run, step: 'merge', status: 'waiting' },
         trace: lines,
+        ...makeRunSummary(run as never, lines),
       },
     });
     const html = renderToStaticMarkup(

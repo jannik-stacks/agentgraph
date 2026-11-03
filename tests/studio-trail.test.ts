@@ -40,7 +40,7 @@ describe('findCheckVerdicts', () => {
     check: { check, pass, ms: 1, ...(item ? {} : { findings: `${check} at ${at}` }) },
     ...(item && { item }),
   });
-  const run = (id: string, fixture: string, trace: unknown[]) => ({ fixture, run: { id, issue: 7 }, trace });
+  const run = (id: string, fixture: string, checks: unknown[]) => ({ fixture, run: { id, issue: 7 }, checks });
 
   it('preserves an empty check and its reason for the skip count', () => {
     const empty = {

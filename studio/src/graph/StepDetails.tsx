@@ -1,4 +1,4 @@
-import { useAtomValue } from 'jotai';
+import { atom, useAtomValue } from 'jotai';
 import { useState } from 'react';
 import { makeWorkflowGraph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
@@ -6,7 +6,7 @@ import type { Line } from '../runs/trace.ts';
 import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunLine } from '../runs/rows.tsx';
-import { runsAtom } from '../state.ts';
+import { runAtom, runsAtom } from '../state.ts';
 import { atLink } from '../runs/trace.ts';
 import { accent, cx, Field, Fields, Link, Tooltip } from '../ui.tsx';
 import { checkModeTips, Section, Term, To } from './panel.tsx';
@@ -229,6 +229,8 @@ export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
   </div>
 );
 
+const simulated = atom<{ value?: { trace?: Line[] } | null }>({});
+
 /** The served graph's runs that stand at a step now. */
 const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
   const { value: runs, failure } = useAtomValue(runsAtom);
@@ -260,7 +262,10 @@ export const StepDetails = ({
 }) => {
   const { workflow, checks } = fixture;
   const { does } = step;
-  const lines = run && (run.trace ?? makeTrailTrace(run.trail, run.run)).filter(line => line.step === step.name);
+  const opened = useAtomValue(run?.live ? runAtom(run.run.id) : simulated);
+  const lines =
+    run &&
+    (run.live ? opened.value?.trace : makeTrailTrace(run.trail, run.run))?.filter(line => line.step === step.name);
   const graph = makeWorkflowGraph(workflow, checks, undefined, fixture.roles);
   const { trigger } = graph;
   const { writes, model } = graph.nodes.find(n => n.step === step.name) ?? {};
@@ -375,7 +380,7 @@ export const StepDetails = ({
                 check={checks[name]}
                 path={`${workflow.name}/${step.name}`}
                 lines={lines}
-                run={run?.trace && run.run.id}
+                run={run?.live ? run.run.id : undefined}
               />
             ))}
           </ul>

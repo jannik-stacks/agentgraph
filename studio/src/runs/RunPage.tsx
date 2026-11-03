@@ -22,7 +22,7 @@ export const RunPage = ({ id }: { id: string }) => {
 const OpenedRun = ({ r }: { r: ServedRun }) => {
   const [expand, setExpand] = useAtom(expandAtom);
   const at = useAtomValue(atParam);
-  const target = useMemo(() => lineAt(r.trace, at), [r, at]);
+  const target = useMemo(() => lineAt(r.trace ?? [], at), [r, at]);
   const end = useRef<HTMLDivElement>(null);
   const following = expand && r.run.status === 'running' && !target;
   useEffect(() => {

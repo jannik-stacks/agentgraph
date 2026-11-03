@@ -1,5 +1,4 @@
 import type { Agent, Check } from '../../../src/folder.ts';
-import type { Line } from '../runs/trace.ts';
 import type { Doc, Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
 import type * as WorkflowModule from '../../../src/workflow.ts';
 
@@ -7,7 +6,7 @@ import type * as WorkflowModule from '../../../src/workflow.ts';
 export type Trail = { at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason'>; outcome: Outcome }[];
 
 /** A run drawn over its workflow: a real one carries its trace, a simulated one only its trail. */
-export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; trace?: Line[] | undefined };
+export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; live?: boolean };
 
 /** A fixture workflow with its checks and the runs simulated over it; a served graph's also carries its prompts and what each agent returns and reads. */
 export type Fixture = {

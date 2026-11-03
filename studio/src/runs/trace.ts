@@ -2,6 +2,8 @@ import type { Located } from '../../../src/store.ts';
 import type { readRunLabels } from '../../../src/labels.ts';
 import type { CheckEntry, Trace } from '../../../src/trace.ts';
 import type { CheckResult, Outcome, RunRecord } from '../../../src/workflow.ts';
+import { isOnIssue } from '../../../src/graph.ts';
+import { makeRunTrail } from '../graph/visits.ts';
 
 export const formatNumber = (n: number) =>
   Math.abs(n) >= 1e6
@@ -56,15 +58,48 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
   return { ...(pull && { pull }), ...(branch && { branch }) };
 };
 
-/** A run as the dev server answers it: the run, its trace, where it lives, and its pull request and branch. */
+export const makeRunSummary = (run: RunRecord, lines: Line[]) => ({
+  usd: lines.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0),
+  lastAt: lines.at(-1)?.at,
+  trail: isOnIssue(run) ? makeRunTrail(run, lines) : [],
+  urls: lines.flatMap(line =>
+    'applied' in line && line.applied.url && ['issue', 'merge'].includes(line.applied.proposal.kind)
+      ? [line.applied.url]
+      : []
+  ),
+  checks: lines.flatMap(line =>
+    'check' in line
+      ? [
+          {
+            at: line.at,
+            step: line.step,
+            ...(line.item !== undefined && { item: true }),
+            check: {
+              check: line.check.check,
+              pass: line.check.pass,
+              ...(line.check.empty && { empty: true }),
+              ...(line.item === undefined &&
+                line.check.findings !== undefined && {
+                  findings:
+                    line.check.findings.length > 160 ? `${line.check.findings.slice(0, 160)}...` : line.check.findings,
+                }),
+            },
+          },
+        ]
+      : []
+  ),
+});
+
+/** A run as the dev server answers it: the run, its summary, where it lives, its pull request and branch, and its trace when opened alone. */
 export type ServedRun = {
   fixture: string;
   repo: string;
   run: RunRecord;
   labels: ReturnType<typeof readRunLabels>;
-  trace: Line[];
+  trace?: Line[];
   data?: string;
-} & ReturnType<typeof findTraceLinks>;
+} & ReturnType<typeof findTraceLinks> &
+  ReturnType<typeof makeRunSummary>;
 
 export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
 

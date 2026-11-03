@@ -25,7 +25,7 @@ import type { Fixture, RunDrawnOnWorkflow } from './scenarios.ts';
 import { AgentDetails, CheckDetails } from './OpenedDetails.tsx';
 import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
 import { splitSelection } from './trail.ts';
-import { makeRunStory, makeRunTrail, makeWorkflowRunVisits } from './visits.ts';
+import { makeRunStory, makeWorkflowRunVisits } from './visits.ts';
 
 const graphParam = queryParam('graph');
 const runParam = queryParam('run');
@@ -316,7 +316,7 @@ export const GraphPage = () => {
   const runs = useMemo(
     () =>
       (graph?.fixtures ?? []).flatMap(fixture => [
-        ...(real ?? []).flatMap(({ fixture: from, run, trace }) =>
+        ...(real ?? []).flatMap(({ fixture: from, run, trail }) =>
           from === fixture.id && isOnIssue(run)
             ? [
                 {
@@ -324,8 +324,8 @@ export const GraphPage = () => {
                   label: `#${run.issue} ${fixture.workflow.name}, ${run.status} at ${run.step}, ${run.id}`,
                   fixture,
                   run,
-                  trail: makeRunTrail(run, trace),
-                  trace,
+                  trail,
+                  live: true,
                 },
               ]
             : []
@@ -373,7 +373,7 @@ export const GraphPage = () => {
           {picked ? (
             <>
               <span className={accent.text}>
-                {'trace' in picked ? `Live, run ${picked.run.id}` : 'Simulated run'}, {picked.run.status} at{' '}
+                {'live' in picked ? `Live, run ${picked.run.id}` : 'Simulated run'}, {picked.run.status} at{' '}
                 {picked.run.step}.
               </span>{' '}
               {makeRunStory(
