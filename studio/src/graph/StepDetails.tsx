@@ -231,7 +231,8 @@ export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
 
 /** The served graph's runs that stand at a step now. */
 const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
-  const { value: runs = [] } = useAtomValue(runsAtom);
+  const { value: runs, failure } = useAtomValue(runsAtom);
+  if (!runs) return <p className="text-zinc-500">{failure ?? 'Loading runs.'}</p>;
   const here = runs.filter(
     r => r.fixture === fixture && r.run.step === step && ['running', 'waiting'].includes(r.run.status)
   );

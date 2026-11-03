@@ -12,7 +12,8 @@ const latest = 12;
 const Path = ({ children }: { children: string }) => <p className="font-mono text-zinc-500">{children}</p>;
 
 const Verdicts = ({ fixture, step, name }: { fixture: string; step: string; name: string }) => {
-  const { value: runs = [] } = useAtomValue(runsAtom);
+  const { value: runs, failure } = useAtomValue(runsAtom);
+  if (!runs) return <p className="text-zinc-500">{failure ?? 'Loading runs.'}</p>;
   const verdicts = findCheckVerdicts(runs, fixture, step, name);
   if (!verdicts.length) return <p className="text-zinc-500">No run has run it here yet.</p>;
   const failed = verdicts.filter(v => !v.empty && !v.pass).length;
