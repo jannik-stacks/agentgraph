@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findTraceLinks, mergeCheckEntries } from './src/runs/trace.ts';
+import { resultSources } from './src/results/result.ts';
 import type * as BenchModule from '../bin/bench.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as DriveModule from '../bench/drive.ts';
@@ -39,7 +40,7 @@ const json = (res: ServerResponse, value: unknown, status = 200) => {
 };
 
 /** The bench out dirs at or under `dir`: those with a `log.jsonl`, never looking into case dirs. */
-export const findBenchOutDirs = (dir: string, depth = 3): string[] => [
+const findBenchOutDirs = (dir: string, depth = 3): string[] => [
   ...(existsSync(join(dir, 'log.jsonl')) ? [dir] : []),
   ...(depth && existsSync(dir)
     ? readdirSync(dir, { withFileTypes: true })
@@ -81,7 +82,7 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * `GET /api/bench` answers the rows of every bench out dir under the dirs `AGI_STUDIO_BENCH` names, read again only when
  * a `log.jsonl`, `events.jsonl` or `done/` of theirs changes, and where each driven bench dir stands. A failing async
  * route answers 500 with the error.
- * `GET /api/results?from=runs|bench|tune` answers what each run, bench row or tune candidate gave, with its fields (`bin/results.ts`);
+ * `GET /api/results?from=runs|tune|exports` answers what each run, tune candidate or export gave, with its fields (`bin/results.ts`);
  * tunes are under `AGI_STUDIO_TUNE` (default: the `bin/tune.ts` root).
  * `GET /api/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
@@ -116,19 +117,19 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       const { readBenchDriveState }: typeof DriveModule = await from('bench/drive.ts');
       json(res, { rows: await rows.read, drives: drives.map(readBenchDriveState) });
     });
-    server.middlewares.use('/api/results', (req, res) => {
-      const source = new URL(req.url ?? '/', 'http://studio').searchParams.get('from');
-      if (source !== 'runs' && source !== 'bench' && source !== 'tune' && source !== 'exports')
-        return json(res, { error: 'bad from' }, 400);
+    use('/api/results', async (req, res) => {
+      const source = resultSources.find(s => s === new URL(req.url ?? '/', 'http://studio').searchParams.get('from'));
+      if (!source) return json(res, { error: 'bad from' }, 400);
       const dirs = {
         ...(process.env.AGI_STUDIO_DATA && { data: process.env.AGI_STUDIO_DATA }),
         bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
-        benchOuts: (dir: string) => findBenchOutDirs(dir),
         ...(process.env.AGI_STUDIO_TUNE && { tune: process.env.AGI_STUDIO_TUNE }),
       };
-      void Promise.all([from<typeof ResultsModule>('bin/results.ts'), servedGraph()])
-        .then(([{ readRunResults }, served]) => json(res, readRunResults(source, dirs, served?.graph)))
-        .catch((e: Error) => json(res, { error: e.message }, 500));
+      const [{ readRunResults }, served] = await Promise.all([
+        from<typeof ResultsModule>('bin/results.ts'),
+        servedGraph(),
+      ]);
+      json(res, readRunResults(source, dirs, served?.graph));
     });
     use('/api/logs', async (req, res) => {
       const data = process.env.AGI_STUDIO_DATA;

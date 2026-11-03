@@ -119,8 +119,8 @@ const readTunes = (root?: string) =>
   );
 
 export const readRunResults = (
-  from: ResultSource,
-  dirs: { data?: string; bench?: string[]; benchOuts?: (dir: string) => string[]; tune?: string },
+  from: ResultSource | 'bench',
+  dirs: { data?: string; bench?: string[]; tune?: string },
   graph?: Pick<Graph, 'checks'>
 ) => {
   if (from === 'exports') {
@@ -152,10 +152,7 @@ export const readRunResults = (
       ? readRuns(dirs.data ?? '', graph)
       : from === 'tune'
         ? readTunes(dirs.tune)
-        : (dirs.bench ?? [])
-            .flatMap(dir => dirs.benchOuts?.(dir) ?? [dir])
-            .flatMap(out => readBenchRows(out))
-            .map(row => readBenchRowResults(row));
+        : (dirs.bench ?? []).flatMap(out => readBenchRows(out)).map(row => readBenchRowResults(row));
   const fixed = from === 'bench' ? benchFields : from === 'tune' ? tuneFields : [];
   const found = findCheckFields(runs, graph?.checks).filter(f => !fixed.some(x => x.check === f.check));
   return { fields: [...found, ...fixed], runs };

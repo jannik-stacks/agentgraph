@@ -10,7 +10,6 @@ import type * as HarnessModule from '../src/harnesses.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import { ResultsData } from './src/results/data.ts';
 import { resultSources } from './src/results/result.ts';
-import { findBenchOutDirs } from './fixtures.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 const entry = 'virtual:agentgraph-page/';
@@ -61,7 +60,6 @@ const readStudioPages = async () => {
                         {
                           ...(data && { data }),
                           bench,
-                          benchOuts: findBenchOutDirs,
                           ...(tune && { tune }),
                         },
                         graph

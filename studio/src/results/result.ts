@@ -2,7 +2,7 @@ import type { readBenchRows } from '../../../bin/bench.ts';
 import type { ResultSheet } from '../../../src/results.ts';
 import { formatNumber } from '../runs/trace.ts';
 
-export const resultSources = ['runs', 'bench', 'tune', 'exports'] as const;
+export const resultSources = ['runs', 'tune', 'exports'] as const;
 export type ResultSource = (typeof resultSources)[number];
 
 export type CheckField = (typeof ResultSheet.Type.fields)[number];

@@ -5,12 +5,12 @@ import type { DriveState } from '../../../bench/drive.ts';
 import type { readBenchRows } from '../../../bin/bench.ts';
 import { getMean } from '../../../src/stats.ts';
 import { makeLiveJsonAtom, queryParam } from '../state.ts';
-import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
+import { Button, cx, Disclosure, Field, Fields, Help, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaultBenchBy, defaultBenchScoreWeights, frontier, presets, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
 import { readBenchRowResults, type RunResults } from '../results/result.ts';
 import { findCheckFields } from '../../../src/results.ts';
-import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
+import { ResultTable } from '../results/ResultTable.tsx';
 
 type Row = ReturnType<typeof readBenchRows>[number];
 
@@ -84,15 +84,7 @@ const terms: [string, ReactNode][] = [
       Higher and further left is better. The line joins setups whose quality no cheaper setup matches. It is faint and
       dashed if any setup on it has fewer than 10 cases. Dimmed points have a cheaper match or are judge-only, which
       judges alone score, so they stay off the line. Hollow points are dimmed but their quality interval still reaches
-      the line. Crosses show 95 percent intervals from a bootstrap over cases, then repeats. This chart compares setups.
-      The{' '}
-      <Link
-        href="/results?from=bench"
-        className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
-      >
-        Results
-      </Link>{' '}
-      tab shows each field over time.
+      the line. Crosses show 95 percent intervals from a bootstrap over cases, then repeats.
     </>,
   ],
 ];
@@ -101,11 +93,8 @@ const BenchResults = ({ runs }: { runs: RunResults[] }) => {
   const fields = findCheckFields(runs).filter(f => f.check !== 'bench');
   if (!fields.length) return null;
   return (
-    <section className="space-y-1">
+    <section>
       <ResultTable runs={runs} fields={fields} by="point" />
-      <p className="text-xs text-zinc-500">
-        <ResultsLink query="from=bench">all results</ResultsLink>
-      </p>
     </section>
   );
 };

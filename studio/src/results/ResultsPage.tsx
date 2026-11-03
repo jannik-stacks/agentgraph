@@ -16,14 +16,12 @@ const params = Object.fromEntries(
 
 const defaults: Record<ResultSource, { x: string; color: string }> = {
   runs: { x: 'time', color: 'workflow' },
-  bench: { x: 'point', color: 'model' },
   tune: { x: 'iteration', color: 'tune' },
   exports: { x: 'order', color: 'export' },
 };
 
 const sourceLabels: Record<ResultSource, string> = {
   runs: 'Runs',
-  bench: 'Benchmarks',
   tune: 'Tunes',
   exports: 'Exports',
 };

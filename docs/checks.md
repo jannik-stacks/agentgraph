@@ -68,7 +68,7 @@ A `reads: traces` check gets an empty folder beside the run's traces, so it work
 
 ## The Results tab
 
-The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs, the bench's arms or every tune's candidates, depending on how the [studio](local.md#the-studio) started. Each run counts with each check's latest result. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage -->
+The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs, every tune's candidates or exported result sheets, depending on how the [studio](local.md#the-studio) started. Each run counts with each check's latest result. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage -->
 
 The table has one row per result field: runs that gave it, failed results, values outside `pass`, the median, one dot per run, and a trend. `by` splits a field by workflow, model, tune or another dimension, and a field's `unit` sets how it reads. Runs that ended before any step passed or session started are dead and hidden by default. The chart draws a field against time, order, a dimension or another field, one dot per run.
 
