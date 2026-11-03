@@ -20,8 +20,10 @@ describe('bench driver', () => {
   it('parses free labels and rejects malformed entries', () => {
     expect(parseBenchLabels('team=bench,experiment=skill=v2')).toEqual({ team: 'bench', experiment: 'skill=v2' });
     expect(parseBenchLabels('')).toEqual({});
-    expect(() => parseBenchLabels('team')).toThrow('expected key=value');
-    expect(() => parseBenchLabels('=bench')).toThrow('expected key=value');
+    expect(() => parseBenchLabels('team')).toThrow('write a label as key=value');
+    expect(() => parseBenchLabels('=bench')).toThrow('write a label as key=value');
+    expect(() => parseBenchLabels('team-')).toThrow('Expected string, actual null');
+    expect(() => parseBenchLabels('Team=bench')).toThrow('["Team"]');
   });
 
   it('finds node on PATH at each spawn', () => {

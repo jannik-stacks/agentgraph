@@ -4,7 +4,7 @@
 // Live knobs in <dir>: `parallel` (worker count), `PAUSE` (take no new job). events.jsonl logs every start, stop,
 // pause and job. Exits 1 while jobs are left, so a queue tries again later.
 import { spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -20,7 +20,7 @@ import {
   startChildProcess,
 } from '../bin/resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
-import { readRunLabels } from '../src/labels.ts';
+import { parseLabelPatch, parseLabels } from '../src/labels.ts';
 import { writeFileAtomic } from '../src/store.ts';
 
 /** The node on PATH now, so a toolchain upgrade during a long bench does not break later spawns. */
@@ -86,16 +86,7 @@ const queued = (dir: string) =>
       .flatMap(l => [...l.matchAll(/\b([A-Z_]+)=(\S+)/g)].map(m => [m[1]!, m[2]!]))
   ) as Settings;
 
-export const parseBenchLabels = (text: string): Record<string, string> =>
-  Object.fromEntries(
-    text
-      ? text.split(',').map(pair => {
-          const match = /^([^=,\s]+)=(.*)$/.exec(pair);
-          if (!match) throw new Error(`invalid LABELS entry: ${pair}; expected key=value`);
-          return [match[1]!, match[2]!];
-        })
-      : []
-  );
+export const parseBenchLabels = (text: string) => parseLabels(parseLabelPatch(text ? text.split(',') : []));
 
 const defaults = (dir: string, sha = '') => {
   const engine = ['engine/agentgraph', 'engine']
@@ -153,27 +144,12 @@ const readBenchJobs = (dir: string, s: Settings): Job[] => {
 const slot = (j: Job) => j.point.replace(':', '-');
 const runDir = (dir: string, s: Settings, j: Job) => join(dir, s.SHA!, slot(j), `r${j.k}`);
 const formatJobName = (j: Job) => `${slot(j)}/r${j.k}/${j.c.id}`;
-const makeJobRunLabels = (s: Settings, j: Job, arm: string) => {
-  const [harness, model] = j.point.split(':');
-  return { case: j.c.id, arm, harness, model, repeat: String(j.k), engine: s.SHA, set: s.SET };
-};
-
-const isArmRunLabelled = (at: string, s: Settings, j: Job, arm: string) => {
-  const data = join(at, arm, 'data');
-  const want = Object.entries(makeJobRunLabels(s, j, arm));
-  return (existsSync(data) ? readdirSync(data) : []).some(id => {
-    const labels = readRunLabels(data, id);
-    return existsSync(join(data, id, 'run.json')) && want.every(([k, v]) => labels[k] === v);
-  });
-};
-
 const finished = (dir: string, s: Settings, j: Job) => {
   const at = join(runDir(dir, s, j), j.c.id);
   const valid = json<{ invalid?: string } | null>(join(at, 'valid.json'), null);
   if (!valid) return false;
   if (valid.invalid) return true;
-  const done = (a: string) =>
-    existsSync(join(at, a, 'diff.patch')) && existsSync(join(at, a, 'score.json')) && isArmRunLabelled(at, s, j, a);
+  const done = (a: string) => existsSync(join(at, a, 'diff.patch')) && existsSync(join(at, a, 'score.json'));
   return arms.every(done) && (s.JUDGES === 'none' || existsSync(join(at, 'judge', 'panel.json')));
 };
 

@@ -143,25 +143,13 @@ describe('bench driver durability', () => {
     expect(calls(dir)).toEqual([]);
   });
 
-  it('skips a job whose arm runs are labelled and judged, keeps two harnesses on one model apart, and reaps trees', async () => {
+  it('skips a scored and judged job, keeps two harnesses on one model apart, and reaps trees', async () => {
     const dir = bench(['c1']);
     const both = { ...settings(dir), POINTS: 'opencode:m,codex:m' };
     for (const point of ['opencode-m', 'codex-m']) {
       const at = join(run(dir, point), 'c1');
       for (const arm of ['v2', 'floor']) {
-        mkdirSync(join(at, arm, 'data/run-1'), { recursive: true });
-        writeFileSync(join(at, arm, 'data/run-1/run.json'), '{}');
-        await Effect.runPromise(
-          writeRunLabels(join(at, arm, 'data'), 'run-1', {
-            case: 'c1',
-            arm,
-            harness: point.split('-')[0]!,
-            model: 'm',
-            repeat: '1',
-            engine: sha(dir).slice(0, 8),
-            set: basename(dir),
-          })
-        );
+        mkdirSync(join(at, arm), { recursive: true });
         writeFileSync(join(at, arm, 'diff.patch'), 'd');
         writeFileSync(join(at, arm, 'score.json'), '{}');
       }
@@ -210,7 +198,7 @@ describe('bench driver durability', () => {
     expect(events(dir).at(-1)?.event).toBe('crash');
   });
 
-  it('runs every job, logs it, and a resume reruns nothing finished', async () => {
+  it('runs every job, logs it, and a resume reruns nothing finished, even after relabelling', async () => {
     const dir = bench(['c1', 'bad1']);
     writeFileSync(join(dir, 'budget-log.jsonl'), '{"label":"start"}\n{"label":"cut');
     const first = await drive(dir, { ...settings(dir), LABELS: 'experiment=skills' });
@@ -237,6 +225,8 @@ describe('bench driver durability', () => {
     expect(existsSync(join(dir, 'drive.lock'))).toBe(false);
     expect(JSON.parse(readFileSync(join(run(dir), 'point.json'), 'utf8')).labels).toEqual({ experiment: 'skills' });
     expect(() => configure(dir, { LABELS: 'experiment=other' })).toThrow('this run started with experiment=skills');
+    for (const arm of ['v2', 'floor'])
+      await Effect.runPromise(writeRunLabels(join(run(dir), `c1/${arm}/data`), 'run-1', { arm: null, case: 'other' }));
     const before = calls(dir).length;
     const again = await drive(dir);
     expect(again.code, again.out).toBe(0);
