@@ -24,7 +24,7 @@ import { getMean, getRounded } from '../src/stats.ts';
 import type { CheckResult } from '../src/workflow.ts';
 import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
-import { writeIssueFile } from '../src/forge.ts';
+import { writeIssueFile } from '../src/tracker.ts';
 import { writeComment } from '../src/instance.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
@@ -513,12 +513,12 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image })
   );
   if (options.point) repoint(graph, options.point);
-  const dir = join(at, 'forge');
+  const dir = join(at, 'tracker');
   sh('git', ['init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git')]);
   sh('git', ['-C', repo, 'push', '-q', join(dir, 'origin.git'), `${c.base}:refs/heads/main`]);
   await writeIssueFile(dir, { title: c.title, author: 'maintainer', labels: [] }, c.body.trim());
   await writeComment(dir, 'maintainer', 1, '/agent');
-  process.env.AGENTGRAPH_FORGE = dir;
+  process.env.AGENTGRAPH_TRACKER = dir;
   let answers = 0;
   let status: string | undefined;
   let reason: string | undefined;
@@ -565,7 +565,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
 
 /** Why an arm attempt broke on its environment, not on the agent: the engine stopped on a runner error. */
 export const runnerError = (reason = '') =>
-  /runner error|^(SandboxError|SessionStop|ForgeError)\b/.test(reason) ? reason.slice(0, 200) : undefined;
+  /runner error|^(SandboxError|SessionStop|TrackerError)\b/.test(reason) ? reason.slice(0, 200) : undefined;
 
 /**
  * Why an arm's run says nothing about the arm, when its environment failed it: a recorded environment failure, a
@@ -1061,10 +1061,10 @@ const usage = (at: string): Partial<ReturnType<typeof readArmUsageOverAttempts>>
   return !saved.attempts && (existsSync(join(at, 'data')) || earlier(at).length) ? readArmUsageOverAttempts(at) : saved;
 };
 
-/** Writes an arm's usage beside it, then copies it to `kept` without its data, forge, graph or attic dirs. */
+/** Writes an arm's usage beside it, then copies it to `kept` without its data, tracker, graph or attic dirs. */
 export const keep = (at: string, kept: string | undefined) => {
   if (!existsSync(join(at, 'usage.json'))) writeFileAtomic(join(at, 'usage.json'), readArmUsageOverAttempts(at));
-  if (kept) copyDirIfAbsentAtomic(at, kept, p => !/\/(data|forge|graph|\.attic)$/.test(p));
+  if (kept) copyDirIfAbsentAtomic(at, kept, p => !/\/(data|tracker|graph|\.attic)$/.test(p));
 };
 
 const scoreArms = async (c: Case & Commands, out: string, repo: string, which: string[]) => {

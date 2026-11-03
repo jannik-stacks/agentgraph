@@ -463,7 +463,7 @@ const Col = ({ className, children }: { className: string; children: ReactNode }
   <span className={cx('shrink-0 truncate tabular-nums', className)}>{children}</span>
 );
 
-/** A run's issue as a link to it on the forge. */
+/** A run's issue as a link to it on the tracker. */
 const Issue = ({ r }: { r: ServedRun }) =>
   r.run.issue === undefined ? null : r.repo ? (
     <Url url={`https://github.com/${r.repo}/issues/${r.run.issue}`} text={`#${r.run.issue}`} />
@@ -507,7 +507,7 @@ export const RunLine = ({ r }: { r: ServedRun }) => (
   </Link>
 );
 
-/** A run as a row: where it stands, what it cost and left on the forge; open, the steps it visited. */
+/** A run as a row: where it stands, what it cost and left on the tracker; open, the steps it visited. */
 export const runRow = (r: ServedRun, open = false, expand = false, target?: Line): Row => {
   const { run, trace } = r;
   const visits = splitTraceIntoVisitedSteps(trace);

@@ -9,7 +9,7 @@ const fake = (items: { id: string; project: { id: string } }[]) => {
   const context: HookContext<typeof settings> = {
     repo: 'acme/app',
     settings,
-    forge: {
+    tracker: {
       searchIssues: async () => [],
       graphql: async (query, variables) => {
         calls.push({ query, variables });

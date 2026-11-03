@@ -17,7 +17,7 @@ const toolTests = [
   'tests/docker.test.ts',
   'tests/doubles.test.ts',
   'tests/drive-durable.test.ts',
-  'tests/forge-cli.test.ts',
+  'tests/tracker-cli.test.ts',
   'tests/github.test.ts',
   'tests/example-checks.test.ts',
   'tests/folder.test.ts',

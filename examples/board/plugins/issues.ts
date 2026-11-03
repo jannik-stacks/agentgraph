@@ -11,7 +11,7 @@ export default makePlugin({
         state: Schema.optional(Schema.Literal('open', 'closed', 'all')),
       }),
       execute: async ({ query, state = 'open' }, ctx) =>
-        (await ctx.forge.searchIssues(query, { state, limit: 10 })).map(({ number, title, state, url, body }) => ({
+        (await ctx.tracker.searchIssues(query, { state, limit: 10 })).map(({ number, title, state, url, body }) => ({
           number,
           title,
           state,

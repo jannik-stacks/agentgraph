@@ -15,7 +15,7 @@ import {
   transcript,
   type IssueWithPull,
 } from './context.ts';
-import { Forge, ForgeError, currentRunLinkRef, withheld } from './forge.ts';
+import { Tracker, TrackerError, currentRunLinkRef, withheld } from './tracker.ts';
 import { issueStatuses, type Applied, type Comment, type Event, type Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
@@ -66,7 +66,7 @@ import {
   parseAgentRequest,
 } from './workflow.ts';
 
-export type Services = Forge | Store | Session | Sandbox;
+export type Services = Tracker | Store | Session | Sandbox;
 
 const now = () => new Date().toISOString();
 
@@ -195,8 +195,8 @@ const pending = (w: Workflow, issue: number, open: Issue[]) =>
 const deepest = 3;
 
 /** How many parents sit above issue `n`, counted up to `deepest`. */
-const findIssueDepth = (n: number, above = 0): Effect.Effect<number, ForgeError, Forge> =>
-  Effect.flatMap(Forge, f => f.issue(n)).pipe(
+const findIssueDepth = (n: number, above = 0): Effect.Effect<number, TrackerError, Tracker> =>
+  Effect.flatMap(Tracker, f => f.issue(n)).pipe(
     Effect.flatMap(t =>
       t.parent === undefined || above >= deepest ? Effect.succeed(above) : findIssueDepth(t.parent, above + 1)
     )
@@ -208,7 +208,7 @@ const findIssueDepth = (n: number, above = 0): Effect.Effect<number, ForgeError,
  * again. A follow-up or a graph change becomes a plain issue labelled with its relation that names the run's issue and
  * starts nothing; one with the title of an open issue is added there as a comment. One refusal files none.
  */
-/** Forge writes made for `run` at its step by `session`; a mark set for the same run and step outside is kept. */
+/** Tracker writes made for `run` at its step by `session`; a mark set for the same run and step outside is kept. */
 const writing =
   (run: Run, session = run.sessions[run.step]?.id) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -243,7 +243,7 @@ const findAppliedBefore = (run: Run, issue: number, key: string, proposal?: Prop
     const lines = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id)));
     const traced = lines.findLast(t => 'applied' in t && t.applied.operation === key && t.applied.ok);
     if (traced && 'applied' in traced) return traced.applied;
-    const posted = proposal && (yield* (yield* Forge).findPost(issue, proposal, key));
+    const posted = proposal && (yield* (yield* Tracker).findPost(issue, proposal, key));
     return posted && (yield* writeApplied(run, issue, key, posted));
   });
 
@@ -251,7 +251,7 @@ const once = (
   run: Run,
   issue: number,
   key: string,
-  write: Effect.Effect<Applied, ForgeError | StoreError, Forge | Store>,
+  write: Effect.Effect<Applied, TrackerError | StoreError, Tracker | Store>,
   proposal?: Proposal
 ) =>
   Effect.gen(function* () {
@@ -264,10 +264,10 @@ const once = (
 const file = (w: Workflow, run: Run, children: Child[]) =>
   Effect.gen(function* () {
     if (children.length === 0) return [];
-    const forge = yield* Forge;
-    const issue = yield* forge.issue(run.issue);
+    const tracker = yield* Tracker;
+    const issue = yield* tracker.issue(run.issue);
     const depth = yield* findIssueDepth(run.issue);
-    const open = new Map((yield* forge.issues({ state: 'open' })).map(t => [t.title.trim().toLowerCase(), t.number]));
+    const open = new Map((yield* tracker.issues({ state: 'open' })).map(t => [t.title.trim().toLowerCase(), t.number]));
     const cached = yield* Effect.forEach(children, (p, i) =>
       findAppliedBefore(
         run,
@@ -312,7 +312,7 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
       const same = isPart(p) ? undefined : open.get(p.title.trim().toLowerCase());
       if (same !== undefined) {
         const comment: Proposal = { kind: 'comment', body: [p.body, ...lines].join('\n\n') };
-        applied.push(yield* once(run, same, key, forge.apply(same, comment), comment));
+        applied.push(yield* once(run, same, key, tracker.apply(same, comment), comment));
         numbers.push(same);
         continue;
       }
@@ -322,7 +322,7 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
         body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
         ...(isPart(p) ? { parent: run.issue, labels: [`size/${p.size}`] } : { labels: [p.relation] }),
       };
-      const a = yield* once(run, run.issue, key, forge.apply(run.issue, filed), filed);
+      const a = yield* once(run, run.issue, key, tracker.apply(run.issue, filed), filed);
       applied.push(a);
       if (!a.ok) break;
       numbers.push(Number(a.id));
@@ -335,7 +335,7 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
         run,
         run.issue,
         operation(run, run.issue, summary, 'file-summary'),
-        forge.apply(run.issue, summary),
+        tracker.apply(run.issue, summary),
         summary
       )
     );
@@ -358,7 +358,7 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
 /** The open follow-up and graph issues, so an agent adds to one by its title instead of filing it again. */
 const filed = () =>
   Effect.map(
-    Effect.flatMap(Forge, f => f.issues({ state: 'open' })),
+    Effect.flatMap(Tracker, f => f.issues({ state: 'open' })),
     open => {
       const listed = open.filter(t => t.labels.some(l => l === 'follow-up' || l === 'graph'));
       return (
@@ -385,7 +385,7 @@ const undispatchable = (
     const [p] = asked;
     if (!p) return [];
     const w = graph.workflows[p.workflow];
-    const issue = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).find(t => t.number === p.issue);
+    const issue = (yield* Effect.flatMap(Tracker, f => f.issues({ state: 'open' }))).find(t => t.number === p.issue);
     const held = (yield* Effect.flatMap(Store, s => s.list({ issue: p.issue }))).some(
       r => !isRunDone(r) && r.id !== run.id
     );
@@ -441,7 +441,7 @@ const recipient = (graph: Graph, issue: number, by: string) =>
 const tell = (graph: Graph, issue: number, text: string, by: string) =>
   Effect.gen(function* () {
     const to = yield* recipient(graph, issue, by);
-    if (!to) return yield* new ForgeError({ message: `no live run on #${issue} to tell` });
+    if (!to) return yield* new TrackerError({ message: `no live run on #${issue} to tell` });
     yield* Effect.flatMap(Store, s => s.trace(to.id, { at: now(), step: to.step, told: { text, by } }));
     return to;
   });
@@ -477,26 +477,26 @@ export const instruct = (
   graph: Graph,
   instruction: Instruction,
   meta?: Run['meta']
-): Effect.Effect<RunRecord[], ForgeError | StoreError, Services> =>
+): Effect.Effect<RunRecord[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
     const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
-      Effect.mapError(() => new ForgeError({ message: 'invalid run metadata' }))
+      Effect.mapError(() => new TrackerError({ message: 'invalid run metadata' }))
     );
     if (instruction.kind === 'resume') {
       const store = yield* Store;
       const runs = yield* store.list();
       const selected = 'id' in instruction ? runs.filter(r => r.id === instruction.id) : runs.filter(isParked);
       if ('id' in instruction && !selected.length)
-        return yield* new ForgeError({ message: `no run ${instruction.id}` });
+        return yield* new TrackerError({ message: `no run ${instruction.id}` });
       return yield* Effect.forEach(selected, before =>
         Effect.gen(function* () {
           yield* store.lock(before.id);
           const run = yield* store.get(before.id);
           if (!run || !isParked(run))
-            return yield* new ForgeError({ message: `run ${before.id} is not parked by a runner error` });
+            return yield* new TrackerError({ message: `run ${before.id} is not parked by a runner error` });
           const workflow = graph.workflows[run.workflow];
           if (!workflow?.steps.some(s => s.name === run.step))
-            return yield* new ForgeError({ message: `the graph has no step ${run.workflow}/${run.step}` });
+            return yield* new TrackerError({ message: `the graph has no step ${run.workflow}/${run.step}` });
           const outcome = { kind: 'answer', text: '' } as const;
           const next = yield* past(workflow, run, transition(workflow, run, outcome), graph);
           yield* store.trace(run.id, {
@@ -513,7 +513,7 @@ export const instruct = (
     if (instruction.kind === 'check') {
       const { checks, kind: _kind, ...where } = instruction;
       const unknown = checks.filter(name => !(name in graph.checks));
-      if (unknown.length) return yield* new ForgeError({ message: `the graph has no check ${unknown.join(', ')}` });
+      if (unknown.length) return yield* new TrackerError({ message: `the graph has no check ${unknown.join(', ')}` });
       const ended = (yield* Effect.flatMap(Store, s => s.listRecords(where))).filter(isRunDone);
       const runs = yield* Effect.forEach(ended, r => runLaterChecks(graph, r.id, checks), {
         concurrency: graph.limits.parallel,
@@ -523,7 +523,7 @@ export const instruct = (
     if (instruction.kind === 'dispatch') {
       const { text, ...p } = { ...instruction, kind: 'run' as const };
       const refused = yield* undispatchable(graph, { id: 'cli' }, [p], true);
-      if (refused.length) return yield* new ForgeError({ message: refused[0]!.reason! });
+      if (refused.length) return yield* new TrackerError({ message: refused[0]!.reason! });
       const child = yield* dispatch(graph, { id: 'cli' }, p, {
         ...(text && { said: [{ issue: p.issue }] }),
         ...(supplied && { meta: supplied }),
@@ -539,19 +539,19 @@ export const instruct = (
         );
       return [child];
     }
-    if (!router(graph)) return yield* new ForgeError({ message: 'graph has no router workflow' });
-    const forge = yield* Forge;
-    const issue = yield* forge.issue(instruction.issue);
+    if (!router(graph)) return yield* new TrackerError({ message: 'graph has no router workflow' });
+    const tracker = yield* Tracker;
+    const issue = yield* tracker.issue(instruction.issue);
     const parent =
       instruction.comment === undefined
         ? undefined
         : issue.events.find(m => m.comment?.id === instruction.comment)?.comment;
     if (instruction.comment !== undefined && (!issue.pull || parent?.path === undefined))
-      return yield* new ForgeError({ message: `no review comment ${instruction.comment} on #${issue.number}` });
+      return yield* new TrackerError({ message: `no review comment ${instruction.comment} on #${issue.number}` });
     const at = now();
     const event = spokenByCli(issue.number, instruction.text, at, parent);
     const runs = yield* Effect.flatMap(Store, s => s.list());
-    const open = yield* forge.issues({ state: 'open' });
+    const open = yield* tracker.issues({ state: 'open' });
     const owner = runs.find(
       r => graph.workflows[r.workflow] && findPullNumber(graph.workflows[r.workflow]!, r.issue, open) === issue.number
     );
@@ -567,8 +567,8 @@ export const instruct = (
         store.trace(target.id, { at, step: target.step, spoken: event, ...(supplied && { meta: supplied }) })
       );
     return yield* tick(graph, owner?.issue ?? issue.number, true, 0, supplied).pipe(
-      Effect.provideService(Forge, {
-        ...forge,
+      Effect.provideService(Tracker, {
+        ...tracker,
         since: () => Stream.make(event),
       })
     );
@@ -588,19 +588,19 @@ const settled = (child: Run) =>
 const readIssueWithPull = (
   w: Workflow,
   run: Run
-): Effect.Effect<IssueWithPull, ForgeError | StoreError, Forge | Store> =>
+): Effect.Effect<IssueWithPull, TrackerError | StoreError, Tracker | Store> =>
   Effect.gen(function* () {
-    const forge = yield* Forge;
-    const issue = yield* forge.issue(run.issue);
+    const tracker = yield* Tracker;
+    const issue = yield* tracker.issue(run.issue);
     const pull = issue.pull
       ? undefined
       : w.branch === undefined
         ? run.said?.find(s => s.issue !== run.issue)?.issue
-        : findPullNumber(w, run.issue, yield* forge.issues(isRunDone(run) ? {} : { state: 'open' }));
+        : findPullNumber(w, run.issue, yield* tracker.issues(isRunDone(run) ? {} : { state: 'open' }));
     const spoken = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
       'spoken' in t ? [t.spoken] : []
     );
-    const review = pull !== undefined ? yield* forge.issue(pull) : undefined;
+    const review = pull !== undefined ? yield* tracker.issue(pull) : undefined;
     return {
       issue: { ...issue, events: [...issue.events, ...spoken.filter(m => m.issue !== review?.number)] },
       ...(review && {
@@ -857,14 +857,14 @@ const converse = <A = never, R = never>(
       ...(item !== undefined && { item }),
       ...(aside && { aside }),
     });
-    const forge = yield* Effect.serviceOption(Forge);
+    const tracker = yield* Effect.serviceOption(Tracker);
     const box = yield* Effect.serviceOption(Sandbox);
     const custom = spec.tools.filter(name => graph.tools?.includes(name));
     const server = custom.length
       ? yield* Effect.acquireRelease(
           Effect.tryPromise({
             try: async () => {
-              if (Option.isNone(forge)) throw new Error('custom tools need a forge');
+              if (Option.isNone(tracker)) throw new Error('custom tools need a tracker');
               const registry = await readPlugins(graph.dir, graph.plugins);
               const tools = Object.fromEntries(custom.map(name => [name, registry.tools[name]!]));
               const route =
@@ -873,7 +873,7 @@ const converse = <A = never, R = never>(
                 tools,
                 {
                   repo: graph.repo,
-                  forge: { searchIssues: (...args) => Effect.runPromise(forge.value.searchIssues(...args)) },
+                  tracker: { searchIssues: (...args) => Effect.runPromise(tracker.value.searchIssues(...args)) },
                 },
                 event => Effect.runPromise(write({ at: now(), step, event, key })),
                 { save: (bytes, signal) => Effect.runPromise(store.putFile(bytes, signal)), session: key },
@@ -1303,7 +1303,7 @@ const attempt = (
   graph: Graph,
   work: Checkout,
   own?: string
-): Effect.Effect<{ outcome: Outcome; run: Run }, SandboxError | SessionStop | ForgeError | StoreError, Services> =>
+): Effect.Effect<{ outcome: Outcome; run: Run }, SandboxError | SessionStop | TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const step = w.steps.find(s => s.name === run.step)!;
@@ -1520,7 +1520,7 @@ const attempt = (
         problems.push(`branch ${p.branch} is not this run's branch ${own ?? '(none)'}`);
       if (p.kind === 'merge') {
         const target = own
-          ? yield* Effect.flatMap(Forge, f => f.issue(p.number)).pipe(
+          ? yield* Effect.flatMap(Tracker, f => f.issue(p.number)).pipe(
               Effect.catchIf(
                 e => e.status === 404,
                 () => Effect.succeed(undefined)
@@ -1620,7 +1620,7 @@ const attempt = (
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
     const to = world.some(p => p.kind === 'comment' && (!run.said || p.under !== undefined))
-      ? findPullNumber(w, run.issue, yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' })))
+      ? findPullNumber(w, run.issue, yield* Effect.flatMap(Tracker, f => f.issues({ state: 'open' })))
       : undefined;
     const runs = world.filter(p => p.kind === 'run');
     const tells = yield* Effect.forEach(
@@ -1763,10 +1763,10 @@ export const runStepChecks = (
 
 const rejected = 'the model provider rejected the key or login. Fix it, then start a new run.';
 
-const explain = (e: SandboxError | SessionStop | ForgeError) =>
+const explain = (e: SandboxError | SessionStop | TrackerError) =>
   `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;
 
-const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeError | StoreError, R>) =>
+const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | TrackerError | StoreError, R>) =>
   Effect.catchAll(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
 
 const whyNotApplicable = (check: Check, run: RunRecord, traced: boolean) =>
@@ -1898,13 +1898,13 @@ const runLaterChecks = (graph: Graph, id: string, names: string[]) =>
     return run;
   }).pipe(Effect.scoped);
 
-const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Forge | Store> =>
+const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Tracker | Store> =>
   Effect.gen(function* () {
     const store = yield* Store;
     yield* store
       .lock(`status-${run.issue}`)
       .pipe(Effect.retry({ while: e => e.cause instanceof LockHeldError, schedule: Schedule.spaced('50 millis') }));
-    const forge = yield* Forge;
+    const tracker = yield* Tracker;
     const t = yield* readIssueWithPull(w, run);
     const usd = yield* readRunSpend(run.id);
     const others = yield* Effect.forEach(
@@ -1916,8 +1916,8 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
         })
     );
     const status = yield* Effect.forEach(
-      proposeStatusUpdates(run, t, forge.studio, usd, others).filter(p => !isQuiet(w) || p.kind !== 'label'),
-      p => forge.apply(run.issue, p)
+      proposeStatusUpdates(run, t, tracker.studio, usd, others).filter(p => !isQuiet(w) || p.kind !== 'label'),
+      p => tracker.apply(run.issue, p)
     );
     const labelled = status.flatMap(a => (a.ok && a.proposal.kind === 'label' ? [a.proposal] : []))[0];
     const [to, from] = [labelled?.add, labelled?.remove].map(names =>
@@ -1925,7 +1925,7 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
     );
     if (to) yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
     const reply = status.find(a => a.proposal.kind === 'comment');
-    const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
+    const undone = reply?.ok && run.eyes ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
       s.trace(
         run.id,
@@ -1948,21 +1948,21 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
   }).pipe(
     Effect.scoped,
     writing(run),
-    Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run))
+    Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run))
   );
 
 const announce = (graph: Graph, change: StatusChange) =>
   Effect.gen(function* () {
-    const forge = yield* Forge;
-    const { graphql } = forge;
+    const tracker = yield* Tracker;
+    const { graphql } = tracker;
     const { hooks } = yield* Effect.tryPromise(() => readPlugins(graph.dir, graph.plugins));
     for (const hook of hooks)
       yield* Effect.tryPromise(async () =>
         hook.status(change, {
           repo: graph.repo,
           settings: hook.settings,
-          forge: {
-            searchIssues: (...args) => Effect.runPromise(forge.searchIssues(...args)),
+          tracker: {
+            searchIssues: (...args) => Effect.runPromise(tracker.searchIssues(...args)),
             ...(graphql && { graphql: (query, variables) => Effect.runPromise(graphql(query, variables)) }),
           },
         })
@@ -1984,8 +1984,8 @@ const land = (
   proposals: Proposal[],
   work?: Checkout,
   to?: number
-): Effect.Effect<Applied[], ForgeError | StoreError, Forge | Store> =>
-  Effect.flatMap(Forge, forge =>
+): Effect.Effect<Applied[], TrackerError | StoreError, Tracker | Store> =>
+  Effect.flatMap(Tracker, tracker =>
     Effect.gen(function* () {
       const threads = new Set(proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : [])));
       const open = (run.said ?? []).filter(s => s.under === undefined || !threads.has(s.under));
@@ -2005,7 +2005,7 @@ const land = (
       const applied: Applied[] = [];
       const tree =
         work && proposals.some(p => p.kind === 'push')
-          ? yield* writeCheckoutTree(work).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })))
+          ? yield* writeCheckoutTree(work).pipe(Effect.mapError(e => new TrackerError({ message: e.detail })))
           : undefined;
       let refused = false;
       for (const [i, [issue, p]] of sent.entries()) {
@@ -2015,7 +2015,7 @@ const land = (
               run,
               issue,
               work ? operation(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
-              forge.apply(issue, p, work),
+              tracker.apply(issue, p, work),
               work && p
             );
         applied.push(a);
@@ -2037,7 +2037,7 @@ const unthreaded = (run: Run): Run =>
 export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
-    const forge = yield* Forge;
+    const tracker = yield* Tracker;
     let current = run;
     const settle = (outcome: Outcome, next: Run, failure?: SessionStop['reason']) =>
       Effect.gen(function* () {
@@ -2073,8 +2073,8 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         yield* store.put(current);
       });
     const walk = Effect.gen(function* () {
-      const base = w.base ?? (yield* forge.base);
-      const issue = yield* forge.issue(run.issue);
+      const base = w.base ?? (yield* tracker.base);
+      const issue = yield* tracker.issue(run.issue);
       current = yield* show(
         w,
         {
@@ -2086,12 +2086,13 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         graph
       );
       yield* store.put(current);
-      const stacked = graph.stacks && !current.base && findStackBase(w, issue, yield* forge.issues({ state: 'open' }));
+      const stacked =
+        graph.stacks && !current.base && findStackBase(w, issue, yield* tracker.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const named = w.branch && expand(w.branch, issue);
       const old = named && named.replace(/^agentgraph\//, 'bothub/');
       const own =
-        old && old !== named && (yield* forge.issues({ state: 'open' })).some(t => t.pull?.branch === old)
+        old && old !== named && (yield* tracker.issues({ state: 'open' })).some(t => t.pull?.branch === old)
           ? old
           : named;
       const ref =
@@ -2109,7 +2110,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         const tree = yield* writeCheckoutTree(made);
         if (from !== onto && tree !== (yield* readGit(made.git, ['rev-parse', `${onto}^{tree}`]))) {
           const head = yield* readGit(made.git, [...gitIdentity, 'commit-tree', tree, '-p', from, '-m', 'Saved work']);
-          const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: own, from, onto, head }, made);
+          const applied = yield* tracker.apply(run.issue, { kind: 'rebase', branch: own, from, onto, head }, made);
           yield* store.trace(run.id, { at: now(), step: current.step, applied });
           if (!applied.ok)
             current = {
@@ -2164,7 +2165,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
       const files = made.written && (yield* Effect.promise(made.written));
       if (files !== undefined) yield* store.trace(run.id, { at: now(), step: current.step, cache: { files } });
     });
-    const halt = (e: SandboxError | SessionStop | ForgeError) => {
+    const halt = (e: SandboxError | SessionStop | TrackerError) => {
       const why = explain(e);
       const said = `${stoppedByRunner}.`;
       if (e._tag === 'SessionStop' && e.reason === 'human')
@@ -2193,7 +2194,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         Effect.catchTags({
           SandboxError: halt,
           SessionStop: halt,
-          ForgeError: halt,
+          TrackerError: halt,
         })
       );
     } while (current.status === 'running');
@@ -2223,16 +2224,16 @@ const following = (work: Checkout, onto: string, first: boolean) =>
 const follow = (w: Workflow, given: Run, known: NonNullable<Run['base']>, head: string, graph: Graph) =>
   Effect.gen(function* () {
     const store = yield* Store;
-    const forge = yield* Forge;
+    const tracker = yield* Tracker;
     yield* store.lock(given.id);
     const run = (yield* store.get(given.id)) ?? given;
     if (isRunDone(run)) return;
     const base = run.base ?? known;
     if (base.sha === head && !base.from) return;
     const from = base.from ?? base.sha;
-    const branch = expand(w.branch!, yield* forge.issue(run.issue));
+    const branch = expand(w.branch!, yield* tracker.issue(run.issue));
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
-    const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work);
+    const applied = yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work);
     const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
     yield* store.trace(run.id, { at: now(), step: run.step, applied });
     const { from: _pending, ...rest } = base;
@@ -2262,7 +2263,7 @@ const follow = (w: Workflow, given: Run, known: NonNullable<Run['base']>, head: 
 const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
     const store = yield* Store;
-    const forge = yield* Forge;
+    const tracker = yield* Tracker;
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
     const { ready: _, ...made } = yield* Effect.flatMap(Sandbox, s =>
@@ -2296,7 +2297,7 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
       const applied: Applied =
         files.length > 0
           ? { proposal, ok: false, reason: `conflicts in ${files.join(', ')}` }
-          : yield* forge.apply(run.issue, proposal, work);
+          : yield* tracker.apply(run.issue, proposal, work);
       yield* store.trace(run.id, { at: now(), step: run.step, applied });
       if (!applied.ok && tried === 0 && (to || resolver)) {
         const why = [
@@ -2368,7 +2369,7 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
 const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNullable<Issue['pull']>, number: number) =>
   Effect.gen(function* () {
     const store = yield* Store;
-    const forge = yield* Forge;
+    const tracker = yield* Tracker;
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
     if (!to || !('agent' in to.does))
@@ -2419,13 +2420,13 @@ const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNulla
       number
     ).pipe(
       writing(run, r.id),
-      Effect.catchTag('ForgeError', e =>
+      Effect.catchTag('TrackerError', e =>
         back ? Effect.as(Effect.logWarning(`aside reply of run ${run.id}`, e), []) : e
       )
     );
     if (!back && !landed.some(a => a.ok))
       return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
-    const undone = landed.some(a => a.ok) && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
+    const undone = landed.some(a => a.ok) && run.eyes ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* store.trace(
       run.id,
       ...[...landed, ...undone].filter(a => !a.operation).map(applied => ({ at: now(), step: step.name, applied }))
@@ -2464,13 +2465,13 @@ export const tick = (
   marked = false,
   debounce = 0,
   meta?: Run['meta']
-): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
     const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
-      Effect.mapError(() => new ForgeError({ message: 'invalid run metadata' }))
+      Effect.mapError(() => new TrackerError({ message: 'invalid run metadata' }))
     );
     const store = yield* Store;
-    const forge = yield* Forge;
+    const tracker = yield* Tracker;
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const all = yield* store.list();
     const runs = all.filter(mine).filter(r => !retro(graph, r) || isParked(r));
@@ -2480,15 +2481,15 @@ export const tick = (
       .sort()
       .at(-1);
     const cursor = started === undefined ? '' : [started, ...waiting.map(p => p.at)].sort()[0]!;
-    const issues = yield* forge.issues({ state: 'open' });
+    const issues = yield* tracker.issues({ state: 'open' });
     const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
-    const latest = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor, boards)));
+    const latest = Chunk.toArray(yield* Stream.runCollect(tracker.since(cursor, boards)));
     const merged = (yield* Effect.forEach(
       latest.filter(m => m.kind === 'merged' && !issues.some(t => t.number === m.issue)),
       m =>
-        forge
+        tracker
           .issue(m.issue)
-          .pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`#${m.issue}`, e), [])))
+          .pipe(Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`#${m.issue}`, e), [])))
     )).flat();
     const origin = new Map<Event, number>();
     const onRun = (m: Event): Event => {
@@ -2545,10 +2546,10 @@ export const tick = (
             ...(m.comment.path !== undefined && { review: true }),
           }),
       };
-      return forge.apply(issue, react).pipe(
+      return tracker.apply(issue, react).pipe(
         Effect.tap(applied => store.trace(run.id, { at: now(), step: run.step, applied })),
         Effect.map(a => (a.ok && a.id ? { ...run, eyes: { issue, undo: { ...react, remove: a.id } } } : run)),
-        Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`react for run ${run.id}`, e), run))
+        Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`react for run ${run.id}`, e), run))
       );
     };
     const triggered = Object.values(graph.workflows).filter(w => w.on.issue_comment);
@@ -2729,7 +2730,7 @@ export const tick = (
     const labelled = Object.values(graph.workflows).filter(w => w.on.issues?.label);
     /** The label workflow whose label an issue carries, when a maintainer put it there last. */
     const assigned = (issue: number) =>
-      Effect.map(forge.issue(issue), t =>
+      Effect.map(tracker.issue(issue), t =>
         labelled.find(w => {
           const last = t.events
             .filter(m => (m.kind === 'label' || m.kind === 'unlabel') && m.label === w.on.issues!.label)
@@ -2760,9 +2761,9 @@ export const tick = (
         if (run !== first) yield* store.put(run);
         const mark = w.on.issues?.label;
         if (mark !== undefined && m && m.kind !== 'label' && isIssueTriggered(w, m))
-          yield* forge.apply(issue, { kind: 'label', add: [mark] }).pipe(
+          yield* tracker.apply(issue, { kind: 'label', add: [mark] }).pipe(
             Effect.flatMap(applied => store.trace(run.id, { at: now(), step: run.step, applied })),
-            Effect.catchTag('ForgeError', e => Effect.logWarning(`label for run ${run.id}`, e))
+            Effect.catchTag('TrackerError', e => Effect.logWarning(`label for run ${run.id}`, e))
           );
         touched.push(run);
       }).pipe(Effect.scoped);
@@ -2780,7 +2781,7 @@ export const tick = (
       const [verb = '', step = ''] = named ? words.slice(1) : words;
       const restart = /^restart$/i.test(verb) ? step : undefined;
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
-      if (!open.has(m.issue) && (m.kind !== 'comment' || !inScope(graph, yield* forge.issue(m.issue)))) continue;
+      if (!open.has(m.issue) && (m.kind !== 'comment' || !inScope(graph, yield* tracker.issue(m.issue)))) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
       const concerns = (name: string) => m.kind !== 'comment' || !routed || !!graph.workflows[name]?.on.issue_comment;
       if (
@@ -2823,7 +2824,7 @@ export const tick = (
         if (all.some(r => r.issue === m.issue && !retro(graph, r))) return m.issue;
         if (issues.some(t => t.number === m.issue)) return undefined;
         if (!pulls.has(m.issue)) {
-          const branch = Option.getOrUndefined(yield* Effect.option(forge.issue(m.issue)))?.pull?.branch;
+          const branch = Option.getOrUndefined(yield* Effect.option(tracker.issue(m.issue)))?.pull?.branch;
           const by = all.find(r => {
             const w = graph.workflows[r.workflow];
             return !retro(graph, r) && w?.branch !== undefined && branch === expand(w.branch, { number: r.issue });
@@ -2962,11 +2963,11 @@ export const scanIssuesAndRunningRuns = (
   graph: Graph,
   debounce = 0,
   meta?: Run['meta']
-): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
-    const forge = yield* Forge;
+    const tracker = yield* Tracker;
     const [listing, invalidate] = yield* Effect.cachedInvalidateWithTTL(
-      forge.issues({ state: 'open' }),
+      tracker.issues({ state: 'open' }),
       Duration.infinity
     );
     const listed = yield* listing;
@@ -2978,24 +2979,26 @@ export const scanIssuesAndRunningRuns = (
       ? new Date(Date.parse(all.flatMap(r => [r.started, r.seen ?? r.started]).toSorted()[0]!) - debounce).toISOString()
       : '';
     const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
-    const latest = yield* Effect.cached(Stream.runCollect(forge.since(cursor, boards)).pipe(Effect.map(Chunk.toArray)));
+    const latest = yield* Effect.cached(
+      Stream.runCollect(tracker.since(cursor, boards)).pipe(Effect.map(Chunk.toArray))
+    );
     const history = cursor
-      ? yield* Effect.cached(Stream.runCollect(forge.since('', boards)).pipe(Effect.map(Chunk.toArray)))
+      ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards)).pipe(Effect.map(Chunk.toArray)))
       : latest;
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
     const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
     const look = (n: number) =>
       tick(graph, n, true, debounce, meta).pipe(
-        Effect.provideService(Forge, {
-          ...forge,
+        Effect.provideService(Tracker, {
+          ...tracker,
           issues: filter =>
             filter?.state === 'open' && !filter.labels?.length && filter.parent === undefined
               ? listing
-              : forge.issues(filter),
+              : tracker.issues(filter),
           since: at => Stream.fromIterableEffect(at < cursor ? history : latest).pipe(Stream.filter(m => m.at > at)),
           apply: (...args) =>
-            forge
+            tracker
               .apply(...args)
               .pipe(
                 Effect.tap(a =>
@@ -3005,7 +3008,7 @@ export const scanIssuesAndRunningRuns = (
                 )
               ),
         }),
-        Effect.catchTag('ForgeError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
+        Effect.catchTag('TrackerError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
       );
     return (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();
   });

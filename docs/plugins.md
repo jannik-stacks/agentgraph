@@ -15,7 +15,7 @@ export default makePlugin({
       description: 'Search issues in this repository by keywords',
       inputSchema: Schema.Struct({ query: Schema.String }),
       execute: async ({ query }, ctx) =>
-        (await ctx.forge.searchIssues(query, { limit: 10 })).map(({ number, title, url, body }) => ({
+        (await ctx.tracker.searchIssues(query, { limit: 10 })).map(({ number, title, url, body }) => ({
           number, title, url, body: body.slice(0, 500),
         })),
     }),
@@ -30,8 +30,8 @@ tools: [read, grep, glob, issues]
 ```
 
 Names outside the harness's built-ins must name registered plugin tools; unknown names fail `check`.
-`execute` receives typed input and a context with `repo`, read-only `forge.searchIssues`,
-`abortSignal` and its own `settings`. Search stays within this repo and applies the forge's text trust rules.
+`execute` receives typed input and a context with `repo`, read-only `tracker.searchIssues`,
+`abortSignal` and its own `settings`. Search stays within this repo and applies the tracker's text trust rules.
 `readFile(ref)` returns fresh image bytes and their PNG or JPEG media type from a session handle.
 Save images in sandbox `/tmp`, run `agi file put <path>`, then pass the handles to a tool.
 The host opens no agent-supplied path. Handles expire at session close; unknown and cross-session
@@ -45,7 +45,7 @@ Binary uploads reuse session authentication and relay with a separate route: 10 
 Chunk counts enforce limits regardless of Content-Length. PNG/JPEG magic bytes are checked;
 no host image parser runs. Isolated decoding and re-encoding remain a later option.
 Host plugins still run as trusted code.
-<!-- code: src/plugin.ts#ToolContext src/folder.ts#loadGraph src/forge.ts#parseIssueSearch -->
+<!-- code: src/plugin.ts#ToolContext src/folder.ts#loadGraph src/tracker.ts#parseIssueSearch -->
 
 Plugin names may contain letters, digits, underscores and hyphens, starting with a letter.
 A plugin can declare `settingsSchema`; it decodes only `plugins.<name>` in `settings.yaml`.
@@ -54,7 +54,7 @@ handlers then infer `ctx.settings`. Without a schema, that plugin's settings mus
 Unknown settings, duplicate plugin or tool names and symlink entries fail `check`.
 <!-- code: src/plugin.ts#makePlugin src/folder.ts#SettingsFile src/plugin.ts#readPlugins -->
 
-Imports run on the host during `check`. Review them as host code: the context supplies no forge writes
+Imports run on the host during `check`. Review them as host code: the context supplies no tracker writes
 or engine services, but TypeScript can still read the host environment, files and network.
 The engine supplies `effect`, `ai` and `@jannik-stacks/agi/plugins` from its own install, including
 Effect and AI SDK subpaths, so plugins share its Effect runtime. Other packages use Node's normal
@@ -90,9 +90,9 @@ Known secrets are masked before output and tracing. Plugin credentials stay on t
 
 A plugin can declare `on.status` instead of, or next to, tools. The engine calls it after it changes an issue's
 [status label](workflows.md#status-on-the-issue), with `{ issue, repo, from, to }`; `from` is absent on the first label.
-The context holds `repo`, the plugin's `settings`, `forge.searchIssues` and, on GitHub, `forge.graphql(query, variables)`,
+The context holds `repo`, the plugin's `settings`, `tracker.searchIssues` and, on GitHub, `tracker.graphql(query, variables)`,
 which sends with the project token. Hooks run in filename order. A hook that throws is logged and the run goes on.
-<!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/engine.ts#announce src/forge.ts#Forge -->
+<!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/engine.ts#announce src/tracker.ts#Tracker -->
 
 ```ts
 export default makePlugin({

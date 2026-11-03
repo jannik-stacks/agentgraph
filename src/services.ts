@@ -2,9 +2,9 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Config, Effect, Layer, Option, Redacted, Struct } from 'effect';
-import { fileForge, type Forge } from './forge.ts';
+import { fileTracker, type Tracker } from './tracker.ts';
 import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
-import { appToken, githubForge } from './github.ts';
+import { appToken, githubTracker } from './github.ts';
 import type { Services } from './engine.ts';
 import {
   type HarnessSettings,
@@ -39,8 +39,8 @@ export type Settings = {
   /** The studio's URL that posted bodies link back to; empty for none. */
   studio: string;
   trust: string[];
-  /** A forge folder with its git remote in `origin.git`, or the GitHub App that acts on `repo`. */
-  forge: string | { id: string; key: Redacted.Redacted };
+  /** A tracker folder with its git remote in `origin.git`, or the GitHub App that acts on `repo`. */
+  tracker: string | { id: string; key: Redacted.Redacted };
 };
 
 const proxyUrl = Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1'));
@@ -80,15 +80,15 @@ export const hostSettings = {
 
 const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
 
-export const readHostSettings = async (flags: Partial<Record<'data' | 'forge', string>>) => {
+export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker', string>>) => {
   const s = await Effect.runPromise(
     Config.all({ ...hostSettings, config: Config.option(Config.string('AGENTGRAPH_CONFIG')) })
   );
-  const onForge = flags.forge !== undefined || app.some(name => process.env[name]);
+  const onTracker = flags.tracker !== undefined || app.some(name => process.env[name]);
   const data = resolve(flags.data ?? s.data);
   const file = join(data, 'config.ts');
-  const config = Option.getOrElse(s.config, () => (!onForge && existsSync(file) ? file : undefined));
-  return { ...s, data, onForge, config };
+  const config = Option.getOrElse(s.config, () => (!onTracker && existsSync(file) ? file : undefined));
+  return { ...s, data, onTracker, config };
 };
 
 export const settings = Config.all({
@@ -105,32 +105,32 @@ export const settings = Config.all({
   checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
   trust: Config.array(Config.string(), 'AGENTGRAPH_TRUST').pipe(Config.withDefault<string[]>([])),
-  forge: Config.string('AGENTGRAPH_FORGE').pipe(
+  tracker: Config.string('AGENTGRAPH_TRACKER').pipe(
     Config.orElse(() =>
       Config.all({ id: Config.string('AGENTGRAPH_APP_ID'), key: Config.redacted('AGENTGRAPH_APP_KEY') })
     )
   ),
 }).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
 
-/** The forge for `trust` and the origin the sandbox mirrors, on GitHub or on a forge folder. */
+/** The tracker for `trust` and the origin the sandbox mirrors, on GitHub or on a tracker folder. */
 const where = (s: Settings) => {
-  if (typeof s.forge === 'string') {
-    const dir = s.forge;
+  if (typeof s.tracker === 'string') {
+    const dir = s.tracker;
     return {
-      forge: (trust?: readonly string[]) => fileForge(dir, undefined, trust),
+      tracker: (trust?: readonly string[]) => fileTracker(dir, undefined, trust),
       origin: { origin: join(dir, 'origin.git'), local: true },
     };
   }
-  const app = { repo: s.repo, ...s.forge };
+  const app = { repo: s.repo, ...s.tracker };
   const token = appToken(app);
-  const forges = new Map<string, Layer.Layer<Forge>>();
+  const trackers = new Map<string, Layer.Layer<Tracker>>();
   return {
-    forge: (trust?: readonly string[]) => {
+    tracker: (trust?: readonly string[]) => {
       const key = JSON.stringify(trust) ?? '';
-      let layer = forges.get(key);
+      let layer = trackers.get(key);
       if (!layer) {
-        layer = githubForge(app, globalThis.fetch, token, trust, s.studio);
-        forges.set(key, layer);
+        layer = githubTracker(app, globalThis.fetch, token, trust, s.studio);
+        trackers.set(key, layer);
       }
       return layer;
     },
@@ -174,13 +174,13 @@ export const makeProductionLayers = () => {
     const key = JSON.stringify([
       s.repo,
       s.studio,
-      typeof s.forge === 'string' ? s.forge : [s.forge.id, Redacted.value(s.forge.key)],
+      typeof s.tracker === 'string' ? s.tracker : [s.tracker.id, Redacted.value(s.tracker.key)],
     ]);
     if (key !== previous) {
       place = where(s);
       previous = key;
     }
-    const { forge, origin } = place;
+    const { tracker, origin } = place;
     const sandbox = s.sandbox
       ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
       : dockerSandbox({
@@ -207,7 +207,7 @@ export const makeProductionLayers = () => {
     return Layer.unwrapEffect(
       Effect.map(Effect.all([trust, config]), ([trust, config]) =>
         Layer.mergeAll(
-          forge(trust),
+          tracker(trust),
           fileStore(s.data, s.checkLogs),
           harnessSession({
             ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),

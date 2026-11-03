@@ -2,7 +2,7 @@
 
 Install it with `npm install -g @jannik-stacks/agi`, or run `npx @jannik-stacks/agi <verb>`. It needs Node 24 and Docker. `--help` prints the usage and `--version` the version.
 
-Inside a git repo, `agi <verb>` works on a local instance of it: a folder that stands in for GitHub, plus the runs. Your repo only gets `agentgraph/<n>` branches. With `--forge` or App credentials in the environment, `agi` runs as a runner instead: `--dir` names the graph and `--data` the runs folder.
+Inside a git repo, `agi <verb>` works on a local instance of it: a folder that stands in for GitHub, plus the runs. Your repo only gets `agentgraph/<n>` branches. With `--tracker` or App credentials in the environment, `agi` runs as a runner instead: `--dir` names the graph and `--data` the runs folder.
 
 ## Verbs
 
@@ -31,8 +31,8 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 `resume` keeps the run ID, step, saved files, sessions and feedback. It clears the runner error and records a retry locally; it posts no comment. Human questions, cancelled runs and ended runs are excluded. A running `loop` picks it up on its next pass; `loop --once` makes one pass. Retros remain quiet when they run again. As a GitHub runner, use the same graph and runs folder as the loop:
 
 ```sh
-agi resume --parked --forge github --dir <graph> --data <runs>
-agi resume <run-id> --forge github --dir <graph> --data <runs>
+agi resume --parked --tracker github --dir <graph> --data <runs>
+agi resume <run-id> --tracker github --dir <graph> --data <runs>
 ```
 
 <!-- code: src/engine.ts#instruct -->
@@ -47,7 +47,7 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--repo <dir>` | all | The repo, when not the current directory |
 | `--base <branch>` | all | The instance's base branch |
 | `--dir <dir>` | all | The graph folder; see [Which graph runs](reference.md#which-graph-runs) |
-| `--forge github` or `<dir>` | all | Run as a runner on GitHub or on a forge folder |
+| `--tracker github` or `<dir>` | all | Run as a runner on GitHub or on a tracker folder |
 | `--logs all\|failed\|off` | all | Which check output to keep |
 | `--provider <name>` | all | The provider for this command |
 | `--save` | with `--provider` | Keep that provider for later commands |
@@ -80,12 +80,12 @@ A provider is where model calls go and how they log in; [Sandbox and models](san
 ```sh
 agi say 1 "also cover a negative len"
 agi start --provider anthropic --save "Add a greet function"
-agi loop --forge github --dir .agentgraph --data ~/agentgraph-data
+agi loop --tracker github --dir .agentgraph --data ~/agentgraph-data
 ```
 
 ## Environment
 
-The runner reads these. The CLI sets `AGENTGRAPH_DIR`, `AGENTGRAPH_DATA`, `AGENTGRAPH_FORGE` and `AGENTGRAPH_REPO` from its flags, and `AGENTGRAPH_TRUST` to the instance owner. <!-- code: src/services.ts#settings -->
+The runner reads these. The CLI sets `AGENTGRAPH_DIR`, `AGENTGRAPH_DATA`, `AGENTGRAPH_TRACKER` and `AGENTGRAPH_REPO` from its flags, and `AGENTGRAPH_TRUST` to the instance owner. <!-- code: src/services.ts#settings -->
 
 | Variable | Meaning and default |
 | --- | --- |

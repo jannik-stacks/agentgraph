@@ -6,7 +6,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Duration, Effect, Layer, Redacted, Schema, Stream } from 'effect';
 import { isIP } from 'node:net';
-import type { ForgeError } from './forge.ts';
+import type { TrackerError } from './tracker.ts';
 import type { Graph } from './folder.ts';
 import {
   dependencyDirs,
@@ -436,7 +436,7 @@ const forgeConfig = (origin: string) => ({
 
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`, or of
- * `origin` itself when it is a `local` forge's bare repo. With
+ * `origin` itself when it is a `local` tracker's bare repo. With
  * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
  * the volume `cache`, `agentgraph-cache` by default. A checkout for a graph starts from the graph's sandbox setup at its base, built once
  * with the toolchain and setup, and holds its dependency directories in volumes, never in the checkout. An empty cache
@@ -449,7 +449,7 @@ export const dockerSandbox = (o: {
   image?: string;
   cache?: string;
   direct?: string[];
-  token?: Effect.Effect<string, ForgeError>;
+  token?: Effect.Effect<string, TrackerError>;
 }): Layer.Layer<Sandbox> =>
   Layer.effect(
     Sandbox,

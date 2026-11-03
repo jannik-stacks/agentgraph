@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { Effect, Layer, Stream, TestClock, TestContext } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
-import { fileForge, Forge, ForgeError } from '../src/forge.ts';
+import { fileTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
@@ -71,27 +71,27 @@ describe('stacks', () => {
       git(clone, 'push', '-q', 'origin', 'agentgraph/7');
       const head = git(clone, 'rev-parse', 'HEAD');
       writeFileSync(
-        join(where.forge, '8', 'pull.json'),
+        join(where.tracker, '8', 'pull.json'),
         JSON.stringify({ branch: 'agentgraph/7', base: 'main', head })
       );
       return head;
     };
     writeFileSync(
-      join(where.forge, '8.md'),
+      join(where.tracker, '8.md'),
       '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
-    mkdirSync(join(where.forge, '8'), { recursive: true });
+    mkdirSync(join(where.tracker, '8'), { recursive: true });
     const head = move('hello.txt', 'hello\n');
     writeFileSync(
-      join(where.forge, '9.md'),
+      join(where.tracker, '9.md'),
       '---\ntitle: Say bye\nstate: open\nauthor: morgan\n---\n\nAdd bye.txt.\n\nStacks on #7\n'
     );
     return { head, move };
   };
   const pr10 = (where: ReturnType<typeof world>) => ({
-    pull: JSON.parse(readFileSync(join(where.forge, '10', 'pull.json'), 'utf8')),
-    body: readFileSync(join(where.forge, '10.md'), 'utf8'),
-    diff: readFileSync(join(where.forge, '10', 'diff.patch'), 'utf8'),
+    pull: JSON.parse(readFileSync(join(where.tracker, '10', 'pull.json'), 'utf8')),
+    body: readFileSync(join(where.tracker, '10.md'), 'utf8'),
+    diff: readFileSync(join(where.tracker, '10', 'diff.patch'), 'utf8'),
   });
   const saved = (where: ReturnType<typeof world>) =>
     JSON.parse(readFileSync(join(where.data, 'run-9', 'run.json'), 'utf8')) as Run;
@@ -190,7 +190,7 @@ describe('stacks', () => {
         },
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, replaySession([]));
+    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
     await Effect.runPromise(tick(merging, 9).pipe(Effect.provide(layer)));
     expect(readTrace(where.data, 'run-9')).toContainEqual(
       expect.objectContaining({ outcome: { kind: 'ask', question: 'SandboxError: sandbox image is missing' } })
@@ -201,9 +201,9 @@ describe('stacks', () => {
     const where = world();
     const { move } = parent(where);
     let refused = true;
-    const forge = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({
+    const tracker = Layer.effect(
+      Tracker,
+      Effect.map(Tracker, f => ({
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
           if (p.kind === 'rebase' && !p.head && refused) {
@@ -213,9 +213,9 @@ describe('stacks', () => {
           return f.apply(n, p, work);
         },
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
-    const layer = Layer.mergeAll(forge, fileStore(where.data), hostSandbox(where.origin), replaySession([child()]));
-    const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Sandbox | Session>) =>
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    const layer = Layer.mergeAll(tracker, fileStore(where.data), hostSandbox(where.origin), replaySession([child()]));
+    const run = <A, E>(effect: Effect.Effect<A, E, Tracker | Store | Sandbox | Session>) =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)));
     await run(drive(flow, run9(), merging));
     const before = git(where.origin, 'rev-parse', 'agentgraph/9');
@@ -224,7 +224,7 @@ describe('stacks', () => {
     expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9^')).toBe(moved);
-    expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(9)))).join('\n')).not.toContain('could not follow');
+    expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(9)))).join('\n')).not.toContain('could not follow');
   });
 
   it('says on the issue when the branch does not rebase cleanly and leaves it where it was', async () => {
@@ -236,7 +236,9 @@ describe('stacks', () => {
     const moved = move('hello.txt', 'hi\n');
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
-    expect(readFileSync(join(where.forge, '9.jsonl'), 'utf8')).toContain('#8 moved and agentgraph/9 could not follow');
+    expect(readFileSync(join(where.tracker, '9.jsonl'), 'utf8')).toContain(
+      '#8 moved and agentgraph/9 could not follow'
+    );
     expect(saved(where).base?.sha).toBe(moved);
   });
 });
@@ -314,7 +316,7 @@ describe('coworker', () => {
     const wait = (ms: number) => Effect.promise(() => new Promise(r => setTimeout(r, ms)));
     let file = '';
     const news = (_dir: string) => readFileSync(file, 'utf8');
-    const target = join(where.forge, 'victim.txt');
+    const target = join(where.tracker, 'victim.txt');
     writeFileSync(target, 'keep\n');
     const minute = (dir: string, until: (text: string) => boolean) =>
       Effect.gen(function* () {
@@ -332,21 +334,21 @@ describe('coworker', () => {
             expect(spec.read).toEqual([dirname(file)]);
             mkdirSync(join(spec.dir, '.agentgraph'));
             symlinkSync(target, join(spec.dir, '.agentgraph', 'news.md'));
-            symlinkSync(where.forge, join(spec.dir, 'news'));
+            symlinkSync(where.tracker, join(spec.dir, 'news'));
             seen.push(news(spec.dir));
             say(where, comment(7, 'ana', true, 'also say bye', later(1)));
             yield* minute(spec.dir, text => text.includes('also say bye'));
-            renameSync(join(where.forge, '7.md'), join(where.forge, '7.away'));
+            renameSync(join(where.tracker, '7.md'), join(where.tracker, '7.away'));
             say(where, comment(7, 'ana', true, 'never seen', later(2)));
             yield* minute(spec.dir, () => false);
-            renameSync(join(where.forge, '7.away'), join(where.forge, '7.md'));
+            renameSync(join(where.tracker, '7.away'), join(where.tracker, '7.md'));
             writeFileSync(join(spec.dir, 'hello.txt'), 'hello\n');
             rmSync(join(spec.dir, '.agentgraph'), { recursive: true });
             rmSync(join(spec.dir, 'news'));
           })
         ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push, pull)]))),
     });
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), session);
+    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session);
     const agents = Object.fromEntries(Object.entries(small.agents).map(([k, a]) => [k, { ...a, tools: ['read'] }]));
     const done = await Effect.runPromise(
       drive({ ...flow, concurrency: 'queue' }, begun(), { ...small, agents }).pipe(
@@ -366,7 +368,7 @@ describe('coworker', () => {
   });
 
   /**
-   * The doubles, where the first session says `m` on the forge while it works. With `cut`, it then lets a minute pass and
+   * The doubles, where the first session says `m` on the tracker while it works. With `cut`, it then lets a minute pass and
    * works until it is cut short; else it plays the first turn.
    */
   const during = (where: ReturnType<typeof world>, m: Event, turns: SessionEvent[][], cut = false) => {
@@ -387,7 +389,7 @@ describe('coworker', () => {
         },
       }))
     ).pipe(Layer.provide(replaySession(turns)));
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), session);
+    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session);
     const go = (w: typeof flow) =>
       Effect.runPromise(drive(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext)));
     return { specs, go };
@@ -460,12 +462,12 @@ describe('coworker', () => {
     say(where, labelled('morgan', true, 'unlabel', later(2)));
     const [stopped] = await run(tick(assigned));
     expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the agentgraph label was removed' });
-    expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('');
+    expect(readFileSync(join(where.tracker, '7.reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, asked!.id)).toEqual([
       [true, undefined],
       [true, '#7'],
     ]);
-    expect((await run(Effect.flatMap(Forge, f => f.issue(7)))).labels).toEqual(['agentgraph:stopped']);
+    expect((await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels).toEqual(['agentgraph:stopped']);
   });
 
   it('begins on one issue only where the latest agentgraph label came from a maintainer', async () => {
@@ -494,7 +496,7 @@ describe('coworker', () => {
 
   it("starts a mention workflow on a maintainer's agent:ready, never on a bot's or an outsider's, and once per issue", async () => {
     const where = world();
-    writeFileSync(join(where.forge, '7.jsonl'), '');
+    writeFileSync(join(where.tracker, '7.jsonl'), '');
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(await run(scanIssuesAndRunningRuns(ready))).toEqual([]);
     say(where, marked('stx-agentgraph[bot]', false, '2026-10-16T00:00:01.000Z'));
@@ -519,18 +521,18 @@ describe('coworker', () => {
 
   it('looks past a merged pull request GitHub refuses to show', async () => {
     const where = world();
-    writeFileSync(join(where.forge, '8.md'), '---\ntitle: Merged\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+    writeFileSync(join(where.tracker, '8.md'), '---\ntitle: Merged\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
     say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:00:01.000Z' });
-    const forge = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({
+    const tracker = Layer.effect(
+      Tracker,
+      Effect.map(Tracker, f => ({
         ...f,
         issue: (n: number) =>
-          n === 8 ? Effect.fail(new ForgeError({ status: 404, message: 'Not Found' })) : f.issue(n),
+          n === 8 ? Effect.fail(new TrackerError({ status: 404, message: 'Not Found' })) : f.issue(n),
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const session = replaySession([[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
-    const layer = Layer.mergeAll(forge, fileStore(where.data), hostSandbox(where.origin), session);
+    const layer = Layer.mergeAll(tracker, fileStore(where.data), hostSandbox(where.origin), session);
     const runs = await Effect.runPromise(scanIssuesAndRunningRuns(ready).pipe(Effect.provide(layer)));
     expect(runs.map(r => [r.issue, r.status])).toEqual([[7, 'waiting']]);
   });
@@ -542,7 +544,7 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
     ]);
     const asked = await run(drive(flow, begun(), small));
-    const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
+    const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
     const status = issue.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))?.comment?.id;
     expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: status });
     expect(issue.labels).toEqual(['agentgraph:needs-answer']);
@@ -578,7 +580,7 @@ describe('coworker', () => {
     expect(specs).toHaveLength(3);
     expect(specs[2]!.prompt).toContain(findings);
     expect(done).toMatchObject({ status: fixed ? 'done' : 'waiting', tries: fixed ? 2 : 3 });
-    const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
+    const issue = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
     expect(issue.join('\n')).not.toContain(findings);
     if (!fixed) {
       expect(done.reason).toBe(
@@ -638,7 +640,7 @@ describe('coworker', () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     await run(drive(flow, begun(), small));
-    const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
+    const issue = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
     expect(issue.filter(b => b === 'Hello or hi?')).toEqual(['Hello or hi?']);
     expect(issue.filter(b => b.includes(replyHint))).toHaveLength(1);
   });
@@ -649,7 +651,7 @@ describe('coworker', () => {
     await run(drive(flow, begun(), small));
     where.human('/agent hi', new Date().toISOString());
     await services(where, [[start('a'), reply({ kind: 'ask', question: 'Hi with a dot?' })]]).run(tick(small, 7));
-    expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))).toEqual([
+    expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual([
       '/agent',
       expect.stringContaining('waiting for your answer below'),
       'Hello or hi?',
@@ -667,7 +669,7 @@ describe('coworker', () => {
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Asked for.', under: 'r1' })]]);
     await run(drive(flow, { ...begun(), said: [{ issue: 7 }] }, small));
     expect(specs[0]!.prompt).toContain('@morgan on hello.txt:1, id r1: why hello?');
-    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under, c.path])).toEqual([
       ['Asked for.', 'r1', 'hello.txt'],
     ]);
@@ -696,12 +698,12 @@ describe('coworker', () => {
     );
     expect(again).toMatchObject({ status: 'waiting', said: [{ issue: 8 }] });
     expect(done).toMatchObject({ status: 'done', said: [{ issue: 8 }] });
-    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([
       ['And bye?', undefined, undefined],
       ['Said bye.', review.at, 'hello.txt'],
     ]);
-    const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
+    const issue = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
     expect(issue.some(b => b.startsWith('And bye?') || b.startsWith('Said bye.'))).toBe(false);
   });
 });
@@ -803,13 +805,13 @@ describe('compound engineering', () => {
     );
 
     expect(commands.map(c => c.args.join(' ')).join('\n')).not.toContain('setup-ran');
-    const sticky = bodies(await run(Effect.flatMap(Forge, f => f.issue(7)))).filter(b =>
+    const sticky = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7)))).filter(b =>
       b.startsWith('Agentgraph status: ')
     );
     expect(sticky).toHaveLength(1);
     expect(sticky[0]).toContain('| issue / implement | done |');
     expect(sticky[0]).toContain('| retro / implement | done |');
-    expect(readFileSync(join(where.forge, '7.md'), 'utf8')).toContain('labels: []');
+    expect(readFileSync(join(where.tracker, '7.md'), 'utf8')).toContain('labels: []');
     expect(await run(tick(looking))).toEqual([]);
     say(where, pushed(7, '2026-10-16T00:00:08.000Z'));
     const again = await run(tick(looking));
@@ -857,15 +859,15 @@ describe('compound engineering', () => {
 
   it('looks up no open issue a run never worked on', async () => {
     const where = world();
-    writeFileSync(join(where.forge, '12.md'), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');
+    writeFileSync(join(where.tracker, '12.md'), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');
     say(where, comment(12, 'morgan', true, 'Unrelated.', '2026-10-16T00:00:05.000Z'));
     const asked: number[] = [];
     const counted = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({ ...f, issue: (n: number) => (asked.push(n), f.issue(n)) }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+      Tracker,
+      Effect.map(Tracker, f => ({ ...f, issue: (n: number) => (asked.push(n), f.issue(n)) }))
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const layer = Layer.mergeAll(counted, fileStore(where.data), hostSandbox(where.origin), replaySession([]));
-    const go = <A, E>(e: Effect.Effect<A, E, Forge | Store | Session | Sandbox>) =>
+    const go = <A, E>(e: Effect.Effect<A, E, Tracker | Store | Session | Sandbox>) =>
       Effect.runPromise(e.pipe(Effect.provide(layer)));
     await go(done());
     expect(await go(tick(looking))).toEqual([]);
@@ -875,12 +877,12 @@ describe('compound engineering', () => {
   it('takes what is said on a merged pull request as feedback on the issue its branch worked on', async () => {
     const where = world();
     writeFileSync(
-      join(where.forge, '8.md'),
+      join(where.tracker, '8.md'),
       '---\ntitle: Add hello\nstate: merged\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
-    mkdirSync(join(where.forge, '8'), { recursive: true });
+    mkdirSync(join(where.tracker, '8'), { recursive: true });
     writeFileSync(
-      join(where.forge, '8', 'pull.json'),
+      join(where.tracker, '8', 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'x', baseSha: 'b1' })
     );
     say(where, comment(8, 'morgan', true, 'Next time reuse the helper.', '2026-10-16T00:00:05.000Z'));

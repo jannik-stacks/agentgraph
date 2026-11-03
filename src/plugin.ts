@@ -24,7 +24,7 @@ export type ToolContext<S = undefined> = {
   readonly repo: string;
   readonly readFile: (ref: string) => Promise<{ bytes: Uint8Array; type: 'image/png' | 'image/jpeg' }>;
   readonly settings: S;
-  readonly forge: {
+  readonly tracker: {
     readonly searchIssues: (
       query: string,
       options?: { state?: Exclude<Issue['state'], 'merged'> | 'all'; limit?: number }
@@ -37,7 +37,7 @@ export { issueStatuses } from './event.ts';
 export type StatusChange = { issue: number; repo: string; from?: IssueStatus; to: IssueStatus };
 
 export type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abortSignal'> & {
-  readonly forge: { readonly graphql?: (query: string, variables: Record<string, unknown>) => Promise<unknown> };
+  readonly tracker: { readonly graphql?: (query: string, variables: Record<string, unknown>) => Promise<unknown> };
 };
 
 type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;

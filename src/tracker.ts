@@ -45,24 +45,32 @@ export const makePostableProposal = (p: Proposal, studio?: string) =>
 
 export const isPostedBy = (body: string, operation: string) => body.includes(` operation=${operation} `);
 
-export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string; moved?: true }> {}
+export class TrackerError extends Data.TaggedError('TrackerError')<{
+  status?: number;
+  message: string;
+  moved?: true;
+}> {}
 
 /** The repo as the state: GitHub in production, a JSON file in tests. */
-export class Forge extends Context.Tag('agentgraph/Forge')<
-  Forge,
+export class Tracker extends Context.Tag('agentgraph/Tracker')<
+  Tracker,
   {
-    base: Effect.Effect<string, ForgeError>;
-    issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], ForgeError>;
+    base: Effect.Effect<string, TrackerError>;
+    issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], TrackerError>;
     searchIssues: (
-      ...args: Parameters<ToolContext['forge']['searchIssues']>
-    ) => Effect.Effect<Awaited<ReturnType<ToolContext['forge']['searchIssues']>>, ForgeError>;
-    issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, ForgeError>;
-    since: (cursor: string, columns?: boolean) => Stream.Stream<Event, ForgeError>;
-    apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, ForgeError>;
-    findPost: (number: number, proposal: Proposal, operation: string) => Effect.Effect<Applied | undefined, ForgeError>;
-    /** The login people mention to talk to the bot, when the forge has one. */
-    slug?: Effect.Effect<string, ForgeError>;
-    graphql?: (query: string, variables: Record<string, unknown>) => Effect.Effect<unknown, ForgeError>;
+      ...args: Parameters<ToolContext['tracker']['searchIssues']>
+    ) => Effect.Effect<Awaited<ReturnType<ToolContext['tracker']['searchIssues']>>, TrackerError>;
+    issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, TrackerError>;
+    since: (cursor: string, columns?: boolean) => Stream.Stream<Event, TrackerError>;
+    apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, TrackerError>;
+    findPost: (
+      number: number,
+      proposal: Proposal,
+      operation: string
+    ) => Effect.Effect<Applied | undefined, TrackerError>;
+    /** The login people mention to talk to the bot, when the tracker has one. */
+    slug?: Effect.Effect<string, TrackerError>;
+    graphql?: (query: string, variables: Record<string, unknown>) => Effect.Effect<unknown, TrackerError>;
     /** The studio's URL that bodies link back to, when set. */
     studio?: string;
   }
@@ -70,18 +78,18 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
 
 export const parseIssueSearch = (
   query: string,
-  { state = 'open', limit = 20 }: NonNullable<Parameters<Forge['Type']['searchIssues']>[1]> = {}
+  { state = 'open', limit = 20 }: NonNullable<Parameters<Tracker['Type']['searchIssues']>[1]> = {}
 ) =>
   Effect.suspend(() => {
     const terms = (
       query.replace(/-?[\w-]+:(?:"[^"]*"|[^\s)]+)/g, ' ').match(/[\p{L}\p{N}_]+(?:[./-][\p{L}\p{N}_]+)*/gu) ?? []
     ).filter(term => !/^(AND|OR|NOT)$/i.test(term));
     if (!terms.length || query.length > 256)
-      return Effect.fail(new ForgeError({ message: 'searchIssues needs keywords up to 256 characters' }));
+      return Effect.fail(new TrackerError({ message: 'searchIssues needs keywords up to 256 characters' }));
     if (!Number.isInteger(limit) || limit < 1 || limit > 100)
-      return Effect.fail(new ForgeError({ message: 'searchIssues limit must be an integer from 1 to 100' }));
+      return Effect.fail(new TrackerError({ message: 'searchIssues limit must be an integer from 1 to 100' }));
     if (!['open', 'closed', 'all'].includes(state))
-      return Effect.fail(new ForgeError({ message: 'searchIssues state must be open, closed or all' }));
+      return Effect.fail(new TrackerError({ message: 'searchIssues state must be open, closed or all' }));
     return Effect.succeed({ terms, state, limit });
   });
 
@@ -195,15 +203,15 @@ export const writeTimelineEvent = async (
 };
 
 /**
- * A forge in a folder, for tests and local runs. `<n>.md` is an issue (frontmatter title, state, author, labels,
+ * A tracker in a folder, for tests and local runs. `<n>.md` is an issue (frontmatter title, state, author, labels,
  * parent; then the body), `<n>.jsonl` its timeline of events, `<n>.reactions` the 👀 given, and a folder `<n>/` makes
  * it a pull request (`pull.json`, `diff.patch`). Branches live in the git remote of the worktree a push comes from.
  * Authors ending in `[bot]` are not trusted, and their issues' text is withheld. It acts as the bot, or as the
  * trusted person `as`.
  */
-export const fileForge = (dir: string, as?: string, trust?: readonly string[]): Layer.Layer<Forge> =>
+export const fileTracker = (dir: string, as?: string, trust?: readonly string[]): Layer.Layer<Tracker> =>
   Layer.effect(
-    Forge,
+    Tracker,
     Effect.map(Effect.makeSemaphore(1), lock => {
       const md = (n: number) => join(dir, `${n}.md`);
       const pullFile = (n: number) => join(dir, String(n), 'pull.json');
@@ -220,7 +228,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               'remote.origin.mirror=false',
               ...args,
             ]),
-            e => new ForgeError({ message: e.detail })
+            e => new TrackerError({ message: e.detail })
           )
         ).then(out => out.toString('utf8').trim());
       const findPushProblem = async (work: Checkout, from: string, to: string) => {
@@ -309,7 +317,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       const tip = async (work: Checkout, branch: string) => {
         const ref = `refs/heads/${branch}`;
         const line = (await git(work, 'ls-remote', 'origin', ref)).split('\n').find(l => l.endsWith(`\t${ref}`));
-        if (!line) throw new ForgeError({ message: `no branch ${branch}` });
+        if (!line) throw new TrackerError({ message: `no branch ${branch}` });
         const head = line.split('\t')[0]!;
         await git(work, 'cat-file', '-e', `${head}^{commit}`).catch(() =>
           git(work, 'fetch', '-q', '--no-write-fetch-head', 'origin', head)
@@ -323,7 +331,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       };
       const must = async (n: number) => {
         const t = await read(n);
-        if (!t) throw new ForgeError({ status: 404, message: `no issue #${n}` });
+        if (!t) throw new TrackerError({ status: 404, message: `no issue #${n}` });
         return t;
       };
 
@@ -529,7 +537,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       const io = <A>(f: () => Promise<A>) =>
         Effect.tryPromise({
           try: f,
-          catch: e => (e instanceof ForgeError ? e : new ForgeError({ message: (e as Error).message })),
+          catch: e => (e instanceof TrackerError ? e : new TrackerError({ message: (e as Error).message })),
         });
 
       return {
@@ -553,7 +561,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               .trim()
               .replace(/^refs\/heads\//, '')
           ),
-          Effect.mapError(e => new ForgeError({ message: e.detail }))
+          Effect.mapError(e => new TrackerError({ message: e.detail }))
         ),
         issues: filter =>
           io(async () => {

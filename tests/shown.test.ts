@@ -61,7 +61,7 @@ describe('the status comment', () => {
     expect(proposeStatusUpdates({ ...run, tries: 2 }, t, 'http://studio:5492/')).toEqual([]);
   });
 
-  it('is not edited when the forge reads it back with its run stamp', () => {
+  it('is not edited when the tracker reads it back with its run stamp', () => {
     const body = getCommentBody(run)!;
     expect(proposeStatusUpdates(run, holding(`${body}\n\n[⁂](http://studio/runs/issue-7?at=1) `))).toEqual([]);
     expect(proposeStatusUpdates(run, holding(`${body}\n\n<!-- agentgraph run=issue-7 step=implement -->`))).toEqual([]);

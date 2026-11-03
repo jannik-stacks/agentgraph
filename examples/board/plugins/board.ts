@@ -39,13 +39,13 @@ export default makePlugin<typeof settings.Type>({
   name: 'board',
   settingsSchema: settings,
   on: {
-    status: async (change, { settings, forge }) => {
+    status: async (change, { settings, tracker }) => {
       const column = settings.status[change.to];
       if (column === undefined) return;
-      if (!forge.graphql) throw new Error('the board plugin needs a GitHub forge');
+      if (!tracker.graphql) throw new Error('the board plugin needs a GitHub tracker');
       const [owner, name] = change.repo.split('/');
       const [login, number] = settings.project.split('/');
-      const found = (await forge.graphql(find, {
+      const found = (await tracker.graphql(find, {
         owner,
         name,
         issue: change.issue,
@@ -58,10 +58,10 @@ export default makePlugin<typeof settings.Type>({
       const { issue } = found.repository;
       const item =
         issue.projectItems.nodes.find(i => i.project.id === project.id)?.id ??
-        ((await forge.graphql(add, { project: project.id, content: issue.id })) as {
+        ((await tracker.graphql(add, { project: project.id, content: issue.id })) as {
           addProjectV2ItemById: { item: { id: string } };
         }).addProjectV2ItemById.item.id;
-      await forge.graphql(move, { project: project.id, item, field: project.field.id, option: option.id });
+      await tracker.graphql(move, { project: project.id, item, field: project.field.id, option: option.id });
     },
   },
 });

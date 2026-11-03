@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { Duration, Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import { dockerSandbox } from './docker.ts';
 import { getCachePath, makeToolchainSetupCommands } from './env.ts';
-import type { ForgeError } from './forge.ts';
+import type { TrackerError } from './tracker.ts';
 import { hostGit, indexLock, makeHostEnv } from './git.ts';
 import type { Graph } from './folder.ts';
 import { type Checkout, type Command, type Exit, Sandbox, SandboxError } from './sandbox.ts';
@@ -124,7 +124,7 @@ export const remoteSandbox = (o: {
   url: string;
   data: string;
   origin: string;
-  token?: Effect.Effect<string, ForgeError>;
+  token?: Effect.Effect<string, TrackerError>;
 }): Layer.Layer<Sandbox> =>
   Layer.effect(
     Sandbox,

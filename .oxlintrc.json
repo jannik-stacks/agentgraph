@@ -126,7 +126,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(workflow|trace|git|folder|context|graph|env|disk|forge|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(workflow|trace|git|folder|context|graph|env|disk|tracker|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
                 "message": "values import values only"
               }
             ]
@@ -142,7 +142,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(git|env|disk|forge|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(git|env|disk|tracker|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
                 "message": "logic imports values and logic only"
               }
             ]
@@ -158,7 +158,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(forge|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(tracker|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
                 "message": "libs import logic and below"
               }
             ]
@@ -167,7 +167,7 @@
       }
     },
     {
-      "files": ["src/forge.ts", "src/store.ts", "src/labels.ts", "src/session.ts", "src/sandbox.ts", "src/tools.ts"],
+      "files": ["src/tracker.ts", "src/store.ts", "src/labels.ts", "src/session.ts", "src/sandbox.ts", "src/tools.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -276,7 +276,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(git|env|disk|forge|store|session|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(git|env|disk|tracker|store|session|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
                 "message": "logic imports values and logic only"
               }
             ]
@@ -292,7 +292,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(forge|store|session|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(tracker|store|session|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
                 "message": "libs import logic and below"
               }
             ]

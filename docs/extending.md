@@ -2,9 +2,9 @@
 
 Start with the parts that ship, then change the ones your repo needs.
 
-## Forges
+## Trackers
 
-A forge reads issues and applies writes. The GitHub forge uses a GitHub App; the file forge keeps issues in a local folder. The CLI chooses between them. From source, implement `Forge` and pass it through `start`'s services argument. CLI registration is in progress. <!-- code: src/forge.ts#Forge src/services.ts#where src/main.ts#start -->
+A tracker reads issues and applies writes. The GitHub tracker uses a GitHub App; the file tracker keeps issues in a local folder. The CLI chooses between them. From source, implement `Tracker` and pass it through `start`'s services argument. CLI registration is in progress. <!-- code: src/tracker.ts#Tracker src/services.ts#where src/main.ts#start -->
 
 ## Harnesses
 
@@ -23,7 +23,7 @@ The package ships a starter example; the clone has [more example graphs](../READ
 [Tool plugins](plugins.md) load now from the graph's `plugins/` folder. Other plugin parts are planned.
 <!-- code: src/plugin.ts#readPlugins -->
 
-The planned API extends those files. Each exports `makePlugin(...)` with only the parts it needs: tools agents can call, triggers that match events, actions that apply proposals, a forge, or a studio page. The runner chooses the forge; a graph cannot replace its own forge.
+The planned API extends those files. Each exports `makePlugin(...)` with only the parts it needs: tools agents can call, triggers that match events, actions that apply proposals, a tracker, or a studio page. The runner chooses the tracker; a graph cannot replace its own tracker.
 
 This example shows the planned shape. It does not run today:
 

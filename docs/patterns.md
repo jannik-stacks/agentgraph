@@ -37,7 +37,7 @@ The engine is the runner code in `src/`. [STYLE.md](../STYLE.md) has the code ru
 
 The engine reaches the outside only through four services, each with a test stand-in:
 
-- The forge reads and writes GitHub, or a folder. <!-- code: src/forge.ts#Forge -->
+- The tracker reads and writes GitHub, or a folder. <!-- code: src/tracker.ts#Tracker -->
 - The store keeps runs and traces. <!-- code: src/store.ts#Store -->
 - The sandbox runs commands in docker, or on the host in tests. <!-- code: src/sandbox.ts#Sandbox tests/doubles/sandbox.ts#hostSandbox -->
 - The session talks to a harness, or replays a script in tests. <!-- code: src/session.ts#Session tests/doubles/session.ts#replaySession -->

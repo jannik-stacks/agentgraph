@@ -9,7 +9,7 @@ import { loadGraph } from '../src/folder.ts';
 const pluginSource = (names = ['issues', 'other']) => `
 import { makePlugin, tool } from '${pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href}';
 import { Schema } from '${import.meta.resolve('effect')}';
-export default makePlugin({name:'search',tools:Object.fromEntries(${JSON.stringify(names)}.map(name=>[name,tool({description:'Search issues',inputSchema:Schema.Struct({query:Schema.String}),execute:({query},ctx)=>ctx.forge.searchIssues(query,{limit:10})})]))});
+export default makePlugin({name:'search',tools:Object.fromEntries(${JSON.stringify(names)}.map(name=>[name,tool({description:'Search issues',inputSchema:Schema.Struct({query:Schema.String}),execute:({query},ctx)=>ctx.tracker.searchIssues(query,{limit:10})})]))});
 `;
 
 const makeGraphDir = async (files: Record<string, string>) => {

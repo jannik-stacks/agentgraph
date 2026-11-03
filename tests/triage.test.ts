@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Chunk, Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
-import { fileForge, Forge } from '../src/forge.ts';
+import { fileTracker, Tracker } from '../src/tracker.ts';
 import { stoppedByRunner } from '../src/context.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -29,24 +29,24 @@ afterEach(() => {
 
 const at = (s: number) => `2026-10-16T00:00:${String(s).padStart(2, '0')}.000Z`;
 
-/** A bare origin with main, and a forge holding `issues` as `[number, author, parent?]`, #1 labelled triage by a maintainer. */
+/** A bare origin with main, and a tracker holding `issues` as `[number, author, parent?]`, #1 labelled triage by a maintainer. */
 const world = (issues: [number, string, number?][] = [[1, 'morgan']]) => {
   const { root, seed, data } = seeded('triage', { 'README.md': 'demo\n' });
   dirs.push(root);
-  const forge = join(root, 'forge');
-  mkdirSync(forge);
-  git(root, 'clone', '-q', '--bare', seed, join(forge, 'origin.git'));
+  const tracker = join(root, 'tracker');
+  mkdirSync(tracker);
+  git(root, 'clone', '-q', '--bare', seed, join(tracker, 'origin.git'));
   for (const [n, author, parent] of issues)
     writeFileSync(
-      join(forge, `${n}.md`),
+      join(tracker, `${n}.md`),
       `---\ntitle: Issue ${n}\nstate: open\nauthor: ${author}\nlabels: []\n${parent ? `parent: ${parent}\n` : ''}---\n\nMake the package do ${n} things.\n`
     );
   const label = (issue: number) =>
     appendFileSync(
-      join(forge, `${issue}.jsonl`),
+      join(tracker, `${issue}.jsonl`),
       `${JSON.stringify({ issue, kind: 'label', label: 'triage', actor: 'morgan', trusted: true, at: at(issue) } satisfies Event)}\n`
     );
-  return { origin: join(forge, 'origin.git'), forge, data, label };
+  return { origin: join(tracker, 'origin.git'), tracker, data, label };
 };
 
 const turn = (...proposals: unknown[]): SessionEvent[] => [start('s'), reply(...proposals)];
@@ -79,10 +79,10 @@ const splitIntoPartsAndDocsFollowUp = () => [
 const run = <A, E>(
   where: ReturnType<typeof world>,
   turns: SessionEvent[][],
-  effect: Effect.Effect<A, E, Forge | Store | Session | Sandbox>
+  effect: Effect.Effect<A, E, Tracker | Store | Session | Sandbox>
 ) => {
   const layer = Layer.mergeAll(
-    fileForge(where.forge),
+    fileTracker(where.tracker),
     fileStore(where.data),
     hostSandbox(where.origin),
     replaySession(turns)
@@ -91,9 +91,9 @@ const run = <A, E>(
 };
 
 const issues = (where: ReturnType<typeof world>) =>
-  Effect.runPromise(Effect.flatMap(Forge, f => f.issues()).pipe(Effect.provide(fileForge(where.forge))));
+  Effect.runPromise(Effect.flatMap(Tracker, f => f.issues()).pipe(Effect.provide(fileTracker(where.tracker))));
 const issue = (where: ReturnType<typeof world>, n: number) =>
-  Effect.runPromise(Effect.flatMap(Forge, f => f.issue(n)).pipe(Effect.provide(fileForge(where.forge))));
+  Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(n)).pipe(Effect.provide(fileTracker(where.tracker))));
 const runs = (where: ReturnType<typeof world>) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
 
@@ -114,12 +114,12 @@ describe('triage', () => {
     expect(value[0]!.reason).toContain('No size label proposed');
   });
 
-  it('treats an actor outside the trust list as untrusted in the forge folder', async () => {
+  it('treats an actor outside the trust list as untrusted in the tracker folder', async () => {
     const where = world([[1, 'morgan']]);
     where.label(1);
     const read = (trust: string[]) =>
       Effect.runPromise(
-        Effect.flatMap(Forge, f => f.issue(1)).pipe(Effect.provide(fileForge(where.forge, undefined, trust)))
+        Effect.flatMap(Tracker, f => f.issue(1)).pipe(Effect.provide(fileTracker(where.tracker, undefined, trust)))
       );
     expect((await read(['morgan'])).events[0]).toMatchObject({ trusted: true });
     expect((await read(['ana'])).events[0]).toMatchObject({ trusted: false });
@@ -131,7 +131,7 @@ describe('triage', () => {
       [1, 'morgan'],
       [2, 'morgan'],
     ]);
-    const file = join(where.forge, '1.md');
+    const file = join(where.tracker, '1.md');
     writeFileSync(file, readFileSync(file, 'utf8').replace('labels: []', 'labels: []\nmilestone: v1'));
     where.label(1);
     where.label(2);
@@ -150,7 +150,7 @@ describe('triage', () => {
       [2, 'morgan'],
     ]);
     writeFileSync(
-      join(where.forge, '2.md'),
+      join(where.tracker, '2.md'),
       '---\ntitle: the docs\nstate: open\nauthor: morgan\nlabels: []\n---\n\nDocs.\n'
     );
     where.label(1);
@@ -159,8 +159,8 @@ describe('triage', () => {
         Effect.gen(function* () {
           const posted = yield* Deferred.make<'posted'>();
           const stopping = Layer.effect(
-            Forge,
-            Effect.map(Forge, f => ({
+            Tracker,
+            Effect.map(Tracker, f => ({
               ...f,
               apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
                 f
@@ -171,7 +171,7 @@ describe('triage', () => {
                     )
                   ),
             }))
-          ).pipe(Layer.provide(fileForge(where.forge)));
+          ).pipe(Layer.provide(fileTracker(where.tracker)));
           const layer = Layer.mergeAll(
             stopping,
             fileStore(where.data),
@@ -230,9 +230,9 @@ describe('triage', () => {
     expect(filed.body).toMatch(/## Done when[\s\S]*\n\nFound while working on #1$/);
     expect((await issue(where, 1)).events.some(m => m.comment?.body.startsWith('Split into'))).toBe(false);
 
-    const bot = Layer.mergeAll(fileForge(where.forge), fileStore(where.data));
+    const bot = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data));
     await Effect.runPromise(
-      Effect.flatMap(Forge, f =>
+      Effect.flatMap(Tracker, f =>
         Effect.all([f.apply(2, { kind: 'label', add: ['triage'] }), f.apply(2, { kind: 'comment', body: '/agent' })])
       ).pipe(Effect.provide(bot))
     );
@@ -262,7 +262,7 @@ describe('triage', () => {
       [2, 'morgan'],
     ]);
     where.label(1);
-    const two = join(where.forge, '2.md');
+    const two = join(where.tracker, '2.md');
     writeFileSync(two, readFileSync(two, 'utf8').replace('labels: []', 'labels: [graph]'));
     const again = { ...follow('Issue 2'), relation: 'graph' };
     await run(where, [turn({ kind: 'label', add: ['size/S'] }, again)], tick(unbounded));
@@ -329,7 +329,7 @@ describe('ordering', () => {
       [1, 'morgan'],
       [2, 'morgan'],
     ]);
-    appendFileSync(join(where.forge, '2.md'), '\nStacks on #1\n');
+    appendFileSync(join(where.tracker, '2.md'), '\nStacks on #1\n');
     const implement = graph.workflows.issue!;
     const waiting = begin(implement, { id: 'issue-2', issue: 2, started: at(5) });
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
@@ -339,7 +339,7 @@ describe('ordering', () => {
       ['issue-2', 'implement', 'running', 0],
     ]);
 
-    writeFileSync(join(where.forge, '1.md'), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
+    writeFileSync(join(where.tracker, '1.md'), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
     const question = 'The dependency is closed; which implementation should I use?';
     const after = await run(where, [turn({ kind: 'ask', question })], tick(graph, 2, true));
     expect(after.value.map(r => [r.id, r.step, r.status, r.reason, r.tries])).toEqual([
@@ -353,14 +353,14 @@ describe('ordering', () => {
       [1, 'morgan'],
       [2, 'morgan'],
     ]);
-    appendFileSync(join(where.forge, '2.md'), '\nDepends on #1\n');
+    appendFileSync(join(where.tracker, '2.md'), '\nDepends on #1\n');
     writeFileSync(
-      join(where.forge, '3.md'),
+      join(where.tracker, '3.md'),
       '---\ntitle: Fix 1\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #1\n'
     );
-    mkdirSync(join(where.forge, '3'), { recursive: true });
+    mkdirSync(join(where.tracker, '3'), { recursive: true });
     writeFileSync(
-      join(where.forge, '3', 'pull.json'),
+      join(where.tracker, '3', 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/1', base: 'main', head: 'abc' })
     );
     const implement = graph.workflows.issue!;
@@ -375,7 +375,7 @@ describe('dispatch', () => {
   /** A trusted comment on #1. */
   const mention = (where: ReturnType<typeof world>, body: string) =>
     appendFileSync(
-      join(where.forge, '1.jsonl'),
+      join(where.tracker, '1.jsonl'),
       `${JSON.stringify({ issue: 1, kind: 'comment', actor: 'morgan', trusted: true, at: at(1), comment: { id: 'c1', author: 'morgan', body, at: at(1) } } satisfies Event)}\n`
     );
 
@@ -450,19 +450,22 @@ describe('dispatch', () => {
 const putRun = (where: ReturnType<typeof world>, r: Run) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.put(r)).pipe(Effect.provide(fileStore(where.data))));
 const shut = (where: ReturnType<typeof world>, n: number, state: 'closed' | 'merged') => {
-  const file = join(where.forge, `${n}.md`);
+  const file = join(where.tracker, `${n}.md`);
   writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${state}`));
 };
 const openPull = (where: ReturnType<typeof world>, n: number, branch: string) => {
-  writeFileSync(join(where.forge, `${n}.md`), `---\ntitle: Pull ${n}\nstate: open\nauthor: morgan\n---\n\nCloses #1\n`);
-  mkdirSync(join(where.forge, String(n)), { recursive: true });
   writeFileSync(
-    join(where.forge, String(n), 'pull.json'),
+    join(where.tracker, `${n}.md`),
+    `---\ntitle: Pull ${n}\nstate: open\nauthor: morgan\n---\n\nCloses #1\n`
+  );
+  mkdirSync(join(where.tracker, String(n)), { recursive: true });
+  writeFileSync(
+    join(where.tracker, String(n), 'pull.json'),
     JSON.stringify({ branch, base: 'main', head: 'x', baseSha: 'b1' })
   );
 };
 const sayOn = (where: ReturnType<typeof world>, m: Event) =>
-  appendFileSync(join(where.forge, `${m.issue}.jsonl`), `${JSON.stringify(m)}\n`);
+  appendFileSync(join(where.tracker, `${m.issue}.jsonl`), `${JSON.stringify(m)}\n`);
 const command = (issue: number, body: string, s: number): Event => ({
   issue,
   kind: 'comment',
@@ -630,9 +633,9 @@ describe('a pass', () => {
       )
     );
     const stalled = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({ ...f, since: (cursor: string) => (cursor ? f.since(cursor) : Stream.never) }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+      Tracker,
+      Effect.map(Tracker, f => ({ ...f, since: (cursor: string) => (cursor ? f.since(cursor) : Stream.never) }))
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const layer = Layer.mergeAll(
       stalled,
       fileStore(where.data),

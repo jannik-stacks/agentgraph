@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeCommentWithAgentRequest } from '../src/forge.ts';
+import { makeCommentWithAgentRequest } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import {
   begin,

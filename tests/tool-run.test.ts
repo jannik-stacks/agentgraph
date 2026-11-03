@@ -5,7 +5,7 @@ import { ConfigProvider, Effect, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive } from '../src/engine.ts';
 import { loadGraph } from '../src/folder.ts';
-import { fileForge } from '../src/forge.ts';
+import { fileTracker } from '../src/tracker.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
 import type { SessionSpec } from '../src/trace.ts';
@@ -31,15 +31,15 @@ const search = tool({
   inputSchema: Schema.Struct({ query: Schema.String }),
   execute: async ({ query }, ctx) => ({
     repo: ctx.repo,
-    issues: (await ctx.forge.searchIssues(query, { state: 'all' })).map(issue => issue.number),
+    issues: (await ctx.tracker.searchIssues(query, { state: 'all' })).map(issue => issue.number),
   }),
 });
 export default makePlugin({ name: 'search', tools: { issues: search, private: search } });
 `,
     });
-    write(join(where.root, 'other-forge'), {
+    write(join(where.root, 'other-tracker'), {
       '99.md':
-        '---\ntitle: Another greeting\nstate: open\nauthor: morgan\nlabels: []\n---\nOutside the selected forge.\n',
+        '---\ntitle: Another greeting\nstate: open\nauthor: morgan\nlabels: []\n---\nOutside the selected tracker.\n',
     });
     const graph = await Effect.runPromise(
       loadGraph(dir, [{ name: 'test', classify: () => undefined }]).pipe(
@@ -80,7 +80,7 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
     const done = await Effect.runPromise(
       drive(workflow, begin(workflow, { id: 'tool-run', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph).pipe(
         Effect.provide(
-          Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), session)
+          Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session)
         )
       )
     );

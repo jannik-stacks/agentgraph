@@ -12,7 +12,7 @@ const { values, positionals } = parseArgs({
   options: {
     dir: { type: 'string' },
     data: { type: 'string' },
-    forge: { type: 'string' },
+    tracker: { type: 'string' },
     repo: { type: 'string' },
     bench: { type: 'string', multiple: true },
     tune: { type: 'string' },
@@ -46,8 +46,8 @@ if (Either.isLeft(loaded))
 process.env.AGI_STUDIO_DIR = graphDir;
 process.env.AGI_STUDIO_DATA = dataDir;
 process.env.AGI_STUDIO_HARNESS_CHOICE = JSON.stringify(choice);
-const forge = instance?.forge ?? values.forge;
-if (forge) process.env.AGI_STUDIO_FORGE = resolve(forge);
+const tracker = instance?.tracker ?? values.tracker;
+if (tracker) process.env.AGI_STUDIO_TRACKER = resolve(tracker);
 if (values.bench) process.env.AGI_STUDIO_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
 if (values.tune) process.env.AGI_STUDIO_TUNE = resolve(values.tune);
 const vite = await createServer({ root: import.meta.dirname });

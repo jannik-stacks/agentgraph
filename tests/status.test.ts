@@ -85,7 +85,7 @@ it('stays quiet about a single repo', async () => {
   expect(lines.some(l => l.includes('besides'))).toBe(false);
 });
 
-it('says how to continue on the local forge, and leaves out a run that waits on its child', () => {
+it('says how to continue on the local tracker, and leaves out a run that waits on its child', () => {
   const base = { workflow: 'issue', step: 'merge', tries: 0, rounds: {}, started: 'x' } as const;
   const runs = [
     { ...base, id: 'a', issue: 3, status: 'waiting', reason: 'which one?' },

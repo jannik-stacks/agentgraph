@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 
 import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Fiber, Logger, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
-import { Forge, ForgeError, currentRunLinkRef } from '../src/forge.ts';
+import { Tracker, TrackerError, currentRunLinkRef } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { githubForge } from '../src/github.ts';
+import { githubTracker } from '../src/github.ts';
 import { makeProductionLayers, settings } from '../src/services.ts';
 import type { Checkout } from '../src/sandbox.ts';
 import { tmp } from './kit.ts';
@@ -59,8 +59,8 @@ const fake = (routes: Record<string, Route>) => {
   return { fetch, calls };
 };
 
-const run = <A, E>(f: ReturnType<typeof fake>, effect: Effect.Effect<A, E, Forge>) =>
-  Effect.runPromise(Effect.provide(effect, githubForge(app, f.fetch)));
+const run = <A, E>(f: ReturnType<typeof fake>, effect: Effect.Effect<A, E, Tracker>) =>
+  Effect.runPromise(Effect.provide(effect, githubTracker(app, f.fetch)));
 
 const issue = (n: number, more: object = {}) => ({
   id: 1000 + n,
@@ -136,7 +136,7 @@ const columnPages = (headers: Headers, after?: string | null) => ({
         },
 });
 
-describe('githubForge', () => {
+describe('githubTracker', () => {
   it('searches only this repository’s issues and reuses search ETags', async () => {
     const f = fake({
       'GET /search/issues': (_body: Body, headers: Headers) =>
@@ -161,9 +161,9 @@ describe('githubForge', () => {
     const found = await run(
       f,
       Effect.gen(function* () {
-        const forge = yield* Forge;
-        yield* forge.searchIssues('cache failure', { state: 'closed', limit: 5 });
-        return yield* forge.searchIssues('cache failure', { state: 'closed', limit: 5 });
+        const tracker = yield* Tracker;
+        yield* tracker.searchIssues('cache failure', { state: 'closed', limit: 5 });
+        return yield* tracker.searchIssues('cache failure', { state: 'closed', limit: 5 });
       })
     );
     const searches = f.calls.filter(call => call.path.startsWith('/search/issues'));
@@ -181,7 +181,7 @@ describe('githubForge', () => {
     const f = fake({ 'GET /search/issues': { items: [] } });
     await run(
       f,
-      Effect.flatMap(Forge, forge => forge.searchIssues('cache', { state: 'all' }))
+      Effect.flatMap(Tracker, tracker => tracker.searchIssues('cache', { state: 'all' }))
     );
     const search = f.calls.find(call => call.path.startsWith('/search/issues'))!;
     expect(new URL(search.path, 'https://api.github.com').searchParams.get('q')).toBe('repo:o/r is:issue cache');
@@ -195,7 +195,7 @@ describe('githubForge', () => {
     const f = fake({ 'GET /search/issues': { items: [] } });
     await run(
       f,
-      Effect.flatMap(Forge, forge => forge.searchIssues(query))
+      Effect.flatMap(Tracker, tracker => tracker.searchIssues(query))
     );
     const search = f.calls.find(call => call.path.startsWith('/search/issues'))!;
     expect(new URL(search.path, 'https://api.github.com').searchParams.get('q')).toBe(
@@ -207,7 +207,7 @@ describe('githubForge', () => {
     'rejects an empty or excessive keyword query before requesting GitHub: %s',
     async query => {
       const f = fake({});
-      const found = await run(f, Effect.either(Effect.flatMap(Forge, forge => forge.searchIssues(query))));
+      const found = await run(f, Effect.either(Effect.flatMap(Tracker, tracker => tracker.searchIssues(query))));
       expect(found._tag).toBe('Left');
       expect(f.calls).toEqual([]);
     }
@@ -222,9 +222,9 @@ describe('githubForge', () => {
     await run(
       f,
       Effect.gen(function* () {
-        const forge = yield* Forge;
-        yield* forge.issue(7);
-        yield* forge.issue(7);
+        const tracker = yield* Tracker;
+        yield* tracker.issue(7);
+        yield* tracker.issue(7);
       })
     );
     const minted = f.calls.filter(c => c.path.endsWith('/access_tokens'));
@@ -265,7 +265,7 @@ describe('githubForge', () => {
           )
         )
       );
-      const list = Effect.flatMap(Forge, forge => forge.issues({ state: 'open' }));
+      const list = Effect.flatMap(Tracker, tracker => tracker.issues({ state: 'open' }));
       const first = await Effect.runPromise(Effect.provide(list, make(configured)));
       const second = await Effect.runPromise(
         Effect.provide(
@@ -276,7 +276,7 @@ describe('githubForge', () => {
           })
         )
       );
-      await Effect.runPromise(Effect.provide(list, make({ ...configured, forge: { id: '43', key: app.key } })));
+      await Effect.runPromise(Effect.provide(list, make({ ...configured, tracker: { id: '43', key: app.key } })));
       expect(second).toEqual(first);
       expect(served).toBe(2);
       expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(2);
@@ -297,10 +297,10 @@ describe('githubForge', () => {
       await run(
         f,
         Effect.gen(function* () {
-          const forge = yield* Forge;
-          yield* forge.issue(7);
+          const tracker = yield* Tracker;
+          yield* tracker.issue(7);
           now.mockReturnValue(initial + 6_000);
-          yield* forge.issue(7);
+          yield* tracker.issue(7);
         })
       );
       expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(1);
@@ -316,11 +316,11 @@ describe('githubForge', () => {
     });
     await Effect.runPromise(
       Effect.gen(function* () {
-        const forge = yield* Forge;
-        yield* forge.issues();
+        const tracker = yield* Tracker;
+        yield* tracker.issues();
         auth = 'second';
-        yield* forge.issues();
-      }).pipe(Effect.provide(githubForge(app, f.fetch, () => Effect.sync(() => auth))))
+        yield* tracker.issues();
+      }).pipe(Effect.provide(githubTracker(app, f.fetch, () => Effect.sync(() => auth))))
     );
     expect(
       f.calls.filter(c => c.path.startsWith('/repos/o/r/issues')).map(c => c.headers.get('if-none-match'))
@@ -338,17 +338,17 @@ describe('githubForge', () => {
     });
     const counts = await Effect.runPromise(
       Effect.gen(function* () {
-        const forge = yield* Forge;
-        yield* Effect.either(forge.issues());
+        const tracker = yield* Tracker;
+        yield* Effect.either(tracker.issues());
         const pending = yield* Effect.fork(
-          Effect.all([forge.issues(), forge.issues({ state: 'open' })], { concurrency: 2 })
+          Effect.all([tracker.issues(), tracker.issues({ state: 'open' })], { concurrency: 2 })
         );
         yield* TestClock.adjust('9 seconds');
         const before = reads;
         yield* TestClock.adjust('1 second');
         yield* Fiber.join(pending);
         return [before, reads];
-      }).pipe(Effect.provide(githubForge(app, f.fetch)), Effect.provide(TestContext.TestContext))
+      }).pipe(Effect.provide(githubTracker(app, f.fetch)), Effect.provide(TestContext.TestContext))
     );
     expect(counts).toEqual([1, 3]);
   });
@@ -367,16 +367,16 @@ describe('githubForge', () => {
     });
     const counts = await Effect.runPromise(
       Effect.gen(function* () {
-        const forge = yield* Forge;
-        const pending = yield* Effect.fork(forge.issues());
+        const tracker = yield* Tracker;
+        const pending = yield* Effect.fork(tracker.issues());
         yield* TestClock.adjust('0 seconds');
-        yield* Effect.either(forge.issues());
+        yield* Effect.either(tracker.issues());
         yield* TestClock.adjust('1 second');
         const before = reads;
         yield* TestClock.adjust('9 seconds');
         yield* Fiber.join(pending);
         return [before, reads];
-      }).pipe(Effect.provide(githubForge(app, f.fetch)), Effect.provide(TestContext.TestContext))
+      }).pipe(Effect.provide(githubTracker(app, f.fetch)), Effect.provide(TestContext.TestContext))
     );
     expect(counts).toEqual([2, 3]);
   });
@@ -388,7 +388,7 @@ describe('githubForge', () => {
     });
     const issues = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.issues({ state: 'open' }))
+      Effect.flatMap(Tracker, tracker => tracker.issues({ state: 'open' }))
     );
     expect(issues.map(t => t.milestone)).toEqual(['v1', undefined]);
   });
@@ -405,7 +405,7 @@ describe('githubForge', () => {
     });
     const issues = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.issues({ state: 'open', labels: ['ready'] }))
+      Effect.flatMap(Tracker, tracker => tracker.issues({ state: 'open', labels: ['ready'] }))
     );
     expect(issues.map(t => t.number)).toEqual([7, 8, 10]);
     expect(issues[1]).toMatchObject({ title: 'Issue 8', body: 'Do it now' });
@@ -441,8 +441,8 @@ describe('githubForge', () => {
     const [first, second] = await run(
       f,
       Effect.gen(function* () {
-        const forge = yield* Forge;
-        return [yield* forge.issues(), yield* forge.issues()];
+        const tracker = yield* Tracker;
+        return [yield* tracker.issues(), yield* tracker.issues()];
       })
     );
     expect(served).toBe(1);
@@ -511,7 +511,7 @@ describe('githubForge', () => {
     });
     const t = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.issue(8))
+      Effect.flatMap(Tracker, tracker => tracker.issue(8))
     );
     expect(t.parent).toBe(3);
     expect(t.pull).toEqual({ branch: 'fork/r:fix', base: 'main', head: 'abc' });
@@ -558,7 +558,7 @@ describe('githubForge', () => {
     ],
     [
       'says once how to get a token when there is none',
-      Effect.fail(new ForgeError({ message: 'no token' })),
+      Effect.fail(new TrackerError({ message: 'no token' })),
       [],
       0,
       ['read:project'],
@@ -575,12 +575,15 @@ describe('githubForge', () => {
       Logger.make(({ message }) => logs.push(String(message)))
     );
     const events = await Effect.runPromise(
-      Effect.flatMap(Forge, forge =>
+      Effect.flatMap(Tracker, tracker =>
         Effect.zipRight(
-          Stream.runCollect(forge.since('2026-10-16T00:00:00Z', true)),
-          Stream.runCollect(forge.since('2026-10-16T00:00:00Z', true))
+          Stream.runCollect(tracker.since('2026-10-16T00:00:00Z', true)),
+          Stream.runCollect(tracker.since('2026-10-16T00:00:00Z', true))
         )
-      ).pipe(Effect.provide(githubForge(app, f.fetch, undefined, undefined, undefined, token)), Effect.provide(logger))
+      ).pipe(
+        Effect.provide(githubTracker(app, f.fetch, undefined, undefined, undefined, token)),
+        Effect.provide(logger)
+      )
     ).then(chunk => [...chunk]);
     expect([
       events.map(m => [m.issue, m.actor, m.trusted, m.column?.project, m.column?.name]),
@@ -622,8 +625,8 @@ describe('githubForge', () => {
     });
     const t = await Effect.runPromise(
       Effect.provide(
-        Effect.flatMap(Forge, forge => forge.issue(8)),
-        githubForge(app, f.fetch, undefined, ['bob', 'stx-agentgraph[bot]'])
+        Effect.flatMap(Tracker, tracker => tracker.issue(8)),
+        githubTracker(app, f.fetch, undefined, ['bob', 'stx-agentgraph[bot]'])
       )
     );
     expect(t.title).toBe('Issue 8');
@@ -654,7 +657,7 @@ describe('githubForge', () => {
     });
     const t = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.issue(8))
+      Effect.flatMap(Tracker, tracker => tracker.issue(8))
     );
     expect(t.events.map(m => m.commit?.title)).toEqual([
       'Fix it',
@@ -679,7 +682,7 @@ describe('githubForge', () => {
     });
     const t = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.issue(8))
+      Effect.flatMap(Tracker, tracker => tracker.issue(8))
     );
     expect(t.events).toEqual([]);
   });
@@ -708,10 +711,10 @@ describe('githubForge', () => {
         const [young, old] = await run(
           f,
           Effect.gen(function* () {
-            const forge = yield* Forge;
-            const young = yield* Effect.either(forge.issue(8));
+            const tracker = yield* Tracker;
+            const young = yield* Effect.either(tracker.issue(8));
             later = 6_000;
-            return [young, yield* forge.issue(8)] as const;
+            return [young, yield* tracker.issue(8)] as const;
           })
         );
         expect(young._tag === 'Left' && young.left.status).toBe(status);
@@ -797,7 +800,7 @@ describe('githubForge', () => {
     });
     const events = await run(
       f,
-      Effect.flatMap(Forge, forge => Stream.runCollect(forge.since(cursor)))
+      Effect.flatMap(Tracker, tracker => Stream.runCollect(tracker.since(cursor)))
     ).then(chunk => [...chunk]);
     expect(
       events.map(m => [
@@ -836,7 +839,7 @@ describe('githubForge', () => {
     const applied = await run(
       f,
       Effect.gen(function* () {
-        const forge = yield* Forge;
+        const tracker = yield* Tracker;
         return yield* Effect.forEach(
           [
             { kind: 'comment', body: 'done' },
@@ -845,7 +848,7 @@ describe('githubForge', () => {
             { kind: 'issue', title: 'Follow up', body: 'later', parent: 7, labels: ['size/M'] },
             { kind: 'back', why: 'no' },
           ] satisfies Proposal[],
-          p => forge.apply(7, p)
+          p => tracker.apply(7, p)
         );
       })
     );
@@ -878,8 +881,8 @@ describe('githubForge', () => {
     });
     const applied = await run(
       f,
-      Effect.flatMap(Forge, forge =>
-        forge.apply(7, { kind: 'issue', title: 'Part', body: 'Done when complete', parent: 7 })
+      Effect.flatMap(Tracker, tracker =>
+        tracker.apply(7, { kind: 'issue', title: 'Part', body: 'Done when complete', parent: 7 })
       )
     );
     expect(applied).toMatchObject({
@@ -912,7 +915,7 @@ describe('githubForge', () => {
           [7, { kind: 'react', remove: '21' }],
           [8, { kind: 'react', comment: '5', review: true, remove: '23' }],
         ] satisfies [number, Proposal][],
-        ([n, p]) => Effect.flatMap(Forge, forge => forge.apply(n, p))
+        ([n, p]) => Effect.flatMap(Tracker, tracker => tracker.apply(n, p))
       )
     );
     expect(applied.map(a => [a.ok, a.id])).toEqual([
@@ -952,10 +955,10 @@ describe('githubForge', () => {
           [8, { kind: 'comment', body: 'Fixed.', under: '5' }],
           [7, { kind: 'react' }],
         ] satisfies [number, Proposal][],
-        ([n, p]) => Effect.flatMap(Forge, forge => forge.apply(n, p))
+        ([n, p]) => Effect.flatMap(Tracker, tracker => tracker.apply(n, p))
       ).pipe(
         Effect.locally(currentRunLinkRef, mark),
-        Effect.provide(githubForge(app, f.fetch, undefined, undefined, 'http://studio:5492/'))
+        Effect.provide(githubTracker(app, f.fetch, undefined, undefined, 'http://studio:5492/'))
       )
     );
     const at = applied[0]!.at!;
@@ -986,7 +989,7 @@ describe('githubForge', () => {
     const find = (n: number, p: Proposal, operation: string) =>
       run(
         f,
-        Effect.flatMap(Forge, forge => forge.findPost(n, p, operation))
+        Effect.flatMap(Tracker, tracker => tracker.findPost(n, p, operation))
       );
     const comment: Proposal = { kind: 'comment', body: 'Done.' };
     expect(await find(7, comment, 'aa')).toMatchObject({ ok: true, id: '31', url: 'u31' });
@@ -1001,7 +1004,7 @@ describe('githubForge', () => {
 
   it('keeps the same footer without a studio URL, and nothing extra outside a run', async () => {
     const f = fake({ 'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' } });
-    const say = (body: string) => Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'comment', body }));
+    const say = (body: string) => Effect.flatMap(Tracker, tracker => tracker.apply(7, { kind: 'comment', body }));
     await run(f, Effect.locally(say('Hi.'), currentRunLinkRef, { run: 'r', step: 's' }));
     await run(f, say('Plain. <!-- agentgraph run=fake -->'));
     const [marked, plain] = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
@@ -1024,8 +1027,8 @@ describe('githubForge', () => {
     const open = (f: ReturnType<typeof fake>) =>
       run(
         f,
-        Effect.flatMap(Forge, forge =>
-          forge.apply(9, {
+        Effect.flatMap(Tracker, tracker =>
+          tracker.apply(9, {
             kind: 'pull_request',
             branch: 'agentgraph/12',
             base: 'agentgraph/11',
@@ -1090,12 +1093,12 @@ describe('githubForge', () => {
     await run(
       f,
       Effect.gen(function* () {
-        const forge = yield* Forge;
-        yield* forge.issue(7);
-        yield* forge.apply(7, { kind: 'comment', body: 'a' });
-        yield* forge.apply(7, { kind: 'comment', body: 'b' });
-        yield* forge.apply(7, { kind: 'pull_request', branch: 'agentgraph/7', base: 'main', title: 't', body: 'b' });
-        yield* forge.apply(8, { kind: 'merge', number: 8, head: 'h' });
+        const tracker = yield* Tracker;
+        yield* tracker.issue(7);
+        yield* tracker.apply(7, { kind: 'comment', body: 'a' });
+        yield* tracker.apply(7, { kind: 'comment', body: 'b' });
+        yield* tracker.apply(7, { kind: 'pull_request', branch: 'agentgraph/7', base: 'main', title: 't', body: 'b' });
+        yield* tracker.apply(8, { kind: 'merge', number: 8, head: 'h' });
       })
     );
     const permissions = [
@@ -1113,23 +1116,23 @@ describe('githubForge', () => {
     );
   });
 
-  it('turns a refused merge into a rejected proposal and a server error into a ForgeError', async () => {
+  it('turns a refused merge into a rejected proposal and a server error into a TrackerError', async () => {
     const f = fake({
       'PUT /repos/o/r/pulls/8/merge': () => ({ status: 409, body: { message: 'Head branch was modified' } }),
       'POST /repos/o/r/issues/7/comments': () => ({ status: 502, body: {} }),
     });
     const merged = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.apply(8, { kind: 'merge', number: 8, head: 'stale' }))
+      Effect.flatMap(Tracker, tracker => tracker.apply(8, { kind: 'merge', number: 8, head: 'stale' }))
     );
     expect(merged.ok).toBe(false);
     expect(merged.reason).toMatch(/409/);
     expect(f.calls.at(-1)!.body).toEqual({ sha: 'stale' });
     const failed = await run(
       f,
-      Effect.flatMap(Forge, forge => Effect.flip(forge.apply(7, { kind: 'comment', body: 'x' })))
+      Effect.flatMap(Tracker, tracker => Effect.flip(tracker.apply(7, { kind: 'comment', body: 'x' })))
     );
-    expect(failed._tag).toBe('ForgeError');
+    expect(failed._tag).toBe('TrackerError');
     expect(failed.status).toBe(502);
   });
 
@@ -1155,8 +1158,8 @@ describe('githubForge', () => {
             signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
           });
         };
-        const request = Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'comment', body: 'Hello' })).pipe(
-          Effect.provide(githubForge(app, stalled)),
+        const request = Effect.flatMap(Tracker, tracker => tracker.apply(7, { kind: 'comment', body: 'Hello' })).pipe(
+          Effect.provide(githubTracker(app, stalled)),
           Effect.either
         );
         const fiber = yield* Effect.fork(request);
@@ -1166,7 +1169,7 @@ describe('githubForge', () => {
         const result = yield* Fiber.join(fiber);
         expect(result).toMatchObject({
           _tag: 'Left',
-          left: { _tag: 'ForgeError', message: expect.stringMatching(/timed out/) },
+          left: { _tag: 'TrackerError', message: expect.stringMatching(/timed out/) },
         });
       }).pipe(Effect.provide(TestContext.TestContext))
     );
@@ -1179,8 +1182,8 @@ describe('githubForge', () => {
       down-- > 0 ? Promise.reject(new TypeError('fetch failed')) : f.fetch(url, init);
     const failed = await Effect.runPromise(
       Effect.provide(
-        Effect.flatMap(Forge, forge => Effect.flip(forge.apply(7, { kind: 'comment', body: 'x' }))),
-        githubForge(app, flaky)
+        Effect.flatMap(Tracker, tracker => Effect.flip(tracker.apply(7, { kind: 'comment', body: 'x' }))),
+        githubTracker(app, flaky)
       )
     );
     expect(failed.status).toBe(503);
@@ -1281,7 +1284,7 @@ describe('githubForge', () => {
     const pushTo = (f: ReturnType<typeof fake>, work: Checkout, branch = 'agentgraph/7', message = 'Fix the typo') =>
       run(
         f,
-        Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch, message }, work))
+        Effect.flatMap(Tracker, tracker => tracker.apply(7, { kind: 'push', branch, message }, work))
       );
     const writes = (f: ReturnType<typeof fake>) =>
       f.calls.filter(c => c.method !== 'GET' && (c.path.includes('/git/') || c.path === '/graphql'));
@@ -1306,7 +1309,7 @@ describe('githubForge', () => {
       const f = dataApi(work);
       writeFileSync(join(dir, 'a.txt'), 'two\n');
       const push = (message: string) =>
-        Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch: 'agentgraph/7', message }, work));
+        Effect.flatMap(Tracker, tracker => tracker.apply(7, { kind: 'push', branch: 'agentgraph/7', message }, work));
       const [first, second] = await run(
         f,
         Effect.gen(function* () {
@@ -1368,7 +1371,7 @@ describe('githubForge', () => {
           : { kind: 'rebase', branch: 'agentgraph/7', from: base, onto };
       const applied = await run(
         f,
-        Effect.flatMap(Forge, forge => forge.apply(7, proposal, work))
+        Effect.flatMap(Tracker, tracker => tracker.apply(7, proposal, work))
       );
       expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/moved/) });
       expect(f.remote(['rev-parse', 'refs/heads/agentgraph/7'])).toBe(human);
@@ -1389,8 +1392,8 @@ describe('githubForge', () => {
       });
       const applied = await run(
         f,
-        Effect.flatMap(Forge, forge =>
-          forge.apply(7, { kind: 'push', branch: 'agentgraph/7', message: 'Rewrite', onto: base }, work)
+        Effect.flatMap(Tracker, tracker =>
+          tracker.apply(7, { kind: 'push', branch: 'agentgraph/7', message: 'Rewrite', onto: base }, work)
         )
       );
       expect(applied).toMatchObject({ ok: false, moved: true, reason: expect.stringMatching(/moved/) });
@@ -1426,8 +1429,8 @@ describe('githubForge', () => {
       f.remote(['update-ref', 'refs/heads/agentgraph/9', tip]);
       const applied = await run(
         f,
-        Effect.flatMap(Forge, forge =>
-          forge.apply(9, { kind: 'rebase', branch: 'agentgraph/9', from: base, onto }, work)
+        Effect.flatMap(Tracker, tracker =>
+          tracker.apply(9, { kind: 'rebase', branch: 'agentgraph/9', from: base, onto }, work)
         )
       );
       expect(applied.ok).toBe(true);
@@ -1470,8 +1473,8 @@ describe('githubForge', () => {
       });
       const applied = await run(
         f,
-        Effect.flatMap(Forge, forge =>
-          forge.apply(7, { kind: 'rebase', branch: 'agentgraph/7', from: base, onto }, work)
+        Effect.flatMap(Tracker, tracker =>
+          tracker.apply(7, { kind: 'rebase', branch: 'agentgraph/7', from: base, onto }, work)
         )
       );
       expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/merge commit/) });
@@ -1496,8 +1499,8 @@ describe('githubForge', () => {
       });
       const applied = await run(
         f,
-        Effect.flatMap(Forge, forge =>
-          forge.apply(
+        Effect.flatMap(Tracker, tracker =>
+          tracker.apply(
             7,
             {
               kind: 'rebase',
@@ -1588,10 +1591,10 @@ describe('githubForge', () => {
       } as const;
       const [pushed, opened] = await run(
         f,
-        Effect.flatMap(Forge, forge =>
+        Effect.flatMap(Tracker, tracker =>
           Effect.all([
-            forge.apply(7, { kind: 'push', branch: 'agentgraph/7', message: 'Fix' }, work),
-            forge.apply(7, pr),
+            tracker.apply(7, { kind: 'push', branch: 'agentgraph/7', message: 'Fix' }, work),
+            tracker.apply(7, pr),
           ])
         )
       );
@@ -1614,13 +1617,13 @@ describe('githubForge', () => {
       const f = dataApi(work);
       const results = await run(
         f,
-        Effect.flatMap(Forge, forge =>
+        Effect.flatMap(Tracker, tracker =>
           Effect.gen(function* () {
             const proposal = { kind: 'push', branch: 'agentgraph/7', message: 'Fix' } as const;
-            const first = yield* forge.apply(7, proposal, work);
+            const first = yield* tracker.apply(7, proposal, work);
             writeFileSync(join(dir, 'a.txt'), 'three\n');
-            const second = yield* forge.apply(7, proposal, work);
-            return [first, second, yield* forge.apply(7, proposal, work)];
+            const second = yield* tracker.apply(7, proposal, work);
+            return [first, second, yield* tracker.apply(7, proposal, work)];
           })
         )
       );
@@ -1639,12 +1642,12 @@ describe('githubForge', () => {
       const f = dataApi(work);
       const [first, second] = await run(
         f,
-        Effect.flatMap(Forge, forge =>
+        Effect.flatMap(Tracker, tracker =>
           Effect.gen(function* () {
             const proposal = { kind: 'push', branch: 'agentgraph/7', message: 'Fix' } as const;
-            const first = yield* forge.apply(7, proposal, work);
+            const first = yield* tracker.apply(7, proposal, work);
             workflow(dir);
-            return [first, yield* forge.apply(7, proposal, work)];
+            return [first, yield* tracker.apply(7, proposal, work)];
           })
         )
       );

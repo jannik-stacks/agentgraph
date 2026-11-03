@@ -8,14 +8,14 @@ import {
   isPostedBy,
   pushLimits,
   unpushable,
-  Forge,
-  ForgeError,
+  Tracker,
+  TrackerError,
   makePostableProposal,
   matches,
   parseIssueSearch,
   withheld,
   makePushResult,
-} from './forge.ts';
+} from './tracker.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { Checkout } from './sandbox.ts';
@@ -124,14 +124,14 @@ const columnQuery = `query($owner: String!, $name: String!, $after: String) {
   }
 }`;
 
-const readProjectToken: Effect.Effect<string, ForgeError> = Effect.gen(function* () {
+const readProjectToken: Effect.Effect<string, TrackerError> = Effect.gen(function* () {
   const set = yield* Effect.orElseSucceed(Config.option(Config.redacted('AGENTGRAPH_PROJECT_TOKEN')), Option.none);
   const value = Option.match(set, { onNone: () => '', onSome: Redacted.value }).trim();
   if (value) return value;
   return yield* Effect.tryPromise({
     try: () => promisify(execFile)('gh', ['auth', 'token']).then(out => out.stdout.trim()),
-    catch: () => new ForgeError({ message: 'no token' }),
-  }).pipe(Effect.filterOrFail(Boolean, () => new ForgeError({ message: 'no token' })));
+    catch: () => new TrackerError({ message: 'no token' }),
+  }).pipe(Effect.filterOrFail(Boolean, () => new TrackerError({ message: 'no token' })));
 });
 const members = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const writers = new Set(['admin', 'maintain', 'write']);
@@ -159,12 +159,12 @@ const appJwt = (id: string, pem: string, now: number) => {
 };
 
 const git = (work: Checkout, args: string[]) =>
-  Effect.mapError(hostGit(work.git, args), e => new ForgeError({ message: e.detail }));
+  Effect.mapError(hostGit(work.git, args), e => new TrackerError({ message: e.detail }));
 const gitText = (work: Checkout, args: string[]) => Effect.map(git(work, args), out => out.toString('utf8').trim());
 
 const refPath = (branch: string) =>
   branch.split('/').some(part => !part || part === '.' || part === '..')
-    ? Effect.fail(new ForgeError({ status: 422, message: `invalid branch "${branch}"` }))
+    ? Effect.fail(new TrackerError({ status: 422, message: `invalid branch "${branch}"` }))
     : Effect.succeed(`heads/${branch.split('/').map(encodeURIComponent).join('/')}`);
 
 /**
@@ -201,11 +201,11 @@ const requester = (fetch: Fetch) => {
             if (again && res.status >= 502 && res.status <= 504) throw new Error(`status ${res.status}`);
             return { status: res.status, ok: res.ok, headers: res.headers, text: await res.text() };
           },
-          catch: e => new ForgeError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
+          catch: e => new TrackerError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
         }).pipe(
           Effect.timeoutFail({
             duration: '30 seconds',
-            onTimeout: () => new ForgeError({ message: `GitHub ${method} ${path} timed out` }),
+            onTimeout: () => new TrackerError({ message: `GitHub ${method} ${path} timed out` }),
           })
         );
       }).pipe(Effect.retry({ schedule: Schedule.exponential('1 second'), times: again ? 4 : 0 }));
@@ -224,11 +224,11 @@ const requester = (fetch: Fetch) => {
           );
         }
         const message = `GitHub ${method} ${path} failed with ${res.status}: ${res.text.slice(0, 200)}`;
-        return yield* new ForgeError({ status: res.status, message });
+        return yield* new TrackerError({ status: res.status, message });
       }
       const data = yield* Effect.try({
         try: () => (res.text ? JSON.parse(res.text) : undefined) as T,
-        catch: () => new ForgeError({ message: `GitHub ${method} ${path} answered with invalid JSON` }),
+        catch: () => new TrackerError({ message: `GitHub ${method} ${path} answered with invalid JSON` }),
       });
       const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('link') ?? '')?.[1];
       const out = { data, ...(next && { next }) };
@@ -250,7 +250,7 @@ const scopes = {
   repos: { metadata: 'read' },
 } as const;
 type TokenScope = keyof typeof scopes;
-type AppToken = (scope: TokenScope, refused?: string) => Effect.Effect<string, ForgeError>;
+type AppToken = (scope: TokenScope, refused?: string) => Effect.Effect<string, TrackerError>;
 const freshMs = 5_000;
 
 /** Mints installation tokens for the App, one per scope, reusing a token until a minute before it expires. */
@@ -288,7 +288,7 @@ export const appToken = (
 };
 
 // UNEXPECTED: a token GitHub narrows to some repos or permissions loses private contents and pull requests ~10s after it is minted, answering 404; a new token reads them again.
-const authed = <T>(token: AppToken, scope: TokenScope, call: (token: string) => Effect.Effect<T, ForgeError>) =>
+const authed = <T>(token: AppToken, scope: TokenScope, call: (token: string) => Effect.Effect<T, TrackerError>) =>
   Effect.flatMap(token(scope), t =>
     Effect.catchIf(
       call(t),
@@ -300,23 +300,23 @@ const authed = <T>(token: AppToken, scope: TokenScope, call: (token: string) => 
 const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
   Effect.try({
     try: () => appJwt(app.id, Redacted.value(app.key), Date.now()),
-    catch: e => new ForgeError({ message: (e as Error).message }),
+    catch: e => new TrackerError({ message: (e as Error).message }),
   });
 
 /**
  * The repo of one GitHub App installation. Reads are ETag-polled, text from non-collaborators (or logins outside `trust`) is withheld, and pushes
  * go through the Git data API so GitHub signs the commits. Posted bodies are stamped with their run, linked into `studio` when set.
  */
-export const githubForge = (
+export const githubTracker = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch,
   token: AppToken = appToken(app, fetch),
   trust?: readonly string[],
   studio?: string,
   projectToken = readProjectToken
-): Layer.Layer<Forge> => {
+): Layer.Layer<Tracker> => {
   const request = requester(fetch);
-  return Layer.sync(Forge, () => {
+  return Layer.sync(Tracker, () => {
     const listed = (user: User, association = '') => (trust ? trust.includes(login(user)) : members.has(association));
     const repo = `/repos/${app.repo}`;
     let slug: string | undefined;
@@ -334,7 +334,7 @@ export const githubForge = (
     const gh = <T>(method: string, path: string, body?: unknown, scope: TokenScope = 'read', version?: string) =>
       authed(token, scope, t => request<T>(method, path, t, body, version)).pipe(Effect.map(r => r.data));
 
-    const missing = <A, R>(effect: Effect.Effect<A, ForgeError, R>) =>
+    const missing = <A, R>(effect: Effect.Effect<A, TrackerError, R>) =>
       Effect.catchIf(
         effect,
         e => e.status === 404,
@@ -432,7 +432,7 @@ export const githubForge = (
 
     const listState = (state?: Issue['state']) => (state === undefined ? 'all' : state === 'open' ? 'open' : 'closed');
 
-    const issues: Forge['Type']['issues'] = (filter = {}) =>
+    const issues: Tracker['Type']['issues'] = (filter = {}) =>
       Effect.gen(function* () {
         const { state, labels = [], parent } = filter;
         const query = new URLSearchParams({
@@ -452,7 +452,7 @@ export const githubForge = (
         return issues.map(i => toIssue(i, self, byNumber.get(i.number), parent)).filter(matches(filter));
       });
 
-    const searchIssues: Forge['Type']['searchIssues'] = (query, options) =>
+    const searchIssues: Tracker['Type']['searchIssues'] = (query, options) =>
       Effect.gen(function* () {
         const { terms, state, limit } = yield* parseIssueSearch(query, options);
         const params = new URLSearchParams({
@@ -502,7 +502,7 @@ export const githubForge = (
         )
       );
 
-    const issue: Forge['Type']['issue'] = number =>
+    const issue: Tracker['Type']['issue'] = number =>
       Effect.gen(function* () {
         const self = yield* me;
         const issue = yield* gh<RestIssue>('GET', `${repo}/issues/${number}`);
@@ -590,7 +590,7 @@ export const githubForge = (
               variables: { owner, name, after },
             })).data;
             if (!page.data || page.errors?.some(e => e.type === 'INSUFFICIENT_SCOPES'))
-              return yield* new ForgeError({ message: page.errors?.map(e => e.message).join('; ') ?? 'no data' });
+              return yield* new TrackerError({ message: page.errors?.map(e => e.message).join('; ') ?? 'no data' });
             const { issues } = page.data.repository;
             for (const t of issues.nodes)
               for (const item of t?.projectItems.nodes ?? []) {
@@ -622,7 +622,7 @@ export const githubForge = (
       )
     );
 
-    const since: Forge['Type']['since'] = (cursor, read) =>
+    const since: Tracker['Type']['since'] = (cursor, read) =>
       Stream.fromIterableEffect(
         Effect.gen(function* () {
           const self = yield* me;
@@ -696,7 +696,8 @@ export const githubForge = (
     const pushed = new Map<string, { sha: string; tree: string }>();
     /** The `.github/` files each branch's pushes left out, for its pull request to name. */
     const held = new Map<string, Set<string>>();
-    const refuse = (message: string, moved?: true) => new ForgeError({ status: 422, message, ...(moved && { moved }) });
+    const refuse = (message: string, moved?: true) =>
+      new TrackerError({ status: 422, message, ...(moved && { moved }) });
     let repositoryId: string | undefined;
     const rewrite = (branch: string, before: string, after: string) =>
       Effect.gen(function* () {
@@ -719,7 +720,7 @@ export const githubForge = (
           const ref = yield* refPath(branch);
           const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
           if (tip !== before) return yield* refuse(`${branch} moved while its ref was updated`, true);
-          return yield* new ForgeError({
+          return yield* new TrackerError({
             message: `GitHub updateRefs ${branch}: ${result.errors?.map(e => e.message).join('; ') ?? 'no update returned'}`,
           });
         }
@@ -780,7 +781,7 @@ export const githubForge = (
           if (force) yield* rewrite(branch, tip, head);
           else yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
         } else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
-        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
+        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new TrackerError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
         return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left, reported);
       });
@@ -790,7 +791,7 @@ export const githubForge = (
       Effect.gen(function* () {
         const tree = yield* entries(work, from, to);
         const made = (yield* gh<{ sha: string }>('POST', `${repo}/git/trees`, { base_tree: from, tree }, 'push')).sha;
-        if (made !== to) return yield* new ForgeError({ message: `GitHub built tree ${made}, expected ${to}` });
+        if (made !== to) return yield* new TrackerError({ message: `GitHub built tree ${made}, expected ${to}` });
       });
 
     /**
@@ -849,7 +850,7 @@ export const githubForge = (
         if ((yield* readRefTip) !== tip) return yield* refuse(`${branch} moved while it was rebased`, true);
         yield* rewrite(branch, tip, head);
         yield* git(work, ['read-tree', '-u', '--reset', tree]);
-        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
+        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new TrackerError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
         return head;
       });
@@ -888,7 +889,7 @@ export const githubForge = (
             'push'
           );
           if (stored.sha !== sha)
-            return yield* new ForgeError({ message: `GitHub stored ${path} as ${stored.sha}, expected ${sha}` });
+            return yield* new TrackerError({ message: `GitHub stored ${path} as ${stored.sha}, expected ${sha}` });
         }
         return changes.map(({ path, mode, sha }) => ({ path, mode, type: 'blob' as const, sha }));
       });
@@ -940,7 +941,7 @@ export const githubForge = (
       number: number,
       p: Proposal,
       work?: Checkout
-    ): Effect.Effect<Partial<Omit<Applied, 'proposal'>>, ForgeError> => {
+    ): Effect.Effect<Partial<Omit<Applied, 'proposal'>>, TrackerError> => {
       switch (p.kind) {
         case 'comment':
           return p.under === undefined
@@ -1042,7 +1043,7 @@ export const githubForge = (
       }
     };
 
-    const apply: Forge['Type']['apply'] = (number, proposal, work) =>
+    const apply: Tracker['Type']['apply'] = (number, proposal, work) =>
       Effect.flatMap(makePostableProposal(proposal, studio), ({ posted, at }) =>
         Effect.map(act(number, posted, work), (done): Applied => ({ proposal, ok: true, ...done, ...(at && { at }) }))
       ).pipe(
@@ -1052,7 +1053,7 @@ export const githubForge = (
         )
       );
 
-    const findPost: Forge['Type']['findPost'] = (number, p, operation) => {
+    const findPost: Tracker['Type']['findPost'] = (number, p, operation) => {
       type Posted = { id: number; number: number; html_url: string; body?: string | null };
       const find = (posts: Posted[], id: (post: Posted) => number) => {
         const post = posts.find(c => isPostedBy(c.body ?? '', operation));
@@ -1082,7 +1083,7 @@ export const githubForge = (
         ).pipe(
           Effect.filterOrFail(
             ({ data }) => !data.errors?.length,
-            ({ data }) => new ForgeError({ message: data.errors!.map(e => e.message).join('; ') })
+            ({ data }) => new TrackerError({ message: data.errors!.map(e => e.message).join('; ') })
           ),
           Effect.map(({ data }) => data.data)
         ),

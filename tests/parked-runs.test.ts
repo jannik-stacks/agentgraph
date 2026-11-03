@@ -4,7 +4,7 @@ import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { stoppedByRunner } from '../src/context.ts';
 import { drive, instruct, tick } from '../src/engine.ts';
-import { Forge } from '../src/forge.ts';
+import { Tracker } from '../src/tracker.ts';
 import { isOnIssue } from '../src/graph.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
 import { Store } from '../src/store.ts';
@@ -52,12 +52,12 @@ describe('resume', () => {
       expect(specs).toHaveLength(1);
       expect(specs[0]!.resume).toEqual(original.sessions.implement);
       expect(marks.map(([kind]) => kind)).toEqual(['comment', 'comment']);
-      const comments = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
+      const comments = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
       expect(comments.filter(b => b.startsWith('Agentgraph status: '))).toEqual([
         expect.stringContaining('| retro / implement | done |'),
       ]);
       expect(comments.join('\n')).not.toContain('paused');
-      expect(readFileSync(join(where.forge, '7.md'), 'utf8')).toContain('labels: []');
+      expect(readFileSync(join(where.tracker, '7.md'), 'utf8')).toContain('labels: []');
     },
     60_000
   );
@@ -74,7 +74,7 @@ describe('resume', () => {
       );
       const { reason: _reason, ...working } = parked('retro-7');
       const paused = await run(drive(flow, { ...working, status: 'running' }, combined));
-      const before = await run(Effect.flatMap(Forge, f => f.issue(7)));
+      const before = await run(Effect.flatMap(Tracker, f => f.issue(7)));
       const sticky = before.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))!.comment!;
       expect(bodies(before)).toEqual([
         '/agent',
@@ -91,7 +91,7 @@ describe('resume', () => {
         where.human('/agent retry', new Date(Date.now() + 1).toISOString());
         await next.run(tick(combined, 7));
       }
-      const after = await next.run(Effect.flatMap(Forge, f => f.issue(7)));
+      const after = await next.run(Effect.flatMap(Tracker, f => f.issue(7)));
       expect(
         after.events.filter(m => m.comment?.body.startsWith('Agentgraph status: ')).map(m => m.comment?.id)
       ).toEqual([sticky.id]);

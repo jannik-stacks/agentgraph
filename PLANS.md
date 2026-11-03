@@ -4,14 +4,14 @@ Ideas we agreed to do later, each with why it waits.
 
 ## Engine
 
-- **One trust and push policy above GitHub and the file forge.** Branch and file rules are
+- **One trust and push policy above GitHub and the file tracker.** Branch and file rules are
   already shared. Trust differs on purpose: GitHub checks the bot's identity and permissions, the
-  file forge a configured list. First write down which differences are intended, then extract
-  the shared part. About 40 to 80 lines. Waits for the forge policy refactor.
+  file tracker a configured list. First write down which differences are intended, then extract
+  the shared part. About 40 to 80 lines. Waits for the tracker policy refactor.
 - **Split a proposal into what the agent asked and the exact call we make.** Today one type
   carries both: the agent's request (comment, label, PR) and the GitHub call after our rules ran
   (stamp added, branch fixed, target checked). Splitting makes the rules one visible step. No
-  behaviour change. Goes with the forge policy refactor.
+  behaviour change. Goes with the tracker policy refactor.
 - **Priority for issues and runs.** Removed for now. Bring it back only when ordering work
   matters, and then decide where it comes from (a maintainer label, not the bot).
 

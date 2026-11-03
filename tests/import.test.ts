@@ -35,7 +35,7 @@ it('keeps a commit or a patch as an ended run with no issue, once per import', a
     await writeImportedRun(i, patch, { version: '0.0.1', from: base }),
   ];
   expect(new Set(ids).size).toBe(3);
-  const origin = join(i.forge, 'origin.git');
+  const origin = join(i.tracker, 'origin.git');
   for (const id of ids)
     expect(git(w.root, '--git-dir', origin, 'diff', '--name-only', base, `refs/agentgraph/runs/${id}`)).toBe(
       'hello.txt'

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { tick } from '../src/engine.ts';
 import type { Event } from '../src/event.ts';
 import { loadGraph } from '../src/folder.ts';
-import { fileForge } from '../src/forge.ts';
+import { fileTracker } from '../src/tracker.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
@@ -23,11 +23,11 @@ afterEach(() => {
 const world = () => {
   const { root, seed, data } = seeded('retro-gate', { 'README.md': 'demo\n' });
   dirs.push(root);
-  const forge = join(root, 'forge');
-  mkdirSync(forge);
-  git(root, 'clone', '-q', '--bare', seed, join(forge, 'origin.git'));
+  const tracker = join(root, 'tracker');
+  mkdirSync(tracker);
+  git(root, 'clone', '-q', '--bare', seed, join(tracker, 'origin.git'));
   writeFileSync(
-    join(forge, '1.md'),
+    join(tracker, '1.md'),
     '---\ntitle: Issue 1\nstate: open\nauthor: morgan\nlabels: []\n---\n\nSay hello.\n'
   );
   const label: Event = {
@@ -38,8 +38,8 @@ const world = () => {
     trusted: true,
     at: '2026-10-16T00:00:01.000Z',
   };
-  appendFileSync(join(forge, '1.jsonl'), `${JSON.stringify(label)}\n`);
-  return { origin: join(forge, 'origin.git'), forge, data };
+  appendFileSync(join(tracker, '1.jsonl'), `${JSON.stringify(label)}\n`);
+  return { origin: join(tracker, 'origin.git'), tracker, data };
 };
 
 const failedCall = (i: number): SessionEvent => ({
@@ -63,7 +63,12 @@ const implement = (failed: number): SessionEvent[] => [
 
 const ticks = async (where: ReturnType<typeof world>, ...turns: SessionEvent[][][]) => {
   const layer = (sessions: SessionEvent[][]) =>
-    Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), replaySession(sessions));
+    Layer.mergeAll(
+      fileTracker(where.tracker),
+      fileStore(where.data),
+      hostSandbox(where.origin),
+      replaySession(sessions)
+    );
   for (const sessions of turns) await Effect.runPromise(tick(graph).pipe(Effect.provide(layer(sessions))));
   return Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
 };
@@ -117,7 +122,7 @@ describe('a run step', () => {
   });
   const gate = async (reads?: 'traces') => {
     const where = world();
-    const seen = join(dirname(where.forge), 'seen');
+    const seen = join(dirname(where.tracker), 'seen');
     const checksRead: string[] = [];
     const store = Layer.effect(
       Store,
@@ -127,7 +132,7 @@ describe('a run step', () => {
       }))
     ).pipe(Layer.provide(fileStore(where.data)));
     const layer = Layer.mergeAll(
-      fileForge(where.forge),
+      fileTracker(where.tracker),
       store,
       hostSandbox(where.origin),
       replaySession([implement(1)])

@@ -47,11 +47,11 @@ A comment goes where a person started or woke the run, else to the branch's open
 
 While the branch has no open pull request, an agent that may return `pull_request` must return one, or an `ask`, a `back`, an `issue` part, or comments answering a finished run. <!-- code: src/engine.ts#attempt -->
 
-A `pull_request` on a branch whose pull request is open rewrites its title and body. A step of its own after review, with an agent that returns only `pull_request`, keeps the description current each time the change goes round again. <!-- code: src/forge.ts#fileForge src/github.ts#githubForge -->
+A `pull_request` on a branch whose pull request is open rewrites its title and body. A step of its own after review, with an agent that returns only `pull_request`, keeps the description current each time the change goes round again. <!-- code: src/tracker.ts#fileTracker src/github.ts#githubTracker -->
 
-A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/forge.ts#unpushable -->
+A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/tracker.ts#unpushable -->
 
-Both forges report held paths in the push result's `held` list, recorded in the trace. The first push holding a path on a branch is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. Later pushes still list that held path but succeed unless another failure occurs. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. After a newly held path, later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/forge.ts#makePushResult src/engine.ts#land -->
+Both trackers report held paths in the push result's `held` list, recorded in the trace. The first push holding a path on a branch is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. Later pushes still list that held path but succeed unless another failure occurs. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. After a newly held path, later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/tracker.ts#makePushResult src/engine.ts#land -->
 
 ## Filing issues
 
@@ -73,7 +73,7 @@ One refused filing fails the try and files nothing. The engine refuses a body wi
 
 `stacks_on` names one earlier part by position, from 1, and `depends_on` lists earlier positions. The engine writes them as `Stacks on #n` and `Depends on #n` lines; on an existing issue, write the line yourself.
 
-With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/engine.ts#findStackBase src/github.ts#githubForge -->
+With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/engine.ts#findStackBase src/github.ts#githubTracker -->
 
 A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/engine.ts#pending src/engine.ts#follow -->
 

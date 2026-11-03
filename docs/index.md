@@ -34,7 +34,7 @@ The runner on the host polls GitHub, or a local folder that stands in for it. It
 4. [Workflows](workflows.md): triggers, steps, retries and waiting for people
 5. [Running on GitHub](github.md)
 6. [Hosting](hosting.md): VPS, Kubernetes, AWS and Cloudflare
-7. [Extending agentgraph](extending.md): forges, harnesses, providers, graphs and plugins
+7. [Extending agentgraph](extending.md): trackers, harnesses, providers, graphs and plugins
 
 Reference: [CLI](cli.md), [Proposals](proposals.md), [Sandbox and models](sandbox.md), [Runs and data](runs.md).
 

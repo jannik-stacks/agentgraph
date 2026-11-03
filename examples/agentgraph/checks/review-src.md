@@ -16,7 +16,7 @@ signature or a return value.
 
 An input counts when it reaches the hunk through agentgraph's own inputs and documented use: a graph file,
 an event, a model reply, a stored run, a config value, at any size the API returns (more than one
-page of results is ordinary). A human acting through the forge (labels, comments, closing) is
+page of results is ordinary). A human acting through the tracker (labels, comments, closing) is
 documented use; a human hand-editing text agentgraph wrote (a marker in an issue body, a stored file),
 malformed Unicode and other input crafted to break the code are notes, not findings. So is an input
 that only a case under the item's `out of scope` reaches: the brief left it out on purpose. Judge
@@ -33,8 +33,8 @@ would fix the cause: name the smaller change. The same goes for a hunk that scan
 already answers it, such as `git ls-files`.
 
 Ask too whether the behaviour the hunk adds already has an owner: a graph skill, `apply` (every write
-to the forge), an agent's `returns` (what it may propose) or an existing proposal kind. A second path
-beside the owner, such as a direct forge call next to `apply`, is a fail: name the owner to
+to the tracker), an agent's `returns` (what it may propose) or an existing proposal kind. A second path
+beside the owner, such as a direct tracker call next to `apply`, is a fail: name the owner to
 extend. So is a graph rule in `src/`: policy for one graph's workflow (when triage closes, what a task
 should return) written into engine code or a prompt every agent sees, or a reorder of logic every run
 goes through to serve that one case. Name the skill or check it belongs in. So is a shared function

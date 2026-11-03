@@ -4,13 +4,13 @@ A run is one workflow on one issue. Its status is `running`, `waiting` (a questi
 
 ## The data folder
 
-Locally, each repo gets an instance under the data root. As a runner (`--forge`), `--data` is the runs folder itself.
+Locally, each repo gets an instance under the data root. As a runner (`--tracker`), `--data` is the runs folder itself.
 
 ```
 ~/.agentgraph/                      --data, else AGENTGRAPH_DATA
   left-pad-7c1e2a-local/            <repo folder>-<hash of its path>-local, the instance's records
     instance.yaml                   repo, base, owner, provider, refs written into the repo
-    forge/                          issues, timelines, origin.git (the checkouts' git and run refs)
+    tracker/                          issues, timelines, origin.git (the checkouts' git and run refs)
     data/                           the runs folder:
       <run id>/run.json               current state
       <run id>/trace.jsonl            append-only events, .zst once idle
@@ -43,7 +43,7 @@ Folders made before `cache/` existed move by hand, with nothing driving:
 cd ~/.agentgraph/left-pad-7c1e2a-local
 mkdir -p data/cache && mv graphs data/cache/
 for d in work index news scratch sync; do [ -e data/$d ] && mv data/$d data/cache/; done
-git --git-dir forge/origin.git worktree prune
+git --git-dir tracker/origin.git worktree prune
 ```
 
 A runner's runs folder moves the same way, without `graphs`, then prunes `mirror.git` instead.
@@ -61,11 +61,11 @@ Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
 | `exported` | none | Where agentgraph last wrote each ref into the repo |
 | `readonly` | off | `true` writes nothing to the repo; `--read-only` sets it |
 
-## The forge folder
+## The tracker folder
 
-A forge folder stands in for GitHub: `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, it refuses a whole push that touches `.github/`. `--forge <dir>` runs the CLI on one directly. <!-- code: src/forge.ts#fileForge -->
+A tracker folder stands in for GitHub: `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, it refuses a whole push that touches `.github/`. `--tracker <dir>` runs the CLI on one directly. <!-- code: src/tracker.ts#fileTracker -->
 
-Any `<n>.md` you write under an unused number is an issue. Frontmatter with a trusted `author` and a workflow's label starts that workflow on the next look; `agi start` writes such a file. <!-- code: src/forge.ts#writeIssueFile -->
+Any `<n>.md` you write under an unused number is an issue. Frontmatter with a trusted `author` and a workflow's label starts that workflow on the next look; `agi start` writes such a file. <!-- code: src/tracker.ts#writeIssueFile -->
 
 ```md
 ---
@@ -101,7 +101,7 @@ count(-1) should throw.
 
 ## Imported runs
 
-`agi import <commit>|<patch> [<issue file>]` keeps a change made elsewhere, by a person or another tool, as an ended run so `check --runs` can score it beside the agents' runs. A commit comes from your repo and is measured from its parent; a patch is applied onto `--from`, or `HEAD`, and refused when it does not apply. The change is kept at `refs/agentgraph/runs/<run id>` in the forge's `origin.git`. The issue file's first line becomes `title` and the rest `body`, the text a check reads. `--meta <file>` keeps its JSON as `meta.engine.origin.input`, with `plugin` `agi` and `job` `import`. <!-- code: src/instance.ts#writeImportedRun -->
+`agi import <commit>|<patch> [<issue file>]` keeps a change made elsewhere, by a person or another tool, as an ended run so `check --runs` can score it beside the agents' runs. A commit comes from your repo and is measured from its parent; a patch is applied onto `--from`, or `HEAD`, and refused when it does not apply. The change is kept at `refs/agentgraph/runs/<run id>` in the tracker's `origin.git`. The issue file's first line becomes `title` and the rest `body`, the text a check reads. `--meta <file>` keeps its JSON as `meta.engine.origin.input`, with `plugin` `agi` and `job` `import`. <!-- code: src/instance.ts#writeImportedRun -->
 
 An imported run has workflow `import`, status `done`, no `issue` and no trace, so checks of traces are n/a on it. Every import is a new run, even of the same change; pair runs by their origin input. Runs with no issue are left out of everything that follows issues: the loop, `show`, `resume`, `say` and the traces other runs read. Only results, the studio's Runs page and `check --runs` see them. <!-- code: src/store.ts#fileStore src/graph.ts#isOnIssue -->
 
@@ -161,7 +161,7 @@ The version hashes the check's file, its judge's file, its judge's harness and m
 
 ## Run links
 
-Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. A collapsed ⁂ footer sits before the marker, even with no extra content. With `AGENTGRAPH_STUDIO_URL` set, the ⁂ links to the run in the studio, and `/runs?gh=<link or comment id>` finds the run behind a write. <!-- code: src/forge.ts#formatBodyWithRunLink src/store.ts#locate -->
+Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. A collapsed ⁂ footer sits before the marker, even with no extra content. With `AGENTGRAPH_STUDIO_URL` set, the ⁂ links to the run in the studio, and `/runs?gh=<link or comment id>` finds the run behind a write. <!-- code: src/tracker.ts#formatBodyWithRunLink src/store.ts#locate -->
 
 A runner that stops between posting and recording finds the post by its operation key and does not post again. <!-- code: src/engine.ts#findAppliedBefore -->
 
@@ -171,4 +171,4 @@ Each check's full output, the last 64K characters of a script's output or a judg
 
 ## Checkouts
 
-A run works in a checkout, a worktree of the forge's `origin.git` in a local instance, or of `mirror.git` in the runs folder on a runner. Its admin dir stays in that repo and its files in `cache/work/`; neither is in your repo. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. The first time it works, it keeps the graph folder, without `node_modules`, as a tree at `refs/agentgraph/graphs/<tree>` and records it as the run's `graphTree`, which never changes after; a run that cannot keep it fails like any other checkout error. <!-- code: src/git.ts#ensureGraphRef --> After every attempt, failed or empty ones too, it also commits the files at `refs/agentgraph/attempts/<run id>/<n>`, so a retry never overwrites an earlier try. A runner that starts finds the checkouts of runners that died, commits each at `refs/agentgraph/reaped/<checkout id>` and only then removes it with its index, news and scratch dirs. A sweep that repeats keeps the first commit. One it cannot save stays in `cache/work/` with a warning, and the sweep skips a checkout whose engine already failed to save it. <!-- code: src/docker.ts#dockerSandbox src/engine.ts#drive src/git.ts#commitCheckout src/git.ts#commitCheckoutOnce src/env.ts#findDeadCheckouts src/env.ts#removeCheckout -->
+A run works in a checkout, a worktree of the tracker's `origin.git` in a local instance, or of `mirror.git` in the runs folder on a runner. Its admin dir stays in that repo and its files in `cache/work/`; neither is in your repo. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. The first time it works, it keeps the graph folder, without `node_modules`, as a tree at `refs/agentgraph/graphs/<tree>` and records it as the run's `graphTree`, which never changes after; a run that cannot keep it fails like any other checkout error. <!-- code: src/git.ts#ensureGraphRef --> After every attempt, failed or empty ones too, it also commits the files at `refs/agentgraph/attempts/<run id>/<n>`, so a retry never overwrites an earlier try. A runner that starts finds the checkouts of runners that died, commits each at `refs/agentgraph/reaped/<checkout id>` and only then removes it with its index, news and scratch dirs. A sweep that repeats keeps the first commit. One it cannot save stays in `cache/work/` with a warning, and the sweep skips a checkout whose engine already failed to save it. <!-- code: src/docker.ts#dockerSandbox src/engine.ts#drive src/git.ts#commitCheckout src/git.ts#commitCheckoutOnce src/env.ts#findDeadCheckouts src/env.ts#removeCheckout -->

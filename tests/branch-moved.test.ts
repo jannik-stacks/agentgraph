@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Deferred, Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, tick } from '../src/engine.ts';
-import { fileForge, Forge, ForgeError } from '../src/forge.ts';
+import { fileTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -65,21 +65,21 @@ describe('a run branch that moved', () => {
     }
   );
 
-  it('walks again from the branch tip when the forge refuses a push as moved, whatever its reason says', async () => {
+  it('walks again from the branch tip when the tracker refuses a push as moved, whatever its reason says', async () => {
     const where = world();
     let refused = false;
-    const forge = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({
+    const tracker = Layer.effect(
+      Tracker,
+      Effect.map(Tracker, f => ({
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
           p.kind === 'push' && !refused
             ? Effect.sync(() => ((refused = true), { proposal: p, ok: false, moved: true as const, reason: 'gone' }))
             : f.apply(n, p, work),
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const layer = Layer.mergeAll(
-      forge,
+      tracker,
       fileStore(where.data),
       hostSandbox(where.origin),
       replaySession([
@@ -150,9 +150,9 @@ describe('a run branch that moved', () => {
       Effect.scoped(
         Effect.gen(function* () {
           const sandbox = yield* Sandbox;
-          const forge = yield* Forge;
+          const tracker = yield* Tracker;
           const work = yield* sandbox.checkout('main', 'agentgraph/7');
-          expect(yield* forge.apply(7, { kind: 'rebase', branch: 'agentgraph/7', from, onto }, work)).toMatchObject({
+          expect(yield* tracker.apply(7, { kind: 'rebase', branch: 'agentgraph/7', from, onto }, work)).toMatchObject({
             ok: true,
           });
         })
@@ -203,7 +203,7 @@ describe('a run branch that moved', () => {
     const where = world();
     pullRequest(where);
     writeFileSync(
-      join(where.forge, '8', 'pull.json'),
+      join(where.tracker, '8', 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/8', base: 'main', head: 'foreign' })
     );
     const { run } = services(where, [
@@ -211,7 +211,7 @@ describe('a run branch that moved', () => {
       [start('a'), reply({ kind: 'ask', question: 'My own PR?' })],
     ]);
     await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
-    expect((await run(Effect.flatMap(Forge, f => f.issue(8)))).state).toBe('open');
+    expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('open');
     expect(
       readTrace(where.data, 'run-7').some(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'merge')
     ).toBe(false);
@@ -220,13 +220,13 @@ describe('a run branch that moved', () => {
   it.each(['agentgraph/7', 'bothub/7'])('accepts a merge proposal for its own branch: %s', async branch => {
     const where = world();
     pullRequest(where);
-    writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
+    writeFileSync(join(where.tracker, '8', 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
     const { run } = services(where, [[start('a'), reply({ kind: 'merge', number: 8, head: 'own' })]]);
     await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
-    expect((await run(Effect.flatMap(Forge, f => f.issue(8)))).state).toBe('merged');
+    expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('merged');
   });
 
-  it.each(['symlink', 'oversize'])('file forge refuses unsafe push content: %s', async kind => {
+  it.each(['symlink', 'oversize'])('file tracker refuses unsafe push content: %s', async kind => {
     const where = world();
     const { run } = services(
       where,
@@ -309,18 +309,18 @@ describe('a run branch that moved', () => {
     };
     let fail = true;
     const failing = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({
+      Tracker,
+      Effect.map(Tracker, f => ({
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
           if (p.kind === 'comment' && p.body === 'Second' && fail) {
             fail = false;
-            return Effect.fail(new ForgeError({ message: 'connection failed' }));
+            return Effect.fail(new TrackerError({ message: 'connection failed' }));
           }
           return f.apply(n, p, work);
         },
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const proposals: Proposal[] = [
       { kind: 'tell', issue: 8, text: 'Remember this' },
       push,
@@ -357,7 +357,7 @@ describe('a run branch that moved', () => {
           )
         ).toBe(true);
         const done = yield* driveStored(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), kit);
-        return [done, yield* Effect.flatMap(Forge, f => f.issue(7))] as const;
+        return [done, yield* Effect.flatMap(Tracker, f => f.issue(7))] as const;
       }).pipe(Effect.provide(layer))
     );
     expect(done.status).toBe('done');
@@ -380,7 +380,7 @@ describe('a run branch that moved', () => {
       Effect.gen(function* () {
         const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
         yield* driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'This one' }), small);
-        return yield* Effect.flatMap(Forge, f => f.issue(7));
+        return yield* Effect.flatMap(Tracker, f => f.issue(7));
       })
     );
     expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'Which?')).toHaveLength(2);
@@ -390,18 +390,18 @@ describe('a run branch that moved', () => {
     const where = world();
     let fail = true;
     const failing = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({
+      Tracker,
+      Effect.map(Tracker, f => ({
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
           if (p.kind === 'issue' && p.title === 'Second part' && fail) {
             fail = false;
-            return Effect.fail(new ForgeError({ message: 'connection failed' }));
+            return Effect.fail(new TrackerError({ message: 'connection failed' }));
           }
           return f.apply(n, p, work);
         },
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const proposals = ['First part', 'Second part'].map(title => ({
       kind: 'issue',
       title,
@@ -428,7 +428,7 @@ describe('a run branch that moved', () => {
       Effect.gen(function* () {
         const parked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
         const done = yield* driveStored(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), small);
-        return [done, yield* Effect.flatMap(Forge, f => f.issues())] as const;
+        return [done, yield* Effect.flatMap(Tracker, f => f.issues())] as const;
       }).pipe(Effect.provide(layer))
     );
     expect(done.status).toBe('done');
@@ -464,7 +464,7 @@ describe('a run branch that moved', () => {
       })
     ).pipe(Layer.provide(hostSandbox(where.origin)));
     const layer = Layer.mergeAll(
-      fileForge(where.forge),
+      fileTracker(where.tracker),
       fileStore(where.data),
       sandbox,
       replaySession([[start('a'), wrote('hello.txt', 'hi'), reply(push, pull)]])
@@ -564,7 +564,7 @@ describe('a run branch that moved', () => {
       expect(done.status).toBe('waiting');
       expect(specs[1]!.prompt).toContain('.github/workflows/socket.yml');
       expect(specs[1]!.prompt).toContain(only ? 'Nothing pushed' : 'Not pushed');
-      expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Added .github/workflows/socket.yml');
+      expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Added .github/workflows/socket.yml');
       const applied = readTrace(where.data, 'run-7').flatMap(t =>
         'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied] : []
       );
@@ -601,8 +601,8 @@ describe('a run branch that moved', () => {
     const where = world();
     const attempted: Proposal[] = [];
     const failing = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({
+      Tracker,
+      Effect.map(Tracker, f => ({
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
           attempted.push(p);
@@ -611,7 +611,7 @@ describe('a run branch that moved', () => {
             : f.apply(n, p, work);
         },
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const skipped: Proposal[] = [
       { kind: 'comment', body: 'Fixed', under: 'review-1' },
       { kind: 'comment', body: 'Changes landed' },
@@ -632,6 +632,6 @@ describe('a run branch that moved', () => {
       'outcome' in t && t.outcome.kind === 'failed' ? [t.outcome] : []
     );
     expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped.slice(0, 3), pull, skipped[3]]);
-    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Changes landed');
+    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Changes landed');
   });
 });

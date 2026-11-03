@@ -11,7 +11,7 @@ import {
   type Instruction,
   type Services,
 } from './engine.ts';
-import { writeIssueFile } from './forge.ts';
+import { writeIssueFile } from './tracker.ts';
 import { makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
@@ -40,7 +40,7 @@ export const readEngineEnv = async (defaults: Record<string, string> = {}): Prom
 
 export const writeTriggeringIssue = async (
   graph: Graph,
-  forge: string,
+  tracker: string,
   text: string,
   author: string,
   workflow?: string,
@@ -59,7 +59,7 @@ export const writeTriggeringIssue = async (
   const [title = '', ...body] = text.split('\n');
   const milestone = graph.milestone && { milestone: graph.milestone };
   return writeIssueFile(
-    forge,
+    tracker,
     { title, author, labels: [...new Set([label, ...more])], ...milestone },
     body.join('\n').trim()
   );

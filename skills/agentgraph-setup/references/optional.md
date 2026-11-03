@@ -33,7 +33,7 @@ review:
 
 ## GitHub App and labels
 
-Locally, `agi start` runs on a forge on disk and needs no GitHub. To run on the repo's real issues, the user
+Locally, `agi start` runs on a tracker on disk and needs no GitHub. To run on the repo's real issues, the user
 creates a GitHub App and installs it on the repo, as the
 [App setup](https://github.com/jannik-stacks/agentgraph/blob/main/infra/github/README.md) describes. Walk them
 through it; never handle the App key yourself. Then create the label the workflow starts on, with their

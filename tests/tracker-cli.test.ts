@@ -13,7 +13,7 @@ import {
 import { delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
+import { fileTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import {
   ensureGraph,
@@ -50,25 +50,25 @@ const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  delete process.env.AGENTGRAPH_FORGE;
+  delete process.env.AGENTGRAPH_TRACKER;
   delete process.env.AGENTGRAPH_PROXY_KEYS;
   delete process.env.AGENTGRAPH_TRUST;
 });
 
 const world = () => {
-  const { root, seed, data } = seeded('forge-cli', {
+  const { root, seed, data } = seeded('tracker-cli', {
     'package.json': JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }),
   });
   dirs.push(root);
-  const dir = join(root, 'forge');
+  const dir = join(root, 'tracker');
   const as = 'morgan';
-  const forge = async (verb: string, ...args: string[]): Promise<string> => {
+  const tracker = async (verb: string, ...args: string[]): Promise<string> => {
     const flag = (name: string) => {
       const at = args.indexOf(`--${name}`);
       return at < 0 ? undefined : args.splice(at, 2)[1];
     };
     const n = Number(args[0]);
-    const issues = Effect.provide(Forge, fileForge(dir));
+    const issues = Effect.provide(Tracker, fileTracker(dir));
     switch (verb) {
       case 'init':
         git(root, 'init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git'));
@@ -82,8 +82,8 @@ const world = () => {
       }
       case 'label':
         await Effect.runPromise(
-          Effect.flatMap(Forge, f => f.apply(n, { kind: 'label', add: [args[1]!] })).pipe(
-            Effect.provide(fileForge(dir, as))
+          Effect.flatMap(Tracker, f => f.apply(n, { kind: 'label', add: [args[1]!] })).pipe(
+            Effect.provide(fileTracker(dir, as))
           )
         );
         return '';
@@ -105,7 +105,7 @@ const world = () => {
         await writeClosed(dir, as, n);
         return '';
       case 'merge': {
-        const pull = await mergePull({ forge: dir, owner: as }, n);
+        const pull = await mergePull({ tracker: dir, owner: as }, n);
         return `${pull.base} at ${pull.head}`;
       }
       case 'show': {
@@ -118,9 +118,9 @@ const world = () => {
         ).trim();
       }
     }
-    throw new Error(`no forge verb ${verb}`);
+    throw new Error(`no tracker verb ${verb}`);
   };
-  Object.assign(process.env, { AGENTGRAPH_FORGE: dir, AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2' });
+  Object.assign(process.env, { AGENTGRAPH_TRACKER: dir, AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2' });
   const seen: Settings[] = [];
   const run = (
     turns: SessionEvent[][],
@@ -132,9 +132,9 @@ const world = () => {
     let left = failures;
     const services = (s: Settings) => {
       seen.push(s);
-      const forgeDir = s.forge as string;
+      const trackerDir = s.tracker as string;
       return Layer.mergeAll(
-        fileForge(forgeDir),
+        fileTracker(trackerDir),
         fileStore(s.data),
         Layer.effect(
           Sandbox,
@@ -147,7 +147,7 @@ const world = () => {
                   : sandbox.checkout(...args)
               ),
           }))
-        ).pipe(Layer.provide(hostSandbox(join(forgeDir, 'origin.git')))),
+        ).pipe(Layer.provide(hostSandbox(join(trackerDir, 'origin.git')))),
         replaySession(turns)
       );
     };
@@ -156,16 +156,16 @@ const world = () => {
       services
     );
   };
-  return { root, seed, dir, origin: join(dir, 'origin.git'), forge, run, seen };
+  return { root, seed, dir, origin: join(dir, 'origin.git'), tracker, run, seen };
 };
 
-describe('the human verbs on a forge folder', () => {
+describe('the human verbs on a tracker folder', () => {
   it('files an issue, runs it to a pull request, sends it back from the pull request, and merges', async () => {
     const w = world();
-    await w.forge('init', w.seed);
+    await w.tracker('init', w.seed);
     writeFileSync(join(w.root, 'body.md'), 'Add hello.txt.\n');
-    expect(await w.forge('issue', 'Add a greeting', '--body', join(w.root, 'body.md'))).toBe('#1');
-    await w.forge('label', '1', 'agent:ready');
+    expect(await w.tracker('issue', 'Add a greeting', '--body', join(w.root, 'body.md'))).toBe('#1');
+    await w.tracker('label', '1', 'agent:ready');
 
     const push = (message: string): Proposal => ({ kind: 'push', branch: 'agentgraph/1', message });
     const pull: Proposal = {
@@ -179,14 +179,14 @@ describe('the human verbs on a forge folder', () => {
       [start('i'), wrote('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
-    expect(w.seen[0]!.forge).toBe(w.dir);
+    expect(w.seen[0]!.tracker).toBe(w.dir);
     expect(first.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
     expect(readFileSync(join(w.dir, '2', 'diff.patch'), 'utf8')).toContain('+hello');
-    expect(await w.forge('show')).toBe(
+    expect(await w.tracker('show')).toBe(
       '#1 open Add a greeting [agent:ready, agentgraph:needs-review]\n#2 open Add hello (agentgraph/1 into main)'
     );
 
-    await w.forge('comment', '2', '/agent say hello world');
+    await w.tracker('comment', '2', '/agent say hello world');
     const routed = await w.run([[start('o'), reply({ kind: 'tell', issue: 1, text: 'say hello world' })]]);
     expect(routed.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
     const second = await w.run([
@@ -195,30 +195,30 @@ describe('the human verbs on a forge folder', () => {
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     expect(second.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
-    expect(await w.forge('show', '2')).toContain('+hello world');
+    expect(await w.tracker('show', '2')).toContain('+hello world');
 
-    expect(await w.forge('merge', '2')).toMatch(/^main at [0-9a-f]{40}$/);
+    expect(await w.tracker('merge', '2')).toMatch(/^main at [0-9a-f]{40}$/);
     expect(git(w.origin, 'show', 'main:hello.txt')).toBe('hello world');
-    expect(await w.forge('show')).toBe(
+    expect(await w.tracker('show')).toBe(
       '#1 closed Add a greeting [agent:ready, agentgraph:needs-review]\n#2 merged Add hello (agentgraph/1 into main)'
     );
     const last = await w.run([]);
     expect(last.map(r => [r.issue, r.step, r.status])).toEqual([[1, 'merge', 'done']]);
-    expect(await w.forge('show')).toBe(
+    expect(await w.tracker('show')).toBe(
       '#1 closed Add a greeting [agent:ready, agentgraph:done]\n#2 merged Add hello (agentgraph/1 into main)'
     );
   });
 
   it('starts a run on a dropped issue file once, and reads one without frontmatter', async () => {
     const w = world();
-    await w.forge('init', w.seed);
+    await w.tracker('init', w.seed);
     writeFileSync(join(w.dir, '1.md'), '# Fix the typo\n\nIn the readme.\n');
     writeFileSync(
       join(w.dir, '2.md'),
       '---\ntitle: Add a greeting\nauthor: morgan\nlabels: [agent:ready]\n---\n\nAdd hello.txt.\n'
     );
-    expect(await w.forge('show')).toBe('#1 open Fix the typo\n#2 open Add a greeting [agent:ready]');
-    expect(await w.forge('show', '2')).toMatch(/morgan label agent:ready/);
+    expect(await w.tracker('show')).toBe('#1 open Fix the typo\n#2 open Add a greeting [agent:ready]');
+    expect(await w.tracker('show', '2')).toMatch(/morgan label agent:ready/);
     const pull: Proposal = {
       kind: 'pull_request',
       branch: 'agentgraph/2',
@@ -235,17 +235,17 @@ describe('the human verbs on a forge folder', () => {
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     expect(first.map(r => [r.issue, r.step, r.status])).toEqual([[2, 'merge', 'waiting']]);
-    expect(await w.forge('show', '3')).toContain('+hello');
+    expect(await w.tracker('show', '3')).toContain('+hello');
     expect(await w.run([])).toEqual([]);
     expect(readdirSync(join(w.root, 'data')).filter(d => d.startsWith('issue-'))).toHaveLength(1);
-    await w.forge('close', '1');
-    expect(await w.forge('show')).toMatch(/^#1 closed Fix the typo\n/);
-    expect(await w.forge('show', '1')).toContain('In the readme.');
+    await w.tracker('close', '1');
+    expect(await w.tracker('show')).toMatch(/^#1 closed Fix the typo\n/);
+    expect(await w.tracker('show', '1')).toContain('In the readme.');
   });
 
   it('goes from text to a run to a diff with no GitHub', async () => {
     const w = world();
-    await w.forge('init', w.seed);
+    await w.tracker('init', w.seed);
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     await expect(writeTriggeringIssue(graph, w.dir, 'Add a greeting', 'morgan', 'router')).rejects.toThrow(
       'name one workflow with a label: --workflow <name>'
@@ -258,7 +258,9 @@ describe('the human verbs on a forge folder', () => {
       writeTriggeringIssue({ ...graph, trust: ['ann'] }, w.dir, 'Add a greeting', 'morgan', 'issue')
     ).rejects.toThrow('morgan may not');
     expect(await writeTriggeringIssue(graph, w.dir, 'Add a greeting\n\nAdd hello.txt.', 'morgan', 'issue')).toBe(1);
-    expect(await w.forge('show', '1')).toMatch(/^#1 open Add a greeting by morgan \[agent:ready\]\n\nAdd hello.txt.\n/);
+    expect(await w.tracker('show', '1')).toMatch(
+      /^#1 open Add a greeting by morgan \[agent:ready\]\n\nAdd hello.txt.\n/
+    );
     const pull: Proposal = {
       kind: 'pull_request',
       branch: 'agentgraph/1',
@@ -281,15 +283,15 @@ describe('the human verbs on a forge folder', () => {
       true
     );
     expect(runs.map(r => [r.workflow, r.step, r.status])).toEqual([['issue', 'merge', 'waiting']]);
-    expect(await w.forge('show', '2')).toContain('+hello');
-    expect(await w.forge('show', '1')).toMatch(/, edited \S+ \S+ comment\nAgentgraph status: waiting for you/);
+    expect(await w.tracker('show', '2')).toContain('+hello');
+    expect(await w.tracker('show', '1')).toMatch(/, edited \S+ \S+ comment\nAgentgraph status: waiting for you/);
   });
 
   it('sends a pull request back with the line comments posted just before the review in its reason', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'Add a greeting');
-    await w.forge('label', '1', 'agent:ready');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'Add a greeting');
+    await w.tracker('label', '1', 'agent:ready');
     const push = (message: string): Proposal => ({ kind: 'push', branch: 'agentgraph/1', message });
     const pull: Proposal = {
       kind: 'pull_request',
@@ -302,8 +304,8 @@ describe('the human verbs on a forge folder', () => {
       [start('i'), wrote('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
-    await w.forge('comment', '2', 'say hello world', '--line', 'hello.txt:1');
-    await w.forge('review', '2', 'changes', 'see the line note');
+    await w.tracker('comment', '2', 'say hello world', '--line', 'hello.txt:1');
+    await w.tracker('review', '2', 'changes', 'see the line note');
     await w.run([
       [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
@@ -318,12 +320,12 @@ describe('the human verbs on a forge folder', () => {
 
   it('runs a stacked issue on the pull request of the one it stacks on', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'Add a greeting');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'Add a greeting');
     writeFileSync(join(w.root, 'body.md'), 'Add bye.txt.\n\nStacks on #1\n');
-    await w.forge('issue', 'Say bye', '--body', join(w.root, 'body.md'));
-    await w.forge('label', '1', 'agent:ready');
-    await w.forge('label', '2', 'agent:ready');
+    await w.tracker('issue', 'Say bye', '--body', join(w.root, 'body.md'));
+    await w.tracker('label', '1', 'agent:ready');
+    await w.tracker('label', '2', 'agent:ready');
     const turn = (n: number, file: string): SessionEvent[][] => [
       [
         start(`i${n}`),
@@ -336,37 +338,37 @@ describe('the human verbs on a forge folder', () => {
       [start(`r${n}`), reply({ kind: 'comment', body: 'Looks right.' })],
     ];
     await w.run([...turn(1, 'hello.txt'), ...turn(2, 'bye.txt')]);
-    expect(await w.forge('show')).toContain('#3 open Add hello.txt (agentgraph/1 into main)');
-    expect(await w.forge('show')).toContain('#4 open Add bye.txt (agentgraph/2 into agentgraph/1)');
+    expect(await w.tracker('show')).toContain('#3 open Add hello.txt (agentgraph/1 into main)');
+    expect(await w.tracker('show')).toContain('#4 open Add bye.txt (agentgraph/2 into agentgraph/1)');
 
-    await w.forge('merge', '3');
-    expect(await w.forge('show')).toContain('#4 open Add bye.txt (agentgraph/2 into main)');
-    await w.forge('merge', '4');
+    await w.tracker('merge', '3');
+    expect(await w.tracker('show')).toContain('#4 open Add bye.txt (agentgraph/2 into main)');
+    await w.tracker('merge', '4');
     expect(git(w.origin, 'show', 'main:bye.txt')).toBe('bye.txt');
     expect(existsSync(join(w.dir, '2.md'))).toBe(true);
   });
 
   it('starts the router on a bare mention, stops a waiting run on a mention with stop, and ignores stop with no run', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'Add a greeting');
-    await w.forge('comment', '1', '/agent stop');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'Add a greeting');
+    await w.tracker('comment', '1', '/agent stop');
     expect(await w.run([])).toEqual([]);
 
-    await w.forge('comment', '1', '/agent');
+    await w.tracker('comment', '1', '/agent');
     const asked = await w.run([[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(asked.map(r => [r.step, r.status])).toEqual([['router', 'waiting']]);
 
-    await w.forge('comment', '1', '/agent stop wrong issue');
+    await w.tracker('comment', '1', '/agent stop wrong issue');
     const stopped = await w.run([]);
     expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['router', 'stopped', 'wrong issue']]);
   });
 
   it.each([0, 1])('routes review say with %i checkout failures', async failures => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'Add a greeting');
-    await w.forge('label', '1', 'agent:ready');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'Add a greeting');
+    await w.tracker('label', '1', 'agent:ready');
     const [waiting] = await w.run([
       [
         start('i'),
@@ -378,7 +380,7 @@ describe('the human verbs on a forge folder', () => {
       ],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
-    await w.forge('comment', '2', 'This line?', '--line', 'hello.txt:1');
+    await w.tracker('comment', '2', 'This line?', '--line', 'hello.txt:1');
     const event = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
       .trim()
       .split('\n')
@@ -428,15 +430,15 @@ describe('the human verbs on a forge folder', () => {
 
   it('says on an issue, and rejects an unknown review thread', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'A question');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'A question');
     const [run] = await w.run([[start('say'), reply({ kind: 'comment', body: 'Here is the answer.' })]], 1, {
       kind: 'say',
       issue: 1,
       text: 'Explain the project',
     });
     expect(run!.status).toBe('done');
-    expect(await w.forge('show', '1')).toContain('Here is the answer.');
+    expect(await w.tracker('show', '1')).toContain('Here is the answer.');
     await expect(w.run([], 1, { kind: 'say', issue: 1, comment: 'missing', text: 'Explain' })).rejects.toThrow(
       'no review comment'
     );
@@ -444,8 +446,8 @@ describe('the human verbs on a forge folder', () => {
 
   it.each([0, 1])('keeps say text in the router prompt with %i checkout failures', async failures => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'A question');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'A question');
     const [run] = await w.run(
       [[start('router'), reply({ kind: 'comment', body: 'Here is why.' })]],
       1,
@@ -464,10 +466,10 @@ describe('the human verbs on a forge folder', () => {
   });
 
   it('gives comments from two racing processes different ids', async () => {
-    const dir = tmp('forge-race');
+    const dir = tmp('tracker-race');
     dirs.push(dir);
-    const forgeTs = join(import.meta.dirname, '..', 'src', 'forge.ts');
-    const writer = `import { writeTimelineEvent } from ${JSON.stringify(forgeTs)};
+    const trackerTs = join(import.meta.dirname, '..', 'src', 'tracker.ts');
+    const writer = `import { writeTimelineEvent } from ${JSON.stringify(trackerTs)};
 const comment = i => ({ issue: 1, kind: 'comment', actor: 'a', trusted: true, comment: { body: String(i) } });
 await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(process.argv[1], comment(i))));`;
     const write = () =>
@@ -484,16 +486,16 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
 
   it('parks say after both checkout attempts fail', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'A question');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'A question');
     const [run] = await w.run([], 1, { kind: 'say', issue: 1, text: 'Explain the project' }, 2);
     expect(run).toMatchObject({ status: 'waiting', retried: true });
   });
 
   it.each([1, 'all'] as const)('recovers an unowned running run through %s', async issue => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'A question');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'A question');
     const [parked] = await w.run([], 1, { kind: 'say', issue: 1, text: 'Remember the original request' }, 2);
     const { reason: _reason, ...running } = { ...parked!, status: 'running' as const, retried: true as const };
     await Effect.runPromise(
@@ -526,7 +528,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       )
     );
     const label = (...args: string[]) =>
-      spawnSync(process.execPath, [runTs, 'label', ...args, '--data', data, '--forge', w.dir], {
+      spawnSync(process.execPath, [runTs, 'label', ...args, '--data', data, '--tracker', w.dir], {
         encoding: 'utf8',
         env: { ...process.env, NODE_OPTIONS: '' },
       });
@@ -559,8 +561,8 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
 
   it('queues parked runs through the CLI and refreshes the sticky', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'A task');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'A task');
     const data = join(w.root, 'data');
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     const parked = {
@@ -570,14 +572,14 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       reason: `${stoppedByRunner} (SandboxError). Reply to try triage again.`,
     };
     await Effect.runPromise(Effect.flatMap(Store, store => store.put(parked)).pipe(Effect.provide(fileStore(data))));
-    const flags = ['--dir', sandboxGraph, '--data', data, '--forge', w.dir];
+    const flags = ['--dir', sandboxGraph, '--data', data, '--tracker', w.dir];
     const resumed = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', ...flags], {
       encoding: 'utf8',
       env: { ...process.env, NODE_OPTIONS: '' },
     });
     expect(resumed.status, resumed.stderr).toBe(0);
     expect(resumed.stdout).toContain('triage-1 triage running');
-    expect(await w.forge('show', '1')).toContain('Agentgraph status: working');
+    expect(await w.tracker('show', '1')).toContain('Agentgraph status: working');
     const stored = await Effect.runPromise(
       Effect.flatMap(Store, store => store.get('triage-1')).pipe(Effect.provide(fileStore(data)))
     );
@@ -598,8 +600,8 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
 
   it('dispatches with the router checks through the CLI without an App', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'A task');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'A task');
     const dispatched = spawnSync(
       process.execPath,
       [
@@ -610,7 +612,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
         sandboxGraph,
         '--data',
         join(w.root, 'data'),
-        '--forge',
+        '--tracker',
         w.dir,
         '--workflow',
         'triage',
@@ -638,8 +640,8 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
 
   it('dispatches a workflow without on: dispatch, asked the text given on the command line', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'A task');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'A task');
     const data = join(w.root, 'data');
     const dispatched = spawnSync(
       process.execPath,
@@ -652,7 +654,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
         sandboxGraph,
         '--data',
         data,
-        '--forge',
+        '--tracker',
         w.dir,
         '--workflow',
         'router',
@@ -676,9 +678,9 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
 
   it('recovers a PR review command passed by the repo cursor with a per-issue sweep', async () => {
     const w = world();
-    await w.forge('init', w.seed);
-    await w.forge('issue', 'Add a greeting');
-    await w.forge('label', '1', 'agent:ready');
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'Add a greeting');
+    await w.tracker('label', '1', 'agent:ready');
     const [waiting] = await w.run([
       [
         start('i'),
@@ -690,14 +692,14 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       ],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
-    await w.forge('comment', '2', '/agent explain this line', '--line', 'hello.txt:1');
+    await w.tracker('comment', '2', '/agent explain this line', '--line', 'hello.txt:1');
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
       Effect.runPromise(
         effect.pipe(
           Effect.provide(
             Layer.mergeAll(
-              fileForge(w.dir),
+              fileTracker(w.dir),
               fileStore(join(w.root, 'data')),
               hostSandbox(w.origin),
               replaySession([[start('router'), reply({ kind: 'comment', body: 'Here is why.' })]])
@@ -705,7 +707,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
           )
         )
       );
-    await w.forge('issue', 'Newer work');
+    await w.tracker('issue', 'Newer work');
     const [newer] = await w.run([], 3, { kind: 'dispatch', issue: 3, workflow: 'triage' });
     await run(
       Effect.flatMap(Store, store =>
@@ -723,7 +725,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     expect(await run(tick(graph, undefined, false, 30_000))).toEqual([]);
     const recovered = await run(scanIssuesAndRunningRuns(graph));
     expect(recovered.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
-    expect(await w.forge('show', '2')).toContain('Here is why.');
+    expect(await w.tracker('show', '2')).toContain('Here is why.');
   });
 
   it('seeds only the given commit with --at, so a later commit is not in the origin', async () => {
@@ -733,7 +735,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     git(w.seed, 'add', '-A');
     git(w.seed, 'commit', '-q', '-m', 'fix');
     const later = git(w.seed, 'rev-parse', 'HEAD').trim();
-    await w.forge('init', w.seed, '--at', base);
+    await w.tracker('init', w.seed, '--at', base);
     expect(git(w.origin, 'rev-parse', 'main').trim()).toBe(base);
     expect(spawnSync('git', ['--git-dir', w.origin, 'cat-file', '-e', later]).status).not.toBe(0);
   });
@@ -754,7 +756,7 @@ describe('an instance', () => {
           NODE_OPTIONS: '',
           AGENTGRAPH_CONFIG: '',
           AGENTGRAPH_APP_ENV: '',
-          AGENTGRAPH_FORGE: '',
+          AGENTGRAPH_TRACKER: '',
           AGENTGRAPH_DIR: '',
           AGENTGRAPH_PROXY_KEYS: '',
           AGENTGRAPH_PROXY_KEYS_FILE: '',
@@ -767,7 +769,7 @@ describe('an instance', () => {
     expect(refused.map(r => [r.status, r.stderr])).toEqual(refused.map(() => [1, guidance]));
     expect(message).toMatch(/^no graph found\. Copy an example into this folder first:\n  cp -R /);
     const i = await ensureInstance(root, w.seed);
-    expect(readdirSync(i.forge).filter(name => name.endsWith('.md'))).toEqual([]);
+    expect(readdirSync(i.tracker).filter(name => name.endsWith('.md'))).toEqual([]);
     expect(existsSync(join(w.seed, '.agentgraph'))).toBe(false);
     expect(cli('show').status).toBe(0);
     const copied = spawnSync('sh', ['-c', message.split('\n')[1]!.trim()], { cwd: w.seed, encoding: 'utf8' });
@@ -792,7 +794,7 @@ describe('an instance', () => {
     expect(checked.status, checked.stderr).toBe(code);
   });
 
-  it('runs an issue to a merge on its own forge, and writes to the repo only agentgraph refs', async () => {
+  it('runs an issue to a merge on its own tracker, and writes to the repo only agentgraph refs', async () => {
     const w = world();
     git(w.seed, 'config', 'user.name', 'morgan');
     writeFileSync(join(w.seed, 'wip.txt'), 'unsaved\n');
@@ -805,7 +807,7 @@ describe('an instance', () => {
       const r = spawnSync(process.execPath, [runTs, ...args, '--data', root], {
         cwd: w.seed,
         encoding: 'utf8',
-        env: { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_FORGE: '' },
+        env: { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_TRACKER: '' },
       });
       return { code: r.status, out: r.stdout.trim(), err: r.stderr.trim() };
     };
@@ -817,21 +819,21 @@ describe('an instance', () => {
     expect(await ensureGraph(i, sandboxGraph)).toBe(sandboxGraph);
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     expect(
-      await writeTriggeringIssue({ ...graph, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue')
+      await writeTriggeringIssue({ ...graph, trust: [i.owner] }, i.tracker, 'Add a greeting', i.owner, 'issue')
     ).toBe(1);
     const shownGraph = cli('show', 'graph', '--dir', sandboxGraph).out;
     expect(shownGraph).toContain(`graph ${sandboxGraph}`);
     expect(shownGraph).toContain('agents/reviewer.md');
-    await writeLabels(i.forge, i.owner, 1, ['urgent']);
-    expect(readFileSync(join(i.forge, '1.md'), 'utf8')).toContain('urgent');
+    await writeLabels(i.tracker, i.owner, 1, ['urgent']);
+    expect(readFileSync(join(i.tracker, '1.md'), 'utf8')).toContain('urgent');
 
-    Object.assign(process.env, { AGENTGRAPH_FORGE: i.forge, AGENTGRAPH_TRUST: i.owner });
+    Object.assign(process.env, { AGENTGRAPH_TRACKER: i.tracker, AGENTGRAPH_TRUST: i.owner });
     const run = (turns: SessionEvent[][], issue: number | 'all' = 1) =>
       main({ graph: sandboxGraph, issue, data: i.data, marked: true, base: i.base }, s =>
         Layer.mergeAll(
-          fileForge(s.forge as string, undefined, s.trust),
+          fileTracker(s.tracker as string, undefined, s.trust),
           fileStore(s.data),
-          hostSandbox(join(s.forge as string, 'origin.git')),
+          hostSandbox(join(s.tracker as string, 'origin.git')),
           replaySession(turns)
         )
       );
@@ -851,8 +853,8 @@ describe('an instance', () => {
     expect(git(w.seed, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
     expect(looks()).toBe(before);
 
-    await writeComment(i.forge, i.owner, 1, 'say world', 'hello.txt:1');
-    await writeReview(i.forge, i.owner, 1, 'changes_requested', 'not quite');
+    await writeComment(i.tracker, i.owner, 1, 'say world', 'hello.txt:1');
+    await writeReview(i.tracker, i.owner, 1, 'changes_requested', 'not quite');
     const second = await run([
       [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
@@ -939,7 +941,7 @@ describe('an instance', () => {
     expect(merged.out).toMatch(/^main at [0-9a-f]{7} in agentgraph/);
     expect(merged.out).toContain('not written to your repo: agentgraph/1 in your repo moved');
     expect(merged.out).not.toContain('Next:');
-    expect(git(join(i.forge, 'origin.git'), 'show', 'main:hello.txt')).toBe('hello world');
+    expect(git(join(i.tracker, 'origin.git'), 'show', 'main:hello.txt')).toBe('hello world');
     expect(cli('show').out).toContain('#1 closed Add a greeting');
     expect(looks()).toBe(before);
 
@@ -949,7 +951,7 @@ describe('an instance', () => {
     expect(await ensureBase(i)).toContain('moved both');
     git(w.seed, 'merge', '-q', '--no-edit', 'agentgraph/review-1');
     expect(await ensureBase(i)).toBeUndefined();
-    expect(git(join(i.forge, 'origin.git'), 'rev-parse', 'main')).toBe(git(w.seed, 'rev-parse', 'HEAD'));
+    expect(git(join(i.tracker, 'origin.git'), 'rev-parse', 'main')).toBe(git(w.seed, 'rev-parse', 'HEAD'));
   });
 
   it('reads .agentgraph from git, else from disk, and holds one loop per data dir', async () => {
@@ -1003,7 +1005,7 @@ const BAD_FLAGS = [
   [{ AGENTGRAPH_EVERY: '0' }, ['show'], 'Invalid data at AGENTGRAPH_EVERY'],
   [{}, ['check', 'x', '--runs', '--issue', 'abc'], '--issue takes an issue number'],
   [{}, ['check', 'x', '--runs', '--issue', '0'], '--issue takes an issue number'],
-  [{}, ['say', '1', 'hi', '--label', 'needs-review'], 'say does not run on --forge'],
+  [{}, ['say', '1', 'hi', '--label', 'needs-review'], 'say does not run on --tracker'],
   [{}, ['say', '1', 'hi', '--run-label', 'arm=v2'], '--run-label <key>=<value> labels the run start begins'],
   [{}, ['start', 'x', '--run-label', 'Arm=v2'], '["Arm"]'],
   [{}, ['start', 'x', '--run-label', 'arm-'], 'Expected string'],
@@ -1022,10 +1024,10 @@ describe('the CLI flags', () => {
     expect(result.stderr).toContain('runs inside a git repo');
   });
 
-  it.each(['forge', 'instance'])('prints the remaining heartbeat wait when a %s loop restarts', async kind => {
+  it.each(['tracker', 'instance'])('prints the remaining heartbeat wait when a %s loop restarts', async kind => {
     const w = world();
     const root = join(w.root, 'loop-data');
-    const data = kind === 'forge' ? root : (await ensureInstance(root, w.seed)).data;
+    const data = kind === 'tracker' ? root : (await ensureInstance(root, w.seed)).data;
     const state = join(w.root, 'state');
     const heartbeat = join(state, 'owners', 'old-owner');
     mkdirSync(join(state, 'owners'), { recursive: true });
@@ -1044,7 +1046,7 @@ describe('the CLI flags', () => {
         root,
         '--dir',
         sandboxGraph,
-        ...(kind === 'forge' ? ['--forge', root] : ['--provider', 'litellm']),
+        ...(kind === 'tracker' ? ['--tracker', root] : ['--provider', 'litellm']),
       ],
       {
         cwd: w.seed,
@@ -1052,7 +1054,7 @@ describe('the CLI flags', () => {
           ...process.env,
           NODE_OPTIONS: '',
           AGENTGRAPH_STATE: state,
-          AGENTGRAPH_FORGE: '',
+          AGENTGRAPH_TRACKER: '',
           AGENTGRAPH_APP_ENV: '',
           AGENTGRAPH_PROXY_KEYS: 'implementor=test,reviewer=test',
           AGENTGRAPH_SANDBOX_URL: 'http://unused.invalid',
@@ -1068,11 +1070,15 @@ describe('the CLI flags', () => {
   it.each(BAD_FLAGS)('fails %o %o before it runs anything', (env, args, message) => {
     const root = tmp('cli-flags');
     dirs.push(root);
-    const ran = spawnSync(process.execPath, [runTs, ...args, '--data', root, '--forge', root, '--dir', sandboxGraph], {
-      cwd: root,
-      env: { ...process.env, NODE_OPTIONS: '', ...env },
-      encoding: 'utf8',
-    });
+    const ran = spawnSync(
+      process.execPath,
+      [runTs, ...args, '--data', root, '--tracker', root, '--dir', sandboxGraph],
+      {
+        cwd: root,
+        env: { ...process.env, NODE_OPTIONS: '', ...env },
+        encoding: 'utf8',
+      }
+    );
     expect([ran.status, ran.stderr]).toEqual([2, expect.stringContaining(message)]);
   });
 

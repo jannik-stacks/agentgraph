@@ -18,7 +18,7 @@ import { Effect, Layer } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
 import { findDeadCheckouts } from '../src/env.ts';
-import { fileForge } from '../src/forge.ts';
+import { fileTracker } from '../src/tracker.ts';
 import {
   ensureBase,
   ensureGraph,
@@ -124,17 +124,17 @@ beforeAll(() => {
 });
 afterAll(() => {
   process.env.PATH = path;
-  delete process.env.AGENTGRAPH_FORGE;
+  delete process.env.AGENTGRAPH_TRACKER;
   delete process.env.AGENTGRAPH_TRUST;
   delete process.env.AGENTGRAPH_PROXY_KEYS;
 });
 
-const drive = (i: { forge: string; data: string; base: string }, turns: SessionEvent[][]) =>
+const drive = (i: { tracker: string; data: string; base: string }, turns: SessionEvent[][]) =>
   main({ graph: sandboxGraph, issue: 1, data: i.data, marked: true, base: i.base }, s =>
     Layer.mergeAll(
-      fileForge(s.forge as string, undefined, s.trust),
+      fileTracker(s.tracker as string, undefined, s.trust),
       fileStore(s.data),
-      dockerSandbox({ data: s.data, origin: join(s.forge as string, 'origin.git'), local: true, cache: '' }),
+      dockerSandbox({ data: s.data, origin: join(s.tracker as string, 'origin.git'), local: true, cache: '' }),
       replaySession(turns)
     )
   );
@@ -150,17 +150,17 @@ describe("the user's repo", () => {
     const data = join(root, 'agentgraph-data');
 
     const i = await ensureInstance(data, seed, 'main');
-    git(join(i.forge, 'origin.git'), 'config', 'remote.origin.pushurl', seed);
+    git(join(i.tracker, 'origin.git'), 'config', 'remote.origin.pushurl', seed);
     expect(await ensureBase(i)).toBeUndefined();
     const graph = await ensureGraph(i);
     expect(await whyGraphUncommitted(i, graph)).toBeUndefined();
     expect(await formatGraphName(i, graph)).toMatch(/^\.agentgraph\/ at main [0-9a-f]{7}$/);
     const loaded = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     expect(
-      await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue')
+      await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.tracker, 'Add a greeting', i.owner, 'issue')
     ).toBe(1);
     Object.assign(process.env, {
-      AGENTGRAPH_FORGE: i.forge,
+      AGENTGRAPH_TRACKER: i.tracker,
       AGENTGRAPH_TRUST: i.owner,
       AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2',
     });
@@ -174,7 +174,7 @@ describe("the user's repo", () => {
     expect(await writePullToRepo(i, 1, { auto: true })).toMatchObject({ ref: 'agentgraph/1' });
     expect(git(seed, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
 
-    await writeReview(i.forge, i.owner, 1, 'changes_requested', 'say world');
+    await writeReview(i.tracker, i.owner, 1, 'changes_requested', 'say world');
     const second = await drive(i, [
       [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
@@ -190,10 +190,10 @@ describe("the user's repo", () => {
     expect(await mergePull(i, 1)).toMatchObject({ branch: 'agentgraph/1' });
     expect(await ensureBase(i)).toBeUndefined();
     expect(await writePullToRepo(i, 1, { auto: true })).toMatchObject({ ref: 'agentgraph/1' });
-    expect(git(join(i.forge, 'origin.git'), 'show', 'main:hello.txt')).toBe('hello world');
+    expect(git(join(i.tracker, 'origin.git'), 'show', 'main:hello.txt')).toBe('hello world');
     expect(findDeadCheckouts(i.data)).toEqual([]);
     expect(readdirSync(join(i.data, 'cache', 'work'))).toEqual([]);
-    expect(readdirSync(join(i.forge, 'origin.git', 'worktrees'))).toEqual([]);
+    expect(readdirSync(join(i.tracker, 'origin.git', 'worktrees'))).toEqual([]);
 
     expect(look(seed)).toEqual(before);
     expect(files(join(seed, '.git', 'objects'), /^$/)).toMatchObject(objects);
@@ -225,9 +225,9 @@ describe("the user's repo", () => {
     expect(await ensureBase(i)).toBeUndefined();
     expect(await whyGraphUncommitted(i, await ensureGraph(i))).toBeUndefined();
     const loaded = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
-    await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue');
+    await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.tracker, 'Add a greeting', i.owner, 'issue');
     Object.assign(process.env, {
-      AGENTGRAPH_FORGE: i.forge,
+      AGENTGRAPH_TRACKER: i.tracker,
       AGENTGRAPH_TRUST: i.owner,
       AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2',
     });

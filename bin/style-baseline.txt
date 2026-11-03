@@ -53,7 +53,6 @@ no-comment src/engine.ts 66
 no-comment src/env.ts 22
 no-comment src/event.ts 6
 no-comment src/folder.ts 17
-no-comment src/forge.ts 16
 no-comment src/git.ts 3
 no-comment src/github.ts 20
 no-comment src/graph.ts 3
@@ -65,6 +64,7 @@ no-comment src/services.ts 9
 no-comment src/session.ts 1
 no-comment src/store.ts 8
 no-comment src/trace.ts 10
+no-comment src/tracker.ts 16
 no-comment src/workflow.ts 27
 no-comment studio/src/Markdown.tsx 4
 no-comment studio/src/Problems.tsx 1
@@ -219,15 +219,15 @@ verb-first src/env.ts used
 verb-first src/env.ts written
 verb-first src/folder.ts loadGraph
 verb-first src/folder.ts retiredIn
-verb-first src/forge.ts matches
-verb-first src/forge.ts unpushable
-verb-first src/forge.ts withheld
 verb-first src/git.ts hostGit
 verb-first src/github.ts appToken
 verb-first src/main.ts temporary
 verb-first src/services.ts graphAt
 verb-first src/store.ts locate
 verb-first src/store.ts pruneLogs
+verb-first src/tracker.ts matches
+verb-first src/tracker.ts unpushable
+verb-first src/tracker.ts withheld
 verb-first src/workflow.ts begin
 verb-first src/workflow.ts exact
 verb-first src/workflow.ts fold

@@ -13,7 +13,7 @@ const source = (name = 'search', toolName = 'issues') => `
 import { makePlugin, readPlugins, tool } from '${pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href}';
 import { Schema } from '${import.meta.resolve('effect')}';
 const settings=Schema.Struct({limit:Schema.NumberFromString});
-export default makePlugin<typeof settings.Type>({name:'${name}',settingsSchema:settings,tools:{'${toolName}':tool({description:'Search issues',inputSchema:Schema.Struct({query:Schema.String}),execute:({query},ctx)=>ctx.forge.searchIssues(query,{limit:ctx.settings.limit})})}});
+export default makePlugin<typeof settings.Type>({name:'${name}',settingsSchema:settings,tools:{'${toolName}':tool({description:'Search issues',inputSchema:Schema.Struct({query:Schema.String}),execute:({query},ctx)=>ctx.tracker.searchIssues(query,{limit:ctx.settings.limit})})}});
 `;
 
 const makePluginDir = async (files: Record<string, string>) => {
@@ -222,7 +222,7 @@ exports.cjsTool = require('ai').tool;
           execute: async ({ query }, ctx) => {
             expectTypeOf(query).toEqualTypeOf<string>();
             expectTypeOf(ctx.settings.limit).toEqualTypeOf<number>();
-            expectTypeOf(ctx.forge.searchIssues).parameter(0).toEqualTypeOf<string>();
+            expectTypeOf(ctx.tracker.searchIssues).parameter(0).toEqualTypeOf<string>();
             expectTypeOf(ctx.abortSignal).toEqualTypeOf<AbortSignal | undefined>();
             return {
               query,
@@ -250,7 +250,7 @@ exports.cjsTool = require('ai').tool;
           readFile: async () => ({ bytes: new Uint8Array(), type: 'image/png' }),
           repo: 'o/r',
           settings: decoded,
-          forge: { searchIssues: async () => [] },
+          tracker: { searchIssues: async () => [] },
         },
       }
     );

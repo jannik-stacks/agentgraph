@@ -30,7 +30,7 @@ const open = async (trace: Parameters<typeof startTools>[2] = () => {}) => {
   });
   const endpoint = await startTools(
     { read: { tool: read, settings: undefined, plugin: 'files' } },
-    { repo: 'o/r', forge: { searchIssues: async () => [] } },
+    { repo: 'o/r', tracker: { searchIssues: async () => [] } },
     trace,
     {
       save: (bytes, signal) =>

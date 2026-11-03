@@ -77,7 +77,7 @@ const open = async (
   const trace: Parameters<Parameters<typeof startTools>[2]>[0][] = [];
   const endpoint = await startRegistered(
     { issues: { tool: tool({ inputSchema, execute }), settings: {}, plugin: 'issues' } },
-    { repo: 'owner/repo', forge: { searchIssues: async () => [] } },
+    { repo: 'owner/repo', tracker: { searchIssues: async () => [] } },
     event => {
       trace.push(event);
     },
@@ -215,7 +215,7 @@ it('rejects the wrong session path and peers outside its allowed subnet', async 
   expect((await readLocalHttp(wrong, { method: 'POST' })).status).toBe(404);
   const blocked = await startRegistered(
     { issues: { tool: tool({ inputSchema: schema, execute: async () => 'ok' }), settings: {}, plugin: 'issues' } },
-    { repo: 'o/r', forge: { searchIssues: async () => [] } },
+    { repo: 'o/r', tracker: { searchIssues: async () => [] } },
     () => {},
     {
       host: '127.0.0.1',
@@ -242,7 +242,7 @@ it('scrubs tool errors and supplied credentials from descriptions and schemas', 
 it('does not expose errors thrown by its trace sink', async () => {
   const endpoint = await startRegistered(
     { issues: { tool: tool({ inputSchema: schema, execute: async () => 'ok' }), settings: {}, plugin: 'issues' } },
-    { repo: 'o/r', forge: { searchIssues: async () => [] } },
+    { repo: 'o/r', tracker: { searchIssues: async () => [] } },
     () => {
       throw new Error(credential);
     }
@@ -274,7 +274,7 @@ it('bounds and scrubs descriptions, schemas and large trace inputs', async () =>
     inputSchema: jsonSchema({ type: 'object', properties: { query: { type: 'string', default: credential } } }),
     execute: async () => 'ok',
   });
-  const context = { repo: 'o/r', forge: { searchIssues: async () => [] } };
+  const context = { repo: 'o/r', tracker: { searchIssues: async () => [] } };
   const endpoint = await startRegistered(
     { issues: { tool: definition, settings: {}, plugin: 'issues' } },
     context,
@@ -340,7 +340,7 @@ it.each(['', '0.0.0.0', '::', '::0', '0:0:0:0:0:0:0:0', '::ffff:0.0.0.0'])(
       issues: { tool: tool({ inputSchema: schema, execute: async () => 'ok' }), settings: {}, plugin: 'issues' },
     };
     await expect(
-      startRegistered(definitions, { repo: 'o/r', forge: { searchIssues: async () => [] } }, () => {}, {
+      startRegistered(definitions, { repo: 'o/r', tracker: { searchIssues: async () => [] } }, () => {}, {
         host,
         subnet: '127.0.0.0/8',
       })
@@ -413,7 +413,7 @@ it('finishes cancellation tracing before closing without waiting for native work
         plugin: 'issues',
       },
     },
-    { repo: 'o/r', forge: { searchIssues: async () => [] } },
+    { repo: 'o/r', tracker: { searchIssues: async () => [] } },
     async () => {
       recorded();
       await gate;
@@ -672,7 +672,7 @@ it('waits for detached file-read traces before closing the session', async () =>
         plugin: 'issues',
       },
     },
-    { repo: 'o/r', forge: { searchIssues: async () => [] } },
+    { repo: 'o/r', tracker: { searchIssues: async () => [] } },
     async event => {
       if (event.name === 'file_read') {
         recorded();

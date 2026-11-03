@@ -9,7 +9,7 @@ const read = (name: string) =>
         ConfigProvider.fromMap(
           new Map([
             ['AGENTGRAPH_REPO', 'owner/repository'],
-            ['AGENTGRAPH_FORGE', '/forge'],
+            ['AGENTGRAPH_TRACKER', '/tracker'],
             ['AGENTGRAPH_SESSION_ENV', name],
             [name, 'private-value'],
           ])

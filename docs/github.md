@@ -28,7 +28,7 @@ Who must approve the install:
 
 Each loop pass shares one open-issue listing and shared event polls across issue ticks. Issues with no prior run share a separate history poll, so their catch-up keeps live runs first. The loop keeps scoped installation tokens and ETags between passes, including when session credentials refresh. Conditional requests reuse an ETag only with the token and API version that received it. A rate-limit response holds subsequent requests until GitHub's reset time or retry delay. <!-- code: src/engine.ts#scanIssuesAndRunningRuns src/services.ts#makeProductionLayers src/github.ts#requester -->
 
-The forge offers `searchIssues(query, { state, limit })` to read this repo's issues through the same requester and text trust rules. Queries take keywords up to 256 characters; search qualifiers, operators and punctuation are stripped. Repository and issue scope stay fixed, and returned repository identities are checked. `state` defaults to `open` and also accepts `closed` or `all`; `limit` defaults to 20 and accepts integers from 1 to 100. The file forge matches the keywords in issue titles and bodies for local tests. <!-- code: src/forge.ts#Forge src/forge.ts#parseIssueSearch src/forge.ts#fileForge src/github.ts#githubForge -->
+The tracker offers `searchIssues(query, { state, limit })` to read this repo's issues through the same requester and text trust rules. Queries take keywords up to 256 characters; search qualifiers, operators and punctuation are stripped. Repository and issue scope stay fixed, and returned repository identities are checked. `state` defaults to `open` and also accepts `closed` or `all`; `limit` defaults to 20 and accepts integers from 1 to 100. The file tracker matches the keywords in issue titles and bodies for local tests. <!-- code: src/tracker.ts#Tracker src/tracker.ts#parseIssueSearch src/tracker.ts#fileTracker src/github.ts#githubTracker -->
 
 ## The key
 
@@ -37,7 +37,7 @@ On macOS the private key goes into the login Keychain, which asks before every r
 `with-key` reads the key from the Keychain onto that descriptor and passes the other arguments to `bin/run.ts`. `keychain-import` moves an older `key.pem` into the Keychain and deletes the file.
 
 ```sh
-npm run with-key -- <slug> loop --forge github --dir examples/sandbox --data ~/agentgraph-data
+npm run with-key -- <slug> loop --tracker github --dir examples/sandbox --data ~/agentgraph-data
 npm run keychain-import -- <slug>
 ```
 
@@ -60,8 +60,8 @@ From a checkout of agentgraph, prepare a data folder with the agents' model keys
 ```sh
 infra/local/e2e.sh ~/agentgraph-data examples/sandbox
 set -a; . ~/agentgraph-data/.env; set +a
-agi loop --forge github --dir examples/sandbox --data ~/agentgraph-data
-agi show --forge github --dir examples/sandbox --data ~/agentgraph-data
+agi loop --tracker github --dir examples/sandbox --data ~/agentgraph-data
+agi show --tracker github --dir examples/sandbox --data ~/agentgraph-data
 ```
 
 `e2e.sh` writes the keys from the [local stack](../infra/local/README.md) as `AGENTGRAPH_PROXY_KEYS` to `.env` in the data folder and prints the commands to run. The runner does not load that file, so source it first. `loop` without `--dir` uses the repo's [own graph](reference.md#which-graph-runs) and `AGENTGRAPH_REPO`. `show` needs App credentials and warns when the App reaches other repos.

@@ -10,7 +10,7 @@ import { Effect, Redacted, Stream } from 'effect';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/engine.ts';
 import type { Graph } from '../src/folder.ts';
-import { fileForge, Forge } from '../src/forge.ts';
+import { fileTracker, Tracker } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
@@ -74,7 +74,7 @@ const usage = `usage: agi <verb> [flags]
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
   import <commit>|<patch> [<issue file>] [--from <commit>] [--meta <json file>]
                                                   records a change as an ended run, for check --runs
-flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
+flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --tracker github|<dir> --logs all|failed|off
        --read-only --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...; start takes --run-label <key>=<value>...`;
 const verbs = [...usage.matchAll(/^  ([a-z-]+)/gm)].map(m => m[1]);
 
@@ -84,7 +84,7 @@ const { values, positionals } = parseArgs({
     repo: { type: 'string' },
     base: { type: 'string' },
     dir: { type: 'string' },
-    forge: { type: 'string' },
+    tracker: { type: 'string' },
     logs: { type: 'string' },
     workflow: { type: 'string' },
     step: { type: 'string' },
@@ -264,7 +264,9 @@ const connect = async (i: Instance, graph: string, after: string) => {
   if (values.save && values.provider) writeInstanceProvider(i, provider.name);
   const harness = values.harness ?? provider.harnesses[0]!;
   if (!provider.harnesses.includes(harness)) fail(`${formatUnserved(provider, harness)}\n${after}`);
-  console.log(`agentgraph ${version}: ${harness} on ${provider.name}, ${await formatGraphName(i, graph)}, local forge`);
+  console.log(
+    `agentgraph ${version}: ${harness} on ${provider.name}, ${await formatGraphName(i, graph)}, local tracker`
+  );
   console.log(`repo     ${i.repo}, base ${i.base}`);
   if (!(ready ?? (await provider.ready(host))))
     await (
@@ -316,28 +318,28 @@ const trapInterrupt = () =>
   });
 
 const host = await readHostSettings(values).catch((e: Error) => fail(e.message));
-const { onForge, data: root } = host;
+const { onTracker, data: root } = host;
 
 const graphDir = values.dir ?? process.env.AGENTGRAPH_DIR;
 const selected = formatInstanceFlags(values.repo && resolve(values.repo), values.data && root);
 
 if (verb === 'check' && values.dir && !values.runs) {
-  const repo = onForge ? undefined : await findRepo(resolve(values.repo ?? '.'));
+  const repo = onTracker ? undefined : await findRepo(resolve(values.repo ?? '.'));
   if (values.repo && !repo) fail('--repo must name a readable git repo');
   const saved = repo ? findInstances(root).find(i => i.repo === realpathSync(repo)) : undefined;
   await checkGraph(resolve(values.dir), saved);
 }
-if (onForge) await runOnForge();
+if (onTracker) await runOnTracker();
 else await runOnInstance();
 
-async function runOnForge() {
+async function runOnTracker() {
   if (values.provider || values.harness || values.model || values.save)
-    fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the graph and its env');
-  const folder = values.forge && values.forge !== 'github' ? resolve(values.forge) : undefined;
-  if (folder) process.env.AGENTGRAPH_FORGE = folder;
+    fail('--provider, --harness, --model and --save work in a repo; a tracker runner reads the graph and its env');
+  const folder = values.tracker && values.tracker !== 'github' ? resolve(values.tracker) : undefined;
+  if (folder) process.env.AGENTGRAPH_TRACKER = folder;
   const refresh = ['loop', 'check', 'dispatch', 'resume'].includes(verb) ? await applyNamedProvider() : undefined;
   const graph = values.dir && resolve(values.dir);
-  const needGraph = () => graph ?? fail(`${verb} on a forge needs --dir`);
+  const needGraph = () => graph ?? fail(`${verb} on a tracker needs --dir`);
   switch (verb) {
     case 'loop': {
       if (values.once) return printRuns(await start({ graph: needGraph(), issue: 'all', data: root }));
@@ -373,7 +375,7 @@ async function runOnForge() {
     case 'label':
       return relabel(root);
     default:
-      fail(`${verb || 'a verb'} does not run on --forge or with App credentials\n${usage}`);
+      fail(`${verb || 'a verb'} does not run on --tracker or with App credentials\n${usage}`);
   }
 }
 
@@ -426,8 +428,8 @@ async function runOnInstance() {
           : `owner    ${i.owner}, from git config user.name, the one login this instance trusts`,
       ].join('\n')
     );
-  Object.assign(process.env, { AGENTGRAPH_FORGE: i.forge, AGENTGRAPH_TRUST: i.owner });
-  const getForge = () => Effect.runPromise(Effect.provide(Forge, fileForge(i.forge)));
+  Object.assign(process.env, { AGENTGRAPH_TRACKER: i.tracker, AGENTGRAPH_TRUST: i.owner });
+  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, fileTracker(i.tracker)));
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);
@@ -451,7 +453,7 @@ async function runOnInstance() {
         );
       const issue = await writeTriggeringIssue(
         { ...loaded, trust: [i.owner] },
-        i.forge,
+        i.tracker,
         text,
         i.owner,
         values.workflow,
@@ -465,8 +467,8 @@ async function runOnInstance() {
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
-      await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
-      if (values.label) await writeLabels(i.forge, i.owner, issue, values.label).catch((e: Error) => fail(e.message));
+      await writeComment(i.tracker, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
+      if (values.label) await writeLabels(i.tracker, i.owner, issue, values.label).catch((e: Error) => fail(e.message));
       return drive(i, issue, graph, provider);
     }
     case 'review': {
@@ -478,7 +480,7 @@ async function runOnInstance() {
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
       const prepared = verdict === 'changes_requested' && (await prepare(i, graph, 'Nothing was posted.'));
-      await writeReview(i.forge, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
+      await writeReview(i.tracker, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
       if (prepared) return drive(i, issue, graph, prepared.provider);
       console.log(`approved #${n}`);
       return;
@@ -503,10 +505,12 @@ async function runOnInstance() {
       return;
     }
     case 'close': {
-      const pull = await findPull(i.forge, numbered());
-      const open = new Set((await Effect.runPromise((await getForge()).issues({ state: 'open' }))).map(t => t.number));
+      const pull = await findPull(i.tracker, numbered());
+      const open = new Set(
+        (await Effect.runPromise((await getTracker()).issues({ state: 'open' }))).map(t => t.number)
+      );
       const closed = [...new Set([n, await findPullIssue(i, n), pull?.number ?? n])].filter(k => open.has(k));
-      for (const k of closed) await writeClosed(i.forge, i.owner, k);
+      for (const k of closed) await writeClosed(i.tracker, i.owner, k);
       console.log(closed.length ? `closed #${closed.join(' and #')}` : `nothing open on #${n}`);
       return;
     }
@@ -518,7 +522,7 @@ async function runOnInstance() {
           console.log(`  ${file}`);
         return;
       }
-      return rest[0] ? showIssue(await getForge(), numbered(), i) : showAll(i, await getForge());
+      return rest[0] ? showIssue(await getTracker(), numbered(), i) : showAll(i, await getTracker());
     case 'check':
     case 'resume':
     case 'dispatch': {
@@ -575,7 +579,7 @@ function watchRuns(i: Instance, issue: number) {
 }
 
 async function findPullIssue(i: Instance, n: number) {
-  const branch = (await findPull(i.forge, n))?.pull.branch ?? '';
+  const branch = (await findPull(i.tracker, n))?.pull.branch ?? '';
   return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 }
 
@@ -722,9 +726,10 @@ async function loop(i: Instance) {
       if (values.once || stopping.signal.aborted) break;
       const woken = new AbortController();
       const signal = AbortSignal.any([stopping.signal, woken.signal]);
-      await Promise.race([sleep(host.every * 60_000, undefined, { signal }), watch(i.forge, { signal }).next()]).catch(
-        () => {}
-      );
+      await Promise.race([
+        sleep(host.every * 60_000, undefined, { signal }),
+        watch(i.tracker, { signal }).next(),
+      ]).catch(() => {});
       woken.abort();
       await applySettings(connection.provider)().catch((e: Error) =>
         console.error(
@@ -737,21 +742,21 @@ async function loop(i: Instance) {
   }
 }
 
-async function showAll(i: Instance, forge: Forge['Type']) {
+async function showAll(i: Instance, tracker: Tracker['Type']) {
   const runs = await listRuns(i.data);
   const lines = [
     ...findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, undefined, selected)),
     ...(await formatRunnerErrors(i.data, runs)),
   ];
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
-  console.log(formatIssueList(await Effect.runPromise(forge.issues())));
+  console.log(formatIssueList(await Effect.runPromise(tracker.issues())));
 }
 
-async function showIssue(forge: Forge['Type'], issue: number, i: Instance) {
-  const pull = await findPull(i.forge, issue);
+async function showIssue(tracker: Tracker['Type'], issue: number, i: Instance) {
+  const pull = await findPull(i.tracker, issue);
   for (const k of new Set([issue, pull?.number ?? issue])) {
-    const t = await Effect.runPromise(forge.issue(k)).catch((e: Error) => fail(e.message, 1));
-    const diff = join(i.forge, String(k), 'diff.patch');
+    const t = await Effect.runPromise(tracker.issue(k)).catch((e: Error) => fail(e.message, 1));
+    const diff = join(i.tracker, String(k), 'diff.patch');
     console.log(formatIssueTimeline(t, existsSync(diff) ? readFileSync(diff, 'utf8') : ''));
   }
   for (const line of await formatRunnerErrors(i.data, await listRuns(i.data, { issue }))) console.log(line);

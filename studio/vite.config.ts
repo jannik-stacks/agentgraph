@@ -28,13 +28,13 @@ const ignored = (process.env.AGI_STUDIO_BENCH ?? '')
   .split(':')
   .filter(dir => existsSync(dir))
   .map(dir => realpathSync(dir))
-  .flatMap(dir => [`${dir}/**/{homes,work,forge,tree,graph,.attic,engine,.cache,logs}/**`, `${dir}/**/*.lock`]);
+  .flatMap(dir => [`${dir}/**/{homes,work,tracker,tree,graph,.attic,engine,.cache,logs}/**`, `${dir}/**/*.lock`]);
 const deny = ['.env', '.env.*', '*.env', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**'];
 
 export default defineConfig({
   appType: 'spa',
   envPrefix: [],
-  define: { 'import.meta.env.VITE_AGI_LOCAL': JSON.stringify(process.env.AGI_STUDIO_FORGE ? '1' : '') },
+  define: { 'import.meta.env.VITE_AGI_LOCAL': JSON.stringify(process.env.AGI_STUDIO_TRACKER ? '1' : '') },
   cacheDir: `node_modules/.vite-${server.port}`,
   plugins: [noNodeInBrowser(), makeStudioPagesPlugin(), makeStudioDevApiPlugin(), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },

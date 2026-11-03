@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Effect, FiberRef, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
 import { drive } from '../src/engine.ts';
-import { fileForge, Forge, currentRunLinkRef } from '../src/forge.ts';
+import { fileTracker, Tracker, currentRunLinkRef } from '../src/tracker.ts';
 import type { Event, RunLink } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';
@@ -27,27 +27,27 @@ export const w = graph.workflows.issue!;
 
 export const removeAfter = (dir: string) => onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
 
-/** A bare origin with one commit on main, a forge with issue #7 and its `/agent` comment, and a data dir. */
+/** A bare origin with one commit on main, a tracker with issue #7 and its `/agent` comment, and a data dir. */
 export const world = () => {
   const { root, seed, data } = seeded('run', {
     'README.md': 'demo\n',
     'package.json': JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }),
   });
   removeAfter(root);
-  const forge = join(root, 'forge');
-  mkdirSync(forge);
-  git(root, 'clone', '-q', '--bare', seed, join(forge, 'origin.git'));
+  const tracker = join(root, 'tracker');
+  mkdirSync(tracker);
+  git(root, 'clone', '-q', '--bare', seed, join(tracker, 'origin.git'));
   writeFileSync(
-    join(forge, '7.md'),
+    join(tracker, '7.md'),
     '---\ntitle: Add a greeting\nstate: open\nauthor: morgan\nlabels: []\n---\n\nAdd hello.txt.\n'
   );
   const human = (body: string, at: string) =>
     appendFileSync(
-      join(forge, '7.jsonl'),
+      join(tracker, '7.jsonl'),
       `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Event)}\n`
     );
   human('/agent', '2026-10-16T00:00:00.000Z');
-  return { root, origin: join(forge, 'origin.git'), forge, data, human };
+  return { root, origin: join(tracker, 'origin.git'), tracker, data, human };
 };
 
 export const push = { kind: 'push', branch: 'agentgraph/7', message: 'Add hello' } satisfies Proposal;
@@ -89,8 +89,8 @@ export const services = (
     }))
   ).pipe(Layer.provide(hostSandbox(where.origin)));
   const named = Layer.effect(
-    Forge,
-    Effect.map(Forge, f => ({
+    Tracker,
+    Effect.map(Tracker, f => ({
       ...f,
       ...(slug && { slug: Effect.succeed(slug) }),
       apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
@@ -99,9 +99,9 @@ export const services = (
           f.apply(n, p, work)
         ),
     }))
-  ).pipe(Layer.provide(fileForge(where.forge)));
+  ).pipe(Layer.provide(fileTracker(where.tracker)));
   const layer = Layer.mergeAll(named, fileStore(where.data), sandbox, recording);
-  const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Session | Sandbox>) =>
+  const run = <A, E>(effect: Effect.Effect<A, E, Tracker | Store | Session | Sandbox>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)));
   return { specs, commands, order, marks, run };
 };
@@ -136,7 +136,7 @@ export const driveStored = (flow: typeof w, r: Run, h: Graph) =>
 export const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
 export const say = (where: ReturnType<typeof world>, m: Event) =>
-  appendFileSync(join(where.forge, `${m.issue}.jsonl`), `${JSON.stringify(m)}\n`);
+  appendFileSync(join(where.tracker, `${m.issue}.jsonl`), `${JSON.stringify(m)}\n`);
 
 export const comment = (issue: number, actor: string, trusted: boolean, body: string, at: string): Event => ({
   issue,
@@ -158,12 +158,12 @@ export const check = (issue: number, name: string, conclusion: string, at: strin
 /** Pull request #8 on run 7's branch. */
 export const pullRequest = (where: ReturnType<typeof world>, base = 'b1') => {
   writeFileSync(
-    join(where.forge, '8.md'),
+    join(where.tracker, '8.md'),
     '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
   );
-  mkdirSync(join(where.forge, '8'), { recursive: true });
+  mkdirSync(join(where.tracker, '8'), { recursive: true });
   writeFileSync(
-    join(where.forge, '8', 'pull.json'),
+    join(where.tracker, '8', 'pull.json'),
     JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'x', baseSha: base })
   );
 };

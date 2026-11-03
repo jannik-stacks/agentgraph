@@ -127,7 +127,7 @@ that level first.
 ## Prose in repo docs
 
 51. Plain, short sentences. Open with what was decided, then the specifics.
-52. Say where things happen: "opened a local PR in the dogfood forge".
+52. Say where things happen: "opened a local PR in the dogfood tracker".
 53. Explain each term on first use (arm, case set); if it needs too much explaining, rename it.
 54. Keep pages short; have a second model rewrite stiff paragraphs.
 55. No em-dash taglines on headings, no `·`, no math symbols, no marketing words. Diagram arrows in fenced
@@ -140,7 +140,7 @@ reason, and the lint baseline or allowlist points back to this list. On every im
 reread this list and ask whether a restructure or rename would remove an exception. Don't add a new
 one without that check.
 
-- **Layer constructors are named `<how><Service>`, without a verb:** `fileForge`, `githubForge`,
+- **Layer constructors are named `<how><Service>`, without a verb:** `fileTracker`, `githubTracker`,
   `fileStore`, `harnessSession`, `dockerSandbox`, `remoteSandbox`, `hostSandbox` and the test double `replaySession`.
   They read as values handed to `Effect.provide`. `bin/style.mjs` exempts exactly the ones it
   would flag.

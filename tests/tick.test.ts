@@ -6,7 +6,7 @@ import { ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
-import { fileForge, Forge, ForgeError } from '../src/forge.ts';
+import { fileTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
@@ -63,13 +63,13 @@ describe('tick', () => {
         },
       },
     };
-    const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin));
+    const base = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin));
     const turns = replaySession([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
     let during: Run['status'] | undefined;
     const session = Layer.effect(
       Session,
       Effect.gen(function* () {
-        const f = yield* Forge;
+        const f = yield* Tracker;
         const store = yield* Store;
         const sandbox = yield* Sandbox;
         const s = yield* Session;
@@ -85,7 +85,7 @@ describe('tick', () => {
                   const incoming =
                     source === 'cli' ? instruct(kit, { kind: 'say', issue: 7, text: 'stop' }) : tick(kit, 7);
                   yield* incoming.pipe(
-                    Effect.provideService(Forge, f),
+                    Effect.provideService(Tracker, f),
                     Effect.provideService(Store, store),
                     Effect.provideService(Sandbox, sandbox),
                     Effect.provideService(Session, s)
@@ -194,7 +194,7 @@ describe('tick', () => {
     expect(second.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs).toHaveLength(2);
     expect(specs[1]!.prompt).toContain('@morgan: /agent once more');
-    expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('');
+    expect(readFileSync(join(where.tracker, '7.reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, first[0]!.id)).toEqual([
       [true, undefined],
       [true, '2026-10-16T00:00:00.000Z'],
@@ -232,7 +232,7 @@ describe('tick', () => {
     const [parked] = await run(tick(small));
     expect(parked).toMatchObject({ status: 'waiting', reason: 'a pass needs a pull request or an ask' });
     expect(specs[1]!.prompt).toContain('answer them by changing the code, not with a comment');
-    expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))).not.toContain('Dropped the TODO.');
+    expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).not.toContain('Dropped the TODO.');
   });
 
   it('goes on past a commanded first step that may only comment while no pull request holds the work', async () => {
@@ -292,7 +292,7 @@ describe('tick', () => {
       })
     );
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Hello or hi?' });
-    console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))));
+    console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))));
     expect(saved).toBe('hello');
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
     expect(git(where.origin, 'show', 'agentgraph/7:bye.txt')).toBe('bye');
@@ -429,7 +429,7 @@ describe('tick', () => {
           small
         );
         const done = yield* driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'Just answer' }), small);
-        return [done, yield* Effect.flatMap(Forge, f => f.issue(7))] as const;
+        return [done, yield* Effect.flatMap(Tracker, f => f.issue(7))] as const;
       })
     );
     expect(done.status).toBe('done');
@@ -454,11 +454,11 @@ describe('tick', () => {
         },
       },
     };
-    const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin));
+    const base = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin));
     const session = Layer.effect(
       Session,
       Effect.gen(function* () {
-        const f = yield* Forge;
+        const f = yield* Tracker;
         const store = yield* Store;
         const sandbox = yield* Sandbox;
         const s = yield* Session;
@@ -470,7 +470,7 @@ describe('tick', () => {
                 if (event.type !== 'start' || sent) return Effect.void;
                 sent = true;
                 return instruct(kit, { kind: 'say', issue: 8, text: 'stop' }).pipe(
-                  Effect.provideService(Forge, f),
+                  Effect.provideService(Tracker, f),
                   Effect.provideService(Store, store),
                   Effect.provideService(Sandbox, sandbox),
                   Effect.provideService(Session, s),
@@ -487,7 +487,7 @@ describe('tick', () => {
       Effect.gen(function* () {
         yield* waiting(where);
         writeFileSync(
-          join(where.forge, '8', 'pull.json'),
+          join(where.tracker, '8', 'pull.json'),
           JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
         );
         yield* tick(kit, 7);
@@ -547,18 +547,18 @@ describe('tick', () => {
     expect(specs).toHaveLength(0);
   });
 
-  it('applies the push, then asks with the error when a reply fails on the forge', async () => {
+  it('applies the push, then asks with the error when a reply fails on the tracker', async () => {
     const where = world();
     const failing = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({
+      Tracker,
+      Effect.map(Tracker, f => ({
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
           p.kind === 'comment' && p.body === 'boom'
-            ? Effect.fail(new ForgeError({ status: 403, message: 'forbidden' }))
+            ? Effect.fail(new TrackerError({ status: 403, message: 'forbidden' }))
             : f.apply(n, p, work),
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const flow = small.workflows.issue!;
     const layer = Layer.mergeAll(
       failing,
@@ -591,7 +591,7 @@ describe('tick', () => {
     await run(tick(merging, 7));
     expect(specs[0]!.prompt).toContain('Trusted request');
     expect(specs[0]!.prompt).not.toContain('inject secret instructions');
-    const events = await run(Effect.flatMap(Forge, f => Stream.runCollect(f.since(''))));
+    const events = await run(Effect.flatMap(Tracker, f => Stream.runCollect(f.since(''))));
     const withheld = [...events].find(m => m.actor === 'mallory')!.comment!;
     expect(withheld.body).toContain('withheld');
     expect(withheld.agentRequest).toBeUndefined();
@@ -652,15 +652,15 @@ describe('tick', () => {
     expect(specs[1]!.prompt).toMatch(
       /^the merge step sent this back: undo the greeting\n\n## New since you last looked/
     );
-    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Will undo.');
-    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Undone.');
-    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Undone.');
+    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).toContain('Will undo.');
+    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).toContain('Undone.');
+    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Undone.');
     const marks = readTrace(where.data, 'run-7').filter(t => t.step === 'merge');
     expect(marks.flatMap(t => ('prompt' in t && t.aside ? [t.aside] : []))).toEqual([
       { issue: 8, comment: '2026-10-16T00:00:05.000Z' },
     ]);
     expect(marks.flatMap(t => ('session' in t ? [!!t.session.aside] : []))).toEqual([true]);
-    expect(readFileSync(join(where.forge, '8.reactions'), 'utf8')).toBe('');
+    expect(readFileSync(join(where.tracker, '8.reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, 'run-7')).toEqual([
       [true, undefined],
       [true, '2026-10-16T00:00:05.000Z'],
@@ -679,8 +679,8 @@ describe('tick', () => {
     ]);
     await run(Effect.zipRight(waiting(where), tick(merging, 7)));
     expect(specs).toHaveLength(2);
-    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Will drop it.');
-    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Will drop it.');
+    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).toContain('Will drop it.');
+    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Will drop it.');
   });
 
   it.each([[{ kind: 'comment', body: 'Dropped it.' }], []] as Proposal[][])(
@@ -722,15 +722,15 @@ describe('tick', () => {
     say(where, comment(8, 'morgan', true, '/agent drop the example', '2026-10-16T00:00:05.000Z'));
     const specs: unknown[] = [];
     const failing = Layer.effect(
-      Forge,
-      Effect.map(Forge, f => ({
+      Tracker,
+      Effect.map(Tracker, f => ({
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
           p.kind === 'comment' && p.body === 'boom'
-            ? Effect.fail(new ForgeError({ status: 403, message: 'forbidden' }))
+            ? Effect.fail(new TrackerError({ status: 403, message: 'forbidden' }))
             : f.apply(n, p, work),
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const recording = Layer.effect(
       Session,
       Effect.map(Session, s => ({ open: (spec: SessionSpec) => (specs.push(spec), s.open(spec)) }))
@@ -762,7 +762,7 @@ describe('tick', () => {
     );
     await run(waiting(where));
     writeFileSync(
-      join(where.forge, '8', 'pull.json'),
+      join(where.tracker, '8', 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
     );
     await run(tick(merging, 7));
@@ -801,15 +801,15 @@ describe('tick', () => {
         : merging.workflows.issue;
       const kit = { ...merging, workflows: { issue: flow } };
       if (kind === 'no-pull') {
-        rmSync(join(where.forge, '8.md'));
-        rmSync(join(where.forge, '8'), { recursive: true });
+        rmSync(join(where.tracker, '8.md'));
+        rmSync(join(where.tracker, '8'), { recursive: true });
       }
       say(where, comment(kind === 'no-pull' ? 7 : 8, 'morgan', true, '/agent why?', at));
       await run(tick(kit, 7));
       expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.seen).not.toBe(at);
       await run(tick(kit, 7));
       expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.reason).toBe('Stopped by a runner error.');
-      expect(readFileSync(join(where.forge, `${kind === 'no-pull' ? 7 : 8}.jsonl`), 'utf8')).not.toContain(
+      expect(readFileSync(join(where.tracker, `${kind === 'no-pull' ? 7 : 8}.jsonl`), 'utf8')).not.toContain(
         'Could not answer'
       );
     }
@@ -820,7 +820,7 @@ describe('tick', () => {
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     await services(where, []).run(waiting(where));
     writeFileSync(
-      join(where.forge, '8', 'pull.json'),
+      join(where.tracker, '8', 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
     );
     say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
@@ -836,7 +836,7 @@ describe('tick', () => {
         },
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, replaySession([]));
+    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
     await Effect.runPromise(tick(merging, 7).pipe(Effect.provide(layer)));
     expect(readTrace(where.data, 'run-7')).toContainEqual(
       expect.objectContaining({ outcome: { kind: 'ask', question: 'SandboxError: sandbox image is missing' } })
@@ -854,7 +854,7 @@ describe('tick', () => {
     const first = await stored();
     expect(first).toMatchObject({ step: 'merge', status: 'waiting', retried: true });
     expect(first.seen).not.toBe('2026-10-16T00:00:05.000Z');
-    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
+    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
     await run(tick(merging, 7));
     const second = await stored();
     expect(second).toMatchObject({
@@ -867,7 +867,7 @@ describe('tick', () => {
     expect(specs).toHaveLength(2);
     await run(tick(merging, 7));
     expect(specs).toHaveLength(2);
-    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
+    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
     const resumed = services(where, [[start('f'), reply({ kind: 'comment', body: 'For the example.' })]]);
     await resumed.run(instruct(merging, { kind: 'resume', parked: true }));
     await resumed.run(tick(merging, 7));
@@ -900,7 +900,7 @@ describe('tick', () => {
     await run(tick(graph, 7));
     await run(tick(graph, 7));
     const runs = await run(Effect.flatMap(Store, s => s.list({ issue: 7 })));
-    const labels = (await run(Effect.flatMap(Forge, f => f.issue(7)))).labels;
+    const labels = (await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels;
     expect([runs.map(r => r.workflow), labels.filter(l => l === 'agent:ready')]).toEqual([['issue'], ['agent:ready']]);
   });
 
@@ -950,7 +950,7 @@ describe('tick', () => {
     where.human('/agent hello', new Date().toISOString());
     expect(await run(tick(small, undefined, false, issueDebounceMs))).toEqual([]);
     const [done] = await run(tick(small));
-    console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))));
+    console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))));
     expect(done!.seen! >= done!.started).toBe(true);
     expect(await run(tick(small))).toEqual([]);
     expect(specs).toHaveLength(1);
@@ -978,7 +978,7 @@ describe('tick', () => {
     expect(specs).toHaveLength(1);
     expect(specs[0]).toMatchObject({ resume: { id: 'a', home: '/homes/a' }, fork: true });
     expect(specs[0]!.prompt).toContain(asked);
-    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under])).toEqual([
       ['No, README.md only says demo.', 'r1'],
     ]);
@@ -996,7 +996,7 @@ describe('tick', () => {
     say(where, line('r2', '/agent and CHAT.md?', '2026-10-16T00:00:06.000Z'));
     const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Both asked for.' })]]);
     const [answered] = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
-    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under])).toEqual([
       ['Both asked for.', 'r2'],
     ]);
@@ -1006,7 +1006,7 @@ describe('tick', () => {
   it('replies to a plain comment on a thread with a finished run, not to one for someone else or on another thread', async () => {
     const where = world();
     writeFileSync(
-      join(where.forge, '9.md'),
+      join(where.tracker, '9.md'),
       '---\ntitle: Other\nstate: open\nauthor: morgan\nlabels: []\n---\n\nOther.\n'
     );
     say(where, comment(9, 'morgan', true, 'where is the PR?', '2026-10-16T00:00:02.000Z'));
@@ -1026,7 +1026,7 @@ describe('tick', () => {
     expect(specs).toHaveLength(1);
     expect(specs[0]!.prompt).toContain('@morgan: /agent where is the PR?');
     expect(specs[0]!.prompt).toContain('When it does not ask for work, answer it with comment proposals only');
-    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toContain('No PR yet.');
+    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).toContain('No PR yet.');
   });
 
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
@@ -1079,7 +1079,7 @@ describe('tick', () => {
     await run(waiting(where));
     const at = '2026-10-16T00:00:05.000Z';
     for (const n of [7, 8]) {
-      const file = join(where.forge, `${n}.md`);
+      const file = join(where.tracker, `${n}.md`);
       writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${n === 7 ? 'closed' : 'merged'}`));
     }
     say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });
@@ -1114,7 +1114,12 @@ describe('start with one issue', () => {
     ];
     const doubles = (s: Settings) => {
       seen.push(s);
-      return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), hostSandbox(where.origin), replaySession(turns));
+      return Layer.mergeAll(
+        fileTracker(where.tracker),
+        fileStore(s.data),
+        hostSandbox(where.origin),
+        replaySession(turns)
+      );
     };
     const one = {
       graph: sandbox,
@@ -1123,7 +1128,7 @@ describe('start with one issue', () => {
       meta: { bench: { case: 'greeting' } },
       labels: { case: 'greeting', arm: 'v2' },
     };
-    writeFileSync(join(where.forge, '7.jsonl'), '');
+    writeFileSync(join(where.tracker, '7.jsonl'), '');
     say(where, {
       issue: 7,
       kind: 'label',
@@ -1141,9 +1146,9 @@ describe('start with one issue', () => {
       expect(seen[0]).toMatchObject({
         repo: 'acme/sandbox',
         data: where.data,
-        forge: { id: '42' },
+        tracker: { id: '42' },
       });
-      expect(Redacted.value((seen[0]!.forge as { key: Redacted.Redacted }).key)).toBe('PEM');
+      expect(Redacted.value((seen[0]!.tracker as { key: Redacted.Redacted }).key)).toBe('PEM');
       expect(Redacted.value(seen[0]!.proxy.keys)).toBe('implementor=k1,reviewer=k2');
       expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
 
@@ -1165,7 +1170,7 @@ describe('the loop', () => {
   it('reads the settings again each pass and keeps the last ones when the refresh fails', async () => {
     const where = world();
     const defaults = {
-      AGENTGRAPH_FORGE: where.forge,
+      AGENTGRAPH_TRACKER: where.tracker,
       AGENTGRAPH_DATA: where.data,
       AGENTGRAPH_REPO: 'acme/sandbox',
       AGENTGRAPH_DIR: join(import.meta.dirname, '..', 'examples', 'sandbox'),
@@ -1177,7 +1182,12 @@ describe('the loop', () => {
     const seen: string[] = [];
     const doubles = (s: Settings) => {
       seen.push(Redacted.value(s.passed.ANTHROPIC_API_KEY!));
-      return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), hostSandbox(where.origin), replaySession([]));
+      return Layer.mergeAll(
+        fileTracker(where.tracker),
+        fileStore(s.data),
+        hostSandbox(where.origin),
+        replaySession([])
+      );
     };
     const stop = new AbortController();
     let passes = 0;
@@ -1307,26 +1317,26 @@ describe('scanIssuesAndRunningRuns', () => {
     const where = world();
     for (let n = 8; n < 47; n++)
       writeFileSync(
-        join(where.forge, `${n}.md`),
+        join(where.tracker, `${n}.md`),
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\nBody.\n`
       );
     let listings = 0;
     const cursors: string[] = [];
     const observed = Layer.effect(
-      Forge,
-      Effect.map(Forge, forge => ({
-        ...forge,
+      Tracker,
+      Effect.map(Tracker, tracker => ({
+        ...tracker,
         issues: filter =>
           Effect.suspend(() => {
             listings++;
-            return forge.issues(filter);
+            return tracker.issues(filter);
           }),
         since: (cursor, columns) => {
           cursors.push(cursor);
-          return forge.since(cursor, columns);
+          return tracker.since(cursor, columns);
         },
       }))
-    ).pipe(Layer.provide(fileForge(where.forge)));
+    ).pipe(Layer.provide(fileTracker(where.tracker)));
     const layer = Layer.mergeAll(observed, fileStore(where.data), hostSandbox(where.origin), replaySession([]));
     const unmarked = { ...small, workflows: {} };
     const started = '2026-10-16T00:00:00.000Z';
@@ -1348,7 +1358,7 @@ describe('scanIssuesAndRunningRuns', () => {
     const where = world();
     for (const n of [8, 9, 10])
       writeFileSync(
-        join(where.forge, `${n}.md`),
+        join(where.tracker, `${n}.md`),
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody ${n}.\n`
       );
     const at = '2026-10-16T00:00:00.000Z';
@@ -1385,7 +1395,7 @@ describe('scanIssuesAndRunningRuns', () => {
   it('resumes a finished run on a comment that the repo-wide look has already passed', async () => {
     const where = world();
     writeFileSync(
-      join(where.forge, '9.md'),
+      join(where.tracker, '9.md'),
       '---\ntitle: Issue 9\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody 9.\n'
     );
     const done = (issue: number, started: string): Run => ({
@@ -1403,13 +1413,13 @@ describe('scanIssuesAndRunningRuns', () => {
     const touched = await run(scanIssuesAndRunningRuns(small));
     expect(touched.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs[0]!.prompt).toContain('use gh-pages');
-    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toContain('gh-pages it is.');
+    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).toContain('gh-pages it is.');
   });
 
   it('looks at issues side by side, up to limits.parallel', async () => {
     const where = world();
     writeFileSync(
-      join(where.forge, '8.md'),
+      join(where.tracker, '8.md'),
       '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody.\n'
     );
     say(where, comment(8, 'morgan', true, '/agent', '2026-10-16T00:00:00.000Z'));
@@ -1425,7 +1435,7 @@ describe('scanIssuesAndRunningRuns', () => {
           )
         ).pipe(Stream.flatMap(() => Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })))),
     });
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), slow);
+    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), slow);
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status]).sort()).toEqual([
       [7, 'waiting'],
@@ -1437,7 +1447,7 @@ describe('scanIssuesAndRunningRuns', () => {
   it('parks a run whose session dies with a runner error and drives the others on', async () => {
     const where = world();
     writeFileSync(
-      join(where.forge, '8.md'),
+      join(where.tracker, '8.md'),
       '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nDies.\n'
     );
     say(where, comment(8, 'morgan', true, '/agent', '2026-10-16T00:00:00.000Z'));
@@ -1447,7 +1457,7 @@ describe('scanIssuesAndRunningRuns', () => {
           ? Stream.die(new Error('spawn E2BIG'))
           : Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })),
     });
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), dying);
+    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), dying);
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status, r.reason]).toSorted()).toEqual([
       [7, 'waiting', 'Which file?'],

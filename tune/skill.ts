@@ -99,7 +99,7 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
   return dir;
 };
 
-const skipped = new Set(['tree', 'forge', 'homes', 'mirror.git', 'work', 'index', '.locks', 'news', 'logs']);
+const skipped = new Set(['tree', 'tracker', 'homes', 'mirror.git', 'work', 'index', '.locks', 'news', 'logs']);
 
 /** The round's workspace: the incumbent graph, fit and mine cases, the incumbent's fit runs, the history and `k` slots. */
 const workspace = (dir: string, w: string, k: number) => {

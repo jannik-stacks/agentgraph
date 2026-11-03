@@ -130,7 +130,7 @@ describe('agentgraph graph checks', () => {
       {
         'src/a.ts': [
           'export const a = 1;',
-          "await inForge(i, ['update-ref', `refs/heads/${i.base}`, theirs]);",
+          "await inTracker(i, ['update-ref', `refs/heads/${i.base}`, theirs]);",
           "await inRepo(i.repo, ['update-ref', ref, heads[0], current]);",
           "await inRepo(i.repo, ['update-ref', '-d', ref, current]);",
           'await inRepo(i.repo, [',

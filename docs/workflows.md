@@ -47,7 +47,7 @@ A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` blo
 
 ## What starts a run
 
-The GitHub forge uses these built-in triggers: <!-- code: src/workflow.ts#isIssueTriggered -->
+The GitHub tracker uses these built-in triggers: <!-- code: src/workflow.ts#isIssueTriggered -->
 
 - `issue_comment`: a trusted comment with `/agent` or `@agent` as a word, outside quotes and code. The marker is cut before the agent reads it.
 - `issues` with a `label`: a trusted person adds that label to an open issue.
@@ -65,7 +65,7 @@ A workflow can take both triggers: `on: { issue_comment: {}, issues: { label: ag
 
 ## Project boards
 
-GitHub sends no event when a card moves, so the engine reads the board on each pass, in one GraphQL query per 100 open issues. A card that entered the column after the newest run began starts a run, once per issue like a label. <!-- code: src/github.ts#githubForge src/engine.ts#tick -->
+GitHub sends no event when a card moves, so the engine reads the board on each pass, in one GraphQL query per 100 open issues. A card that entered the column after the newest run began starts a run, once per issue like a label. <!-- code: src/github.ts#githubTracker src/engine.ts#tick -->
 
 ```yaml
 on: { issues: { column: Agent Ready } }                            # any board the repo owner owns
@@ -79,7 +79,7 @@ With both `label` and `column`, either starts the run, and a run started from th
 
 A GitHub App cannot read the boards of a personal account, so the board is read with a user token that has the `read:project` scope: `AGENTGRAPH_PROJECT_TOKEN`, or else `gh auth token`. Without one, each pass logs once which scope is missing and how to get it, and column triggers start nothing. Labels and comments still go through the App. <!-- code: src/github.ts#readProjectToken -->
 
-To mirror the [status label](#status-on-the-issue) onto the board, add the board plugin from `examples/board/plugins/board.ts` to the graph's `plugins/` and map statuses to the board's Status options. It adds the issue to the project when missing and leaves unmapped statuses alone. Moving cards needs the `project` scope on the same token: `gh auth refresh -s project`. <!-- code: examples/board/plugins/board.ts src/github.ts#githubForge -->
+To mirror the [status label](#status-on-the-issue) onto the board, add the board plugin from `examples/board/plugins/board.ts` to the graph's `plugins/` and map statuses to the board's Status options. It adds the issue to the project when missing and leaves unmapped statuses alone. Moving cards needs the `project` scope on the same token: `gh auth refresh -s project`. <!-- code: examples/board/plugins/board.ts src/github.ts#githubTracker -->
 
 ```yaml
 plugins:
@@ -90,7 +90,7 @@ plugins:
 
 ## Trust and scope
 
-Owners, members and collaborators steer the bot; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins, read at startup. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. Locally, the instance owner is the only trusted login. <!-- code: src/github.ts#githubForge -->
+Owners, members and collaborators steer the bot; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins, read at startup. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. Locally, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker -->
 
 The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels, except an `XL` part the engine [triages again](proposals.md#filing-issues). `milestone` limits new runs to issues in that milestone. <!-- code: src/engine.ts#runStepChecks src/engine.ts#inScope -->
 

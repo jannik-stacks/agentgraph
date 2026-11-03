@@ -1,8 +1,8 @@
 import { Effect, Redacted } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive } from '../src/engine.ts';
-import { Forge } from '../src/forge.ts';
-import { githubForge } from '../src/github.ts';
+import { Tracker } from '../src/tracker.ts';
+import { githubTracker } from '../src/github.ts';
 import { reply, start } from './fixtures.ts';
 import { git } from './kit.ts';
 import { fresh, graph, services, w, world } from './world.ts';
@@ -27,7 +27,7 @@ describe('workflow base', () => {
 
   it('reads the default branch from GitHub repository metadata', async () => {
     const paths: string[] = [];
-    const forge = githubForge(
+    const tracker = githubTracker(
       { repo: 'owner/repository', id: '1', key: Redacted.make('unused') },
       async url => {
         paths.push(String(url));
@@ -35,7 +35,7 @@ describe('workflow base', () => {
       },
       () => Effect.succeed('token')
     );
-    const base = await Effect.runPromise(Effect.flatMap(Forge, f => f.base).pipe(Effect.provide(forge)));
+    const base = await Effect.runPromise(Effect.flatMap(Tracker, f => f.base).pipe(Effect.provide(tracker)));
     expect(base).toBe('develop');
     expect(paths).toEqual(['https://api.github.com/repos/owner/repository']);
   });

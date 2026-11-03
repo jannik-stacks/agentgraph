@@ -11,8 +11,8 @@ export const verbs = new Set(
   ].flat()
 );
 const exempt = new Set([
-  'fileForge',
-  'githubForge',
+  'fileTracker',
+  'githubTracker',
   'fileStore',
   'harnessSession',
   'dockerSandbox',

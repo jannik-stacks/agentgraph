@@ -2,12 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
+import { fileTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
 import { tmp } from './kit.ts';
 
-describe('file forge issue search', () => {
+describe('file tracker issue search', () => {
   it('matches title and body keywords, filters states, excludes pulls and limits results', async () => {
-    const dir = tmp('forge-search');
+    const dir = tmp('tracker-search');
     await writeIssueFile(dir, { title: 'Cache failure', author: 'alice', labels: [] }, 'retry');
     await writeIssueFile(dir, { title: 'Cache failure', author: 'alice', labels: [], state: 'closed' }, 'retry');
     await writeIssueFile(dir, { title: 'Cache', author: 'alice', labels: [] }, 'failure retry');
@@ -20,24 +20,24 @@ describe('file forge issue search', () => {
     );
     const found = await Effect.runPromise(
       Effect.gen(function* () {
-        const forge = yield* Forge;
+        const tracker = yield* Tracker;
         return yield* Effect.all([
-          forge.searchIssues('CACHE AND failure repo:elsewhere/repo'),
-          forge.searchIssues('cache failure', { state: 'closed' }),
-          forge.searchIssues('cache failure', { state: 'all' }),
-          forge.searchIssues('cache failure', { state: 'all', limit: 1 }),
+          tracker.searchIssues('CACHE AND failure repo:elsewhere/repo'),
+          tracker.searchIssues('cache failure', { state: 'closed' }),
+          tracker.searchIssues('cache failure', { state: 'all' }),
+          tracker.searchIssues('cache failure', { state: 'all', limit: 1 }),
         ]);
-      }).pipe(Effect.provide(fileForge(dir)))
+      }).pipe(Effect.provide(fileTracker(dir)))
     );
     expect(found.map(issues => issues.map(issue => issue.number))).toEqual([[1, 3], [2], [1, 2, 3], [1]]);
   });
 
   it('withholds matching outsider text before returning results', async () => {
-    const dir = tmp('forge-search-trust');
+    const dir = tmp('tracker-search-trust');
     await writeIssueFile(dir, { title: 'Cache failure', author: 'outsider', labels: [] }, 'untrusted instructions');
     const found = await Effect.runPromise(
-      Effect.flatMap(Forge, forge => forge.searchIssues('cache')).pipe(
-        Effect.provide(fileForge(dir, undefined, ['alice']))
+      Effect.flatMap(Tracker, tracker => tracker.searchIssues('cache')).pipe(
+        Effect.provide(fileTracker(dir, undefined, ['alice']))
       )
     );
     expect(found.map(issue => [issue.title, issue.body])).toEqual([
@@ -47,9 +47,9 @@ describe('file forge issue search', () => {
 
   it.each([0, 101, 1.5, NaN])('rejects an invalid search limit: %s', async limit => {
     const found = await Effect.runPromise(
-      Effect.flatMap(Forge, forge => forge.searchIssues('cache', { limit })).pipe(
+      Effect.flatMap(Tracker, tracker => tracker.searchIssues('cache', { limit })).pipe(
         Effect.either,
-        Effect.provide(fileForge(tmp('forge-search-limit')))
+        Effect.provide(fileTracker(tmp('tracker-search-limit')))
       )
     );
     expect(found._tag).toBe('Left');

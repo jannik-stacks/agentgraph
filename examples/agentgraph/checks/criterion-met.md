@@ -12,7 +12,7 @@ out of scope. Judge from the item; read other code only for a path the change ca
 does not show. Judge only the behaviour the criterion states.
 Look for one concrete sequence of events within what the criterion and the task describe under which
 the changed code does not do what the criterion says: an add, a remove, a re-add by a human through
-the forge, a restart, an empty or repeated input. Follow every code path that changes the state
+the tracker, a restart, an empty or repeated input. Follow every code path that changes the state
 the criterion is about, each changed function in full, and check each one keeps the invariant the
 criterion needs. Read the test code too: an assertion that expects what this criterion or one of the
 other criteria rules out, such as a wording a row says must never appear, is a fail on its own;

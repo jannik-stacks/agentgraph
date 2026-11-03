@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Stream } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
+import { fileTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
@@ -235,26 +235,26 @@ describe('fileStore', () => {
   });
 });
 
-describe('fileForge', () => {
+describe('fileTracker', () => {
   it('reads issues, filters by label and parent, labels, opens issues and refuses a merge whose head moved', async () => {
     const dir = temp();
     writeFileSync(join(dir, '1.md'), '---\ntitle: One\nstate: open\nauthor: a\nlabels: [ready]\n---\n\nFirst.\n');
     const out = await Effect.runPromise(
       Effect.gen(function* () {
-        const forge = yield* Forge;
-        yield* forge.apply(1, { kind: 'label', add: ['size:M'], remove: ['ready'] });
-        const child = yield* forge.apply(1, { kind: 'issue', title: 'Part', body: 'A part.', parent: 1 });
-        const merge = yield* forge.apply(1, { kind: 'merge', number: 1, head: 'x' });
-        const missing = yield* Effect.either(forge.issue(9));
+        const tracker = yield* Tracker;
+        yield* tracker.apply(1, { kind: 'label', add: ['size:M'], remove: ['ready'] });
+        const child = yield* tracker.apply(1, { kind: 'issue', title: 'Part', body: 'A part.', parent: 1 });
+        const merge = yield* tracker.apply(1, { kind: 'merge', number: 1, head: 'x' });
+        const missing = yield* Effect.either(tracker.issue(9));
         return {
-          labelled: (yield* forge.issues({ labels: ['size:M'] })).map(t => t.number),
-          children: (yield* forge.issues({ parent: 1 })).map(t => [t.number, t.title, t.body]),
+          labelled: (yield* tracker.issues({ labels: ['size:M'] })).map(t => t.number),
+          children: (yield* tracker.issues({ parent: 1 })).map(t => [t.number, t.title, t.body]),
           child: child.ok,
           merge: merge.reason,
           missing: missing._tag === 'Left' && missing.left.status,
-          events: Chunk.toArray(yield* Stream.runCollect(forge.since(''))).map(m => [m.kind, m.label, m.trusted]),
+          events: Chunk.toArray(yield* Stream.runCollect(tracker.since(''))).map(m => [m.kind, m.label, m.trusted]),
         };
-      }).pipe(Effect.provide(fileForge(dir)))
+      }).pipe(Effect.provide(fileTracker(dir)))
     );
     expect(out).toEqual({
       labelled: [1],
@@ -270,27 +270,27 @@ describe('fileForge', () => {
   });
 });
 
-describe('fileForge files', () => {
+describe('fileTracker files', () => {
   it('gives issues filed at once their own numbers, and adopts a dropped file once', async () => {
     const dir = temp();
     writeFileSync(join(dir, '1.md'), '---\ntitle: One\nauthor: a\nlabels: [ready]\n---\n');
     const numbers = await Effect.runPromise(
       Effect.gen(function* () {
-        const forge = yield* Forge;
+        const tracker = yield* Tracker;
         const [, ...events] = yield* Effect.all(
           [
-            Effect.forEach([1, 2, 3], () => forge.apply(1, { kind: 'issue', title: 'Part', body: '' }), {
+            Effect.forEach([1, 2, 3], () => tracker.apply(1, { kind: 'issue', title: 'Part', body: '' }), {
               concurrency: 'unbounded',
             }),
-            ...[1, 2, 3].map(() => Effect.map(forge.issue(1), t => t.events.length)),
+            ...[1, 2, 3].map(() => Effect.map(tracker.issue(1), t => t.events.length)),
           ],
           { concurrency: 'unbounded' }
         );
         const human = yield* Effect.promise(() =>
           Promise.all([1, 2].map(() => writeIssueFile(dir, { title: 'Two', author: 'a', labels: [] }, '')))
         );
-        return { events, human, all: (yield* forge.issues()).map(t => t.number) };
-      }).pipe(Effect.provide(fileForge(dir)))
+        return { events, human, all: (yield* tracker.issues()).map(t => t.number) };
+      }).pipe(Effect.provide(fileTracker(dir)))
     );
     expect(numbers.events).toEqual([1, 1, 1]);
     expect(numbers.all.toSorted((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
@@ -298,7 +298,7 @@ describe('fileForge files', () => {
   });
 });
 
-describe('fileForge push', () => {
+describe('fileTracker push', () => {
   const setup = () => {
     const dir = temp();
     const origin = join(dir, 'origin.git');
@@ -320,9 +320,9 @@ describe('fileForge push', () => {
     };
     const push = () =>
       Effect.runPromise(
-        Effect.flatMap(Forge, f =>
+        Effect.flatMap(Tracker, f =>
           f.apply(1, { kind: 'push', branch: 'agentgraph/1', message: 'add hello' }, checkout)
-        ).pipe(Effect.provide(fileForge(dir)))
+        ).pipe(Effect.provide(fileTracker(dir)))
       );
     return { dir, origin, work, checkout, push };
   };
@@ -357,13 +357,13 @@ describe('fileForge push', () => {
     writeFileSync(join(work, '.github/workflows/x.yml'), 'on: push\n');
     const results = await Effect.runPromise(
       Effect.gen(function* () {
-        const forge = yield* Forge;
+        const tracker = yield* Tracker;
         const proposal = { kind: 'push', branch: 'agentgraph/1', message: 'Add hello' } as const;
-        const first = yield* forge.apply(1, proposal, checkout);
+        const first = yield* tracker.apply(1, proposal, checkout);
         writeFileSync(join(work, 'other.txt'), 'other\n');
-        const second = yield* forge.apply(1, proposal, checkout);
-        return [first, second, yield* forge.apply(1, proposal, checkout)];
-      }).pipe(Effect.provide(fileForge(dir)))
+        const second = yield* tracker.apply(1, proposal, checkout);
+        return [first, second, yield* tracker.apply(1, proposal, checkout)];
+      }).pipe(Effect.provide(fileTracker(dir)))
     );
     expect(results.map(r => r.ok)).toEqual([false, true, true]);
     expect(results.map(r => r.held)).toEqual(Array.from({ length: 3 }, () => ['.github/workflows/x.yml']));
@@ -378,19 +378,19 @@ describe('fileForge push', () => {
     const { dir, origin, work, checkout } = setup();
     const [first, second, opened] = await Effect.runPromise(
       Effect.gen(function* () {
-        const forge = yield* Forge;
+        const tracker = yield* Tracker;
         const proposal = { kind: 'push', branch: 'agentgraph/1', message: 'Add hello' } as const;
-        const first = yield* forge.apply(1, proposal, checkout);
+        const first = yield* tracker.apply(1, proposal, checkout);
         mkdirSync(join(work, '.github/workflows'), { recursive: true });
         writeFileSync(join(work, '.github/workflows/x.yml'), 'on: push\n');
-        const second = yield* forge.apply(1, proposal, checkout);
-        const opened = yield* forge.apply(
+        const second = yield* tracker.apply(1, proposal, checkout);
+        const opened = yield* tracker.apply(
           1,
           { kind: 'pull_request', branch: proposal.branch, base: 'main', title: 'Hello', body: 'Closes #1' },
           checkout
         );
         return [first, second, opened];
-      }).pipe(Effect.provide(fileForge(dir)))
+      }).pipe(Effect.provide(fileTracker(dir)))
     );
     expect(first).toMatchObject({ ok: true, held: [] });
     expect(second).toMatchObject({
@@ -420,7 +420,7 @@ describe('fileForge push', () => {
   });
 });
 
-describe('fileForge issue', () => {
+describe('fileTracker issue', () => {
   it('reads back reviews, review comments, commits and checks, and withholds an outsider', async () => {
     const dir = temp();
     writeFileSync(join(dir, '8.md'), '---\ntitle: Fix\nstate: open\nauthor: a\n---\n\nCloses #7\n');
@@ -446,7 +446,7 @@ describe('fileForge issue', () => {
       },
     ];
     writeFileSync(join(dir, '8.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
-    const t = await Effect.runPromise(Effect.flatMap(Forge, f => f.issue(8)).pipe(Effect.provide(fileForge(dir))));
+    const t = await Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(fileTracker(dir))));
     expect(t.events.map(m => [m.kind, m.comment?.body ?? m.commit?.title ?? m.check?.conclusion])).toEqual([
       ['changes_requested', 'split it'],
       ['comment', 'rename'],

@@ -11,7 +11,7 @@ import { Effect } from 'effect';
 import { parse, stringify } from 'yaml';
 import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
-import { fileForge, Forge, formatIssueFile, parseIssueFile, writeTimelineEvent } from './forge.ts';
+import { fileTracker, Tracker, formatIssueFile, parseIssueFile, writeTimelineEvent } from './tracker.ts';
 import { gitIdentity, hostGit, makeHostEnv, readGit } from './git.ts';
 import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
@@ -24,7 +24,7 @@ export type Instance = {
   repo: string;
   base: string;
   owner: string;
-  forge: string;
+  tracker: string;
   data: string;
   exported: Record<string, string>;
   provider?: string;
@@ -34,11 +34,11 @@ export type Instance = {
 const git = (env: Record<string, string>, args: string[], codes: number[] = [], input?: Uint8Array) =>
   Effect.runPromise(readGit(env, args, { codes, ...(input && { input }) }));
 const inRepo = (repo: string, args: string[], codes?: number[]) => git({}, ['-C', repo, ...args], codes);
-const origin = (i: Pick<Instance, 'forge'>) => join(i.forge, 'origin.git');
-const inForge = (i: Pick<Instance, 'forge'>, args: string[], codes?: number[]) =>
+const origin = (i: Pick<Instance, 'tracker'>) => join(i.tracker, 'origin.git');
+const inTracker = (i: Pick<Instance, 'tracker'>, args: string[], codes?: number[]) =>
   git({ GIT_DIR: origin(i) }, args, codes);
-const isAncestor = async (i: Pick<Instance, 'forge'>, a: string, b: string) =>
-  (await inForge(i, ['merge-base', a, b], [1])) === a;
+const isAncestor = async (i: Pick<Instance, 'tracker'>, a: string, b: string) =>
+  (await inTracker(i, ['merge-base', a, b], [1])) === a;
 
 export const readRealPath = (path: string): string => {
   try {
@@ -91,7 +91,7 @@ const readInstance = (dir: string): Instance | undefined => {
   if (!existsSync(file)) return undefined;
   const own = parse(readFileSync(file, 'utf8')) as Pick<Instance, 'repo' | 'base' | 'owner'> &
     Partial<Pick<Instance, 'exported' | 'provider' | 'readonly'>>;
-  return { exported: {}, ...own, dir, forge: join(dir, 'forge'), data: join(dir, 'data') };
+  return { exported: {}, ...own, dir, tracker: join(dir, 'tracker'), data: join(dir, 'data') };
 };
 
 export const writeInstanceProvider = (i: Instance, provider: string) => {
@@ -120,7 +120,7 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
   const key = getSha(real, 6);
   const dir = join(resolve(root), `${basename(real)}-${key}-local`);
   const found = readInstance(dir);
-  const paths = [dir, found?.data ?? join(dir, 'data'), origin(found ?? { forge: join(dir, 'forge') })];
+  const paths = [dir, found?.data ?? join(dir, 'data'), origin(found ?? { tracker: join(dir, 'tracker') })];
   paths.forEach(assertOutside);
   if (found && (!base || base === found.base) && (!readonly || found.readonly)) return { ...found, made: false };
   const named = found ? found.owner : readOwner(real);
@@ -131,7 +131,7 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
         repo: real,
         base: base ?? (await readBranch(real)),
         owner: named ?? userInfo().username,
-        forge: join(dir, 'forge'),
+        tracker: join(dir, 'tracker'),
         data: join(dir, 'data'),
         exported: {},
         ...(readonly && { readonly }),
@@ -139,18 +139,18 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
   await mkdir(i.data, { recursive: true });
   paths.forEach(assertOutside);
   if (!found) await git({}, ['init', '-q', '--bare', '-b', i.base, origin(i)]);
-  await inForge(i, ['symbolic-ref', 'HEAD', `refs/heads/${i.base}`]);
+  await inTracker(i, ['symbolic-ref', 'HEAD', `refs/heads/${i.base}`]);
   writeInstance(i);
   return { ...i, made: !found, ...(!named && { unnamed: true }) };
 };
 
 export const ensureBase = async (i: Instance): Promise<string | undefined> => {
   const mirror = 'refs/agentgraph/repo';
-  await inForge(i, ['fetch', '-q', '--no-tags', '--no-write-fetch-head', i.repo, `+refs/heads/${i.base}:${mirror}`]);
-  const theirs = await inForge(i, ['rev-parse', mirror]);
-  const ours = await inForge(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}`], [1]);
+  await inTracker(i, ['fetch', '-q', '--no-tags', '--no-write-fetch-head', i.repo, `+refs/heads/${i.base}:${mirror}`]);
+  const theirs = await inTracker(i, ['rev-parse', mirror]);
+  const ours = await inTracker(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}`], [1]);
   if (!ours || (await isAncestor(i, ours, theirs))) {
-    await inForge(i, ['update-ref', `refs/heads/${i.base}`, theirs, ours]);
+    await inTracker(i, ['update-ref', `refs/heads/${i.base}`, theirs, ours]);
     return undefined;
   }
   if (await isAncestor(i, theirs, ours)) return undefined;
@@ -163,7 +163,7 @@ export const ensureBase = async (i: Instance): Promise<string | undefined> => {
 export const ensureGraph = async (i: Instance, flag?: string) => {
   const tree = flag
     ? undefined
-    : await inForge(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
+    : await inTracker(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
   if (!tree) {
     const dir = flag ? resolve(flag) : join(i.repo, '.agentgraph');
     if (existsSync(dir)) return dir;
@@ -174,7 +174,7 @@ export const ensureGraph = async (i: Instance, flag?: string) => {
   }
   const dir = getCachePath(i.data, 'graphs', tree);
   if (existsSync(dir)) return dir;
-  const linked = (await inForge(i, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
+  const linked = (await inTracker(i, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
   if (linked.length)
     throw new Error(`.agentgraph holds links or submodules: ${linked.map(l => l.split('\t')[1]).join(', ')}`);
   const draft = `${dir}.${randomUUID()}`;
@@ -228,11 +228,11 @@ export const formatGraphName = async (i: Instance, graph: string) => {
   if (graph === join(i.repo, '.agentgraph') && !(await inRepo(i.repo, ['ls-files', '--', '.agentgraph'])))
     return 'graph .agentgraph/ (not in git)';
   if (!isCommittedGraph(i, graph)) return `graph ${graph}`;
-  return `.agentgraph/ at ${i.base} ${await inForge(i, ['rev-parse', '--short', `refs/heads/${i.base}`])}`;
+  return `.agentgraph/ at ${i.base} ${await inTracker(i, ['rev-parse', '--short', `refs/heads/${i.base}`])}`;
 };
 
 const readIssues = (dir: string) =>
-  Effect.runPromise(Effect.flatMap(Forge, f => f.issues()).pipe(Effect.provide(fileForge(dir))));
+  Effect.runPromise(Effect.flatMap(Tracker, f => f.issues()).pipe(Effect.provide(fileTracker(dir))));
 
 export const findPull = async (dir: string, n: number) => {
   const pulls = (await readIssues(dir)).filter(
@@ -244,7 +244,7 @@ export const findPull = async (dir: string, n: number) => {
 
 const apply = async (dir: string, as: string, n: number, p: Proposal) => {
   const applied = await Effect.runPromise(
-    Effect.flatMap(Forge, f => f.apply(n, p)).pipe(Effect.provide(fileForge(dir, as)))
+    Effect.flatMap(Tracker, f => f.apply(n, p)).pipe(Effect.provide(fileTracker(dir, as)))
   );
   if (!applied.ok) throw new Error(applied.reason);
 };
@@ -287,21 +287,21 @@ export const writeClosed = async (dir: string, as: string, n: number) => {
   await writeTrustedEvent(dir, as, { issue: n, kind: 'closed' });
 };
 
-export const mergePull = async (i: Pick<Instance, 'forge' | 'owner'>, n: number) => {
-  const pr = await findPull(i.forge, n);
+export const mergePull = async (i: Pick<Instance, 'tracker' | 'owner'>, n: number) => {
+  const pr = await findPull(i.tracker, n);
   if (!pr || pr.state !== 'open') throw new Error(`#${n} has no open pull request`);
   const { base, branch, head } = pr.pull;
-  const at = await inForge(i, ['rev-parse', `refs/heads/${base}`]);
+  const at = await inTracker(i, ['rev-parse', `refs/heads/${base}`]);
   if (!(await isAncestor(i, at, head)))
     throw new Error(`${base} moved since ${branch} branched; review ${n} changes "rebase" first`);
-  await inForge(i, ['update-ref', `refs/heads/${base}`, head, at]);
-  await apply(i.forge, i.owner, pr.number, { kind: 'merge', number: pr.number, head });
-  for (const t of await readIssues(i.forge))
+  await inTracker(i, ['update-ref', `refs/heads/${base}`, head, at]);
+  await apply(i.tracker, i.owner, pr.number, { kind: 'merge', number: pr.number, head });
+  for (const t of await readIssues(i.tracker))
     if (t.state === 'open' && t.pull?.base === branch)
-      writeFileAtomic(join(i.forge, String(t.number), 'pull.json'), { ...t.pull, base });
+      writeFileAtomic(join(i.tracker, String(t.number), 'pull.json'), { ...t.pull, base });
   const issue = Number(/(\d+)$/.exec(branch)?.[1]);
-  const named = (await readIssues(i.forge)).find(t => t.number === issue);
-  if (named?.state === 'open') await writeClosed(i.forge, i.owner, issue);
+  const named = (await readIssues(i.tracker)).find(t => t.number === issue);
+  if (named?.state === 'open') await writeClosed(i.tracker, i.owner, issue);
   return pr.pull;
 };
 
@@ -310,13 +310,13 @@ export const writePullToRepo = async (
   n: number,
   to: { as?: string; patch?: string; auto?: boolean } = {}
 ): Promise<{ ref: string; base: string; stat: string } | { why: string } | undefined> => {
-  const pr = await findPull(i.forge, n);
+  const pr = await findPull(i.tracker, n);
   if (!pr) return undefined;
   const { branch, base, head } = pr.pull;
-  const stat = await inForge(i, ['diff', '--stat', '--no-ext-diff', '--no-textconv', `refs/heads/${base}...${head}`]);
+  const stat = await inTracker(i, ['diff', '--stat', '--no-ext-diff', '--no-textconv', `refs/heads/${base}...${head}`]);
   if (to.patch && pr.state === 'merged') return { why: `#${pr.number} is merged into ${base}` };
   if (to.patch) {
-    const patch = await inForge(i, ['format-patch', '--stdout', `refs/heads/${base}..${head}`]);
+    const patch = await inTracker(i, ['format-patch', '--stdout', `refs/heads/${base}..${head}`]);
     await writeFile(resolve(to.patch), `${patch}\n`, { flag: 'wx' });
     return { ref: resolve(to.patch), base, stat };
   }
@@ -336,9 +336,9 @@ export const writePullToRepo = async (
   const checkedOut = (await inRepo(i.repo, ['worktree', 'list', '--porcelain'])).split('\n');
   if (checkedOut.includes(`branch ${ref}`)) return { why: `${name} is checked out in your repo` };
   const haves: string[] = [];
-  for (const at of [await inForge(i, ['rev-parse', '-q', '--verify', 'refs/agentgraph/repo'], [1]), exported])
+  for (const at of [await inTracker(i, ['rev-parse', '-q', '--verify', 'refs/agentgraph/repo'], [1]), exported])
     if (at && (await succeeds(inRepo(i.repo, ['cat-file', '-e', `${at}^{commit}`])))) haves.push(at);
-  const list = await inForge(i, ['rev-list', '--objects', head, '--not', ...haves]);
+  const list = await inTracker(i, ['rev-list', '--objects', head, '--not', ...haves]);
   const keep = list ? await sendPack(i, list) : undefined;
   try {
     await inRepo(i.repo, ['rev-list', '--objects', '--quiet', head, '--not', '--all']);
@@ -395,8 +395,8 @@ export const writeImportedRun = async (
   const from = o.from ?? (commit ? `${commit}^` : 'HEAD');
   const base = await inRepo(i.repo, ['rev-parse', '--verify', `${from}^{commit}`]);
   for (const sha of commit ? [base, commit] : [base])
-    await inForge(i, ['fetch', '-q', '--no-tags', '--no-write-fetch-head', i.repo, sha]);
-  await inForge(i, ['update-ref', `refs/agentgraph/runs/${id}`, commit ?? (await commitPatch(i, base, patch!))]);
+    await inTracker(i, ['fetch', '-q', '--no-tags', '--no-write-fetch-head', i.repo, sha]);
+  await inTracker(i, ['update-ref', `refs/agentgraph/runs/${id}`, commit ?? (await commitPatch(i, base, patch!))]);
   const [title, ...body] = o.issue ? readFileSync(o.issue, 'utf8').trim().split('\n') : [];
   const run: RunRecord = {
     id,

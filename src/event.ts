@@ -76,7 +76,7 @@ export type Applied = {
   at?: string;
 };
 
-/** The run, step and session a write to the forge comes from, and the operation that names one write. */
+/** The run, step and session a write to the tracker comes from, and the operation that names one write. */
 export type RunLink = { run: string; step: string; session?: string; operation?: string };
 
 /** The studio page of a run. */
