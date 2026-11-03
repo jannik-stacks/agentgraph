@@ -391,6 +391,7 @@ describe('tool input schemas', () => {
   const input = Schema.Struct({
     state: Schema.optional(Schema.Literals(['open', 'closed'])),
     note: Schema.NullOr(Schema.String),
+    clear: Schema.optionalKey(Schema.NullOr(Schema.String)),
     count: Schema.Int,
     tree: Node,
   });
@@ -403,6 +404,8 @@ describe('tool input schemas', () => {
     ['an unknown literal', { ...valid, state: 'all' }],
     ['a nullable field set', { ...valid, note: 'hi' }],
     ['a missing nullable field', { count: 1, tree: { size: 1 } }],
+    ['null for an optional nullable field', { ...valid, clear: null }],
+    ['a string for an optional nullable field', { ...valid, clear: 'x' }],
     ['NaN as a string', { ...valid, count: 'NaN' }],
     ['Infinity as a string', { ...valid, tree: { size: 'Infinity' } }],
     ['a fraction for an integer', { ...valid, count: 1.5 }],

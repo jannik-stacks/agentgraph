@@ -5,7 +5,7 @@ import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
-import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue } from 'effect';
+import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue, SchemaRepresentation } from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
@@ -51,32 +51,38 @@ export type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abor
 
 type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;
 
-type JsonNode = Record<string, unknown>;
-const nonFinite = JSON.stringify({ type: 'string', enum: ['Infinity', '-Infinity', 'NaN'] });
+type Node = Record<string, unknown>;
+const isNonFinite = (m: Node) =>
+  m.type === 'string' &&
+  JSON.stringify((m.enum as string[] | undefined)?.toSorted()) === '["-Infinity","Infinity","NaN"]';
 
-const narrow = (node: unknown, optional = false): unknown => {
-  if (Array.isArray(node)) return node.map(n => narrow(n));
-  if (!node || typeof node !== 'object') return node;
-  const required = new Set((node as { required?: string[] }).required);
-  const out: JsonNode = Object.fromEntries(
-    Object.entries(node).map(([key, value]) => [
-      key,
-      key === 'properties' || key === '$defs'
-        ? Object.fromEntries(
-            Object.entries(value as JsonNode).map(([name, s]) => [
-              name,
-              narrow(s, key === 'properties' && !required.has(name)),
-            ])
-          )
-        : narrow(value),
-    ])
-  );
-  if (!Array.isArray(out.anyOf)) return out;
-  const { anyOf: members, ...rest } = out;
-  const kept = (members as JsonNode[]).filter(
-    m => JSON.stringify(m) !== nonFinite && !(optional && JSON.stringify(m) === '{"type":"null"}')
-  );
+const map = (node: unknown, f: (node: Node) => unknown): unknown =>
+  Array.isArray(node)
+    ? node.map(n => map(n, f))
+    : node && Object.getPrototypeOf(node) === Object.prototype
+      ? f(Object.fromEntries(Object.entries(node).map(([k, v]) => [k, map(v, f)])))
+      : node;
+
+const dropUndefined = (node: Node) => {
+  if (node._tag !== 'Union') return node;
+  const types = (node.types as Node[]).filter(t => t._tag !== 'Undefined');
+  return types.length === 1 && !(node.checks as unknown[]).length && !node.annotations ? types[0] : { ...node, types };
+};
+
+const dropNonFinite = (node: Node) => {
+  if (!Array.isArray(node.anyOf)) return node;
+  const { anyOf: members, ...rest } = node;
+  const kept = (members as Node[]).filter(m => !isNonFinite(m));
   return kept.length === 1 ? { ...rest, ...kept[0] } : { ...rest, anyOf: kept };
+};
+
+const advertise = (schema: Schema.Top) => {
+  const representation = map(SchemaRepresentation.toRepresentation(schema.ast), dropUndefined);
+  const { schema: root, definitions } = SchemaRepresentation.toJsonSchemaDocument(
+    representation as SchemaRepresentation.Document,
+    { onExcessProperty: 'error' }
+  );
+  return map(Object.keys(definitions).length ? { ...root, $defs: definitions } : root, dropNonFinite);
 };
 
 export const tool = <A, I, S = undefined>(definition: {
@@ -84,8 +90,7 @@ export const tool = <A, I, S = undefined>(definition: {
   inputSchema: Schema.Codec<A, I>;
   execute: (input: A, context: ToolContext<S>) => unknown;
 }): Tool<A, unknown, ToolContext<S>> => {
-  const { schema, definitions } = Schema.toJsonSchemaDocument(definition.inputSchema, { onExcessProperty: 'error' });
-  const advertised = narrow(Object.keys(definitions).length ? { ...schema, $defs: definitions } : schema);
+  const advertised = advertise(definition.inputSchema);
   return aiTool<A, unknown, ToolContext<S>>({
     description: definition.description,
     inputSchema: jsonSchema<A>(advertised as JSONSchema7, {
