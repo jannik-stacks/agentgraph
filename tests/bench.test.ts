@@ -644,6 +644,17 @@ describe('bin/bench.ts typecheck', () => {
   });
 });
 
+const scored = (name: string) => {
+  const out = tmp(name);
+  dirs.push(out);
+  mkdirSync(join(out, 'c', 'human'), { recursive: true });
+  mkdirSync(join(out, 'c', 'v2'), { recursive: true });
+  writeFileSync(join(out, 'c', 'human', 'score.json'), '{}');
+  writeFileSync(join(out, 'c', 'v2', 'score.json'), '{}');
+  writeFileSync(join(out, 'c', 'case.json'), JSON.stringify({ repo: 'me/demo' }));
+  return out;
+};
+
 describe('bench labels', () => {
   it('reads setup at the base commit without inspecting or changing the working tree', () => {
     const repo = tmp('labels');
@@ -670,6 +681,36 @@ describe('bench labels', () => {
     git(repo, 'add', '.');
     git(repo, 'commit', '-qm', 'base');
     expect(readBenchSetupLabels(repo, 'HEAD')).toEqual({ 'agents-md': 'false', 'claude-md': 'false', skills: 'true' });
+  });
+
+  it('reads the setup of a case once per base, so a rescan spawns no git', () => {
+    const out = scored('setup');
+    const tree = join(out, 'c', 'tree');
+    mkdirSync(tree);
+    git(tree, 'init', '-q');
+    writeFileSync(join(tree, 'AGENTS.md'), 'rules');
+    git(tree, 'add', '.');
+    git(tree, 'commit', '-qm', 'base');
+    writeFileSync(
+      join(out, 'c', 'case.json'),
+      JSON.stringify({ repo: 'me/demo', base: git(tree, 'rev-parse', 'HEAD') })
+    );
+    expect(readBenchRows(out)[0]!.labels['agents-md']).toBe('true');
+    rmSync(tree, { recursive: true, force: true });
+    expect(readBenchRows(out)[0]!.labels['agents-md']).toBe('true');
+  });
+
+  it('takes the usage of a done arm from its usage.json, even with its records still there', () => {
+    const out = scored('saved');
+    mkdirSync(join(out, 'c', 'v2', 'data', 'run-1'), { recursive: true });
+    const trace = [
+      { key: 'k', event: { type: 'start', harness: 'pi', model: 'smart' } },
+      { key: 'k', event: { type: 'usage', input: 100, output: 7 } },
+    ];
+    writeFileSync(join(out, 'c', 'v2', 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
+    const tokens = { smart: { input: 1, cacheRead: 0, cacheWrite: 0, output: 1 } };
+    writeFileSync(join(out, 'c', 'v2', 'usage.json'), JSON.stringify({ tokens, attempts: [] }));
+    expect(readBenchRows(out).find(r => r.labels.arm === 'v2')!.tokens).toEqual(tokens);
   });
 });
 

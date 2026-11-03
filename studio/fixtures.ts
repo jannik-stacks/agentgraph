@@ -1,5 +1,5 @@
-import { existsSync, readdirSync } from 'node:fs';
-import type { ServerResponse } from 'node:http';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
@@ -77,8 +77,9 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * `virtual:fixtures`, plus the served graph's workflows. `GET /api/runs` answers that graph's runs in the data dir with
  * their traces, every text in them cut short; `GET /api/runs/<id>` answers one run with every trace line, and
  * `GET /api/logs/<hash>` the full output of a check, and `GET /api/locate?gh=<link or comment id>` what `locate` finds.
- * `GET /api/bench` answers the rows of every bench out dir under the dirs `AGI_STUDIO_BENCH` names, where each driven
- * bench dir stands.
+ * `GET /api/bench` answers the rows of every bench out dir under the dirs `AGI_STUDIO_BENCH` names, read again only when
+ * a `log.jsonl`, `events.jsonl` or `done/` of theirs changes, and where each driven bench dir stands. A failing async
+ * route answers 500 with the error.
  * `GET /api/results?from=runs|bench|tune` answers what each run, bench row or tune candidate gave, with its fields (`bin/results.ts`);
  * tunes are under `AGI_STUDIO_TUNE` (default: the `bin/tune.ts` root).
  * `GET /api/events` is a server-sent event stream that says `changed` when anything in the data dir does.
@@ -87,14 +88,32 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
   name: 'agentgraph:fixtures',
   resolveId: source => (source === id ? `\0${id}` : undefined),
   configureServer(server) {
-    server.middlewares.use('/api/bench', async (_req, res) => {
-      const { readBenchRows }: typeof BenchModule = await from('bin/bench.ts');
-      const { readBenchDriveState }: typeof DriveModule = await from('bench/drive.ts');
-      const dirs = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
-      json(res, {
-        rows: dirs.flatMap(dir => findBenchOutDirs(dir)).flatMap(out => readBenchRows(out)),
-        drives: [...new Set(dirs.flatMap(findDrivenBenchDirs))].map(readBenchDriveState),
+    const use = (path: string, handle: (req: IncomingMessage, res: ServerResponse) => Promise<unknown>) =>
+      server.middlewares.use(path, (req, res) => {
+        void handle(req, res).catch((e: Error) => json(res, { error: e.message }, 500));
       });
+    let rows: { key: string; read: Promise<ReturnType<typeof BenchModule.readBenchRows>> } | undefined;
+    use('/api/bench', async (_req, res) => {
+      const dirs = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
+      const outs = dirs.flatMap(dir => findBenchOutDirs(dir));
+      const drives = [...new Set(dirs.flatMap(findDrivenBenchDirs))];
+      const key = JSON.stringify(
+        [...outs, ...drives].map(dir =>
+          ['log.jsonl', 'events.jsonl', 'done'].map(f => statSync(join(dir, f), { throwIfNoEntry: false })?.mtimeMs)
+        )
+      );
+      if (rows?.key !== key)
+        rows = {
+          key,
+          read: from<typeof BenchModule>('bin/bench.ts')
+            .then(m => outs.flatMap(out => m.readBenchRows(out)))
+            .catch((e: Error) => {
+              rows = undefined;
+              throw e;
+            }),
+        };
+      const { readBenchDriveState }: typeof DriveModule = await from('bench/drive.ts');
+      json(res, { rows: await rows.read, drives: drives.map(readBenchDriveState) });
     });
     server.middlewares.use('/api/results', (req, res) => {
       const source = new URL(req.url ?? '/', 'http://studio').searchParams.get('from');
@@ -110,7 +129,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
         .then(([{ readRunResults }, served]) => json(res, readRunResults(source, dirs, served?.graph)))
         .catch((e: Error) => json(res, { error: e.message }, 500));
     });
-    server.middlewares.use('/api/logs', async (req, res) => {
+    use('/api/logs', async (req, res) => {
       const data = process.env.AGI_STUDIO_DATA;
       const { Effect } = await import('effect');
       const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
@@ -122,7 +141,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       res.setHeader('content-type', 'text/plain; charset=utf-8');
       res.end(text || '');
     });
-    server.middlewares.use('/api/locate', async (req, res) => {
+    use('/api/locate', async (req, res) => {
       const data = process.env.AGI_STUDIO_DATA;
       const { Effect, Either } = await import('effect');
       const { fileStore, locate }: typeof StoreModule = await from('src/store.ts');
@@ -132,7 +151,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       if (Either.isLeft(found)) return json(res, { error: found.left.message }, 400);
       json(res, found.right ?? null, found.right ? 200 : 404);
     });
-    server.middlewares.use('/api/runs', async (req, res) => {
+    use('/api/runs', async (req, res) => {
       const served = await servedGraph();
       const data = process.env.AGI_STUDIO_DATA;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));

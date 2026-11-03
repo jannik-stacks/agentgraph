@@ -50,25 +50,37 @@ const reload = () => {
   for (const change of changes) change();
 };
 
-/** Answers `path` as JSON while something reads it, and again whenever the server reports the data dir changed. */
+/**
+ * Answers `path` as JSON while something reads it, and again whenever the server reports the data dir changed: one
+ * request at a time, with one more after it when a change came in meanwhile.
+ */
 export const makeLiveJsonAtom = <T>(path: string, read: (value: unknown) => T | Promise<T> = value => value as T) => {
   const value = atom<{ value?: T; failure?: string }>({});
   value.onMount = set => {
-    let current = 0;
     let active = true;
+    let busy = false;
+    let again = false;
     const load = () => {
-      const request = ++current;
+      if (busy) return void (again = true);
+      busy = true;
       void fetch(path)
         .then(r => (r.ok ? r.json() : Promise.reject(new Error(`${path} answered ${r.status}`))))
         .then(read)
         .then(
           next => {
-            if (active && request === current) set({ value: next });
+            if (active) set({ value: next });
           },
           (e: Error) => {
-            if (active && request === current) set(previous => ({ ...previous, failure: e.message }));
+            if (active) set(previous => ({ ...previous, failure: e.message }));
           }
-        );
+        )
+        .finally(() => {
+          busy = false;
+          if (again && active) {
+            again = false;
+            load();
+          }
+        });
     };
     changes.add(load);
     if (!events) {

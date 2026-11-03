@@ -4,7 +4,7 @@ import { type ReactNode, useMemo, useState } from 'react';
 import type { DriveState } from '../../../bench/drive.ts';
 import type { readBenchRows } from '../../../bin/bench.ts';
 import { getMean } from '../../../src/stats.ts';
-import { makeLiveJsonAtom, queryParam, resultsAtoms } from '../state.ts';
+import { makeLiveJsonAtom, queryParam } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaultBenchBy, defaultBenchScoreWeights, frontier, presets, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
@@ -98,8 +98,7 @@ const terms: [string, ReactNode][] = [
 ];
 
 const BenchResults = ({ runs }: { runs: RunResults[] }) => {
-  const { value } = useAtomValue(resultsAtoms.bench);
-  const fields = (value?.fields ?? findCheckFields(runs)).filter(f => f.check !== 'bench');
+  const fields = findCheckFields(runs).filter(f => f.check !== 'bench');
   if (!fields.length) return null;
   return (
     <section className="space-y-1">

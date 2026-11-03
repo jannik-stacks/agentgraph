@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { readBenchRowResults } from '../studio/src/results/result.ts';
 import type { readBenchRows } from '../bin/bench.ts';
+import { tmp } from './kit.ts';
 import {
   bootstrap,
   cost,
@@ -162,5 +166,42 @@ describe('bench score', () => {
     const other = readBenchRowResults(row({ labels: { ...labels, model: 'other' } }));
     expect(result.axes).toMatchObject(labels);
     expect(other.key).not.toBe(result.key);
+  });
+});
+
+describe('/api/bench', () => {
+  it('answers a failed scan with its error and keeps rows until a log changes', async () => {
+    const out = tmp('bench-api');
+    const at = (...path: string[]) => join(out, 'c', ...path);
+    mkdirSync(at('human'), { recursive: true });
+    mkdirSync(at('v2'));
+    writeFileSync(join(out, 'log.jsonl'), '');
+    writeFileSync(at('case.json'), JSON.stringify({ repo: 'me/demo' }));
+    writeFileSync(at('human', 'score.json'), '{');
+    vi.stubEnv('AGI_STUDIO_BENCH', out);
+    const routes: Record<string, (req: unknown, res: unknown) => void> = {};
+    const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
+    plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
+    const ask = () =>
+      new Promise<{ status: number; body: { rows?: unknown[]; error?: string } }>(done => {
+        const res = {
+          statusCode: 200,
+          setHeader: () => {},
+          end: (body: string) => done({ status: res.statusCode, body: JSON.parse(body) }),
+        };
+        routes['/api/bench']!({ url: '/' }, res);
+      });
+    try {
+      expect(await ask()).toMatchObject({ status: 500, body: { error: expect.stringContaining('JSON') } });
+      writeFileSync(at('human', 'score.json'), '{}');
+      expect((await ask()).body.rows).toHaveLength(1);
+      writeFileSync(at('v2', 'score.json'), '{}');
+      expect((await ask()).body.rows).toHaveLength(1);
+      utimesSync(join(out, 'log.jsonl'), new Date(), new Date(Date.now() + 1000));
+      expect((await ask()).body.rows).toHaveLength(2);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(out, { recursive: true, force: true });
+    }
   });
 });

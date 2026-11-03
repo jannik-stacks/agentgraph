@@ -8,7 +8,7 @@ import { studioDir, studioModule } from './studio.ts';
 const dependency = <T>(name: string): Promise<T> =>
   import(pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href);
 
-it('decodes cached plugin snapshots with one stream, immediate fetches and stale response protection', async () => {
+it('decodes cached plugin snapshots with one stream, one request in flight and one trailing refetch', async () => {
   vi.stubGlobal('location', new URL('http://studio/plugins/count'));
   const sources: EventTarget[] = [];
   const close = vi.fn();
@@ -69,14 +69,18 @@ it('decodes cached plugin snapshots with one stream, immediate fetches and stale
     await vi.waitFor(() => expect(store.get(plugin)).toEqual({ value: 7 }));
     sources[0]!.dispatchEvent(new Event('open'));
     sources[0]!.dispatchEvent(new Event('message'));
-    expect(requests).toHaveLength(6);
+    sources[0]!.dispatchEvent(new Event('message'));
+    expect(requests).toHaveLength(4);
+    requests[2]!(Response.json('8'));
+    await vi.waitFor(() => expect(requests).toHaveLength(5));
+    expect(store.get(plugin)).toEqual({ value: 8 });
     requests[4]!(Response.json('9'));
     await vi.waitFor(() => expect(store.get(plugin)).toEqual({ value: 9 }));
-    requests[2]!(Response.json('8'));
     await new Promise(resolve => setTimeout(resolve));
-    expect(store.get(plugin)).toEqual({ value: 9 });
+    expect(requests).toHaveLength(5);
     sources[0]!.dispatchEvent(new Event('message'));
-    requests[6]!(Response.json('invalid'));
+    expect(requests).toHaveLength(6);
+    requests[5]!(Response.json('invalid'));
     await vi.waitFor(() => expect(store.get(plugin)).toEqual({ value: 9, failure: 'Invalid plugin data' }));
     renderToString(createElement(Provider, { store: observed }, createElement(SnapshotProbe, null)));
     expect(used).toBe(plugin);

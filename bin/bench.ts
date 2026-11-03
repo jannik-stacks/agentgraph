@@ -1035,13 +1035,13 @@ export const readArmUsageOverAttempts = (at: string) => {
   };
 };
 
-/** An arm's usage over all its attempts: recounted from its records when they are here, else its `usage.json`. */
-const usage = (at: string): Partial<ReturnType<typeof readArmUsageOverAttempts>> =>
-  existsSync(join(at, 'data')) || earlier(at).length
-    ? readArmUsageOverAttempts(at)
-    : (JSON.parse(readFileOrEmpty(join(at, 'usage.json')) || '{}') as Partial<
-        ReturnType<typeof readArmUsageOverAttempts>
-      >);
+/** An arm's usage over all its attempts: its `usage.json` once a done arm wrote it, else recounted from its records. */
+const usage = (at: string): Partial<ReturnType<typeof readArmUsageOverAttempts>> => {
+  const saved = JSON.parse(readFileOrEmpty(join(at, 'usage.json')) || '{}') as Partial<
+    ReturnType<typeof readArmUsageOverAttempts>
+  >;
+  return !saved.attempts && (existsSync(join(at, 'data')) || earlier(at).length) ? readArmUsageOverAttempts(at) : saved;
+};
 
 /** Writes an arm's usage beside it, then copies it to `kept` without its data, forge, graph or attic dirs. */
 export const keep = (at: string, kept: string | undefined) => {
@@ -1654,6 +1654,8 @@ const readBenchPoint = (out: string) => ({
   ...(JSON.parse(readFileOrEmpty(join(out, 'point.json')) || '{}') as Partial<Record<'hubs', Record<string, string>>>),
 });
 
+const setupLabels = new Map<string, Record<string, string>>();
+
 const loadScored = (out: string, id: string): Scored => {
   const c = JSON.parse(readFileOrEmpty(join(out, id, 'case.json')) || '{}') as Record<string, unknown>;
   const p = readBenchPoint(out);
@@ -1672,15 +1674,19 @@ const loadScored = (out: string, id: string): Scored => {
     typeof c.base === 'string' &&
     !['agents-md', 'claude-md', 'skills'].every(k => k in ((c.labels ?? {}) as Record<string, string>))
   ) {
-    const repo = [
-      join(out, id, 'tree'),
-      join(homedir(), '.agentgraph/tune/repos', String(c.repo).split('/').pop()!),
-    ].find(
-      repo =>
-        existsSync(join(repo, '.git')) &&
-        spawnSync('git', ['-C', repo, 'cat-file', '-e', `${c.base}^{commit}`]).status === 0
-    );
-    if (repo) Object.assign(labels, readBenchSetupLabels(repo, c.base));
+    const key = `${String(c.repo)}@${c.base}`;
+    if (!setupLabels.has(key)) {
+      const repo = [
+        join(out, id, 'tree'),
+        join(homedir(), '.agentgraph/tune/repos', String(c.repo).split('/').pop()!),
+      ].find(
+        repo =>
+          existsSync(join(repo, '.git')) &&
+          spawnSync('git', ['-C', repo, 'cat-file', '-e', `${c.base}^{commit}`]).status === 0
+      );
+      setupLabels.set(key, repo ? readBenchSetupLabels(repo, c.base) : {});
+    }
+    Object.assign(labels, setupLabels.get(key));
   }
   if (c.repo) labels.issue = Array.isArray(c.flags) && c.flags.includes('no-issue-pr-body') ? 'pr-body' : 'issue';
   const scores = Object.fromEntries(
