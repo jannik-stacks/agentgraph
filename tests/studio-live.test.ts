@@ -75,19 +75,40 @@ it('decodes cached plugin snapshots, refetching on its topic with one request in
     readChanged(['count']);
     expect(requests).toHaveLength(6);
     requests[5]!(Response.json('invalid'));
-    await vi.waitFor(() => expect(store.get(plugin)).toEqual({ value: 9, failure: 'Invalid plugin data' }));
+    await vi.waitFor(() => expect(store.get(plugin)).toMatchObject({ value: 9, failure: 'Invalid plugin data' }));
     renderToString(createElement(Provider, { store: observed }, createElement(SnapshotProbe, null)));
     expect(used).toBe(plugin);
-    readChanged(['count']);
+    (store.get(plugin) as { retry: () => void }).retry();
     requests[6]!(Response.json({ error: 'disk gone' }, { status: 500 }));
-    await vi.waitFor(() => expect(store.get(plugin)).toEqual({ value: 9, failure: 'disk gone' }));
+    await vi.waitFor(() => expect(store.get(plugin)).toMatchObject({ value: 9, failure: 'disk gone' }));
+    readChanged(['count']);
+    requests[7]!(Response.json('10'));
+    await vi.waitFor(() => expect(store.get(plugin)).toEqual({ value: 10 }));
     stop();
     other();
     readChanged(['count', 'other']);
-    expect(requests).toHaveLength(7);
+    expect(requests).toHaveLength(8);
   } finally {
     stop?.();
     other?.();
     vi.unstubAllGlobals();
   }
+});
+
+it('shows loading, a failure with retry, and stale data under one refresh note', async () => {
+  const { createElement } = await dependency<{
+    createElement: (type: unknown, props: object | null, ...children: unknown[]) => unknown;
+  }>('react');
+  const { renderToStaticMarkup } = await dependency<{ renderToStaticMarkup: (value: unknown) => string }>(
+    'react-dom/server'
+  );
+  const { Live } = await studioModule<{ Live: unknown }>('ui.tsx');
+  const show = (state: object) =>
+    renderToStaticMarkup(createElement(Live, { state, children: (value: string) => `shown ${value}` }));
+  expect(show({})).toContain('aria-label="Loading"');
+  expect(show({ failure: 'disk gone', retry: () => {} })).toMatch(/disk gone.*Retry/);
+  const stale = show({ value: 'old', failure: 'disk gone' });
+  expect(stale).toContain('Could not refresh, showing earlier data. disk gone');
+  expect(stale).toContain('shown old');
+  expect(show({ value: 'new' })).toBe('shown new');
 });

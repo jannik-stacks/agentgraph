@@ -2,15 +2,16 @@ import { useAtomValue } from 'jotai';
 import { isOnIssue } from '../../../src/graph.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../../../src/status.ts';
 import { runsAtom } from '../state.ts';
-import { Loading, Muted } from '../ui.tsx';
+import type { ServedRun } from './trace.ts';
+import { Live, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 
 const env = import.meta.env as Record<string, string | undefined>;
 const local = env.VITE_AGI_LOCAL === '1';
 
-export const InboxPage = () => {
-  const { value: runs, failure } = useAtomValue(runsAtom);
-  if (!runs) return failure ? <Muted>{failure}</Muted> : <Loading />;
+export const InboxPage = () => <Live state={useAtomValue(runsAtom)}>{runs => <Inbox runs={runs} />}</Live>;
+
+const Inbox = ({ runs }: { runs: ServedRun[] }) => {
   const waiting = findRunsWaitingOnPeople(runs.map(r => r.run).filter(isOnIssue)).map(run => ({
     ...runs.find(r => r.run === run)!,
     run,

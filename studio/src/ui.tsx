@@ -91,6 +91,33 @@ export const Fields = ({ children }: { children: ReactNode }) => (
 
 export const Muted = ({ children }: { children: ReactNode }) => <p className="p-4 text-zinc-500">{children}</p>;
 
+export const Live = <T,>({
+  state: { value, failure, retry },
+  children,
+}: {
+  state: { value?: T; failure?: string; retry?: () => void };
+  children: (value: T) => ReactNode;
+}) =>
+  value === undefined ? (
+    failure ? (
+      <div role="alert" className="space-y-2 p-4 text-zinc-500">
+        <p>{failure}</p>
+        {retry && <Button onClick={retry}>Retry</Button>}
+      </div>
+    ) : (
+      <Loading />
+    )
+  ) : (
+    <>
+      {failure && (
+        <p role="alert" className="px-4 pt-2 text-xs text-amber-600">
+          Could not refresh, showing earlier data. {failure}
+        </p>
+      )}
+      {children(value)}
+    </>
+  );
+
 /** Three pulsing dots that fade in only once a wait passes half a second, so quick loads never flash. */
 export const Loading = () => (
   <p role="status" aria-label="Loading" className="agi-loading flex gap-1 p-4">

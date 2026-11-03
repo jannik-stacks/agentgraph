@@ -6,7 +6,7 @@ import { getMean } from '../../../src/stats.ts';
 import { queryParam } from '../state.ts';
 import { usePluginData } from '../plugins.ts';
 import { BenchData, type BenchRow as Row } from './data.ts';
-import { Button, cx, Disclosure, Help, Loading, Muted, Select, Tooltip } from '../ui.tsx';
+import { Button, cx, Disclosure, Help, Live, Muted, Select, Tooltip } from '../ui.tsx';
 import {
   cost,
   defaultBenchBy,
@@ -147,8 +147,9 @@ const LabelChoices = ({
   </div>
 );
 
-const BenchPage = () => {
-  const { value, failure } = usePluginData('bench', BenchData);
+const BenchPage = () => <Live state={usePluginData('bench', BenchData)}>{value => <Bench value={value} />}</Live>;
+
+const Bench = ({ value }: { value: BenchData }) => {
   const [w, setW] = useAtom(params.w);
   const [xAxis, setX] = useAtom(params.x);
   const [whereParam, setWhere] = useAtom(params.where);
@@ -176,11 +177,10 @@ const BenchPage = () => {
   }, [w]);
   const dropped = useMemo(() => (drop ?? unpanelled).split(',').filter(Boolean), [drop]);
   const minutes = xAxis === 'minutes';
-  const rows = value?.rows;
-  const judges = useMemo(() => [...new Set(rows?.flatMap(r => Object.keys(r.vsHuman)))].toSorted(), [rows]);
-  const labelKeys = useMemo(() => [...new Set(rows?.flatMap(r => Object.keys(r.labels)))].toSorted(), [rows]);
+  const rows = value.rows;
+  const judges = useMemo(() => [...new Set(rows.flatMap(r => Object.keys(r.vsHuman)))].toSorted(), [rows]);
+  const labelKeys = useMemo(() => [...new Set(rows.flatMap(r => Object.keys(r.labels)))].toSorted(), [rows]);
   const points = useMemo(() => {
-    if (!value) return [];
     return summarise(value.rows, {
       where,
       by: groupKeys,
@@ -192,7 +192,6 @@ const BenchPage = () => {
     }).filter(p => p.n > 0);
   }, [value, where, groupKeys, color, weights, minutes, cache, judges, dropped, infra]);
 
-  if (!value) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (!value.rows.length)
     return value.drives.length ? (
       <div className="p-4">

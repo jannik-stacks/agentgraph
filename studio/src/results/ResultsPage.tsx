@@ -3,7 +3,7 @@ import { Suspense, useMemo } from 'react';
 import { queryParam } from '../state.ts';
 import { usePluginData, ResultChart, ResultTable } from '../plugins.ts';
 import { ResultsData } from './data.ts';
-import { Button, cx, Help, Loading, Muted, Select } from '../ui.tsx';
+import { Button, cx, Help, Live, Loading, Muted, Select } from '../ui.tsx';
 import { Candidate, tuneHelp } from './Candidate.tsx';
 import { type ResultSource, resultSources } from './result.ts';
 
@@ -53,11 +53,27 @@ const makeHintedOption = (value: string, label = value) => ({ value, label, titl
 
 const key = (f: { check: string; field: string }) => `${f.check} ${f.field}`;
 
-const Data = ({ from }: { from: ResultSource }) => {
-  const { value: data, failure: refreshFailure } = usePluginData('results', ResultsData);
-  const source = data?.[from];
-  const value = source?.kind === 'ready' ? source.sheet : undefined;
-  const failure = source?.kind === 'failed' ? source.why : refreshFailure;
+const Data = ({ from }: { from: ResultSource }) => (
+  <Live state={usePluginData('results', ResultsData)}>
+    {data => {
+      const source = data[from];
+      return source?.kind === 'ready' ? (
+        <Sheet from={from} source={source} />
+      ) : (
+        <Muted>{source?.why ?? 'No results.'}</Muted>
+      );
+    }}
+  </Live>
+);
+
+const Sheet = ({
+  from,
+  source,
+}: {
+  from: ResultSource;
+  source: Extract<(typeof ResultsData.Type)[ResultSource], { kind: 'ready' }>;
+}) => {
+  const value = source.sheet;
   const [view, setView] = useAtom(params.view);
   const [by, setBy] = useAtom(params.by);
   const [trend, setTrend] = useAtom(params.trend);
@@ -70,7 +86,7 @@ const Data = ({ from }: { from: ResultSource }) => {
   const [pick, setPick] = useAtom(params.pick);
   const runs = useMemo(
     () =>
-      (value?.runs ?? [])
+      value.runs
         .filter(r => (!only || r.key === only) && (dead === '1' || !r.dead || only))
         .map(({ axes: { verdict, ...axes }, ...r }) => ({
           ...r,
@@ -87,12 +103,10 @@ const Data = ({ from }: { from: ResultSource }) => {
     () => [...new Set(runs.flatMap(r => Object.keys(r.axes)))].filter(k => new Set(runs.map(r => r.axes[k])).size > 1),
     [runs]
   );
-  if (!value) return failure ? <Muted>{failure}</Muted> : <Loading />;
   const measures = value.fields.filter(f => f.type !== 'string');
   const field = measures.find(f => key(f) === y) ?? measures.find(f => f.limit) ?? measures[0];
   const picked = value.runs.find(r => r.key === pick);
-  const candidates = source?.kind === 'ready' ? source.candidates : undefined;
-  const candidate = pick && candidates && Object.hasOwn(candidates, pick) ? candidates[pick] : undefined;
+  const candidate = pick && Object.hasOwn(source.candidates, pick) ? source.candidates[pick] : undefined;
   const none = makeHintedOption('', '-');
   const measureOptions = measures.map(f => ({ value: key(f), label: key(f), title: f.description }));
   const xAxis = x ?? defaults[from].x;
@@ -102,11 +116,6 @@ const Data = ({ from }: { from: ResultSource }) => {
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <div className="min-w-0 flex-1 space-y-3 overflow-y-auto p-4">
-        {failure && (
-          <p role="alert" className="text-xs text-amber-600">
-            Could not refresh results; showing the previous snapshot. {failure}
-          </p>
-        )}
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-flex gap-0.5 rounded-md bg-zinc-100 p-0.5 text-xs dark:bg-zinc-900">
             {['table', 'chart'].map(v => (

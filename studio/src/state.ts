@@ -59,7 +59,7 @@ export const makeLiveJsonAtom = <T>(
   topics: readonly string[],
   read: (value: unknown) => T | Promise<T> = value => value as T
 ) => {
-  const value = atom<{ value?: T; failure?: string }>({});
+  const value = atom<{ value?: T; failure?: string; retry?: () => void }>({});
   value.onMount = set => {
     let active = true;
     let busy = false;
@@ -78,7 +78,7 @@ export const makeLiveJsonAtom = <T>(
             if (active) set({ value: next });
           },
           (e: Error) => {
-            if (active) set(previous => ({ ...previous, failure: e.message }));
+            if (active) set(previous => ({ ...previous, failure: e.message, retry: load }));
           }
         )
         .finally(() => {

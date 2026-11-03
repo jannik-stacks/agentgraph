@@ -2,7 +2,7 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useEffect, useMemo, useState } from 'react';
 import { pageAtom, navigateAtom, queryParam, runResultsAtom, runsAtom } from '../state.ts';
 import { Problems } from '../Problems.tsx';
-import { Combobox, KeyPicker, makeHiddenKeysAtom, Loading, Muted } from '../ui.tsx';
+import { Combobox, KeyPicker, Live, makeHiddenKeysAtom, Loading, Muted } from '../ui.tsx';
 import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { RunPage } from './RunPage.tsx';
@@ -61,7 +61,8 @@ const splitRunsByIssue = (runs: ServedRun[]) => {
 
 const RunList = () => {
   const gh = useAtomValue(ghParam);
-  return gh ? <Locate gh={gh} /> : <Runs />;
+  const state = useAtomValue(runsAtom);
+  return gh ? <Locate gh={gh} /> : <Live state={state}>{runs => <Runs runs={runs} />}</Live>;
 };
 
 const RunResults = ({ ids }: { ids: string[] }) => {
@@ -78,22 +79,20 @@ const RunResults = ({ ids }: { ids: string[] }) => {
   );
 };
 
-const Runs = () => {
-  const { value: runs, failure } = useAtomValue(runsAtom);
+const Runs = ({ runs }: { runs: ServedRun[] }) => {
   const [issue, setIssue] = useAtom(issueParam);
   const [label, setLabel] = useAtom(labelParam);
   const [hidden, setHidden] = useAtom(hiddenLabelKeysAtom);
   const navigate = useSetAtom(navigateAtom);
-  const options = useMemo(() => splitRunsByIssue(runs ?? []), [runs]);
+  const options = useMemo(() => splitRunsByIssue(runs), [runs]);
   const labels = useMemo(
     () =>
-      [...new Set((runs ?? []).flatMap(r => Object.entries(r.labels).map(([k, v]) => `${k}=${v}`)))]
+      [...new Set(runs.flatMap(r => Object.entries(r.labels).map(([k, v]) => `${k}=${v}`)))]
         .toSorted()
         .map(pair => ({ value: pair, label: pair })),
     [runs]
   );
-  const keys = useMemo(() => [...new Set((runs ?? []).flatMap(r => Object.keys(r.labels)))].toSorted(), [runs]);
-  if (!runs) return failure ? <Muted>{failure}</Muted> : <Loading />;
+  const keys = useMemo(() => [...new Set(runs.flatMap(r => Object.keys(r.labels)))].toSorted(), [runs]);
   if (!runs.length) return <Muted>No runs in this data dir.</Muted>;
   const shown = runs
     .filter(r => issue === null || String(r.run.issue) === issue)

@@ -3,7 +3,7 @@ import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { connectedAtom, navigateAtom, pageAtom } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
-import { accent, cx, Link, Loading } from './ui.tsx';
+import { accent, Button, cx, Link, Loading } from './ui.tsx';
 
 const pages = {
   inbox: lazy(() => import('./runs/InboxPage.tsx').then(m => ({ default: m.InboxPage }))),
@@ -20,8 +20,8 @@ const nav = [
 
 const plugins = new Map(declared.map(page => [page.href, lazy(page.load)]));
 
-class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
-  override state: { error?: Error } = {};
+class Boundary extends Component<{ children: ReactNode }, { error?: Error | undefined }> {
+  override state: { error?: Error | undefined } = {};
   static getDerivedStateFromError = (error: Error) => ({ error });
   override render() {
     const { error } = this.state;
@@ -29,9 +29,10 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
     return (
       <div className="p-4">
         <p>{error.message}</p>
-        <button className="mt-2 underline" onClick={() => location.reload()}>
-          Reload
-        </button>
+        <div className="mt-2 flex gap-2">
+          <Button onClick={() => this.setState({ error: undefined })}>Try again</Button>
+          <Button onClick={() => location.reload()}>Reload</Button>
+        </div>
       </div>
     );
   }
