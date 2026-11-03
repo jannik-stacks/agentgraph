@@ -910,12 +910,11 @@ describe('prices', () => {
     dirs.push(at);
     const file = join(at, 'keys.env');
     writeFileSync(file, 'AGENTGRAPH_LLM_API_KEY_IMPLEMENTOR=impl-key\n');
-    readBenchKeys(file);
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('not allowed', { status: 403 }));
     try {
-      expect(await whyPointUnready('opencode:nope')).toBe('opencode:nope: no list price for nope');
+      expect(await whyPointUnready('opencode:nope', file)).toBe('opencode:nope: no list price for nope');
       expect(fetch).not.toHaveBeenCalled();
-      expect(await whyPointUnready('codex:luna')).toBe('codex:luna: the proxy answered 403: not allowed');
+      expect(await whyPointUnready('codex:luna', file)).toBe('codex:luna: the proxy answered 403: not allowed');
       expect(fetch.mock.calls[0]![1]!.headers).toMatchObject({ authorization: 'Bearer impl-key' });
     } finally {
       fetch.mockRestore();

@@ -4,7 +4,7 @@
 // Live knobs in <dir>: `parallel` (worker count), `PAUSE` (take no new job). events.jsonl logs every start, stop,
 // pause and job. Exits 1 while jobs are left, so a queue tries again later.
 import { spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -20,6 +20,7 @@ import {
   startChildProcess,
 } from '../bin/resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
+import { readRunLabels } from '../src/labels.ts';
 import { writeFileAtomic } from '../src/store.ts';
 
 /** The node on PATH now, so a toolchain upgrade during a long bench does not break later spawns. */
@@ -152,31 +153,28 @@ const readBenchJobs = (dir: string, s: Settings): Job[] => {
 const slot = (j: Job) => j.point.replace(':', '-');
 const runDir = (dir: string, s: Settings, j: Job) => join(dir, s.SHA!, slot(j), `r${j.k}`);
 const formatJobName = (j: Job) => `${slot(j)}/r${j.k}/${j.c.id}`;
-const marker = (dir: string, j: Job) => join(dir, 'done', slot(j), `r${j.k}`, j.c.id);
-/** Done markers older drivers wrote: by engine for one point, by model for several unless two points share it. */
-const markers = (dir: string, s: Settings, j: Job) => {
-  const model = j.point.split(':')[1]!;
-  const points = s.POINTS!.split(',');
-  return [
-    marker(dir, j),
-    ...(points.length > 1 ? [] : [join(dir, 'done', s.SHA!, `r${j.k}`, j.c.id)]),
-    ...(points.filter(p => p.split(':').at(-1) === model).length > 1
-      ? []
-      : [join(dir, 'done', model, `r${j.k}`, j.c.id)]),
-  ];
+const makeJobRunLabels = (s: Settings, j: Job, arm: string) => {
+  const [harness, model] = j.point.split(':');
+  return { case: j.c.id, arm, harness, model, repeat: String(j.k), engine: s.SHA, set: s.SET };
 };
 
-/**
- * Whether a job's results are all on disk: its case is invalid, or both arms ran and were scored, and, when a panel
- * judges, a done marker says it judged them.
- */
+const isArmRunLabelled = (at: string, s: Settings, j: Job, arm: string) => {
+  const data = join(at, arm, 'data');
+  const want = Object.entries(makeJobRunLabels(s, j, arm));
+  return (existsSync(data) ? readdirSync(data) : []).some(id => {
+    const labels = readRunLabels(data, id);
+    return existsSync(join(data, id, 'run.json')) && want.every(([k, v]) => labels[k] === v);
+  });
+};
+
 const finished = (dir: string, s: Settings, j: Job) => {
   const at = join(runDir(dir, s, j), j.c.id);
   const valid = json<{ invalid?: string } | null>(join(at, 'valid.json'), null);
   if (!valid) return false;
   if (valid.invalid) return true;
-  if (!arms.every(a => existsSync(join(at, a, 'diff.patch')) && existsSync(join(at, a, 'score.json')))) return false;
-  return s.JUDGES === 'none' || markers(dir, s, j).some(m => json(m, { judged: false }).judged !== false);
+  const done = (a: string) =>
+    existsSync(join(at, a, 'diff.patch')) && existsSync(join(at, a, 'score.json')) && isArmRunLabelled(at, s, j, a);
+  return arms.every(done) && (s.JUDGES === 'none' || existsSync(join(at, 'judge', 'panel.json')));
 };
 
 /** Where a driven bench dir stands, for the studio and `status`. */
@@ -325,18 +323,14 @@ if (import.meta.main) {
 
     const budgetLog = join(dir, 'budget-log.jsonl');
     const seen = new Set(readJsonl<{ label?: string }>(budgetLog).map(l => l.label));
-    const { codexUsed, readBenchKeys, whyPointUnready } = (await import(join(engine, 'bin/bench.ts'))) as {
+    const { codexUsed, whyPointUnready } = (await import(join(engine, 'bin/bench.ts'))) as {
       codexUsed: () => number | undefined;
-      readBenchKeys?: (file: string) => void;
-      whyPointUnready?: (point: string) => Promise<string | undefined>;
+      whyPointUnready: (point: string, keysFile: string) => Promise<string | undefined>;
     };
     const points = [...new Set(queue.map(j => j.point))];
-    if (!whyPointUnready) log(`skipped the point preflight: the engine at ${s.SHA} has none`);
-    else {
-      readBenchKeys!(s.KEYS ?? join(engine, 'infra/local/.keys.env'));
-      const unready = (await Promise.all(points.map(whyPointUnready))).filter(Boolean);
-      if (unready.length) throw new Error(`points not ready:\n${unready.join('\n')}`);
-    }
+    const keysFile = s.KEYS ?? join(engine, 'infra/local/.keys.env');
+    const unready = (await Promise.all(points.map(p => whyPointUnready(p, keysFile)))).filter(Boolean);
+    if (unready.length) throw new Error(`points not ready:\n${unready.join('\n')}`);
     const reading = (label: string) => {
       const now = codexUsed();
       if (now === undefined || !Number.isFinite(now)) throw new Error('Codex usage unreadable; driver stopped');
@@ -431,7 +425,10 @@ if (import.meta.main) {
       const caseDir = join(dir, 'cases', id);
       const common = [caseDir, at, '--repo', join(s.REPOS!, j.c.repo.split('/').pop()!)];
       const paid = ['--max-codex', codexCap(at), '--max-claude-calls', '400'];
-      const t0 = Date.now();
+      const labels = Object.entries({ ...parseBenchLabels(s.LABELS!), engine: s.SHA, set: s.SET }).flatMap(([k, v]) => [
+        '--label',
+        `${k}=${v}`,
+      ]);
       const gated = await bench(['score', ...common], logFile);
       if (gated) return `gate score exit ${gated}`;
       const valid = json<{ invalid?: string } | null>(join(at, id, 'valid.json'), null);
@@ -440,7 +437,7 @@ if (import.meta.main) {
       else {
         for (const arm of arms) {
           const code = await bench(
-            ['run', arm, ...common, '--point', j.point, '--repeat', String(j.k), ...paid],
+            ['run', arm, ...common, '--point', j.point, '--repeat', String(j.k), ...labels, ...paid],
             logFile
           );
           log(`${formatJobName(j)} ${arm} exit ${code}`);
@@ -455,7 +452,6 @@ if (import.meta.main) {
           if (judged) return `judge exit ${judged}`;
         }
       }
-      writeFileAtomic(marker(dir, j), { min: Math.round((Date.now() - t0) / 60000), judged: judges !== 'none' });
       return undefined;
     };
 

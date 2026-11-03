@@ -138,13 +138,18 @@ export const removeSandboxContainersMountingDir = (dir: string) => {
   return stray;
 };
 
-/** The host URL of the model proxy's liveness check, from `AGENTGRAPH_PROXY_URL`. */
-export const probeUrl = (proxy = process.env.AGENTGRAPH_PROXY_URL ?? 'http://gateway:4000/v1') => {
-  if (process.env.BENCH_PROXY_PROBE) return process.env.BENCH_PROXY_PROBE;
+export const getHostProxyUrl = (proxy = process.env.AGENTGRAPH_PROXY_URL ?? 'http://gateway:4000/v1') => {
   const first = Object.values(parseModelUrls(proxy)).find(at => URL.canParse(at));
   if (!first) return undefined;
   const url = new URL(first);
   if (url.hostname === 'gateway') url.hostname = '127.0.0.1';
+  return url;
+};
+
+export const probeUrl = (proxy?: string) => {
+  if (process.env.BENCH_PROXY_PROBE) return process.env.BENCH_PROXY_PROBE;
+  const url = getHostProxyUrl(proxy);
+  if (!url) return undefined;
   url.pathname = '/health/liveliness';
   return url.href;
 };

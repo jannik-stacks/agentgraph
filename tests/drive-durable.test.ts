@@ -1,10 +1,11 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configure, readBenchDriveState } from '../bench/drive.ts';
 import { readJsonl } from '../bin/resume.ts';
 import { isPidRunning } from '../src/owner.ts';
+import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { git, tmp } from './kit.ts';
 
 const driver = resolve(import.meta.dirname, '../bench/drive.ts');
@@ -13,9 +14,9 @@ const fake = `import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 export const codexUsed = () => Number(process.env.FAKE_CODEX ?? 10);
-export const readBenchKeys = () => {};
 export const whyPointUnready = async point =>
   (process.env.FAKE_UNREADY ?? '').split(',').includes(point) ? point + ': no list price' : undefined;
+const flag = name => process.argv.flatMap((arg, i) => (arg === '--' + name ? [process.argv[i + 1]] : []));
 if (import.meta.main) {
   const [cmd, a, b, c] = process.argv.slice(2);
   const out = cmd === 'run' ? c : b;
@@ -39,11 +40,19 @@ if (import.meta.main) {
       setInterval(() => {}, 1000);
     } else if (fail.includes(id + '/' + a)) process.exitCode = 1;
     else {
-      mkdirSync(join(at, a), { recursive: true });
+      const [harness, model] = flag('point')[0].split(':');
+      const labels = { case: id, arm: a, harness, model, repeat: flag('repeat')[0], ...Object.fromEntries(flag('label').map(l => l.split('='))) };
+      mkdirSync(join(at, a, 'data', 'run-1'), { recursive: true });
+      writeFileSync(join(at, a, 'data', 'run-1', 'run.json'), '{}');
+      writeFileSync(join(at, a, 'data', 'run-1', 'labels.json'), JSON.stringify(labels));
       writeFileSync(join(at, a, 'diff.patch'), 'd');
     }
   }
   if (cmd === 'judge' && fail.includes('judge')) process.exitCode = 1;
+  else if (cmd === 'judge') {
+    mkdirSync(join(at, 'judge'), { recursive: true });
+    writeFileSync(join(at, 'judge', 'panel.json'), '{}');
+  }
 }
 `;
 
@@ -130,29 +139,38 @@ describe('bench driver durability', () => {
     expect(calls(dir)).toEqual([]);
   });
 
-  it('keeps logs, reports and done markers apart for two harnesses on one model, and reaps trees at the end', async () => {
+  it('skips a job whose arm runs are labelled and judged, keeps two harnesses on one model apart, and reaps trees', async () => {
     const dir = bench(['c1']);
     const both = { ...settings(dir), POINTS: 'opencode:m,codex:m' };
-    mkdirSync(join(dir, 'done/m/r1'), { recursive: true });
-    writeFileSync(join(dir, 'done/m/r1/c1'), '{"judged":true}');
     for (const point of ['opencode-m', 'codex-m']) {
       const at = join(run(dir, point), 'c1');
       for (const arm of ['v2', 'floor']) {
-        mkdirSync(join(at, arm), { recursive: true });
+        mkdirSync(join(at, arm, 'data/run-1'), { recursive: true });
+        writeFileSync(join(at, arm, 'data/run-1/run.json'), '{}');
+        writeRunLabels(join(at, arm, 'data'), 'run-1', {
+          case: 'c1',
+          arm,
+          harness: point.split('-')[0]!,
+          model: 'm',
+          repeat: '1',
+          engine: sha(dir).slice(0, 8),
+          set: basename(dir),
+        });
         writeFileSync(join(at, arm, 'diff.patch'), 'd');
         writeFileSync(join(at, arm, 'score.json'), '{}');
       }
       writeFileSync(join(at, 'valid.json'), '{}');
     }
+    mkdirSync(join(run(dir), 'c1/judge'));
+    writeFileSync(join(run(dir), 'c1/judge/panel.json'), '{}');
     const tree = join(run(dir, 'codex-m'), 'c1/tree');
     mkdirSync(tree);
     writeFileSync(join(run(dir, 'codex-m'), 'c1/case.json'), '{}');
     const result = await drive(dir, { ...both, JUDGES: 'opus:1' });
     expect(result.code, result.out).toBe(0);
-    expect(calls(dir).filter(c => c.cmd === 'judge')).toHaveLength(2);
+    expect(calls(dir).filter(c => c.cmd === 'judge')).toHaveLength(1);
     expect(readdirSync(join(dir, 'logs')).toSorted()).toEqual([
       'codex-m-r1-c1.log',
-      'opencode-m-r1-c1.log',
       'report-codex-m-r1.log',
       'report-opencode-m-r1.log',
     ]);
@@ -200,7 +218,16 @@ describe('bench driver durability', () => {
       'finish',
     ]);
     expect(JSON.parse(readFileSync(join(dir, 'drive.json'), 'utf8'))).toMatchObject({ JUDGES: 'none' });
-    expect(existsSync(join(dir, 'done/opencode-m/r1/c1'))).toBe(true);
+    expect(readRunLabels(join(run(dir), 'c1/v2/data'), 'run-1')).toEqual({
+      case: 'c1',
+      arm: 'v2',
+      harness: 'opencode',
+      model: 'm',
+      repeat: '1',
+      engine: sha(dir).slice(0, 8),
+      set: basename(dir),
+      experiment: 'skills',
+    });
     expect(existsSync(join(dir, 'drive.lock'))).toBe(false);
     expect(JSON.parse(readFileSync(join(run(dir), 'point.json'), 'utf8')).labels).toEqual({ experiment: 'skills' });
     expect(() => configure(dir, { LABELS: 'experiment=other' })).toThrow('this run started with experiment=skills');

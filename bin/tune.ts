@@ -142,10 +142,6 @@ const ids = (t: Tune, ...splits: Split[]) =>
     .filter(id => splits.includes(t.cases[id]!))
     .sort();
 
-/**
- * Per case the quality, usd and minutes of every scored v2 run that was not infra, the count of all runs and their
- * total cost and minutes.
- */
 const scores = (rows: Row[], preset: Tune['preset']) => {
   const w = preset === 'hidden' ? { ...presets['hidden tests only']!, suite: 0.15 } : presets.composite!;
   const human = new Map(rows.filter(r => r.labels.arm === 'human').map(r => [r.case, r]));

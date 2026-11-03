@@ -106,7 +106,7 @@ const wrapped = (cmd: string, args: string[]) => ({
 });
 
 /** `name=value` pairs, separated by commas or white space. */
-const parseNamePairs = (text: string) =>
+export const parseNamePairs = (text: string) =>
   Object.fromEntries(
     splitNames(text).map(pair => {
       const at = pair.indexOf('=');

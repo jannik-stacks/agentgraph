@@ -1,5 +1,5 @@
-no-comment bench/drive.ts 17
-no-comment bin/bench.ts 60
+no-comment bench/drive.ts 15
+no-comment bin/bench.ts 58
 no-comment bin/commands.mjs 5
 no-comment bin/commit-msg.mjs 1
 no-comment bin/diagrams.mjs 8
@@ -7,11 +7,11 @@ no-comment bin/env.ts 1
 no-comment bin/fields.mjs 2
 no-comment bin/lsp.ts 1
 no-comment bin/refs.mjs 18
-no-comment bin/resume.ts 13
+no-comment bin/resume.ts 12
 no-comment bin/run.ts 1
 no-comment bin/setup-app.ts 3
 no-comment bin/traces.mjs 6
-no-comment bin/tune.ts 28
+no-comment bin/tune.ts 27
 no-comment examples/agentgraph/scripts/ast.mjs 9
 no-comment examples/agentgraph/scripts/bounds.mjs 5
 no-comment examples/agentgraph/scripts/brief.mjs 14

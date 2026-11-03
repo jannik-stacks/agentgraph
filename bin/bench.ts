@@ -27,6 +27,8 @@ import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/forge.ts';
 import { writeComment } from '../src/instance.ts';
 import { writeFileAtomic } from '../src/store.ts';
+import { parseLabelPatch, parseLabels, writeRunLabels } from '../src/labels.ts';
+import { parseNamePairs } from '../src/harnesses.ts';
 import {
   agentgraphDir,
   appendJsonl,
@@ -44,6 +46,7 @@ import {
   readFileOrEmpty,
   removeSandboxContainersMountingDir,
   removeUnheldScoreTrees,
+  getHostProxyUrl,
 } from './resume.ts';
 import { isLockedByOtherProcess, waitForLock } from '../src/owner.ts';
 import { parseGraphSettings } from '../src/folder.ts';
@@ -97,7 +100,7 @@ const findExampleGraphName = (repo: string) => {
 const caseLabelKeys = ['repo', 'tests', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/agent No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
-const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all' };
+const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all', labels: parseLabels({}) };
 let panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_tests?\.\w+$/;
 const noise =
@@ -411,12 +414,7 @@ const guard = (out: string, claude: boolean) => {
 
 const readPointKeys = (point: string) => {
   const key = keys[`AGENTGRAPH_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
-  const own = new Map(
-    (keys.AGENTGRAPH_PROXY_KEYS ?? '').split(',').flatMap(kv => {
-      const at = kv.indexOf('=');
-      return at > 0 ? [[kv.slice(0, at), kv.slice(at + 1)] as const] : [];
-    })
-  );
+  const own = new Map(Object.entries(parseNamePairs(keys.AGENTGRAPH_PROXY_KEYS ?? '')));
   return { key, own, spare: key ?? own.get('implementor') ?? [...own.values()][0] };
 };
 
@@ -449,6 +447,18 @@ export const repoint = (graph: string, point: string) => {
   const { key, own, spare } = readPointKeys(point);
   for (const name of names.map(n => basename(n, '.md'))) if (spare && (key || !own.has(name))) own.set(name, spare);
   if (own.size) keys.AGENTGRAPH_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
+};
+
+const makeArmRunLabels = (c: Pick<Case, 'id'>, arm: string) => {
+  const [harness, model] = options.point?.split(':') ?? [];
+  return parseLabels({
+    case: c.id,
+    arm,
+    ...(harness && model && { harness, model }),
+    repeat: String(options.repeat),
+    engine: sh('git', ['-C', engine, 'rev-parse', 'HEAD']).trim(),
+    ...options.labels,
+  });
 };
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
@@ -528,6 +538,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
             },
           },
         },
+        labels: makeArmRunLabels(c, arm),
       },
       undefined,
       keys
@@ -676,7 +687,13 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     };
     aside();
     const kept = armSlot(c, arm);
-    if (reusable(kept)) return reuse(kept!, at);
+    if (reusable(kept)) {
+      reuse(kept!, at);
+      const data = join(at, 'data');
+      for (const id of readdirSync(data).filter(id => existsSync(join(data, id, 'run.json'))))
+        writeRunLabels(data, id, makeArmRunLabels(c, arm));
+      return;
+    }
     const failed = () =>
       readJsonl(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
     for (let attempt = 0, empty = 0; ; attempt++) {
@@ -1035,7 +1052,6 @@ export const readArmUsageOverAttempts = (at: string) => {
   };
 };
 
-/** An arm's usage over all its attempts: its `usage.json` once a done arm wrote it, else recounted from its records. */
 const usage = (at: string): Partial<ReturnType<typeof readArmUsageOverAttempts>> => {
   const saved = JSON.parse(readFileOrEmpty(join(at, 'usage.json')) || '{}') as Partial<
     ReturnType<typeof readArmUsageOverAttempts>
@@ -1440,7 +1456,7 @@ const claude = (model: string) => (prompt: string, cwd: string) =>
     child.stdin?.end(prompt);
   });
 const ask = (model: string, key: string | undefined, prompt: string, ms = 1_800_000) =>
-  fetch('http://127.0.0.1:4000/v1/chat/completions', {
+  fetch(`${getHostProxyUrl()?.href.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
@@ -1471,10 +1487,10 @@ export const unpriced = (arm: string, graph: string, point = options.point) => {
   return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !isModelPriced(prices, m));
 };
 
-/** Why `point` cannot run: its model has no list price, or the proxy refuses it a one-line request with its key. */
-export const whyPointUnready = async (point: string) => {
+export const whyPointUnready = async (point: string, keysFile: string) => {
+  readBenchKeys(keysFile);
   const model = point.split(':')[1]!;
-  if (unpriced('v2', '', point).length) return `${point}: no list price for ${model}`;
+  if (!isModelPriced(prices, model)) return `${point}: no list price for ${model}`;
   const r = await ask(model, readPointKeys(point).spare, 'Reply with exactly: ok', 120_000).catch(
     (e: unknown) => e as Error
   );
@@ -1603,6 +1619,7 @@ const judge = async (caseDir: string, out: string) => {
             })
         );
       }
+  writeFileAtomic(join(root, 'judge', 'panel.json'), { panel });
 };
 
 /** The 95% interval of the mean of `xs` over resampled sets of the same size. */
@@ -2008,6 +2025,7 @@ if (import.meta.main) {
       repeat: { type: 'string', default: '1' },
       pairs: { type: 'string', default: 'all' },
       'drop-env': { type: 'boolean', default: false },
+      label: { type: 'string', multiple: true },
     },
   });
   const [command, a, b, c] = positionals;
@@ -2032,7 +2050,12 @@ if (import.meta.main) {
   const point = env.point ?? values.point ?? process.env.BENCH_POINT;
   if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
   if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);
-  Object.assign(options, { point, repeat: Number(values.repeat), pairs: values.pairs });
+  Object.assign(options, {
+    point,
+    repeat: Number(values.repeat),
+    pairs: values.pairs,
+    labels: parseLabels(parseLabelPatch(values.label ?? [])),
+  });
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
   panel = parsePanel(values.judges);
   readBenchKeys(env.keys ?? values.keys ?? join(agentgraphDir, 'infra/local/.keys.env'));
@@ -2046,7 +2069,9 @@ if (import.meta.main) {
     const { units, parallel } = readPlannedUnits(resolve(a));
     console.log(statusText(progress(units, parallel)));
   } else {
-    console.error('usage: node bin/bench.ts (run (v2|floor) <case> <out> | score <case> <out>) --repo <clone>');
+    console.error(
+      'usage: node bin/bench.ts (run (v2|floor) <case> <out> [--label <key>=<value>]... | score <case> <out>) --repo <clone>'
+    );
     console.error('       node bin/bench.ts judge <case> <out> | report <out> | status <out>');
     process.exit(2);
   }
