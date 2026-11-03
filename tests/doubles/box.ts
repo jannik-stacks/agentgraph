@@ -14,14 +14,16 @@ const read = async (request: IncomingMessage) => {
 };
 
 export const startBoxServer = async (dir: string, { frame = true } = {}) => {
-  const runs: { id: string; network: string; argv: string[] }[] = [];
+  const runs: { id: string; run: string; network: string; argv: string[] }[] = [];
   const faults = { pulls: 0, stops: 0 };
+  const events: string[] = [];
   const children = new Map<string, { box: string; child: ChildProcess }>();
   const stop = async (child: ChildProcess) => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (child.exitCode !== null || child.signalCode !== null) return false;
     const exited = new Promise(resolve => child.once('close', resolve));
     process.kill(-child.pid!, 'SIGKILL');
     await exited;
+    return true;
   };
   const server = createServer(async (request, response) => {
     const url = new URL(request.url!, 'http://box');
@@ -45,15 +47,16 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       return response.end('unreachable');
     }
     if (op === 'stop') {
-      const running = children.get(url.searchParams.get('arg') ?? '');
-      if (running) await stop(running.child);
+      const run = url.searchParams.get('arg') ?? '';
+      const running = children.get(run);
+      if (running && (await stop(running.child))) events.push(`stopped ${run}`);
       return response.end();
     }
     if (op === 'run') {
       if (fresh) return response.end();
       const sent = JSON.parse(body.toString('utf8')) as { argv: string[]; secrets: Record<string, string> };
       const [minutes = '1', ...argv] = sent.argv;
-      runs.push({ id, network: url.searchParams.get('network') ?? '', argv });
+      runs.push({ id, run: url.searchParams.get('id') ?? '', network: url.searchParams.get('network') ?? '', argv });
       const child = spawn(
         'sh',
         [script, 'run', minutes, ...argv.map(arg => arg.replace(/^(\w+=)(\/(homes|graph)(\/.*)?)$/s, `$1${root}$2`))],
@@ -82,6 +85,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       response.statusCode = 503;
       return response.end('unreachable');
     }
+    if (op === 'pull') events.push('pull');
     const child = spawn('sh', [script, op, ...url.searchParams.getAll('arg')], { env });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
@@ -99,6 +103,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     runs,
     faults,
+    events,
     close: () => new Promise<void>(resolve => server.close(() => resolve())),
   };
 };

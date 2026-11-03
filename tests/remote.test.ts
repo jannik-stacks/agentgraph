@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { Chunk, Effect, Exit, type Layer, Redacted, type Scope, Stream } from 'effect';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Chunk, Effect, Exit, Fiber, type Layer, Redacted, type Scope, Stream } from 'effect';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { remoteSandbox } from '../src/remote.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { startBoxServer } from './doubles/box.ts';
@@ -262,21 +262,27 @@ describe('remote sandbox', () => {
   });
 
   it('stops a command whose stop failed before pulling its work', async () => {
-    let id = '';
+    const waiting = 'touch started; exec sleep 60';
     const exit = await use(layer(), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
-        id = basename(work.dir);
+        const started = join(boxes, basename(work.dir), 'work', 'started');
+        const writer = yield* Effect.fork(s.exec(sh(work.dir, waiting)));
+        yield* Effect.promise(() =>
+          vi.waitFor(() => existsSync(started) || Promise.reject(new Error('the writer has not started')), {
+            timeout: 60_000,
+            interval: 20,
+          })
+        );
         server.faults.stops = 3;
-        const late = 'echo early > e.txt; until [ -e go ]; do sleep 0.05; done; echo late > l.txt';
-        yield* Effect.either(s.exec(sh(work.dir, late, { minutes: 0.01 })));
-        const next = yield* s.exec(sh(work.dir, 'ls'));
-        writeFileSync(join(boxes, id, 'work', 'go'), '');
-        yield* Effect.sleep('1500 millis');
-        return [next.output.includes('l.txt'), existsSync(join(boxes, id, 'work', 'l.txt'))];
+        yield* Fiber.interrupt(writer);
+        const mark = server.events.length;
+        yield* s.exec(sh(work.dir, 'true'));
+        return server.events.slice(mark, mark + 2);
       })
     );
-    expect(exit).toEqual(Exit.succeed([false, false]));
+    const writer = server.runs.find(run => run.argv.includes(waiting));
+    expect(exit).toEqual(Exit.succeed([`stopped ${writer?.run}`, 'pull']));
   });
 
   it('leaves a running command alone while another one starts', async () => {
