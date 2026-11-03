@@ -22,7 +22,7 @@ describe('bench driver', () => {
     expect(parseBenchLabels('')).toEqual({});
     expect(() => parseBenchLabels('team')).toThrow('write a label as key=value');
     expect(() => parseBenchLabels('=bench')).toThrow('write a label as key=value');
-    expect(() => parseBenchLabels('team-')).toThrow('Expected string, actual null');
+    expect(() => parseBenchLabels('team-')).toThrow(/Expected string\n  at \["team"\]/);
     expect(() => parseBenchLabels('Team=bench')).toThrow('["Team"]');
   });
 
