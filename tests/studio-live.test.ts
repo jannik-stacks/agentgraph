@@ -112,3 +112,29 @@ it('shows loading, a failure with retry, and stale data under one refresh note',
   expect(stale).toContain('shown old');
   expect(show({ value: 'new' })).toBe('shown new');
 });
+
+it('keeps every opened run atom while it is subscribed, past any number of runs', async () => {
+  vi.stubGlobal('location', new URL('http://studio/runs'));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>(() => {}))
+  );
+  const { createStore } = await dependency<{
+    createStore: () => { sub: (atom: object, listener: () => void) => () => void };
+  }>('jotai');
+  const { runAtom, runResultsAtom } = await studioModule<{
+    runAtom: (id: string) => object;
+    runResultsAtom: () => object;
+  }>('state.ts');
+  const store = createStore();
+  const ids = Array.from({ length: 150 }, (_, i) => `kept-${i}`);
+  const first = runAtom(ids[0]!);
+  const stops = [...ids.map(id => store.sub(runAtom(id), () => {})), store.sub(runResultsAtom(), () => {})];
+  try {
+    expect(runAtom(ids[0]!)).toBe(first);
+    expect(new Set(ids.map(id => runAtom(id))).size).toBe(ids.length);
+  } finally {
+    for (const stop of stops) stop();
+    vi.unstubAllGlobals();
+  }
+});

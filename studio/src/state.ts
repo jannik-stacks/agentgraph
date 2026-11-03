@@ -106,10 +106,7 @@ type ServedResults = Omit<ReturnType<typeof readRunResults>, 'runs'> & { runs: (
 
 const opened = new Map<string, object>();
 const openOnce = <T>(url: string, data?: string | null) => {
-  if (!opened.has(url)) {
-    opened.set(url, makeLiveJsonAtom<T>(url, [data ? 'bench' : 'data']));
-    if (opened.size > 100) opened.delete(opened.keys().next().value!);
-  }
+  if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<T>(url, [data ? 'bench' : 'data']));
   return opened.get(url) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
 
