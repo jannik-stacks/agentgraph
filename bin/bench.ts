@@ -27,7 +27,7 @@ import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/forge.ts';
 import { writeComment } from '../src/instance.ts';
 import { writeFileAtomic } from '../src/store.ts';
-import { parseLabelPatch, parseLabels, writeRunLabels } from '../src/labels.ts';
+import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { parseNamePairs } from '../src/harnesses.ts';
 import {
   agentgraphDir,
@@ -629,13 +629,21 @@ export const armSlot = (
     ...(point || repeat > 1 ? [point ?? '', repeat] : [])
   );
 
-/** Publishes a cached arm at `at` and notes in its `meta.json` which slot it came from. */
-export const reuse = (kept: string, at: string) => {
+/**
+ * Publishes a cached arm at `at`, notes in its `meta.json` which slot it came from, and gives its runs `labels` in
+ * place of the ones they were cached with.
+ */
+export const reuse = async (kept: string, at: string, labels: Record<string, string>) => {
   copyDirIfAbsentAtomic(kept, at);
   writeFileAtomic(join(at, 'meta.json'), {
     ...JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}'),
     reusedFrom: kept,
   });
+  const data = join(at, 'data');
+  for (const id of (existsSync(data) ? readdirSync(data) : []).filter(id => existsSync(join(data, id, 'run.json')))) {
+    const inherited = Object.keys(readRunLabels(data, id)).map(key => [key, null] as const);
+    await Effect.runPromise(writeRunLabels(data, id, { ...Object.fromEntries(inherited), ...labels }));
+  }
 };
 
 /** The harness's last words when the run's last session ended in an error, as when it cannot reach the proxy. */
@@ -687,13 +695,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     };
     aside();
     const kept = armSlot(c, arm);
-    if (reusable(kept)) {
-      reuse(kept!, at);
-      const data = join(at, 'data');
-      for (const id of readdirSync(data).filter(id => existsSync(join(data, id, 'run.json'))))
-        await Effect.runPromise(writeRunLabels(data, id, makeArmRunLabels(c, arm)));
-      return;
-    }
+    if (reusable(kept)) return reuse(kept!, at, makeArmRunLabels(c, arm));
     const failed = () =>
       readJsonl(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
     for (let attempt = 0, empty = 0; ; attempt++) {

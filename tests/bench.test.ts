@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
+import { Effect } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   parseBenchJudgeResponse,
@@ -33,6 +34,7 @@ import {
   whyPointUnready,
 } from '../bin/bench.ts';
 import { faked } from './fixtures.ts';
+import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { git, tmp } from './kit.ts';
 import { getRounded } from '../src/stats.ts';
 
@@ -787,7 +789,7 @@ describe('points', () => {
     expect(new Set(slots).size).toBe(3);
   });
 
-  it('keys the floor by the engine tree too, and stamps where a reused arm came from', () => {
+  it('keys the floor by the engine tree too, and stamps where a reused arm came from', async () => {
     const cache = tmp('cache');
     dirs.push(cache);
     process.env.BENCH_CACHE = cache;
@@ -798,8 +800,23 @@ describe('points', () => {
     mkdirSync(a!, { recursive: true });
     writeFileSync(join(a!, 'meta.json'), JSON.stringify({ ms: 5 }));
     const at = join(cache, 'out', 'floor');
-    reuse(a!, at);
+    await reuse(a!, at, {});
     expect(JSON.parse(readFileSync(join(at, 'meta.json'), 'utf8'))).toEqual({ ms: 5, reusedFrom: a });
+  });
+
+  it('labels a cached arm reused in another set with only the new labels, and leaves the cache as it was', async () => {
+    const cache = tmp('cache');
+    dirs.push(cache);
+    const kept = join(cache, 'slot');
+    mkdirSync(join(kept, 'data', 'run-1'), { recursive: true });
+    writeFileSync(join(kept, 'data', 'run-1', 'run.json'), '{}');
+    await Effect.runPromise(writeRunLabels(join(kept, 'data'), 'run-1', { arm: 'v2', set: 'old', experiment: 'old' }));
+    const at = join(cache, 'new-set', 'v2');
+    await reuse(kept, at, { arm: 'v2', set: 'new' });
+    expect([readRunLabels(join(at, 'data'), 'run-1'), readRunLabels(join(kept, 'data'), 'run-1')]).toEqual([
+      { arm: 'v2', set: 'new' },
+      { arm: 'v2', set: 'old', experiment: 'old' },
+    ]);
   });
 
   it('keys an arm by the BENCH_DIR content, so an unchanged graph hits the cache', () => {
