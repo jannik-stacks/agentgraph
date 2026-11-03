@@ -56,6 +56,14 @@ it('restores an instance from a copy of its folder without the cache', async () 
   );
   const ref = `refs/agentgraph/runs/${run!.id}`;
   const head = git(w.root, '--git-dir', join(i.forge, 'origin.git'), 'rev-parse', ref);
+  const pinned = git(
+    w.root,
+    '--git-dir',
+    join(i.forge, 'origin.git'),
+    'rev-parse',
+    `refs/agentgraph/graphs/${run!.graphTree}^{tree}`
+  );
+  expect(pinned).toBe(git(w.seed, 'rev-parse', 'HEAD:.agentgraph'));
   const bytes = new TextEncoder().encode('uploaded');
   const hash = await inStore(i.data, s => s.putFile(bytes, new AbortController().signal));
 

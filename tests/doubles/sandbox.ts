@@ -27,6 +27,7 @@ const late = (command: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `${command.cmd} ran past ${command.minutes} minutes` });
 
 const attempts = 'refs/agentgraph/attempts/*';
+const graphs = 'refs/agentgraph/graphs/*';
 
 /** Commands on the host, with clones of the local git repo `repo` as worktrees. No network rules. */
 export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
@@ -81,7 +82,7 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         }),
         ({ dir, run, from, kept, news }) =>
           Effect.tryPromise(async () => {
-            await run('push', '-q', 'origin', `${attempts}:${attempts}`);
+            await run('push', '-q', 'origin', `${attempts}:${attempts}`, `${graphs}:${graphs}`);
             if (!keep) return;
             await run('add', '-A');
             const parents = [
