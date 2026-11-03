@@ -103,7 +103,7 @@ count(-1) should throw.
 
 `agi import <commit>|<patch> [<issue file>]` keeps a change made elsewhere, by a person or another tool, as an ended run so `check --runs` can score it beside the agents' runs. A commit comes from your repo and is measured from its parent; a patch is applied onto `--from`, or `HEAD`, and refused when it does not apply. The change is kept at `refs/agentgraph/runs/<run id>` in the forge's `origin.git`. The issue file's first line becomes `title` and the rest `body`, the text a check reads. `--meta <file>` keeps its JSON as `meta.engine.origin.input`, with `plugin` `agi` and `job` `import`. <!-- code: src/instance.ts#writeImportedRun -->
 
-An imported run has workflow `import`, status `done`, no `issue` and no trace, so checks of traces are n/a on it. Every import is a new run, even of the same change; pair runs by their origin input. Runs with no issue are left out of everything that follows issues: the loop, `show`, `resume`, `say` and the traces other runs read. Only results and `check --runs` see them. <!-- code: src/store.ts#fileStore src/workflow.ts#isOnIssue -->
+An imported run has workflow `import`, status `done`, no `issue` and no trace, so checks of traces are n/a on it. Every import is a new run, even of the same change; pair runs by their origin input. Runs with no issue are left out of everything that follows issues: the loop, `show`, `resume`, `say` and the traces other runs read. Only results, the studio's Runs page and `check --runs` see them. <!-- code: src/store.ts#fileStore src/graph.ts#isOnIssue -->
 
 ## Metadata
 

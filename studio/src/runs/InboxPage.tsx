@@ -1,6 +1,6 @@
 import { useAtomValue } from 'jotai';
+import { isOnIssue } from '../../../src/graph.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../../../src/status.ts';
-import { isOnIssue } from '../../../src/workflow.ts';
 import { runsAtom } from '../state.ts';
 import { Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';

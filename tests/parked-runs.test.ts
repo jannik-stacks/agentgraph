@@ -5,9 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { stoppedByRunner } from '../src/context.ts';
 import { drive, instruct, tick } from '../src/engine.ts';
 import { Forge } from '../src/forge.ts';
+import { isOnIssue } from '../src/graph.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
 import { Store } from '../src/store.ts';
-import { begin, isOnIssue, type Run } from '../src/workflow.ts';
+import { begin, type Run } from '../src/workflow.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { bodies, services, world } from './world.ts';
 

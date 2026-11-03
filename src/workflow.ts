@@ -124,8 +124,6 @@ export type RunRecord = Omit<Run, 'issue'> & Partial<Pick<Run, 'issue'>>;
 
 export const isRunDone = (run: RunRecord) => run.status === 'done' || run.status === 'stopped';
 
-export const isOnIssue = (run: RunRecord): run is Run => run.issue !== undefined;
-
 export const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
 const Count = Schema.Int.pipe(Schema.positive());
 const Names = Schema.mutable(Schema.Array(Schema.String));

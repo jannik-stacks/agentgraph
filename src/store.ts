@@ -19,7 +19,8 @@ import { gunzip, gzip, zstdCompress, zstdDecompress, zstdDecompressSync } from '
 import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope } from 'effect';
 import { createLock, LockHeldError } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
-import { isOnIssue, isRunDone, type Run, type RunRecord } from './workflow.ts';
+import { isRunDone, type Run, type RunRecord } from './workflow.ts';
+import { isOnIssue } from './graph.ts';
 import { PluginMetadata, getRunOrigin } from './meta.ts';
 import { ResultSheet } from './results.ts';
 

@@ -1,5 +1,7 @@
 import type { Agent, Check } from './folder.ts';
-import type { Run, Step, Workflow } from './workflow.ts';
+import type { Run, RunRecord, Step, Workflow } from './workflow.ts';
+
+export const isOnIssue = (run: RunRecord): run is Run => run.issue !== undefined;
 
 /**
  * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run

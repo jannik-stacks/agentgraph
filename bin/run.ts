@@ -51,10 +51,11 @@ import {
   formatRunnerError,
   formatShellWord,
 } from '../src/status.ts';
+import { isOnIssue } from '../src/graph.ts';
 import { readHostSettings, whyModelHostsMissing } from '../src/services.ts';
 import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
-import { isOnIssue, type Run, type RunRecord } from '../src/workflow.ts';
+import type { Run, RunRecord } from '../src/workflow.ts';
 
 const usage = `usage: agi <verb> [flags]
   start "<title>[\\n<body>]" [--workflow <name>]   files an issue and drives it until it waits or ends

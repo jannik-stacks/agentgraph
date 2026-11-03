@@ -4,7 +4,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import { useMemo } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
-import { makeWorkflowGraph } from '../../../src/graph.ts';
+import { isOnIssue, makeWorkflowGraph } from '../../../src/graph.ts';
 import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { accent, AutoHeight, Combobox, Muted, Select } from '../ui.tsx';
@@ -25,7 +25,6 @@ import { AgentDetails, CheckDetails } from './OpenedDetails.tsx';
 import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
 import { splitSelection } from './trail.ts';
 import { makeRunStory, makeRunTrail, makeWorkflowRunVisits } from './visits.ts';
-import { isOnIssue } from '../../../src/workflow.ts';
 
 const graphParam = queryParam('graph');
 const runParam = queryParam('run');
