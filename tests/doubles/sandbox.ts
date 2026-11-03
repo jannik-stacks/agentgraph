@@ -82,7 +82,10 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         }),
         ({ dir, run, from, kept, news }) =>
           Effect.tryPromise(async () => {
-            await run('push', '-q', 'origin', `${attempts}:${attempts}`, `${graphs}:${graphs}`);
+            await run('push', '-q', 'origin', `${attempts}:${attempts}`);
+            const pushGraphs = () => run('push', '-q', 'origin', `${graphs}:${graphs}`);
+            // UNEXPECTED: parallel runs on one graph create the same graphs ref at once; the retry finds it in place.
+            await pushGraphs().catch(pushGraphs);
             if (!keep) return;
             await run('add', '-A');
             const parents = [
