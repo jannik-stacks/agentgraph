@@ -155,7 +155,7 @@ describe('compileWorkflow', () => {
       does: run.workflow?.steps[0]?.does,
       problems: messages(file('on: issues\nsteps:\n  b: { agent: implementor, reads: traces }')),
     }).toEqual({
-      does: { run: 'make', reads: 'traces' },
+      does: { run: 'make', returns: ['run'], reads: 'traces' },
       problems: ['steps.b.reads: only a run step reads traces; an agent says so in its file'],
     });
   });
