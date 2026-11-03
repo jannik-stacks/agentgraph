@@ -1487,8 +1487,7 @@ export const unpriced = (arm: string, graph: string, point = options.point) => {
   return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !isModelPriced(prices, m));
 };
 
-export const whyPointUnready = async (point: string, keysFile: string) => {
-  readBenchKeys(keysFile);
+export const whyPointUnready = async (point: string) => {
   const model = point.split(':')[1]!;
   if (!isModelPriced(prices, model)) return `${point}: no list price for ${model}`;
   const r = await ask(model, readPointKeys(point).spare, 'Reply with exactly: ok', 120_000).catch(

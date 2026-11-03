@@ -15,6 +15,7 @@ const fake = `import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 export const codexUsed = () => Number(process.env.FAKE_CODEX ?? 10);
+export const readBenchKeys = () => {};
 export const whyPointUnready = async point =>
   (process.env.FAKE_UNREADY ?? '').split(',').includes(point) ? point + ': no list price' : undefined;
 const flag = name => process.argv.flatMap((arg, i) => (arg === '--' + name ? [process.argv[i + 1]] : []));

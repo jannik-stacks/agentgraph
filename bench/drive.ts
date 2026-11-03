@@ -299,13 +299,14 @@ if (import.meta.main) {
 
     const budgetLog = join(dir, 'budget-log.jsonl');
     const seen = new Set(readJsonl<{ label?: string }>(budgetLog).map(l => l.label));
-    const { codexUsed, whyPointUnready } = (await import(join(engine, 'bin/bench.ts'))) as {
+    const { codexUsed, readBenchKeys, whyPointUnready } = (await import(join(engine, 'bin/bench.ts'))) as {
       codexUsed: () => number | undefined;
-      whyPointUnready: (point: string, keysFile: string) => Promise<string | undefined>;
+      readBenchKeys: (file: string) => void;
+      whyPointUnready: (point: string) => Promise<string | undefined>;
     };
     const points = [...new Set(queue.map(j => j.point))];
-    const keysFile = s.KEYS ?? join(engine, 'infra/local/.keys.env');
-    const unready = (await Promise.all(points.map(p => whyPointUnready(p, keysFile)))).filter(Boolean);
+    readBenchKeys(s.KEYS ?? join(engine, 'infra/local/.keys.env'));
+    const unready = (await Promise.all(points.map(whyPointUnready))).filter(Boolean);
     if (unready.length) throw new Error(`points not ready:\n${unready.join('\n')}`);
     const reading = (label: string) => {
       const now = codexUsed();

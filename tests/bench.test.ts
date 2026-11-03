@@ -910,12 +910,32 @@ describe('prices', () => {
     dirs.push(at);
     const file = join(at, 'keys.env');
     writeFileSync(file, 'AGENTGRAPH_LLM_API_KEY_IMPLEMENTOR=impl-key\n');
+    readBenchKeys(file);
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('not allowed', { status: 403 }));
     try {
-      expect(await whyPointUnready('opencode:nope', file)).toBe('opencode:nope: no list price for nope');
+      expect(await whyPointUnready('opencode:nope')).toBe('opencode:nope: no list price for nope');
       expect(fetch).not.toHaveBeenCalled();
-      expect(await whyPointUnready('codex:luna', file)).toBe('codex:luna: the proxy answered 403: not allowed');
+      expect(await whyPointUnready('codex:luna')).toBe('codex:luna: the proxy answered 403: not allowed');
       expect(fetch.mock.calls[0]![1]!.headers).toMatchObject({ authorization: 'Bearer impl-key' });
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it('sends every queued point the proxy key the shell gave once the keys are read', async () => {
+    const at = tmp('keys');
+    dirs.push(at);
+    const file = join(at, 'keys.env');
+    writeFileSync(file, '');
+    process.env.AGENTGRAPH_PROXY_KEYS = 'implementor=FAKE-shell-key';
+    readBenchKeys(file);
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('ok'));
+    try {
+      expect(await Promise.all(['codex:luna', 'opencode:luna'].map(whyPointUnready))).toEqual([undefined, undefined]);
+      expect(fetch.mock.calls.map(call => (call[1]!.headers as Record<string, string>).authorization)).toEqual([
+        'Bearer FAKE-shell-key',
+        'Bearer FAKE-shell-key',
+      ]);
     } finally {
       fetch.mockRestore();
     }
