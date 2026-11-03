@@ -1,7 +1,7 @@
 import { atom } from 'jotai';
 import type { readRunResults } from '../../bin/results.ts';
 import type { Step } from '../../bin/tune.ts';
-import { type ResultSource, resultSources, type RunResults } from './results/result.ts';
+import type { RunResults } from './results/result.ts';
 import type { ServedRun } from './runs/trace.ts';
 
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
@@ -99,13 +99,12 @@ export const runsAtom = makeLiveJsonAtom<ServedRun[]>('/api/runs');
 
 type ServedResults = Omit<ReturnType<typeof readRunResults>, 'runs'> & { runs: (RunResults & { step?: Step })[] };
 
-export const resultsAtoms = Object.fromEntries(
-  resultSources.map(s => [s, makeLiveJsonAtom<ServedResults>(`/api/results?from=${s}`)])
-) as Record<ResultSource, ReturnType<typeof makeLiveJsonAtom<ServedResults>>>;
+export const runResultsAtom = makeLiveJsonAtom<ServedResults>('/api/results?from=runs');
 
 const opened = new Map<string, ReturnType<typeof makeLiveJsonAtom<ServedRun | null>>>();
 
-export const runAtom = (id: string) => {
-  if (!opened.has(id)) opened.set(id, makeLiveJsonAtom<ServedRun | null>(`/api/runs/${encodeURIComponent(id)}`));
-  return opened.get(id)!;
+export const runAtom = (id: string, data?: string | null) => {
+  const url = `/api/runs/${encodeURIComponent(id)}${data ? `?data=${encodeURIComponent(data)}` : ''}`;
+  if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<ServedRun | null>(url));
+  return opened.get(url)!;
 };

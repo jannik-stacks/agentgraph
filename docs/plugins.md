@@ -125,9 +125,13 @@ Host readers, settings and data roots never enter the page manifest. Pages share
 and its API authority; review them like host plugins. Registering a page starts no job. Restart the
 studio after registrations change. Preview needs a host API for live data.
 
-Results is a built-in plugin using this same descriptor, data endpoint and hook. It keeps `/results`
-and needs no graph-local file. The `results` plugin name is reserved. Its snapshot keeps each
+The header lists Inbox, Graph and Runs, then every page plugin, then Docs.
+
+Results and Bench are built-in plugins using this same descriptor, data endpoint and hook. They keep
+`/results` and `/bench` and need no graph-local file. The `results` plugin name is reserved; `bench` is
+taken when the studio starts with bench dirs (`npm run dev -- --bench <dirs>`), and the Bench page is
+only registered then ([Bench](bench.md#cost-against-quality)). Its snapshot keeps each
 source's sheet and candidate details separate. Failed sources show an error while other sources stay
-readable. It watches the selected data, bench and tune roots.
+readable. It watches the selected data, bench and tune roots; bench roots only feed Exports.
 It remains available when the graph cannot load; the Graph page still shows configuration problems.
-<!-- code: studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage -->
+<!-- code: studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage studio/src/bench/data.ts#BenchData -->

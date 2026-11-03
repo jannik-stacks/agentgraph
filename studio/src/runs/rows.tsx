@@ -6,7 +6,7 @@ import type { Run } from '../../../src/workflow.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultLines } from '../results/ResultTable.tsx';
-import { resultsAtoms } from '../state.ts';
+import { runResultsAtom } from '../state.ts';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
@@ -472,7 +472,7 @@ const Issue = ({ r }: { r: ServedRun }) =>
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
 const RunInfo = ({ r: { run } }: { r: ServedRun }) => {
   const [raw, setRaw] = useState(false);
-  const { value } = useAtomValue(resultsAtoms.runs);
+  const { value } = useAtomValue(runResultsAtom);
   const results = value?.runs.find(x => x.key === run.id);
   return (
     <>

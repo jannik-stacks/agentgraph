@@ -1,6 +1,6 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useEffect, useMemo, useState } from 'react';
-import { pageAtom, navigateAtom, queryParam, resultsAtoms, runsAtom } from '../state.ts';
+import { pageAtom, navigateAtom, queryParam, runResultsAtom, runsAtom } from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { Combobox, KeyPicker, makeHiddenKeysAtom, Loading, Muted } from '../ui.tsx';
 import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
@@ -64,7 +64,7 @@ const RunList = () => {
 };
 
 const RunResults = ({ ids }: { ids: string[] }) => {
-  const { value } = useAtomValue(resultsAtoms.runs);
+  const { value } = useAtomValue(runResultsAtom);
   const runs = useMemo(() => value?.runs.filter(r => ids.includes(r.key)) ?? [], [value, ids]);
   if (!value || !runs.length) return null;
   return (

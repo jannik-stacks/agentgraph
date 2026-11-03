@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
 import type { BenchData } from '../studio/src/bench/data.ts';
 import { readBenchRowResults } from '../studio/src/results/result.ts';
@@ -209,6 +210,37 @@ describe('the bench page data', () => {
       expect(rows.map(r => r.runs)).toEqual([undefined, ['issue-1']]);
       expect(rows[1]!.data).toBe(at('v2', 'data'));
       expect(drives).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('/api/runs with a bench data dir', () => {
+  it('reads runs only from inside the bench dirs', async () => {
+    const out = tmp('bench-runs');
+    mkdirSync(join(out, 'c', 'v2', 'data'), { recursive: true });
+    vi.stubEnv('AGI_STUDIO_DIR', undefined);
+    vi.stubEnv('AGI_STUDIO_BENCH', out);
+    const routes: Record<string, (req: unknown, res: unknown) => void> = {};
+    const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
+    plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
+    const ask = (url: string) =>
+      new Promise<{ status: number; body: unknown }>(done => {
+        const res = {
+          statusCode: 200,
+          setHeader: () => {},
+          end: (body: string) => done({ status: res.statusCode, body: JSON.parse(body) }),
+        };
+        routes['/api/runs']!({ url }, res);
+      });
+    try {
+      expect(await ask(`/?data=${encodeURIComponent(join(out, '..'))}`)).toMatchObject({ status: 400 });
+      expect(await ask(`/?data=${encodeURIComponent(join(out, 'c', 'v2', 'data'))}`)).toEqual({
+        status: 200,
+        body: [],
+      });
     } finally {
       vi.unstubAllEnvs();
       rmSync(out, { recursive: true, force: true });

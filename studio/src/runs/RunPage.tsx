@@ -7,11 +7,13 @@ import { Rows, runRow } from './rows.tsx';
 import { lineAt } from './trace.ts';
 
 const atParam = queryParam('at');
+const dataParam = queryParam('data');
 const expandAtom = atomWithStorage('agentgraph.expandSessions', true, undefined, { getOnInit: true });
 
 /** One run opened with every trace line, scrolled to the line `?at=` names or following a running run. */
 export const RunPage = ({ id }: { id: string }) => {
-  const { value: r, failure } = useAtomValue(runAtom(id));
+  const data = useAtomValue(dataParam);
+  const { value: r, failure } = useAtomValue(runAtom(id, data));
   const [expand, setExpand] = useAtom(expandAtom);
   const at = useAtomValue(atParam);
   const target = useMemo(() => (r ? lineAt(r.trace, at) : undefined), [r, at]);

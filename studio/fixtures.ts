@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename } from 'node:path';
+import { basename, resolve, sep } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findTraceLinks, mergeCheckEntries } from './src/runs/trace.ts';
@@ -95,13 +95,17 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
     });
     use('/api/runs', async (req, res) => {
       const served = await servedGraph();
-      const data = process.env.AGI_STUDIO_DATA;
+      const bench = new URL(req.url ?? '/', 'http://studio').searchParams.get('data');
+      const roots = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
+      if (bench && !roots.some(dir => resolve(bench).startsWith(resolve(dir) + sep)))
+        return json(res, { error: 'data is outside the bench dirs' }, 400);
+      const data = bench ?? process.env.AGI_STUDIO_DATA;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');
       const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
       const { readRunLabels }: typeof LabelsModule = await from('src/labels.ts');
-      if (!served || !data) return json(res, one ? null : []);
+      if (!data || (!served && !bench)) return json(res, one ? null : []);
       const answer = await Effect.runPromise(
         Effect.gen(function* () {
           const store = yield* Store;
@@ -110,8 +114,8 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
               const trace = Chunk.toArray(chunk);
               const lines = mergeCheckEntries(trace, checks);
               return {
-                fixture: `${served.name}/${run.workflow}`,
-                repo: served.graph?.repo ?? '',
+                fixture: `${bench ? 'bench' : served!.name}/${run.workflow}`,
+                repo: served?.graph?.repo ?? '',
                 run,
                 labels: readRunLabels(data, run.id),
                 trace: all ? lines : lines.map(line => cut(line) as typeof line),
