@@ -1,6 +1,6 @@
 #!/bin/sh
-# Runs agentgraph's checks when the commit touches the engine, at the repo root or in a subfolder.
+# Runs agentgraph's fast checks when the commit touches the engine, at the repo root or in a subfolder.
 engine=$(dirname "$0")/../..
 git diff --cached --quiet -- "$engine" && exit 0
 unset $(git rev-parse --local-env-vars)
-cd "$engine" && NODE_OPTIONS= exec npm run -s check
+cd "$engine" && NODE_OPTIONS= exec npm run -s check:fast
