@@ -6,6 +6,7 @@ import {
   ConfigProvider,
   Deferred,
   Effect,
+  Either,
   Fiber,
   Logger,
   Option,
@@ -838,6 +839,31 @@ describe('githubTracker', () => {
     expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(1);
     expect(f.calls.filter(c => c.path === '/repos/o/r/collaborators/bob/permission')).toHaveLength(1);
     expect(f.calls.filter(c => c.path === '/repos/o/r/collaborators/carol/permission')).toHaveLength(1);
+  });
+
+  it('shows a status by swapping labels, and fails when the repo refuses either half of the swap', async () => {
+    const refused = () => ({ status: 422, body: { message: 'Validation Failed' } });
+    const status = async (routes: Record<string, Route>) => {
+      const f = fake(routes);
+      const result = await run(
+        f,
+        Effect.either(Effect.flatMap(Tracker, t => t.status!(7, 'done', { done: 'shipped', working: 'busy' })))
+      );
+      return { result, writes: f.calls.filter(c => c.method !== 'GET' && !c.path.startsWith('/app')) };
+    };
+    const shown = await status({ 'POST /repos/o/r/issues/7/labels': [] });
+    expect(shown.result).toEqual(Either.right(undefined));
+    expect(shown.writes.map(c => [c.method, c.path, c.body])).toEqual([
+      ['POST', '/repos/o/r/issues/7/labels', { labels: ['shipped'] }],
+      ['DELETE', '/repos/o/r/issues/7/labels/busy', undefined],
+    ]);
+    const add = await status({ 'POST /repos/o/r/issues/7/labels': refused });
+    expect(Either.isLeft(add.result) && add.result.left).toBeInstanceOf(TrackerError);
+    const half = await status({
+      'POST /repos/o/r/issues/7/labels': [],
+      'DELETE /repos/o/r/issues/7/labels/busy': refused,
+    });
+    expect(Either.isLeft(half.result) && half.result.left).toBeInstanceOf(TrackerError);
   });
 
   it('applies replies, labels, pull requests and issues', async () => {

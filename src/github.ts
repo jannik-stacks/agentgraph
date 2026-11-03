@@ -1078,7 +1078,7 @@ export const githubTracker = (
       issue,
       since,
       apply,
-      status: (number, to, names) => Effect.asVoid(apply(number, makeStatusLabel(to, names))),
+      status: (number, to, names) => Effect.asVoid(act(number, makeStatusLabel(to, names))),
       findPost,
       slug: me,
       graphql: (query, variables) =>
