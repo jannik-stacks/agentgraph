@@ -601,11 +601,7 @@ function openStudio(i: Instance) {
       fail('the studio install failed', 1);
   }
   const flags = [...(values.data ? ['--data', root] : []), ...(graphDir ? ['--dir', resolve(graphDir)] : [])];
-  spawnSync(
-    process.execPath,
-    ['--watch-path=../src', '--watch-path=../bin', join(dir, 'dev.ts'), '--repo', i.repo, ...flags],
-    { cwd: dir, stdio: 'inherit' }
-  );
+  spawnSync(process.execPath, [join(dir, 'dev.ts'), '--repo', i.repo, ...flags], { cwd: dir, stdio: 'inherit' });
 }
 
 async function report(
