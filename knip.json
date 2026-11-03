@@ -8,6 +8,7 @@
     "tests/setup/*.ts",
     "examples/*/scripts/**/*.mjs",
     "studio/dev.ts!",
+    "studio/watch.ts!",
     "studio/src/main.tsx!",
     "studio/src/plugins.ts!",
     "studio/vite.config.ts!"

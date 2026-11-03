@@ -74,6 +74,6 @@ cd studio && npm install
 npm run dev -- --repo ~/code/left-pad
 ```
 
-It serves on port 5182, or `AGI_PORT`. `--repo` reads that repo's instance; `--dir <dir> --data <dir>` pick the inputs instead, and `--forge <dir>` makes the Inbox show local commands. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the [Results](checks.md#the-results-tab) tab's tunes.
+It serves on port 5182, or `AGI_PORT`, and restarts when engine code under `src` or `bin` changes. `--repo` reads that repo's instance; `--dir <dir> --data <dir>` pick the inputs instead, and `--forge <dir>` makes the Inbox show local commands. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the [Results](checks.md#the-results-tab) tab's tunes.
 
 The Inbox lists runs that wait for a person, with the commands `agi show` prints. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->
