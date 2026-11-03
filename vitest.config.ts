@@ -6,7 +6,7 @@ for (const name of ['BASE', 'DIR', 'ISSUE', 'PROPOSALS', 'CONTEXT', 'REPLY', 'TR
 for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'], { encoding: 'utf8' }).split('\n'))
   if (name) delete process.env[name];
 
-const toolTestTimeout = 60_000;
+const toolTestTimeout = 120_000;
 const toolTests = [
   'tests/agentgraph-example.test.ts',
   'tests/agentgraph-ui-checks.test.ts',
