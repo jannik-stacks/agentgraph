@@ -73,6 +73,35 @@ describe('agi arguments', () => {
       { verb: 'import', rest: ['HEAD', 'issue.md'], values: { from: 'HEAD~1', meta: 'm.json' } },
     ],
     [['import', 'p.diff'], { verb: 'import', rest: ['p.diff'], values: { from: undefined, meta: undefined } }],
+    [['--tracker', 'github', 'loop', '--tracker', '/local'], { verb: 'loop', values: { tracker: '/local' } }],
+    [['loop', '--tracker', 'a', '--tracker', 'b'], { verb: 'loop', values: { tracker: 'b' } }],
+    [
+      ['--data', 'd1', '--data', 'd2', 'show', '--dir', 'g1', '--dir=g2'],
+      { verb: 'show', values: { data: 'd2', dir: 'g2' } },
+    ],
+    [
+      [
+        'start',
+        'x',
+        '--workflow',
+        'a',
+        '--label',
+        'l1',
+        '--workflow',
+        'b',
+        '--label',
+        'l2',
+        '--run-label',
+        'k=1',
+        '--run-label',
+        'j=2',
+      ],
+      { verb: 'start', values: { workflow: 'b', label: ['l1', 'l2'], 'run-label': ['k=1', 'j=2'] } },
+    ],
+    [
+      ['import', 'HEAD', '--from', 'a', '--meta', 'm1', '--from', 'b', '--meta', 'm2'],
+      { verb: 'import', values: { from: 'b', meta: 'm2' } },
+    ],
   ])('reads %j', async (argv, expected) => {
     expect(await quietly(argv)).toMatchObject(expected);
   });

@@ -1,8 +1,12 @@
-import { Effect, FileSystem, Layer, Option, Path, Stdio, Terminal } from 'effect';
+import { Effect, FileSystem, Layer, Path, Stdio, Terminal } from 'effect';
 import { Argument, CliConfig, CliError, CliOutput, Command, Flag, GlobalFlag } from 'effect/cli';
 import { ChildProcessSpawner } from 'effect/process';
 
-const text = (flag: Flag.Flag<string>) => flag.pipe(Flag.optional, Flag.map(Option.getOrUndefined));
+const text = (flag: Flag.Flag<string>) =>
+  flag.pipe(
+    Flag.atLeast(0),
+    Flag.map(values => values.at(-1))
+  );
 const shared = {
   data: text(Flag.String('data')),
   repo: text(Flag.String('repo')),
