@@ -1,10 +1,12 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { Effect } from 'effect';
 import { loadGraph, retiredIn } from '../src/folder.ts';
 import { harnesses } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const examples = join(import.meta.dirname, '..', 'examples');
 const infra = join(import.meta.dirname, '..', 'infra', 'local');
@@ -37,6 +39,32 @@ describe('example graphs', () => {
         return out;
       });
     expect(found).toEqual([]);
+  });
+});
+
+describe('merge grants check', () => {
+  const script = join(import.meta.dirname, '..', 'bin', 'merge-grants.mjs');
+  const checkAgents = (agents: Record<string, string>) => {
+    const root = tmp('merge-grants');
+    mkdirSync(join(root, 'demo', 'agents'), { recursive: true });
+    for (const [name, front] of Object.entries(agents))
+      writeFileSync(join(root, 'demo', 'agents', name), `---\n${front}\n---\n\nYou work.\n`);
+    const { status, stderr } = spawnSync(process.execPath, [script, '.'], { cwd: root, encoding: 'utf8' });
+    return { status, stderr };
+  };
+
+  it('passes agents that leave the merge to a human', () => {
+    expect(checkAgents({ 'implementor.md': 'tools: [read]\nreturns: [push, pull_request, ask]' })).toEqual({
+      status: 0,
+      stderr: '',
+    });
+  });
+
+  it('fails an agent that may return merge, naming its file and line', () => {
+    expect(checkAgents({ 'merger.md': 'tools: [read]\nreturns:\n  - comment\n  - merge' })).toEqual({
+      status: 1,
+      stderr: 'demo/agents/merger.md:5: an agent may return merge; only a human merges\n',
+    });
   });
 });
 
