@@ -21,7 +21,15 @@ import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
-import { commitCheckout, commitGraph, gitIdentity, hostGit, mergeTreeOnto, readGit, writeCheckoutTree } from './git.ts';
+import {
+  commitCheckout,
+  ensureGraphRef,
+  gitIdentity,
+  hostGit,
+  mergeTreeOnto,
+  readGit,
+  writeCheckoutTree,
+} from './git.ts';
 import { Session } from './session.ts';
 import { readPlugins, type StatusChange } from './plugin.ts';
 import { startTools } from './tools.ts';
@@ -1761,9 +1769,6 @@ const explain = (e: SandboxError | SessionStop | ForgeError) =>
 const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeError | StoreError, R>) =>
   Effect.catchAll(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
 
-const formatRunIssue = (run: RunRecord) =>
-  run.title === undefined ? '' : `## #${run.issue} ${run.title}\n\n${run.body ?? ''}`;
-
 const whyNotApplicable = (check: Check, run: RunRecord, traced: boolean) =>
   check.reads === 'traces'
     ? traced
@@ -1785,7 +1790,7 @@ const reopen = (graph: Graph, run: RunRecord, traces: boolean, reply: string) =>
       ...work,
       run: run.id,
       ...(run.issue !== undefined && { issue: run.issue }),
-      context: formatRunIssue(run),
+      context: [run.title, run.body].filter(Boolean).join('\n\n'),
       reply,
       proposals: [],
       ...(run.answers && { answers: run.answers }),
@@ -2093,11 +2098,8 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         (own && issue.pull?.branch === own && issue.pull.base) ||
         ((issue.state === 'open' ? issue.pull?.branch : undefined) ?? current.base?.branch ?? expand(base, issue));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, graph));
-      const graphTree = yield* commitGraph(made.git, graph.dir).pipe(
-        Effect.tapError(e => Effect.logWarning(`graph not pinned: ${explain(e)}`)),
-        Effect.orElseSucceed(() => undefined)
-      );
-      if (graphTree && graphTree !== current.graphTree) yield* store.put((current = { ...current, graphTree }));
+      if (current.graphTree === undefined)
+        yield* store.put((current = { ...current, graphTree: yield* ensureGraphRef(made.git, graph.dir) }));
       if (own && made.saved) {
         const message = yield* readGit(made.git, ['log', '-1', '--format=%B', made.saved]);
         const from =

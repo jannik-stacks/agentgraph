@@ -133,19 +133,21 @@ export const readGit = (...args: Parameters<typeof hostGit>) =>
 export const writeCheckoutTree = ({ git }: Pick<Checkout, 'git'>) =>
   indexLock.withPermits(1)(Effect.zipRight(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])));
 
-export const commitGraph = (git: Checkout['git'], dir: string) => {
+export const ensureGraphRef = (git: Checkout['git'], dir: string) => {
   const env = {
     GIT_DIR: git.GIT_DIR,
     GIT_WORK_TREE: dir,
     GIT_INDEX_FILE: join(tmpdir(), `agentgraph-graph-${randomUUID()}`),
-    GIT_AUTHOR_DATE: '1970-01-01T00:00:00Z',
-    GIT_COMMITTER_DATE: '1970-01-01T00:00:00Z',
   };
   return Effect.gen(function* () {
     yield* hostGit(env, ['add', '-A', '--', '.', ':(exclude,glob)**/node_modules/**']);
     const tree = yield* readGit(env, ['write-tree']);
-    const commit = yield* readGit(env, [...gitIdentity, 'commit-tree', tree, '-m', 'graph']);
-    yield* hostGit(env, ['update-ref', `refs/agentgraph/graphs/${tree}`, commit]);
+    const ref = `refs/agentgraph/graphs/${tree}`;
+    yield* hostGit(env, ['update-ref', ref, tree, '']).pipe(
+      Effect.catchAll(e =>
+        Effect.flatMap(readGit(env, ['rev-parse', ref]), at => (at === tree ? Effect.void : Effect.fail(e)))
+      )
+    );
     return tree;
   }).pipe(Effect.ensuring(Effect.promise(() => rm(env.GIT_INDEX_FILE, { force: true }))));
 };

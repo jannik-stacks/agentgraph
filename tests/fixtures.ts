@@ -82,7 +82,7 @@ const doc = <T>(name: string, fields: T) => ({ ...fields, name, path: `${name}.m
 export const makeTestGraph = (graph: string, checks: Record<string, Omit<Check, 'mode'>> = {}): Graph => {
   const f = fixture(graph);
   return {
-    dir: '/graph',
+    dir: join(root, graph),
     repo: `local/${graph}`,
     sha: 'fixture',
     agents: Object.fromEntries(

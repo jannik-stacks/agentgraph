@@ -61,9 +61,10 @@ it('restores an instance from a copy of its folder without the cache', async () 
     '--git-dir',
     join(i.forge, 'origin.git'),
     'rev-parse',
-    `refs/agentgraph/graphs/${run!.graphTree}^{tree}`
+    `refs/agentgraph/graphs/${run!.graphTree}`
   );
   expect(pinned).toBe(git(w.seed, 'rev-parse', 'HEAD:.agentgraph'));
+  expect(pinned).toBe(run!.graphTree);
   const bytes = new TextEncoder().encode('uploaded');
   const hash = await inStore(i.data, s => s.putFile(bytes, new AbortController().signal));
 
