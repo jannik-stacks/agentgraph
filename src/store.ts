@@ -177,14 +177,16 @@ export const readRecordSync = (path: string) => {
   return existsSync(`${path}.zst`) ? zstdDecompressSync(readFileSync(`${path}.zst`)).toString('utf8') : '';
 };
 
+const catchAbsent = <A>(read: Promise<A>, otherwise: () => Promise<A>) =>
+  read.catch(e => (absent(e) ? otherwise() : Promise.reject(e)));
+
 const readRecord = (path: string): Promise<string> =>
-  readFile(path, 'utf8').catch(e =>
-    absent(e)
-      ? readFile(`${path}.zst`).then(
-          async packed => (await promisify(zstdDecompress)(packed)).toString('utf8'),
-          e => (absent(e) ? '' : Promise.reject(e))
-        )
-      : Promise.reject(e)
+  catchAbsent(readFile(path, 'utf8'), () =>
+    catchAbsent(
+      readFile(`${path}.zst`).then(async packed => (await promisify(zstdDecompress)(packed)).toString('utf8')),
+      // UNEXPECTED: an append can unpack the record between the plain and the compressed read.
+      () => catchAbsent(readFile(path, 'utf8'), async () => '')
+    )
   );
 
 export const writeIdleRunsCompressed = async (dir: string, days: number) => {
@@ -243,18 +245,16 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       )
     );
   const writers = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
-  const unpacked = new Set<string>();
   const append = (path: string, lines: unknown[]) => {
     const writer = writers.get(path) ?? Effect.unsafeMakeSemaphore(1);
     writers.set(path, writer);
     return writer.withPermits(1)(
       io(path, async () => {
         await mkdir(dirname(path), { recursive: true });
-        if (!unpacked.has(path) && existsSync(`${path}.zst`)) {
+        if (existsSync(`${path}.zst`)) {
           writeFileAtomic(path, await readRecord(path));
           await rm(`${path}.zst`);
         }
-        unpacked.add(path);
         const file = await open(path, 'a+');
         try {
           const { size } = await file.stat();

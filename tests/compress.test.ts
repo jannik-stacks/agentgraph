@@ -47,3 +47,30 @@ it('compresses only idle ended runs, reads them as before, and unpacks on the ne
   expect(existsSync(join(dir, 'idle', 'trace.jsonl.zst'))).toBe(false);
   expect(await read()).toEqual([line('a'), line('b')]);
 });
+
+it('keeps the whole history when one store appends across repeated compressions', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-compress-'));
+  dirs.push(dir);
+  const layer = fileStore(dir);
+  const store = <A, E>(use: (s: Store['Type']) => Effect.Effect<A, E>) =>
+    Effect.runPromise(Effect.flatMap(Store, use).pipe(Effect.provide(layer)));
+  const old = new Date(Date.now() - 30 * 86_400_000);
+  const line = (step: string) => ({ at: old.toISOString(), step, saved: { step } });
+  mkdirSync(join(dir, 'run'));
+  writeFileSync(join(dir, 'run', 'run.json'), JSON.stringify({ id: 'run', ended: old.toISOString() }));
+  const traceFile = join(dir, 'run', 'trace.jsonl');
+  const appendThenCompress = async (step: string) => {
+    await store(s => s.trace('run', line(step)));
+    utimesSync(traceFile, old, old);
+    await writeIdleRunsCompressed(dir, 14);
+    expect(existsSync(`${traceFile}.zst`)).toBe(true);
+  };
+  await appendThenCompress('a');
+  await appendThenCompress('b');
+  await appendThenCompress('c');
+  expect(await store(s => Effect.map(Stream.runCollect(s.read('run')), Chunk.toArray))).toEqual([
+    line('a'),
+    line('b'),
+    line('c'),
+  ]);
+});
