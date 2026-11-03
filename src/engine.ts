@@ -19,6 +19,7 @@ import { type Applied, type Comment, type Event, type Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
+import { getStepReturns } from './graph.ts';
 import { Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
 import {
   commitCheckout,
@@ -663,8 +664,7 @@ const readContinuedRun = (run: Run, events: Event[]) =>
 /** The comment workflow whose agent may `tell`, which then hears every `/agent` on behalf of the other runs. */
 const router = (graph: Graph) =>
   Object.values(graph.workflows).find(
-    w =>
-      w.on.issue_comment && w.steps.some(s => 'agent' in s.does && graph.agents[s.does.agent]?.returns.includes('tell'))
+    w => w.on.issue_comment && w.steps.some(s => getStepReturns(s, graph.agents).includes('tell'))
   );
 
 /** The event as a run of `w` hears it: with a router, only the router hears `/agent` from people, the others hear what it tells them. */
@@ -1308,7 +1308,7 @@ const attempt = (
     const step = w.steps.find(s => s.name === run.step)!;
     const minutes = graph.limits.minutes;
     const done = (outcome: Outcome, next = run) => ({ outcome, run: next });
-    const returns = 'agent' in step.does ? (graph.agents[step.does.agent]?.returns ?? []) : [];
+    const returns = getStepReturns(step, graph.agents);
     /** The first session of a run a comment started, which may answer that comment. */
     const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
     const before = asked ? yield* writeCheckoutTree(work) : undefined;
@@ -1517,7 +1517,8 @@ const attempt = (
     for (const p of proposals) {
       if ((p.kind === 'push' || p.kind === 'pull_request') && p.branch !== own)
         problems.push(`branch ${p.branch} is not this run's branch ${own ?? '(none)'}`);
-      if (p.kind === 'merge') {
+      if (p.kind === 'merge' && !returns.includes('merge')) problems.push(`${step.name} may not propose merge`);
+      else if (p.kind === 'merge') {
         const target = own
           ? yield* Effect.flatMap(Tracker, f => f.issue(p.number)).pipe(
               Effect.catchIf(
@@ -1740,10 +1741,10 @@ export const runStepChecks = (
       };
     const error = settled.find(Either.isLeft);
     if (error) return yield* error.left;
-    const returns = 'agent' in step.does ? graph.agents[step.does.agent]?.returns : undefined;
+    const returns = getStepReturns(step, graph.agents);
     const marks = new Set(Object.values(graph.workflows).flatMap(w => w.on.issues?.label ?? []));
     const refusal = (p: Proposal) =>
-      returns && !returns.some(k => k === p.kind)
+      !returns.some(k => k === p.kind)
         ? `${step.name} may not propose ${p.kind}`
         : p.kind === 'label' && p.add?.some(l => marks.has(l))
           ? `only a human adds ${p.add.filter(l => marks.has(l)).join(', ')}`

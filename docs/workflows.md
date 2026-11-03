@@ -41,7 +41,9 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 
 ### Gates
 
-A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's. A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. A `run` step gets the traces only with `reads: traces`, because writing them reads every run on the issue on each try. <!-- code: src/engine.ts#attempt src/workflow.ts#compileWorkflow -->
+A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's, limited by the step's `returns`. That list defaults to `[run]`, so a repo command such as `npm test` can't push, open a pull request, comment or merge. A script that needs more lists it, as in `gate: { run: node gate.mjs, returns: [run, comment] }`; anything else fails the step. <!-- code: src/graph.ts#getStepReturns -->
+
+A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. A `run` step gets the traces only with `reads: traces`, because writing them reads every run on the issue on each try. <!-- code: src/engine.ts#attempt src/workflow.ts#compileWorkflow -->
 
 `examples/retro-gate` counts the failed tool calls in the run's trace after the implement step. Past five, it starts a `retro` workflow whose agent reads the traces and files a `graph` issue per recurring cause with the edit to a skill, agent prompt or `AGENTS.md` that would have prevented it.
 
@@ -68,9 +70,9 @@ A workflow can take both triggers: `on: { issue_comment: {}, issues: { label: ag
 GitHub sends no event when a card moves, so the engine reads the board on each pass, in one GraphQL query per 100 open issues. A card that entered the column after the newest run began starts a run, once per issue like a label. <!-- code: src/github.ts#githubTracker src/engine.ts#tick -->
 
 ```yaml
-on: { issues: { column: Agent Ready } }                            # any board the repo owner owns
-on: { issues: { column: Agent Ready, project: jannik-stacks/1 } }  # only this board
-on: { issues: { label: agent:ready, column: Agent Ready } }        # the column adds the label
+on: { issues: { column: Agent Ready } } # any board the repo owner owns
+on: { issues: { column: Agent Ready, project: jannik-stacks/1 } } # only this board
+on: { issues: { label: agent:ready, column: Agent Ready } } # the column adds the label
 ```
 
 GitHub does not say who moved a card, so the board is what is trusted: a board the repo owner owns, or the one `project` names. A card on anyone else's board starts nothing, since anyone can add a public issue to a board of their own.
@@ -107,7 +109,7 @@ The run's trace records the text as `spoken`, and the run replies where a commen
 An agent that may return `run` can start a workflow with `on: dispatch`:
 
 ```json
-{"kind": "run", "workflow": "triage", "issue": 12, "step": "implement"}
+{ "kind": "run", "workflow": "triage", "issue": 12, "step": "implement" }
 ```
 
 `step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/engine.ts#undispatchable src/engine.ts#dispatch src/engine.ts#settled -->
@@ -117,7 +119,7 @@ An agent that may return `run` can start a workflow with `on: dispatch`:
 An `issue_comment` workflow whose agent may `tell` is a router and runs beside other live runs. In a graph with a router, only `issue_comment` workflows hear `/agent` comments; the others hear what the router tells them. <!-- code: src/engine.ts#heardBy -->
 
 ```json
-{"kind": "tell", "issue": 12, "text": "stop"}
+{ "kind": "tell", "issue": 12, "text": "stop" }
 ```
 
 The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/engine.ts#recipient src/engine.ts#readRunEvents src/engine.ts#tick -->
@@ -184,13 +186,13 @@ status:
   needs-review: review-me
 ```
 
-| Label | When |
-| --- | --- |
-| `agentgraph:working` | A step runs, or a run waits on a run it started |
-| `agentgraph:needs-review` | A run waits at a `wait: human` step, usually a pull request to review and merge |
+| Label                     | When                                                                               |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| `agentgraph:working`      | A step runs, or a run waits on a run it started                                    |
+| `agentgraph:needs-review` | A run waits at a `wait: human` step, usually a pull request to review and merge    |
 | `agentgraph:needs-answer` | A run asked a question, or paused on a runner error until someone replies `/agent` |
-| `agentgraph:done` | The latest run finished |
-| `agentgraph:stopped` | The latest run stopped |
+| `agentgraph:done`         | The latest run finished                                                            |
+| `agentgraph:stopped`      | The latest run stopped                                                             |
 
 With several runs on one issue, a waiting run wins over a working one. After each change, [status hooks](plugins.md#status-hooks) hear about it. <!-- code: src/context.ts#proposeStatusUpdates src/engine.ts#announce -->
 

@@ -56,8 +56,9 @@ Unknown settings, duplicate plugin or tool names and symlink entries fail `check
 
 Imports run on the host during `check`. Review them as host code: the context supplies no tracker writes
 or engine services, but TypeScript can still read the host environment, files and network.
-No shipped example lets an agent return `merge`: an agent that could merge could land a plugin change that
-then runs on the host with its secrets. `npm run check:examples` fails on such a grant.
+No shipped example lets an agent or a `run` step return `merge`: either could land a plugin change that
+then runs on the host with its secrets. `npm run check:examples` fails on such a grant, and the engine applies
+a `merge` only from a step whose `returns` lists it.
 <!-- code: bin/merge-grants.mjs -->
 The engine supplies `effect`, `ai` and `@jannik-stacks/agi/plugins` from its own install, including
 Effect and AI SDK subpaths, so plugins share its Effect runtime. Other packages use Node's normal

@@ -4,7 +4,7 @@ import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { tick } from '../src/engine.ts';
 import type { Event } from '../src/event.ts';
-import { loadGraph } from '../src/folder.ts';
+import { loadGraph, type Agent } from '../src/folder.ts';
 import { folderTracker } from '../src/tracker.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
@@ -61,7 +61,7 @@ const implement = (failed: number): SessionEvent[] => [
   ),
 ];
 
-const ticks = async (where: ReturnType<typeof world>, ...turns: SessionEvent[][][]) => {
+const ticks = async (where: ReturnType<typeof world>, turns: SessionEvent[][][], g = graph) => {
   const layer = (sessions: SessionEvent[][]) =>
     Layer.mergeAll(
       folderTracker(where.tracker),
@@ -69,7 +69,7 @@ const ticks = async (where: ReturnType<typeof world>, ...turns: SessionEvent[][]
       hostSandbox(where.origin),
       replaySession(sessions)
     );
-  for (const sessions of turns) await Effect.runPromise(tick(graph).pipe(Effect.provide(layer(sessions))));
+  for (const sessions of turns) await Effect.runPromise(tick(g).pipe(Effect.provide(layer(sessions))));
   return Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
 };
 
@@ -77,13 +77,13 @@ describe('the retro gate example', () => {
   it('starts a retro after more than five failed tool calls, then moves on to merge', async () => {
     const where = world();
     const retro = [start('r1'), reply({ kind: 'comment', body: 'Add pnpm to the setup.' })];
-    const [gated] = await ticks(where, [implement(6)]);
+    const [gated] = await ticks(where, [[implement(6)]]);
     expect(gated).toMatchObject({
       step: 'gate',
       status: 'waiting',
       reason: expect.stringMatching(/^waiting on retro-1-/),
     });
-    const runs = await ticks(where, [retro], []);
+    const runs = await ticks(where, [[retro], []]);
     expect(runs.map(r => [r.workflow, r.step, r.status]).toSorted()).toEqual([
       ['issue', 'merge', 'waiting'],
       ['retro', 'retro', 'done'],
@@ -93,7 +93,7 @@ describe('the retro gate example', () => {
 
   it('goes straight to merge with five failed tool calls or fewer', async () => {
     const where = world();
-    const runs = await ticks(where, [implement(5)]);
+    const runs = await ticks(where, [[implement(5)]]);
     expect(runs.map(r => [r.workflow, r.step, r.status])).toEqual([['issue', 'merge', 'waiting']]);
   });
 });
@@ -112,6 +112,7 @@ describe('a run step', () => {
                 ...s,
                 does: {
                   run: `env | grep -o '^AGENTGRAPH_[A-Z_]*' | sort > ${seen}; if [ -n "$AGENTGRAPH_RUN_TRACE" ]; then grep -q pnpm "$AGENTGRAPH_RUN_TRACE" && grep -q pnpm "$AGENTGRAPH_TRACES" && echo populated >> ${seen}; fi; true`,
+                  returns: ['run' as const],
                   ...(reads && { reads }),
                 },
               }
@@ -149,5 +150,35 @@ describe('a run step', () => {
     expect(plain.seen).not.toContain('AGENTGRAPH_RUN_TRACE');
     expect(reading.seen).toEqual(expect.arrayContaining(['AGENTGRAPH_TRACES', 'AGENTGRAPH_RUN_TRACE', 'populated']));
     expect(reading.checksRead - plain.checksRead).toBe(1);
+  });
+});
+
+describe('a script step', () => {
+  const head = `'"$(git ls-remote origin refs/heads/agentgraph/1 | cut -f1)"'`;
+  const printing = (proposal: object, returns: Agent['returns'] = ['run']) => {
+    const issue = graph.workflows.issue!;
+    const run = `printf '%s\\n' '\`\`\`agentgraph' '${JSON.stringify([proposal]).replace('HEAD', head)}' '\`\`\`'`;
+    const steps = issue.steps.map(s => (s.name === 'gate' ? { ...s, does: { run, returns } } : s));
+    return { ...graph, workflows: { ...graph.workflows, issue: { ...issue, steps } } };
+  };
+  const proposals = {
+    merge: { kind: 'merge', number: 2, head: 'HEAD' },
+    push: { kind: 'push', branch: 'agentgraph/1', message: 'again' },
+    pull_request: { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Closes #1' },
+  } as const;
+  const kinds = Object.keys(proposals) as (keyof typeof proposals)[];
+
+  it.each(kinds)('may not propose %s by default', async kind => {
+    const [run] = await ticks(world(), [[implement(0)]], printing(proposals[kind]));
+    expect([run!.step, run!.status, run!.reason]).toEqual([
+      'gate',
+      'waiting',
+      expect.stringContaining(`gate may not propose ${kind}`),
+    ]);
+  });
+
+  it.each(kinds)('proposes %s when its returns list it', async kind => {
+    const [run] = await ticks(world(), [[implement(0)]], printing(proposals[kind], [kind]));
+    expect([run!.step, run!.status]).toEqual(['merge', 'waiting']);
   });
 });

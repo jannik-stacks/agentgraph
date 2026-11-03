@@ -76,10 +76,25 @@ describe('compileWorkflow', () => {
     expect(w.steps).toEqual([
       {
         name: 'merge',
-        does: { run: 'node "$AGENTGRAPH_DIR/scripts/merge-next.mjs"' },
+        does: { run: 'node "$AGENTGRAPH_DIR/scripts/merge-next.mjs"', returns: ['run'] },
         checks: ['types', 'tests'],
         tries: 3,
       },
+    ]);
+  });
+
+  it('keeps the returns a script step lists', () => {
+    const { workflow } = compileWorkflow(
+      'workflows/issue.md',
+      file('on: issues\nsteps:\n  gate: { run: node gate.mjs, returns: [comment, label] }'),
+      names
+    );
+    expect(workflow!.steps[0]!.does).toEqual({ run: 'node gate.mjs', returns: ['comment', 'label'] });
+  });
+
+  it('refuses returns on a step that runs no script', () => {
+    expect(messages(file('on: issues\nsteps:\n  implement: { agent: implementor, returns: [merge] }'))).toEqual([
+      "steps.implement.returns: only a run step lists returns; an agent's returns are in its file",
     ]);
   });
 

@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 import { Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import type { Applied, Event } from './event.ts';
-import type { Proposal } from './proposal.ts';
+import { Kind, type Proposal } from './proposal.ts';
 import type { Result } from './result.ts';
 import type { PluginMetadata } from './meta.ts';
 
@@ -53,7 +53,10 @@ export type Workflow = Doc<{
  */
 export type Step = {
   name: string;
-  does: { agent: string; skill?: string } | { run: string; reads?: 'traces' } | { wait: 'human' };
+  does:
+    | { agent: string; skill?: string }
+    | { run: string; returns: NonNullable<(typeof StepFile.Type)['returns']>; reads?: 'traces' }
+    | { wait: 'human' };
   checks: string[];
   follow?: 'merge' | 'rebase' | 'none';
   tries: number;
@@ -141,6 +144,7 @@ const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dis
 const StepFile = Schema.Struct({
   agent: exact(Schema.String),
   run: exact(Schema.String),
+  returns: exact(Schema.mutable(Schema.Array(Kind))),
   reads: exact(Schema.Literal('traces')),
   wait: exact(Schema.Literal('human')),
   follow: exact(Schema.Literal('merge', 'rebase', 'none')),
@@ -244,6 +248,8 @@ export function compileWorkflow(
     if (s.back === undefined && s.until !== undefined) say(`${key}.until`, 'until needs back');
     if (s.back === undefined && s.rounds !== undefined) say(`${key}.rounds`, 'rounds needs back');
     if (s.follow !== undefined && s.wait === undefined) say(`${key}.follow`, 'only a wait step follows its base');
+    if (s.returns !== undefined && s.run === undefined)
+      say(`${key}.returns`, "only a run step lists returns; an agent's returns are in its file");
     if (s.reads !== undefined && s.run === undefined)
       say(`${key}.reads`, 'only a run step reads traces; an agent says so in its file');
 
@@ -252,7 +258,7 @@ export function compileWorkflow(
     const skill = s.skill ?? (names.skills.includes(stepName) ? stepName : undefined);
     const does: Step['does'] =
       s.run !== undefined
-        ? { run: s.run, ...(s.reads && { reads: s.reads }) }
+        ? { run: s.run, returns: s.returns ?? ['run'], ...(s.reads && { reads: s.reads }) }
         : s.wait !== undefined
           ? { wait: 'human' }
           : { agent: s.agent ?? '', ...(skill !== undefined && { skill }) };
