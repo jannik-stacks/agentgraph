@@ -177,46 +177,40 @@ export const makeProductionLayers = () => {
     }
     const current = place;
     return Layer.unwrapEffect(
-      Effect.map(
-        Effect.promise(() => current),
-        ({ layer: tracker, origin }) => {
-          const sandbox = s.sandbox
-            ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
-            : dockerSandbox({
-                data: s.data,
-                cache: s.cache,
-                image: s.image,
-                direct: findLocalModelHosts(s.proxy.url),
-                ...origin,
-              });
-          // a graph that does not load trusts no one; every tick reports why it does not load
-          const trust = s.trust.length
-            ? Effect.succeed(s.trust)
-            : Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
-                Effect.provide(sandbox),
-                Effect.catchAll(() => Effect.succeed<string[]>([]))
-              );
-          const config = readHarnessSettings.pipe(
-            Effect.catchAll(e =>
-              Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {
-                harnesses: [],
-              } as HarnessSettings)
-            )
-          );
-          return Layer.unwrapEffect(
-            Effect.map(Effect.all([trust, config]), ([trust, config]) =>
-              Layer.mergeAll(
-                tracker(trust),
-                fileStore(s.data, s.checkLogs),
-                harnessSession({
-                  ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
-                  ...Struct.pick(config, 'harnesses', 'providers', 'provider'),
-                }).pipe(Layer.provideMerge(sandbox))
-              )
-            )
-          );
-        }
-      )
+      Effect.gen(function* () {
+        const { layer: tracker, origin } = yield* Effect.promise(() => current);
+        const sandbox = s.sandbox
+          ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
+          : dockerSandbox({
+              data: s.data,
+              cache: s.cache,
+              image: s.image,
+              direct: findLocalModelHosts(s.proxy.url),
+              ...origin,
+            });
+        // a graph that does not load trusts no one; every tick reports why it does not load
+        const trust = s.trust.length
+          ? s.trust
+          : yield* Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
+              Effect.provide(sandbox),
+              Effect.catchAll(() => Effect.succeed<string[]>([]))
+            );
+        const config = yield* readHarnessSettings.pipe(
+          Effect.catchAll(e =>
+            Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {
+              harnesses: [],
+            } as HarnessSettings)
+          )
+        );
+        return Layer.mergeAll(
+          tracker(trust),
+          fileStore(s.data, s.checkLogs),
+          harnessSession({
+            ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
+            ...Struct.pick(config, 'harnesses', 'providers', 'provider'),
+          }).pipe(Layer.provideMerge(sandbox))
+        );
+      })
     );
   };
 };
