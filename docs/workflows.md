@@ -41,7 +41,7 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 
 ### Gates
 
-A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's, limited by the step's `returns`. That list defaults to `[run]`, so a repo command such as `npm test` can't push, open a pull request, comment or merge. A script that needs more lists it, as in `gate: { run: node gate.mjs, returns: [run, comment] }`; anything else fails the step. <!-- code: src/graph.ts#getStepReturns -->
+A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's, limited by the step's `returns`. That list defaults to `[run]`, so a repo command such as `npm test` can't push, open a pull request, comment or merge. A script that needs more lists it, as in `gate: { run: node gate.mjs, returns: [run, comment] }`. Unlike an agent, a script gets no `ask` or `back` unless listed. Any other kind fails the try, and nothing it printed applies. <!-- code: src/graph.ts#getStepReturns -->
 
 A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. A `run` step gets the traces only with `reads: traces`, because writing them reads every run on the issue on each try. <!-- code: src/engine.ts#attempt src/workflow.ts#compileWorkflow -->
 

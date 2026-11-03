@@ -1514,6 +1514,17 @@ const attempt = (
     const parsed = replies.map(reply => parseProposals(reply, !('run' in step.does)));
     const proposals = parsed.flatMap(p => p.proposals);
     const problems = parsed.flatMap(p => p.problems);
+    const ungranted = 'run' in step.does ? proposals.filter(p => !returns.includes(p.kind)) : [];
+    if (ungranted.length > 0)
+      return done(
+        {
+          kind: 'failed',
+          checks: [],
+          proposals: [],
+          problems: [...problems, ...ungranted.map(p => `${step.name} may not propose ${p.kind}`)],
+        },
+        tried
+      );
     for (const p of proposals) {
       if ((p.kind === 'push' || p.kind === 'pull_request') && p.branch !== own)
         problems.push(`branch ${p.branch} is not this run's branch ${own ?? '(none)'}`);

@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -155,30 +155,52 @@ describe('a run step', () => {
 
 describe('a script step', () => {
   const head = `'"$(git ls-remote origin refs/heads/agentgraph/1 | cut -f1)"'`;
+  const secret = 'checkout secret 42';
   const printing = (proposal: object, returns: Agent['returns'] = ['run']) => {
     const issue = graph.workflows.issue!;
     const run = `printf '%s\\n' '\`\`\`agentgraph' '${JSON.stringify([proposal]).replace('HEAD', head)}' '\`\`\`'`;
-    const steps = issue.steps.map(s => (s.name === 'gate' ? { ...s, does: { run, returns } } : s));
+    const back = { to: 'implement', until: 'the gate passes', rounds: 1 };
+    const steps = issue.steps.map(s => (s.name === 'gate' ? { ...s, does: { run, returns }, back } : s));
     return { ...graph, workflows: { ...graph.workflows, issue: { ...issue, steps } } };
   };
   const proposals = {
     merge: { kind: 'merge', number: 2, head: 'HEAD' },
     push: { kind: 'push', branch: 'agentgraph/1', message: 'again' },
     pull_request: { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Closes #1' },
+    ask: { kind: 'ask', question: secret },
+    back: { kind: 'back', why: secret },
   } as const;
   const kinds = Object.keys(proposals) as (keyof typeof proposals)[];
+  const trackerText = (where: ReturnType<typeof world>) =>
+    readdirSync(where.tracker, { recursive: true, withFileTypes: true })
+      .filter(f => f.isFile() && !f.parentPath.includes('origin.git'))
+      .map(f => readFileSync(join(f.parentPath, f.name), 'utf8'))
+      .join('\n');
 
-  it.each(kinds)('may not propose %s by default', async kind => {
-    const [run] = await ticks(world(), [[implement(0)]], printing(proposals[kind]));
-    expect([run!.step, run!.status, run!.reason]).toEqual([
-      'gate',
-      'waiting',
-      expect.stringContaining(`gate may not propose ${kind}`),
-    ]);
-  });
+  it.each(kinds.flatMap(kind => [[kind, undefined] as const, [kind, [] as Agent['returns']] as const]))(
+    'may not propose %s with returns %j',
+    async (kind, returns) => {
+      const where = world();
+      const [run] = await ticks(where, [[implement(0)]], printing(proposals[kind], returns));
+      expect([run!.step, run!.status, run!.reason, trackerText(where).includes(secret)]).toEqual([
+        'gate',
+        'waiting',
+        expect.stringContaining(`gate may not propose ${kind}`),
+        false,
+      ]);
+    }
+  );
+
+  const granted = {
+    merge: ['merge', 'waiting', undefined],
+    push: ['merge', 'waiting', undefined],
+    pull_request: ['merge', 'waiting', undefined],
+    ask: ['gate', 'waiting', secret],
+    back: ['implement', 'waiting', expect.any(String)],
+  };
 
   it.each(kinds)('proposes %s when its returns list it', async kind => {
     const [run] = await ticks(world(), [[implement(0)]], printing(proposals[kind], [kind]));
-    expect([run!.step, run!.status]).toEqual(['merge', 'waiting']);
+    expect([run!.step, run!.status, run!.reason]).toEqual(granted[kind]);
   });
 });

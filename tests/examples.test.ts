@@ -44,11 +44,11 @@ describe('example graphs', () => {
 
 describe('merge grants check', () => {
   const script = join(import.meta.dirname, '..', 'bin', 'merge-grants.mjs');
-  const checkFiles = (files: Record<string, string>) => {
+  const checkFiles = (files: Record<string, string>, eol = '\n') => {
     const root = tmp('merge-grants');
     for (const [path, front] of Object.entries(files)) {
       mkdirSync(join(root, 'demo', dirname(path)), { recursive: true });
-      writeFileSync(join(root, 'demo', path), `---\n${front}\n---\n\nYou work.\n`);
+      writeFileSync(join(root, 'demo', path), `---\n${front}\n---\n\nYou work.\n`.replaceAll('\n', eol));
     }
     const { status, stderr } = spawnSync(process.execPath, [script, '.'], { cwd: root, encoding: 'utf8' });
     return { status, stderr };
@@ -65,6 +65,19 @@ describe('merge grants check', () => {
     expect(checkFiles({ 'agents/merger.md': 'tools: [read]\nreturns:\n  - comment\n  - merge' })).toEqual({
       status: 1,
       stderr: 'demo/agents/merger.md:5: an agent may return merge; only a human merges\n',
+    });
+  });
+
+  it('fails merge grants in files with CRLF line endings', () => {
+    const files = {
+      'agents/merger.md': 'returns: [merge]',
+      'workflows/issue.md': 'on: issues\nsteps:\n  gate: { run: node land.mjs, returns: [merge] }',
+    };
+    expect(checkFiles(files, '\r\n')).toEqual({
+      status: 1,
+      stderr:
+        'demo/agents/merger.md:2: an agent may return merge; only a human merges\n' +
+        'demo/workflows/issue.md:4: step gate may return merge; only a human merges\n',
     });
   });
 

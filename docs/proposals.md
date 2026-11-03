@@ -22,7 +22,7 @@ Agents have no GitHub token. They ask the engine for writes with proposals: a re
 | `run` | `workflow`, `issue`, optional `step` | [Dispatch](workflows.md#dispatch) a workflow and wait |
 | `tell` | `issue`, `text` | [Forward text](workflows.md#routing) to a live run |
 
-An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
+An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, `ask` and `back` included, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
 
 ## Applying
 
