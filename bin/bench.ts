@@ -1674,6 +1674,13 @@ const readBenchPoint = (out: string) => ({
 
 const setupLabels = new Map<string, Record<string, string>>();
 
+const findJudgePairFiles = (caseDir: string) => {
+  const judged = join(caseDir, 'judge');
+  return (existsSync(judged) ? readdirSync(judged, { withFileTypes: true }) : [])
+    .filter(pair => pair.isDirectory())
+    .flatMap(pair => readdirSync(join(judged, pair.name)).map(f => join(judged, pair.name, f)));
+};
+
 const loadScored = (out: string, id: string): Scored => {
   const c = JSON.parse(readFileOrEmpty(join(out, id, 'case.json')) || '{}') as Record<string, unknown>;
   const p = readBenchPoint(out);
@@ -1730,13 +1737,9 @@ const loadScored = (out: string, id: string): Scored => {
     const h = (scores[arm] as { hidden?: { ok: boolean; tail: string; class?: string } } | undefined)?.hidden;
     return h && !h.ok && !(arm in excluded) ? [`${id}/${arm}: ${h.class ?? failureClass(h.tail)}`] : [];
   });
-  const judged = join(out, id, 'judge');
-  const verdicts = (existsSync(judged) ? readdirSync(judged) : [])
-    .flatMap(pair =>
-      readdirSync(join(judged, pair))
-        .filter(f => /^\w+\.json$/.test(f))
-        .map(f => JSON.parse(readFileOrEmpty(join(judged, pair, f))) as Judged)
-    )
+  const verdicts = findJudgePairFiles(join(out, id))
+    .filter(f => /^\w+\.json$/.test(basename(f)))
+    .map(f => JSON.parse(readFileOrEmpty(f)) as Judged)
     .filter(v => !v.order.some(arm => arm in excluded));
   const { invalid, skipped } = JSON.parse(readFileOrEmpty(join(out, id, 'valid.json')) || '{}') as {
     invalid?: string;
@@ -1879,14 +1882,11 @@ const summary = (cases: Scored[]) => {
 
 /** Calls, cost and minutes of every judge call under `out`, cached ones left out. */
 const judging = (out: string, ids: string[]) => {
-  const calls = ids.flatMap(id => {
-    const dir = join(out, id, 'judge');
-    return (existsSync(dir) ? readdirSync(dir) : []).flatMap(pair =>
-      readdirSync(join(dir, pair))
-        .filter(f => f.endsWith('.cost.json'))
-        .map(f => JSON.parse(readFileOrEmpty(join(dir, pair, f))) as { ms: number; usd: number })
-    );
-  });
+  const calls = ids.flatMap(id =>
+    findJudgePairFiles(join(out, id))
+      .filter(f => f.endsWith('.cost.json'))
+      .map(f => JSON.parse(readFileOrEmpty(f)) as { ms: number; usd: number })
+  );
   const sum = (k: 'ms' | 'usd') => calls.reduce((n, c) => n + (c[k] ?? 0), 0);
   return calls.length
     ? [`Judges: ${calls.length} calls, $${getRounded(sum('usd'))}, ${Math.round(sum('ms') / 60_000)} min.`, '']

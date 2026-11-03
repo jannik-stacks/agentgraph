@@ -467,6 +467,7 @@ describe('bin/bench.ts score and report', () => {
     );
     mkdirSync(join(out, 'demo', 'floor'), { recursive: true });
     writeFileSync(join(out, 'demo', 'floor', 'score.json'), JSON.stringify({ files: 0, hidden: { ok: false } }));
+    writeFileSync(join(out, 'demo', 'judge', 'panel.json'), JSON.stringify({ panel: { opus: 2, sonnet: 2 } }));
     mkdirSync(join(out, 'bad', 'human'), { recursive: true });
     writeFileSync(join(out, 'bad', 'valid.json'), JSON.stringify({ invalid: 'base already passes the hidden tests' }));
     const report = bench('report', out);
