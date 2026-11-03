@@ -138,3 +138,24 @@ it('keeps every opened run atom while it is subscribed, past any number of runs'
     vi.unstubAllGlobals();
   }
 });
+
+it('reads a run the server answers 404 and null for as gone, not as a failure', async () => {
+  vi.stubGlobal('location', new URL('http://studio/runs'));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json(null, { status: 404 }))
+  );
+  const { createStore } = await dependency<{
+    createStore: () => { get: (atom: object) => unknown; sub: (atom: object, listener: () => void) => () => void };
+  }>('jotai');
+  const { runAtom } = await studioModule<{ runAtom: (id: string) => object }>('state.ts');
+  const store = createStore();
+  const gone = runAtom('gone');
+  const stop = store.sub(gone, () => {});
+  try {
+    await vi.waitFor(() => expect(store.get(gone)).toEqual({ value: null }));
+  } finally {
+    stop();
+    vi.unstubAllGlobals();
+  }
+});

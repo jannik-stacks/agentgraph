@@ -69,8 +69,8 @@ export const makeLiveJsonAtom = <T>(
       busy = true;
       void fetch(path)
         .then(async r => {
-          if (r.ok) return read(await r.json());
-          const body = (await r.json().catch(() => undefined)) as { error?: unknown } | undefined;
+          const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
+          if (r.ok || (r.status === 404 && body === null)) return read(body);
           throw new Error(typeof body?.error === 'string' ? body.error : `${path} answered ${r.status}`);
         })
         .then(
