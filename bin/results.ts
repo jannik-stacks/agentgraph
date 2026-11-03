@@ -66,6 +66,7 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
               ...(e.check.value && { value: e.check.value }),
               ...(e.check.share !== undefined && { share: e.check.share }),
               ...(e.check.empty && { empty: e.check.empty }),
+              ...(e.check.na && { na: e.check.na }),
               ...(e.later && { later: e.later }),
               ...('older' in e && { older: true as const }),
             },

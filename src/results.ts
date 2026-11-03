@@ -19,6 +19,7 @@ const Measurement = Schema.Struct({
   value: optional(ResultValue),
   share: optional(Schema.JsonNumber),
   empty: optional(Schema.Literal(true)),
+  na: optional(Schema.Literal(true)),
   later: optional(Schema.Literal(true)),
   older: optional(Schema.Literal(true)),
 });

@@ -302,7 +302,7 @@ const lines: {
     summary: (
       <>
         <Pill of="line" kind="check" /> {line.check.check}{' '}
-        {line.check.empty ? muted('skipped') : line.check.pass ? 'pass' : muted('fail')}
+        {line.check.na ? muted('n/a') : line.check.empty ? muted('skipped') : line.check.pass ? 'pass' : muted('fail')}
         {formatCheckValue(line.check) && ` ${formatCheckValue(line.check)}`}
         {muted(
           `${line.later ? ', checked later' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.usd > 0 ? `, ${usd(line.usd)}` : ''}${line.exit === undefined ? '' : `, exit ${line.exit}`}${used(line.used)}`
