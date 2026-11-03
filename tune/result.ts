@@ -1,6 +1,5 @@
 import { Schema } from 'effect';
 
-const optional = Schema.optionalKey;
 const commit = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40,64}$/));
 
 export const TuneStep = Schema.Struct({
@@ -19,13 +18,13 @@ export const TuneStep = Schema.Struct({
         cases: Schema.mutable(Schema.Array(Schema.String)),
         quality: Schema.Finite,
         ci: Schema.mutable(Schema.Tuple([Schema.Finite, Schema.Finite])),
-        delta: optional(Schema.Finite),
-        pUp: optional(Schema.Finite),
-        flips: optional(Schema.Record(Schema.String, Schema.Literals(['up', 'down', 'win', 'loss']))),
+        delta: Schema.optionalKey(Schema.Finite),
+        pUp: Schema.optionalKey(Schema.Finite),
+        flips: Schema.optionalKey(Schema.Record(Schema.String, Schema.Literals(['up', 'down', 'win', 'loss']))),
         usd: Schema.Finite,
         minutes: Schema.Finite,
-        perRun: optional(Schema.Struct({ usd: Schema.Finite, minutes: Schema.Finite })),
-        saved: optional(
+        perRun: Schema.optionalKey(Schema.Struct({ usd: Schema.Finite, minutes: Schema.Finite })),
+        saved: Schema.optionalKey(
           Schema.Record(
             Schema.Literals(['usd', 'minutes']),
             Schema.Struct({ share: Schema.Finite, pDown: Schema.Finite })

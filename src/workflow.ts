@@ -128,54 +128,53 @@ export type RunRecord = Omit<Run, 'issue'> & Partial<Pick<Run, 'issue'>>;
 
 export const isRunDone = (run: RunRecord) => run.status === 'done' || run.status === 'stopped';
 
-export const exact = Schema.optionalKey;
 const Count = Schema.Int.check(Schema.isGreaterThan(0));
 const Names = Schema.mutable(Schema.Array(Schema.String));
 const Trigger = Schema.NullOr(
   Schema.Struct({
-    label: exact(Schema.String),
-    column: exact(Schema.String),
-    project: exact(Schema.String.check(Schema.isPattern(/^[\w.-]+\/\d+$/, { message: 'owner/number' }))),
-    branches: exact(Names),
+    label: Schema.optionalKey(Schema.String),
+    column: Schema.optionalKey(Schema.String),
+    project: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[\w.-]+\/\d+$/, { message: 'owner/number' }))),
+    branches: Schema.optionalKey(Names),
   })
 );
 const EventName = Schema.Literals(['issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback', 'conflict']);
 
 const StepFile = Schema.Struct({
-  agent: exact(Schema.String),
-  run: exact(Schema.String),
-  returns: exact(Schema.mutable(Schema.Array(Kind))),
-  reads: exact(Schema.Literal('traces')),
-  wait: exact(Schema.Literal('human')),
-  follow: exact(Schema.Literals(['merge', 'rebase', 'none'])),
-  skill: exact(Schema.String),
-  checks: exact(Names),
-  tries: exact(Count),
-  carry: exact(Schema.Boolean),
-  back: exact(Schema.String),
-  until: exact(Schema.String),
-  rounds: exact(Count),
-  each: exact(Schema.Union([Schema.Literals(['files', 'hunks']), Schema.Struct({ run: Schema.String })])),
+  agent: Schema.optionalKey(Schema.String),
+  run: Schema.optionalKey(Schema.String),
+  returns: Schema.optionalKey(Schema.mutable(Schema.Array(Kind))),
+  reads: Schema.optionalKey(Schema.Literal('traces')),
+  wait: Schema.optionalKey(Schema.Literal('human')),
+  follow: Schema.optionalKey(Schema.Literals(['merge', 'rebase', 'none'])),
+  skill: Schema.optionalKey(Schema.String),
+  checks: Schema.optionalKey(Names),
+  tries: Schema.optionalKey(Count),
+  carry: Schema.optionalKey(Schema.Boolean),
+  back: Schema.optionalKey(Schema.String),
+  until: Schema.optionalKey(Schema.String),
+  rounds: Schema.optionalKey(Count),
+  each: Schema.optionalKey(Schema.Union([Schema.Literals(['files', 'hunks']), Schema.Struct({ run: Schema.String })])),
 });
 
 const Front = Schema.Struct({
   on: Schema.Union([
     EventName,
     Schema.Struct({
-      issues: exact(Trigger),
-      issue_comment: exact(Trigger),
-      pull_request: exact(Trigger),
-      dispatch: exact(Schema.Null),
-      feedback: exact(Schema.Null),
-      conflict: exact(Schema.Null),
+      issues: Schema.optionalKey(Trigger),
+      issue_comment: Schema.optionalKey(Trigger),
+      pull_request: Schema.optionalKey(Trigger),
+      dispatch: Schema.optionalKey(Schema.Null),
+      feedback: Schema.optionalKey(Schema.Null),
+      conflict: Schema.optionalKey(Schema.Null),
     }),
   ]),
-  branch: exact(Schema.String),
-  base: exact(Schema.String),
-  concurrency: exact(Schema.Literals(['steer', 'queue', 'cancel'])),
-  agent: exact(Schema.String),
-  steps: exact(Schema.Record(Schema.String, StepFile)),
-  checks: exact(Names),
+  branch: Schema.optionalKey(Schema.String),
+  base: Schema.optionalKey(Schema.String),
+  concurrency: Schema.optionalKey(Schema.Literals(['steer', 'queue', 'cancel'])),
+  agent: Schema.optionalKey(Schema.String),
+  steps: Schema.optionalKey(Schema.Record(Schema.String, StepFile)),
+  checks: Schema.optionalKey(Names),
 });
 
 const decode = Schema.decodeUnknownResult(Front, { onExcessProperty: 'error', errors: 'all' });

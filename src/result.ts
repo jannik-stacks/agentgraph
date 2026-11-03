@@ -16,19 +16,18 @@ export type ResultType = {
 };
 
 const nested = Schema.suspend((): Schema.Codec<ResultType> => ResultType);
-const optional = Schema.optionalKey;
 
 export const ResultType = Schema.Struct({
-  type: optional(Schema.Literals(['object', 'array', 'string', 'number', 'integer', 'boolean'])),
-  properties: optional(Schema.Record(Schema.String, nested)),
-  required: optional(Schema.Array(Schema.String)),
-  items: optional(nested),
-  enum: optional(Schema.Array(Schema.Unknown)),
-  const: optional(Schema.Unknown),
-  minimum: optional(Schema.Finite),
-  maximum: optional(Schema.Finite),
-  description: optional(Schema.String),
-  unit: optional(Schema.Literals(['usd', 'minutes', 'seconds', 'tokens', 'share'])),
+  type: Schema.optionalKey(Schema.Literals(['object', 'array', 'string', 'number', 'integer', 'boolean'])),
+  properties: Schema.optionalKey(Schema.Record(Schema.String, nested)),
+  required: Schema.optionalKey(Schema.Array(Schema.String)),
+  items: Schema.optionalKey(nested),
+  enum: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+  const: Schema.optionalKey(Schema.Unknown),
+  minimum: Schema.optionalKey(Schema.Finite),
+  maximum: Schema.optionalKey(Schema.Finite),
+  description: Schema.optionalKey(Schema.String),
+  unit: Schema.optionalKey(Schema.Literals(['usd', 'minutes', 'seconds', 'tokens', 'share'])),
 });
 
 export type Result = Record<string, unknown>;

@@ -9,7 +9,7 @@ import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
 import { CheckMode, defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
-import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
+import { compileWorkflow, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
@@ -66,16 +66,16 @@ export class GraphError extends Data.TaggedError('GraphError')<{ problems: Probl
 }
 
 const SettingsFile = Schema.Struct({
-  plugins: exact(Schema.Record(Schema.String, Schema.Unknown)),
-  repo: exact(Schema.String),
-  setup: exact(Schema.String),
-  toolchain: exact(Schema.String),
-  image: exact(Schema.String.check(Schema.isPattern(/^[a-z0-9][\w./:@-]*$/))),
-  network: exact(Schema.Literals(['egress', 'models'])),
-  stacks: exact(Schema.Boolean),
-  milestone: exact(Schema.String),
-  trust: exact(Schema.mutable(Schema.Array(Schema.String))),
-  status: exact(
+  plugins: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+  repo: Schema.optionalKey(Schema.String),
+  setup: Schema.optionalKey(Schema.String),
+  toolchain: Schema.optionalKey(Schema.String),
+  image: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-z0-9][\w./:@-]*$/))),
+  network: Schema.optionalKey(Schema.Literals(['egress', 'models'])),
+  stacks: Schema.optionalKey(Schema.Boolean),
+  milestone: Schema.optionalKey(Schema.String),
+  trust: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
+  status: Schema.optionalKey(
     Schema.Union([
       Schema.Literal(false),
       Schema.Record(Schema.Literals(issueStatuses), Schema.optionalKey(Schema.String)),
@@ -100,20 +100,20 @@ export const parseGraphSettings = (text: string | undefined, say: (message: stri
  */
 export const Check = Schema.Struct({
   mode: CheckMode,
-  returns: exact(ResultType),
-  pass: exact(ResultType),
-  reads: exact(Schema.Literal('traces')),
-  each: exact(Schema.String),
-  run: exact(Schema.String),
-  agent: exact(Schema.String),
-  max: exact(Schema.Int.check(Schema.isGreaterThan(0))),
+  returns: Schema.optionalKey(ResultType),
+  pass: Schema.optionalKey(ResultType),
+  reads: Schema.optionalKey(Schema.Literal('traces')),
+  each: Schema.optionalKey(Schema.String),
+  run: Schema.optionalKey(Schema.String),
+  agent: Schema.optionalKey(Schema.String),
+  max: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
 });
 export type Check = typeof Check.Type;
 
 /** A skill file's frontmatter; `uses` names the skills whose bodies follow its own in the prompt. */
 const SkillFile = Schema.Struct({
-  description: exact(Schema.String),
-  uses: exact(Schema.mutable(Schema.Array(Schema.String))),
+  description: Schema.optionalKey(Schema.String),
+  uses: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
 });
 type SkillFile = typeof SkillFile.Type;
 

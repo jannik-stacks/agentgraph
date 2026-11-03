@@ -3,12 +3,11 @@ import type { Check } from './folder.ts';
 import { CheckMode, ResultType } from './result.ts';
 import { JsonValue, PluginMetadata } from './meta.ts';
 
-const optional = Schema.optionalKey;
 const Field = Schema.Struct({
   check: Schema.String,
   field: Schema.String,
-  mode: optional(CheckMode),
-  limit: optional(ResultType.mapFields(Struct.pick(['minimum', 'maximum']))),
+  mode: Schema.optionalKey(CheckMode),
+  limit: Schema.optionalKey(ResultType.mapFields(Struct.pick(['minimum', 'maximum']))),
   ...Struct.pick(ResultType.fields, ['type', 'description', 'unit']),
 });
 const ResultValue = Schema.Record(Schema.String, Schema.Unknown).check(
@@ -17,21 +16,21 @@ const ResultValue = Schema.Record(Schema.String, Schema.Unknown).check(
 const Measurement = Schema.Struct({
   at: Schema.String,
   pass: Schema.Boolean,
-  value: optional(ResultValue),
-  share: optional(Schema.Finite),
-  empty: optional(Schema.Literal(true)),
-  na: optional(Schema.Literal(true)),
-  later: optional(Schema.Literal(true)),
-  older: optional(Schema.Literal(true)),
+  value: Schema.optionalKey(ResultValue),
+  share: Schema.optionalKey(Schema.Finite),
+  empty: Schema.optionalKey(Schema.Literal(true)),
+  na: Schema.optionalKey(Schema.Literal(true)),
+  later: Schema.optionalKey(Schema.Literal(true)),
+  older: Schema.optionalKey(Schema.Literal(true)),
 });
 const Row = Schema.Struct({
   key: Schema.String,
   at: Schema.String,
-  href: optional(Schema.String.check(Schema.isPattern(/^\/(?!\/)(?!.*[\s\\])/s))),
-  dead: optional(Schema.String),
+  href: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^\/(?!\/)(?!.*[\s\\])/s))),
+  dead: Schema.optionalKey(Schema.String),
   axes: Schema.Record(Schema.String, Schema.String),
   results: Schema.Record(Schema.String, Measurement),
-  meta: optional(PluginMetadata),
+  meta: Schema.optionalKey(PluginMetadata),
 });
 
 export const ResultSheet = Schema.Struct({
