@@ -386,7 +386,7 @@ describe('end checks', () => {
     expect(results(where.data)).toEqual([expect.objectContaining({ check: 'lines', value: { n: 3 }, end: true })]);
   });
 
-  it('give a check gone from the graph, or a run without kept files, an empty result naming why', async () => {
+  it('give a check gone from the graph an empty result naming why, and one on a run that kept no change n/a', async () => {
     const where = world();
     const h = ending({ lines: measure('echo 3') });
     const { run } = services(where, []);
@@ -402,11 +402,7 @@ describe('end checks', () => {
         findings: 'the graph has no check gone',
         end: true,
       }),
-      expect.objectContaining({
-        check: 'lines',
-        empty: true,
-        findings: expect.stringContaining('refs/agentgraph/runs/run-7'),
-      }),
+      expect.objectContaining({ check: 'lines', empty: true, na: true, findings: 'the run kept no change' }),
     ]);
   });
 
@@ -439,7 +435,13 @@ describe('end checks', () => {
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge' })));
     await run(instruct(h, { kind: 'check', checks: ['lines'] }));
     expect(results(where.data)).toEqual([
-      expect.objectContaining({ check: 'lines', pass: true, value: { n: expect.any(Number) }, end: true }),
+      expect.objectContaining({ check: 'lines', na: true, findings: 'the run has no trace' }),
     ]);
+    const session = { resumed: false, ended: 'stop' as const, usd: 0 };
+    await run(Effect.flatMap(Store, s => s.trace('run-7', { at: '2026-10-16T00:00:02.000Z', step: 'merge', session })));
+    await run(
+      instruct({ ...h, checks: { lines: { ...h.checks.lines!, version: 'v2' } } }, { kind: 'check', checks: ['lines'] })
+    );
+    expect(results(where.data).at(-1)).toMatchObject({ check: 'lines', pass: true, value: { n: expect.any(Number) } });
   });
 });

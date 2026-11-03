@@ -58,11 +58,11 @@ Scripts run in the checkout, without network, with these variables: <!-- code: s
 
 ## End checks
 
-A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the kept files, measured from `startCommit`, with an empty reply. They must be `info` or `warn` and never change the run's status. A runner killed partway runs only the ones it still owes. Results go to the run's [check record](runs.md#the-check-record). A check that cannot run there gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
+A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the kept files, measured from `startCommit`, with the issue the run was given and its last session's reply. They never read or write the forge. They must be `info` or `warn` and never change the run's status. A runner killed partway runs only the ones it still owes. Results go to the run's [check record](runs.md#the-check-record). A check that cannot run there gives an empty result. One that does not apply gives an empty result marked `na`, shown as n/a: a check of traces on a run with no session, or of files on a run that kept no change. <!-- code: src/workflow.ts#transition src/engine.ts#checkEnded -->
 
 An agent step's session cost is in the trace. Check cost, including step judges, is in the run's check record. The run budget counts both. After each try, a run that is still running stops if the total exceeds `usd-per-run`. The cost of end checks is recorded with the ended run and cannot stop it. <!-- code: src/engine.ts#readRunSpend src/engine.ts#drive -->
 
-`agi check <name>... --runs` does the same on ended runs, `info` checks as `info` and the rest as `warn`; `--workflow` and `--issue` narrow the runs. A check with a later result under its current version is skipped. The studio marks these results "checked later".
+`agi check <name>... --runs` does the same on ended runs, `info` checks as `info` and the rest as `warn`; `--workflow` and `--issue` narrow the runs. A check with a later result under its current version is skipped. <!-- code: src/engine.ts#runLaterChecks --> The studio marks these results "checked later".
 
 A `reads: traces` check gets an empty folder beside the run's traces, so it works on runs whose kept files are gone.
 

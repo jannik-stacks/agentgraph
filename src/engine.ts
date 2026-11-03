@@ -506,7 +506,7 @@ export const instruct = (
       const unknown = checks.filter(name => !(name in graph.checks));
       if (unknown.length) return yield* new ForgeError({ message: `the graph has no check ${unknown.join(', ')}` });
       const ended = (yield* Effect.flatMap(Store, s => s.list(where))).filter(isRunDone);
-      const runs = yield* Effect.forEach(ended, r => runEndChecks(graph, r.id, checks), {
+      const runs = yield* Effect.forEach(ended, r => runLaterChecks(graph, r.id, checks), {
         concurrency: graph.limits.parallel,
       });
       return runs.filter(r => r !== undefined);
@@ -1760,23 +1760,32 @@ const explain = (e: SandboxError | SessionStop | ForgeError) =>
 const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeError | StoreError, R>) =>
   Effect.catchAll(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
 
-const reopen = (graph: Graph, w: Workflow, run: Run, traces: boolean) =>
+const formatRunIssue = (run: Run) =>
+  run.title === undefined ? '' : `## #${run.issue} ${run.title}\n\n${run.body ?? ''}`;
+
+const whyNotApplicable = (check: Check, run: Run, traced: boolean) =>
+  check.reads === 'traces'
+    ? traced
+      ? undefined
+      : 'the run has no trace'
+    : run.startCommit === undefined
+      ? 'the run kept no change'
+      : undefined;
+
+const reopen = (graph: Graph, run: Run, traces: boolean, reply: string) =>
   Effect.gen(function* () {
-    const t = yield* readIssueWithPull(w, run);
     const made = yield* Effect.flatMap(Sandbox, s =>
       s.checkout(traces ? undefined : `refs/agentgraph/runs/${run.id}`, undefined, undefined, graph)
     );
-    const base = run.startCommit ?? made.base;
-    if (!base && !traces) return yield* new SandboxError({ reason: 'infra', detail: 'the run kept no start commit' });
-    const work = { ...made, base };
+    const work = { ...made, base: run.startCommit ?? made.base };
     if (!traces) yield* setUp(graph, work, run);
     const ready = traces ? '' : yield* writeCheckoutTree(work);
     const left: Left = {
       ...work,
       run: run.id,
       issue: run.issue,
-      context: context(t),
-      reply: '',
+      context: formatRunIssue(run),
+      reply,
       proposals: [],
       ...(run.answers && { answers: run.answers }),
     };
@@ -1796,59 +1805,91 @@ const readRunSpend = (id: string) =>
     )
   );
 
-const runEndChecks = (
+const checkEnded = (
   graph: Graph,
-  id: string,
-  later?: string[]
-): Effect.Effect<Run | undefined, StoreError, Services> =>
+  run: Run,
+  names: string[],
+  o: { later?: true; settled?: (name: string) => Effect.Effect<unknown, StoreError, Store> } = {}
+) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    const lines = Chunk.toArray(yield* Stream.runCollect(store.read(run.id)));
+    const reply = lines.flatMap(t => ('event' in t && t.event.type === 'end' ? [t.event.final] : [])).at(-1) ?? '';
+    const traces = names.every(name => graph.checks[name]?.reads === 'traces');
+    const opened = yield* Effect.cached(caught(reopen(graph, run, traces, reply)));
+    for (const name of names) {
+      const check = graph.checks[name];
+      const na =
+        check &&
+        whyNotApplicable(
+          check,
+          run,
+          lines.some(t => 'session' in t)
+        );
+      const got = !check
+        ? `the graph has no check ${name}`
+        : (na ??
+          (yield* Effect.flatMap(opened, open =>
+            typeof open === 'string'
+              ? Effect.succeed(open)
+              : caught(
+                  Effect.zipRight(
+                    open.restore,
+                    runOneCheck(
+                      run.step,
+                      { ...check, mode: check.mode === 'info' ? 'info' : 'warn' },
+                      open.left,
+                      graph,
+                      o.later
+                    )
+                  )
+                )
+          )));
+      if (typeof got === 'string')
+        yield* store.addChecks(run.id, {
+          at: now(),
+          step: run.step,
+          check: { check: name, pass: false, empty: true, ...(na && { na: true as const }), findings: got, ms: 0 },
+          version: check?.version ?? '',
+          usd: 0,
+          ...(o.later && { later: o.later }),
+        });
+      if (o.settled) yield* o.settled(name);
+    }
+  });
+
+const runEndChecks = (graph: Graph, id: string): Effect.Effect<Run | undefined, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     if (Either.isLeft(yield* Effect.either(store.lock(id)))) return;
     const ended = yield* store.get(id);
-    if (!ended) return;
-    const after = (yield* store.readChecks(id)).filter(e => ended.ended && e.at >= ended.ended && !e.item);
-    const names = later
-      ? later.filter(name => !after.some(e => e.check.check === name && e.version === graph.checks[name]?.version))
-      : (ended.owed ?? []);
-    if (names.length === 0) return later ? undefined : ended;
+    if (!ended?.owed?.length) return ended;
     let run = ended;
-    const w = graph.workflows[ended.workflow];
-    const traces = names.every(name => graph.checks[name]?.reads === 'traces');
-    const opened = w ? yield* caught(reopen(graph, w, ended, traces)) : `the graph has no workflow ${ended.workflow}`;
-    for (const name of names) {
-      const check = graph.checks[name];
-      const got = !check
-        ? `the graph has no check ${name}`
-        : typeof opened === 'string'
-          ? opened
-          : yield* caught(
-              Effect.zipRight(
-                opened.restore,
-                runOneCheck(
-                  ended.step,
-                  { ...check, mode: check.mode === 'info' ? 'info' : 'warn' },
-                  opened.left,
-                  graph,
-                  later && true
-                )
-              )
-            );
-      if (typeof got === 'string')
-        yield* store.addChecks(id, {
-          at: now(),
-          step: ended.step,
-          check: { check: name, pass: false, empty: true, findings: got, ms: 0 },
-          version: check?.version ?? '',
-          usd: 0,
-          ...(later && { later: true as const }),
-        });
-      if (later) continue;
-      const { owed: before = [], ...rest } = run;
-      const left = before.filter(n => n !== name);
-      run = { ...rest, ...(left.length > 0 && { owed: left }) };
-      yield* store.put(run);
-    }
+    yield* checkEnded(graph, ended, ended.owed, {
+      settled: name => {
+        const { owed: before = [], ...rest } = run;
+        const left = before.filter(n => n !== name);
+        run = { ...rest, ...(left.length > 0 && { owed: left }) };
+        return store.put(run);
+      },
+    });
+    const w = graph.workflows[run.workflow];
     return w ? yield* show(w, run, graph) : run;
+  }).pipe(Effect.scoped);
+
+const runLaterChecks = (graph: Graph, id: string, names: string[]) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    if (Either.isLeft(yield* Effect.either(store.lock(id)))) return;
+    const run = yield* store.get(id);
+    if (!run?.ended) return;
+    const after = (yield* store.readChecks(id)).filter(e => e.at >= run.ended! && !e.item);
+    const due = names.filter(
+      name => !after.some(e => e.check.check === name && e.version === graph.checks[name]?.version)
+    );
+    if (due.length === 0) return;
+    yield* checkEnded(graph, run, due, { later: true });
+    return run;
   }).pipe(Effect.scoped);
 
 const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Forge | Store> =>

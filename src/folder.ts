@@ -392,7 +392,13 @@ export const loadGraph = (
         {
           ...check,
           version: getSha(
-            [readDocText(read.groups.checks, name), readDocText(read.groups.agents, check.agent), scripts].join('\0'),
+            [
+              readDocText(read.groups.checks, name),
+              readDocText(read.groups.agents, check.agent),
+              scripts,
+              check.agent && parts.agents[check.agent]?.harness,
+              check.agent && parts.agents[check.agent]?.model,
+            ].join('\0'),
             12
           ),
         },

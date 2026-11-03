@@ -17,6 +17,7 @@ export type CheckResult = {
   value?: Result;
   share?: number;
   empty?: true;
+  na?: true;
   findings?: string;
   ms: number;
 };

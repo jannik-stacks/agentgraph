@@ -148,9 +148,9 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 
 ## The check record
 
-Each `checks.jsonl` line is one result: `at`, `step`, the check's `version`, the result with short findings, `value`, `share` or `empty`, the item, `usd`, the judging cost, and a script's `exit` and `used`. `later` marks a result from [`check --runs`](checks.md#end-checks), and `log` points at the full output. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
+Each `checks.jsonl` line is one result: `at`, `step`, the check's `version`, the result with short findings, `value`, `share`, `empty` or `na`, the item, `usd`, the judging cost, and a script's `exit` and `used`. `later` marks a result from [`check --runs`](checks.md#end-checks), and `log` points at the full output. <!-- code: src/trace.ts#CheckEntry src/store.ts#fileStore -->
 
-The version hashes the check's file, its judge's file and the graph's scripts. Readers take each check's newest result under its current version, else its newest, marked as older. A run's cost sums its sessions; its checking cost sums its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
+The version hashes the check's file, its judge's file, its judge's harness and model, and the graph's scripts. Readers take each check's newest result under its current version, else its newest, marked as older. A run's cost sums its sessions; its checking cost sums its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
 
 ## Run links
 
