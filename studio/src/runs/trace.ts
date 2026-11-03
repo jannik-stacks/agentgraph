@@ -1,7 +1,7 @@
 import type { Located } from '../../../src/store.ts';
 import type { readRunLabels } from '../../../src/labels.ts';
 import type { CheckEntry, Trace } from '../../../src/trace.ts';
-import type { CheckResult, Outcome, Run } from '../../../src/workflow.ts';
+import type { CheckResult, Outcome, RunRecord } from '../../../src/workflow.ts';
 
 export const formatNumber = (n: number) =>
   Math.abs(n) >= 1e6
@@ -60,7 +60,7 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
 export type ServedRun = {
   fixture: string;
   repo: string;
-  run: Run;
+  run: RunRecord;
   labels: ReturnType<typeof readRunLabels>;
   trace: Line[];
   data?: string;

@@ -25,6 +25,7 @@ import { AgentDetails, CheckDetails } from './OpenedDetails.tsx';
 import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
 import { splitSelection } from './trail.ts';
 import { makeRunStory, makeRunTrail, makeWorkflowRunVisits } from './visits.ts';
+import { isOnIssue } from '../../../src/workflow.ts';
 
 const graphParam = queryParam('graph');
 const runParam = queryParam('run');
@@ -315,16 +316,20 @@ export const GraphPage = () => {
   const runs = useMemo(
     () =>
       (graph?.fixtures ?? []).flatMap(fixture => [
-        ...(real ?? [])
-          .filter(r => r.fixture === fixture.id)
-          .map(r => ({
-            key: `${fixture.id}:${r.run.id}`,
-            label: `#${r.run.issue} ${fixture.workflow.name}, ${r.run.status} at ${r.run.step}, ${r.run.id}`,
-            fixture,
-            run: r.run,
-            trail: makeRunTrail(r.run, r.trace),
-            trace: r.trace,
-          })),
+        ...(real ?? []).flatMap(({ fixture: from, run, trace }) =>
+          from === fixture.id && isOnIssue(run)
+            ? [
+                {
+                  key: `${fixture.id}:${run.id}`,
+                  label: `#${run.issue} ${fixture.workflow.name}, ${run.status} at ${run.step}, ${run.id}`,
+                  fixture,
+                  run,
+                  trail: makeRunTrail(run, trace),
+                  trace,
+                },
+              ]
+            : []
+        ),
         ...fixture.runs.map(s => ({
           key: `${fixture.id}:${s.label}`,
           label: `simulated ${fixture.workflow.name}, ${s.label}`,

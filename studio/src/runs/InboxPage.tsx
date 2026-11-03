@@ -1,5 +1,6 @@
 import { useAtomValue } from 'jotai';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../../../src/status.ts';
+import { isOnIssue } from '../../../src/workflow.ts';
 import { runsAtom } from '../state.ts';
 import { Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
@@ -10,7 +11,10 @@ const local = env.VITE_AGI_LOCAL === '1';
 export const InboxPage = () => {
   const { value: runs, failure } = useAtomValue(runsAtom);
   if (!runs) return failure ? <Muted>{failure}</Muted> : <Loading />;
-  const waiting = findRunsWaitingOnPeople(runs.map(r => r.run)).map(run => runs.find(r => r.run === run)!);
+  const waiting = findRunsWaitingOnPeople(runs.map(r => r.run).filter(isOnIssue)).map(run => ({
+    ...runs.find(r => r.run === run)!,
+    run,
+  }));
   if (!waiting.length) return <Muted>Nothing waits for you.</Muted>;
   return (
     <div className="h-full overflow-y-auto p-4">

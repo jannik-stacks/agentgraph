@@ -1,7 +1,8 @@
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { ensureInstance, writeImportedRun } from '../src/instance.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -10,6 +11,7 @@ import { git } from './kit.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -47,4 +49,27 @@ it('keeps a commit or a patch as an ended run with no issue, once per import', a
   expect(first).not.toHaveProperty('issue');
   expect(getRunOrigin(first?.meta)).toEqual({ plugin: 'agi', version: '0.0.1', job: 'import', input });
   await expect(writeImportedRun(i, patch, { version: '0.0.1', from: commit })).rejects.toThrow();
+}, 30_000);
+
+it('serves an imported run in the studio run list and on its own page', async () => {
+  const w = seeded('import-api', { 'README.md': 'hi\n' });
+  dirs.push(w.root);
+  const i = await ensureInstance(join(w.root, 'agentgraph'), w.seed);
+  const id = await writeImportedRun(i, 'HEAD', { version: '0.0.1', from: 'HEAD' });
+  vi.stubEnv('AGI_STUDIO_DIR', join(import.meta.dirname, '..', 'examples', 'sandbox'));
+  vi.stubEnv('AGI_STUDIO_DATA', i.data);
+  const routes: Record<string, (req: unknown, res: unknown) => void> = {};
+  const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
+  plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
+  const ask = (url: string) =>
+    new Promise<{ status: number; body: unknown }>(done => {
+      const res = {
+        statusCode: 200,
+        setHeader: () => {},
+        end: (body: string) => done({ status: res.statusCode, body: JSON.parse(body) }),
+      };
+      routes['/api/runs']!({ url }, res);
+    });
+  expect(await ask('/')).toMatchObject({ status: 200, body: [{ run: { id, workflow: 'import' } }] });
+  expect(await ask(`/${id}`)).toMatchObject({ status: 200, body: { run: { id, status: 'done' } } });
 }, 30_000);

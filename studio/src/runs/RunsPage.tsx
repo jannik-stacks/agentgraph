@@ -42,6 +42,7 @@ const Locate = ({ gh }: { gh: string }) => {
 const splitRunsByIssue = (runs: ServedRun[]) => {
   const byIssue = new Map<number, { workflows: Set<string>; title?: string | undefined; body?: string | undefined }>();
   for (const { run } of runs.toSorted((a, b) => a.run.started.localeCompare(b.run.started))) {
+    if (run.issue === undefined) continue;
     const seen = byIssue.get(run.issue) ?? { workflows: new Set() };
     byIssue.set(run.issue, {
       workflows: seen.workflows.add(run.workflow),

@@ -2,7 +2,7 @@ import { useAtomValue } from 'jotai';
 import { type ReactNode, useState } from 'react';
 import type { Proposal } from '../../../src/proposal.ts';
 import type { Exit } from '../../../src/sandbox.ts';
-import type { Run } from '../../../src/workflow.ts';
+import type { RunRecord } from '../../../src/workflow.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultLines } from '../results/ResultTable.tsx';
@@ -448,7 +448,7 @@ const sessionRow = (
 };
 
 /** What a run is doing or waiting for, in a sentence or two. */
-export const statusTip = (run: Run) => {
+export const statusTip = (run: RunRecord) => {
   const at = `issue #${run.said?.[0]?.issue ?? run.issue}`;
   if (run.status === 'running') return `Working on ${run.step}, try ${run.tries + 1}.`;
   if (run.status === 'done') return 'Finished every step.';
@@ -465,7 +465,7 @@ const Col = ({ className, children }: { className: string; children: ReactNode }
 
 /** A run's issue as a link to it on the forge. */
 const Issue = ({ r }: { r: ServedRun }) =>
-  r.repo ? (
+  r.run.issue === undefined ? null : r.repo ? (
     <Url url={`https://github.com/${r.repo}/issues/${r.run.issue}`} text={`#${r.run.issue}`} />
   ) : (
     <>#{r.run.issue}</>
@@ -501,7 +501,7 @@ export const RunLine = ({ r }: { r: ServedRun }) => (
     href={atLink(r.run.id, undefined, r.data)}
     className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono transition-colors text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
   >
-    <Col className="w-[4ch]">#{r.run.issue}</Col>
+    <Col className="w-[4ch]">{r.run.issue !== undefined && `#${r.run.issue}`}</Col>
     <Col className="w-[8ch]">{flag(r.run.status, r.run.status === 'running' || r.run.status === 'waiting')}</Col>
     <Col className="text-zinc-500">{took(r.run.started, undefined)}</Col>
   </Link>

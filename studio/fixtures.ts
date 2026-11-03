@@ -127,7 +127,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       const answer = await Effect.runPromise(
         Effect.gen(function* () {
           const store = yield* Store;
-          const entry = (run: WorkflowModule.Run, all: boolean) =>
+          const entry = (run: WorkflowModule.RunRecord, all: boolean) =>
             Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (chunk, checks) => {
               const trace = Chunk.toArray(chunk);
               const lines = mergeCheckEntries(trace, checks);
@@ -142,10 +142,10 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
               };
             });
           if (!one)
-            return yield* Effect.forEach(yield* Effect.filter(yield* store.list(), run => keep(run.id)), run =>
+            return yield* Effect.forEach(yield* Effect.filter(yield* store.listRecords(), run => keep(run.id)), run =>
               entry(run, false)
             );
-          const run = (yield* keep(one)) ? yield* store.get(one) : undefined;
+          const run = (yield* keep(one)) ? yield* store.getRecord(one) : undefined;
           return run ? yield* entry(run, true) : null;
         }).pipe(Effect.provide(fileStore(data)))
       );

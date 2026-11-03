@@ -20,7 +20,7 @@ export const findCheckVerdicts = (
     string,
     {
       run: string;
-      issue: number;
+      issue: number | undefined;
       at: string;
       pass: boolean;
       empty: boolean;
