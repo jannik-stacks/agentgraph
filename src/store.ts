@@ -13,11 +13,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { gunzip, gzip, zstdCompress, zstdDecompress, zstdDecompressSync } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope } from 'effect';
-import { createLock, LockHeldError } from './owner.ts';
+import { createLock, LockHeldError, waitForLock } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
 import { isRunDone, type Run, type RunRecord } from './workflow.ts';
 import { isOnIssue } from './graph.ts';
@@ -241,39 +241,44 @@ export const appendJsonlRows = (path: string, lines: unknown[]) => {
     Effect.tryPromise({
       try: async () => {
         await mkdir(dirname(path), { recursive: true });
-        if (existsSync(`${path}.zst`)) {
-          writeFileAtomic(path, await readRecord(path));
-          await rm(`${path}.zst`);
-        }
-        const file = await open(path, 'a+');
+        const release = await waitForLock(basename(path), dirname(path));
         try {
-          const { size } = await file.stat();
-          if (size > 0) {
-            const last = Buffer.alloc(1);
-            await file.read(last, 0, 1, size - 1);
-            if (last[0] !== 10) {
-              const content = await file.readFile();
-              const cut = content.lastIndexOf(10) + 1;
-              const tail = content.subarray(cut);
-              let complete = true;
-              try {
-                JSON.parse(tail.toString('utf8'));
-              } catch {
-                complete = false;
-              }
-              if (complete) await file.appendFile('\n');
-              else {
-                await writeFile(`${path}.${randomUUID()}.partial`, tail);
-                await file.truncate(cut);
+          if (existsSync(`${path}.zst`)) {
+            writeFileAtomic(path, await readRecord(path));
+            await rm(`${path}.zst`);
+          }
+          const file = await open(path, 'a+');
+          try {
+            const { size } = await file.stat();
+            if (size > 0) {
+              const last = Buffer.alloc(1);
+              await file.read(last, 0, 1, size - 1);
+              if (last[0] !== 10) {
+                const content = await file.readFile();
+                const cut = content.lastIndexOf(10) + 1;
+                const tail = content.subarray(cut);
+                let complete = true;
+                try {
+                  JSON.parse(tail.toString('utf8'));
+                } catch {
+                  complete = false;
+                }
+                if (complete) await file.appendFile('\n');
+                else {
+                  await writeFile(`${path}.${randomUUID()}.partial`, tail);
+                  await file.truncate(cut);
+                }
               }
             }
+            await file.appendFile(lines.map(line => `${JSON.stringify(line)}\n`).join(''));
+            await file.sync();
+          } finally {
+            await file.close();
           }
-          await file.appendFile(lines.map(line => `${JSON.stringify(line)}\n`).join(''));
-          await file.sync();
+          await syncDirectory(dirname(path));
         } finally {
-          await file.close();
+          await release();
         }
-        await syncDirectory(dirname(path));
       },
       catch: cause => new StoreError({ path, cause }),
     })

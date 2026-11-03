@@ -125,8 +125,8 @@ export const createLock = async (path: string) => {
   }
 };
 
-export const waitForLock = async (name: string) => {
-  const path = join(readStateDir(), 'locks', `${name}.lock`);
+export const waitForLock = async (name: string, dir = join(readStateDir(), 'locks')) => {
+  const path = join(dir, `${name}.lock`);
   await mkdir(dirname(path), { recursive: true });
   for (;;) {
     const taken = await createLock(path).catch(e => (e instanceof LockHeldError ? undefined : Promise.reject(e)));

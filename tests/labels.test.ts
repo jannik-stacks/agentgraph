@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
@@ -43,6 +44,42 @@ describe('run labels log', () => {
       error.mockRestore();
     }
   });
+
+  it('keeps every edit when processes recover the same cut line at once', async () => {
+    const labels = join(import.meta.dirname, '..', 'src', 'labels.ts');
+    const writers = ['a', 'b', 'c', 'd'];
+    const edit = (data: string, key: string) =>
+      new Promise<number | null>(done =>
+        spawn(
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            `import { existsSync } from 'node:fs';
+             import { Effect } from 'effect';
+             import { writeRunLabels } from ${JSON.stringify(labels)};
+             while (!existsSync(${JSON.stringify(join(data, 'go'))})) await new Promise(r => setTimeout(r, 5));
+             await Effect.runPromise(writeRunLabels(${JSON.stringify(data)}, 'run-1', { ${key}: 'x' }));`,
+          ],
+          { cwd: join(import.meta.dirname, '..'), env: { ...process.env, NODE_OPTIONS: '' }, stdio: 'ignore' }
+        ).on('exit', done)
+      );
+    const rounds = await Promise.all(
+      Array.from({ length: 3 }, async () => {
+        const data = seed(cut);
+        const exits = writers.map(key => edit(data, key));
+        await new Promise(r => setTimeout(r, 1500));
+        writeFileSync(join(data, 'go'), '');
+        return [
+          await Promise.all(exits),
+          readRunLabels(data, 'run-1'),
+          readdirSync(join(data, 'run-1')).filter(name => name.endsWith('.partial')).length,
+        ];
+      })
+    );
+    const all = { arm: 'v2', ...Object.fromEntries(writers.map(key => [key, 'x'])) };
+    expect(rounds).toEqual(Array.from({ length: 3 }, () => [[0, 0, 0, 0], all, 1]));
+  }, 60_000);
 
   it('fails on a malformed line before the last', () => {
     const data = seed('{"key":"arm",\n{"key":"note","value":"x"}\n');
