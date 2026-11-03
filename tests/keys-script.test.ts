@@ -69,7 +69,7 @@ process.exit(r.status ?? 1);
       expect(seen).not.toContain('FAKE-canary');
       for (const key of created) expect(seen).not.toContain(key);
     }
-  }, 30_000);
+  });
 });
 
 it('writes one key for every agent in the form the CLI reads', () => {
