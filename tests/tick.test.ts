@@ -1,5 +1,14 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
@@ -8,6 +17,7 @@ import { drive, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
+import type { Agent } from '../src/folder.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { settings, type Settings } from '../src/services.ts';
@@ -873,6 +883,56 @@ describe('tick', () => {
     await resumed.run(tick(merging, 7));
     expect(resumed.specs).toHaveLength(1);
     expect((await stored()).reason).toBeUndefined();
+  });
+
+  describe('an aside answered by an agent without the grant', () => {
+    const secret = 'checkout secret 42';
+    const granting = (returns: Agent['returns']) => ({
+      ...merging,
+      agents: { ...merging.agents, implementor: { ...merging.agents.implementor!, returns } },
+    });
+    const forgeText = (where: ReturnType<typeof world>) =>
+      readdirSync(where.forge, { recursive: true, withFileTypes: true })
+        .filter(f => f.isFile() && !f.parentPath.includes('origin.git'))
+        .map(f => readFileSync(join(f.parentPath, f.name), 'utf8'))
+        .join('\n');
+    const answer = async (returns: Agent['returns'], said: Proposal) => {
+      const where = world();
+      git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+      say(where, comment(8, 'morgan', true, '/agent what changed?', '2026-10-16T00:00:05.000Z'));
+      const { run } = services(where, [[start('f'), reply(said)]]);
+      await run(Effect.zipRight(waiting(where), tick(granting(returns), 7)));
+      const stored = await run(Effect.flatMap(Store, st => st.get('run-7')));
+      const asked = readTrace(where.data, 'run-7').flatMap(t =>
+        'outcome' in t && t.outcome.kind === 'ask' && t.outcome.question.includes('may not propose')
+          ? [t.outcome.question]
+          : []
+      );
+      return { stored: stored!, asked, leaked: forgeText(where).includes(secret) };
+    };
+
+    it.each([
+      { kind: 'comment', body: secret },
+      { kind: 'label', add: [secret] },
+      { kind: 'push', branch: 'agentgraph/7', message: secret },
+      { kind: 'pull_request', branch: 'agentgraph/7', base: 'main', title: secret, body: secret },
+      { kind: 'merge', number: 8, head: secret },
+      { kind: 'issue', relation: 'follow-up', title: secret, body: secret },
+      { kind: 'tell', issue: 7, text: secret },
+    ] as Proposal[])('refuses its $kind and publishes none of it', async said => {
+      const { stored, asked, leaked } = await answer([], said);
+      expect([stored.step, stored.status, asked, leaked]).toEqual([
+        'merge',
+        'waiting',
+        [`SessionStop: implement may not propose ${said.kind}`],
+        false,
+      ]);
+    });
+
+    it('posts its comment when its returns list comment', async () => {
+      const { stored, asked, leaked } = await answer(['comment'], { kind: 'comment', body: secret });
+      expect([stored.step, stored.status, asked, leaked]).toEqual(['merge', 'waiting', [], true]);
+    });
   });
 
   it.each([

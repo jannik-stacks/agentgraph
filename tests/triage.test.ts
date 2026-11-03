@@ -111,7 +111,7 @@ describe('triage', () => {
     where.label(1);
     const { value } = await run(where, Array(3).fill(turn({ kind: 'comment', body: 'small' })), tick(graph));
     expect(value[0]).toMatchObject({ issue: 1, status: 'waiting' });
-    expect(value[0]!.reason).toContain('No size label proposed');
+    expect(value[0]!.reason).toContain('triage may not propose comment');
   });
 
   it('treats an actor outside the trust list as untrusted in the tracker folder', async () => {

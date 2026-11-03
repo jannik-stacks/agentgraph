@@ -1295,6 +1295,14 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
     return result;
   });
 
+const findUngranted = (step: Step, graph: Graph, proposals: readonly Said[], back = step.back !== undefined) => {
+  const granted = new Set<string>([
+    ...getStepReturns(step, graph.agents),
+    ...('agent' in step.does ? ['ask', ...(back ? ['back'] : [])] : []),
+  ]);
+  return proposals.filter(p => !granted.has(p.kind)).map(p => `${step.name} may not propose ${p.kind}`);
+};
+
 /** One try of the current step: a session, a script or a wait, then its checks, then apply proposals on a pass. */
 const attempt = (
   w: Workflow & Required<Pick<Workflow, 'base'>>,
@@ -1514,22 +1522,13 @@ const attempt = (
     const parsed = replies.map(reply => parseProposals(reply, !('run' in step.does)));
     const proposals = parsed.flatMap(p => p.proposals);
     const problems = parsed.flatMap(p => p.problems);
-    const ungranted = 'run' in step.does ? proposals.filter(p => !returns.includes(p.kind)) : [];
+    const ungranted = findUngranted(step, graph, proposals);
     if (ungranted.length > 0)
-      return done(
-        {
-          kind: 'failed',
-          checks: [],
-          proposals: [],
-          problems: [...problems, ...ungranted.map(p => `${step.name} may not propose ${p.kind}`)],
-        },
-        tried
-      );
+      return done({ kind: 'failed', checks: [], proposals: [], problems: [...problems, ...ungranted] }, tried);
     for (const p of proposals) {
       if ((p.kind === 'push' || p.kind === 'pull_request') && p.branch !== own)
         problems.push(`branch ${p.branch} is not this run's branch ${own ?? '(none)'}`);
-      if (p.kind === 'merge' && !returns.includes('merge')) problems.push(`${step.name} may not propose merge`);
-      else if (p.kind === 'merge') {
+      if (p.kind === 'merge') {
         const target = own
           ? yield* Effect.flatMap(Tracker, f => f.issue(p.number)).pipe(
               Effect.catchIf(
@@ -2393,14 +2392,17 @@ const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNulla
     if (!to || !('agent' in to.does))
       return yield* new SessionStop({ reason: 'provider', detail: 'this wait step has no answering session' });
     const agent = graph.agents[to.does.agent]!;
+    const comments = getStepReturns(to, graph.agents).includes('comment');
     const kept = run.sessions[to.name];
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, graph));
     const prompt = [
       !kept && [w.body, context(yield* readIssueWithPull(w, run))].join('\n\n'),
       `A human said this on the pull request while it waits at ${step.name}:\n\n${said}`,
       'This checkout is the pull request head; anything you change here is thrown away.',
-      'Answer with a comment. When it asks for a change, or you find one is needed, also propose back with why.',
-      `End your reply with a fenced agentgraph block holding a JSON array of proposals:\n${shapes.comment}\n${shapes.back}`,
+      comments
+        ? 'Answer with a comment. When it asks for a change, or you find one is needed, also propose back with why.'
+        : 'When it asks for a change, or you find one is needed, propose back with why.',
+      `End your reply with a fenced agentgraph block holding a JSON array of proposals:\n${[...(comments ? [shapes.comment] : []), shapes.back].join('\n')}`,
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -2430,6 +2432,8 @@ const aside = (w: Workflow, run: Run, graph: Graph, said: string, pull: NonNulla
     if (r.ended !== 'stop')
       return yield* new SessionStop({ reason: 'provider', detail: `aside ended ${r.ended} (exit ${r.exit ?? 0})` });
     const { proposals } = parseProposals(r.final, false);
+    const ungranted = findUngranted(to, graph, proposals, true);
+    if (ungranted.length > 0) return yield* new SessionStop({ reason: 'provider', detail: ungranted.join('\n') });
     const back = proposals.find(p => p.kind === 'back');
     const landed = yield* land(
       run,

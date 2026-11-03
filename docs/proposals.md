@@ -31,7 +31,7 @@ An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a ste
 3. `back` returns to its step, and nothing else applies.
 4. Otherwise `tell`, then pushes, then the other writes in order, then `issue` filings, which a failed push skips. `run` dispatches last, only when nothing failed.
 
-A missing block, invalid JSON, wrong fields or a kind the agent may not use fails the try, with the expected shape as feedback. <!-- code: src/engine.ts#attempt -->
+A missing block, invalid JSON, wrong fields or a kind the step may not use fails the try, with the expected shape as feedback. A kind it may not use fails the try before anything applies, an `ask` included. <!-- code: src/engine.ts#attempt -->
 
 A refused write fails the try. Any other GitHub error parks the run with a question.
 

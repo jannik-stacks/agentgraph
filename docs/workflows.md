@@ -146,7 +146,7 @@ A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The que
 
 ## Asides
 
-At a human wait step, an aside answers `/agent` comments. It forks the session `back` targets into a throwaway checkout of the pull request head, or starts fresh. Only comments and `back` apply: a comment answers and the run keeps waiting; a `back` resumes work, and the fork becomes that step's session. Edits are dropped. Without an open pull request, the comment sends the run back directly. <!-- code: src/engine.ts#aside -->
+At a human wait step, an aside answers `/agent` comments. It forks the session `back` targets into a throwaway checkout of the pull request head, or starts fresh. Only comments and `back` apply: a comment answers and the run keeps waiting; a `back` resumes work, and the fork becomes that step's session. The answering agent comments only when its `returns` lists `comment`; any kind it may not use fails the aside, and nothing from that reply is posted. Edits are dropped. Without an open pull request, the comment sends the run back directly. <!-- code: src/engine.ts#aside -->
 
 ## Comments while it works
 
