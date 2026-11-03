@@ -1,4 +1,5 @@
 import { getMean } from '../../../src/stats.ts';
+import { getQuantile, readBenchRowResults } from '../results/result.ts';
 import type { BenchRow as Row } from './data.ts';
 
 export const roughBelow = 10;
@@ -8,13 +9,6 @@ export const formatMinutes = (m: number) =>
 
 export const formatLabel = (v: string | undefined) =>
   v === undefined ? '(missing)' : /^[0-9a-f]{7,}$/.test(v) ? v.slice(0, 6) : v;
-
-export const getQuantile = (xs: number[], q: number) => {
-  const sorted = xs.toSorted((a, b) => a - b);
-  const i = (sorted.length - 1) * q;
-  const lo = sorted[Math.floor(i)] ?? 0;
-  return lo + ((sorted[Math.ceil(i)] ?? lo) - lo) * (i - Math.floor(i));
-};
 
 export const defaultBenchBy = ['harness', 'model', 'arm', 'engine', 'graph', 'set'];
 
@@ -55,8 +49,18 @@ export const random = (seed: number) => {
   };
 };
 
-export const splitBy = <T>(xs: T[], key: (x: T) => string) =>
-  xs.reduce((m, x) => m.set(key(x), [...(m.get(key(x)) ?? []), x]), new Map<string, T[]>());
+export const getRowKey = (row: Row) => JSON.stringify([row.data ?? '', readBenchRowResults(row).key]);
+
+const getSpread = (xs: number[]) => ({
+  median: getQuantile(xs, 0.5),
+  middle: [getQuantile(xs, 0.25), getQuantile(xs, 0.75)] as const,
+  range: [Math.min(...xs), Math.max(...xs)] as const,
+});
+
+export const getQualitySpread = (scored: readonly { row: { case: string }; y: number }[]) => {
+  const cases = [...Map.groupBy(scored, s => s.row.case).values()].map(ss => getMean(ss.map(s => s.y)));
+  return { caseMeans: cases, cases: getSpread(cases), runs: getSpread(scored.map(s => s.y)) };
+};
 
 /** @internal */
 export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, seed = 1) => {
@@ -97,7 +101,7 @@ export const summarise = (
     ]);
   const humans = new Map(rows.filter(r => r.labels.arm === 'human').map(r => [baseline(r), r]));
   const keys = [...new Set([...(o.by ?? defaultBenchBy), ...(o.color ? [o.color] : []), 'set', 'tests'])];
-  const byPoint = splitBy(
+  const byPoint = Map.groupBy(
     rows.filter(
       r =>
         r.labels.arm !== 'human' &&
@@ -111,7 +115,7 @@ export const summarise = (
       return y === undefined ? [] : [{ row: r, y, x: o.x(r) }];
     });
     const kept = scored.map(s => s.row);
-    const cases = [...splitBy(scored, s => s.row.case).values()];
+    const cases = [...Map.groupBy(scored, s => s.row.case).values()];
     const judged = kept.flatMap(r => {
       const votes = Object.entries(r.vsHuman).flatMap(([j, v]) => (!o.judges || o.judges.includes(j) ? [v] : []));
       return votes.length ? [getMean(votes)] : [];

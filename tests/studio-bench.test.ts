@@ -3,19 +3,23 @@ import { Effect } from 'effect';
 import { fileStore, Store } from '../src/store.ts';
 import type { Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
 import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
-import { readBenchRowResults } from '../studio/src/results/result.ts';
+import { getQuantile, readBenchRowResults } from '../studio/src/results/result.ts';
+import { studioDir, studioModule } from './studio.ts';
 import { tmp } from './kit.ts';
 import {
   bootstrap,
   cost,
   defaultBenchScoreWeights,
   frontier,
-  getQuantile,
+  getQualitySpread,
+  getRowKey,
   presets,
   quality,
   summarise,
@@ -228,6 +232,58 @@ describe('the bench page data', () => {
     } finally {
       vi.unstubAllEnvs();
       rmSync(out, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('bench spread', () => {
+  const lens = { w: presets['hidden tests only']!, x: (r: Row) => r.minutes };
+
+  it('weights cases equally for the mean and keeps the spread of runs apart', () => {
+    const rows = [row({ case: 'a', hidden: 1 }), ...[1, 2, 3].map(repeat => row({ case: 'b', repeat, hidden: 0 }))];
+    const [p] = summarise(rows, lens);
+    const { cases, runs } = getQualitySpread(p!.perCase);
+    expect([p!.y, cases.median, runs.median, runs.range]).toEqual([0.5, 0.5, 0, [0, 1]]);
+  });
+
+  it('shows how the repeats of a single case vary, not only their mean', () => {
+    const rows = ([0, 0, 1] as const).map((hidden, i) => row({ case: 'a', repeat: i + 1, hidden }));
+    const { cases, runs } = getQualitySpread(summarise(rows, lens)[0]!.perCase);
+    expect([cases.range, runs.median, runs.range]).toEqual([[1 / 3, 1 / 3], 0, [0, 1]]);
+  });
+
+  it('lists two arms on the same case and repeat as two runs of one point', async () => {
+    const dependency = <T>(name: string): Promise<T> =>
+      import(pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href);
+    const { createElement } = await dependency<{ createElement: (type: unknown, props: object) => unknown }>('react');
+    const { renderToStaticMarkup } = await dependency<{ renderToStaticMarkup: (node: unknown) => string }>(
+      'react-dom/server'
+    );
+    vi.stubGlobal('location', new URL('http://studio/bench'));
+    const { Forest } = await studioModule<{ Forest: unknown }>('bench/Forest.tsx');
+    const rows = ['floor', 'v2'].map(arm =>
+      row({ hidden: 1, labels: { ...row({}).labels, arm }, data: `/b/a/${arm}/data`, runs: [`run-${arm}`] })
+    );
+    const [p] = summarise(rows, { ...lens, by: [] });
+    expect(new Set(p!.perCase.map(s => getRowKey(s.row))).size).toBe(2);
+    try {
+      const html = renderToStaticMarkup(
+        createElement(Forest, {
+          points: [p],
+          keys: [],
+          weighting: 'composite',
+          tone: () => '',
+          rowCost: () => 0,
+          picked: p!.key,
+          onPick: () => {},
+        })
+      );
+      expect(html.match(/href="\/runs\/[^"]+"/g)).toEqual([
+        'href="/runs/run-floor?data=%2Fb%2Fa%2Ffloor%2Fdata"',
+        'href="/runs/run-v2?data=%2Fb%2Fa%2Fv2%2Fdata"',
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

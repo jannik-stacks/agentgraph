@@ -2,7 +2,8 @@ import { scaleLinear } from 'd3-scale';
 import { Fragment, type ReactNode } from 'react';
 import { getMean } from '../../../src/stats.ts';
 import { cx, Link, Tooltip } from '../ui.tsx';
-import { formatLabel, formatMinutes, getQuantile, roughBelow, splitBy, type summarise } from './score.ts';
+import { atLink } from '../runs/trace.ts';
+import { formatLabel, formatMinutes, getQualitySpread, getRowKey, roughBelow, type summarise } from './score.ts';
 
 type Point = ReturnType<typeof summarise>[number];
 
@@ -34,13 +35,13 @@ export const Forest = ({
   picked: string | null;
   onPick: (key: string | null) => void;
 }) => {
-  const means = (p: Point) => [...splitBy(p.perCase, s => s.row.case).values()].map(ss => getMean(ss.map(s => s.y)));
-  const all = points.flatMap(p => [...means(p), ...p.yCi]);
+  const spreads = new Map(points.map(p => [p.key, getQualitySpread(p.perCase)]));
+  const all = points.flatMap(p => [...spreads.get(p.key)!.runs.range, ...p.yCi]);
   const x = scaleLinear()
     .domain([Math.min(0, ...all), Math.max(1.1, ...all)])
     .nice()
     .range([pad, width - pad]);
-  const sets = [...splitBy(points, p => p.labels.set ?? '')].toSorted(([a], [b]) => a.localeCompare(b));
+  const sets = [...Map.groupBy(points, p => p.labels.set ?? '')].toSorted(([a], [b]) => a.localeCompare(b));
   const span = keys.length + 1 + heads.length;
   const cell = 'py-1 pr-3 text-right tabular-nums';
   return (
@@ -54,7 +55,7 @@ export const Forest = ({
           ))}
           <th className="py-1 pr-3 font-medium">
             <Tooltip
-              tip={`Each faint dot is one case's mean over its repeats, the solid mark the mean over cases, with the weights picked on the left. The shaded band spans the middle half of the cases and the tick marks their median. The bar is a 95 percent interval, shown from ${roughBelow} cases on. The dashed line is the human, at 1.`}
+              tip={`Each faint dot is one case's mean over its repeats, the solid mark the mean over cases, with the weights picked on the left. The shaded band spans the middle half of the cases and the tall tick marks their median. The hairline below spans every run, with a short tick at the run median. The bar is a 95 percent interval, shown from ${roughBelow} cases on. The dashed line is the human, at 1.`}
             >
               <span>quality ({weighting})</span>
             </Tooltip>
@@ -90,8 +91,8 @@ export const Forest = ({
               const mean = getMean(costs);
               const sd = Math.sqrt(getMean(costs.map(c => (c - mean) ** 2)));
               const open = p.key === picked;
-              const cases = means(p);
-              const [q1, median, q3] = [0.25, 0.5, 0.75].map(q => getQuantile(cases, q)) as [number, number, number];
+              const { caseMeans, cases, runs } = spreads.get(p.key)!;
+              const formatSpan = ([lo, hi]: readonly [number, number]) => `${fmt(lo)} to ${fmt(hi)}`;
               return (
                 <Fragment key={p.key}>
                   <tr
@@ -108,7 +109,11 @@ export const Forest = ({
                     ))}
                     <td className="py-1 pr-3">
                       <Tooltip
-                        tip={`mean ${fmt(p.y)}, median ${fmt(median)}\nmiddle half ${fmt(q1)} to ${fmt(q3)}, range ${fmt(Math.min(...cases))} to ${fmt(Math.max(...cases))}\n${p.n} cases, ${p.repeats} runs`}
+                        tip={[
+                          `mean over cases ${fmt(p.y)}`,
+                          `${p.n} cases: median ${fmt(cases.median)}, middle half ${formatSpan(cases.middle)}, range ${formatSpan(cases.range)}`,
+                          `${p.repeats} runs: median ${fmt(runs.median)}, range ${formatSpan(runs.range)}`,
+                        ].join('\n')}
                       >
                         <svg width={width} height={height} className={cx('block', tone(p))}>
                           <line
@@ -120,21 +125,35 @@ export const Forest = ({
                             className="stroke-zinc-400 dark:stroke-zinc-500"
                           />
                           <rect
-                            x={x(q1)}
+                            x={x(cases.middle[0])}
                             y={height / 2 - 3}
-                            width={x(q3) - x(q1)}
+                            width={x(cases.middle[1]) - x(cases.middle[0])}
                             height={6}
                             className="fill-current opacity-20"
                           />
                           <line
-                            x1={x(median)}
-                            x2={x(median)}
+                            x1={x(cases.median)}
+                            x2={x(cases.median)}
                             y1={2}
-                            y2={height - 2}
+                            y2={height - 4}
                             strokeWidth={1.5}
                             className="stroke-current"
                           />
-                          {cases.map((m, i) => (
+                          <line
+                            x1={x(runs.range[0])}
+                            x2={x(runs.range[1])}
+                            y1={height - 1}
+                            y2={height - 1}
+                            className="stroke-current opacity-40"
+                          />
+                          <line
+                            x1={x(runs.median)}
+                            x2={x(runs.median)}
+                            y1={height - 4}
+                            y2={height}
+                            className="stroke-current"
+                          />
+                          {caseMeans.map((m, i) => (
                             <circle key={i} cx={x(m)} cy={height / 2} r={2.5} className="fill-current opacity-30" />
                           ))}
                           {p.n >= roughBelow && (
@@ -210,7 +229,7 @@ const Runs = ({ point }: { point: Point }) => (
             row.runs?.map((id, i) => (
               <Link
                 key={id}
-                href={`/runs/${encodeURIComponent(id)}?data=${encodeURIComponent(row.data!)}`}
+                href={atLink(id, undefined, row.data)}
                 className="mr-2 underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
               >
                 {row.runs!.length > 1 ? `run ${i + 1}` : 'run'}
@@ -218,7 +237,7 @@ const Runs = ({ point }: { point: Point }) => (
             )),
           ];
           return (
-            <tr key={`${row.case}/${row.repeat}`} className="text-zinc-600 dark:text-zinc-400">
+            <tr key={getRowKey(row)} className="text-zinc-600 dark:text-zinc-400">
               {cells.map((c, i) => (
                 <td key={i} className="py-0.5 pr-3">
                   {c}

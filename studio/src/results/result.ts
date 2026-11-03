@@ -38,10 +38,11 @@ export const formatResultValue = (field: Pick<CheckField, 'unit' | 'type'>, v: u
   }
 };
 
-const getMedian = (xs: number[]) => {
+export const getQuantile = (xs: number[], q: number) => {
   const sorted = xs.toSorted((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  const i = (sorted.length - 1) * q;
+  const lo = sorted[Math.floor(i)] ?? 0;
+  return lo + ((sorted[Math.ceil(i)] ?? lo) - lo) * (i - Math.floor(i));
 };
 
 export const splitRunsByAxis = (runs: RunResults[], axis: string) => {
@@ -76,11 +77,16 @@ export const getFieldSummary = (runs: RunResults[], field: CheckField, trend = '
       points.map(p => p.run),
       trend
     ).values(),
-  ].map(group => getMedian(group.map(run => readFieldValue(run, field) as number)));
+  ].map(group =>
+    getQuantile(
+      group.map(run => readFieldValue(run, field) as number),
+      0.5
+    )
+  );
   return {
     points,
     values,
-    median: values.length ? getMedian(values) : undefined,
+    median: values.length ? getQuantile(values, 0.5) : undefined,
     low: Math.min(...values),
     high: Math.max(...values),
     warned: live.filter(r => r.results[field.check] && !r.results[field.check]!.pass).length,
