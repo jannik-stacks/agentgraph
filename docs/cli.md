@@ -1,6 +1,6 @@
 # CLI
 
-Install it with `npm install -g @jannik-stacks/agi`, or run `npx @jannik-stacks/agi <verb>`. It needs Node 24 and Docker. `--help` prints the usage and `--version` the version.
+Install it with `npm install -g @jannik-stacks/agi`, or run `npx @jannik-stacks/agi <verb>`. It needs Node 24 and Docker. `--help` prints the usage and `--version` the version; `agi <verb> --help` shows the flags that verb takes. A flag the verb does not take is an error (exit 2).
 
 Inside a git repo, `agi <verb>` works on a local instance of it: a folder that stands in for GitHub, plus the runs. Your repo only gets `agentgraph/<n>` branches. With `--tracker` or App credentials in the environment, `agi` runs as a runner instead: `--dir` names the graph and `--data` the runs folder.
 

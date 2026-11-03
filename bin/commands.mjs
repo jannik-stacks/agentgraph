@@ -31,17 +31,20 @@ const braced = (text, open) => {
   }
 };
 
-/** What a bin file takes: its parseArgs options or its quoted `'--flag'` literals, and its `case` or `verb ===` words. */
+/** What a bin file takes: its parseArgs options, its `Flag` table or its quoted `'--flag'` literals, and its verbs. */
 const takes = file => {
   const code = read(`bin/${file}`)
     .split('\n')
     .filter(line => !/^\s*(\/\/|\/?\*)/.test(line))
     .join('\n');
   const options = braced(code, /options:\s*\{/);
+  const table = [...code.matchAll(/Flag\.\w+\('([\w-]+)'/g)].map(m => m[1]);
   const flags = options
     ? [...options.matchAll(/(?:^|[\n,{])\s*(?:'([\w-]+)'|(\w+)):\s*\{\s*type/g)].map(m => m[1] ?? m[2])
-    : [...code.matchAll(/'--([\w-]+)'/g)].map(m => m[1]);
-  const words = [...code.matchAll(/(?:case|verb ===|verb !==) '([\w-]+)'/g)].map(m => m[1]);
+    : table.length
+      ? [...table, 'help', 'version']
+      : [...code.matchAll(/'--([\w-]+)'/g)].map(m => m[1]);
+  const words = [...code.matchAll(/(?:case|verb ===|verb !==|^ {2}\[) '([\w-]+)'/gm)].map(m => m[1]);
   return { flags: new Set(flags), words: new Set(words) };
 };
 const known = Object.fromEntries(bins.map(f => [f, takes(f)]));

@@ -1006,7 +1006,7 @@ const BAD_FLAGS = [
   [{}, ['check', 'x', '--runs', '--issue', 'abc'], '--issue takes an issue number'],
   [{}, ['check', 'x', '--runs', '--issue', '0'], '--issue takes an issue number'],
   [{}, ['say', '1', 'hi', '--label', 'needs-review'], 'say does not run on --tracker'],
-  [{}, ['say', '1', 'hi', '--run-label', 'arm=v2'], '--run-label <key>=<value> labels the run start begins'],
+  [{}, ['say', '1', 'hi', '--run-label', 'arm=v2'], 'Unrecognized flag: --run-label in command agi say'],
   [{}, ['start', 'x', '--run-label', 'Arm=v2'], '["Arm"]'],
   [{}, ['start', 'x', '--run-label', 'arm-'], 'Expected string'],
 ] as const;
@@ -1098,7 +1098,7 @@ describe('the CLI flags', () => {
     });
     expect([ran.status, ran.stdout + ran.stderr, existsSync(join(data, 'root'))]).toEqual([
       code,
-      expect.stringContaining('usage: agi <verb>'),
+      expect.stringContaining('agi <subcommand> [flags]'),
       false,
     ]);
   });
