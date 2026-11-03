@@ -4,6 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import { Config, Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
+import { issueStatuses, type IssueStatus } from './event.ts';
 import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
@@ -55,6 +56,7 @@ export type Graph = {
   milestone?: string;
   /** The logins whose text reaches agents and whose marks start runs; the repo's collaborators when unset. */
   trust?: string[];
+  status?: false | Partial<Record<IssueStatus, string>>;
 };
 
 export class GraphError extends Data.TaggedError('GraphError')<{ problems: Problem[] }> {
@@ -73,6 +75,14 @@ const SettingsFile = Schema.Struct({
   stacks: exact(Schema.Boolean),
   milestone: exact(Schema.String),
   trust: exact(Schema.mutable(Schema.Array(Schema.String))),
+  status: exact(
+    Schema.Union(
+      Schema.Literal(false),
+      Schema.partialWith(Schema.Record({ key: Schema.Literal(...issueStatuses), value: Schema.String }), {
+        exact: true,
+      })
+    )
+  ),
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
@@ -426,6 +436,7 @@ export const loadGraph = (
       ...(settings.stacks !== undefined && { stacks: settings.stacks }),
       ...(settings.milestone !== undefined && { milestone: settings.milestone }),
       ...(settings.trust !== undefined && { trust: settings.trust }),
+      ...(settings.status !== undefined && { status: settings.status }),
       ...parts,
       checks,
     };

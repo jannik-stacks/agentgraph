@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
 import {
+  issueStatuses,
   makeStudioRunUrl,
   formatFooter,
   splitFooter,
@@ -14,6 +15,7 @@ import {
   type Comment,
   type Event,
   type Issue,
+  type IssueStatus,
   type RunLink,
 } from './event.ts';
 import type { Proposal } from './proposal.ts';
@@ -68,6 +70,11 @@ export class Tracker extends Context.Tag('agentgraph/Tracker')<
       proposal: Proposal,
       operation: string
     ) => Effect.Effect<Applied | undefined, TrackerError>;
+    status?: (
+      number: number,
+      to: IssueStatus,
+      names?: Partial<Record<IssueStatus, string>>
+    ) => Effect.Effect<void, TrackerError>;
     /** The login people mention to talk to the bot, when the tracker has one. */
     slug?: Effect.Effect<string, TrackerError>;
     graphql?: (query: string, variables: Record<string, unknown>) => Effect.Effect<unknown, TrackerError>;
@@ -75,6 +82,15 @@ export class Tracker extends Context.Tag('agentgraph/Tracker')<
     studio?: string;
   }
 >() {}
+
+export const makeStatusLabel = (
+  to: IssueStatus,
+  names: Partial<Record<IssueStatus, string>> = Object.fromEntries(issueStatuses.map(s => [s, `agentgraph:${s}`]))
+): Proposal => ({
+  kind: 'label',
+  add: names[to] === undefined ? [] : [names[to]],
+  remove: Object.values(names).filter(name => name !== names[to]),
+});
 
 export type TrackerSetup = {
   layer: (trust?: readonly string[]) => Layer.Layer<Tracker>;
@@ -598,6 +614,10 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           Effect.flatMap(makePostableProposal(p), ({ posted }) =>
             lock.withPermits(1)(io(() => apply(n, posted, work)))
           ).pipe(Effect.map(a => ({ ...a, proposal: p }))),
+        status: (n, to, names) =>
+          lock
+            .withPermits(1)(io(() => apply(n, makeStatusLabel(to, names))))
+            .pipe(Effect.asVoid),
         findPost: (n, p, operation) =>
           io(async (): Promise<Applied | undefined> => {
             if (p.kind === 'comment' && p.edit === undefined) {

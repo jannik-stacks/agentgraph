@@ -174,7 +174,15 @@ One sticky comment on the issue covers every run, including retros and conflict 
 
 The sticky stays on the issue because the PR description already links there. Conflict notices and exhausted-check details stay in the sticky. Questions stay separate plain comments, with the shared ⁂ footer; the sticky says “waiting for your answer below”. Resuming edits the same sticky. <!-- code: src/context.ts#proposeStatusUpdates -->
 
-The issue also carries exactly one status label, so a label filter shows what needs you. It follows the sticky's visible line and replaces the previous status label; GitHub creates a missing label on first use. Quiet workflows (feedback and conflict runs) set none. <!-- code: src/event.ts#issueStatuses src/context.ts#proposeStatusUpdates -->
+The issue also carries exactly one status label, so a label filter shows what needs you. It follows the sticky's visible line, which keeps the current status in a hidden `<!-- status: ... -->` marker, and replaces the previous status label; GitHub creates a missing label on first use. Quiet workflows (feedback and conflict runs) change none. The tracker shows the status, so a tracker plugin can show it its own way. <!-- code: src/event.ts#issueStatuses src/context.ts#proposeStatusUpdates src/tracker.ts#makeStatusLabel -->
+
+The `status` setting renames the labels. A status missing from the map gets no label, and the others are still cleared. `status: false` turns status labels off; status hooks still fire.
+
+```yaml
+# .agentgraph/settings.yaml
+status:
+  needs-review: review-me
+```
 
 | Label | When |
 | --- | --- |

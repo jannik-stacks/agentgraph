@@ -98,6 +98,11 @@ export const services = (
           Effect.map(FiberRef.get(currentRunLinkRef), mark => marks.push([p.kind, mark])),
           f.apply(n, p, work)
         ),
+      status: (...args: Parameters<NonNullable<typeof f.status>>) =>
+        Effect.zipRight(
+          Effect.map(FiberRef.get(currentRunLinkRef), mark => marks.push(['label', mark])),
+          f.status!(...args)
+        ),
     }))
   ).pipe(Layer.provide(folderTracker(where.tracker)));
   const layer = Layer.mergeAll(named, fileStore(where.data), sandbox, recording);

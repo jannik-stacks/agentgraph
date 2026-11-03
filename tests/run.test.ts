@@ -407,16 +407,16 @@ describe('drive', () => {
     const at = (step: string, session?: string) => ({ run: 'run-7', step, ...(session && { session }) });
     const landed = (step: string, session: string) => ({ ...at(step, session), operation: expect.any(String) });
     expect(marks).toEqual([
-      ['label', at('triage')],
       ['comment', at('triage')],
+      ['label', at('triage')],
       ['comment', landed('triage', 't1')],
       ['comment', at('implement')],
       ['push', landed('implement', 'i1')],
       ['pull_request', landed('implement', 'i1')],
       ['comment', at('review')],
       ['comment', at('implement', 'i1')],
-      ['label', at('implement', 'i1')],
       ['comment', at('implement', 'i1')],
+      ['label', at('implement', 'i1')],
     ]);
   });
 
@@ -511,6 +511,20 @@ describe('drive', () => {
     expect(issue.labels).toEqual(['agentgraph:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
+  });
+
+  it.each([
+    [{ stopped: 'halted', done: 'shipped' }, ['halted']],
+    [false, []],
+  ] as const)('shows the status by the names in status: %j', async (status, labels) => {
+    const where = world();
+    const { run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
+      [start('i1'), wrote('secret.txt', 'key\n'), reply(push, pull)],
+      judged,
+    ]);
+    await run(drive(w, fresh(), { ...graph, status }));
+    expect((await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels).toEqual(labels);
   });
 
   it('traces a ref to the full output of every check it ran, which the store resolves', async () => {

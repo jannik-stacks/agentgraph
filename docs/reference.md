@@ -45,6 +45,7 @@ A committed graph with symlinks or submodules is refused. On GitHub, the runner 
 | `stacks` | boolean | `false` | Stacked pull requests; see [Proposals](proposals.md#stacks-on-and-depends-on) |
 | `milestone` | milestone title | none, every open issue | Scope for new runs |
 | `trust` | list of logins | owners, members and collaborators | Who may steer the bot |
+| `status` | map of status to name, or `false` | `agentgraph:<status>` | How the tracker shows each [status](workflows.md#status-on-the-issue) |
 | `plugins` | map | none | Settings decoded by each [plugin's](plugins.md) `settingsSchema` |
 | `limits` | map | below | Caps on a run |
 

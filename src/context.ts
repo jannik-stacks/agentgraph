@@ -114,8 +114,6 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
   };
 }
 
-export const formatStatusLabel = (status: IssueStatus) => `agentgraph:${status}`;
-
 const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
 
 export const stoppedByRunner = 'Stopped by a runner error';
@@ -127,8 +125,9 @@ export function proposeStatusUpdates(
   t: IssueWithPull,
   studio?: string,
   usd = 0,
-  others: { run: Run; t: IssueWithPull; usd: number }[] = []
-): Proposal[] {
+  others: { run: Run; t: IssueWithPull; usd: number }[] = [],
+  quiet = false
+): { to?: IssueStatus; from?: IssueStatus; proposals: Proposal[] } {
   const rows = [...others, { run, t, usd }].toSorted((a, b) => a.run.started.localeCompare(b.run.started));
   const states = rows.map(({ run }): [IssueStatus, string] =>
     run.reason?.startsWith(stoppedByRunner)
@@ -145,9 +144,6 @@ export function proposeStatusUpdates(
   const [status, active] = states.find(([, s]) => s.startsWith('paused')) ??
     states.find(([s]) => s.startsWith('needs')) ??
     states.find(([s]) => s === 'working') ?? [states.at(-1)![0], states.at(-1)![0]];
-  const label = formatStatusLabel(status);
-  const labels = t.issue.labels;
-  const stale = labels.filter(l => issueStatuses.some(s => formatStatusLabel(s) === l) && l !== label);
   const table = [
     '| Workflow / step | State | Cost | Pull request | Failing checks | Studio |',
     '| --- | --- | --- | --- | --- | --- |',
@@ -176,17 +172,18 @@ export function proposeStatusUpdates(
         .join(' | ')} |`;
     }),
   ].join('\n');
-  const body = `Agentgraph status: ${active}\n\n${formatFooter(table)}`;
   const comment =
     t.issue.events.find(m => bot(m) && m.comment?.body.startsWith('Agentgraph status: '))?.comment ??
     t.issue.events.find(m => m.comment && rows.some(r => r.run.comment === m.comment?.id))?.comment;
+  const from = issueStatuses.find(s => comment?.body.includes(`<!-- status: ${s} -->`));
+  const shown = quiet ? from : status;
+  const body = `Agentgraph status: ${active}\n\n${shown ? `<!-- status: ${shown} -->\n\n` : ''}${formatFooter(table)}`;
   const same = comment !== undefined && removeRunLink(comment.body) === removeRunLink(body);
-  return [
-    ...(labels.includes(label) && stale.length === 0
-      ? []
-      : [{ kind: 'label' as const, add: [label], ...(stale.length > 0 && { remove: stale }) }]),
-    ...(same ? [] : [{ kind: 'comment' as const, body, ...(comment && { edit: comment.id }) }]),
-  ];
+  return {
+    ...(shown !== from && { to: status }),
+    ...(from && { from }),
+    proposals: same ? [] : [{ kind: 'comment', body, ...(comment && { edit: comment.id }) }],
+  };
 }
 
 /** Tokens, keys and secret assignments a transcript never shows. */

@@ -89,7 +89,7 @@ Known secrets are masked before output and tracing. Plugin credentials stay on t
 ## Status hooks
 
 A plugin can declare `on.status` instead of, or next to, tools. The engine calls it after it changes an issue's
-[status label](workflows.md#status-on-the-issue), with `{ issue, repo, from, to }`; `from` is absent on the first label.
+[status](workflows.md#status-on-the-issue), with `{ issue, repo, from, to }`; `from` is absent on the first status.
 The context holds `repo`, the plugin's `settings`, `tracker.searchIssues` and, on GitHub, `tracker.graphql(query, variables)`,
 which sends with the project token. Hooks run in filename order. A hook that throws is logged and the run goes on.
 <!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/engine.ts#announce src/tracker.ts#Tracker -->
@@ -110,7 +110,8 @@ A plugin can provide `tracker` instead of tools. It receives `{ repo, studio, ap
 layer that provides the `Tracker`, and `origin`, the git remote sandboxes mirror. `--tracker <value>` and
 `AGENTGRAPH_TRACKER` pick one: a value that names a plugin selects it, and any other value is the path of a folder for
 the built-in `folder` tracker, relative to the working directory. Without either, the App env selects `github`. Plugins
-of the graph `--dir` names count; a graph read from the repo cannot pick its own tracker.
+of the graph `--dir` names count; a graph read from the repo cannot pick its own tracker. A tracker's optional
+`status(n, to, names)` shows an issue's status; the built-ins swap labels named by the graph's `status` setting.
 <!-- code: src/plugin.ts#TrackerHost src/services.ts#where src/tracker.ts#folder src/github.ts#github -->
 
 ## Studio pages

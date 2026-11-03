@@ -10,13 +10,12 @@ import {
   formatEventLine,
   news,
   proposeStatusUpdates,
-  formatStatusLabel,
   stoppedByRunner,
   transcript,
   type IssueWithPull,
 } from './context.ts';
 import { Tracker, TrackerError, currentRunLinkRef, withheld } from './tracker.ts';
-import { issueStatuses, type Applied, type Comment, type Event, type Issue } from './event.ts';
+import { type Applied, type Comment, type Event, type Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
@@ -1915,14 +1914,12 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
           return { run: r, t: workflow ? yield* readIssueWithPull(workflow, r) : t, usd: yield* readRunSpend(r.id) };
         })
     );
-    const status = yield* Effect.forEach(
-      proposeStatusUpdates(run, t, tracker.studio, usd, others).filter(p => !isQuiet(w) || p.kind !== 'label'),
-      p => tracker.apply(run.issue, p)
-    );
-    const labelled = status.flatMap(a => (a.ok && a.proposal.kind === 'label' ? [a.proposal] : []))[0];
-    const [to, from] = [labelled?.add, labelled?.remove].map(names =>
-      issueStatuses.find(s => names?.includes(formatStatusLabel(s)))
-    );
+    const { to, from, proposals } = proposeStatusUpdates(run, t, tracker.studio, usd, others, isQuiet(w));
+    const status = yield* Effect.forEach(proposals, p => tracker.apply(run.issue, p));
+    if (to && graph.status !== false && tracker.status)
+      yield* tracker
+        .status(run.issue, to, graph.status)
+        .pipe(Effect.catchTag('TrackerError', e => Effect.logWarning(`status of issue ${run.issue}`, e)));
     if (to) yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];

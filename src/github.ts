@@ -15,6 +15,7 @@ import {
   parseIssueSearch,
   withheld,
   makePushResult,
+  makeStatusLabel,
 } from './tracker.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import { makePlugin } from './plugin.ts';
@@ -307,6 +308,7 @@ const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
 /**
  * The repo of one GitHub App installation. Reads are ETag-polled, text from non-collaborators (or logins outside `trust`) is withheld, and pushes
  * go through the Git data API so GitHub signs the commits. Posted bodies are stamped with their run, linked into `studio` when set.
+ * @internal
  */
 export const githubTracker = (
   app: { repo: string; id: string; key: Redacted.Redacted },
@@ -1076,6 +1078,7 @@ export const githubTracker = (
       issue,
       since,
       apply,
+      status: (number, to, names) => Effect.asVoid(apply(number, makeStatusLabel(to, names))),
       findPost,
       slug: me,
       graphql: (query, variables) =>

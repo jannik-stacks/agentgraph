@@ -277,10 +277,11 @@ describe('loadGraph', () => {
     ]);
   });
 
-  it('reads the milestone and the trust list, unset by default', async () => {
+  it('reads the milestone, the trust list and status, unset by default', async () => {
     const set = await Effect.runPromise(
-      loadGraph(graphDir({ 'settings.yaml': 'milestone: v1\ntrust: [ana, bob]\n' }), harnesses)
+      loadGraph(graphDir({ 'settings.yaml': 'milestone: v1\ntrust: [ana, bob]\nstatus: false\n' }), harnesses)
     );
+    expect(set.status).toBe(false);
     expect(set.milestone).toBe('v1');
     expect(set.trust).toEqual(['ana', 'bob']);
     const unset = await Effect.runPromise(loadGraph(graphDir({ 'settings.yaml': 'repo: o/r\n' }), harnesses));
