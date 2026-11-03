@@ -130,6 +130,21 @@ describe('compileWorkflow', () => {
     ]);
   });
 
+  it('reads traces only on a run step', () => {
+    const run = compileWorkflow(
+      'workflows/issue.md',
+      file('on: issues\nsteps:\n  a: { run: make, reads: traces }'),
+      names
+    );
+    expect({
+      does: run.workflow?.steps[0]?.does,
+      problems: messages(file('on: issues\nsteps:\n  b: { agent: implementor, reads: traces }')),
+    }).toEqual({
+      does: { run: 'make', reads: 'traces' },
+      problems: ['steps.b.reads: only a run step reads traces; an agent says so in its file'],
+    });
+  });
+
   it('rejects two doers, or none', () => {
     expect(
       messages(file('on: issues\nsteps:\n  a: { agent: implementor, run: make }\n  b: { checks: [types] }'))

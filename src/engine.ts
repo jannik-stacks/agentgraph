@@ -985,6 +985,11 @@ const askJudge = (graph: Graph, into: Trace[], step: string, spec: SessionSpec, 
 
 const nudge = 'You ended without calling the result tool. Call it now with your value, and why with your findings.';
 
+const traceFiles = (work: Checkout) => ({
+  AGENTGRAPH_TRACES: join(dirname(work.news), 'traces.md'),
+  AGENTGRAPH_RUN_TRACE: join(dirname(work.news), 'trace.jsonl'),
+});
+
 /**
  * What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it,
  * the reply, the traces of the runs on the issue and this run's raw trace.
@@ -993,8 +998,12 @@ const checkFiles = (work: Checkout) => ({
   AGENTGRAPH_PROPOSALS: join(dirname(work.news), 'proposals.json'),
   AGENTGRAPH_CONTEXT: join(dirname(work.news), 'context.md'),
   AGENTGRAPH_REPLY: join(dirname(work.news), 'reply.md'),
-  AGENTGRAPH_TRACES: join(dirname(work.news), 'traces.md'),
-  AGENTGRAPH_RUN_TRACE: join(dirname(work.news), 'trace.jsonl'),
+  ...traceFiles(work),
+});
+
+const scriptEnv = (work: Pick<Checkout, 'base'>, issue: number) => ({
+  AGENTGRAPH_BASE: work.base,
+  AGENTGRAPH_ISSUE: String(issue),
 });
 
 /** Whether a run is a retro, a run of a workflow that feedback starts. */
@@ -1015,7 +1024,7 @@ const traced = (graph: Graph, issue: number, run: string, work: Checkout) =>
       }))
     );
     const own = Chunk.toArray(yield* Stream.runCollect(store.read(run)));
-    const files = checkFiles(work);
+    const files = traceFiles(work);
     yield* Effect.promise(() =>
       Promise.all([
         writeFile(files.AGENTGRAPH_TRACES, transcript(issue, read)),
@@ -1026,7 +1035,7 @@ const traced = (graph: Graph, issue: number, run: string, work: Checkout) =>
 
 /** The prompt line that points an agent that reads traces at them. */
 const tracesAt = (work: Checkout) =>
-  `The traces of the runs on this issue are in \`${checkFiles(work).AGENTGRAPH_TRACES}\`, an absolute path outside the checkout: open it exactly as written. Per session they hold the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
+  `The traces of the runs on this issue are in \`${traceFiles(work).AGENTGRAPH_TRACES}\`, an absolute path outside the checkout: open it exactly as written. Per session they hold the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
 
 /** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
 type Left = Checkout & {
@@ -1081,11 +1090,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
     const info = check.mode === 'info';
     const started = Date.now();
     const minutes = graph.limits.minutes;
-    const base = {
-      AGENTGRAPH_BASE: work.base,
-      AGENTGRAPH_ISSUE: String(work.issue),
-      ...checkFiles(work),
-    };
+    const base = { ...scriptEnv(work, work.issue), ...checkFiles(work) };
     const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
       ? findFanOutItems(check.each, graph, work, minutes, base)
       : Effect.succeed([undefined]);
@@ -1344,14 +1349,9 @@ const attempt = (
     const answering = asked && held;
     if ('run' in step.does) {
       const started = Date.now();
-      yield* traced(graph, run.issue, run.id, work);
-      const { AGENTGRAPH_TRACES, AGENTGRAPH_RUN_TRACE } = checkFiles(work);
-      const env = {
-        AGENTGRAPH_BASE: work.base,
-        AGENTGRAPH_ISSUE: String(run.issue),
-        AGENTGRAPH_TRACES,
-        AGENTGRAPH_RUN_TRACE,
-      };
+      const reads = step.does.reads === 'traces';
+      if (reads) yield* traced(graph, run.issue, run.id, work);
+      const env = { ...scriptEnv(work, run.issue), ...(reads && traceFiles(work)) };
       const out = yield* sh(step.does.run, graph, work.dir, env, minutes);
       const result: CheckResult = {
         check: step.name,

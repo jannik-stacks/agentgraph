@@ -5,6 +5,7 @@ steps:
   implement: { agent: implementor }
   gate:
     run: node "$AGENTGRAPH_DIR/scripts/failed-tools.mjs" 5
+    reads: traces
   merge: { wait: human, back: implement }
 ---
 One issue becomes one pull request. After the implementor opens it, the gate counts the tool calls

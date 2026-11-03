@@ -41,7 +41,7 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 
 ### Gates
 
-A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's. A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. <!-- code: src/engine.ts#attempt -->
+A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's. A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. A `run` step gets the traces only with `reads: traces`, because writing them reads every run on the issue on each try. <!-- code: src/engine.ts#attempt src/workflow.ts#compileWorkflow -->
 
 `examples/retro-gate` counts the failed tool calls in the run's trace after the implement step. Past five, it starts a `retro` workflow whose agent reads the traces and files a `graph` issue per recurring cause with the edit to a skill, agent prompt or `AGENTS.md` that would have prevented it.
 
