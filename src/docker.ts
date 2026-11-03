@@ -184,12 +184,11 @@ export const dockerArgs = (
 const usedMark = 'agentgraph-used ';
 
 const readUsed = (output: string): Pick<Exit, 'output' | 'used'> => {
-  const at = output.lastIndexOf(usedMark);
-  const m = at < 0 ? null : /^agentgraph-used (\d+) usage_usec (\d+) oom_kill (\d+)\n?$/.exec(output.slice(at));
+  const m = [...output.matchAll(/(?:^|\n)agentgraph-used (\d+) usage_usec (\d+) oom_kill (\d+)(?:\n|$)/g)].at(-1);
   if (!m) return { output };
   const [peak = 0, cpu = 0, oom = 0] = m.slice(1).map(Number);
   return {
-    output: output.slice(0, output[at - 1] === '\n' ? at - 1 : at),
+    output: output.slice(0, m.index) + output.slice(m.index + m[0].length),
     used: { peak, cpu: Math.round(cpu / 1000), ...(oom > 0 && { oom: true }) },
   };
 };

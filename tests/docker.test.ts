@@ -50,6 +50,9 @@ const origin = () => {
 const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Type']) => Effect.Effect<A, E, Scope.Scope>) =>
   Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
 
+const sortOutputLines = <A extends { output: string }, E>(exit: Exit.Exit<A, E>) =>
+  Exit.map(exit, e => ({ ...e, output: e.output.split('\n').toSorted().join('\n') }));
+
 const command = (dir: string, more: Partial<Command> = {}): Command => ({
   cmd: 'sh',
   args: ['-c', 'echo hi'],
@@ -79,7 +82,7 @@ describe('docker with a stand-in docker client', () => {
         `echo "$*" >> ${log}.all`,
         `echo "secret=\${AGENTGRAPH_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
-        `case "$*" in *"skelfail deps"*) exit 98;; *"skeltool x deps"*) exit 97;; *"skelfail tree"*) ;; *exit125*) exit 125;; *measured*) printf '\\nagentgraph-used 104857600 usage_usec 2500000 oom_kill 0\\n';; *oomed*) printf '\\nagentgraph-used 67108864 usage_usec 1500 oom_kill 1\\n'; exit 137;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
+        `case "$*" in *"skelfail deps"*) exit 98;; *"skeltool x deps"*) exit 97;; *"skelfail tree"*) ;; *exit125*) exit 125;; *measured*) printf '\\nagentgraph-used 104857600 usage_usec 2500000 oom_kill 0\\n';; *interleaved*) printf '\\nagentgraph-used 1048576 usage_usec 2000 oom_kill 0\\nafter\\n';; *oomed*) printf '\\nagentgraph-used 67108864 usage_usec 1500 oom_kill 1\\n'; exit 137;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
         `case "$*" in *agentgraph.envbuild*) printf '@@ignored\\n@@untracked\\n@@lower\\n0\\n';; esac`,
       ].join('\n')
     );
@@ -215,7 +218,7 @@ describe('docker with a stand-in docker client', () => {
         command(dir, { home, network: 'proxy', secrets: { AGENTGRAPH_LLM_API_KEY: Redacted.make('sk-value-123456') } })
       )
     );
-    expect(exit).toEqual(Exit.succeed({ code: 0, output: 'line one\nline two\n' }));
+    expect(sortOutputLines(exit)).toEqual(sortOutputLines(Exit.succeed({ code: 0, output: 'line one\nline two\n' })));
     const args = logged();
     for (const flag of ['--rm', '--read-only', '--cap-drop=ALL', 'no-new-privileges=true', '--pull', 'never'])
       expect(args).toContain(flag);
@@ -311,16 +314,21 @@ describe('docker with a stand-in docker client', () => {
 
   it('streams lines until the process exits, whatever its code', async () => {
     const exit = await use(layer, s => Stream.runCollect(s.lines(command(tmp('work'), { args: ['-c', 'fail'] }))));
-    expect(Exit.map(exit, Chunk.toArray)).toEqual(Exit.succeed(['line one', 'line two', { code: 3 }]));
+    const pieces = Exit.map(exit, c => [...Chunk.toArray(c).slice(0, -1).toSorted(), Chunk.toArray(c).at(-1)]);
+    expect(pieces).toEqual(Exit.succeed(['line one', 'line two', { code: 3 }]));
   });
 
-  it('records the peak memory and CPU time the container reported, and none when it reported none', async () => {
+  it('records the peak memory and CPU time the container reported, even before later output, and none when it reported none', async () => {
     const exit = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'measured'] })));
-    expect(Exit.map(exit, e => e)).toEqual(
-      Exit.succeed({ code: 0, output: 'line one\nline two\n', used: { peak: 104857600, cpu: 2500 } })
+    expect(sortOutputLines(exit)).toEqual(
+      sortOutputLines(Exit.succeed({ code: 0, output: 'line one\nline two\n', used: { peak: 104857600, cpu: 2500 } }))
     );
     const silent = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'fail'] })));
-    expect(Exit.map(silent, e => e)).toEqual(Exit.succeed({ code: 3, output: 'line one\nline two\n' }));
+    expect(sortOutputLines(silent)).toEqual(sortOutputLines(Exit.succeed({ code: 3, output: 'line one\nline two\n' })));
+    const interleaved = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'interleaved'] })));
+    expect(sortOutputLines(interleaved)).toEqual(
+      sortOutputLines(Exit.succeed({ code: 0, output: 'line one\nline two\nafter\n', used: { peak: 1048576, cpu: 2 } }))
+    );
   });
 
   it('marks a container the kernel killed a process of for memory', async () => {
