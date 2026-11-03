@@ -336,6 +336,7 @@ export const GraphPage = () => {
           fixture,
           run: s.run,
           trail: s.trail,
+          trace: s.trace,
         })),
       ]),
     [graph, real]

@@ -3,27 +3,20 @@ import { useState } from 'react';
 import { makeWorkflowGraph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
 import type { Line } from '../runs/trace.ts';
-import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts';
+import type { CheckResult, Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunLine } from '../runs/rows.tsx';
 import { runAtom, runsAtom } from '../state.ts';
 import { atLink } from '../runs/trace.ts';
-import { accent, cx, Field, Fields, Link, Tooltip } from '../ui.tsx';
+import { accent, cx, Field, Fields, Link, Live, Tooltip } from '../ui.tsx';
 import { checkModeTips, Section, Term, To } from './panel.tsx';
-import type { Fixture, RunDrawnOnWorkflow, Trail } from './scenarios.ts';
+import type { Fixture, RunDrawnOnWorkflow } from './scenarios.ts';
 
 const Prompt = ({ title, text }: { title: string; text: string }) => (
   <Section title={title}>
     <Markdown text={text} />
   </Section>
 );
-
-/** A simulated trail as the outcome lines a real run would have traced. */
-const makeTrailTrace = (trail: Trail, run: Run): Trace[] =>
-  trail.map(({ at, outcome }, i) => {
-    const { step, status, tries, rounds } = trail[i + 1]?.at ?? run;
-    return { at: '', step: at.step, outcome, run: { step, status, tries, rounds } };
-  });
 
 /** The latest result of a check among a run's lines at one step. */
 const latest = (name: string, lines: Line[]): CheckResult | undefined => {
@@ -229,7 +222,7 @@ export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
   </div>
 );
 
-const simulated = atom<{ value?: { trace?: Line[] } | null }>({});
+const simulated = atom<{ value?: { trace?: Line[] } | null; failure?: string; retry?: () => void }>({});
 
 /** The served graph's runs that stand at a step now. */
 const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
@@ -263,9 +256,20 @@ export const StepDetails = ({
   const { workflow, checks } = fixture;
   const { does } = step;
   const opened = useAtomValue(run?.live ? runAtom(run.run.id) : simulated);
-  const lines =
-    run &&
-    (run.live ? opened.value?.trace : makeTrailTrace(run.trail, run.run))?.filter(line => line.step === step.name);
+  const checkList = (lines: Line[] | undefined) => (
+    <ul className="space-y-1.5">
+      {step.checks.map(name => (
+        <CheckItem
+          key={name}
+          name={name}
+          check={checks[name]}
+          path={`${workflow.name}/${step.name}`}
+          lines={lines?.filter(line => line.step === step.name)}
+          run={run?.live ? run.run.id : undefined}
+        />
+      ))}
+    </ul>
+  );
   const graph = makeWorkflowGraph(workflow, checks, undefined, fixture.roles);
   const { trigger } = graph;
   const { writes, model } = graph.nodes.find(n => n.step === step.name) ?? {};
@@ -372,18 +376,12 @@ export const StepDetails = ({
               : 'What must pass before the step is done. They run after each try, all at once.'
           }
         >
-          <ul className="space-y-1.5">
-            {step.checks.map(name => (
-              <CheckItem
-                key={name}
-                name={name}
-                check={checks[name]}
-                path={`${workflow.name}/${step.name}`}
-                lines={lines}
-                run={run?.live ? run.run.id : undefined}
-              />
-            ))}
-          </ul>
+          {run?.live && (
+            <Live state={opened}>
+              {value => value === null && <p className="text-zinc-500">No run {run.run.id}.</p>}
+            </Live>
+          )}
+          {checkList(run?.live ? opened.value?.trace : run?.trace)}
         </Section>
       )}
       {fixture.agents && (

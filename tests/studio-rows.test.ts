@@ -340,3 +340,82 @@ describe('a deep link into a run', () => {
     ).not.toContain('#');
   });
 });
+
+describe('a run fetched on demand', async () => {
+  const { createElement } = await dependency<{ createElement: (...args: unknown[]) => unknown }>('react');
+  const jotai = await dependency<{
+    createStore: () => { set: (atom: object, value: unknown) => void };
+    Provider: unknown;
+  }>('jotai');
+  const { runAtom } = await studioModule<{ runAtom: (id: string) => object }>('state.ts');
+  const { StepDetails } = await studioModule<{ StepDetails: unknown }>('graph/StepDetails.tsx');
+  const { fixture } = await import('./fixtures.ts');
+  const workflow = fixture('kit').workflows.issue!;
+  const step = workflow.steps.find(s => s.name === 'implement')!;
+  const checks = Object.fromEntries(step.checks.map(name => [name, { mode: 'block' }]));
+  const served = { fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace, ...makeRunSummary(run as never, trace) };
+  const { trace: _trace, ...listed } = served;
+  const render = (state: object) => {
+    const store = jotai.createStore();
+    store.set(runAtom(run.id), state);
+    const shown = (node: unknown) => renderToStaticMarkup(createElement(jotai.Provider, { store }, node));
+    return {
+      visits: shown(rows.runRow(listed as never, true).body),
+      step: shown(
+        createElement(StepDetails, {
+          fixture: { id: 'kit/issue', workflow, checks, runs: [] },
+          step,
+          run: { fixture: { id: 'kit/issue', workflow, checks, runs: [] }, run, trail: [], live: true },
+        })
+      ),
+    };
+  };
+
+  it('shows loading while the run is fetched, with the step and its checks around it', () => {
+    const { visits, step: details } = render({});
+    expect(visits).toContain('aria-label="Loading"');
+    expect(details).toContain('aria-label="Loading"');
+    expect(details).toContain(step.checks[0]);
+    expect(details).not.toContain('not run yet');
+  });
+
+  it('shows why the fetch failed with a retry, and keeps the step around it', () => {
+    const { visits, step: details } = render({ failure: 'disk gone', retry: () => {} });
+    expect([visits, details].map(html => /disk gone.*Retry/.test(html))).toEqual([true, true]);
+    expect(details).toContain(step.checks[0]);
+  });
+
+  it('keeps the earlier run under a note when a refresh fails', () => {
+    const { visits, step: details } = render({ value: served, failure: 'disk gone' });
+    expect([visits, details].map(html => html.includes('Could not refresh, showing earlier data. disk gone'))).toEqual([
+      true,
+      true,
+    ]);
+    expect(visits).toContain('implement');
+    expect(details).toContain('not run yet');
+  });
+
+  it('says when the run is gone', () => {
+    const { visits, step: details } = render({ value: null });
+    expect([visits, details].map(html => html.includes(`No run ${run.id}.`))).toEqual([true, true]);
+  });
+
+  it('keeps long proposal bodies and findings out of the list summary', () => {
+    const long = 'x'.repeat(100_000);
+    const failed = {
+      at,
+      step: 'implement',
+      outcome: {
+        kind: 'failed',
+        checks: [{ check: 'tests', pass: false, findings: long, ms: 1 }],
+        proposals: [{ ok: false, proposal: { kind: 'comment', body: long } }],
+        problems: [long],
+      },
+      run: { step: 'implement', status: 'running', tries: 1, rounds: {} },
+    };
+    const found = { at, step: 'implement', check: { check: 'tests', pass: false, findings: long, ms: 1 } };
+    const summary = makeRunSummary(run as never, [...trace, found, failed] as never);
+    expect(JSON.stringify(summary).length).toBeLessThan(2_000);
+    expect(summary.trail.map(t => t.outcome)).toEqual([{ kind: 'pass' }, { kind: 'failed', failed: 3 }]);
+  });
+});

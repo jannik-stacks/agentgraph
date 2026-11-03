@@ -7,7 +7,7 @@ import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultLines } from '../results/ResultTable.tsx';
 import { dataParam, runAtom, runResultsAtom } from '../state.ts';
-import { accent, Badge, cx, Disclosure, Link, Loading, Tooltip } from '../ui.tsx';
+import { accent, Badge, cx, Disclosure, Link, Live, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
   atLink,
@@ -554,10 +554,17 @@ const makeVisitRows = (r: ServedRun, trace: Line[], expand: boolean, target?: Li
   });
 };
 
-const Visits = ({ r }: { r: ServedRun }) => {
-  const { value } = useAtomValue(runAtom(r.run.id, r.data));
-  return value?.trace ? <Rows rows={makeVisitRows(value, value.trace, false)} /> : <Loading />;
-};
+const Visits = ({ r }: { r: ServedRun }) => (
+  <Live state={useAtomValue(runAtom(r.run.id, r.data))}>
+    {value =>
+      value?.trace ? (
+        <Rows rows={makeVisitRows(value, value.trace, false)} />
+      ) : (
+        <p className="text-zinc-500">No run {r.run.id}.</p>
+      )
+    }
+  </Live>
+);
 
 /** A run as a row: where it stands, what it cost and left on the tracker; open, the steps it visited, read from its trace or fetched when it has none. */
 export const runRow = (r: ServedRun, open = false, expand = false, target?: Line): Row => {

@@ -1,19 +1,30 @@
 import type { Agent, Check } from '../../../src/folder.ts';
 import type { Doc, Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
 import type * as WorkflowModule from '../../../src/workflow.ts';
+import type { Trace } from '../../../src/trace.ts';
+
+export const makeTrailOutcome = (o: Outcome) =>
+  o.kind === 'failed'
+    ? { kind: o.kind, failed: o.checks.length + o.proposals.length + o.problems.length }
+    : o.kind === 'back'
+      ? { kind: o.kind, why: o.why }
+      : { kind: o.kind };
 
 /** One outcome a run met, with the run as it stood before it. */
-export type Trail = { at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason'>; outcome: Outcome }[];
+export type Trail = {
+  at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason'>;
+  outcome: ReturnType<typeof makeTrailOutcome>;
+}[];
 
-/** A run drawn over its workflow: a real one carries its trace, a simulated one only its trail. */
-export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; live?: boolean };
+/** A run drawn over its workflow: a live one fetches its trace, a simulated one carries it. */
+export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[]; live?: boolean };
 
 /** A fixture workflow with its checks and the runs simulated over it; a served graph's also carries its prompts and what each agent returns and reads. */
 export type Fixture = {
   id: string;
   workflow: Workflow;
   checks: Record<string, Pick<Check, 'mode' | 'agent' | 'run' | 'returns'> & Partial<Pick<Doc<Check>, 'body'>>>;
-  runs: { label: string; trail: Trail; run: Run }[];
+  runs: { label: string; trail: Trail; trace: Trace[]; run: Run }[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;
   roles?: Record<string, Pick<Agent, 'returns' | 'reads' | 'model'>>;
@@ -109,9 +120,10 @@ export const simulate = (
   w: Workflow,
   next: Policy,
   engine: Pick<typeof WorkflowModule, 'begin' | 'transition'>
-): { trail: Trail; run: Run } => {
+): { trail: Trail; trace: Trace[]; run: Run } => {
   let run = engine.begin(w, { id: 'sim', issue: 1, started: '2026-10-16T00:00:00Z' });
   const trail: Trail = [];
+  const trace: Trace[] = [];
   for (let i = 0; i < 60 && (run.status === 'running' || run.status === 'waiting'); i++) {
     const outcome = next(
       w.steps.find(s => s.name === run.step)!,
@@ -119,8 +131,15 @@ export const simulate = (
       trail
     );
     if (!outcome) break;
-    trail.push({ at: run, outcome });
+    trail.push({ at: run, outcome: makeTrailOutcome(outcome) });
+    const step = run.step;
     run = engine.transition(w, run, outcome);
+    trace.push({
+      at: '',
+      step,
+      outcome,
+      run: { step: run.step, status: run.status, tries: run.tries, rounds: run.rounds },
+    });
   }
-  return { trail, run };
+  return { trail, trace, run };
 };

@@ -2,7 +2,7 @@ import type { WorkflowGraph } from '../../../src/graph.ts';
 import type { CheckEntry, Trace } from '../../../src/trace.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { getStepDoerKind } from './chips.ts';
-import type { Trail } from './scenarios.ts';
+import { makeTrailOutcome, type Trail } from './scenarios.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
 export const makeRunTrail = ({ reason }: Pick<Run, 'reason'>, trace: (Trace | CheckEntry)[]): Trail => {
@@ -11,7 +11,7 @@ export const makeRunTrail = ({ reason }: Pick<Run, 'reason'>, trace: (Trace | Ch
     if (!('outcome' in line)) return [];
     const at = { ...before, step: line.step, ...(reason !== undefined && { reason }) };
     before = line.run;
-    return [{ at, outcome: line.outcome }];
+    return [{ at, outcome: makeTrailOutcome(line.outcome) }];
   });
 };
 
@@ -65,7 +65,7 @@ export function makeWorkflowRunVisits(graph: WorkflowGraph, trail: Trail, run: R
     if (!last || last.left === 'pass' || last.left === 'back') enter(entry.at.step, trail[i - 1]);
     const visit = visits.at(-1)!;
     const o = entry.outcome;
-    if (o.kind === 'failed') visit.failed.push(o.checks.length + o.proposals.length + o.problems.length);
+    if (o.kind === 'failed') visit.failed.push(o.failed);
     else if (o.kind === 'answer') visit.answered++;
     else if (o.kind === 'back' && (trail[i + 1]?.at ?? run).reason !== undefined) visit.outOfRounds = true;
     else if (o.kind === 'pass' || o.kind === 'back' || o.kind === 'stop') visit.left = o.kind;
