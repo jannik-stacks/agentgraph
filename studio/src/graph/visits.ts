@@ -1,11 +1,11 @@
 import type { WorkflowGraph } from '../../../src/graph.ts';
-import type { Line } from '../runs/trace.ts';
+import type { CheckEntry, Trace } from '../../../src/trace.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { getStepDoerKind } from './chips.ts';
 import type { Trail } from './scenarios.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
-export const makeRunTrail = ({ reason }: Pick<Run, 'reason'>, trace: Line[]): Trail => {
+export const makeRunTrail = ({ reason }: Pick<Run, 'reason'>, trace: (Trace | CheckEntry)[]): Trail => {
   let before: Pick<Run, 'status' | 'tries' | 'rounds'> = { status: 'running', tries: 0, rounds: {} };
   return trace.flatMap(line => {
     if (!('outcome' in line)) return [];
