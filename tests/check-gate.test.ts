@@ -61,7 +61,6 @@ const measureChecks = async (sessions: number, judged = false) => {
       Effect.gen(function* () {
         yield* occupy;
         scripts++;
-        yield* Effect.sleep('20 millis');
         const name = command.args[1]!;
         return { code: !judged && name === 'second' ? 1 : 0, output: `${name} finding` };
       }),
@@ -72,7 +71,6 @@ const measureChecks = async (sessions: number, judged = false) => {
         Effect.gen(function* () {
           yield* occupy;
           judges++;
-          yield* Effect.sleep('20 millis');
           return Stream.make(result({ pass: true, why: 'reviewed' }), stop);
         })
       ),
