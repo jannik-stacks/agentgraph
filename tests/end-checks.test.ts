@@ -447,6 +447,33 @@ describe('end checks', () => {
     expect((await run(Effect.flatMap(Store, s => s.getRecord('run-7'))))?.status).toBe('done');
   });
 
+  it.each([
+    ['its saved files are gone', true, { empty: true, pass: false }],
+    ['it kept no change', false, { empty: true, na: true, findings: 'the run kept no change' }],
+  ])('run a trace check beside a file check when %s', async (_, kept, file) => {
+    const where = world();
+    const h = ending({
+      lines: { ...measure('wc -l < $AGENTGRAPH_RUN_TRACE'), reads: 'traces' },
+      files: measure('wc -l < README.md'),
+    });
+    const { run } = services(where, []);
+    const startCommit = kept ? git(where, 'rev-parse', 'main') : undefined;
+    const session = { resumed: false, ended: 'stop' as const, usd: 0 };
+    await run(
+      Effect.flatMap(Store, s =>
+        Effect.zipRight(
+          s.put({ ...fresh(), status: 'done', step: 'merge', ...(startCommit && { startCommit }) }),
+          s.trace('run-7', { at: '2026-10-16T00:00:02.000Z', step: 'merge', session })
+        )
+      )
+    );
+    await run(instruct(h, { kind: 'check', checks: ['lines', 'files'] }));
+    expect(results(where.data)).toEqual([
+      expect.objectContaining({ check: 'lines', pass: true, value: { n: expect.any(Number) } }),
+      expect.objectContaining({ check: 'files', ...file }),
+    ]);
+  });
+
   it('run checks that read only traces in an empty folder, without the files of the run', async () => {
     const where = world();
     const h = ending({ lines: { ...measure('wc -l < $AGENTGRAPH_RUN_TRACE'), reads: 'traces' } });

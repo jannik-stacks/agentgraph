@@ -1820,8 +1820,10 @@ const checkEnded = (
     const store = yield* Store;
     const lines = Chunk.toArray(yield* Stream.runCollect(store.read(run.id)));
     const reply = lines.flatMap(t => ('event' in t && t.event.type === 'end' ? [t.event.final] : [])).at(-1) ?? '';
-    const traces = names.every(name => graph.checks[name]?.reads === 'traces');
-    const opened = yield* Effect.cached(caught(reopen(graph, run, traces, reply)));
+    const opened = {
+      traces: yield* Effect.cached(caught(reopen(graph, run, true, reply))),
+      files: yield* Effect.cached(caught(reopen(graph, run, false, reply))),
+    };
     for (const name of names) {
       const check = graph.checks[name];
       const na =
@@ -1834,7 +1836,7 @@ const checkEnded = (
       const got = !check
         ? `the graph has no check ${name}`
         : (na ??
-          (yield* Effect.flatMap(opened, open =>
+          (yield* Effect.flatMap(opened[check.reads === 'traces' ? 'traces' : 'files'], open =>
             typeof open === 'string'
               ? Effect.succeed(open)
               : caught(
