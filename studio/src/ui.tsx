@@ -12,6 +12,7 @@ import {
   useState,
 } from 'react';
 import { useSetAtom } from 'jotai';
+import { atomWithStorage, createJSONStorage } from 'jotai/utils';
 import { navigateAtom } from './state.ts';
 
 export const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ');
@@ -288,6 +289,49 @@ export const IconButton = ({ tip, variant = 'small', ...props }: ComponentProps<
   <Tooltip action={tip}>
     <Button variant={variant} aria-label={tip} {...props} />
   </Tooltip>
+);
+
+const attempt = <T,>(run: () => T) => {
+  try {
+    return run();
+  } catch {
+    return undefined;
+  }
+};
+
+const localStore = createJSONStorage<string[]>(() => ({
+  getItem: key => attempt(() => localStorage.getItem(key)) ?? null,
+  setItem: (key, value) => attempt(() => localStorage.setItem(key, value)),
+  removeItem: key => attempt(() => localStorage.removeItem(key)),
+}));
+
+export const makeHiddenKeysAtom = (name: string) =>
+  atomWithStorage<string[]>(name, [], localStore, { getOnInit: true });
+
+export const KeyPicker = ({
+  label,
+  keys,
+  hidden,
+  onChange,
+}: {
+  label: string;
+  keys: string[];
+  hidden: string[];
+  onChange: (hidden: string[]) => void;
+}) => (
+  <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1 text-xs text-zinc-500">
+    {label}
+    {keys.map(key => (
+      <Button
+        key={key}
+        aria-pressed={!hidden.includes(key)}
+        className="aria-[pressed=false]:line-through aria-[pressed=false]:opacity-50"
+        onClick={() => onChange(hidden.includes(key) ? hidden.filter(k => k !== key) : [...hidden, key])}
+      >
+        {key}
+      </Button>
+    ))}
+  </div>
 );
 
 /** A labelled native select with its chevron spaced from the text. */

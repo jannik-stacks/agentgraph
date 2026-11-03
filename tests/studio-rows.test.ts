@@ -19,7 +19,15 @@ type Row = {
   open?: boolean;
   target?: boolean;
 };
-type ServedRun = { fixture: string; repo: string; run: Run; trace: Trace[]; pull?: string; branch?: string };
+type ServedRun = {
+  fixture: string;
+  repo: string;
+  labels: Record<string, string>;
+  run: Run;
+  trace: Trace[];
+  pull?: string;
+  branch?: string;
+};
 Object.assign(globalThis, { location: new URL('http://localhost/runs') });
 const { runRow } = await studioModule<{
   runRow: (r: ServedRun, open?: boolean, expand?: boolean, target?: Trace) => Row;
@@ -65,13 +73,14 @@ const trace = [
 ] as Trace[];
 
 describe('a run as rows', () => {
-  const row = runRow({ fixture: 'kit/issue', repo: 'o/r', run, trace }, true);
+  const row = runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace }, true);
 
   it('labels an empty check skipped even when it does not block the workflow', () => {
     const skipped = runRow(
       {
         fixture: 'kit/issue',
         repo: 'o/r',
+        labels: {},
         run,
         trace: trace.map(line =>
           'check' in line
@@ -122,13 +131,21 @@ describe("a run's pull request and branch", () => {
   });
 
   it('links both from the run line, on the list and the run page', () => {
-    const row = runRow({ fixture: 'kit/issue', repo: 'o/r', run, trace, pull: pr, branch: 'agentgraph/1' });
+    const row = runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace, pull: pr, branch: 'agentgraph/1' });
     const head = renderToStaticMarkup(row.summary as never);
     expect(head).toContain(`href="${pr}"`);
     expect(head).toContain('href="https://github.com/o/r/tree/agentgraph/1"');
     expect(
-      renderToStaticMarkup(runRow({ fixture: 'kit/issue', repo: 'o/r', run, trace }).summary as never)
+      renderToStaticMarkup(runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace }).summary as never)
     ).not.toMatch(/pull\/|tree\//);
+  });
+
+  it('shows the run labels on the run line', () => {
+    const labels = { arm: 'v2', model: 'luna' };
+    const head = renderToStaticMarkup(
+      runRow({ fixture: 'kit/issue', repo: 'o/r', labels, run, trace }).summary as never
+    );
+    expect(head).toMatch(/arm=v2.*model=luna/);
   });
 });
 
@@ -138,7 +155,7 @@ const real = readFileSync(join(import.meta.dirname, 'fixtures', 'two-runs-trace.
   .split('\n')
   .map(line => JSON.parse(line) as Trace);
 const findSessionRows = (trace: Trace[]) =>
-  runRow({ fixture: 'kit/issue', repo: 'o/r', run: { ...run, status: 'done' }, trace }, true)
+  runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run: { ...run, status: 'done' }, trace }, true)
     .children!.flatMap(visit => visit.children!)
     .filter(row => !row.raw || 'session' in (row.raw as object));
 
@@ -230,7 +247,7 @@ describe('a deep link into a run', () => {
   });
 
   it('highlights that line, links each write to GitHub and to itself, and points the graph at its step', () => {
-    const row = runRow({ fixture: 'kit/issue', repo: 'o/r', run, trace: lines }, true, false, comment);
+    const row = runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace: lines }, true, false, comment);
     const review = row.children!.at(-1)!;
     const shown = review.children!.find(c => c.raw === comment)!;
     expect(shown.target).toBe(true);
@@ -255,7 +272,13 @@ describe('a deep link into a run', () => {
     const query = new URLSearchParams({ at: '2026-10-16T05:01:59.000Z' });
     store.set(state.locationAtom, { path: '/runs/issue-1', query });
     store.set(state.runAtom('issue-1'), {
-      value: { fixture: 'kit/issue', repo: 'o/r', run: { ...run, step: 'merge', status: 'waiting' }, trace: lines },
+      value: {
+        fixture: 'kit/issue',
+        repo: 'o/r',
+        labels: {},
+        run: { ...run, step: 'merge', status: 'waiting' },
+        trace: lines,
+      },
     });
     const html = renderToStaticMarkup(
       createElement(jotai.Provider, { store }, createElement(RunPage, { id: 'issue-1' }))
@@ -269,7 +292,7 @@ describe('a deep link into a run', () => {
 
   it('opens the session that holds a targeted event', () => {
     const event = lines.find(l => 'event' in l && l.event.type === 'text' && l.step === 'review')!;
-    const row = runRow({ fixture: 'kit/issue', repo: 'o/r', run, trace: lines }, true, false, event);
+    const row = runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace: lines }, true, false, event);
     const session = row.children!.at(-1)!.children!.find(c => c.children?.some(e => e.raw === event))!;
     expect(session.open).toBe(true);
     expect(session.children!.find(e => e.raw === event)?.target).toBe(true);

@@ -1,4 +1,5 @@
 import type { Located } from '../../../src/store.ts';
+import type { readRunLabels } from '../../../src/labels.ts';
 import type { CheckEntry, Trace } from '../../../src/trace.ts';
 import type { CheckResult, Outcome, Run } from '../../../src/workflow.ts';
 
@@ -56,7 +57,13 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
 };
 
 /** A run as the dev server answers it: the run, its trace, where it lives, and its pull request and branch. */
-export type ServedRun = { fixture: string; repo: string; run: Run; trace: Line[] } & ReturnType<typeof findTraceLinks>;
+export type ServedRun = {
+  fixture: string;
+  repo: string;
+  run: Run;
+  labels: ReturnType<typeof readRunLabels>;
+  trace: Line[];
+} & ReturnType<typeof findTraceLinks>;
 
 export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
 

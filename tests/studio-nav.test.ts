@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { studioDir, studioModule } from './studio.ts';
 
 type Atom = object;
-type Store = { set: (atom: Atom, value: unknown) => void };
+type Store = { get: (atom: Atom) => unknown; set: (atom: Atom, value: unknown) => void };
 type CreateElement = (type: unknown, props?: object | null, ...children: unknown[]) => unknown;
 
 const studioRequire = createRequire(join(studioDir, 'package.json'));
@@ -14,12 +14,20 @@ const dependency = <T>(name: string) =>
 
 let render: (path: string) => string;
 let renderInbox: (runs: object[]) => string;
+let renderPicker: (keys: string[], hidden: string[]) => string;
+let makeStore: () => Store;
+let makeHiddenKeysAtom: (name: string) => Atom;
+const stored = new Map<string, string>();
 let routes: readonly string[];
 
 beforeAll(async () => {
   Object.assign(globalThis, {
     location: { pathname: '/', search: '', origin: 'http://127.0.0.1' },
     requestIdleCallback: () => 0,
+    localStorage: {
+      getItem: (k: string) => stored.get(k) ?? null,
+      setItem: (k: string, v: string) => stored.set(k, v),
+    },
   });
   const { createElement } = await dependency<{ createElement: CreateElement }>('react');
   const { renderToString } = await dependency<{ renderToString: (node: unknown) => string }>('react-dom/server');
@@ -36,9 +44,14 @@ beforeAll(async () => {
   const { runsAtom } = await studioModule<{ runsAtom: Atom }>('state.ts');
   renderInbox = runs => {
     const store = jotai.createStore();
-    store.set(runsAtom, { value: runs.map(run => ({ fixture: '', repo: '', run, trace: [] })) });
+    store.set(runsAtom, { value: runs.map(run => ({ fixture: '', repo: '', labels: {}, run, trace: [] })) });
     return renderToString(createElement(jotai.Provider, { store }, createElement(InboxPage)));
   };
+  const ui = await studioModule<{ KeyPicker: unknown; makeHiddenKeysAtom: (name: string) => Atom }>('ui.tsx');
+  renderPicker = (keys, hidden) =>
+    renderToString(createElement(ui.KeyPicker, { label: 'Labels', keys, hidden, onChange: () => {} }));
+  makeHiddenKeysAtom = ui.makeHiddenKeysAtom;
+  makeStore = jotai.createStore;
   render('/runs');
   await new Promise(resolve => setTimeout(resolve));
 });
@@ -84,5 +97,38 @@ describe('studio navigation', () => {
     expect(html).toContain('Hello or hi?');
     expect(html).toContain('/runs/issue-2');
     expect(html).not.toContain('/runs/router-3');
+  });
+
+  it('offers every label key and marks the hidden ones unpressed', () => {
+    const html = renderPicker(['arm', 'case', 'set'], ['arm']);
+    expect([...html.matchAll(/aria-pressed="(\w+)"[^>]*>(\w+)</g)].map(m => [m[2], m[1]])).toEqual([
+      ['arm', 'false'],
+      ['case', 'true'],
+      ['set', 'true'],
+    ]);
+  });
+
+  it('keeps hidden keys when this browser stores them, and none when storage throws', () => {
+    const kept = makeHiddenKeysAtom('test.kept');
+    const store = makeStore();
+    store.set(kept, ['arm']);
+    expect(stored.get('test.kept')).toBe('["arm"]');
+    expect(store.get(makeHiddenKeysAtom('test.kept'))).toEqual(['arm']);
+    const was = globalThis.localStorage;
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get: () => {
+        throw new Error('blocked');
+      },
+    });
+    try {
+      const blocked = makeHiddenKeysAtom('test.blocked');
+      const other = makeStore();
+      expect(other.get(blocked)).toEqual([]);
+      other.set(blocked, ['case']);
+      expect(other.get(blocked)).toEqual(['case']);
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: was });
+    }
   });
 });

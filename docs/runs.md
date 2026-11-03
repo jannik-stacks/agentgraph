@@ -123,7 +123,7 @@ Ordinary polls and rejected inputs add no continuation. Bench replays use this s
 
 A run label is a `key=value` pair on a run, kept in `<run id>/labels.json` beside run.json. Keys are a-z, 0-9 and `-`, at most 32 characters; values are one line of at most 128. Labels carry no rules: nothing in the engine reads them, and adding or removing one never changes a run. The engine never writes the file after a run's start, so editing it cannot race a run being driven.
 
-`agi start --label k=v` and programmatic `start({ ..., labels })` label each run the call begins, before its first save. `agi label <run id> k=v old-` sets `k` and removes `old` at any time. <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
+`agi start --label k=v` and programmatic `start({ ..., labels })` label each run the call begins, before its first save. `agi label <run id> k=v old-` sets `k` and removes `old` at any time. The [bench](bench.md#run-a-set) labels every run it starts, and the studio shows a run's labels, filters the Runs page by one, and keeps in the browser which label keys a reader hid. <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
 
 ## The trace
 

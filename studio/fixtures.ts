@@ -9,6 +9,7 @@ import type * as ResultsModule from '../bin/results.ts';
 import type * as DriveModule from '../bench/drive.ts';
 import type * as HarnessesModule from '../src/harnesses.ts';
 import type * as StoreModule from '../src/store.ts';
+import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
 
@@ -158,6 +159,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');
       const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
+      const { readRunLabels }: typeof LabelsModule = await from('src/labels.ts');
       if (!served || !data) return json(res, one ? null : []);
       const answer = await Effect.runPromise(
         Effect.gen(function* () {
@@ -170,6 +172,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
                 fixture: `${served.name}/${run.workflow}`,
                 repo: served.graph?.repo ?? '',
                 run,
+                labels: readRunLabels(data, run.id),
                 trace: all ? lines : lines.map(line => cut(line) as typeof line),
                 ...findTraceLinks(trace),
               };

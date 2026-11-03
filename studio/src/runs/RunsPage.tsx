@@ -2,7 +2,7 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useEffect, useMemo, useState } from 'react';
 import { pageAtom, navigateAtom, queryParam, resultsAtoms, runsAtom } from '../state.ts';
 import { Problems } from '../Problems.tsx';
-import { Combobox, Loading, Muted } from '../ui.tsx';
+import { Combobox, KeyPicker, makeHiddenKeysAtom, Loading, Muted } from '../ui.tsx';
 import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { RunPage } from './RunPage.tsx';
@@ -10,6 +10,8 @@ import { type ServedRun, isGitHubRef, locatedLink } from './trace.ts';
 import type { Located } from '../../../src/store.ts';
 
 const issueParam = queryParam('issue');
+const labelParam = queryParam('label');
+const hiddenLabelKeysAtom = makeHiddenKeysAtom('agentgraph.hiddenLabelKeys');
 const ghParam = queryParam('gh');
 
 /** Opens what a GitHub link or comment id names, as the server's `locate` finds it. */
@@ -78,12 +80,23 @@ const RunResults = ({ ids }: { ids: string[] }) => {
 const Runs = () => {
   const { value: runs, failure } = useAtomValue(runsAtom);
   const [issue, setIssue] = useAtom(issueParam);
+  const [label, setLabel] = useAtom(labelParam);
+  const [hidden, setHidden] = useAtom(hiddenLabelKeysAtom);
   const navigate = useSetAtom(navigateAtom);
   const options = useMemo(() => splitRunsByIssue(runs ?? []), [runs]);
+  const labels = useMemo(
+    () =>
+      [...new Set((runs ?? []).flatMap(r => Object.entries(r.labels).map(([k, v]) => `${k}=${v}`)))]
+        .toSorted()
+        .map(pair => ({ value: pair, label: pair })),
+    [runs]
+  );
+  const keys = useMemo(() => [...new Set((runs ?? []).flatMap(r => Object.keys(r.labels)))].toSorted(), [runs]);
   if (!runs) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (!runs.length) return <Muted>No runs in this data dir.</Muted>;
   const shown = runs
     .filter(r => issue === null || String(r.run.issue) === issue)
+    .filter(r => label === null || Object.entries(r.labels).some(([k, v]) => `${k}=${v}` === label))
     .toSorted((a, b) => b.run.started.localeCompare(a.run.started));
   return (
     <>
@@ -103,8 +116,18 @@ const Runs = () => {
           onChange={setIssue}
         />
       </div>
+      {labels.length > 0 && (
+        <>
+          <Combobox label="Label" placeholder="every label" value={label} options={labels} onChange={setLabel} />
+          <KeyPicker label="Labels" keys={keys} hidden={hidden} onChange={setHidden} />
+        </>
+      )}
       <RunResults ids={shown.map(r => r.run.id)} />
-      <Rows rows={shown.map(r => runRow(r))} />
+      <Rows
+        rows={shown.map(r =>
+          runRow({ ...r, labels: Object.fromEntries(Object.entries(r.labels).filter(([k]) => !hidden.includes(k))) })
+        )}
+      />
     </>
   );
 };
