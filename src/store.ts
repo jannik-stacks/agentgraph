@@ -241,7 +241,10 @@ export const appendJsonlRows = (path: string, lines: unknown[]) => {
     Effect.tryPromise({
       try: async () => {
         await mkdir(dirname(path), { recursive: true });
-        const release = await waitForLock(basename(path), dirname(path));
+        const release = await waitForLock(
+          `${basename(dirname(path))}.${basename(path)}`,
+          join(dirname(path), '..', '.locks')
+        );
         try {
           if (existsSync(`${path}.zst`)) {
             writeFileAtomic(path, await readRecord(path));
