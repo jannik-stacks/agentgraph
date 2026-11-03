@@ -1,5 +1,6 @@
+import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, resolve, sep } from 'node:path';
+import { basename, join, sep } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findTraceLinks, mergeCheckEntries } from './src/runs/trace.ts';
@@ -46,6 +47,20 @@ const cut = (value: unknown): unknown =>
         ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, cut(v)]))
         : value;
 
+const isInside = async (path: string, roots: string[]) => {
+  const [real, ...reals] = await Promise.all([path, ...roots].map(p => realpath(p).catch(() => undefined)));
+  return !!real && reals.some(root => root !== undefined && real.startsWith(root + sep));
+};
+
+const readDataDir = async (req: IncomingMessage) => {
+  const bench = new URL(req.url ?? '/', 'http://studio').searchParams.get('data');
+  if (!bench) return { data: process.env.AGI_STUDIO_DATA, bench: undefined };
+  const roots = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
+  return (await isInside(bench, roots)) ? { data: bench, bench } : undefined;
+};
+
+const outside = (res: ServerResponse) => json(res, { error: 'data is outside the bench dirs' }, 400);
+
 const bodies = (docs: Record<string, { body: string }>) =>
   Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
 
@@ -60,8 +75,10 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
     use('/api/results', async (req, res) => {
       const source = resultSources.find(s => s === new URL(req.url ?? '/', 'http://studio').searchParams.get('from'));
       if (!source) return json(res, { error: 'bad from' }, 400);
+      const dir = await readDataDir(req);
+      if (!dir) return outside(res);
       const dirs = {
-        ...(process.env.AGI_STUDIO_DATA && { data: process.env.AGI_STUDIO_DATA }),
+        ...(dir.data && { data: dir.data }),
         bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
         ...(process.env.AGI_STUDIO_TUNE && { tune: process.env.AGI_STUDIO_TUNE }),
       };
@@ -72,7 +89,9 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       json(res, readRunResults(source, dirs, served?.graph));
     });
     use('/api/logs', async (req, res) => {
-      const data = process.env.AGI_STUDIO_DATA;
+      const dir = await readDataDir(req);
+      if (!dir) return outside(res);
+      const { data } = dir;
       const { Effect } = await import('effect');
       const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
       const hash = (req.url ?? '/').split('?')[0]!.slice(1);
@@ -95,17 +114,16 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
     });
     use('/api/runs', async (req, res) => {
       const served = await servedGraph();
-      const bench = new URL(req.url ?? '/', 'http://studio').searchParams.get('data');
-      const roots = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
-      if (bench && !roots.some(dir => resolve(bench).startsWith(resolve(dir) + sep)))
-        return json(res, { error: 'data is outside the bench dirs' }, 400);
-      const data = bench ?? process.env.AGI_STUDIO_DATA;
+      const dir = await readDataDir(req);
+      if (!dir) return outside(res);
+      const { data, bench } = dir;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');
       const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
       const { readRunLabels }: typeof LabelsModule = await from('src/labels.ts');
       if (!data || (!served && !bench)) return json(res, one ? null : []);
+      const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data, id), [data]));
       const answer = await Effect.runPromise(
         Effect.gen(function* () {
           const store = yield* Store;
@@ -120,10 +138,14 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
                 labels: readRunLabels(data, run.id),
                 trace: all ? lines : lines.map(line => cut(line) as typeof line),
                 ...findTraceLinks(trace),
+                ...(bench && { data: bench }),
               };
             });
-          if (!one) return yield* Effect.forEach(yield* store.list(), run => entry(run, false));
-          const run = yield* store.get(one);
+          if (!one)
+            return yield* Effect.forEach(yield* Effect.filter(yield* store.list(), run => keep(run.id)), run =>
+              entry(run, false)
+            );
+          const run = (yield* keep(one)) ? yield* store.get(one) : undefined;
           return run ? yield* entry(run, true) : null;
         }).pipe(Effect.provide(fileStore(data)))
       );

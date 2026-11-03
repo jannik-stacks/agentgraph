@@ -27,6 +27,7 @@ type ServedRun = {
   trace: Trace[];
   pull?: string;
   branch?: string;
+  data?: string;
 };
 Object.assign(globalThis, { location: new URL('http://localhost/runs') });
 const { runRow } = await studioModule<{
@@ -146,6 +147,13 @@ describe("a run's pull request and branch", () => {
       runRow({ fixture: 'kit/issue', repo: 'o/r', labels, run, trace }).summary as never
     );
     expect(head).toMatch(/arm=v2.*model=luna/);
+  });
+
+  it('keeps the bench data dir a run was read from on its links', () => {
+    const head = renderToStaticMarkup(
+      runRow({ fixture: 'bench/issue', repo: '', labels: {}, run, trace, data: '/b/c/v2/data' }).summary as never
+    );
+    expect(head).toContain('href="/runs/issue-1?data=%2Fb%2Fc%2Fv2%2Fdata"');
   });
 });
 

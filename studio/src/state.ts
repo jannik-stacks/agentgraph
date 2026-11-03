@@ -2,7 +2,7 @@ import { atom } from 'jotai';
 import type { readRunResults } from '../../bin/results.ts';
 import type { Step } from '../../bin/tune.ts';
 import type { RunResults } from './results/result.ts';
-import type { ServedRun } from './runs/trace.ts';
+import { type ServedRun, makeDataHref } from './runs/trace.ts';
 
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
@@ -99,12 +99,16 @@ export const runsAtom = makeLiveJsonAtom<ServedRun[]>('/api/runs');
 
 type ServedResults = Omit<ReturnType<typeof readRunResults>, 'runs'> & { runs: (RunResults & { step?: Step })[] };
 
-export const runResultsAtom = makeLiveJsonAtom<ServedResults>('/api/results?from=runs');
-
-const opened = new Map<string, ReturnType<typeof makeLiveJsonAtom<ServedRun | null>>>();
-
-export const runAtom = (id: string, data?: string | null) => {
-  const url = `/api/runs/${encodeURIComponent(id)}${data ? `?data=${encodeURIComponent(data)}` : ''}`;
-  if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<ServedRun | null>(url));
-  return opened.get(url)!;
+const opened = new Map<string, object>();
+const openOnce = <T>(url: string) => {
+  if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<T>(url));
+  return opened.get(url) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
+
+export const dataParam = queryParam('data');
+
+export const runResultsAtom = (data?: string | null) =>
+  openOnce<ServedResults>(makeDataHref('/api/results?from=runs', data));
+
+export const runAtom = (id: string, data?: string | null) =>
+  openOnce<ServedRun | null>(makeDataHref(`/api/runs/${encodeURIComponent(id)}`, data));

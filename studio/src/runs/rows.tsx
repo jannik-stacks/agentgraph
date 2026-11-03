@@ -6,11 +6,12 @@ import type { Run } from '../../../src/workflow.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultLines } from '../results/ResultTable.tsx';
-import { runResultsAtom } from '../state.ts';
+import { dataParam, runResultsAtom } from '../state.ts';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
   atLink,
+  makeDataHref,
   type ServedRun,
   detail,
   formatCheckValue,
@@ -104,6 +105,7 @@ const readJudgeSessions = (text: string): Row[] | undefined => {
 /** A check's full output or its judge sessions, fetched from the data dir when asked for. */
 const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }) => {
   const [text, setText] = useState<string>();
+  const data = useAtomValue(dataParam);
   if (text !== undefined) {
     const sessions = readJudgeSessions(text);
     return sessions ? <Rows rows={sessions} /> : <Pre text={text} />;
@@ -113,7 +115,7 @@ const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }
       type="button"
       className="font-sans text-[10px] text-sky-600 underline"
       onClick={() =>
-        fetch(`/api/logs/${log.hash}`)
+        fetch(makeDataHref(`/api/logs/${log.hash}`, data))
           .then(r => (r.ok ? r.text() : `not in the data dir (${r.status})`))
           .then(setText, (e: Error) => setText(e.message))
       }
@@ -470,9 +472,9 @@ const Issue = ({ r }: { r: ServedRun }) =>
   );
 
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
-const RunInfo = ({ r: { run } }: { r: ServedRun }) => {
+const RunInfo = ({ r: { run, data } }: { r: ServedRun }) => {
   const [raw, setRaw] = useState(false);
-  const { value } = useAtomValue(runResultsAtom);
+  const { value } = useAtomValue(runResultsAtom(data));
   const results = value?.runs.find(x => x.key === run.id);
   return (
     <>
@@ -496,7 +498,7 @@ const RunInfo = ({ r: { run } }: { r: ServedRun }) => {
 /** A run on one line that opens it on the Runs page. */
 export const RunLine = ({ r }: { r: ServedRun }) => (
   <Link
-    href={`/runs/${encodeURIComponent(r.run.id)}`}
+    href={atLink(r.run.id, undefined, r.data)}
     className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono transition-colors text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
   >
     <Col className="w-[4ch]">#{r.run.issue}</Col>
@@ -523,7 +525,7 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
       ...('applied' in part && {
         summary: (
           <>
-            {row.summary} <CopyLink href={atLink(run.id, part.applied.at ?? part.at)} />
+            {row.summary} <CopyLink href={atLink(run.id, part.applied.at ?? part.at, r.data)} />
           </>
         ),
       }),
@@ -539,7 +541,7 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
           <Issue r={r} />
         </Col>
         <Col className="w-[9ch]">
-          <Link href={`/runs/${encodeURIComponent(run.id)}`} className="font-medium underline">
+          <Link href={atLink(run.id, undefined, r.data)} className="font-medium underline">
             {run.workflow}
           </Link>
         </Col>

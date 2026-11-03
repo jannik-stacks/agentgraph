@@ -1,13 +1,12 @@
 import { useAtom, useAtomValue } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import { useEffect, useMemo, useRef } from 'react';
-import { queryParam, runAtom } from '../state.ts';
+import { dataParam, queryParam, runAtom } from '../state.ts';
 import { Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { lineAt } from './trace.ts';
 
 const atParam = queryParam('at');
-const dataParam = queryParam('data');
 const expandAtom = atomWithStorage('agentgraph.expandSessions', true, undefined, { getOnInit: true });
 
 /** One run opened with every trace line, scrolled to the line `?at=` names or following a running run. */

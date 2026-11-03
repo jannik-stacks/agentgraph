@@ -1,11 +1,14 @@
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { Effect } from 'effect';
+import { fileStore, Store } from '../src/store.ts';
+import type { Trace } from '../src/trace.ts';
+import type { Run } from '../src/workflow.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
-import type { BenchData } from '../studio/src/bench/data.ts';
+import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
 import { readBenchRowResults } from '../studio/src/results/result.ts';
-import type { readBenchRows } from '../bin/bench.ts';
 import { tmp } from './kit.ts';
 import {
   bootstrap,
@@ -18,7 +21,8 @@ import {
   summarise,
 } from '../studio/src/bench/score.ts';
 
-type Row = ReturnType<typeof readBenchRows>[number];
+type Row = BenchRow;
+const at = '2026-10-16T05:00:00.000Z';
 
 const row = (over: Partial<Row>): Row => ({
   labels: { harness: 'opencode', model: 'smart', arm: 'v2', engine: 'unknown', graph: '', set: 'runs-3', repo: 'me/a' },
@@ -228,33 +232,67 @@ describe('the bench page data', () => {
   });
 });
 
-describe('/api/runs with a bench data dir', () => {
-  it('reads runs only from inside the bench dirs', async () => {
+describe('a bench data dir', () => {
+  it('serves runs, logs and results only from real paths inside the bench dirs', async () => {
     const out = tmp('bench-runs');
-    mkdirSync(join(out, 'c', 'v2', 'data'), { recursive: true });
+    const data = join(out, 'c', 'v2', 'data');
+    const elsewhere = tmp('bench-elsewhere');
+    const run = {
+      id: 'issue-1',
+      issue: 1,
+      started: at,
+      workflow: 'issue',
+      step: 'review',
+      status: 'done',
+      tries: 0,
+      rounds: {},
+    } as Run;
+    const hash = await Effect.runPromise(
+      Effect.gen(function* () {
+        const store = yield* Store;
+        for (const id of ['issue-1', 'issue-2']) yield* store.put({ ...run, id });
+        yield* store.trace('issue-1', { at, step: 'review', event: { type: 'text', text: 'from the bench' } } as Trace);
+        return (yield* store.log('full output', false))!.hash;
+      }).pipe(Effect.provide(fileStore(data)))
+    );
+    renameSync(join(data, 'issue-2'), join(elsewhere, 'issue-2'));
+    symlinkSync(join(elsewhere, 'issue-2'), join(data, 'issue-2'));
+    symlinkSync(elsewhere, join(out, 'linked'));
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
+    vi.stubEnv('AGI_STUDIO_DATA', undefined);
     vi.stubEnv('AGI_STUDIO_BENCH', out);
     const routes: Record<string, (req: unknown, res: unknown) => void> = {};
     const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
     plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
-    const ask = (url: string) =>
-      new Promise<{ status: number; body: unknown }>(done => {
+    const ask = (route: string, url: string) =>
+      new Promise<{ status: number; body: string }>(done => {
         const res = {
           statusCode: 200,
           setHeader: () => {},
-          end: (body: string) => done({ status: res.statusCode, body: JSON.parse(body) }),
+          end: (body: string) => done({ status: res.statusCode, body }),
         };
-        routes['/api/runs']!({ url }, res);
+        routes[route]!({ url }, res);
       });
+    const q = (dir: string) => `?data=${encodeURIComponent(dir)}`;
     try {
-      expect(await ask(`/?data=${encodeURIComponent(join(out, '..'))}`)).toMatchObject({ status: 400 });
-      expect(await ask(`/?data=${encodeURIComponent(join(out, 'c', 'v2', 'data'))}`)).toEqual({
-        status: 200,
-        body: [],
-      });
+      expect(await ask('/api/runs', `/${q(join(out, '..'))}`)).toMatchObject({ status: 400 });
+      expect(await ask('/api/runs', `/${q(join(out, 'linked'))}`)).toMatchObject({ status: 400 });
+      expect(await ask('/api/logs', `/${hash}${q(join(out, 'linked'))}`)).toMatchObject({ status: 400 });
+      const listed = JSON.parse((await ask('/api/runs', `/${q(data)}`)).body) as { run: Run; data: string }[];
+      expect(listed.map(r => [r.run.id, r.data])).toEqual([['issue-1', data]]);
+      expect(await ask('/api/runs', `/issue-2${q(data)}`)).toMatchObject({ status: 404 });
+      const one = JSON.parse((await ask('/api/runs', `/issue-1${q(data)}`)).body) as {
+        data: string;
+        trace: { event?: { text?: string } }[];
+      };
+      expect([one.data, one.trace.find(l => l.event)?.event?.text]).toEqual([data, 'from the bench']);
+      expect(await ask('/api/logs', `/${hash}${q(data)}`)).toEqual({ status: 200, body: 'full output' });
+      const results = await ask('/api/results', `/?from=runs&data=${encodeURIComponent(data)}`);
+      expect((JSON.parse(results.body) as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
     } finally {
       vi.unstubAllEnvs();
       rmSync(out, { recursive: true, force: true });
+      rmSync(elsewhere, { recursive: true, force: true });
     }
   });
 });

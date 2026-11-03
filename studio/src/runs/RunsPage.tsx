@@ -64,7 +64,7 @@ const RunList = () => {
 };
 
 const RunResults = ({ ids }: { ids: string[] }) => {
-  const { value } = useAtomValue(runResultsAtom);
+  const { value } = useAtomValue(runResultsAtom());
   const runs = useMemo(() => value?.runs.filter(r => ids.includes(r.key)) ?? [], [value, ids]);
   if (!value || !runs.length) return null;
   return (

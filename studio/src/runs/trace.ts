@@ -63,6 +63,7 @@ export type ServedRun = {
   run: Run;
   labels: ReturnType<typeof readRunLabels>;
   trace: Line[];
+  data?: string;
 } & ReturnType<typeof findTraceLinks>;
 
 export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
@@ -133,8 +134,12 @@ export const lineAt = (trace: Line[], at: string | null) =>
       trace.find(l => 'applied' in l && l.at >= at) ??
       trace.find(l => l.at >= at));
 
-/** The studio page of a run at one trace line. */
-export const atLink = (run: string, at: string) => `/runs/${encodeURIComponent(run)}?at=${at}`;
+export const makeDataHref = (href: string, data: string | null | undefined) =>
+  data ? `${href}${href.includes('?') ? '&' : '?'}data=${encodeURIComponent(data)}` : href;
+
+/** The studio page of a run, at one trace line when `at` is given. */
+export const atLink = (run: string, at?: string, data?: string | null) =>
+  makeDataHref(`/runs/${encodeURIComponent(run)}${at ? `?at=${at}` : ''}`, data);
 
 /** The graph page with the run and `step` selected. */
 export const graphLink = (r: ServedRun, step: string) =>
