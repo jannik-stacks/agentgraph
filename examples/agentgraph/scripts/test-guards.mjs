@@ -11,7 +11,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { findBrief, findReply, parseBrief } from './brief.mjs';
-import { addedLines, readBaseShaFromEnv, baseText, changedFiles, inBase, isTestFile, report, parseTestCallTitle } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, baseText, changedFiles, inBase, isTestFile, ownLines, report, parseTestCallTitle } from './changes.mjs';
 
 const count = (text, pattern) => text.match(pattern)?.length ?? 0;
 const testCalls = /\b(it|test)(\.each\([^)]*\))?\(/g;
@@ -157,7 +157,7 @@ const bite = () => {
   const added = new Map(
     tests.map(path => [
       path,
-      addedLines(sha, path).flatMap(({ line, text }) => {
+      ownLines(sha, path).flatMap(({ line, text }) => {
         const title = parseTestCallTitle(text);
         return title && !title.includes('${') ? [{ line, title }] : [];
       }),

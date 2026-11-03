@@ -594,6 +594,18 @@ describe('size', () => {
       '2 files changed outside tests/ besides 2 that only rename kind → type, more than 1: src/c.ts, src/d.ts',
     ]);
   });
+
+  it('does not count a moved file or lines that only make the rename in any of its forms', () => {
+    const before = 'export const olds = new OldError();\nexport const IS_OLD = olds;\n';
+    const after = 'export const news = new NewError();\nexport const IS_NEW =\n  news;\n';
+    const repo = change(
+      { 'src/a.ts': before, 'src/b.ts': before, 'src/c.ts': lines(20) },
+      { 'src/a.ts': after, 'src/b.ts': after, 'src/d.ts': lines(20) },
+      ['src/c.ts']
+    );
+    git(repo.dir, 'add', '-A');
+    expect(run('size.mjs', repo, ['15', '1'])).toEqual({ ok: true, out: 'size: ok' });
+  });
 });
 
 describe('enum-copy', () => {

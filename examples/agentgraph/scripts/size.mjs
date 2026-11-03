@@ -1,11 +1,11 @@
 // Fails a change that adds more than a cap of lines, or adds to or changes more than a cap of files, outside tests/.
 // A task that needs more is two tasks. A file that only deletes lines does not count toward the file cap. A file
-// whose every changed line only swaps one word for another, the same swap across the change, is a rename and does
-// not count either, so a rename is never left half done. The caps are the ones in bounds.mjs unless given.
+// whose every changed line only swaps one word for another, the same swap across the change, is a rename and neither
+// it nor such lines count, so a rename is never left half done. The caps are the ones in bounds.mjs unless given.
 //
 //   node size.mjs [<max-added-lines> <max-files>]      e.g. node size.mjs 300 8
 import { capped, maxAddedLines, maxFiles } from './bounds.mjs';
-import { addedLines, readBaseShaFromEnv, changedFiles, findDominantTokenRename, report } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, changedFiles, findDominantTokenRename, ownLines, report } from './changes.mjs';
 
 const given = process.argv.slice(2).map(Number);
 const [lines, files] = given.length ? given : [maxAddedLines, maxFiles];
@@ -16,7 +16,7 @@ const outside = changedFiles(sha)
   .filter(({ path, deleted }) => capped(path) && !deleted)
   .map(file => ({ ...file, added: addedLines(sha, file.path).length }))
   .filter(({ added }) => added > 0);
-const added = outside.reduce((sum, file) => sum + file.added, 0);
+const added = outside.reduce((sum, { path }) => sum + ownLines(sha, path).length, 0);
 const { rename, renamed } = findDominantTokenRename(sha, outside);
 const counted = outside.filter(({ path }) => !renamed.includes(path));
 

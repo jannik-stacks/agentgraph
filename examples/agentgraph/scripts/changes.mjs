@@ -11,14 +11,36 @@ export const readBaseShaFromEnv = () => {
   return sha;
 };
 
-/** Changed and new files, repository-relative, with whether each one was deleted. */
+const moves = new Map();
+
+const readMoves = sha => {
+  if (!moves.has(sha))
+    moves.set(
+      sha,
+      new Map(
+        git('diff', '--name-status', '--relative', '-C', sha)
+          .split('\n')
+          .filter(line => /^[RC]/.test(line))
+          .map(line => line.split('\t').slice(1).reverse())
+      )
+    );
+  return moves.get(sha);
+};
+
+const basePath = (sha, path) => readMoves(sha).get(path) ?? path;
+const withOldPaths = (sha, paths) => paths.flatMap(path => [...new Set([basePath(sha, path), path])]);
+
+/**
+ * Changed and new files, repository-relative, with whether each one was deleted. A moved or copied file is its new
+ * path, read against its old one.
+ */
 export const changedFiles = sha => {
-  const tracked = git('diff', '--name-status', '--relative', '--no-renames', sha)
+  const tracked = git('diff', '--name-status', '--relative', '-C', sha)
     .split('\n')
     .filter(Boolean)
     .map(line => {
-      const [status, path] = line.split('\t');
-      return { path, deleted: status === 'D' };
+      const [status, path, moved] = line.split('\t');
+      return { path: moved ?? path, deleted: status === 'D' };
     });
   const untracked = git('ls-files', '--others', '--exclude-standard')
     .split('\n')
@@ -30,7 +52,7 @@ export const changedFiles = sha => {
 /** Whether `path` exists in the commit `sha`. */
 export const inBase = (sha, path) => {
   try {
-    execFileSync('git', ['cat-file', '-e', `${sha}:./${path}`], { stdio: 'ignore' });
+    execFileSync('git', ['cat-file', '-e', `${sha}:./${basePath(sha, path)}`], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -48,10 +70,12 @@ export const addedLines = (sha, path) => {
   }
   const lines = [];
   let at = 0;
-  for (const row of git('diff', '-U0', '--no-color', sha, '--', path).split('\n')) {
+  let own = false;
+  for (const row of git('diff', '-U0', '--no-color', '--relative', '-C', sha, '--', ...withOldPaths(sha, [path])).split('\n')) {
     const hunk = /^@@ -\S+ \+(\d+)(?:,\d+)? @@/.exec(row);
-    if (hunk) at = Number(hunk[1]);
-    else if (row.startsWith('+') && !row.startsWith('+++')) lines.push({ line: at++, text: row.slice(1) });
+    if (row.startsWith('+++')) own = row === `+++ b/${path}`;
+    else if (hunk) at = Number(hunk[1]);
+    else if (own && row.startsWith('+')) lines.push({ line: at++, text: row.slice(1) });
   }
   return lines;
 };
@@ -68,14 +92,14 @@ export const report = (name, findings) => {
 };
 
 /** A file's text in the commit `sha`, or `undefined` when it does not exist there. */
-export const baseText = (sha, path) => (inBase(sha, path) ? git('show', `${sha}:./${path}`) : undefined);
+export const baseText = (sha, path) => (inBase(sha, path) ? git('show', `${sha}:./${basePath(sha, path)}`) : undefined);
 
 /**
  * The diff of `paths` against `sha`, with `context` lines around each change, or the whole enclosing function for
  * `'function'`. Untracked files are not in it.
  */
 export const readChangeDiff = (sha, paths, context = 3) =>
-  git('diff', context === 'function' ? '-W' : `-U${context}`, '--no-color', '--no-renames', sha, '--', ...paths);
+  git('diff', context === 'function' ? '-W' : `-U${context}`, '--no-color', '-C', sha, '--', ...withOldPaths(sha, paths));
 
 /** A vitest test file. */
 export const isTestFile = path => /^tests\/.*\.test\.(ts|tsx|mts|js|mjs)$/.test(path);
@@ -100,19 +124,27 @@ export const changeText = (sha, roots, context = 3) => {
 
 const words = text => text.match(/\w+|[^\w\s]/g) ?? [];
 
-/** The one word swap every changed line of a diff makes, as `old → new`, or undefined when it changes more. */
+const swapCore = (before, after) => {
+  let start = 0;
+  let end = 0;
+  while (start < Math.min(before.length, after.length) && before[start] === after[start]) start++;
+  while (end < Math.min(before.length, after.length) - start && before.at(-end - 1) === after.at(-end - 1)) end++;
+  return `${before.slice(start, before.length - end)} → ${after.slice(start, after.length - end)}`.toLowerCase();
+};
+
+/**
+ * The one word swap every hunk of a diff makes, as `old → new`, or undefined when it changes more. Hunks compare as
+ * words, so a line the swap made wrap still counts. Compound and case forms of one swap, such as `isOld → isNew`,
+ * `OldError → NewError` and `OLD → NEW`, count as that swap.
+ */
 export const swapIn = diff => {
   const swaps = new Set();
   for (const hunk of diff.split(/^@@.*$/m).slice(1)) {
     const rows = hunk.split('\n');
-    const removed = rows.filter(row => row.startsWith('-')).map(row => words(row.slice(1)));
-    const added = rows.filter(row => row.startsWith('+')).map(row => words(row.slice(1)));
-    if (removed.length !== added.length) return;
-    for (const [i, before] of removed.entries()) {
-      const after = added[i];
-      if (before.length !== after.length) return;
-      for (const [j, word] of before.entries()) if (word !== after[j]) swaps.add(`${word} → ${after[j]}`);
-    }
+    const before = rows.filter(row => row.startsWith('-')).flatMap(row => words(row.slice(1)));
+    const after = rows.filter(row => row.startsWith('+')).flatMap(row => words(row.slice(1)));
+    if (before.length !== after.length) return;
+    for (const [i, word] of before.entries()) if (word !== after[i]) swaps.add(swapCore(word, after[i]));
   }
   return swaps.size === 1 ? [...swaps][0] : undefined;
 };
@@ -144,9 +176,10 @@ export const ownLines = (sha, path) => {
     const rows = hunk.split('\n').slice(1);
     const removed = rows.filter(row => row.startsWith('-')).map(row => row.slice(1));
     const added = rows.filter(row => row.startsWith('+')).map(row => row.slice(1));
-    if (removed.length !== added.length) continue;
+    const whole = swapIn(`@@\n${rows.join('\n')}`) === changeRename;
     added.forEach((text, i) => {
-      if (swapIn(`@@\n-${removed[i]}\n+${text}`) === changeRename) renamedAt.add(at + i);
+      if (whole || (removed.length === added.length && swapIn(`@@\n-${removed[i]}\n+${text}`) === changeRename))
+        renamedAt.add(at + i);
     });
   }
   return lines.filter(({ line }) => !renamedAt.has(line));
