@@ -73,9 +73,9 @@ export const hostGit = (
     const stop = () => {
       if (closed || child.pid === undefined) return;
       try {
-        process.kill(-child.pid, 'SIGKILL');
+        process.kill(-child.pid, 'SIGTERM');
       } catch {
-        child.kill('SIGKILL');
+        child.kill('SIGTERM');
       }
     };
     const output: Buffer[] = [];
