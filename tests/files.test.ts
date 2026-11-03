@@ -126,9 +126,10 @@ it('caps retained bytes', async () => {
 it('counts rejected input toward cumulative quota', async () => {
   const files = await open();
   const failures = [];
-  for (let index = 0; index < 26; index++)
-    failures.push(await files.put(new Uint8Array(10 * 1024 * 1024)).catch(error => error.message));
-  expect(failures.at(-1)).toContain('input byte limit');
+  for (const mib of [...Array<number>(25).fill(10), 6])
+    failures.push(await files.put(new Uint8Array(mib * 1024 * 1024)).catch(error => error.message));
+  expect(failures.every(message => message.includes('magic bytes'))).toBe(true);
+  await expect(files.put()).rejects.toThrow('input byte limit');
 });
 
 it('caps concurrent uploads', async () => {
