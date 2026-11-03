@@ -5,11 +5,11 @@ import { getStepDoerKind } from './chips.ts';
 import type { Trail } from './scenarios.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
-export const makeRunTrail = (run: Run, trace: Line[]): Trail => {
+export const makeRunTrail = ({ reason }: Pick<Run, 'reason'>, trace: Line[]): Trail => {
   let before: Pick<Run, 'status' | 'tries' | 'rounds'> = { status: 'running', tries: 0, rounds: {} };
   return trace.flatMap(line => {
     if (!('outcome' in line)) return [];
-    const at = { ...run, ...before, step: line.step };
+    const at = { ...before, step: line.step, ...(reason !== undefined && { reason }) };
     before = line.run;
     return [{ at, outcome: line.outcome }];
   });
