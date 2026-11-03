@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Runtime, Scope } from 'effect';
+import { ConfigProvider, Effect, Exit, Layer, Scope } from 'effect';
 import {
   instruct,
   issueDebounceMs,
@@ -77,20 +77,17 @@ const warnTemporary = (data: string) =>
   Effect.forEach(temporary(data), p => Effect.logWarning(`${p} is under a temp dir, which the OS may empty`));
 
 const configured = (env: Record<string, string>, extra: Record<string, string> = {}) =>
-  ConfigProvider.fromMap(new Map(Object.entries({ ...env, ...extra })));
+  ConfigProvider.fromEnv({ env: { ...env, ...extra } });
 
 const failLoopLock = (error: unknown): never => {
-  const failure = Runtime.isFiberFailure(error)
-    ? Cause.failureOption(error[Runtime.FiberFailureCauseId])
-    : Option.none();
-  const cause = Option.isSome(failure) && failure.value instanceof StoreError ? failure.value.cause : undefined;
+  const cause = error instanceof StoreError ? error.cause : undefined;
   throw cause instanceof LockHeldError ? cause : error;
 };
 
 export const createLoopLock = async (data: string) => {
   const scope = Effect.runSync(Scope.make());
   await Effect.runPromise(
-    Effect.flatMap(Store, s => s.lock('loop')).pipe(Effect.provide(fileStore(data)), Scope.extend(scope))
+    Effect.flatMap(Store, s => s.lock('loop')).pipe(Effect.provide(fileStore(data)), Scope.provide(scope))
   ).catch(async (e: unknown) => {
     await Effect.runPromise(Scope.close(scope, Exit.void));
     failLoopLock(e);
@@ -129,13 +126,13 @@ export const start = (
   refresh: () => Promise<unknown> = async () => {}
 ): Promise<RunRecord[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
-    Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
+    Effect.provide(effect, Layer.unwrap(Effect.map(settings, services)));
   const read = Effect.tryPromise(() => readEngineEnv(defaults));
   const program = one
     ? Effect.gen(function* () {
         const env = yield* read;
         const choose = (fallback: ConfigProvider.ConfigProvider) =>
-          Effect.withConfigProvider(makeHarnessConfigProvider(one.choice ?? {}, fallback));
+          Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(one.choice ?? {}, fallback));
         const loaded = yield* readConfiguredGraph(one.graph).pipe(choose(configured(env)));
         const base = one.base;
         const graph = base
@@ -163,7 +160,7 @@ export const start = (
           : Effect.updateService(driven, Store, store => ({
               ...store,
               put: run =>
-                Effect.zipRight(
+                Effect.andThen(
                   Effect.flatMap(store.get(run.id), was =>
                     was ? Effect.void : writeRunLabels(one.data, run.id, labels)
                   ),
@@ -173,27 +170,27 @@ export const start = (
         return yield* provided(labelled).pipe(choose(provider));
       })
     : Effect.gen(function* () {
-        const s = yield* settings.pipe(Effect.withConfigProvider(configured(yield* read)));
+        const s = yield* settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(yield* read)));
         yield* Effect.flatMap(Store, store => store.lock('loop')).pipe(Effect.provide(fileStore(s.data)));
         yield* warnTemporary(s.data);
         const compress = Effect.tryPromise(() => writeIdleRunsCompressed(s.data, s.compress)).pipe(
-          Effect.catchAll(e => Effect.logWarning(`compressing idle runs failed: ${e.cause}`))
+          Effect.catch(e => Effect.logWarning(`compressing idle runs failed: ${e.cause}`))
         );
         const pass = Effect.tryPromise(refresh).pipe(
-          Effect.catchAll(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
-          Effect.zipRight(read),
+          Effect.catch(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
+          Effect.andThen(read),
           Effect.flatMap(env =>
             provided(
               Effect.flatMap(settings, now => graphAt(now.graph)).pipe(
                 Effect.flatMap(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs)),
                 Effect.scoped
               )
-            ).pipe(Effect.withConfigProvider(configured(env)))
+            ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(env)))
           ),
-          Effect.catchAll(e => Effect.logError(e))
+          Effect.catch(e => Effect.logError(e))
         );
         return yield* Effect.forever(
-          Effect.zipRight(Effect.zipRight(compress, pass), Effect.sleep(`${s.every} minutes`))
+          Effect.andThen(Effect.andThen(compress, pass), Effect.sleep(`${s.every} minutes`))
         );
       }).pipe(Effect.scoped);
   return Effect.runPromise(program, { signal }).catch(failLoopLock);

@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Chunk, Deferred, Effect, Layer, Stream } from 'effect';
+import { Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
@@ -399,7 +399,7 @@ describe('dispatch', () => {
     const trace = await Effect.runPromise(
       Effect.flatMap(Store, s => Stream.runCollect(s.read(router.id))).pipe(Effect.provide(fileStore(where.data)))
     );
-    expect(Chunk.toArray(trace).flatMap(t => ('outcome' in t ? [t.outcome] : []))).toContainEqual({
+    expect(trace.flatMap(t => ('outcome' in t ? [t.outcome] : []))).toContainEqual({
       kind: 'answer',
       text: 'triage on #1 is done',
     });
@@ -419,7 +419,7 @@ describe('dispatch', () => {
     const trace = await Effect.runPromise(
       Effect.flatMap(Store, s => Stream.runCollect(s.read('triage-1'))).pipe(Effect.provide(fileStore(where.data)))
     );
-    expect(Chunk.toArray(trace).flatMap(t => ('told' in t ? [t.told] : []))).toEqual([
+    expect(trace.flatMap(t => ('told' in t ? [t.told] : []))).toEqual([
       { text: 'stop not needed', by: first.value[0]!.id },
     ]);
     await run(where, [], tick(graph));
@@ -575,7 +575,7 @@ describe('router input', () => {
     const trace = await Effect.runPromise(
       Effect.flatMap(Store, s => Stream.runCollect(s.read(router.id))).pipe(Effect.provide(fileStore(where.data)))
     );
-    const prompt = Chunk.toArray(trace).flatMap(t => ('prompt' in t ? [t.prompt.prompt] : []))[0]!;
+    const prompt = trace.flatMap(t => ('prompt' in t ? [t.prompt.prompt] : []))[0]!;
     expect(prompt).toMatch(
       /^## What you were asked\n\n@morgan on docs\/x.md:8, id r1: \/agent handle all five review comments\n\nEarlier in its review thread:\n\n@morgan on docs\/x.md:8, id r0: what is slot\?\n\n@agentgraph\[bot\] on docs\/x.md:8, id b1: Slot is the index.\n\n/
     );
@@ -638,7 +638,9 @@ describe('a pass', () => {
       Effect.map(Tracker, f => ({
         ...f,
         since: (cursor: string) =>
-          cursor ? f.since(cursor) : Stream.concat(Stream.execute(Deferred.succeed(slowLook, undefined)), Stream.never),
+          cursor
+            ? f.since(cursor)
+            : Stream.concat(Stream.fromEffectDrain(Deferred.succeed(slowLook, undefined)), Stream.never),
       }))
     ).pipe(Layer.provide(folderTracker(where.tracker)));
     const layer = Layer.mergeAll(

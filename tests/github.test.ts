@@ -2,19 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  ConfigProvider,
-  Deferred,
-  Effect,
-  Either,
-  Fiber,
-  Logger,
-  Option,
-  Redacted,
-  Stream,
-  TestClock,
-  TestContext,
-} from 'effect';
+import { ConfigProvider, Deferred, Effect, Fiber, Logger, Option, Redacted, Result, Stream } from 'effect';
+import { TestClock } from 'effect/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { Tracker, TrackerError, currentRunLinkRef } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -219,7 +208,7 @@ describe('githubTracker', () => {
     'rejects an empty or excessive keyword query before requesting GitHub: %s',
     async query => {
       const f = fake({});
-      const found = await run(f, Effect.either(Effect.flatMap(Tracker, tracker => tracker.searchIssues(query))));
+      const found = await run(f, Effect.result(Effect.flatMap(Tracker, tracker => tracker.searchIssues(query))));
       expect(found._tag).toBe('Left');
       expect(f.calls).toEqual([]);
     }
@@ -264,16 +253,17 @@ describe('githubTracker', () => {
       const make = makeProductionLayers();
       const configured = Effect.runSync(
         settings.pipe(
-          Effect.withConfigProvider(
-            ConfigProvider.fromMap(
-              new Map([
+          Effect.provideService(
+            ConfigProvider.ConfigProvider,
+            ConfigProvider.fromEnv({
+              env: Object.fromEntries([
                 ['AGENTGRAPH_REPO', app.repo],
                 ['AGENTGRAPH_APP_ID', app.id],
                 ['AGENTGRAPH_APP_KEY', privateKey],
                 ['AGENTGRAPH_TRUST', 'alice'],
                 ['AGENTGRAPH_DATA', tmp('github-layers')],
-              ])
-            )
+              ]),
+            })
           )
         )
       );
@@ -353,8 +343,8 @@ describe('githubTracker', () => {
     const counts = await Effect.runPromise(
       Effect.gen(function* () {
         const tracker = yield* Tracker;
-        yield* Effect.either(tracker.issues());
-        const pending = yield* Effect.fork(
+        yield* Effect.result(tracker.issues());
+        const pending = yield* Effect.forkChild(
           Effect.all([tracker.issues(), tracker.issues({ state: 'open' })], { concurrency: 2 })
         );
         yield* TestClock.adjust('9 seconds');
@@ -362,7 +352,7 @@ describe('githubTracker', () => {
         yield* TestClock.adjust('1 second');
         yield* Fiber.join(pending);
         return [before, reads];
-      }).pipe(Effect.provide(githubTracker(app, f.fetch)), Effect.provide(TestContext.TestContext))
+      }).pipe(Effect.provide(githubTracker(app, f.fetch)), Effect.provide(TestClock.layer()))
     );
     expect(counts).toEqual([1, 3]);
   });
@@ -382,15 +372,15 @@ describe('githubTracker', () => {
     const counts = await Effect.runPromise(
       Effect.gen(function* () {
         const tracker = yield* Tracker;
-        const pending = yield* Effect.fork(tracker.issues());
+        const pending = yield* Effect.forkChild(tracker.issues());
         yield* TestClock.adjust('0 seconds');
-        yield* Effect.either(tracker.issues());
+        yield* Effect.result(tracker.issues());
         yield* TestClock.adjust('1 second');
         const before = reads;
         yield* TestClock.adjust('9 seconds');
         yield* Fiber.join(pending);
         return [before, reads];
-      }).pipe(Effect.provide(githubTracker(app, f.fetch)), Effect.provide(TestContext.TestContext))
+      }).pipe(Effect.provide(githubTracker(app, f.fetch)), Effect.provide(TestClock.layer()))
     );
     expect(counts).toEqual([2, 3]);
   });
@@ -584,13 +574,10 @@ describe('githubTracker', () => {
         columnPages(headers, (body as { variables?: { after?: string | null } }).variables?.after),
     });
     const logs: string[] = [];
-    const logger = Logger.replace(
-      Logger.defaultLogger,
-      Logger.make(({ message }) => logs.push(String(message)))
-    );
+    const logger = Logger.layer([Logger.make(({ message }) => logs.push(String(message)))]);
     const events = await Effect.runPromise(
       Effect.flatMap(Tracker, tracker =>
-        Effect.zipRight(
+        Effect.andThen(
           Stream.runCollect(tracker.since('2026-10-16T00:00:00Z', true)),
           Stream.runCollect(tracker.since('2026-10-16T00:00:00Z', true))
         )
@@ -726,12 +713,12 @@ describe('githubTracker', () => {
           f,
           Effect.gen(function* () {
             const tracker = yield* Tracker;
-            const young = yield* Effect.either(tracker.issue(8));
+            const young = yield* Effect.result(tracker.issue(8));
             later = 6_000;
             return [young, yield* tracker.issue(8)] as const;
           })
         );
-        expect(young._tag === 'Left' && young.left.status).toBe(status);
+        expect(young._tag === 'Failure' && young.failure.status).toBe(status);
         expect(old.pull?.branch).toBe('agentgraph/8');
       } finally {
         Date.now = clock;
@@ -847,23 +834,23 @@ describe('githubTracker', () => {
       const f = fake(routes);
       const result = await run(
         f,
-        Effect.either(Effect.flatMap(Tracker, t => t.status!(7, 'done', { done: 'shipped', working: 'busy' })))
+        Effect.result(Effect.flatMap(Tracker, t => t.status!(7, 'done', { done: 'shipped', working: 'busy' })))
       );
       return { result, writes: f.calls.filter(c => c.method !== 'GET' && !c.path.startsWith('/app')) };
     };
     const shown = await status({ 'POST /repos/o/r/issues/7/labels': [] });
-    expect(shown.result).toEqual(Either.right(undefined));
+    expect(shown.result).toEqual(Result.succeed(undefined));
     expect(shown.writes.map(c => [c.method, c.path, c.body])).toEqual([
       ['POST', '/repos/o/r/issues/7/labels', { labels: ['shipped'] }],
       ['DELETE', '/repos/o/r/issues/7/labels/busy', undefined],
     ]);
     const add = await status({ 'POST /repos/o/r/issues/7/labels': refused });
-    expect(Either.isLeft(add.result) && add.result.left).toBeInstanceOf(TrackerError);
+    expect(Result.isFailure(add.result) && add.result.failure).toBeInstanceOf(TrackerError);
     const half = await status({
       'POST /repos/o/r/issues/7/labels': [],
       'DELETE /repos/o/r/issues/7/labels/busy': refused,
     });
-    expect(Either.isLeft(half.result) && half.result.left).toBeInstanceOf(TrackerError);
+    expect(Result.isFailure(half.result) && half.result.failure).toBeInstanceOf(TrackerError);
   });
 
   it('applies replies, labels, pull requests and issues', async () => {
@@ -996,7 +983,7 @@ describe('githubTracker', () => {
         ] satisfies [number, Proposal][],
         ([n, p]) => Effect.flatMap(Tracker, tracker => tracker.apply(n, p))
       ).pipe(
-        Effect.locally(currentRunLinkRef, mark),
+        Effect.provideService(currentRunLinkRef, mark),
         Effect.provide(githubTracker(app, f.fetch, undefined, undefined, 'http://studio:5492/'))
       )
     );
@@ -1044,7 +1031,7 @@ describe('githubTracker', () => {
   it('keeps the same footer without a studio URL, and nothing extra outside a run', async () => {
     const f = fake({ 'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' } });
     const say = (body: string) => Effect.flatMap(Tracker, tracker => tracker.apply(7, { kind: 'comment', body }));
-    await run(f, Effect.locally(say('Hi.'), currentRunLinkRef, { run: 'r', step: 's' }));
+    await run(f, Effect.provideService(say('Hi.'), currentRunLinkRef, { run: 'r', step: 's' }));
     await run(f, say('Plain. <!-- agentgraph run=fake -->'));
     const [marked, plain] = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
     expect(marked).toMatch(
@@ -1199,9 +1186,9 @@ describe('githubTracker', () => {
         };
         const request = Effect.flatMap(Tracker, tracker => tracker.apply(7, { kind: 'comment', body: 'Hello' })).pipe(
           Effect.provide(githubTracker(app, stalled)),
-          Effect.either
+          Effect.result
         );
-        const fiber = yield* Effect.fork(request);
+        const fiber = yield* Effect.forkChild(request);
         yield* Deferred.await(ready);
         yield* TestClock.adjust('31 seconds');
         expect(signal?.aborted).toBe(true);
@@ -1210,7 +1197,7 @@ describe('githubTracker', () => {
           _tag: 'Left',
           left: { _tag: 'TrackerError', message: expect.stringMatching(/timed out/) },
         });
-      }).pipe(Effect.provide(TestContext.TestContext))
+      }).pipe(Effect.provide(TestClock.layer()))
     );
   });
 

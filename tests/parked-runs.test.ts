@@ -133,10 +133,10 @@ describe('resume', () => {
       Effect.gen(function* () {
         const store = yield* Store;
         yield* store.lock(before.id);
-        return yield* Effect.either(instruct(graph, { kind: 'resume', id: before.id }));
+        return yield* Effect.result(instruct(graph, { kind: 'resume', id: before.id }));
       }).pipe(Effect.scoped)
     );
-    expect(result).toMatchObject({ _tag: 'Left', left: { _tag: 'StoreError' } });
+    expect(result).toMatchObject({ _tag: 'Failure', failure: { _tag: 'StoreError' } });
     expect(await run(Effect.flatMap(Store, store => store.get(before.id)))).toEqual(before);
   });
 

@@ -3,14 +3,14 @@ import { ResultSheet } from '../../../src/results.ts';
 import { TuneStep } from '../../../tune/result.ts';
 import { resultSources } from './result.ts';
 
-export const ResultsData = Schema.Record({
-  key: Schema.Literal(...resultSources),
-  value: Schema.Union(
+export const ResultsData = Schema.Record(
+  Schema.Literals(resultSources),
+  Schema.Union([
     Schema.Struct({
       kind: Schema.Literal('ready'),
       sheet: ResultSheet,
-      candidates: Schema.Record({ key: Schema.String, value: TuneStep }),
+      candidates: Schema.Record(Schema.String, TuneStep),
     }),
-    Schema.Struct({ kind: Schema.Literal('failed'), why: Schema.String })
-  ),
-});
+    Schema.Struct({ kind: Schema.Literal('failed'), why: Schema.String }),
+  ])
+);

@@ -3,21 +3,22 @@ import type { Check } from './folder.ts';
 import { CheckMode, ResultType } from './result.ts';
 import { JsonValue, PluginMetadata } from './meta.ts';
 
-const optional = <S extends Schema.Schema.Any>(schema: S) => Schema.optionalWith(schema, { exact: true });
+const optional = Schema.optionalKey;
 const Field = Schema.Struct({
   check: Schema.String,
   field: Schema.String,
   mode: optional(CheckMode),
-  limit: optional(ResultType.pipe(Schema.pick('minimum', 'maximum'))),
-}).pipe(Schema.extend(ResultType.pipe(Schema.pick('type', 'description', 'unit'))));
-const ResultValue = Schema.Record({ key: Schema.String, value: Schema.Unknown }).pipe(
-  Schema.filter((value): boolean => Schema.is(JsonValue)(value))
+  limit: optional(ResultType.mapFields(Struct.pick(['minimum', 'maximum']))),
+  ...Struct.pick(ResultType.fields, ['type', 'description', 'unit']),
+});
+const ResultValue = Schema.Record(Schema.String, Schema.Unknown).check(
+  Schema.makeFilter(value => Schema.is(JsonValue)(value))
 );
 const Measurement = Schema.Struct({
   at: Schema.String,
   pass: Schema.Boolean,
   value: optional(ResultValue),
-  share: optional(Schema.JsonNumber),
+  share: optional(Schema.Finite),
   empty: optional(Schema.Literal(true)),
   na: optional(Schema.Literal(true)),
   later: optional(Schema.Literal(true)),
@@ -26,18 +27,18 @@ const Measurement = Schema.Struct({
 const Row = Schema.Struct({
   key: Schema.String,
   at: Schema.String,
-  href: optional(Schema.String.pipe(Schema.pattern(/^\/(?!\/)(?!.*[\s\\])/s))),
+  href: optional(Schema.String.check(Schema.isPattern(/^\/(?!\/)(?!.*[\s\\])/s))),
   dead: optional(Schema.String),
-  axes: Schema.Record({ key: Schema.String, value: Schema.String }),
-  results: Schema.Record({ key: Schema.String, value: Measurement }),
+  axes: Schema.Record(Schema.String, Schema.String),
+  results: Schema.Record(Schema.String, Measurement),
   meta: optional(PluginMetadata),
 });
 
 export const ResultSheet = Schema.Struct({
-  fields: Schema.mutable(Schema.Array(Field).pipe(Schema.maxItems(1000))),
-  runs: Schema.mutable(Schema.Array(Row).pipe(Schema.maxItems(10000))),
-}).pipe(
-  Schema.filter(sheet =>
+  fields: Schema.mutable(Schema.Array(Field).check(Schema.isMaxLength(1000))),
+  runs: Schema.mutable(Schema.Array(Row).check(Schema.isMaxLength(10000))),
+}).check(
+  Schema.makeFilter(sheet =>
     new Set(sheet.runs.map(row => row.key)).size === sheet.runs.length &&
     new Set(sheet.fields.map(field => JSON.stringify([field.check, field.field]))).size === sheet.fields.length
       ? true
@@ -63,12 +64,12 @@ export const findCheckFields = (
         if (seen.has(key) || !isScalar(v)) continue;
         const c = checks[check];
         const t = c?.returns?.properties?.[field];
-        const limit = Struct.pick(c?.pass?.properties?.[field] ?? {}, 'minimum', 'maximum');
+        const limit = Struct.pick(c?.pass?.properties?.[field] ?? {}, ['minimum', 'maximum']);
         seen.set(key, {
           check,
           field,
           ...(c && { mode: c.mode }),
-          ...Struct.pick(t ?? {}, 'description', 'unit'),
+          ...Struct.pick(t ?? {}, ['description', 'unit']),
           type: t?.type ?? (typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean' : 'string'),
           ...(field === 'share' && !t?.unit && { unit: 'share' }),
           ...(Object.keys(limit).length > 0 && { limit }),

@@ -12,19 +12,19 @@ types and the code that matches on them.
 Bad:
 
 ```ts
-const Step = Schema.Union(
+const Step = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('bot'), bot: Schema.String }),
   Schema.Struct({ kind: Schema.Literal('script'), run: Schema.String }),
-);
+]);
 ```
 
 Good:
 
 ```ts
-const Step = Schema.Union(
+const Step = Schema.Union([
   Schema.Struct({ type: Schema.Literal('bot'), bot: Schema.String }),
   Schema.Struct({ type: Schema.Literal('script'), run: Schema.String }),
-);
+]);
 
 switch (step.type) {
   case 'bot': return runBot(step.bot);

@@ -32,16 +32,18 @@ const findPeakSessions = async (sessions: number) => {
   let opened = 0;
   const counting = Layer.succeed(Session, {
     open: () =>
-      Stream.acquireRelease(
-        Effect.sync(() => {
-          opened++;
-          peak = Math.max(peak, ++live);
-        }),
-        () => Effect.sync(() => void live--)
-      ).pipe(
-        Stream.flatMap(() =>
-          Stream.fromEffect(Effect.as(Effect.sleep(Duration.millis(10)), result({ pass: true, why: 'fine' }))).pipe(
-            Stream.concat(Stream.make(stop))
+      Stream.unwrap(
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            opened++;
+            peak = Math.max(peak, ++live);
+          }),
+          () => Effect.sync(() => void live--)
+        ).pipe(
+          Effect.as(
+            Stream.fromEffect(Effect.as(Effect.sleep(Duration.millis(10)), result({ pass: true, why: 'fine' }))).pipe(
+              Stream.concat(Stream.make(stop))
+            )
           )
         )
       ),

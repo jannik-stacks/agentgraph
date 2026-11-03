@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { Chunk, Effect, Layer, Stream } from 'effect';
+import { Effect, Layer, Stream } from 'effect';
 import { afterEach, expect, it } from 'vitest';
 import { folderTracker } from '../src/tracker.ts';
 import { ensureBase, ensureGraph, ensureInstance } from '../src/instance.ts';
@@ -24,7 +24,7 @@ afterEach(() => {
   delete process.env.AGENTGRAPH_TRUST;
 });
 
-const inStore = <A, E>(data: string, use: (s: Store['Type']) => Effect.Effect<A, E>) =>
+const inStore = <A, E>(data: string, use: (s: Store['Service']) => Effect.Effect<A, E>) =>
   Effect.runPromise(Effect.flatMap(Store, use).pipe(Effect.provide(fileStore(data))));
 
 it('restores an instance from a copy of its folder without the cache', async () => {
@@ -94,7 +94,7 @@ it('restores an instance from a copy of its folder without the cache', async () 
   expect(cli('show').stdout).toContain(`#2 open Add hello`);
   expect(cli('show', '1').stdout).toContain('Add a greeting');
   const trace = await inStore(j.data, s => Stream.runCollect(s.read(run!.id)));
-  expect(Chunk.size(trace)).toBeGreaterThan(0);
+  expect(trace.length).toBeGreaterThan(0);
   expect(await inStore(j.data, s => s.readFile(hash))).toEqual(Buffer.from(bytes));
   expect(git(w.root, '--git-dir', join(j.tracker, 'origin.git'), 'rev-parse', ref)).toBe(head);
   const copied = new DatabaseSync(join(j.data, 'homes', 'h1', '.local', 'share', 'sessions.db'));

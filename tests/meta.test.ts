@@ -38,6 +38,6 @@ describe('run metadata', () => {
     { bench: Array.from({ length: 34 }).reduce<unknown>(value => [value], null) },
     new Date(),
   ])('rejects invalid or oversized metadata %#', value => {
-    expect(Schema.decodeUnknownEither(PluginMetadata)(value)._tag).toBe('Left');
+    expect(Schema.decodeUnknownResult(PluginMetadata)(value)._tag).toBe('Failure');
   });
 });

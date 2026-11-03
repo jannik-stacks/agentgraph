@@ -194,7 +194,7 @@ describe('result sheets', () => {
     },
     { fields: [{ check: 'c', field: 'f', limit: { maximum: Infinity } }], runs: [] },
   ])('refuses invalid exports %#', sheet => {
-    expect(Schema.decodeUnknownEither(ResultSheet)(sheet)._tag).toBe('Left');
+    expect(Schema.decodeUnknownResult(ResultSheet)(sheet)._tag).toBe('Failure');
   });
 });
 

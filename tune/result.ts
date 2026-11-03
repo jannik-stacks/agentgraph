@@ -1,13 +1,13 @@
 import { Schema } from 'effect';
 
-const optional = <S extends Schema.Schema.Any>(schema: S) => Schema.optionalWith(schema, { exact: true });
-const commit = Schema.String.pipe(Schema.pattern(/^[a-f0-9]{40,64}$/));
+const optional = Schema.optionalKey;
+const commit = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40,64}$/));
 
 export const TuneStep = Schema.Struct({
   id: Schema.String,
   iteration: Schema.Number,
-  parent: Schema.Union(Schema.Literal(''), commit),
-  proposer: Schema.Literal('retro', 'history', 'manual', 'skill', 'structure'),
+  parent: Schema.Union([Schema.Literal(''), commit]),
+  proposer: Schema.Literals(['retro', 'history', 'manual', 'skill', 'structure']),
   graph: commit,
   rationale: Schema.String,
   diff: Schema.String,
@@ -15,28 +15,28 @@ export const TuneStep = Schema.Struct({
     Schema.Array(
       Schema.Struct({
         candidate: Schema.String,
-        split: Schema.Literal('mine', 'fit', 'validate', 'test'),
+        split: Schema.Literals(['mine', 'fit', 'validate', 'test']),
         cases: Schema.mutable(Schema.Array(Schema.String)),
-        quality: Schema.JsonNumber,
-        ci: Schema.mutable(Schema.Tuple(Schema.JsonNumber, Schema.JsonNumber)),
-        delta: optional(Schema.JsonNumber),
-        pUp: optional(Schema.JsonNumber),
-        flips: optional(Schema.Record({ key: Schema.String, value: Schema.Literal('up', 'down', 'win', 'loss') })),
-        usd: Schema.JsonNumber,
-        minutes: Schema.JsonNumber,
-        perRun: optional(Schema.Struct({ usd: Schema.JsonNumber, minutes: Schema.JsonNumber })),
+        quality: Schema.Finite,
+        ci: Schema.mutable(Schema.Tuple([Schema.Finite, Schema.Finite])),
+        delta: optional(Schema.Finite),
+        pUp: optional(Schema.Finite),
+        flips: optional(Schema.Record(Schema.String, Schema.Literals(['up', 'down', 'win', 'loss']))),
+        usd: Schema.Finite,
+        minutes: Schema.Finite,
+        perRun: optional(Schema.Struct({ usd: Schema.Finite, minutes: Schema.Finite })),
         saved: optional(
-          Schema.Record({
-            key: Schema.Literal('usd', 'minutes'),
-            value: Schema.Struct({ share: Schema.JsonNumber, pDown: Schema.JsonNumber }),
-          })
+          Schema.Record(
+            Schema.Literals(['usd', 'minutes']),
+            Schema.Struct({ share: Schema.Finite, pDown: Schema.Finite })
+          )
         ),
-        codex: Schema.JsonNumber,
-        claude5h: Schema.JsonNumber,
+        codex: Schema.Finite,
+        claude5h: Schema.Finite,
       })
     )
   ),
-  verdict: Schema.Literal('kept', 'discarded', 'screened-out', 'infra'),
+  verdict: Schema.Literals(['kept', 'discarded', 'screened-out', 'infra']),
   why: Schema.String,
   at: Schema.String,
 });

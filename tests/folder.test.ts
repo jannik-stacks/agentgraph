@@ -1,7 +1,7 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { ConfigProvider, Effect, Either } from 'effect';
+import { ConfigProvider, Effect, Result } from 'effect';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { readConfiguredGraph } from '../src/harnesses.ts';
@@ -50,16 +50,16 @@ const fromFixture = (name: string) => {
 };
 
 const problems = async (dir: string) => {
-  const result = await Effect.runPromise(Effect.either(loadGraph(dir, harnesses)));
-  if (Either.isRight(result)) throw new Error('expected problems');
-  return result.left.message.split('\n');
+  const result = await Effect.runPromise(Effect.result(loadGraph(dir, harnesses)));
+  if (Result.isSuccess(result)) throw new Error('expected problems');
+  return result.failure.message.split('\n');
 };
 
 describe('graph directory errors', () => {
   it('reports unreadable graph sections instead of dropping them', async () => {
     const dir = graphDir({ 'settings.yaml': '{}', agents: 'unreadable directory' });
-    const result = await Effect.runPromise(Effect.either(loadGraph(dir, harnesses)));
-    expect(Either.isLeft(result) && result.left.problems).toEqual(
+    const result = await Effect.runPromise(Effect.result(loadGraph(dir, harnesses)));
+    expect(Result.isFailure(result) && result.failure.problems).toEqual(
       expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('ENOTDIR') })])
     );
   });
@@ -292,7 +292,9 @@ describe('loadGraph', () => {
     const dir = graphDir({ 'settings.yaml': 'repo: o/r\n' });
     const read = (env: Record<string, string>) =>
       Effect.runPromise(
-        readConfiguredGraph(dir).pipe(Effect.withConfigProvider(ConfigProvider.fromMap(new Map(Object.entries(env)))))
+        readConfiguredGraph(dir).pipe(
+          Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env }))
+        )
       );
     expect((await read({})).repo).toBe('o/r');
     expect((await read({ AGENTGRAPH_REPO: '' })).repo).toBe('o/r');

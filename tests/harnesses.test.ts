@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'effect';
+import { ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { makeCodexHarness } from '../harnesses/codex.ts';
 import { loadGraph } from '../src/folder.ts';
@@ -85,7 +85,6 @@ const session = (
   }).pipe(Layer.provide(sandbox));
   const run = Session.pipe(
     Effect.flatMap(({ open }) => Stream.runCollect(open(s))),
-    Effect.map(Chunk.toArray),
     Effect.scoped,
     Effect.provide(layer)
   );
@@ -205,17 +204,22 @@ describe('the session loop', () => {
       export default { harnesses: [{ ...harness, name: 'other' }, harness], harness: 'custom', provider: 'custom-provider', providers: [{ name: 'custom-provider', harnesses: ['custom'], ready: () => true, auth: 'custom-native' }, { name: 'other-provider', harnesses: ['other'], ready: () => true }] };
     `
     );
-    const provider = ConfigProvider.fromMap(
-      new Map([
+    const provider = ConfigProvider.fromEnv({
+      env: Object.fromEntries([
         ['AGENTGRAPH_CONFIG', file],
         ['AGENTGRAPH_PROVIDER', 'custom-provider'],
-      ])
+      ]),
+    });
+    const settings = await Effect.runPromise(
+      readHarnessSettings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, provider))
     );
-    const settings = await Effect.runPromise(readHarnessSettings.pipe(Effect.withConfigProvider(provider)));
     expect(settings.provider).toBe('custom-provider');
     const defaults = await Effect.runPromise(
       readHarnessSettings.pipe(
-        Effect.withConfigProvider(ConfigProvider.fromMap(new Map([['AGENTGRAPH_CONFIG', file]])))
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromEnv({ env: Object.fromEntries([['AGENTGRAPH_CONFIG', file]]) })
+        )
       )
     );
     expect(defaults.harness).toBe('custom');
@@ -223,14 +227,15 @@ describe('the session loop', () => {
     expect(defaults.harnesses[0]!.name).toBe('custom');
     const override = await Effect.runPromise(
       readHarnessSettings.pipe(
-        Effect.withConfigProvider(
-          ConfigProvider.fromMap(
-            new Map([
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromEnv({
+            env: Object.fromEntries([
               ['AGENTGRAPH_CONFIG', file],
               ['AGENTGRAPH_PROVIDER', 'other-provider'],
               ['AGENTGRAPH_HARNESS', 'other'],
-            ])
-          )
+            ]),
+          })
         )
       )
     );
@@ -397,14 +402,16 @@ describe('the session loop', () => {
   it('stops before the harness starts when the config has no harness by that name', async () => {
     const { exit, command } = await session({ ...spec, harness: 'goose' }, []);
     expect(command).toBeUndefined();
-    expect(String(exit)).toContain('no harness goose in the config');
+    expect(JSON.stringify(exit)).toContain('no harness goose in the config');
   });
 
   it.each(BAD_SETTINGS)('refuses harness settings %s as a graph problem', async (text, message) => {
     const file = join(mkdtempSync(join(tmpdir(), 'agentgraph-config-')), 'config.mjs');
     writeFileSync(file, text);
-    const provider = ConfigProvider.fromMap(new Map([['AGENTGRAPH_CONFIG', file]]));
-    const error = await Effect.runPromise(Effect.flip(readHarnessSettings.pipe(Effect.withConfigProvider(provider))));
+    const provider = ConfigProvider.fromEnv({ env: Object.fromEntries([['AGENTGRAPH_CONFIG', file]]) });
+    const error = await Effect.runPromise(
+      Effect.flip(readHarnessSettings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, provider)))
+    );
     expect(error.problems).toEqual([{ path: file, message }]);
   });
 

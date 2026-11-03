@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
-import { Config, ConfigError, Effect, Either, Layer, Option, Redacted, Struct } from 'effect';
+import { Config, Effect, Layer, Option, Redacted, Schema, Struct } from 'effect';
 import { folder, type TrackerSetup } from './tracker.ts';
 import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
 import { github } from './github.ts';
@@ -47,7 +47,7 @@ export type Settings = {
   app: TrackerHost['app'];
 };
 
-const proxyUrl = Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1'));
+const proxyUrl = Config.String('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1'));
 
 const sessionEnv = new Set([
   'CLAUDE_CODE_OAUTH_TOKEN',
@@ -57,46 +57,49 @@ const sessionEnv = new Set([
 ]);
 
 const passed = Effect.flatMap(
-  Config.string('AGENTGRAPH_SESSION_ENV').pipe(
-    Config.withDefault(''),
-    Config.validate({
-      message: `AGENTGRAPH_SESSION_ENV may list only model login variables: ${[...sessionEnv].join(', ')}`,
-      validation: names => splitNames(names).every(name => sessionEnv.has(name)),
-    })
-  ),
+  Config.schema(
+    Schema.String.check(
+      Schema.makeFilter(
+        names =>
+          splitNames(names).every(name => sessionEnv.has(name)) ||
+          `AGENTGRAPH_SESSION_ENV may list only model login variables: ${[...sessionEnv].join(', ')}`
+      )
+    ),
+    'AGENTGRAPH_SESSION_ENV'
+  ).pipe(Config.withDefault('')),
   names =>
     Effect.map(
-      Effect.forEach(splitNames(names), name => Effect.map(Config.redacted(name), value => [name, value] as const)),
+      Effect.forEach(splitNames(names), name => Effect.map(Config.Redacted(name), value => [name, value] as const)),
       Object.fromEntries<Redacted.Redacted>
     )
 );
 
 export const hostSettings = {
-  data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
-  every: Config.number('AGENTGRAPH_EVERY').pipe(
-    Config.validate({ message: 'Expected minutes above 0', validation: n => n > 0 }),
-    Config.withDefault(5)
-  ),
-  compress: Config.number('AGENTGRAPH_COMPRESS_DAYS').pipe(Config.withDefault(14)),
-  image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault(sandboxImage)),
-  sandbox: Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
+  data: Config.String('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
+  every: Config.schema(
+    Schema.Number.check(Schema.makeFilter(n => n > 0 || 'Expected minutes above 0')),
+    'AGENTGRAPH_EVERY'
+  ).pipe(Config.withDefault(5)),
+  compress: Config.Number('AGENTGRAPH_COMPRESS_DAYS').pipe(Config.withDefault(14)),
+  image: Config.String('AGENTGRAPH_IMAGE').pipe(Config.withDefault(sandboxImage)),
+  sandbox: Config.String('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
 };
 
 const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
 
-const trackerName = Config.mapOrFail(
-  Config.all(['AGENTGRAPH_TRACKER', ...app].map(name => Config.string(name).pipe(Config.withDefault('')))),
-  ([tracker, ...apps]) =>
-    tracker || apps.some(Boolean)
-      ? Either.right(tracker || 'github')
-      : Either.left(ConfigError.MissingData(['AGENTGRAPH_TRACKER'], 'name a tracker or set the App env'))
+const trackerName = Config.all(
+  ['AGENTGRAPH_TRACKER', ...app].map(name => Config.String(name).pipe(Config.withDefault('')))
+).pipe(
+  Config.flatMap(([tracker, ...apps]) =>
+    tracker || apps.some(Boolean) ? Config.succeed(tracker || 'github') : Config.String('AGENTGRAPH_TRACKER')
+  )
 );
 
-export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker', string>>) => {
+export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker', string | undefined>>) => {
   const s = await Effect.runPromise(
     Config.all({
       ...hostSettings,
-      config: Config.option(Config.string('AGENTGRAPH_CONFIG')),
+      config: Config.option(Config.String('AGENTGRAPH_CONFIG')),
       tracker: Config.option(trackerName),
     })
   );
@@ -109,20 +112,23 @@ export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker',
 
 export const settings = Config.all({
   ...hostSettings,
-  repo: Config.string('AGENTGRAPH_REPO'),
-  graph: Config.string('AGENTGRAPH_DIR').pipe(Config.withDefault('.agentgraph')),
+  repo: Config.String('AGENTGRAPH_REPO'),
+  graph: Config.String('AGENTGRAPH_DIR').pipe(Config.withDefault('.agentgraph')),
   proxy: Config.all({
     url: proxyUrl,
-    keys: Config.redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
-    models: Config.string('AGENTGRAPH_MODELS').pipe(Config.withDefault('')),
+    keys: Config.Redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
+    models: Config.String('AGENTGRAPH_MODELS').pipe(Config.withDefault('')),
   }),
-  prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(priceTable)),
-  cache: Config.string('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
-  checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
-  studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
-  trust: Config.array(Config.string(), 'AGENTGRAPH_TRUST').pipe(Config.withDefault<string[]>([])),
+  prices: Config.String('AGENTGRAPH_PRICES').pipe(Config.withDefault(priceTable)),
+  cache: Config.String('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
+  checkLogs: Config.Literals(checkLogs, 'AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
+  studio: Config.String('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
+  trust: Config.String('AGENTGRAPH_TRUST').pipe(
+    Config.map(trust => trust.split(',')),
+    Config.withDefault<string[]>([])
+  ),
   app: Config.option(
-    Config.all({ id: Config.string('AGENTGRAPH_APP_ID'), key: Config.redacted('AGENTGRAPH_APP_KEY') })
+    Config.all({ id: Config.String('AGENTGRAPH_APP_ID'), key: Config.Redacted('AGENTGRAPH_APP_KEY') })
   ),
   tracker: trackerName,
 }).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
@@ -159,7 +165,7 @@ const where = async (s: Settings) => {
   const graph = isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
   const picked = await pickTracker(s.tracker, graph);
   if ('problem' in picked) throw new Error(picked.problem);
-  return picked.tracker({ ...Struct.pick(s, 'repo', 'studio', 'app'), ...(picked.dir && { dir: picked.dir }) });
+  return picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(picked.dir && { dir: picked.dir }) });
 };
 
 /**
@@ -207,7 +213,7 @@ export const makeProductionLayers = () => {
       previous = key;
     }
     const current = place;
-    return Layer.unwrapEffect(
+    return Layer.unwrap(
       Effect.gen(function* () {
         const { layer: tracker, origin } = yield* Effect.promise(() => current);
         const sandbox = s.sandbox
@@ -224,10 +230,10 @@ export const makeProductionLayers = () => {
           ? s.trust
           : yield* Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
               Effect.provide(sandbox),
-              Effect.catchAll(() => Effect.succeed<string[]>([]))
+              Effect.catch(() => Effect.succeed<string[]>([]))
             );
         const config = yield* readHarnessSettings.pipe(
-          Effect.catchAll(e =>
+          Effect.catch(e =>
             Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {
               harnesses: [],
             } as HarnessSettings)
@@ -237,8 +243,8 @@ export const makeProductionLayers = () => {
           tracker(trust),
           fileStore(s.data, s.checkLogs),
           harnessSession({
-            ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
-            ...Struct.pick(config, 'harnesses', 'providers', 'provider'),
+            ...Struct.pick(s, ['data', 'proxy', 'passed', 'prices']),
+            ...Struct.pick(config, ['harnesses', 'providers', 'provider']),
           }).pipe(Layer.provideMerge(sandbox))
         );
       })

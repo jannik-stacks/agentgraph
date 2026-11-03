@@ -43,7 +43,7 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
     });
     const graph = await Effect.runPromise(
       loadGraph(dir, [{ name: 'test', classify: () => undefined }]).pipe(
-        Effect.withConfigProvider(ConfigProvider.fromMap(new Map()))
+        Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: {} }))
       )
     );
     const workflow = graph.workflows.triage!;

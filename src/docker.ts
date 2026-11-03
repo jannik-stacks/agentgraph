@@ -4,7 +4,7 @@ import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Duration, Effect, Layer, Redacted, Schema, Stream } from 'effect';
+import { Cache, Cause, Duration, Effect, Layer, Queue, Redacted, Schema, Semaphore, Stream } from 'effect';
 import { isIP } from 'node:net';
 import type { TrackerError } from './tracker.ts';
 import type { Graph } from './folder.ts';
@@ -194,7 +194,7 @@ const readUsed = (output: string): Pick<Exit, 'output' | 'used'> => {
 };
 
 const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
-  Effect.async<string, SandboxError>(done => {
+  Effect.callback<string, SandboxError>(done => {
     const options = {
       env: makeHostEnv({ GIT_TERMINAL_PROMPT: '0', ...env }),
       timeout: 600_000,
@@ -225,7 +225,7 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
     const dir = builds[tag];
     const label = fresh && dir ? '{{index .Config.Labels "agentgraph.source"}}' : '{{.Id}}';
     const built = (yield* run('docker', ['image', 'inspect', '--format', label, tag]).pipe(
-      Effect.catchAll(e => (/no such image/i.test(e.detail) ? Effect.succeed('') : Effect.fail(e)))
+      Effect.catch(e => (/no such image/i.test(e.detail) ? Effect.succeed('') : Effect.fail(e)))
     )).trim();
     if (!dir)
       return built
@@ -301,13 +301,13 @@ export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxIm
         '-c',
         'printf agentgraph-command-ready',
       ]).pipe(
-        Effect.timeoutFail({
+        Effect.timeoutOrElse({
           duration: '10 seconds',
-          onTimeout: () => infra(`image ${id} did not run the command probe`),
+          orElse: () => Effect.fail(infra(`image ${id} did not run the command probe`)),
         }),
         Effect.onError(() =>
           run('docker', ['rm', '-f', name]).pipe(
-            Effect.catchAll(e => Effect.sync(() => console.error(`1 skipped image probe cleanup: ${e.detail}`)))
+            Effect.catch(e => Effect.sync(() => console.error(`1 skipped image probe cleanup: ${e.detail}`)))
           )
         )
       );
@@ -449,7 +449,7 @@ export const dockerSandbox = (o: {
       const cache = o.cache ?? 'agentgraph-cache';
       const mirror = o.local ? o.origin : join(o.data, 'mirror.git');
       let configured = false;
-      const lock = yield* Effect.makeSemaphore(1);
+      const lock = yield* Semaphore.make(1);
       const roomy = (base: string) =>
         Effect.tryPromise({
           try: () =>
@@ -463,14 +463,17 @@ export const dockerSandbox = (o: {
       /** Each live checkout as the host made it. */
       const made = new Map<string, CheckoutContainerSpec>();
       const inMirror = (args: string[], env: Record<string, string> = {}) => readGit({ GIT_DIR: mirror, ...env }, args);
-      const ready = yield* Effect.cachedFunction((network: string) =>
-        run('docker', ['network', 'inspect', '--format', '{{.Internal}}', network]).pipe(
-          Effect.filterOrFail(
-            internal => internal === 'true',
-            () => infra(`the ${network} network is not internal`)
-          )
-        )
-      );
+      const internal = yield* Cache.make({
+        capacity: 8,
+        lookup: (network: string) =>
+          run('docker', ['network', 'inspect', '--format', '{{.Internal}}', network]).pipe(
+            Effect.filterOrFail(
+              internal => internal === 'true',
+              () => infra(`the ${network} network is not internal`)
+            )
+          ),
+      });
+      const ready = (network: string) => Cache.get(internal, network);
 
       const tools = yield* Effect.cached(
         process.platform === 'linux'
@@ -573,23 +576,26 @@ export const dockerSandbox = (o: {
         });
 
       const lines = (c: Command) =>
-        Stream.unwrapScoped(
+        Stream.unwrap(
           Effect.map(prepare(c), ({ name, args }) => {
             let code = 0;
             let tail = '';
             let measured: Exit['used'];
-            return Stream.asyncPush<string, SandboxError>(emit =>
+            return Stream.callback<string, SandboxError>(queue =>
               Effect.acquireRelease(
                 Effect.sync(() => {
                   const proc = start(args, c.secrets, name, chunk => {
                     tail = (tail + chunk).slice(-2000);
-                    void emit.single(chunk);
+                    Queue.offerUnsafe(queue, chunk);
                   });
                   void proc.closed.then(closed => {
                     code = closed;
                     return code === 125
-                      ? emit.fail(infra(`docker could not start the container: ${tail.trim()}`))
-                      : emit.end();
+                      ? Queue.failCauseUnsafe(
+                          queue,
+                          Cause.fail(infra(`docker could not start the container: ${tail.trim()}`))
+                        )
+                      : Queue.endUnsafe(queue);
                   });
                   return proc;
                 }),
@@ -604,7 +610,7 @@ export const dockerSandbox = (o: {
               }),
               Stream.concat(Stream.sync(() => ({ code, ...(measured && { used: measured }) }))),
               Stream.interruptWhen(
-                Effect.zipRight(Effect.sleep(Duration.minutes(c.minutes)), Effect.failSync(timeout(c)))
+                Effect.andThen(Effect.sleep(Duration.minutes(c.minutes)), Effect.failSync(timeout(c)))
               )
             );
           })
@@ -621,7 +627,7 @@ export const dockerSandbox = (o: {
             proc => proc.stop()
           );
           const code = yield* Effect.promise(() => proc.closed).pipe(
-            Effect.timeoutFail({ onTimeout: timeout(c), duration: Duration.minutes(c.minutes) })
+            Effect.timeoutOrElse({ duration: Duration.minutes(c.minutes), orElse: () => Effect.failSync(timeout(c)) })
           );
           if (code === 125) return yield* infra(`docker could not start the container: ${output.trim().slice(-2000)}`);
           return { code, ...readUsed(output) } satisfies Exit;
@@ -719,8 +725,8 @@ export const dockerSandbox = (o: {
       for (const id of dead) {
         const paths = getCheckoutPaths(o.data, id);
         yield* commitCheckoutOnce(checkoutGit(paths), `refs/agentgraph/reaped/${id}`, []).pipe(
-          Effect.zipRight(Effect.promise(() => removeCheckout(o.data, id))),
-          Effect.catchAll(e => Effect.logWarning(`kept unsaved checkout ${paths.dir}: ${e.detail}`))
+          Effect.andThen(Effect.promise(() => removeCheckout(o.data, id))),
+          Effect.catch(e => Effect.logWarning(`kept unsaved checkout ${paths.dir}: ${e.detail}`))
         );
       }
 
@@ -849,7 +855,7 @@ export const dockerSandbox = (o: {
             ]);
           });
           yield* Effect.acquireRelease(add.pipe(Effect.onError(() => remove)), () =>
-            Effect.zipRight(keep ? save(keep) : Effect.void, remove)
+            Effect.andThen(keep ? save(keep) : Effect.void, remove)
           );
           return work;
         });

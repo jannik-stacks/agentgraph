@@ -43,7 +43,7 @@ const stuck: ResultType = {
 
 describe('the result server', () => {
   it.each([Infinity, -Infinity, NaN])('rejects non-finite bounds in a check schema: %s', bound => {
-    expect(Schema.decodeUnknownEither(ResultType)({ properties: { usd: { maximum: bound } } })._tag).toBe('Left');
+    expect(Schema.decodeUnknownResult(ResultType)({ properties: { usd: { maximum: bound } } })._tag).toBe('Failure');
   });
 
   it('answers the handshake, lists the result tool typed by returns and turns away a call returns refuses', () => {

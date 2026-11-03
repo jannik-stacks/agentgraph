@@ -3,7 +3,7 @@ import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
-import { Effect, Either, Schema } from 'effect';
+import { ConfigProvider, Effect, Result, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
 import type * as PluginModule from '../src/plugin.ts';
 import type * as HarnessModule from '../src/harnesses.ts';
@@ -23,16 +23,17 @@ const readStudioPages = async () => {
   );
   const result = dir
     ? await Effect.runPromise(
-        Effect.either(
+        Effect.result(
           readConfiguredGraph(dir).pipe(
-            Effect.withConfigProvider(
+            Effect.provideService(
+              ConfigProvider.ConfigProvider,
               makeHarnessConfigProvider(JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}'))
             )
           )
         )
       )
     : undefined;
-  const graph = result && Either.isRight(result) ? result.right : undefined;
+  const graph = result && Result.isSuccess(result) ? result.success : undefined;
   const { readPlugins, makePlugin }: typeof PluginModule = await import(
     new URL('../src/plugin.ts', import.meta.url).href
   );
@@ -202,7 +203,7 @@ export const makeStudioPagesPlugin = (): Plugin => {
         void Effect.runPromise(
           Effect.gen(function* () {
             const value = yield* page.read();
-            return yield* Schema.encodeUnknown(page.dataSchema, { onExcessProperty: 'error' })(value);
+            return yield* Schema.encodeUnknownEffect(page.dataSchema, { onExcessProperty: 'error' })(value);
           })
         )
           .then(value => {

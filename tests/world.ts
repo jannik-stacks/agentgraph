@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect, FiberRef, Layer } from 'effect';
+import { Effect, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
 import { drive } from '../src/engine.ts';
 import { folderTracker, Tracker, TrackerError, currentRunLinkRef } from '../src/tracker.ts';
@@ -95,15 +95,15 @@ export const services = (
       ...f,
       ...(slug && { slug: Effect.succeed(slug) }),
       apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
-        Effect.zipRight(
-          Effect.map(FiberRef.get(currentRunLinkRef), mark => marks.push([p.kind, mark])),
+        Effect.andThen(
+          Effect.map(currentRunLinkRef, mark => marks.push([p.kind, mark])),
           f.apply(n, p, work)
         ),
       status: (...args: Parameters<NonNullable<typeof f.status>>) =>
         refuse(args[1])
           ? Effect.fail(new TrackerError({ message: 'refused' }))
-          : Effect.zipRight(
-              Effect.map(FiberRef.get(currentRunLinkRef), mark => marks.push(['label', mark])),
+          : Effect.andThen(
+              Effect.map(currentRunLinkRef, mark => marks.push(['label', mark])),
               f.status!(...args)
             ),
     }))
@@ -136,7 +136,7 @@ export const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comme
 
 /** Drives `r` as tick does: from the store, so a run the test changed in memory is saved first. */
 export const driveStored = (flow: typeof w, r: Run, h: Graph) =>
-  Effect.zipRight(
+  Effect.andThen(
     Effect.flatMap(Store, s => s.put(r)),
     drive(flow, r, h)
   );

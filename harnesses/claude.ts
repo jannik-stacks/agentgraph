@@ -21,15 +21,15 @@ const ClaudeBlock = Struct({
 const ClaudeLine = Struct({
   ...some(Str, 'type', 'subtype', 'session_id', 'model', 'result'),
   is_error: opt(Bool),
-  message: opt(Struct({ content: opt(Schema.Union(Str, Schema.Array(ClaudeBlock))) })),
+  message: opt(Struct({ content: opt(Schema.Union([Str, Schema.Array(ClaudeBlock)])) })),
   permission_denials: opt(
     Schema.Array(Struct({ ...some(Str, 'tool_use_id', 'tool_name'), ...some(Unknown, 'tool_input') }))
   ),
   modelUsage: opt(
-    Schema.Record({
-      key: Str,
-      value: Struct(some(Num, 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens')),
-    })
+    Schema.Record(
+      Str,
+      Struct(some(Num, 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens'))
+    )
   ),
 });
 

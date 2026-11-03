@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, delimiter, dirname, join } from 'node:path';
-import { Chunk, Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
+import { Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox, dockerArgs, readImage } from '../src/docker.ts';
 import { commitCheckoutOnce } from '../src/git.ts';
@@ -47,7 +47,7 @@ const origin = () => {
   return dir;
 };
 
-const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Type']) => Effect.Effect<A, E, Scope.Scope>) =>
+const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Service']) => Effect.Effect<A, E, Scope.Scope>) =>
   Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
 
 const sortOutputLines = <A extends { output: string }, E>(exit: Exit.Exit<A, E>) =>
@@ -314,7 +314,7 @@ describe('docker with a stand-in docker client', () => {
 
   it('streams lines until the process exits, whatever its code', async () => {
     const exit = await use(layer, s => Stream.runCollect(s.lines(command(tmp('work'), { args: ['-c', 'fail'] }))));
-    const pieces = Exit.map(exit, c => [...Chunk.toArray(c).slice(0, -1).toSorted(), Chunk.toArray(c).at(-1)]);
+    const pieces = Exit.map(exit, c => [...c.slice(0, -1).toSorted(), c.at(-1)]);
     expect(pieces).toEqual(Exit.succeed(['line one', 'line two', { code: 3 }]));
   });
 
@@ -333,7 +333,7 @@ describe('docker with a stand-in docker client', () => {
 
   it('marks a container the kernel killed a process of for memory', async () => {
     const exit = await use(layer, s => Stream.runCollect(s.lines(command(tmp('work'), { args: ['-c', 'oomed'] }))));
-    const pieces = Exit.isSuccess(exit) ? Chunk.toArray(exit.value) : [];
+    const pieces = Exit.isSuccess(exit) ? exit.value : [];
     expect(pieces.at(-1)).toEqual({ code: 137, used: { peak: 67108864, cpu: 2, oom: true } });
     expect(pieces.filter(p => typeof p === 'string' && p.includes('agentgraph-used'))).toEqual([]);
   });
@@ -763,7 +763,7 @@ describe('docker checkout', () => {
     const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
     try {
       const layer = dockerSandbox({ data, origin: origin(), token: Effect.succeed(token) });
-      const exit = await use(layer, s => Effect.zipRight(s.checkout('main'), s.checkout('main')));
+      const exit = await use(layer, s => Effect.andThen(s.checkout('main'), s.checkout('main')));
       expect(Exit.isSuccess(exit)).toBe(true);
     } finally {
       process.env.PATH = path;
@@ -991,7 +991,8 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
       repo: 'agentgraph-disk-test',
       setup: 'mkdir -p node_modules/x && head -c 5000000 /dev/urandom > node_modules/x/blob',
     };
-    const sh = (dir: string, script: string) => (s: Sandbox['Type']) => s.exec(command(dir, { args: ['-c', script] }));
+    const sh = (dir: string, script: string) => (s: Sandbox['Service']) =>
+      s.exec(command(dir, { args: ['-c', script] }));
     const kb = (args: string[]) => Number(execFileSync('docker', args, { encoding: 'utf8' }).trim().split(/\s+/)[0]);
     const exit = await use(dockerSandbox({ data: tmp('data'), origin: repo, cache: 'agentgraph-disk-test-cache' }), s =>
       Effect.gen(function* () {
@@ -1080,7 +1081,6 @@ describe.runIf(process.env.AGENTGRAPH_LIVE === '1')('opencode for real', () => {
               })
             )
           ),
-          Effect.map(Chunk.toArray),
           Effect.scoped,
           Effect.provide(layer)
         )

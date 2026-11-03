@@ -523,7 +523,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     const run = begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: '2026-10-16T00:00:01.000Z' });
     const { issue: _issue, ...imported } = { ...run, id: 'import-1' };
     await Effect.runPromise(
-      Effect.flatMap(Store, store => Effect.zipRight(store.put(run), store.put(imported))).pipe(
+      Effect.flatMap(Store, store => Effect.andThen(store.put(run), store.put(imported))).pipe(
         Effect.provide(fileStore(data))
       )
     );
@@ -711,7 +711,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     const [newer] = await w.run([], 3, { kind: 'dispatch', issue: 3, workflow: 'triage' });
     await run(
       Effect.flatMap(Store, store =>
-        Effect.zipRight(
+        Effect.andThen(
           store.put({ ...newer!, status: 'done' }),
           store.trace(waiting!.id, {
             at: newer!.started,
@@ -1001,8 +1001,8 @@ describe('an instance', () => {
 });
 
 const BAD_FLAGS = [
-  [{ AGENTGRAPH_EVERY: 'abc' }, ['show'], 'Invalid data at AGENTGRAPH_EVERY'],
-  [{ AGENTGRAPH_EVERY: '0' }, ['show'], 'Invalid data at AGENTGRAPH_EVERY'],
+  [{ AGENTGRAPH_EVERY: 'abc' }, ['show'], 'at ["AGENTGRAPH_EVERY"]'],
+  [{ AGENTGRAPH_EVERY: '0' }, ['show'], 'at ["AGENTGRAPH_EVERY"]'],
   [{}, ['check', 'x', '--runs', '--issue', 'abc'], '--issue takes an issue number'],
   [{}, ['check', 'x', '--runs', '--issue', '0'], '--issue takes an issue number'],
   [{}, ['say', '1', 'hi', '--label', 'needs-review'], 'say does not run on --tracker'],

@@ -32,7 +32,10 @@ const files = (tools: string[]) => ({
 const readGraph = (dir: string, harnesses: Parameters<typeof loadGraph>[1], remote = '') =>
   Effect.runPromise(
     loadGraph(dir, harnesses).pipe(
-      Effect.withConfigProvider(ConfigProvider.fromMap(new Map([['AGENTGRAPH_SANDBOX_URL', remote]])))
+      Effect.provideService(
+        ConfigProvider.ConfigProvider,
+        ConfigProvider.fromEnv({ env: Object.fromEntries([['AGENTGRAPH_SANDBOX_URL', remote]]) })
+      )
     )
   );
 

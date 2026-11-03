@@ -2,7 +2,7 @@ import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
-import { Config, Data, Effect, Either, ParseResult, Schema } from 'effect';
+import { Config, Data, Effect, Result, Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
 import { issueStatuses, type IssueStatus } from './event.ts';
 import { Kind } from './proposal.ts';
@@ -13,21 +13,21 @@ import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type 
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
-  harness: Schema.optionalWith(Schema.String, { default: () => '' }),
-  model: Schema.optionalWith(Schema.String, { exact: true }),
-  tools: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { default: () => [] }),
-  returns: Schema.optionalWith(Schema.mutable(Schema.Array(Kind)), { default: () => ['comment'] }),
-  reads: Schema.optionalWith(Schema.Literal('traces'), { exact: true }),
+  harness: Schema.String.pipe(Schema.withDecodingDefaultType(Effect.succeed(''))),
+  model: Schema.optionalKey(Schema.String),
+  tools: Schema.mutable(Schema.Array(Schema.String)).pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
+  returns: Schema.mutable(Schema.Array(Kind)).pipe(Schema.withDecodingDefaultType(Effect.succeed(['comment']))),
+  reads: Schema.optionalKey(Schema.Literal('traces')),
 });
 export type Agent = typeof Agent.Type;
 
 /** The limits block of settings.yaml. */
 const Limits = Schema.Struct({
-  minutes: Schema.optionalWith(Schema.Number, { default: () => 30 }),
-  usdPerRun: Schema.optionalWith(Schema.Number, { default: () => 10 }).pipe(Schema.fromKey('usd-per-run')),
-  parallel: Schema.optionalWith(Schema.Int, { default: () => 2 }),
-  sessions: Schema.optionalWith(Schema.Int, { default: () => 4 }),
-});
+  minutes: Schema.Number.pipe(Schema.withDecodingDefaultType(Effect.succeed(30))),
+  usdPerRun: Schema.Number.pipe(Schema.withDecodingDefaultType(Effect.succeed(10))),
+  parallel: Schema.Int.pipe(Schema.withDecodingDefaultType(Effect.succeed(2))),
+  sessions: Schema.Int.pipe(Schema.withDecodingDefaultType(Effect.succeed(4))),
+}).pipe(Schema.encodeKeys({ usdPerRun: 'usd-per-run' }));
 type Limits = typeof Limits.Type;
 
 /** One repo's graph after `uses:` and the repo override are merged. */
@@ -66,24 +66,22 @@ export class GraphError extends Data.TaggedError('GraphError')<{ problems: Probl
 }
 
 const SettingsFile = Schema.Struct({
-  plugins: exact(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  plugins: exact(Schema.Record(Schema.String, Schema.Unknown)),
   repo: exact(Schema.String),
   setup: exact(Schema.String),
   toolchain: exact(Schema.String),
-  image: exact(Schema.String.pipe(Schema.pattern(/^[a-z0-9][\w./:@-]*$/))),
-  network: exact(Schema.Literal('egress', 'models')),
+  image: exact(Schema.String.check(Schema.isPattern(/^[a-z0-9][\w./:@-]*$/))),
+  network: exact(Schema.Literals(['egress', 'models'])),
   stacks: exact(Schema.Boolean),
   milestone: exact(Schema.String),
   trust: exact(Schema.mutable(Schema.Array(Schema.String))),
   status: exact(
-    Schema.Union(
+    Schema.Union([
       Schema.Literal(false),
-      Schema.partialWith(Schema.Record({ key: Schema.Literal(...issueStatuses), value: Schema.String }), {
-        exact: true,
-      })
-    )
+      Schema.Record(Schema.Literals(issueStatuses), Schema.optionalKey(Schema.String)),
+    ])
   ),
-  limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
+  limits: Limits.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 
 export const parseGraphSettings = (text: string | undefined, say: (message: string) => void) => {
@@ -108,7 +106,7 @@ export const Check = Schema.Struct({
   each: exact(Schema.String),
   run: exact(Schema.String),
   agent: exact(Schema.String),
-  max: exact(Schema.Int.pipe(Schema.positive())),
+  max: exact(Schema.Int.check(Schema.isGreaterThan(0))),
 });
 export type Check = typeof Check.Type;
 
@@ -149,12 +147,16 @@ export const retiredIn = (text: string, say: (message: string) => void) => {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const decode = <A, I>(schema: Schema.Schema<A, I>, data: unknown, say: (message: string) => void): A | undefined => {
-  const decoded = Schema.decodeUnknownEither(schema, { onExcessProperty: 'error', errors: 'all' })(data);
-  if (Either.isRight(decoded)) return decoded.right;
+const decode = <S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  data: unknown,
+  say: (message: string) => void
+): S['Type'] | undefined => {
+  const decoded = Schema.decodeUnknownResult(schema, { onExcessProperty: 'error', errors: 'all' })(data);
+  if (Result.isSuccess(decoded)) return decoded.success;
   const seen = new Set<string>();
-  for (const issue of ParseResult.ArrayFormatter.formatErrorSync(decoded.left)) {
-    const key = issue.path.join('.') || 'frontmatter';
+  for (const issue of SchemaIssue.makeFormatterStandardSchemaV1()(decoded.failure.issue).issues) {
+    const key = issue.path?.join('.') || 'frontmatter';
     if (!seen.has(key)) say(`${key}: ${issue.message}`);
     seen.add(key);
   }
@@ -376,7 +378,7 @@ export const loadGraph = (
     const remote =
       registry &&
       Object.values(parts.agents).some(agent => agent.tools.some(name => Object.hasOwn(registry.tools, name)))
-        ? yield* Effect.orDie(Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')))
+        ? yield* Effect.orDie(Config.String('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')))
         : '';
     for (const agent of Object.values(parts.agents)) {
       const harness = harnesses.find(harness => harness.name === agent.harness);

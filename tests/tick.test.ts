@@ -652,7 +652,7 @@ describe('tick', () => {
       [start('f'), reply({ kind: 'comment', body: 'Will undo.' }, { kind: 'back', why: 'undo the greeting' })],
       [start('f'), wrote('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Undone.' })],
     ]);
-    const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    const touched = await run(Effect.andThen(waiting(where), tick(merging, 7)));
     expect(touched.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'waiting']]);
     expect(specs).toHaveLength(2);
     expect(specs[0]).toMatchObject({ resume: { id: 'a' }, fork: true });
@@ -687,7 +687,7 @@ describe('tick', () => {
       [start('f'), reply({ kind: 'comment', body: 'Will drop it.', under: 'r1' }, { kind: 'back', why: 'drop it' })],
       [start('f'), wrote('hello.txt', 'hello\n'), reply(push)],
     ]);
-    await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    await run(Effect.andThen(waiting(where), tick(merging, 7)));
     expect(specs).toHaveLength(2);
     expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).toContain('Will drop it.');
     expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Will drop it.');
@@ -704,7 +704,7 @@ describe('tick', () => {
         [start('f'), wrote('hello.txt', 'hello\n'), reply(...said)],
         [start('f'), reply(push)],
       ]);
-      await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+      await run(Effect.andThen(waiting(where), tick(merging, 7)));
       expect(specs).toHaveLength(3);
       expect(specs[2]!.prompt).toContain('files changed but nothing was pushed');
       expect(specs[2]!.prompt).toContain('{"kind":"push","branch"');
@@ -721,7 +721,7 @@ describe('tick', () => {
       [start('f'), wrote('hello.txt', 'hello\n'), reply({ kind: 'push', message: 'drop it' } as Proposal)],
       [start('f'), reply(push)],
     ]);
-    await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    await run(Effect.andThen(waiting(where), tick(merging, 7)));
     expect(specs[2]!.prompt).toContain('proposal 1: write it as {"kind":"push","branch"');
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
   });
@@ -753,7 +753,7 @@ describe('tick', () => {
       )
     );
     const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), recording);
-    await Effect.runPromise(Effect.zipRight(waiting(where), tick(merging, 7)).pipe(Effect.provide(layer)));
+    await Effect.runPromise(Effect.andThen(waiting(where), tick(merging, 7)).pipe(Effect.provide(layer)));
     expect(specs).toHaveLength(2);
     expect((specs[1] as SessionSpec).prompt).toMatch(/^the merge step sent this back: drop it/);
   });
@@ -901,7 +901,7 @@ describe('tick', () => {
       git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
       say(where, comment(8, 'morgan', true, '/agent what changed?', '2026-10-16T00:00:05.000Z'));
       const { run } = services(where, [[start('f'), reply(said)]]);
-      await run(Effect.zipRight(waiting(where), tick(granting(returns), 7)));
+      await run(Effect.andThen(waiting(where), tick(granting(returns), 7)));
       const stored = await run(Effect.flatMap(Store, st => st.get('run-7')));
       const asked = readTrace(where.data, 'run-7').flatMap(t =>
         'outcome' in t && t.outcome.kind === 'ask' && t.outcome.question.includes('may not propose')
@@ -1032,7 +1032,7 @@ describe('tick', () => {
         reply({ kind: 'comment', body: 'No, README.md only says demo.' }),
       ],
     ]);
-    const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    const touched = await run(Effect.andThen(waiting(where), tick(merging, 7)));
     expect(touched).toMatchObject([{ id: 'run-7', step: 'merge', status: 'waiting' }]);
     expect(touched[0]!.sessions).toEqual({ implement: { id: 'a', home: '/homes/a' } });
     expect(specs).toHaveLength(1);
@@ -1055,7 +1055,7 @@ describe('tick', () => {
     say(where, line('r1', '/agent why hello?', '2026-10-16T00:00:05.000Z'));
     say(where, line('r2', '/agent and CHAT.md?', '2026-10-16T00:00:06.000Z'));
     const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Both asked for.' })]]);
-    const [answered] = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    const [answered] = await run(Effect.andThen(waiting(where), tick(merging, 7)));
     const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under])).toEqual([
       ['Both asked for.', 'r2'],
@@ -1094,7 +1094,7 @@ describe('tick', () => {
     say(where, comment(8, 'mallory', false, '/agent undo everything', '2026-10-16T00:00:05.000Z'));
     say(where, comment(8, 'agentgraph[bot]', false, '/agent undo everything', '2026-10-16T00:00:06.000Z'));
     const { specs, run } = services(where, []);
-    expect(await run(Effect.zipRight(waiting(where), tick(merging, 7)))).toEqual([]);
+    expect(await run(Effect.andThen(waiting(where), tick(merging, 7)))).toEqual([]);
     where.human('/agent stop not needed', '2026-10-16T00:00:07.000Z');
     const stopped = await run(tick(merging, 7));
     expect(stopped.map(r => [r.id, r.status, r.reason])).toEqual([['run-7', 'stopped', 'not needed']]);
@@ -1360,7 +1360,7 @@ describe('readEngineEnv', () => {
   it('leaves a missing required setting to fail by name', async () => {
     const { env } = file('AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY_FILE=$DIR/key.pem\n');
     const { AGENTGRAPH_REPO: _, ...vars } = await withShell({ AGENTGRAPH_APP_ENV: env }, () => readEngineEnv());
-    const read = Effect.withConfigProvider(settings, ConfigProvider.fromMap(new Map(Object.entries(vars))));
+    const read = Effect.provideService(settings, ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: vars }));
     await expect(Effect.runPromise(read)).rejects.toThrow(/AGENTGRAPH_REPO/);
   });
 });

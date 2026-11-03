@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { Effect, Either } from 'effect';
+import { ConfigProvider, Effect, Result } from 'effect';
 import { createServer } from 'vite';
 import { makeHarnessConfigProvider, readConfiguredGraph } from '../src/harnesses.ts';
 import { ensureBase, ensureGraph, ensureInstance, findRepo } from '../src/instance.ts';
@@ -38,10 +38,14 @@ const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;
 console.log(`graph  ${graphDir}\ndata   ${dataDir}${real !== dataDir ? ` -> ${real}` : ''}`);
 const choice = { config, provider: instance?.provider };
 const loaded = await Effect.runPromise(
-  Effect.either(readConfiguredGraph(graphDir).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(choice))))
+  Effect.result(
+    readConfiguredGraph(graphDir).pipe(
+      Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(choice))
+    )
+  )
 );
-if (Either.isLeft(loaded))
-  console.error(`the graph does not load, so the studio shows no workflow:\n${loaded.left.message}`);
+if (Result.isFailure(loaded))
+  console.error(`the graph does not load, so the studio shows no workflow:\n${loaded.failure.message}`);
 
 process.env.AGI_STUDIO_DIR = graphDir;
 process.env.AGI_STUDIO_DATA = dataDir;

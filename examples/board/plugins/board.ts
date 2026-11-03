@@ -2,8 +2,8 @@ import { Schema } from 'effect';
 import { issueStatuses, makePlugin } from '../../../src/plugin.ts';
 
 const settings = Schema.Struct({
-  project: Schema.String.pipe(Schema.pattern(/^[^/]+\/\d+$/)),
-  status: Schema.partial(Schema.Record({ key: Schema.Literal(...issueStatuses), value: Schema.String })),
+  project: Schema.String.check(Schema.isPattern(/^[^/]+\/\d+$/)),
+  status: Schema.Record(Schema.Literals(issueStatuses), Schema.optionalKey(Schema.String)),
 });
 
 const find = `query($owner: String!, $name: String!, $issue: Int!, $login: String!, $number: Int!) {

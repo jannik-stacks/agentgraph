@@ -2,12 +2,12 @@ import { join } from 'node:path';
 import { Effect, Schema } from 'effect';
 import { appendJsonlRows, readJsonlRows } from './store.ts';
 
-const LabelRecord = Schema.Record({
-  key: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9-]{0,31}$/, { message: () => 'a label key is a-z, 0-9 and -' })),
-  value: Schema.String.pipe(
-    Schema.pattern(/^\P{Cc}{1,128}$/u, { message: () => 'a label value is 1 to 128 characters on one line' })
-  ),
-});
+const LabelRecord = Schema.Record(
+  Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]{0,31}$/, { message: 'a label key is a-z, 0-9 and -' })),
+  Schema.String.check(
+    Schema.isPattern(/^\P{Cc}{1,128}$/u, { message: 'a label value is 1 to 128 characters on one line' })
+  )
+);
 
 export const parseLabels = (value: unknown): typeof LabelRecord.Type =>
   Schema.decodeUnknownSync(LabelRecord, { onExcessProperty: 'error' })(value);

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Chunk, Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
+import { Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
 import { drive, tick } from '../src/engine.ts';
@@ -131,7 +131,7 @@ describe('drive', () => {
       Effect.map(Sandbox, s => ({
         ...s,
         checkout: (...args: Parameters<typeof s.checkout>) =>
-          Effect.zipRight(
+          Effect.andThen(
             Effect.sync(() => {
               mkdirSync(join(where.data, 'cache'), { recursive: true });
               writeFileSync(join(where.data, 'cache', 'index'), 'blocked');
@@ -186,12 +186,14 @@ describe('drive', () => {
     try {
       await Effect.runPromise(
         Effect.gen(function* () {
-          const fiber = yield* Effect.fork(
+          const fiber = yield* Effect.forkChild(
             drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
           );
           yield* Effect.gen(function* () {
             while (!existsSync(childFile)) yield* Effect.sleep('10 millis');
-          }).pipe(Effect.timeoutFail({ duration: '3 seconds', onTimeout: () => new Error('git did not start') }));
+          }).pipe(
+            Effect.timeoutOrElse({ duration: '3 seconds', orElse: () => Effect.fail(new Error('git did not start')) })
+          );
           const pid = Number(readFileSync(pidFile, 'utf8'));
           const child = Number(readFileSync(childFile, 'utf8'));
           yield* Fiber.interrupt(fiber);
@@ -374,11 +376,7 @@ describe('drive', () => {
 
     // a human answers on the issue: the review runs again and the run waits for the merge
     where.human('/agent it is fine, ship it', '2026-10-17T00:00:00.000Z');
-    const said = await run(
-      Effect.flatMap(Tracker, f => Stream.runCollect(f.since('2026-10-16T23:00:00.000Z'))).pipe(
-        Effect.map(Chunk.toArray)
-      )
-    );
+    const said = await run(Effect.flatMap(Tracker, f => Stream.runCollect(f.since('2026-10-16T23:00:00.000Z'))));
     const answer = said.flatMap(m => getEventOutcome(w, asked, m) ?? [])[0]!;
     expect(answer).toEqual({ kind: 'answer', text: 'it is fine, ship it' });
     const waiting = await run(driveStored(w, transition(w, asked, answer), graph));

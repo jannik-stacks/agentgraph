@@ -185,7 +185,7 @@ describe('a base that moved', () => {
         ...sandbox,
         checkout: (...args: Parameters<typeof sandbox.checkout>) =>
           args[3]
-            ? Effect.zipRight(
+            ? Effect.andThen(
                 Effect.sync(() => starts++),
                 Effect.fail(new SandboxError({ reason: 'infra', detail: 'sandbox image is missing' }))
               )

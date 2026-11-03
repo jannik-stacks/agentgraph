@@ -10,17 +10,17 @@ export const ResultChart = lazy(() => import('./results/ResultChart.tsx'));
 
 const data = new Map<
   string,
-  { schema: Schema.Schema.AnyNoContext; atom: Pick<ReturnType<typeof makeLiveJsonAtom>, 'read' | 'toString'> }
+  { schema: Schema.Codec<unknown, unknown>; atom: Pick<ReturnType<typeof makeLiveJsonAtom>, 'read' | 'toString'> }
 >();
 
-export const usePluginData = <D, I>(name: string, schema: Schema.Schema<D, I>) => {
+export const usePluginData = <D, I>(name: string, schema: Schema.Codec<D, I>) => {
   let cached = data.get(name);
   if (cached && cached.schema !== schema) throw new Error(`Plugin ${name} needs one shared data schema`);
   if (!cached) {
     cached = {
       schema,
       atom: makeLiveJsonAtom(`/api/plugins/${encodeURIComponent(name)}/data`, value =>
-        Effect.runPromise(Schema.decodeUnknown(schema)(value)).catch(() => {
+        Effect.runPromise(Schema.decodeUnknownEffect(schema)(value)).catch(() => {
           throw new Error('Invalid plugin data');
         })
       ),

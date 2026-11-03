@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { ConfigProvider, Effect, Either, Redacted } from 'effect';
+import { ConfigProvider, Effect, Result, Redacted } from 'effect';
 import { expect, it } from 'vitest';
 import { makeProductionLayers, pickTracker, readHostSettings, settings } from '../src/services.ts';
 import { Tracker, writeIssueFile } from '../src/tracker.ts';
@@ -7,16 +7,17 @@ import { tmp, write } from './kit.ts';
 
 const read = (name: string) =>
   Effect.runPromise(
-    Effect.either(settings).pipe(
-      Effect.withConfigProvider(
-        ConfigProvider.fromMap(
-          new Map([
+    Effect.result(settings).pipe(
+      Effect.provideService(
+        ConfigProvider.ConfigProvider,
+        ConfigProvider.fromEnv({
+          env: Object.fromEntries([
             ['AGENTGRAPH_REPO', 'owner/repository'],
             ['AGENTGRAPH_TRACKER', '/tracker'],
             ['AGENTGRAPH_SESSION_ENV', name],
             [name, 'private-value'],
-          ])
-        )
+          ]),
+        })
       )
     )
   );
@@ -25,8 +26,8 @@ it.each(['AGENTGRAPH_TOOL_SECRET', 'AGENTGRAPH_APP_KEY', 'GH_TOKEN', 'PLUGIN_PAS
   'refuses forwarding %s to sessions',
   async name => {
     const result = await read(name);
-    expect(Either.isLeft(result)).toBe(true);
-    expect(String(Either.getLeft(result))).toContain('may list only model login variables');
+    expect(Result.isFailure(result)).toBe(true);
+    expect(String(Result.getFailure(result))).toContain('may list only model login variables');
   }
 );
 
@@ -34,8 +35,8 @@ it.each(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'AGENTGRAPH_CHATGPT_AUT
   'still forwards model authentication through %s',
   async name => {
     const result = await read(name);
-    expect(Either.isRight(result)).toBe(true);
-    expect(Redacted.value(Either.getOrThrow(result).passed[name]!)).toBe('private-value');
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(Redacted.value(Result.getOrThrow(result).passed[name]!)).toBe('private-value');
   }
 );
 
@@ -52,12 +53,11 @@ export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: $
   const titles = (vars: Record<string, string>) => {
     const s = Effect.runSync(
       settings.pipe(
-        Effect.withConfigProvider(
-          ConfigProvider.fromMap(
-            new Map(
-              Object.entries({ AGENTGRAPH_REPO: 'o/r', AGENTGRAPH_TRUST: 'alice', AGENTGRAPH_DIR: graph, ...vars })
-            )
-          )
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromEnv({
+            env: { AGENTGRAPH_REPO: 'o/r', AGENTGRAPH_TRUST: 'alice', AGENTGRAPH_DIR: graph, ...vars },
+          })
         )
       )
     );

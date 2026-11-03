@@ -1,4 +1,4 @@
-import { Schema } from 'effect';
+import { Option, Schema } from 'effect';
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -38,35 +38,34 @@ const Origin = Schema.Struct({
   input: JsonValue,
 });
 const EngineMetadata = Schema.Struct({
-  origin: Schema.optionalWith(Origin, { exact: true }),
-  continued: Schema.optionalWith(Schema.Struct({ ...Origin.fields, at: Schema.String }), { exact: true }),
+  origin: Schema.optionalKey(Origin),
+  continued: Schema.optionalKey(Schema.Struct({ ...Origin.fields, at: Schema.String })),
 });
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 
-const Owner = Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9_]*$/i));
+const Owner = Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9_]*$/i));
 
-export const PluginMetadata = JsonValue.pipe(
-  Schema.filter(value =>
+export const PluginMetadata = JsonValue.check(
+  Schema.makeFilter(value =>
     value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(Schema.is(Owner))
       ? true
       : 'metadata needs owner names'
-  ),
-  Schema.compose(
-    Schema.Record({
-      key: Owner,
-      value: JsonValue,
-    })
   )
 ).pipe(
-  Schema.filter(meta =>
-    bytes(meta) <= 32_768 && Object.values(meta).every(value => bytes(value) <= 8_192)
-      ? true
-      : 'metadata exceeds 8192 bytes per owner or 32768 bytes total'
-  ),
-  Schema.filter(meta =>
-    !Object.hasOwn(meta, 'engine') || Schema.is(EngineMetadata, { onExcessProperty: 'error' })(meta.engine)
-      ? true
-      : 'meta.engine must contain engine origin or continuation data'
+  Schema.decodeTo(
+    Schema.Record(Owner, JsonValue).check(
+      Schema.makeFilter(meta =>
+        bytes(meta) <= 32_768 && Object.values(meta).every(value => bytes(value) <= 8_192)
+          ? true
+          : 'metadata exceeds 8192 bytes per owner or 32768 bytes total'
+      ),
+      Schema.makeFilter(meta =>
+        !Object.hasOwn(meta, 'engine') ||
+        Option.isSome(Schema.decodeUnknownOption(EngineMetadata, { onExcessProperty: 'error' })(meta.engine))
+          ? true
+          : 'meta.engine must contain engine origin or continuation data'
+      )
+    )
   )
 );
 export type PluginMetadata = typeof PluginMetadata.Type;

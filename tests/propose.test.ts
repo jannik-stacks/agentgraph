@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { Effect, Either } from 'effect';
+import { Effect, Result } from 'effect';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadGraph } from '../src/folder.ts';
 import { claudeUsed, fitting, propose, type Proposer } from '../tune/propose.ts';
@@ -143,7 +143,7 @@ afterEach(() => {
 
 const run = (proposer: Proposer, id = `i1-${proposer}`) =>
   propose({ tune, id, proposer, from: join(dir, 'graph'), runs: join(tune, 'runs', 'inc'), iteration: 2 });
-const graphOk = (graph: string) => Effect.runPromise(Effect.either(loadGraph(graph, harnesses))).then(Either.isRight);
+const graphOk = (graph: string) => Effect.runPromise(Effect.result(loadGraph(graph, harnesses))).then(Result.isSuccess);
 
 describe('propose', () => {
   it('rejects missing case results instead of treating them as passing cases', async () => {

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createPrivateKey, sign } from 'node:crypto';
 import { promisify } from 'node:util';
-import { Clock, Config, Effect, Layer, Option, Redacted, Schedule, Stream } from 'effect';
+import { Clock, Config, Effect, Layer, Option, Redacted, Schedule, Stream, Semaphore } from 'effect';
 import {
   makeCommentWithAgentRequest,
   isAgentBranch,
@@ -128,7 +128,7 @@ const columnQuery = `query($owner: String!, $name: String!, $after: String) {
 }`;
 
 const readProjectToken: Effect.Effect<string, TrackerError> = Effect.gen(function* () {
-  const set = yield* Effect.orElseSucceed(Config.option(Config.redacted('AGENTGRAPH_PROJECT_TOKEN')), Option.none);
+  const set = yield* Effect.orElseSucceed(Config.option(Config.Redacted('AGENTGRAPH_PROJECT_TOKEN')), Option.none);
   const value = Option.match(set, { onNone: () => '', onSome: Redacted.value }).trim();
   if (value) return value;
   return yield* Effect.tryPromise({
@@ -206,9 +206,9 @@ const requester = (fetch: Fetch) => {
           },
           catch: e => new TrackerError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
         }).pipe(
-          Effect.timeoutFail({
+          Effect.timeoutOrElse({
             duration: '30 seconds',
-            onTimeout: () => new TrackerError({ message: `GitHub ${method} ${path} timed out` }),
+            orElse: () => Effect.fail(new TrackerError({ message: `GitHub ${method} ${path} timed out` })),
           })
         );
       }).pipe(Effect.retry({ schedule: Schedule.exponential('1 second'), times: again ? 4 : 0 }));
@@ -263,7 +263,7 @@ const appToken = (
 ): AppToken => {
   const request = requester(fetch);
   const tokens = new Map<TokenScope, { value: string; expires: number; minted: number }>();
-  const minting = Effect.unsafeMakeSemaphore(1);
+  const minting = Semaphore.makeUnsafe(1);
   return (scope, refused) =>
     minting.withPermits(1)(
       Effect.suspend(() => {
@@ -436,7 +436,7 @@ export const githubTracker = (
 
     const listState = (state?: Issue['state']) => (state === undefined ? 'all' : state === 'open' ? 'open' : 'closed');
 
-    const issues: Tracker['Type']['issues'] = (filter = {}) =>
+    const issues: Tracker['Service']['issues'] = (filter = {}) =>
       Effect.gen(function* () {
         const { state, labels = [], parent } = filter;
         const query = new URLSearchParams({
@@ -456,7 +456,7 @@ export const githubTracker = (
         return issues.map(i => toIssue(i, self, byNumber.get(i.number), parent)).filter(matches(filter));
       });
 
-    const searchIssues: Tracker['Type']['searchIssues'] = (query, options) =>
+    const searchIssues: Tracker['Service']['searchIssues'] = (query, options) =>
       Effect.gen(function* () {
         const { terms, state, limit } = yield* parseIssueSearch(query, options);
         const params = new URLSearchParams({
@@ -506,7 +506,7 @@ export const githubTracker = (
         )
       );
 
-    const issue: Tracker['Type']['issue'] = number =>
+    const issue: Tracker['Service']['issue'] = number =>
       Effect.gen(function* () {
         const self = yield* me;
         const issue = yield* gh<RestIssue>('GET', `${repo}/issues/${number}`);
@@ -578,7 +578,7 @@ export const githubTracker = (
       return (user: User) =>
         asked.has(login(user))
           ? Effect.succeed(asked.get(login(user))!)
-          : Effect.tap(permitted(user), ok => asked.set(login(user), ok));
+          : Effect.tap(permitted(user), ok => Effect.sync(() => asked.set(login(user), ok)));
     };
 
     const columns = Effect.runSync(
@@ -614,7 +614,7 @@ export const githubTracker = (
           } while (after);
           return found;
         }).pipe(
-          Effect.catchAll(e =>
+          Effect.catch(e =>
             Effect.as(
               Effect.logError(
                 `Reading project columns needs a GitHub token with the read:project scope: run \`gh auth refresh -s read:project\`, or set AGENTGRAPH_PROJECT_TOKEN. (${e.message})`
@@ -626,7 +626,7 @@ export const githubTracker = (
       )
     );
 
-    const since: Tracker['Type']['since'] = (cursor, read) =>
+    const since: Tracker['Service']['since'] = (cursor, read) =>
       Stream.fromIterableEffect(
         Effect.gen(function* () {
           const self = yield* me;
@@ -1020,7 +1020,7 @@ export const githubTracker = (
               )
             );
             yield* stack(made.number, p.base).pipe(
-              Effect.catchAll(e => Effect.logWarning(`stack for #${made.number}`, e))
+              Effect.catch(e => Effect.logWarning(`stack for #${made.number}`, e))
             );
             return { url: made.html_url };
           });
@@ -1040,14 +1040,14 @@ export const githubTracker = (
                 ? undefined
                 : yield* gh('POST', `${repo}/issues/${p.parent}/sub_issues`, { sub_issue_id: made.id }, 'issue').pipe(
                     Effect.as(undefined),
-                    Effect.catchAll(e => Effect.succeed(`could not link #${made.number} to #${p.parent}: ${e.message}`))
+                    Effect.catch(e => Effect.succeed(`could not link #${made.number} to #${p.parent}: ${e.message}`))
                   );
             return { url: made.html_url, id: String(made.number), ...(reason && { reason }) };
           });
       }
     };
 
-    const apply: Tracker['Type']['apply'] = (number, proposal, work) =>
+    const apply: Tracker['Service']['apply'] = (number, proposal, work) =>
       Effect.flatMap(makePostableProposal(proposal, studio), ({ posted, at }) =>
         Effect.map(act(number, posted, work), (done): Applied => ({ proposal, ok: true, ...done, ...(at && { at }) }))
       ).pipe(
@@ -1057,7 +1057,7 @@ export const githubTracker = (
         )
       );
 
-    const findPost: Tracker['Type']['findPost'] = (number, p, operation) => {
+    const findPost: Tracker['Service']['findPost'] = (number, p, operation) => {
       type Posted = { id: number; number: number; html_url: string; body?: string | null };
       const find = (posts: Posted[], id: (post: Posted) => number) => {
         const post = posts.find(c => isPostedBy(c.body ?? '', operation));

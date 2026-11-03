@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { Effect, Layer, Stream, TestClock, TestContext } from 'effect';
+import { Effect, Layer, Stream } from 'effect';
+import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
 import { drive, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
@@ -358,7 +359,7 @@ describe('coworker', () => {
     const done = await Effect.runPromise(
       drive({ ...flow, concurrency: 'queue' }, begun(), { ...small, agents }).pipe(
         Effect.provide(layer),
-        Effect.provide(TestContext.TestContext)
+        Effect.provide(TestClock.layer())
       )
     );
     expect(done.status).toBe('done');
@@ -383,14 +384,14 @@ describe('coworker', () => {
       Effect.map(Session, s => ({
         open: (spec: SessionSpec) => {
           if (specs.push(spec) > 1) return s.open(spec);
-          const said = Stream.execute(Effect.sync(() => say(where, m)));
+          const said = Stream.fromEffectDrain(Effect.sync(() => say(where, m)));
           if (!cut) return Stream.concat(said, s.open(spec));
           const minute = Effect.gen(function* () {
             yield* Effect.promise(() => new Promise(r => setTimeout(r, 50)));
             yield* TestClock.adjust('1 minute');
             return yield* Effect.never;
           });
-          return Stream.make(start('a')).pipe(Stream.concat(said), Stream.concat(Stream.execute(minute)));
+          return Stream.make(start('a')).pipe(Stream.concat(said), Stream.concat(Stream.fromEffectDrain(minute)));
         },
       }))
     ).pipe(Layer.provide(replaySession(turns)));
@@ -401,7 +402,7 @@ describe('coworker', () => {
       session
     );
     const go = (w: typeof flow) =>
-      Effect.runPromise(drive(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext)));
+      Effect.runPromise(drive(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestClock.layer())));
     return { specs, go };
   };
   const bye = comment(7, 'ana', true, '/agent say bye too', later(1));

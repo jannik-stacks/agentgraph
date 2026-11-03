@@ -19,15 +19,19 @@ const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 const servedGraph = async () => {
   const dir = process.env.AGI_STUDIO_DIR;
   if (!dir) return;
-  const { Effect, Either } = await import('effect');
+  const { ConfigProvider, Effect, Result } = await import('effect');
   const { makeHarnessConfigProvider, readConfiguredGraph }: typeof HarnessesModule = await from('src/harnesses.ts');
   const choice = JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}');
   const loaded = await Effect.runPromise(
-    Effect.either(readConfiguredGraph(dir).pipe(Effect.withConfigProvider(makeHarnessConfigProvider(choice))))
+    Effect.result(
+      readConfiguredGraph(dir).pipe(
+        Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(choice))
+      )
+    )
   );
-  return Either.isRight(loaded)
-    ? { name: basename(dir), graph: loaded.right, problems: [] }
-    : { name: basename(dir), graph: undefined, problems: loaded.left.problems };
+  return Result.isSuccess(loaded)
+    ? { name: basename(dir), graph: loaded.success, problems: [] }
+    : { name: basename(dir), graph: undefined, problems: loaded.failure.problems };
 };
 
 const json = (res: ServerResponse, value: unknown, status = 200) => {
@@ -104,13 +108,13 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
     });
     use('/api/locate', async (req, res) => {
       const data = process.env.AGI_STUDIO_DATA;
-      const { Effect, Either } = await import('effect');
+      const { Effect, Result } = await import('effect');
       const { fileStore, locate }: typeof StoreModule = await from('src/store.ts');
       if (!data) return json(res, null, 404);
       const gh = new URL(req.url ?? '/', 'http://studio').searchParams.get('gh');
-      const found = await Effect.runPromise(Effect.either(locate({ gh })).pipe(Effect.provide(fileStore(data))));
-      if (Either.isLeft(found)) return json(res, { error: found.left.message }, 400);
-      json(res, found.right ?? null, found.right ? 200 : 404);
+      const found = await Effect.runPromise(Effect.result(locate({ gh })).pipe(Effect.provide(fileStore(data))));
+      if (Result.isFailure(found)) return json(res, { error: found.failure.message }, 400);
+      json(res, found.success ?? null, found.success ? 200 : 404);
     });
     use('/api/runs', async (req, res) => {
       const served = await servedGraph();
@@ -119,7 +123,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       const { data, bench } = dir;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
-      const { Effect, Stream, Chunk } = await import('effect');
+      const { Effect, Stream } = await import('effect');
       const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
       const { readRunLabels }: typeof LabelsModule = await from('src/labels.ts');
       if (!data || (!served && !bench)) return json(res, one ? null : []);
@@ -129,7 +133,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
           const store = yield* Store;
           const entry = (run: WorkflowModule.RunRecord, all: boolean) =>
             Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (chunk, checks) => {
-              const trace = Chunk.toArray(chunk);
+              const trace = chunk;
               const lines = mergeCheckEntries(trace, checks);
               return {
                 fixture: `${bench ? 'bench' : served!.name}/${run.workflow}`,

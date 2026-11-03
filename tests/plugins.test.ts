@@ -119,7 +119,7 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
     expect(registry.tools).toEqual({});
     expect(page).toMatchObject({ name: 'count', title: 'Count', watch: ['7'] });
     expect(page.page.pathname).toBe(await realpath(join(dir, 'plugins/pages/count.tsx')));
-    expect(await Effect.runPromise(Schema.encode(page.dataSchema)(data))).toBe('7');
+    expect(await Effect.runPromise(Schema.encodeEffect(page.dataSchema)(data))).toBe('7');
   });
 
   it('uses the same validation and collision rules for built-in pages', async () => {
@@ -236,7 +236,7 @@ exports.cjsTool = require('ai').tool;
     });
     const dir = await makePluginDir({ 'plugins/search.ts': source() });
     const registry = await readCheckedPlugins(dir, { search: { limit: '10' } });
-    const decoded = Schema.decodeUnknownSync(Schema.typeSchema(settings))(registry.tools.issues!.settings);
+    const decoded = Schema.decodeUnknownSync(Schema.toType(settings))(registry.tools.issues!.settings);
     const definition = plugin.tools.issues!;
     const schema = asSchema(definition.inputSchema);
     const parsed = await schema.validate!({ query: 'cache' });

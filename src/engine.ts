@@ -2,7 +2,7 @@ import { getSha } from './hash.ts';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Chunk, Data, Duration, Effect, Either, Option, Schedule, Schema, Stream } from 'effect';
+import { Data, Duration, Effect, Result, Option, Schedule, Schema, Stream, Semaphore } from 'effect';
 import {
   formatRequest,
   formatRedactedText,
@@ -39,7 +39,7 @@ import {
   findMismatch,
   getRecordedResult,
   readScriptResult,
-  type Result,
+  type Result as ResultValue,
 } from './result.ts';
 import { LockHeldError } from './owner.ts';
 import { Store, type StoreError } from './store.ts';
@@ -70,7 +70,7 @@ export type Services = Tracker | Store | Session | Sandbox;
 
 const now = () => new Date().toISOString();
 
-const decodeProposal = Schema.decodeUnknownEither(Said, {
+const decodeProposal = Schema.decodeUnknownResult(Said, {
   onExcessProperty: 'error',
 });
 type Child = Extract<Said, { kind: 'issue' }>;
@@ -137,9 +137,9 @@ const parseProposals = (reply: string, required: boolean): { proposals: Said[]; 
   const proposals: Said[] = [];
   const problems: string[] = [];
   items.forEach((item, i) =>
-    Either.match(decodeProposal(item), {
-      onLeft: () => problems.push(`proposal ${i + 1}: ${formatProposalShapeHint(item)}`),
-      onRight: p => proposals.push(p),
+    Result.match(decodeProposal(item), {
+      onFailure: () => problems.push(`proposal ${i + 1}: ${formatProposalShapeHint(item)}`),
+      onSuccess: p => proposals.push(p),
     })
   );
   return { proposals, problems };
@@ -212,7 +212,7 @@ const findIssueDepth = (n: number, above = 0): Effect.Effect<number, TrackerErro
 const writing =
   (run: Run, session = run.sessions[run.step]?.id) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    Effect.locallyWith(effect, currentRunLinkRef, outer =>
+    Effect.updateService(effect, currentRunLinkRef, outer =>
       outer?.run === run.id && outer.step === run.step
         ? outer
         : { run: run.id, step: run.step, ...(session && { session }) }
@@ -240,7 +240,7 @@ const writeApplied = (run: Run, issue: number, key: string, applied: Applied) =>
 
 const findAppliedBefore = (run: Run, issue: number, key: string, proposal?: Proposal) =>
   Effect.gen(function* () {
-    const lines = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id)));
+    const lines = yield* Stream.runCollect((yield* Store).read(run.id));
     const traced = lines.findLast(t => 'applied' in t && t.applied.operation === key && t.applied.ok);
     if (traced && 'applied' in traced) return traced.applied;
     const posted = proposal && (yield* (yield* Tracker).findPost(issue, proposal, key));
@@ -257,7 +257,7 @@ const once = (
   Effect.gen(function* () {
     const before = yield* findAppliedBefore(run, issue, key, proposal);
     if (before) return before;
-    const marked = Effect.locallyWith(write, currentRunLinkRef, link => link && { ...link, operation: key });
+    const marked = Effect.updateService(write, currentRunLinkRef, link => link && { ...link, operation: key });
     return yield* writeApplied(run, issue, key, yield* marked);
   });
 
@@ -479,7 +479,7 @@ export const instruct = (
   meta?: Run['meta']
 ): Effect.Effect<RunRecord[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
-    const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
+    const supplied = yield* Schema.decodeUnknownEffect(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
       Effect.mapError(() => new TrackerError({ message: 'invalid run metadata' }))
     );
     if (instruction.kind === 'resume') {
@@ -597,7 +597,7 @@ const readIssueWithPull = (
       : w.branch === undefined
         ? run.said?.find(s => s.issue !== run.issue)?.issue
         : findPullNumber(w, run.issue, yield* tracker.issues(isRunDone(run) ? {} : { state: 'open' }));
-    const spoken = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
+    const spoken = (yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
       'spoken' in t ? [t.spoken] : []
     );
     const review = pull !== undefined ? yield* tracker.issue(pull) : undefined;
@@ -619,7 +619,7 @@ const newest = (...times: (string | undefined)[]) =>
 const readRunEvents = (run: Run) =>
   Effect.flatMap(Store, store => Stream.runCollect(store.read(run.id))).pipe(
     Effect.map(lines =>
-      Chunk.toArray(lines).flatMap((t): Event[] =>
+      lines.flatMap((t): Event[] =>
         'told' in t
           ? [
               {
@@ -639,7 +639,7 @@ const readRunEvents = (run: Run) =>
 const readContinuedRun = (run: Run, events: Event[]) =>
   Effect.gen(function* () {
     if (!events.some(event => event.source === 'cli')) return run;
-    const lines = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id)));
+    const lines = yield* Stream.runCollect((yield* Store).read(run.id));
     const accepted = lines
       .flatMap(line =>
         'spoken' in line &&
@@ -790,16 +790,16 @@ const findFanOutItems = (
 /** Writes the news since `seen` to the checkout's news file; a failed write logs and keeps the old file. */
 const refresh = (run: Run, work: Checkout, seen: Seen, t: IssueWithPull) =>
   Effect.tryPromise(() => writeFile(work.news, `${news(t, seen).text || 'Nothing new yet.'}\n`)).pipe(
-    Effect.catchAll(e => Effect.logWarning(`news for run ${run.id}`, e))
+    Effect.catch(e => Effect.logWarning(`news for run ${run.id}`, e))
   );
 
 type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit' | 'used'>;
 
-let gate: { size: number; permits: Effect.Semaphore } | undefined;
+let gate: { size: number; permits: Semaphore.Semaphore } | undefined;
 
 const getGate = (graph: Graph) => {
   const size = Math.min(graph.limits.sessions, gate?.size ?? Infinity);
-  if (!gate) gate = { size, permits: Effect.unsafeMakeSemaphore(size) };
+  if (!gate) gate = { size, permits: Semaphore.makeUnsafe(size) };
   else if (gate.size !== size) {
     Effect.runSync(gate.permits.resize(size));
     gate.size = size;
@@ -1023,11 +1023,11 @@ const traced = (graph: Graph, issue: number, run: string, work: Checkout) =>
     const read = yield* Effect.forEach(runs, run =>
       Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (lines, checks) => ({
         run,
-        lines: Chunk.toArray(lines),
+        lines,
         checks,
       }))
     );
-    const own = Chunk.toArray(yield* Stream.runCollect(store.read(run)));
+    const own = yield* Stream.runCollect(store.read(run));
     const files = traceFiles(work);
     yield* Effect.promise(() =>
       Promise.all([
@@ -1064,7 +1064,7 @@ const heard = (answers: Run['answers'] = []) =>
 type Item = Pick<Exit, 'used'> & {
   item: string | undefined;
   pass: boolean;
-  value?: Result;
+  value?: ResultValue;
   findings: string;
   exit?: number;
   output?: string;
@@ -1103,7 +1103,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
     const diff = check.agent && !check.reads ? yield* readCheckoutDiff(work) : '';
     const settle = (
       item: string | undefined,
-      value: Result | undefined,
+      value: ResultValue | undefined,
       exit?: number,
       output?: string,
       usd = 0
@@ -1339,14 +1339,14 @@ const attempt = (
       Effect.gen(function* () {
         for (;;) {
           yield* Effect.sleep('1 minute');
-          const now = yield* Effect.either(readIssueWithPull(w, run));
-          if (Either.isLeft(now)) {
-            yield* Effect.logWarning(`news for run ${run.id}`, now.left);
+          const now = yield* Effect.result(readIssueWithPull(w, run));
+          if (Result.isFailure(now)) {
+            yield* Effect.logWarning(`news for run ${run.id}`, now.failure);
             continue;
           }
-          yield* refresh(run, work, seen, now.right);
-          const cut = yield* told(graph, w, by, now.right).pipe(
-            Effect.catchAll(e => Effect.as(Effect.logWarning(`interrupt for run ${run.id}`, e), undefined))
+          yield* refresh(run, work, seen, now.success);
+          const cut = yield* told(graph, w, by, now.success).pipe(
+            Effect.catch(e => Effect.as(Effect.logWarning(`interrupt for run ${run.id}`, e), undefined))
           );
           if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
         }
@@ -1660,7 +1660,7 @@ const attempt = (
     );
     const children = world.filter((p): p is Child => p.kind === 'issue');
     const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run' && p.kind !== 'tell');
-    const landed = yield* Effect.either(
+    const landed = yield* Effect.result(
       Effect.gen(function* () {
         const applied = yield* land(tried, rest, work, to);
         if (applied.some(a => !a.ok && a.proposal.kind === 'push'))
@@ -1671,23 +1671,27 @@ const attempt = (
         return [...applied, ...(yield* file(w, tried, children))];
       }).pipe(writing(tried, spoke))
     );
-    if (Either.isLeft(landed) && landed.left._tag === 'StoreError') return yield* landed.left;
-    if (Either.isLeft(landed))
+    if (Result.isFailure(landed) && landed.failure._tag === 'StoreError') return yield* landed.failure;
+    if (Result.isFailure(landed))
       return done(
         {
           kind: 'ask',
-          question: `GitHub failed: ${squeeze(landed.left.message, 200)}`,
+          question: `GitHub failed: ${squeeze(landed.failure.message, 200)}`,
         },
         tried
       );
-    const failed = landed.right.filter(a => !a.ok);
-    if (landed.right.some(a => a.ok)) tried = unthreaded(tried);
-    if (tried.onto && landed.right.some(a => a.ok && a.proposal.kind === 'push')) {
+    const failed = landed.success.filter(a => !a.ok);
+    if (landed.success.some(a => a.ok)) tried = unthreaded(tried);
+    if (tried.onto && landed.success.some(a => a.ok && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;
       tried = rest;
     }
     const child = runs[0] && !failed.length ? yield* dispatch(graph, tried, runs[0]) : undefined;
-    const applied = [...landed.right, ...delivered, ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : [])];
+    const applied = [
+      ...landed.success,
+      ...delivered,
+      ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : []),
+    ];
     yield* store.trace(
       run.id,
       ...applied.filter(a => !a.operation).map(a => ({ at: now(), step: step.name, applied: a }))
@@ -1734,10 +1738,10 @@ export const runStepChecks = (
   Effect.gen(function* () {
     const checks = step.checks.map(name => ({ ...graph.checks[name]!, name }));
     yield* prepare(graph, left, checks.length > 0);
-    const settled = yield* Effect.forEach(checks, c => Effect.either(runOneCheck(step.name, c, left, graph)), {
+    const settled = yield* Effect.forEach(checks, c => Effect.result(runOneCheck(step.name, c, left, graph)), {
       concurrency: 'unbounded',
     });
-    const all = settled.flatMap(r => (Either.isRight(r) ? [r.right] : []));
+    const all = settled.flatMap(r => (Result.isSuccess(r) ? [r.success] : []));
     const failed = (mode: Check['mode']) =>
       all.filter(v => !v.pass && checks.find(c => c.name === v.check)?.mode === mode);
 
@@ -1749,8 +1753,8 @@ export const runStepChecks = (
           why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n'),
         },
       };
-    const error = settled.find(Either.isLeft);
-    if (error) return yield* error.left;
+    const error = settled.find(Result.isFailure);
+    if (error) return yield* error.failure;
     const returns = getStepReturns(step, graph.agents);
     const marks = new Set(Object.values(graph.workflows).flatMap(w => w.on.issues?.label ?? []));
     const refusal = (p: Proposal) =>
@@ -1777,7 +1781,7 @@ const explain = (e: SandboxError | SessionStop | TrackerError) =>
   `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;
 
 const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | TrackerError | StoreError, R>) =>
-  Effect.catchAll(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
+  Effect.catch(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
 
 const whyNotApplicable = (check: Check, run: RunRecord, traced: boolean) =>
   check.reads === 'traces'
@@ -1808,14 +1812,18 @@ const reopen = (graph: Graph, run: RunRecord, traces: boolean, reply: string) =>
     yield* prepare(graph, left, true);
     const restore = traces
       ? Effect.void
-      : Effect.zipRight(readGit(work.git, ['read-tree', '-u', '--reset', ready]), readGit(work.git, ['clean', '-fdq']));
+      : Effect.andThen(readGit(work.git, ['read-tree', '-u', '--reset', ready]), readGit(work.git, ['clean', '-fdq']));
     return { left, restore };
   });
 
 const readRunSpend = (id: string) =>
   Effect.flatMap(Store, store =>
     Effect.zipWith(
-      Stream.runFold(store.read(id), 0, (sum, line) => sum + ('session' in line ? line.session.usd : 0)),
+      Stream.runFold(
+        store.read(id),
+        () => 0,
+        (sum, line) => sum + ('session' in line ? line.session.usd : 0)
+      ),
       store.readChecks(id),
       (work, checks) => checks.reduce((sum, e) => sum + e.usd, work)
     )
@@ -1829,7 +1837,7 @@ const checkEnded = (
 ) =>
   Effect.gen(function* () {
     const store = yield* Store;
-    const lines = Chunk.toArray(yield* Stream.runCollect(store.read(run.id)));
+    const lines = yield* Stream.runCollect(store.read(run.id));
     const reply = lines.flatMap(t => ('event' in t && t.event.type === 'end' ? [t.event.final] : [])).at(-1) ?? '';
     const opened = {
       traces: yield* Effect.cached(caught(reopen(graph, run, true, reply))),
@@ -1851,7 +1859,7 @@ const checkEnded = (
             typeof open === 'string'
               ? Effect.succeed(open)
               : caught(
-                  Effect.zipRight(
+                  Effect.andThen(
                     open.restore,
                     runOneCheck(
                       run.step,
@@ -1879,7 +1887,7 @@ const checkEnded = (
 const runEndChecks = (graph: Graph, id: string): Effect.Effect<Run | undefined, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
-    if (Either.isLeft(yield* Effect.either(store.lock(id)))) return;
+    if (Result.isFailure(yield* Effect.result(store.lock(id)))) return;
     const ended = yield* store.get(id);
     if (!ended?.owed?.length) return ended;
     let run = ended;
@@ -1898,7 +1906,7 @@ const runEndChecks = (graph: Graph, id: string): Effect.Effect<Run | undefined, 
 const runLaterChecks = (graph: Graph, id: string, names: string[]) =>
   Effect.gen(function* () {
     const store = yield* Store;
-    if (Either.isLeft(yield* Effect.either(store.lock(id)))) return;
+    if (Result.isFailure(yield* Effect.result(store.lock(id)))) return;
     const run = yield* store.getRecord(id);
     if (!run?.ended) return;
     const after = (yield* store.readChecks(id)).filter(e => e.at >= run.ended! && !e.item);
@@ -1983,8 +1991,8 @@ const announce = (graph: Graph, change: StatusChange) =>
             ...(graphql && { graphql: (query, variables) => Effect.runPromise(graphql(query, variables)) }),
           },
         })
-      ).pipe(Effect.catchAll(e => Effect.logWarning(`status hook of plugin ${hook.plugin}`, e)));
-  }).pipe(Effect.catchAll(e => Effect.logWarning('status hooks', e)));
+      ).pipe(Effect.catch(e => Effect.logWarning(`status hook of plugin ${hook.plugin}`, e)));
+  }).pipe(Effect.catch(e => Effect.logWarning('status hooks', e)));
 
 const past = (w: Workflow, asked: Run, moved: Run, graph: Graph) => {
   const { reason, retried: _retried, ...rest } = moved;
@@ -2073,11 +2081,11 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         const child = (yield* store.list()).some(r => r.by === next.id && next.reason === waitingOn(r));
         if (next.status === 'waiting' && next.reason && !next.reason.startsWith(stoppedByRunner) && !child) {
           const body = outcome.kind === 'failed' ? 'How should I proceed?' : next.reason;
-          const said = yield* Effect.either(land(unthreaded(next), [{ kind: 'comment', body }]));
-          if (Either.isRight(said))
+          const said = yield* Effect.result(land(unthreaded(next), [{ kind: 'comment', body }]));
+          if (Result.isSuccess(said))
             yield* store.trace(
               next.id,
-              ...said.right
+              ...said.success
                 .filter(a => !a.operation)
                 .map(applied => ({
                   at: now(),
@@ -2201,8 +2209,8 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
     if (current.status !== 'running') return current;
     do {
       yield* walk.pipe(
-        Effect.catchAllDefect(defect =>
-          Effect.zipRight(
+        Effect.catchDefect(defect =>
+          Effect.andThen(
             Effect.logError(`run ${current.id}`, defect),
             new SandboxError({ reason: 'infra', detail: String(defect) })
           )
@@ -2301,12 +2309,9 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
       const proposal: Proposal = merge
         ? { kind: 'push', branch, message: `Merge ${pull.base} into ${branch}`, onto, merge: true }
         : { kind: 'rebase', branch, from, onto };
-      const tried = Chunk.size(
-        Chunk.filter(
-          yield* Stream.runCollect(store.read(run.id)),
-          t => 'applied' in t && !t.applied.ok && 'onto' in t.applied.proposal && t.applied.proposal.onto === onto
-        )
-      );
+      const tried = (yield* Stream.runCollect(store.read(run.id))).filter(
+        t => 'applied' in t && !t.applied.ok && 'onto' in t.applied.proposal && t.applied.proposal.onto === onto
+      ).length;
       const resolver = Object.values(graph.workflows).find(w => w.on.conflict);
       if (tried >= (to || resolver ? 2 : 1)) return { run: current };
       const { tree, files } = yield* mergeTreeOnto(work, onto, pull.head);
@@ -2469,7 +2474,7 @@ const isRunnerRetryDue = (id: string) =>
   Effect.map(
     Effect.flatMap(Store, s => Stream.runCollect(s.read(id))),
     lines => {
-      const trace = Chunk.toArray(lines);
+      const trace = lines;
       const tries = trace.filter(t => 'outcome' in t && t.outcome.kind === 'answer' && t.outcome.text === runnerRetry);
       const last = trace.at(-1)?.at;
       return tries.length < 5 && (!last || Date.now() - Date.parse(last) >= 600_000 * 2 ** tries.length);
@@ -2489,7 +2494,7 @@ export const tick = (
   meta?: Run['meta']
 ): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
-    const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
+    const supplied = yield* Schema.decodeUnknownEffect(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
       Effect.mapError(() => new TrackerError({ message: 'invalid run metadata' }))
     );
     const store = yield* Store;
@@ -2505,7 +2510,7 @@ export const tick = (
     const cursor = started === undefined ? '' : [started, ...waiting.map(p => p.at)].sort()[0]!;
     const issues = yield* tracker.issues({ state: 'open' });
     const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
-    const latest = Chunk.toArray(yield* Stream.runCollect(tracker.since(cursor, boards)));
+    const latest = yield* Stream.runCollect(tracker.since(cursor, boards));
     const merged = (yield* Effect.forEach(
       latest.filter(m => m.kind === 'merged' && !issues.some(t => t.number === m.issue)),
       m =>
@@ -2545,8 +2550,7 @@ export const tick = (
         return Effect.gen(function* () {
           const spoken = { ...m, issue: origin.get(m) ?? m.issue };
           const before = yield* Stream.runCollect(store.read(run.id));
-          const recorded = Chunk.some(
-            before,
+          const recorded = before.some(
             t =>
               'spoken' in t &&
               t.spoken.source === 'cli' &&
@@ -2605,14 +2609,14 @@ export const tick = (
     waiting.sort((a, b) => b.run.started.localeCompare(a.run.started));
     for (const waitingRun of waiting)
       yield* Effect.gen(function* () {
-        if (Either.isLeft(yield* Effect.either(store.lock(waitingRun.run.id)))) return;
+        if (Result.isFailure(yield* Effect.result(store.lock(waitingRun.run.id)))) return;
         const run = yield* store.get(waitingRun.run.id);
         if (!run || isRunDone(run)) return;
         const at = run.seen ?? run.started;
 
         const w = graph.workflows[run.workflow];
         const tells = w ? yield* readRunEvents(run) : [];
-        const trace = Chunk.toArray(yield* Stream.runCollect(store.read(run.id)));
+        const trace = yield* Stream.runCollect(store.read(run.id));
         const spoken = trace.filter(t => 'spoken' in t);
         const pending = spoken
           .map(t => t.spoken)
@@ -2687,7 +2691,7 @@ export const tick = (
                         })
                       )
               ).pipe(
-                Effect.catchAll(e =>
+                Effect.catch(e =>
                   Effect.gen(function* () {
                     yield* Effect.logError(`aside of run ${run.id}`, e);
                     if (e._tag === 'StoreError') return yield* e;
@@ -2730,7 +2734,7 @@ export const tick = (
       }).pipe(Effect.scoped);
     for (const before of runs.filter(r => r.status === 'waiting' && !touched.some(t => t.id === r.id)))
       yield* Effect.gen(function* () {
-        if (Either.isLeft(yield* Effect.either(store.lock(before.id)))) return;
+        if (Result.isFailure(yield* Effect.result(store.lock(before.id)))) return;
         const parent = yield* store.get(before.id);
         if (!parent || parent.status !== 'waiting') return;
         const w = graph.workflows[parent.workflow];
@@ -2774,7 +2778,7 @@ export const tick = (
           ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
-        if (Either.isLeft(yield* Effect.either(store.lock(begun.id)))) return;
+        if (Result.isFailure(yield* Effect.result(store.lock(begun.id)))) return;
         if (yield* store.get(begun.id)) return;
         const first = begun.status === 'running' ? begun : yield* show(w, begun, graph);
         busy.add(`${w.name}#${issue}`);
@@ -2879,7 +2883,7 @@ export const tick = (
           feedback: `## What a person said or pushed\n\n${fresh.map(formatEventLine).join('\n\n')}`,
         };
         yield* Effect.gen(function* () {
-          if (Either.isLeft(yield* Effect.either(store.lock(begun.id)))) return;
+          if (Result.isFailure(yield* Effect.result(store.lock(begun.id)))) return;
           if (yield* store.get(begun.id)) return;
           yield* store.put(begun);
           touched.push(begun);
@@ -2899,7 +2903,7 @@ export const tick = (
       )
         continue;
       yield* follow(w, r, r.base, head, graph).pipe(
-        Effect.catchAll(e =>
+        Effect.catch(e =>
           Effect.gen(function* () {
             yield* Effect.logError(`follow run ${r.id}`, e);
             if (e._tag === 'SandboxError')
@@ -2916,7 +2920,7 @@ export const tick = (
 
     for (const before of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => r.status === 'waiting'))
       yield* Effect.gen(function* () {
-        if (Either.isLeft(yield* Effect.either(store.lock(before.id)))) return;
+        if (Result.isFailure(yield* Effect.result(store.lock(before.id)))) return;
         const r = yield* store.get(before.id);
         if (!r || r.status !== 'waiting') return;
         const w = graph.workflows[r.workflow];
@@ -2929,7 +2933,7 @@ export const tick = (
         const { blocked: _, ...ready } = r;
         if (r.blocked) yield* store.put(ready);
         const caught = yield* catchUp(w, r, graph, pull).pipe(
-          Effect.catchAll(e =>
+          Effect.catch(e =>
             e._tag === 'StoreError'
               ? Effect.fail(e)
               : Effect.gen(function* () {
@@ -2950,9 +2954,7 @@ export const tick = (
         else if (caught) yield* store.put(caught.run);
       }).pipe(
         Effect.scoped,
-        Effect.catchAll(e =>
-          e._tag === 'StoreError' ? Effect.fail(e) : Effect.logError(`catch up run ${before.id}`, e)
-        )
+        Effect.catch(e => (e._tag === 'StoreError' ? Effect.fail(e) : Effect.logError(`catch up run ${before.id}`, e)))
       );
 
     const running = (yield* store.list({ status: 'running' }))
@@ -2963,7 +2965,7 @@ export const tick = (
       running,
       r =>
         drive(graph.workflows[r.workflow]!, r, graph).pipe(
-          Effect.catchAll(e => Effect.as(Effect.logError(`run ${r.id}`, e), r))
+          Effect.catch(e => Effect.as(Effect.logError(`run ${r.id}`, e), r))
         ),
       { concurrency: graph.limits.parallel }
     );
@@ -3008,12 +3010,8 @@ export const scanIssuesAndRunningRuns = (
       ? new Date(Date.parse(all.flatMap(r => [r.started, r.seen ?? r.started]).toSorted()[0]!) - debounce).toISOString()
       : '';
     const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
-    const latest = yield* Effect.cached(
-      Stream.runCollect(tracker.since(cursor, boards)).pipe(Effect.map(Chunk.toArray))
-    );
-    const history = cursor
-      ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards)).pipe(Effect.map(Chunk.toArray)))
-      : latest;
+    const latest = yield* Effect.cached(Stream.runCollect(tracker.since(cursor, boards)));
+    const history = cursor ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards))) : latest;
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
     const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];

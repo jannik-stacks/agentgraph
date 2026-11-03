@@ -5,7 +5,7 @@ import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type Tool, type ToolExecutionOptions } from 'ai';
-import { Effect, Either, JSONSchema, type Option, ParseResult, type Redacted, Schema } from 'effect';
+import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue } from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
@@ -53,43 +53,45 @@ type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;
 
 export const tool = <A, I, S = undefined>(definition: {
   description: string;
-  inputSchema: Schema.Schema<A, I>;
+  inputSchema: Schema.Codec<A, I>;
   execute: (input: A, context: ToolContext<S>) => unknown;
-}): Tool<A, unknown, ToolContext<S>> =>
-  aiTool<A, unknown, ToolContext<S>>({
+}): Tool<A, unknown, ToolContext<S>> => {
+  const { schema, definitions } = Schema.toJsonSchemaDocument(definition.inputSchema, { onExcessProperty: 'error' });
+  return aiTool<A, unknown, ToolContext<S>>({
     description: definition.description,
-    inputSchema: jsonSchema<A>(JSONSchema.make(definition.inputSchema), {
+    inputSchema: jsonSchema<A>(Object.keys(definitions).length ? { ...schema, $defs: definitions } : schema, {
       validate: async value => {
         const decoded = await Effect.runPromise(
-          Effect.either(Schema.decodeUnknown(definition.inputSchema, { onExcessProperty: 'error' })(value))
+          Effect.result(Schema.decodeUnknownEffect(definition.inputSchema, { onExcessProperty: 'error' })(value))
         );
-        return decoded._tag === 'Right'
-          ? { success: true, value: decoded.right }
-          : { success: false, error: new Error(String(decoded.left)) };
+        return decoded._tag === 'Success'
+          ? { success: true, value: decoded.success }
+          : { success: false, error: new Error(String(decoded.failure)) };
       },
     }),
     execute: (input, { context, abortSignal }) =>
       definition.execute(input, { ...context, ...(abortSignal && { abortSignal }) }),
   });
+};
 
 export const makePlugin = <S = undefined, D = unknown, I = D>(
   definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'studio' | 'on'> & {
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
-      dataSchema: Schema.Schema<D, I>;
+      dataSchema: Schema.Codec<D, I>;
       read: (settings: S) => Effect.Effect<D, unknown>;
       watch?: (settings: S) => readonly string[];
     };
     tools?: Record<string, Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, ToolContext<S>>>;
     on?: { status?: StatusHook<S> };
   } & ([S] extends [undefined]
-      ? { settingsSchema?: Schema.Schema<S, Schema.Schema.Any['Encoded']> }
-      : { settingsSchema: Schema.Schema<S, Schema.Schema.Any['Encoded']> })
+      ? { settingsSchema?: Schema.Codec<S, unknown> }
+      : { settingsSchema: Schema.Codec<S, unknown> })
 ) => ({ ...definition, tools: definition.tools ?? {} });
 
 const StudioPage = Schema.Struct({
-  title: Schema.NonEmptyTrimmedString,
-  page: Schema.URLFromSelf.pipe(Schema.filter(url => url.protocol === 'file:' && url.pathname.endsWith('.tsx'))),
-  dataSchema: Schema.declare((value): value is Schema.Schema.AnyNoContext => Schema.isSchema(value)),
+  title: Schema.Trimmed.check(Schema.isNonEmpty()),
+  page: Schema.URL.check(Schema.makeFilter(url => url.protocol === 'file:' && url.pathname.endsWith('.tsx'))),
+  dataSchema: Schema.declare((value): value is Schema.Codec<unknown, unknown> => Schema.isSchema(value)),
   read: Schema.declare(
     (value): value is (settings: unknown) => Effect.Effect<unknown, unknown> => typeof value === 'function'
   ),
@@ -99,9 +101,9 @@ const StudioPage = Schema.Struct({
 });
 
 const PluginFile = Schema.Struct({
-  name: Schema.String.pipe(Schema.pattern(/^[a-zA-Z][a-zA-Z0-9_-]*$/)),
+  name: Schema.String.check(Schema.isPattern(/^[a-zA-Z][a-zA-Z0-9_-]*$/)),
   settingsSchema: Schema.optional(
-    Schema.declare((value): value is Schema.Schema.AnyNoContext => Schema.isSchema(value))
+    Schema.declare((value): value is Schema.Codec<unknown, unknown> => Schema.isSchema(value))
   ),
   studio: Schema.optional(StudioPage),
   tracker: Schema.optional(Schema.declare((value): value is TrackerMember => typeof value === 'function')),
@@ -110,22 +112,19 @@ const PluginFile = Schema.Struct({
       status: Schema.optional(Schema.declare((value): value is StatusHook<unknown> => typeof value === 'function')),
     })
   ),
-  tools: Schema.optionalWith(
-    Schema.Record({
-      key: Schema.String,
-      value: Schema.declare(
-        (value): value is Tool =>
-          typeof value === 'object' &&
-          value !== null &&
-          'execute' in value &&
-          typeof value.execute === 'function' &&
-          'inputSchema' in value &&
-          'description' in value &&
-          typeof value.description === 'string'
-      ),
-    }),
-    { default: () => ({}) }
-  ),
+  tools: Schema.Record(
+    Schema.String,
+    Schema.declare(
+      (value): value is Tool =>
+        typeof value === 'object' &&
+        value !== null &&
+        'execute' in value &&
+        typeof value.execute === 'function' &&
+        'inputSchema' in value &&
+        'description' in value &&
+        typeof value.description === 'string'
+    )
+  ).pipe(Schema.withDecodingDefaultType(Effect.succeed({}))),
 });
 
 export const readPlugins = async (
@@ -165,9 +164,9 @@ export const readPlugins = async (
     }
   }
   for (const { file, definition } of sources) {
-    const decodedPlugin = Schema.decodeUnknownEither(PluginFile, { onExcessProperty: 'error' })(definition);
-    if (Either.isLeft(decodedPlugin)) throw new Error(`${file}: ${decodedPlugin.left.message}`);
-    const plugin = decodedPlugin.right;
+    const decodedPlugin = Schema.decodeUnknownResult(PluginFile, { onExcessProperty: 'error' })(definition);
+    if (Result.isFailure(decodedPlugin)) throw new Error(`${file}: ${decodedPlugin.failure.message}`);
+    const plugin = decodedPlugin.success;
     const previous = plugins.get(plugin.name);
     if (previous) throw new Error(`${file}: plugin ${plugin.name} already defined in ${previous}`);
     const configured = Object.hasOwn(settings, plugin.name) ? settings[plugin.name] : undefined;
@@ -175,16 +174,16 @@ export const readPlugins = async (
       throw new Error(`plugins.${plugin.name}: plugin has no settingsSchema`);
     let decoded: unknown;
     if (plugin.settingsSchema) {
-      const result = Schema.decodeUnknownEither(plugin.settingsSchema, { onExcessProperty: 'error' })(
+      const result = Schema.decodeUnknownResult(plugin.settingsSchema, { onExcessProperty: 'error' })(
         configured === undefined ? {} : configured
       );
-      if (Either.isLeft(result))
+      if (Result.isFailure(result))
         throw new Error(
-          ParseResult.ArrayFormatter.formatErrorSync(result.left)
-            .map(issue => `${['plugins', plugin.name, ...issue.path].join('.')}: ${issue.message}`)
+          SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue)
+            .issues.map(issue => `${['plugins', plugin.name, ...(issue.path ?? [])].join('.')}: ${issue.message}`)
             .join('\n')
         );
-      decoded = result.right;
+      decoded = result.success;
     }
     const names = Object.keys(plugin.tools);
     if (!names.length && !plugin.studio && !plugin.on?.status && !plugin.tracker)

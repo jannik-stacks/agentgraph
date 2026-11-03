@@ -1,13 +1,13 @@
-import { Schema } from 'effect';
+import { Schema, Struct } from 'effect';
 
-const Text = Schema.optionalWith(Schema.String, { exact: true });
-const Names = Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { exact: true });
+const Text = Schema.optionalKey(Schema.String);
+const Names = Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String)));
 
 const Comment = Schema.Struct({ kind: Schema.Literal('comment'), body: Schema.String, edit: Text, under: Text });
 const React = Schema.Struct({
   kind: Schema.Literal('react'),
   comment: Text,
-  review: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  review: Schema.optionalKey(Schema.Boolean),
   remove: Text,
 });
 const Label = Schema.Struct({ kind: Schema.Literal('label'), add: Names, remove: Names });
@@ -16,7 +16,7 @@ const Push = Schema.Struct({
   branch: Schema.String,
   message: Schema.String,
   onto: Text,
-  merge: Schema.optionalWith(Schema.Literal(true), { exact: true }),
+  merge: Schema.optionalKey(Schema.Literal(true)),
 });
 const Rebase = Schema.Struct({
   kind: Schema.Literal('rebase'),
@@ -37,7 +37,7 @@ const Filed = Schema.Struct({
   kind: Schema.Literal('issue'),
   title: Schema.String,
   body: Schema.String,
-  parent: Schema.optionalWith(Schema.Int, { exact: true }),
+  parent: Schema.optionalKey(Schema.Int),
   labels: Names,
 });
 const Ask = Schema.Struct({ kind: Schema.Literal('ask'), question: Schema.String });
@@ -56,7 +56,7 @@ const Tell = Schema.Struct({ kind: Schema.Literal('tell'), issue: Schema.Int, te
  * A react with `remove` takes back the reaction of that id. A push with `onto` lands the files as one commit on `onto` and replaces the branch, or with
  * `merge` as a merge of `onto` into it; either refuses when the branch moved past the commit the checkout started from. An issue with a `parent` is filed as its sub-issue.
  */
-export const Proposal = Schema.Union(
+export const Proposal = Schema.Union([
   Comment,
   React,
   Label,
@@ -68,8 +68,8 @@ export const Proposal = Schema.Union(
   Ask,
   Back,
   Run,
-  Tell
-);
+  Tell,
+]);
 export type Proposal = typeof Proposal.Type;
 
 const { kind, title, body } = Filed.fields;
@@ -79,10 +79,10 @@ const { kind, title, body } = Filed.fields;
  * or a `graph` change to the bot's own workflows, agents or checks. A part's `stacks_on` and `depends_on` name earlier
  * issues in the same block by position, from 1.
  */
-export const Said = Schema.Union(
-  Comment.omit('edit'),
+export const Said = Schema.Union([
+  Comment.mapFields(Struct.omit(['edit'])),
   Label,
-  Push.omit('onto', 'merge'),
+  Push.mapFields(Struct.omit(['onto', 'merge'])),
   PullRequest,
   Merge,
   Schema.Struct({
@@ -90,17 +90,17 @@ export const Said = Schema.Union(
     relation: Schema.Literal('part'),
     title,
     body,
-    size: Schema.Literal('XS', 'S', 'M', 'L', 'XL'),
-    stacks_on: Schema.optionalWith(Schema.Int, { exact: true }),
-    depends_on: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Int)), { exact: true }),
+    size: Schema.Literals(['XS', 'S', 'M', 'L', 'XL']),
+    stacks_on: Schema.optionalKey(Schema.Int),
+    depends_on: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.Int))),
   }),
-  Schema.Struct({ kind, relation: Schema.Literal('follow-up', 'graph'), title, body }),
+  Schema.Struct({ kind, relation: Schema.Literals(['follow-up', 'graph']), title, body }),
   Ask,
   Back,
   Run,
-  Tell
-);
+  Tell,
+]);
 export type Said = typeof Said.Type;
 
 /** The kinds an agent may return. */
-export const Kind = Schema.Literal(...new Set(Said.members.map(m => m.fields.kind.literals[0])));
+export const Kind = Schema.Literals([...new Set(Said.members.map(m => m.fields.kind.literal))]);

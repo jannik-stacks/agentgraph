@@ -48,10 +48,10 @@ describe('folder tracker issue search', () => {
   it.each([0, 101, 1.5, NaN])('rejects an invalid search limit: %s', async limit => {
     const found = await Effect.runPromise(
       Effect.flatMap(Tracker, tracker => tracker.searchIssues('cache', { limit })).pipe(
-        Effect.either,
+        Effect.result,
         Effect.provide(folderTracker(tmp('tracker-search-limit')))
       )
     );
-    expect(found._tag).toBe('Left');
+    expect(found._tag).toBe('Failure');
   });
 });

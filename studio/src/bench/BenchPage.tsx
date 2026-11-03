@@ -156,9 +156,9 @@ const BenchPage = () => {
   const [colorParam, setColor] = useAtom(params.color);
   const where = useMemo(
     () =>
-      Schema.decodeUnknownSync(
-        Schema.Record({ key: Schema.String, value: Schema.mutable(Schema.Array(Schema.String)) })
-      )(JSON.parse(whereParam ?? '{}')),
+      Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.mutable(Schema.Array(Schema.String))))(
+        JSON.parse(whereParam ?? '{}')
+      ),
     [whereParam]
   );
   const groupKeys = useMemo(() => (byParam === null ? defaultBenchBy : byParam.split(',').filter(Boolean)), [byParam]);

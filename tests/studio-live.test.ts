@@ -55,7 +55,7 @@ it('decodes cached plugin snapshots with one stream, one request in flight and o
       },
     };
     const SnapshotProbe = () => {
-      usePluginData('count', Schema.NumberFromString);
+      usePluginData('count', Schema.FiniteFromString);
       return null;
     };
     renderToString(createElement(Provider, { store: observed }, createElement(SnapshotProbe, null)));

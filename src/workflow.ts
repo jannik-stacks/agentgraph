@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { Either, ParseResult, Schema } from 'effect';
+import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
 import type { Applied, Event } from './event.ts';
 import { Kind, type Proposal } from './proposal.ts';
@@ -128,18 +128,18 @@ export type RunRecord = Omit<Run, 'issue'> & Partial<Pick<Run, 'issue'>>;
 
 export const isRunDone = (run: RunRecord) => run.status === 'done' || run.status === 'stopped';
 
-export const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
-const Count = Schema.Int.pipe(Schema.positive());
+export const exact = Schema.optionalKey;
+const Count = Schema.Int.check(Schema.isGreaterThan(0));
 const Names = Schema.mutable(Schema.Array(Schema.String));
 const Trigger = Schema.NullOr(
   Schema.Struct({
     label: exact(Schema.String),
     column: exact(Schema.String),
-    project: exact(Schema.String.pipe(Schema.pattern(/^[\w.-]+\/\d+$/, { message: () => 'owner/number' }))),
+    project: exact(Schema.String.check(Schema.isPattern(/^[\w.-]+\/\d+$/, { message: 'owner/number' }))),
     branches: exact(Names),
   })
 );
-const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback', 'conflict');
+const EventName = Schema.Literals(['issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback', 'conflict']);
 
 const StepFile = Schema.Struct({
   agent: exact(Schema.String),
@@ -147,7 +147,7 @@ const StepFile = Schema.Struct({
   returns: exact(Schema.mutable(Schema.Array(Kind))),
   reads: exact(Schema.Literal('traces')),
   wait: exact(Schema.Literal('human')),
-  follow: exact(Schema.Literal('merge', 'rebase', 'none')),
+  follow: exact(Schema.Literals(['merge', 'rebase', 'none'])),
   skill: exact(Schema.String),
   checks: exact(Names),
   tries: exact(Count),
@@ -155,11 +155,11 @@ const StepFile = Schema.Struct({
   back: exact(Schema.String),
   until: exact(Schema.String),
   rounds: exact(Count),
-  each: exact(Schema.Union(Schema.Literal('files', 'hunks'), Schema.Struct({ run: Schema.String }))),
+  each: exact(Schema.Union([Schema.Literals(['files', 'hunks']), Schema.Struct({ run: Schema.String })])),
 });
 
 const Front = Schema.Struct({
-  on: Schema.Union(
+  on: Schema.Union([
     EventName,
     Schema.Struct({
       issues: exact(Trigger),
@@ -168,17 +168,17 @@ const Front = Schema.Struct({
       dispatch: exact(Schema.Null),
       feedback: exact(Schema.Null),
       conflict: exact(Schema.Null),
-    })
-  ),
+    }),
+  ]),
   branch: exact(Schema.String),
   base: exact(Schema.String),
-  concurrency: exact(Schema.Literal('steer', 'queue', 'cancel')),
+  concurrency: exact(Schema.Literals(['steer', 'queue', 'cancel'])),
   agent: exact(Schema.String),
-  steps: exact(Schema.Record({ key: Schema.String, value: StepFile })),
+  steps: exact(Schema.Record(Schema.String, StepFile)),
   checks: exact(Names),
 });
 
-const decode = Schema.decodeUnknownEither(Front, { onExcessProperty: 'error', errors: 'all' });
+const decode = Schema.decodeUnknownResult(Front, { onExcessProperty: 'error', errors: 'all' });
 
 /** Splits a markdown file into its parsed YAML frontmatter and its trimmed body. */
 export const splitFrontmatter = (text: string): { data: unknown; body: string } => {
@@ -201,16 +201,16 @@ export function compileWorkflow(
     return { problems: [{ path, message: `frontmatter: ${(e as Error).message}` }] };
   }
   const decoded = decode(file.data);
-  if (Either.isLeft(decoded)) {
+  if (decoded._tag === 'Failure') {
     const seen = new Set<string>();
-    for (const issue of ParseResult.ArrayFormatter.formatErrorSync(decoded.left)) {
-      const key = issue.path.join('.') || 'frontmatter';
+    for (const issue of SchemaIssue.makeFormatterStandardSchemaV1()(decoded.failure.issue).issues) {
+      const key = issue.path?.join('.') || 'frontmatter';
       if (!seen.has(key)) say(key, issue.message);
       seen.add(key);
     }
     return { problems };
   }
-  const front = decoded.right;
+  const front = decoded.success;
   const name = basename(path, '.md');
   const trigger = typeof front.on === 'string' ? undefined : front.on.issues;
   if (trigger?.project !== undefined && trigger.column === undefined) say('on.issues.project', 'project needs column');

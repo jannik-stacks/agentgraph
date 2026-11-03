@@ -8,7 +8,7 @@ export default makePlugin({
       description: 'Search issues in this repository by keywords',
       inputSchema: Schema.Struct({
         query: Schema.String,
-        state: Schema.optional(Schema.Literal('open', 'closed', 'all')),
+        state: Schema.optional(Schema.Literals(['open', 'closed', 'all'])),
       }),
       execute: async ({ query, state = 'open' }, ctx) =>
         (await ctx.tracker.searchIssues(query, { state, limit: 10 })).map(({ number, title, state, url, body }) => ({

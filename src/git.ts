@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Effect } from 'effect';
+import { Effect, Semaphore } from 'effect';
 import { SandboxError, type Checkout } from './sandbox.ts';
 
-export const indexLock = Effect.unsafeMakeSemaphore(1);
+export const indexLock = Semaphore.makeUnsafe(1);
 
 const hardened = [
   '-c',
@@ -54,7 +54,7 @@ export const hostGit = (
   args: string[],
   { input, codes = [] }: { input?: string | Uint8Array; codes?: number[] } = {}
 ) =>
-  Effect.async<Buffer, SandboxError>(resume => {
+  Effect.callback<Buffer, SandboxError>(resume => {
     const child = spawn('git', [...hardened, ...args], {
       cwd: env.GIT_WORK_TREE ?? env.GIT_DIR ?? tmpdir(),
       detached: true,
@@ -124,10 +124,10 @@ export const hostGit = (
       }
     });
   }).pipe(
-    Effect.timeoutFail({
+    Effect.timeoutOrElse({
       duration: '10 minutes',
-      onTimeout: () =>
-        new SandboxError({ reason: 'infra', detail: `git ${args.slice(0, 3).join(' ')}: git timed out` }),
+      orElse: () =>
+        Effect.fail(new SandboxError({ reason: 'infra', detail: `git ${args.slice(0, 3).join(' ')}: git timed out` })),
     })
   );
 
@@ -137,7 +137,7 @@ export const readGit = (...args: Parameters<typeof hostGit>) =>
   Effect.map(hostGit(...args), out => out.toString('utf8').trim());
 
 export const writeCheckoutTree = ({ git }: Pick<Checkout, 'git'>) =>
-  indexLock.withPermits(1)(Effect.zipRight(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])));
+  indexLock.withPermits(1)(Effect.andThen(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])));
 
 export const ensureGraphRef = (git: Checkout['git'], dir: string) => {
   const env = {
@@ -150,7 +150,7 @@ export const ensureGraphRef = (git: Checkout['git'], dir: string) => {
     const tree = yield* readGit(env, ['write-tree']);
     const ref = `refs/agentgraph/graphs/${tree}`;
     yield* hostGit(env, ['update-ref', ref, tree, '']).pipe(
-      Effect.catchAll(e =>
+      Effect.catch(e =>
         Effect.flatMap(readGit(env, ['rev-parse', ref]), at => (at === tree ? Effect.void : Effect.fail(e)))
       )
     );

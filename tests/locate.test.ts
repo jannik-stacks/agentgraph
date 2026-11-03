@@ -49,7 +49,7 @@ const find = (gh: string) => {
       const store = yield* Store;
       yield* store.put(run('issue-2-1', 2));
       yield* store.trace('issue-2-1', ...trace);
-      return yield* Effect.either(locate({ gh }));
+      return yield* Effect.result(locate({ gh }));
     }).pipe(Effect.provide(fileStore(dir)))
   );
 };
@@ -57,22 +57,22 @@ const find = (gh: string) => {
 describe('locate', () => {
   it('finds the run write a comment link or id names, at the time its body was stamped when it was', async () => {
     const review = { run: 'issue-2-1', step: 'review', at: '2026-10-19T15:43:05.403Z' };
-    expect(await find(`${pr}#discussion_r4315833405`)).toMatchObject({ right: review });
-    expect(await find(`${pr}/files#r4315833405`)).toMatchObject({ right: review });
-    expect(await find(' 4315833405 ')).toMatchObject({ right: review });
+    expect(await find(`${pr}#discussion_r4315833405`)).toMatchObject({ success: review });
+    expect(await find(`${pr}/files#r4315833405`)).toMatchObject({ success: review });
+    expect(await find(' 4315833405 ')).toMatchObject({ success: review });
     expect(await find('https://github.com/o/r/issues/2#issuecomment-62')).toMatchObject({
-      right: { run: 'issue-2-1', step: 'review', at: '2026-10-19T15:49:59.000Z' },
+      success: { run: 'issue-2-1', step: 'review', at: '2026-10-19T15:49:59.000Z' },
     });
   });
 
   it('names the issue for a pull request or issue link, or a comment no run wrote', async () => {
-    expect(await find(pr)).toMatchObject({ right: { issue: 2 } });
-    expect(await find('https://github.com/o/r/issues/5')).toMatchObject({ right: { issue: 5 } });
-    expect(await find('https://github.com/o/r/issues/5#issuecomment-1')).toMatchObject({ right: { issue: 5 } });
+    expect(await find(pr)).toMatchObject({ success: { issue: 2 } });
+    expect(await find('https://github.com/o/r/issues/5')).toMatchObject({ success: { issue: 5 } });
+    expect(await find('https://github.com/o/r/issues/5#issuecomment-1')).toMatchObject({ success: { issue: 5 } });
   });
 
   it('finds nothing for an id no comment has, and refuses an empty query', async () => {
-    expect(await find('99')).toMatchObject({ right: undefined });
-    expect(await find('  ')).toMatchObject({ _tag: 'Left', left: { _tag: 'ParseError' } });
+    expect(await find('99')).toMatchObject({ success: undefined });
+    expect(await find('  ')).toMatchObject({ _tag: 'Failure', failure: { _tag: 'SchemaError' } });
   });
 });

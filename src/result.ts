@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
 
-export const CheckMode = Schema.Literal('info', 'warn', 'block', 'stop');
+export const CheckMode = Schema.Literals(['info', 'warn', 'block', 'stop']);
 
 export type ResultType = {
   readonly type?: 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean';
@@ -15,20 +15,20 @@ export type ResultType = {
   readonly unit?: 'usd' | 'minutes' | 'seconds' | 'tokens' | 'share';
 };
 
-const nested = Schema.suspend((): Schema.Schema<ResultType> => ResultType);
-const optional = <S extends Schema.Schema.Any>(s: S) => Schema.optionalWith(s, { exact: true });
+const nested = Schema.suspend((): Schema.Codec<ResultType> => ResultType);
+const optional = Schema.optionalKey;
 
-export const ResultType: Schema.Schema<ResultType> = Schema.Struct({
-  type: optional(Schema.Literal('object', 'array', 'string', 'number', 'integer', 'boolean')),
-  properties: optional(Schema.Record({ key: Schema.String, value: nested })),
+export const ResultType = Schema.Struct({
+  type: optional(Schema.Literals(['object', 'array', 'string', 'number', 'integer', 'boolean'])),
+  properties: optional(Schema.Record(Schema.String, nested)),
   required: optional(Schema.Array(Schema.String)),
   items: optional(nested),
   enum: optional(Schema.Array(Schema.Unknown)),
   const: optional(Schema.Unknown),
-  minimum: optional(Schema.JsonNumber),
-  maximum: optional(Schema.JsonNumber),
+  minimum: optional(Schema.Finite),
+  maximum: optional(Schema.Finite),
   description: optional(Schema.String),
-  unit: optional(Schema.Literal('usd', 'minutes', 'seconds', 'tokens', 'share')),
+  unit: optional(Schema.Literals(['usd', 'minutes', 'seconds', 'tokens', 'share'])),
 });
 
 export type Result = Record<string, unknown>;

@@ -6,7 +6,7 @@ import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
-import { Effect, Redacted, Stream } from 'effect';
+import { ConfigProvider, Effect, Redacted, Stream } from 'effect';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/engine.ts';
 import type { Graph } from '../src/folder.ts';
@@ -158,7 +158,7 @@ const relabel = async (data: string) => {
     fail((e as Error).message);
   }
 };
-const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {}) =>
+const listRuns = (data: string, filter: Parameters<Store['Service']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
 const printRuns = (runs: RunRecord[]) => {
   if (verb === 'resume' && !runs.length) console.log('0 runs parked by runner errors');
@@ -191,7 +191,10 @@ const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefin
         return provider ? findUnserved(provider, loaded) : [];
       }),
       Effect.catchTag('GraphError', e => Effect.succeed(e.problems)),
-      Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i?.provider)))
+      Effect.provideService(
+        ConfigProvider.ConfigProvider,
+        makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i?.provider))
+      )
     )
   );
   if (picked && 'problem' in picked) problems.push({ path: 'tracker', message: picked.problem });
@@ -203,7 +206,10 @@ const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefin
 const pickProvider = async (i: Instance, after: string): Promise<{ provider: Provider; ready?: boolean }> => {
   const { providers = [], provider: named } = await Effect.runPromise(
     readHarnessSettings.pipe(
-      Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i.provider)))
+      Effect.provideService(
+        ConfigProvider.ConfigProvider,
+        makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i.provider))
+      )
     )
   ).catch((e: Error) => fail(e.message, 1));
   if (named)
@@ -294,7 +300,7 @@ const connect = async (i: Instance, graph: string, after: string) => {
 const loadServedGraph = async ({ provider, model }: Awaited<ReturnType<typeof connect>>, graph: string) => {
   const loaded = await Effect.runPromise(
     readConfiguredGraph(graph).pipe(
-      Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(provider.name)))
+      Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(makeHarnessChoice(provider.name)))
     )
   );
   if (model)
@@ -669,7 +675,7 @@ async function report(
       const providers = await Effect.runPromise(
         readHarnessSettings.pipe(
           Effect.map(settings => settings.providers ?? []),
-          Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(undefined)))
+          Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(makeHarnessChoice(undefined)))
         )
       ).catch((e: Error) => {
         console.error(`Could not read login providers: ${e.message}`);
@@ -745,7 +751,7 @@ async function loop(i: Instance) {
   }
 }
 
-async function showAll(i: Instance, tracker: Tracker['Type']) {
+async function showAll(i: Instance, tracker: Tracker['Service']) {
   const runs = await listRuns(i.data);
   const lines = [
     ...findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, undefined, selected)),
@@ -755,7 +761,7 @@ async function showAll(i: Instance, tracker: Tracker['Type']) {
   console.log(formatIssueList(await Effect.runPromise(tracker.issues())));
 }
 
-async function showIssue(tracker: Tracker['Type'], issue: number, i: Instance) {
+async function showIssue(tracker: Tracker['Service'], issue: number, i: Instance) {
   const pull = await findPull(i.tracker, issue);
   for (const k of new Set([issue, pull?.number ?? issue])) {
     const t = await Effect.runPromise(tracker.issue(k)).catch((e: Error) => fail(e.message, 1));

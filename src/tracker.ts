@@ -3,7 +3,7 @@ import { makePlugin, type ToolContext } from './plugin.ts';
 import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
+import { Context, Data, Effect, Layer, Stream, Semaphore } from 'effect';
 import { parse, stringify } from 'yaml';
 import {
   issueStatuses,
@@ -23,7 +23,9 @@ import type { Checkout } from './sandbox.ts';
 import { hostGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
 
 /** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
-export const currentRunLinkRef = FiberRef.unsafeMake<RunLink | undefined>(undefined);
+export const currentRunLinkRef = Context.Reference<RunLink | undefined>('agentgraph/currentRunLink', {
+  defaultValue: () => undefined,
+});
 
 /** The studio page of a run, opened at the trace line written at or after `at`. */
 const makeStudioRunUrlAt = (studio: string, run: string, at: string) => `${makeStudioRunUrl(studio, run)}?at=${at}`;
@@ -38,7 +40,7 @@ const formatBodyWithRunLink = (body: string, mark: RunLink, at: string, studio =
 
 /** The proposal as posted: its body stamped with `provenance`, and when, if the fiber writes for a run; else unstamped. */
 export const makePostableProposal = (p: Proposal, studio?: string) =>
-  Effect.map(FiberRef.get(currentRunLinkRef), (mark): { posted: Proposal; at?: string } => {
+  Effect.map(currentRunLinkRef, (mark): { posted: Proposal; at?: string } => {
     if (!('body' in p)) return { posted: p };
     if (!mark) return { posted: { ...p, body: removeRunLink(p.body) } };
     const at = new Date().toISOString();
@@ -54,7 +56,7 @@ export class TrackerError extends Data.TaggedError('TrackerError')<{
 }> {}
 
 /** The repo as the state: GitHub in production, a JSON file in tests. */
-export class Tracker extends Context.Tag('agentgraph/Tracker')<
+export class Tracker extends Context.Service<
   Tracker,
   {
     base: Effect.Effect<string, TrackerError>;
@@ -81,7 +83,7 @@ export class Tracker extends Context.Tag('agentgraph/Tracker')<
     /** The studio's URL that bodies link back to, when set. */
     studio?: string;
   }
->() {}
+>()('agentgraph/Tracker') {}
 
 export const makeStatusLabel = (
   to: IssueStatus,
@@ -99,7 +101,7 @@ export type TrackerSetup = {
 
 export const parseIssueSearch = (
   query: string,
-  { state = 'open', limit = 20 }: NonNullable<Parameters<Tracker['Type']['searchIssues']>[1]> = {}
+  { state = 'open', limit = 20 }: NonNullable<Parameters<Tracker['Service']['searchIssues']>[1]> = {}
 ) =>
   Effect.suspend(() => {
     const terms = (
@@ -233,7 +235,7 @@ export const writeTimelineEvent = async (
 export const folderTracker = (dir: string, as?: string, trust?: readonly string[]): Layer.Layer<Tracker> =>
   Layer.effect(
     Tracker,
-    Effect.map(Effect.makeSemaphore(1), lock => {
+    Effect.map(Semaphore.make(1), lock => {
       const md = (n: number) => join(dir, `${n}.md`);
       const pullFile = (n: number) => join(dir, String(n), 'pull.json');
       const who = as ?? me;

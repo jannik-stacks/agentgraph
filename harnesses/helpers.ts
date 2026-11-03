@@ -1,12 +1,12 @@
 import { Option, Schema } from 'effect';
 import type { Piece } from '../src/harnesses.ts';
 
-export const makeLineParser = <A, I>(schema: Schema.Schema<A, I>, parse: (line: A) => Piece[]) => {
+export const makeLineParser = <A, I>(schema: Schema.Codec<A, I>, parse: (line: A) => Piece[]) => {
   const decode = Schema.decodeUnknownOption(schema);
   return (line: unknown) => Option.match(decode(line), { onNone: () => [], onSome: parse });
 };
 
-export const some = <S extends Schema.Schema.Any, K extends string>(schema: S, ...keys: K[]) =>
+export const some = <S extends Schema.Top, K extends string>(schema: S, ...keys: K[]) =>
   Object.fromEntries(keys.map(key => [key, Schema.optional(schema)])) as Record<K, Schema.optional<S>>;
 
 export const makeCacheCounts = (read = 0, write = 0) => ({

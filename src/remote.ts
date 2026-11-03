@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { Duration, Effect, Layer, Redacted, Schedule, Stream } from 'effect';
+import { Duration, Effect, Layer, Redacted, Schedule, Stream, Semaphore } from 'effect';
 import { dockerSandbox } from './docker.ts';
 import { getCachePath, makeToolchainSetupCommands } from './env.ts';
 import type { TrackerError } from './tracker.ts';
@@ -25,8 +25,8 @@ type BoxEntry = {
   work: Checkout;
   network: NonNullable<Graph['network']>;
   trees: Map<string, string>;
-  sync: Effect.Semaphore;
-  provisioning: Effect.Semaphore;
+  sync: Semaphore.Semaphore;
+  provisioning: Semaphore.Semaphore;
   graph?: string;
   toolchain?: Command;
   ready?: true;
@@ -147,7 +147,7 @@ export const remoteSandbox = (o: {
         });
 
       const pullBack = (box: BoxEntry, home?: SyncedDir) =>
-        Effect.zipRight(pull(box, workDir(box)), home ? pull(box, home) : Effect.void);
+        Effect.andThen(pull(box, workDir(box)), home ? pull(box, home) : Effect.void);
 
       const recover = (box: BoxEntry) =>
         Effect.gen(function* () {
@@ -193,7 +193,7 @@ export const remoteSandbox = (o: {
       const news = (box: BoxEntry) => putDir(box, dirname(box.work.news), dirname(box.work.news));
 
       const lines = (c: Command): Stream.Stream<string | Pick<Exit, 'code'>, SandboxError> =>
-        Stream.unwrapScoped(
+        Stream.unwrap(
           Effect.gen(function* () {
             const box = boxes.get(c.dir);
             if (!box) return yield* infra(`${c.dir} is not a checkout of this sandbox`);
@@ -201,13 +201,13 @@ export const remoteSandbox = (o: {
               return yield* infra('a box server cannot keep the work tree read-only; run read-only agents on docker');
             const home = c.home ? yield* homeDir(c.home) : undefined;
             const late = () => new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
-            const bounded = { duration: Duration.minutes(c.minutes), onTimeout: late };
-            yield* Effect.timeoutFail(before(box, c, home), bounded);
+            const bounded = { duration: Duration.minutes(c.minutes), orElse: () => Effect.failSync(late) };
+            yield* Effect.timeoutOrElse(before(box, c, home), bounded);
             if (c !== box.toolchain) yield* provision(box);
-            yield* Effect.timeoutFail(news(box), bounded);
+            yield* Effect.timeoutOrElse(news(box), bounded);
             yield* Effect.forkScoped(
               Effect.repeat(
-                news(box).pipe(Effect.catchAll(e => Effect.logWarning('box news refresh failed', e))),
+                news(box).pipe(Effect.catch(e => Effect.logWarning('box news refresh failed', e))),
                 Schedule.spaced('1 minute')
               )
             );
@@ -232,14 +232,14 @@ export const remoteSandbox = (o: {
                 : Effect.timeout(
                     Effect.interruptible(
                       Effect.retry(
-                        box.sync.withPermits(1)(Effect.zipRight(op(box, 'stop', [id]), pullBack(box, home))),
+                        box.sync.withPermits(1)(Effect.andThen(op(box, 'stop', [id]), pullBack(box, home))),
                         { times: 2 }
                       )
                     ),
                     '5 minutes'
-                  ).pipe(Effect.catchAllCause(() => Effect.sync(() => box.unfinished.set(id, home))))
+                  ).pipe(Effect.catchCause(() => Effect.sync(() => box.unfinished.set(id, home))))
             );
-            const response = yield* Effect.timeoutFail(
+            const response = yield* Effect.timeoutOrElse(
               call(box, `/run?network=${network}&id=${id}`, {
                 method: 'POST',
                 body: JSON.stringify({ argv, secrets }),
@@ -256,10 +256,10 @@ export const remoteSandbox = (o: {
               pulled = true;
               return { code };
             });
-            return Stream.fromReadableStream(
-              () => response.body!,
-              e => infra(`box run: ${(e as Error).message}`)
-            ).pipe(
+            return Stream.fromReadableStream({
+              evaluate: () => response.body!,
+              onError: e => infra(`box run: ${(e as Error).message}`),
+            }).pipe(
               Stream.decodeText(),
               Stream.splitLines,
               Stream.filter(line => {
@@ -267,7 +267,7 @@ export const remoteSandbox = (o: {
                 return code === undefined;
               }),
               Stream.concat(Stream.fromEffect(ended)),
-              Stream.interruptWhen(Effect.zipRight(Effect.sleep(Duration.minutes(c.minutes)), Effect.fail(late())))
+              Stream.interruptWhen(Effect.andThen(Effect.sleep(Duration.minutes(c.minutes)), Effect.fail(late())))
             );
           })
         );
@@ -283,10 +283,13 @@ export const remoteSandbox = (o: {
         );
 
       const exec = (c: Command) =>
-        Stream.runFold(lines(c), { code: 0, output: '' }, (exit: Exit, piece) =>
-          typeof piece === 'string'
-            ? { ...exit, output: (exit.output + piece + '\n').slice(-outputLimit) }
-            : { ...exit, ...piece }
+        Stream.runFold(
+          lines(c),
+          (): Exit => ({ code: 0, output: '' }),
+          (exit: Exit, piece) =>
+            typeof piece === 'string'
+              ? { ...exit, output: (exit.output + piece + '\n').slice(-outputLimit) }
+              : { ...exit, ...piece }
         );
 
       const checkout = (
@@ -303,8 +306,8 @@ export const remoteSandbox = (o: {
             work,
             network: graph?.network ?? 'egress',
             trees: new Map(),
-            sync: yield* Effect.makeSemaphore(1),
-            provisioning: yield* Effect.makeSemaphore(1),
+            sync: yield* Semaphore.make(1),
+            provisioning: yield* Semaphore.make(1),
             unfinished: new Map(),
           };
           if (work.git.GIT_INDEX_FILE && existsSync(work.git.GIT_INDEX_FILE))

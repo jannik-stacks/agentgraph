@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Chunk, Effect, Stream } from 'effect';
+import { Effect, Stream } from 'effect';
 import { afterEach, expect, it } from 'vitest';
 import { readJsonl } from '../bin/resume.ts';
 import { writeIdleRunsCompressed, fileStore, pruneLogs, Store } from '../src/store.ts';
@@ -14,7 +14,7 @@ afterEach(() => {
 it('compresses only idle ended runs, reads them as before, and unpacks on the next line', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-compress-'));
   dirs.push(dir);
-  const store = <A, E>(use: (s: Store['Type']) => Effect.Effect<A, E>) =>
+  const store = <A, E>(use: (s: Store['Service']) => Effect.Effect<A, E>) =>
     Effect.runPromise(Effect.flatMap(Store, use).pipe(Effect.provide(fileStore(dir))));
   const log = await store(s => s.log('lint: 1 error', false));
   const old = new Date(Date.now() - 30 * 86_400_000);
@@ -35,7 +35,7 @@ it('compresses only idle ended runs, reads them as before, and unpacks on the ne
   expect(readdirSync(join(dir, 'idle')).toSorted()).toEqual(['checks.jsonl.zst', 'run.json', 'trace.jsonl.zst']);
   expect(readdirSync(join(dir, 'recent'))).toContain('trace.jsonl');
   expect(readdirSync(join(dir, 'open'))).toContain('trace.jsonl');
-  const read = () => store(s => Effect.map(Stream.runCollect(s.read('idle')), Chunk.toArray));
+  const read = () => store(s => Stream.runCollect(s.read('idle')));
   expect(await read()).toEqual([line('a')]);
   expect(await store(s => s.readChecks('idle'))).toEqual([{ check: 'lint', log }]);
   expect(readJsonl(join(dir, 'idle', 'trace.jsonl'))).toEqual([line('a')]);
@@ -52,7 +52,7 @@ it('keeps the whole history when one store appends across repeated compressions'
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-compress-'));
   dirs.push(dir);
   const layer = fileStore(dir);
-  const store = <A, E>(use: (s: Store['Type']) => Effect.Effect<A, E>) =>
+  const store = <A, E>(use: (s: Store['Service']) => Effect.Effect<A, E>) =>
     Effect.runPromise(Effect.flatMap(Store, use).pipe(Effect.provide(layer)));
   const old = new Date(Date.now() - 30 * 86_400_000);
   const line = (step: string) => ({ at: old.toISOString(), step, saved: { step } });
@@ -68,9 +68,5 @@ it('keeps the whole history when one store appends across repeated compressions'
   await appendThenCompress('a');
   await appendThenCompress('b');
   await appendThenCompress('c');
-  expect(await store(s => Effect.map(Stream.runCollect(s.read('run')), Chunk.toArray))).toEqual([
-    line('a'),
-    line('b'),
-    line('c'),
-  ]);
+  expect(await store(s => Stream.runCollect(s.read('run')))).toEqual([line('a'), line('b'), line('c')]);
 });

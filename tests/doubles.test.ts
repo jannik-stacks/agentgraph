@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Chunk, Effect, Stream } from 'effect';
+import { Effect, Stream } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { folderTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
 import { Sandbox } from '../src/sandbox.ts';
@@ -43,19 +43,19 @@ describe('fileStore', () => {
       Effect.gen(function* () {
         const store = yield* Store;
         yield* store.put(run);
-        const refused = yield* Effect.either(
+        const refused = yield* Effect.result(
           store.put({ ...run, meta: { ...meta, engine: { origin: { ...origin, job: 'other' } } } })
         );
-        const invalid = yield* Effect.either(store.put({ ...run, meta: { bench: undefined } as never }));
+        const invalid = yield* Effect.result(store.put({ ...run, meta: { bench: undefined } as never }));
         return {
           refused: refused._tag,
           invalid: invalid._tag,
           run: yield* store.get('r1'),
-          trace: Chunk.toArray(yield* Stream.runCollect(store.read('r1'))),
+          trace: yield* Stream.runCollect(store.read('r1')),
         };
       }).pipe(Effect.provide(fileStore(temp())))
     );
-    expect(result).toMatchObject({ refused: 'Left', invalid: 'Left', run: { meta } });
+    expect(result).toMatchObject({ refused: 'Failure', invalid: 'Failure', run: { meta } });
     expect(result.trace).toHaveLength(1);
   });
 
@@ -78,7 +78,7 @@ describe('fileStore', () => {
         yield* store.put(run);
         yield* store.put({ ...run, status: 'waiting', reason: 'why' });
         yield* store.put({ ...run, status: 'waiting' });
-        return Chunk.toArray(yield* Stream.runCollect(store.read('r1')));
+        return yield* Stream.runCollect(store.read('r1'));
       }).pipe(Effect.provide(fileStore(temp())))
     );
     expect(lines[0]).toMatchObject({ step: 'triage', saved: run });
@@ -135,11 +135,11 @@ describe('fileStore', () => {
       Effect.runPromise(effect.pipe(Effect.provide(fileStore(dir))));
     await store(Effect.flatMap(Store, s => s.put(run)));
     chmodSync(join(dir, 'r1'), 0o555);
-    const failed = await store(Effect.either(Effect.flatMap(Store, s => s.put({ ...run, status: 'waiting' }))));
+    const failed = await store(Effect.result(Effect.flatMap(Store, s => s.put({ ...run, status: 'waiting' }))));
     chmodSync(join(dir, 'r1'), 0o755);
-    expect(failed._tag).toBe('Left');
+    expect(failed._tag).toBe('Failure');
     const lines = await store(Effect.flatMap(Store, s => Stream.runCollect(s.read('r1'))));
-    expect(Chunk.toArray(lines).at(-1)).toMatchObject({ saved: { status: 'waiting' } });
+    expect(lines.at(-1)).toMatchObject({ saved: { status: 'waiting' } });
     mkdirSync(join(dir, 'r2'));
     writeFileSync(join(dir, 'r2', 'trace.jsonl'), `${JSON.stringify({ at: 'a', step: 'triage', saved: run })}\n`);
     expect((await store(Effect.flatMap(Store, s => s.list()))).map(r => r.id)).toEqual(['r1']);
@@ -172,7 +172,7 @@ describe('fileStore', () => {
       )
     );
     expect(read).toEqual({ ...run, issue: 3, status: 'waiting', feedback: 'fix it', said: [{ issue: 4 }] });
-    expect(Chunk.toArray(trace)).toEqual([
+    expect(trace).toEqual([
       { at: 'a', step: 'triage', prompt: { prompt: 'p', agent: 'triager' } },
       lines[1],
       { at: 'c', step: 'triage', saved: {}, cleared: ['feedback'] },
@@ -193,13 +193,13 @@ describe('fileStore', () => {
       Effect.gen(function* () {
         const store = yield* Store;
         const second = yield* Effect.scoped(
-          Effect.zipRight(store.lock('run'), Effect.either(Effect.scoped(store.lock('run'))))
+          Effect.andThen(store.lock('run'), Effect.result(Effect.scoped(store.lock('run'))))
         );
-        const again = yield* Effect.either(Effect.scoped(store.lock('run')));
+        const again = yield* Effect.result(Effect.scoped(store.lock('run')));
         return { second: second._tag, again: again._tag };
       }).pipe(Effect.provide(fileStore(temp())))
     );
-    expect(result).toEqual({ second: 'Left', again: 'Right' });
+    expect(result).toEqual({ second: 'Failure', again: 'Success' });
   });
 
   it('lets exactly one of many racing stores take over a stale lock', async () => {
@@ -208,9 +208,9 @@ describe('fileStore', () => {
       mkdirSync(join(dir, '.locks'), { recursive: true });
       writeFileSync(join(dir, '.locks', 'run.lock'), `999999999:gone-${round}`);
       const takers = Array.from({ length: 8 }, () =>
-        Effect.either(
+        Effect.result(
           Effect.scoped(
-            Effect.zipRight(
+            Effect.andThen(
               Effect.flatMap(Store, s => s.lock('run')),
               Effect.sleep('50 millis')
             ).pipe(Effect.provide(fileStore(dir)))
@@ -218,7 +218,7 @@ describe('fileStore', () => {
         )
       );
       const taken = await Effect.runPromise(Effect.all(takers, { concurrency: 'unbounded' }));
-      expect(taken.filter(t => t._tag === 'Right')).toHaveLength(1);
+      expect(taken.filter(t => t._tag === 'Success')).toHaveLength(1);
     }
   });
 
@@ -229,9 +229,9 @@ describe('fileStore', () => {
     writeFileSync(lock, '999999999:gone');
     writeFileSync(`${lock}.${createHash('sha256').update('999999999:gone').digest('hex')}.next`, '999999998:died');
     const taken = await Effect.runPromise(
-      Effect.either(Effect.scoped(Effect.flatMap(Store, s => s.lock('run')))).pipe(Effect.provide(fileStore(dir)))
+      Effect.result(Effect.scoped(Effect.flatMap(Store, s => s.lock('run')))).pipe(Effect.provide(fileStore(dir)))
     );
-    expect(taken._tag).toBe('Right');
+    expect(taken._tag).toBe('Success');
   });
 });
 
@@ -245,14 +245,14 @@ describe('folderTracker', () => {
         yield* tracker.apply(1, { kind: 'label', add: ['size:M'], remove: ['ready'] });
         const child = yield* tracker.apply(1, { kind: 'issue', title: 'Part', body: 'A part.', parent: 1 });
         const merge = yield* tracker.apply(1, { kind: 'merge', number: 1, head: 'x' });
-        const missing = yield* Effect.either(tracker.issue(9));
+        const missing = yield* Effect.result(tracker.issue(9));
         return {
           labelled: (yield* tracker.issues({ labels: ['size:M'] })).map(t => t.number),
           children: (yield* tracker.issues({ parent: 1 })).map(t => [t.number, t.title, t.body]),
           child: child.ok,
           merge: merge.reason,
-          missing: missing._tag === 'Left' && missing.left.status,
-          events: Chunk.toArray(yield* Stream.runCollect(tracker.since(''))).map(m => [m.kind, m.label, m.trusted]),
+          missing: missing._tag === 'Failure' && missing.failure.status,
+          events: (yield* Stream.runCollect(tracker.since(''))).map(m => [m.kind, m.label, m.trusted]),
         };
       }).pipe(Effect.provide(folderTracker(dir)))
     );
@@ -469,8 +469,8 @@ describe('hostSandbox', () => {
         const sandbox = yield* Sandbox;
         const exit = yield* sandbox.exec({ ...command, args: ['-c', 'echo "$WHO"; exit 3'] });
         const lines = yield* Stream.runCollect(sandbox.lines({ ...command, args: ['-c', 'echo a; echo b'] }));
-        const late = yield* Effect.either(sandbox.exec({ ...command, args: ['-c', 'sleep 5'], minutes: 0.001 }));
-        return { exit, lines: Chunk.toArray(lines), late: late._tag === 'Left' && late.left.reason };
+        const late = yield* Effect.result(sandbox.exec({ ...command, args: ['-c', 'sleep 5'], minutes: 0.001 }));
+        return { exit, lines, late: late._tag === 'Failure' && late.failure.reason };
       }).pipe(Effect.scoped, Effect.provide(hostSandbox(dir)))
     );
     expect(out).toEqual({ exit: { code: 3, output: 'bot\n' }, lines: ['a', 'b', { code: 0 }], late: 'timeout' });

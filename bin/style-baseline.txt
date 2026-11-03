@@ -228,7 +228,6 @@ verb-first src/tracker.ts matches
 verb-first src/tracker.ts unpushable
 verb-first src/tracker.ts withheld
 verb-first src/workflow.ts begin
-verb-first src/workflow.ts exact
 verb-first src/workflow.ts fold
 verb-first src/workflow.ts transition
 verb-first src/workflow.ts unchanged

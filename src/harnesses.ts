@@ -46,10 +46,10 @@ export type Provider = {
 export type HarnessSettings = { harnesses: Harness[]; providers?: Provider[]; harness?: string; provider?: string };
 
 export const readHarnessSettings = Effect.gen(function* () {
-  const file = yield* Effect.orDie(Config.string('AGENTGRAPH_CONFIG').pipe(Config.withDefault('')));
+  const file = yield* Effect.orDie(Config.String('AGENTGRAPH_CONFIG').pipe(Config.withDefault('')));
   const path = file ? resolve(file) : 'agentgraph.config.ts';
-  const harness = yield* Effect.orDie(Config.string('AGENTGRAPH_HARNESS').pipe(Config.withDefault('')));
-  const named = yield* Effect.orDie(Config.string('AGENTGRAPH_PROVIDER').pipe(Config.withDefault('')));
+  const harness = yield* Effect.orDie(Config.String('AGENTGRAPH_HARNESS').pipe(Config.withDefault('')));
+  const named = yield* Effect.orDie(Config.String('AGENTGRAPH_PROVIDER').pipe(Config.withDefault('')));
   return yield* Effect.tryPromise({
     try: async () => {
       const settings: HarnessSettings | undefined = (
@@ -84,7 +84,7 @@ export const readConfiguredGraph = (dir: string) =>
   Effect.gen(function* () {
     const settings = yield* readHarnessSettings;
     const graph = yield* loadGraph(dir, settings.harnesses, settings.harness);
-    const repo = yield* Effect.orDie(Config.string('AGENTGRAPH_REPO').pipe(Config.withDefault('')));
+    const repo = yield* Effect.orDie(Config.String('AGENTGRAPH_REPO').pipe(Config.withDefault('')));
     return { ...graph, repo: repo || graph.repo };
   });
 
@@ -94,7 +94,7 @@ export const makeHarnessConfigProvider = (
 ) => {
   const names = { config: 'AGENTGRAPH_CONFIG', provider: 'AGENTGRAPH_PROVIDER', harness: 'AGENTGRAPH_HARNESS' };
   const chosen = Object.entries(choice).flatMap(([k, v]) => (v ? [[names[k as keyof typeof names], v] as const] : []));
-  return ConfigProvider.fromMap(new Map(chosen)).pipe(ConfigProvider.orElse(() => fallback));
+  return ConfigProvider.fromEnv({ env: Object.fromEntries(chosen) }).pipe(ConfigProvider.orElse(fallback));
 };
 
 const inputFile = '.agentgraph/input';
@@ -189,7 +189,7 @@ export const harnessSession = (
         : { table: {}, aliases: {} };
 
       const open = (spec: SessionSpec) =>
-        Stream.unwrapScoped(
+        Stream.unwrap(
           Effect.gen(function* () {
             const harness = s.harnesses.find(h => h.name === spec.harness);
             if (!harness)
@@ -318,7 +318,7 @@ export const harnessSession = (
                 network: 'proxy',
                 minutes: spec.minutes,
               })
-              .pipe(Stream.mapError(makeSessionStop), Stream.mapConcat(step));
+              .pipe(Stream.mapError(makeSessionStop), Stream.map(step), Stream.flattenIterable);
           })
         );
 

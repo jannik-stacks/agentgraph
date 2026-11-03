@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Chunk, Effect, Stream } from 'effect';
+import { Effect, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { fileStore, Store } from '../src/store.ts';
 import type { Trace } from '../src/trace.ts';
@@ -187,7 +187,6 @@ describe('sessions in a trace', () => {
   it('reads an older trace with briefs and shows every tool call under its session', async () => {
     const old = await Effect.runPromise(
       Effect.flatMap(Store, store => Stream.runCollect(store.read('issue-6'))).pipe(
-        Effect.map(Chunk.toArray),
         Effect.provide(fileStore(join(import.meta.dirname, 'fixtures', 'brief-trace')))
       )
     );

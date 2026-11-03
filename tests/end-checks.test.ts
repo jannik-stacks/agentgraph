@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect, Either } from 'effect';
+import { Effect, Result } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { instruct, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import type { Check, Graph } from '../src/folder.ts';
@@ -424,8 +424,8 @@ describe('end checks', () => {
     const changed = { ...h, checks: { ...h.checks, lines: { ...h.checks.lines!, version: 'v2' } } };
     await run(instruct(changed, { kind: 'check', checks: ['wipe', 'lines'], issue: 7 }));
     expect(results(where.data).map(r => r.check)).toEqual(['wipe', 'lines', 'lines']);
-    const refused = await run(Effect.either(instruct(h, { kind: 'check', checks: ['nope'] })));
-    expect(Either.isLeft(refused) && refused.left.message).toBe('the graph has no check nope');
+    const refused = await run(Effect.result(instruct(h, { kind: 'check', checks: ['nope'] })));
+    expect(Result.isFailure(refused) && refused.failure.message).toBe('the graph has no check nope');
   });
 
   it('score a run with no issue, which the live reads of the store never see', async () => {
@@ -461,7 +461,7 @@ describe('end checks', () => {
     const session = { resumed: false, ended: 'stop' as const, usd: 0 };
     await run(
       Effect.flatMap(Store, s =>
-        Effect.zipRight(
+        Effect.andThen(
           s.put({ ...fresh(), status: 'done', step: 'merge', ...(startCommit && { startCommit }) }),
           s.trace('run-7', { at: '2026-10-16T00:00:02.000Z', step: 'merge', session })
         )

@@ -55,7 +55,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
  * It keeps its own files there as one local commit when its scope closes. Every command in a checkout runs in the
  * `image` and on the `network` of the `graph` it was made for, starting from that graph's sandbox setup at the base when there is one.
  */
-export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
+export class Sandbox extends Context.Service<
   Sandbox,
   {
     scratch?: string;
@@ -70,4 +70,4 @@ export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
     lines: (command: Command) => Stream.Stream<string | Pick<Exit, 'code' | 'used'>, SandboxError, Scope.Scope>;
   }
->() {}
+>()('agentgraph/Sandbox') {}

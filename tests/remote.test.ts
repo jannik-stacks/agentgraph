@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { Chunk, Effect, Exit, Fiber, type Layer, Redacted, type Scope, Stream } from 'effect';
+import { Effect, Exit, Fiber, type Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { remoteSandbox } from '../src/remote.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
@@ -23,7 +23,7 @@ const origin = () => {
   return dir;
 };
 
-const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Type']) => Effect.Effect<A, E, Scope.Scope>) =>
+const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Service']) => Effect.Effect<A, E, Scope.Scope>) =>
   Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
 
 const sh = (dir: string, script: string, more: Partial<Command> = {}): Command => ({
@@ -95,7 +95,7 @@ describe('remote sandbox', () => {
         Stream.runCollect(s.lines(sh(work.dir, 'echo one; echo two; printf three; exit 3')))
       )
     );
-    expect(Exit.map(exit, Chunk.toArray)).toEqual(Exit.succeed(['one', 'two', 'three', { code: 3 }]));
+    expect(exit).toEqual(Exit.succeed(['one', 'two', 'three', { code: 3 }]));
   });
 
   it('brings the session home, the graph and the news to the box, on the network of its graph', async () => {
@@ -175,14 +175,14 @@ describe('remote sandbox', () => {
       Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true', { graph })))
     );
     chmodSync(join(graph, 'secret.md'), 0o600);
-    expect(String(exit)).toContain('tar');
+    expect(JSON.stringify(exit)).toContain('tar');
   });
 
   it('refuses a graph image and a dir it did not check out', async () => {
     const image = await use(layer(), s => s.checkout('main', undefined, undefined, { image: 'other' }));
     const stray = await use(layer(), s => s.exec(sh(tmp('stray'), 'true')));
-    expect(String(image)).toContain('one image');
-    expect(String(stray)).toContain('is not a checkout');
+    expect(JSON.stringify(image)).toContain('one image');
+    expect(JSON.stringify(stray)).toContain('is not a checkout');
   });
 
   it('destroys the box when the checkout closes', async () => {
@@ -200,12 +200,12 @@ describe('remote sandbox', () => {
     const exit = await use(layer(), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
-        const ran = yield* Effect.either(
+        const ran = yield* Effect.result(
           s.exec(sh(work.dir, 'echo early > e.txt; sleep 4; echo late > l.txt', { minutes: 0.05 }))
         );
         yield* Effect.sleep('1800 millis');
         const after = yield* s.exec(sh(work.dir, 'ls'));
-        return [String(ran).includes('timeout'), existsSync(join(work.dir, 'e.txt')), after.output];
+        return [JSON.stringify(ran).includes('timeout'), existsSync(join(work.dir, 'e.txt')), after.output];
       })
     );
     expect(exit).toEqual(Exit.succeed([true, true, 'a.txt\ne.txt\n']));
@@ -252,13 +252,13 @@ describe('remote sandbox', () => {
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
         server.faults.pulls = 4;
-        const failed = yield* Effect.either(s.exec(sh(work.dir, 'echo box > b.txt')));
+        const failed = yield* Effect.result(s.exec(sh(work.dir, 'echo box > b.txt')));
         const missing = !existsSync(join(work.dir, 'b.txt'));
         const next = yield* s.exec(sh(work.dir, 'cat b.txt'));
         return [failed._tag, missing, next.output, readFileSync(join(work.dir, 'b.txt'), 'utf8')];
       })
     );
-    expect(exit).toEqual(Exit.succeed(['Left', true, 'box\n', 'box\n']));
+    expect(exit).toEqual(Exit.succeed(['Failure', true, 'box\n', 'box\n']));
   });
 
   it('stops a command whose stop failed before pulling its work', async () => {
@@ -267,7 +267,7 @@ describe('remote sandbox', () => {
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
         const started = join(boxes, basename(work.dir), 'work', 'started');
-        const writer = yield* Effect.fork(s.exec(sh(work.dir, waiting)));
+        const writer = yield* Effect.forkChild(s.exec(sh(work.dir, waiting)));
         yield* Effect.promise(() =>
           vi.waitFor(() => existsSync(started) || Promise.reject(new Error('the writer has not started')), {
             timeout: 60_000,
@@ -289,10 +289,10 @@ describe('remote sandbox', () => {
     const exit = await use(layer(), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
-        const slow = yield* Effect.fork(s.exec(sh(work.dir, 'sleep 0.5; echo slow')));
+        const slow = yield* Effect.forkChild(s.exec(sh(work.dir, 'sleep 0.5; echo slow')));
         yield* Effect.sleep('100 millis');
         yield* s.exec(sh(work.dir, 'true'));
-        return yield* slow.await;
+        return yield* Fiber.await(slow);
       })
     );
     expect(exit).toEqual(Exit.succeed(Exit.succeed({ code: 0, output: 'slow\n' })));
@@ -302,13 +302,13 @@ describe('remote sandbox', () => {
     const exit = await use(layer(), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
-        const gone = yield* Effect.either(s.exec(sh(work.dir, 'rm -rf "$AGENTGRAPH_BOX_ROOT"')));
-        const told = yield* Effect.either(s.exec(sh(work.dir, 'true')));
+        const gone = yield* Effect.result(s.exec(sh(work.dir, 'rm -rf "$AGENTGRAPH_BOX_ROOT"')));
+        const told = yield* Effect.result(s.exec(sh(work.dir, 'true')));
         const next = yield* s.exec(sh(work.dir, 'cat a.txt'));
-        return [gone._tag, String(told).includes('kept/'), next.output];
+        return [gone._tag, JSON.stringify(told).includes('kept/'), next.output];
       })
     );
-    expect(exit).toEqual(Exit.succeed(['Left', true, 'main\n']));
+    expect(exit).toEqual(Exit.succeed(['Failure', true, 'main\n']));
   });
 
   it('keeps the box when its work never came back', async () => {
@@ -317,7 +317,7 @@ describe('remote sandbox', () => {
       Effect.flatMap(s.checkout('main'), work => {
         id = basename(work.dir);
         server.faults.pulls = 100;
-        return Effect.either(s.exec(sh(work.dir, 'echo box > b.txt')));
+        return Effect.result(s.exec(sh(work.dir, 'echo box > b.txt')));
       })
     );
     server.faults.pulls = 0;
@@ -330,6 +330,6 @@ describe('remote sandbox', () => {
       Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true')))
     );
     await mute.close();
-    expect(String(exit)).toContain('without an exit code');
+    expect(JSON.stringify(exit)).toContain('without an exit code');
   });
 });

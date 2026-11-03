@@ -16,7 +16,7 @@ import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'nod
 import { basename, dirname, join, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { gunzip, gzip, zstdCompress, zstdDecompress, zstdDecompressSync } from 'node:zlib';
-import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope } from 'effect';
+import { Context, Data, Effect, Result, Layer, Schema, Stream, type Scope, Semaphore } from 'effect';
 import { createLock, LockHeldError, waitForLock } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
 import { isRunDone, type Run, type RunRecord } from './workflow.ts';
@@ -61,9 +61,9 @@ export const writeFileAtomic = (path: string, v: unknown) => {
 };
 
 const parseResultSheet = (value: unknown) => {
-  const decoded = Schema.decodeUnknownEither(ResultSheet, { onExcessProperty: 'error' })(value);
-  if (Either.isLeft(decoded)) throw new Error('invalid result sheet');
-  return decoded.right;
+  const decoded = Schema.decodeUnknownResult(ResultSheet, { onExcessProperty: 'error' })(value);
+  if (Result.isFailure(decoded)) throw new Error('invalid result sheet');
+  return decoded.success;
 };
 
 export const readResultSheet = (path: string) => {
@@ -125,7 +125,7 @@ export const checkLogs = ['all', 'failed', 'off'] as const;
 export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {}
 
 /** Runs, traces and run files in the data dir. */
-export class Store extends Context.Tag('agentgraph/Store')<
+export class Store extends Context.Service<
   Store,
   {
     get: (id: string) => Effect.Effect<Run | undefined, StoreError>;
@@ -145,7 +145,7 @@ export class Store extends Context.Tag('agentgraph/Store')<
     putFile: (bytes: Uint8Array, signal: AbortSignal) => Effect.Effect<string, StoreError>;
     readFile: (hash: string) => Effect.Effect<Uint8Array, StoreError>;
   }
->() {}
+>()('agentgraph/Store') {}
 
 const renamed: Record<string, string> = {
   brief: 'prompt',
@@ -232,10 +232,10 @@ const parseJsonlRows = (path: string, text: string): unknown[] =>
 
 export const readJsonlRows = (path: string) => parseJsonlRows(path, readRecordSync(path));
 
-const writers = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
+const writers = new Map<string, Semaphore.Semaphore>();
 
 export const appendJsonlRows = (path: string, lines: unknown[]) => {
-  const writer = writers.get(path) ?? Effect.unsafeMakeSemaphore(1);
+  const writer = writers.get(path) ?? Semaphore.makeUnsafe(1);
   writers.set(path, writer);
   return writer.withPermits(1)(
     Effect.tryPromise({
@@ -374,7 +374,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       Effect.gen(function* () {
         const before = yield* readRun(next.id);
         yield* io(runFile(next.id), async () => {
-          if (next.meta !== undefined && Either.isLeft(Schema.decodeUnknownEither(PluginMetadata)(next.meta)))
+          if (next.meta !== undefined && Result.isFailure(Schema.decodeUnknownResult(PluginMetadata)(next.meta)))
             throw new Error('invalid run metadata');
           if (before && !isDeepStrictEqual(getRunOrigin(before.meta), getRunOrigin(next.meta)))
             throw new Error('engine origin cannot change after run creation');
@@ -415,7 +415,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
   });
 };
 
-const Query = Schema.Struct({ gh: Schema.Trim.pipe(Schema.nonEmptyString()) });
+const Query = Schema.Struct({ gh: Schema.Trim.check(Schema.isNonEmpty()) });
 
 /** A write of a run, at the time the studio opens it at, or an issue whose runs to show. */
 export type Located = { run: string; step: string; at: string } | { issue: number };
@@ -428,13 +428,13 @@ export type Located = { run: string; step: string; at: string } | { issue: numbe
  */
 export const locate = (input: unknown) =>
   Effect.gen(function* () {
-    const { gh } = yield* Schema.decodeUnknown(Query)(input);
+    const { gh } = yield* Schema.decodeUnknownEffect(Query)(input);
     const store = yield* Store;
     const id = /(?:#discussion_r|#issuecomment-|#r|^)(\d+)$/.exec(gh)?.[1];
     const url = gh.replace(/\/+$/, '');
     let found: { run: Run; step: string; at: string } | undefined;
     for (const run of yield* store.list())
-      for (const line of Chunk.toArray(yield* Stream.runCollect(store.read(run.id)))) {
+      for (const line of yield* Stream.runCollect(store.read(run.id))) {
         if (!('applied' in line)) continue;
         const { applied: a } = line;
         if (a.url !== url && !(id && a.proposal.kind === 'comment' && a.id === id)) continue;

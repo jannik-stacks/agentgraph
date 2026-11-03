@@ -48,10 +48,10 @@ const measureChecks = async (sessions: number, judged = false) => {
     }),
     () => Effect.sync(() => void live--)
   ).pipe(
-    Effect.zipRight(
+    Effect.andThen(
       Effect.suspend(() => (live >= Math.min(sessions, 5) ? Deferred.succeed(full, undefined) : Effect.void))
     ),
-    Effect.zipRight(Deferred.await(full))
+    Effect.andThen(Deferred.await(full))
   );
   const sandbox = Layer.succeed(Sandbox, {
     readHead: () => Effect.die('unexpected readHead'),
@@ -67,7 +67,7 @@ const measureChecks = async (sessions: number, judged = false) => {
   });
   const session = Layer.succeed(Session, {
     open: () =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
           yield* occupy;
           judges++;

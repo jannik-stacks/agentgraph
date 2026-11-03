@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
-import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
+import { Cause, Duration, Effect, Layer, Queue, Redacted, Stream } from 'effect';
 import { gitIdentity } from '../../src/git.ts';
 import { Sandbox, SandboxError, type Checkout, type Command, type Exit } from '../../src/sandbox.ts';
 
@@ -106,7 +106,7 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
           }).pipe(
             Effect.mapError(e => new Error(`unsaved checkout preserved at ${dir}: ${String(e)}`, { cause: e })),
             Effect.orDie,
-            Effect.zipRight(
+            Effect.andThen(
               Effect.promise(() => Promise.all([dir, news].map(p => rm(p, { recursive: true, force: true }))))
             )
           )
@@ -125,7 +125,7 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
       );
     },
     exec: command =>
-      Effect.async<Exit, SandboxError>(resume => {
+      Effect.callback<Exit, SandboxError>(resume => {
         const child = spawned(command);
         let output = '';
         const collect = (chunk: Buffer) => void (output += chunk.toString());
@@ -134,17 +134,27 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         child.on('error', e => resume(Effect.fail(new SandboxError({ reason: 'infra', detail: e.message }))));
         child.on('close', code => resume(Effect.succeed({ code: code ?? 137, output })));
         return Effect.sync(() => child.kill('SIGKILL'));
-      }).pipe(Effect.timeoutFail({ duration: Duration.minutes(command.minutes), onTimeout: late(command) })),
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: Duration.minutes(command.minutes),
+          orElse: () => Effect.failSync(late(command)),
+        })
+      ),
     lines: command =>
-      Stream.async<string | Pick<Exit, 'code'>, SandboxError>(emit => {
+      Stream.callback<string | Pick<Exit, 'code'>, SandboxError>(queue => {
         const child = spawned(command);
-        createInterface({ input: child.stdout }).on('line', line => void emit.single(line));
-        child.on('error', e => void emit.fail(new SandboxError({ reason: 'infra', detail: e.message })));
-        child.on('close', code => void emit.single({ code: code ?? 137 }).then(() => emit.end()));
-        return Effect.sync(() => child.kill('SIGKILL'));
+        createInterface({ input: child.stdout }).on('line', line => void Queue.offerUnsafe(queue, line));
+        child.on('error', e =>
+          Queue.failCauseUnsafe(queue, Cause.fail(new SandboxError({ reason: 'infra', detail: e.message })))
+        );
+        child.on('close', code => {
+          Queue.offerUnsafe(queue, { code: code ?? 137 });
+          Queue.endUnsafe(queue);
+        });
+        return Effect.addFinalizer(() => Effect.sync(() => child.kill('SIGKILL')));
       }).pipe(
         Stream.interruptWhen(
-          Effect.zipRight(Effect.sleep(Duration.minutes(command.minutes)), Effect.failSync(late(command)))
+          Effect.andThen(Effect.sleep(Duration.minutes(command.minutes)), Effect.failSync(late(command)))
         )
       ),
   });
