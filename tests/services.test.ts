@@ -87,6 +87,7 @@ export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: '
     return 'problem' in picked ? picked.problem : undefined;
   };
   expect(await problem('mine')).toBeUndefined();
+  expect(await problem('')).toMatch(/^name a tracker/);
   expect(await problem('github', true)).toBeUndefined();
   expect(await problem('board')).toBe('plugin board has no tracker');
   expect(await problem('mine', true)).toMatch(/^tracker mine is a plugin of a graph read from the repo/);
