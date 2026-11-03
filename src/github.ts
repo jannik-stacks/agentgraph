@@ -21,8 +21,8 @@ import {
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import { makePlugin } from './plugin.ts';
 import type { Proposal } from './proposal.ts';
-import type { Checkout } from './sandbox.ts';
-import { hostGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
+import type { Checkout, SandboxError } from './sandbox.ts';
+import { hostGit, mergeTreeOnto, commitPublishedTree, readGit } from './git.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type User = { login: string; type?: string } | null | undefined;
@@ -161,9 +161,9 @@ const appJwt = (id: string, pem: string, now: number) => {
   return `${input}.${sign('sha256', Buffer.from(input), key).toString('base64url')}`;
 };
 
-const git = (work: Checkout, args: string[]) =>
-  Effect.mapError(hostGit(work.git, args), e => new TrackerError({ message: e.detail }));
-const gitText = (work: Checkout, args: string[]) => Effect.map(git(work, args), out => out.toString('utf8').trim());
+const toTrackerError = (e: SandboxError) => new TrackerError({ message: e.detail });
+const git = (work: Checkout, args: string[]) => Effect.mapError(hostGit(work.git, args), toTrackerError);
+const gitText = (work: Checkout, args: string[]) => Effect.mapError(readGit(work.git, args), toTrackerError);
 
 const refPath = (branch: string) =>
   branch.split('/').some(part => !part || part === '.' || part === '..')
