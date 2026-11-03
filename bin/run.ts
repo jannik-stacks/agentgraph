@@ -144,7 +144,9 @@ const relabel = async (data: string) => {
   if (!(await Effect.runPromise(Effect.flatMap(Store, s => s.get(id)).pipe(Effect.provide(fileStore(data))))))
     fail(`no run ${id || '<run id>'} in ${data}`);
   try {
-    const labels = words.length ? writeRunLabels(data, id, parseLabelPatch(words)) : readRunLabels(data, id);
+    const labels = words.length
+      ? await Effect.runPromise(writeRunLabels(data, id, parseLabelPatch(words)))
+      : readRunLabels(data, id);
     for (const [key, value] of Object.entries(labels)) console.log(`${key}=${value}`);
   } catch (e) {
     fail((e as Error).message);

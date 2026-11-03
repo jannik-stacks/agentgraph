@@ -1137,7 +1137,7 @@ describe('start with one issue', () => {
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
       expect(parked[0]!.meta).toEqual(one.meta);
       const started = readRunLabels(where.data, parked[0]!.id);
-      writeRunLabels(where.data, parked[0]!.id, { arm: null, note: 'flaky' });
+      await Effect.runPromise(writeRunLabels(where.data, parked[0]!.id, { arm: null, note: 'flaky' }));
       expect(seen[0]).toMatchObject({
         repo: 'acme/sandbox',
         data: where.data,

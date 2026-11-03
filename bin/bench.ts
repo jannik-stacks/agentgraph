@@ -691,7 +691,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
       reuse(kept!, at);
       const data = join(at, 'data');
       for (const id of readdirSync(data).filter(id => existsSync(join(data, id, 'run.json'))))
-        writeRunLabels(data, id, makeArmRunLabels(c, arm));
+        await Effect.runPromise(writeRunLabels(data, id, makeArmRunLabels(c, arm)));
       return;
     }
     const failed = () =>

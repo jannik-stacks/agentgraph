@@ -165,12 +165,7 @@ export const start = (
               put: run =>
                 Effect.zipRight(
                   Effect.flatMap(store.get(run.id), was =>
-                    was
-                      ? Effect.void
-                      : Effect.try({
-                          try: () => writeRunLabels(one.data, run.id, labels),
-                          catch: cause => new StoreError({ path: one.data, cause }),
-                        })
+                    was ? Effect.void : writeRunLabels(one.data, run.id, labels)
                   ),
                   store.put(run)
                 ),

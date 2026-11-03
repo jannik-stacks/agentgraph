@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import { Effect } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configure, readBenchDriveState } from '../bench/drive.ts';
 import { readJsonl } from '../bin/resume.ts';
@@ -150,15 +151,17 @@ describe('bench driver durability', () => {
       for (const arm of ['v2', 'floor']) {
         mkdirSync(join(at, arm, 'data/run-1'), { recursive: true });
         writeFileSync(join(at, arm, 'data/run-1/run.json'), '{}');
-        writeRunLabels(join(at, arm, 'data'), 'run-1', {
-          case: 'c1',
-          arm,
-          harness: point.split('-')[0]!,
-          model: 'm',
-          repeat: '1',
-          engine: sha(dir).slice(0, 8),
-          set: basename(dir),
-        });
+        await Effect.runPromise(
+          writeRunLabels(join(at, arm, 'data'), 'run-1', {
+            case: 'c1',
+            arm,
+            harness: point.split('-')[0]!,
+            model: 'm',
+            repeat: '1',
+            engine: sha(dir).slice(0, 8),
+            set: basename(dir),
+          })
+        );
         writeFileSync(join(at, arm, 'diff.patch'), 'd');
         writeFileSync(join(at, arm, 'score.json'), '{}');
       }

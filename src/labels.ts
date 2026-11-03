@@ -1,6 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
+import { appendJsonlRows, readJsonlRows } from './store.ts';
 
 const LabelRecord = Schema.Record({
   key: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9-]{0,31}$/, { message: () => 'a label key is a-z, 0-9 and -' })),
@@ -18,10 +18,9 @@ const labelsLog = (data: string, id: string) => {
 };
 
 export const readRunLabels = (data: string, id: string): typeof LabelRecord.Type => {
-  const log = labelsLog(data, id);
   const labels = new Map<string, string>();
-  for (const line of existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) {
-    const { key, value } = JSON.parse(line) as { key: string; value: string | null };
+  for (const row of readJsonlRows(labelsLog(data, id))) {
+    const { key, value } = row as { key: string; value: string | null };
     if (value === null) labels.delete(key);
     else labels.set(key, value);
   }
@@ -29,13 +28,13 @@ export const readRunLabels = (data: string, id: string): typeof LabelRecord.Type
 };
 
 export const writeRunLabels = (data: string, id: string, patch: Record<string, string | null>) => {
-  const merged = Object.entries({ ...readRunLabels(data, id), ...patch }).filter(([, v]) => v !== null);
-  parseLabels(Object.fromEntries(merged));
+  const log = labelsLog(data, id);
+  parseLabels(
+    Object.fromEntries(Object.entries({ ...readRunLabels(data, id), ...patch }).filter(([, v]) => v !== null))
+  );
   const at = new Date().toISOString();
-  const lines = Object.entries(patch).map(([key, value]) => `${JSON.stringify({ at, key, value })}\n`);
-  mkdirSync(join(data, id), { recursive: true });
-  if (lines.length) appendFileSync(labelsLog(data, id), lines.join(''));
-  return readRunLabels(data, id);
+  const rows = Object.entries(patch).map(([key, value]) => ({ at, key, value }));
+  return Effect.map(rows.length ? appendJsonlRows(log, rows) : Effect.void, () => readRunLabels(data, id));
 };
 
 export const parseLabelPatch = (words: readonly string[]): Record<string, string | null> =>

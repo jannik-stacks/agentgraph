@@ -211,45 +211,30 @@ export const writeIdleRunsCompressed = async (dir: string, days: number) => {
   }
 };
 
-/**
- * A run is `<dir>/<id>/run.json`, stamped `ended` when first stored done or stopped, its trace `<dir>/<id>/trace.jsonl` and its check record `<dir>/<id>/checks.jsonl`;
- * every put that changes the run first traces what changed, so a trace may hold a change its run.json missed. Locks carry a process owner and an acquisition id.
- * Check output is gzipped once per content at `<dir>/logs/<sha256>.gz`, as `logs` says.
- */
-export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all'): Layer.Layer<Store> => {
-  const io = <A>(path: string, f: () => Promise<A>) =>
-    Effect.tryPromise({ try: f, catch: cause => new StoreError({ path, cause }) });
-  const runFile = (id: string) => join(dir, id, 'run.json');
-  const traceFile = (id: string) => join(dir, id, 'trace.jsonl');
-  const checksFile = (id: string) => join(dir, id, 'checks.jsonl');
-  const readLines = <A>(path: string) =>
-    io(path, async () =>
-      (await readRecord(path)).split('\n').flatMap((line, i, lines): A[] => {
-        if (!line) return [];
-        try {
-          return [current(JSON.parse(line)) as A];
-        } catch (e) {
-          if (i === lines.length - 1) {
-            console.error(`${path}: 1 skipped incomplete JSONL row at line ${i + 1}: ${String(e)}`);
-            return [];
-          }
-          throw e;
-        }
-      })
-    );
-  const readRun = (id: string) =>
-    io(runFile(id), () =>
-      readFile(runFile(id), 'utf8').then(
-        text => current(JSON.parse(text)) as Run,
-        e => (missing(e) ? undefined : Promise.reject(e))
-      )
-    );
-  const writers = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
-  const append = (path: string, lines: unknown[]) => {
-    const writer = writers.get(path) ?? Effect.unsafeMakeSemaphore(1);
-    writers.set(path, writer);
-    return writer.withPermits(1)(
-      io(path, async () => {
+const parseJsonlRows = (path: string, text: string): unknown[] =>
+  text.split('\n').flatMap((line, i, lines) => {
+    if (!line) return [];
+    try {
+      return [JSON.parse(line) as unknown];
+    } catch (e) {
+      if (i === lines.length - 1) {
+        console.error(`${path}: 1 skipped incomplete JSONL row at line ${i + 1}: ${String(e)}`);
+        return [];
+      }
+      throw e;
+    }
+  });
+
+export const readJsonlRows = (path: string) => parseJsonlRows(path, readRecordSync(path));
+
+const writers = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
+
+export const appendJsonlRows = (path: string, lines: unknown[]) => {
+  const writer = writers.get(path) ?? Effect.unsafeMakeSemaphore(1);
+  writers.set(path, writer);
+  return writer.withPermits(1)(
+    Effect.tryPromise({
+      try: async () => {
         await mkdir(dirname(path), { recursive: true });
         if (existsSync(`${path}.zst`)) {
           writeFileAtomic(path, await readRecord(path));
@@ -284,10 +269,33 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
           await file.close();
         }
         await syncDirectory(dirname(path));
-      })
+      },
+      catch: cause => new StoreError({ path, cause }),
+    })
+  );
+};
+
+/**
+ * A run is `<dir>/<id>/run.json`, stamped `ended` when first stored done or stopped, its trace `<dir>/<id>/trace.jsonl` and its check record `<dir>/<id>/checks.jsonl`;
+ * every put that changes the run first traces what changed, so a trace may hold a change its run.json missed. Locks carry a process owner and an acquisition id.
+ * Check output is gzipped once per content at `<dir>/logs/<sha256>.gz`, as `logs` says.
+ */
+export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all'): Layer.Layer<Store> => {
+  const io = <A>(path: string, f: () => Promise<A>) =>
+    Effect.tryPromise({ try: f, catch: cause => new StoreError({ path, cause }) });
+  const runFile = (id: string) => join(dir, id, 'run.json');
+  const traceFile = (id: string) => join(dir, id, 'trace.jsonl');
+  const checksFile = (id: string) => join(dir, id, 'checks.jsonl');
+  const readLines = <A>(path: string) =>
+    io(path, async () => parseJsonlRows(path, await readRecord(path)).map(row => current(row) as A));
+  const readRun = (id: string) =>
+    io(runFile(id), () =>
+      readFile(runFile(id), 'utf8').then(
+        text => current(JSON.parse(text)) as Run,
+        e => (missing(e) ? undefined : Promise.reject(e))
+      )
     );
-  };
-  const trace = (id: string, ...lines: Trace[]) => append(traceFile(id), lines);
+  const trace = (id: string, ...lines: Trace[]) => appendJsonlRows(traceFile(id), lines);
 
   const logFile = (hash: string) => join(dir, 'logs', `${hash}.gz`);
   const log = (output: string, pass: boolean) => {
@@ -365,7 +373,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     trace,
     read: (id, from = 0) =>
       Stream.fromIterableEffect(Effect.map(readLines<Trace>(traceFile(id)), lines => lines.slice(from))),
-    addChecks: (id, ...entries) => append(checksFile(id), entries),
+    addChecks: (id, ...entries) => appendJsonlRows(checksFile(id), entries),
     readChecks: id => readLines<CheckEntry>(checksFile(id)),
     lock: name => {
       const path = join(dir, '.locks', `${name.replaceAll('/', '_')}.lock`);
