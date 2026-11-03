@@ -168,3 +168,34 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it('reloads the served graph and its problems when a graph file changes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-served-'));
+  writeFileSync(join(dir, 'settings.yaml'), 'unknown: true\n');
+  vi.stubEnv('AGI_STUDIO_DIR', dir);
+  vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
+  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
+  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
+  const server = await createServer({
+    configFile: join(studioDir, 'vite.config.ts'),
+    root: studioDir,
+    server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
+    logLevel: 'silent',
+  });
+  try {
+    await server.listen();
+    const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
+    const served = async () => (await fetch(`${base}/@id/__x00__virtual:served`)).text();
+    expect(await served()).toContain('unknown');
+    const sent = vi.spyOn(server.ws, 'send');
+    await vi.waitFor(() => expect(server.watcher.getWatched()).toHaveProperty(realpathSync(dir)), { timeout: 2000 });
+    writeFileSync(join(dir, 'settings.yaml'), 'other: true\n');
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledWith({ type: 'full-reload' }));
+    expect(await served()).toContain('other');
+  } finally {
+    await server.close();
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

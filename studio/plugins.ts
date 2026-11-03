@@ -14,7 +14,7 @@ import { readBench } from './src/bench/read.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 
-const real = (root: string) => {
+export const readRealPath = (root: string) => {
   try {
     return realpathSync(root);
   } catch {
@@ -156,7 +156,7 @@ export const makeStudioPagesPlugin = (): Plugin => {
       const roots = [
         ...(process.env.AGI_STUDIO_DATA ? [{ root: process.env.AGI_STUDIO_DATA, topic: 'data' }] : []),
         ...loaded.flatMap(page => page.watch.map(root => ({ root, topic: page.name }))),
-      ].map(({ root, topic }) => ({ root: real(root), topic }));
+      ].map(({ root, topic }) => ({ root: readRealPath(root), topic }));
       let timer: ReturnType<typeof setTimeout> | undefined;
       const topics = new Set<string>();
       const changed = (_event: string, path: string) => {

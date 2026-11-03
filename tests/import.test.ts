@@ -60,7 +60,10 @@ it('serves an imported run in the studio run list and on its own page', async ()
   vi.stubEnv('AGI_STUDIO_DATA', i.data);
   const routes: Record<string, (req: unknown, res: unknown) => void> = {};
   const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
-  plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
+  plugin({
+    watcher: { add: () => {}, on: () => {} },
+    middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) },
+  });
   const ask = (url: string) =>
     new Promise<{ status: number; body: unknown }>(done => {
       const res = {

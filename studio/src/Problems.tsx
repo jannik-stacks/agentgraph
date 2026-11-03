@@ -1,4 +1,4 @@
-import { served } from 'virtual:fixtures';
+import { served } from 'virtual:served';
 
 /** What stops the served graph from loading, when anything does. */
 export const Problems = () =>
