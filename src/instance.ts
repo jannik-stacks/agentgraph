@@ -9,6 +9,7 @@ import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
 import { parse, stringify } from 'yaml';
+import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
 import { fileForge, Forge, formatIssueFile, parseIssueFile, writeTimelineEvent } from './forge.ts';
 import { hostGit, makeHostEnv, readGit } from './git.ts';
@@ -169,7 +170,7 @@ export const ensureGraph = async (i: Instance, flag?: string) => {
       `no graph found. Copy an example into this folder first:\n  cp -R ${formatShellWord(example)} ${formatShellWord(dir)}`
     );
   }
-  const dir = join(i.data, 'cache', 'graphs', tree);
+  const dir = getCachePath(i.data, 'graphs', tree);
   if (existsSync(dir)) return dir;
   const linked = (await inForge(i, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
   if (linked.length)
@@ -190,7 +191,7 @@ export const ensureGraph = async (i: Instance, flag?: string) => {
   return dir;
 };
 
-const isCommittedGraph = (i: Instance, graph: string) => graph.startsWith(join(i.data, 'cache', 'graphs'));
+const isCommittedGraph = (i: Instance, graph: string) => graph.startsWith(getCachePath(i.data, 'graphs'));
 
 export const whyGraphUncommitted = async (i: Instance, graph: string) => {
   if (!isCommittedGraph(i, graph)) return undefined;

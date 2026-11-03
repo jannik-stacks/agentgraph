@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { makeHostEnv } from './git.ts';
 import { isOwnerRunning, ownerId, readStateDir, startHeartbeat, waitForLock } from './owner.ts';
@@ -646,8 +647,21 @@ export const writeCheckoutOwner = (dir: string) => {
   writeFileSync(`${dir}.owner`, startHeartbeat());
 };
 
+export const getCachePath = (data: string, ...parts: string[]) => join(data, 'cache', ...parts);
+
+export const getCheckoutPaths = (data: string, id: string) => {
+  const dir = getCachePath(data, 'work', id);
+  return {
+    dir,
+    owner: `${dir}.owner`,
+    index: getCachePath(data, 'index', id),
+    news: getCachePath(data, 'news', id),
+    scratch: getCachePath(data, 'scratch', id),
+  };
+};
+
 export const findDeadCheckouts = (data: string) => {
-  const work = join(data, 'work');
+  const work = getCachePath(data, 'work');
   let ids: string[] = [];
   try {
     ids = readdirSync(work).filter(n => !n.endsWith('.owner') && !n.endsWith('.failed'));
@@ -666,10 +680,14 @@ export const findDeadCheckouts = (data: string) => {
   });
 };
 
-export const removeCheckout = (data: string, id: string) => {
-  for (const p of [`work/${id}`, `work/${id}.owner`, `index/${id}`, `news/${id}`, `scratch/${id}`])
-    rmSync(join(data, p), { recursive: true, force: true });
-};
+export const removeCheckout = (data: string, id: string) =>
+  Promise.all(
+    Object.values(getCheckoutPaths(data, id)).map(p =>
+      rm(p, { recursive: true, force: true }).catch(e => {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOTDIR') throw e;
+      })
+    )
+  );
 
 const volumes = async (label: string, timeout?: number) =>
   (

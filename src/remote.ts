@@ -6,7 +6,7 @@ import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { Duration, Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import { dockerSandbox } from './docker.ts';
-import { makeToolchainSetupCommands } from './env.ts';
+import { getCachePath, makeToolchainSetupCommands } from './env.ts';
 import type { ForgeError } from './forge.ts';
 import { hostGit, indexLock, makeHostEnv } from './git.ts';
 import type { Graph } from './folder.ts';
@@ -131,7 +131,7 @@ export const remoteSandbox = (o: {
     Effect.gen(function* () {
       const host = yield* Effect.provide(Sandbox, dockerSandbox({ ...o, cache: '' }));
       const boxes = new Map<string, BoxEntry>();
-      const syncIndex = (work: Checkout) => join(o.data, 'cache', 'sync', `${basename(work.dir)}.index`);
+      const syncIndex = (work: Checkout) => getCachePath(o.data, 'sync', `${basename(work.dir)}.index`);
       const workDir = (box: BoxEntry): SyncedDir => ({
         box: '/work',
         git: { ...box.work.git, GIT_INDEX_FILE: syncIndex(box.work) },
@@ -139,7 +139,7 @@ export const remoteSandbox = (o: {
       });
       const homeDir = (home: string) =>
         Effect.gen(function* () {
-          const git = { GIT_DIR: join(o.data, 'cache', 'sync', `${basename(home)}.git`), GIT_WORK_TREE: home };
+          const git = { GIT_DIR: getCachePath(o.data, 'sync', `${basename(home)}.git`), GIT_WORK_TREE: home };
           yield* hostGit({}, ['init', '-q', '--bare', git.GIT_DIR]);
           yield* hostGit(git, ['config', 'core.bare', 'false']);
           yield* Effect.promise(() => writeFile(join(git.GIT_DIR, 'info', 'exclude'), '/.cache/\n'));
@@ -344,7 +344,7 @@ export const remoteSandbox = (o: {
           return work;
         });
 
-      yield* Effect.promise(() => mkdir(join(o.data, 'cache', 'sync'), { recursive: true }));
+      yield* Effect.promise(() => mkdir(getCachePath(o.data, 'sync'), { recursive: true }));
       return { readHead: host.readHead, checkout, exec: (c: Command) => Effect.scoped(exec(c)), lines };
     })
   );

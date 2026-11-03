@@ -1235,7 +1235,7 @@ describe('disk lifecycle', () => {
       }
       writeCheckoutOwner(join(data, 'cache', 'work', 'mine'));
       writeFileSync(join(data, 'cache', 'work', 'gone.owner'), `${spawnSync('true').pid}:0123456789ab`);
-      expect(findDeadCheckouts(join(data, 'cache')).toSorted()).toEqual(['gone', 'none']);
+      expect(findDeadCheckouts(data).toSorted()).toEqual(['gone', 'none']);
       const mirror = join(data, 'mirror.git');
       git(data, 'init', '-q', '--bare', mirror);
       writeFileSync(join(data, 'cache', 'work', 'gone', 'left.txt'), 'unfinished\n');

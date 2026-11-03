@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,8 @@ import {
   type SharedMount,
   writeCheckoutOwner,
   findDeadCheckouts,
+  getCachePath,
+  getCheckoutPaths,
   removeCheckout,
   packageManagerCacheEnv,
   unlogged,
@@ -179,12 +181,15 @@ export const dockerArgs = (
   ...c.args,
 ];
 
+const usedMark = 'agentgraph-used ';
+
 const readUsed = (output: string): Pick<Exit, 'output' | 'used'> => {
-  const m = /\n?agentgraph-used (\d+) usage_usec (\d+) oom_kill (\d+)\n?$/.exec(output);
+  const at = output.lastIndexOf(usedMark);
+  const m = at < 0 ? null : /^agentgraph-used (\d+) usage_usec (\d+) oom_kill (\d+)\n?$/.exec(output.slice(at));
   if (!m) return { output };
   const [peak = 0, cpu = 0, oom = 0] = m.slice(1).map(Number);
   return {
-    output: output.slice(0, m.index),
+    output: output.slice(0, output[at - 1] === '\n' ? at - 1 : at),
     used: { peak, cpu: Math.round(cpu / 1000), ...(oom > 0 && { oom: true }) },
   };
 };
@@ -602,8 +607,8 @@ export const dockerSandbox = (o: {
             ).pipe(
               Stream.splitLines,
               Stream.filter(line => {
-                const { used } = readUsed(line);
-                measured = used ?? measured;
+                const used = line.startsWith(usedMark) && readUsed(line).used;
+                if (used) measured = used;
                 return !used;
               }),
               Stream.concat(Stream.sync(() => ({ code, ...(measured && { used: measured }) }))),
@@ -634,12 +639,10 @@ export const dockerSandbox = (o: {
       const empty = (graph?: Pick<Graph, 'image' | 'network'>) =>
         Effect.gen(function* () {
           const id = randomBytes(6).toString('hex');
-          const dir = join(o.data, 'cache', 'work', id);
-          const news = join(o.data, 'cache', 'news', id);
-          const scratch = join(o.data, 'cache', 'scratch', id);
+          const { dir, news, scratch } = getCheckoutPaths(o.data, id);
           const remove = Effect.promise(() => {
             made.delete(dir);
-            return Promise.all([dir, `${dir}.owner`, news, scratch].map(p => rm(p, { recursive: true, force: true })));
+            return removeCheckout(o.data, id);
           });
           yield* Effect.acquireRelease(
             Effect.tryPromise({
@@ -709,18 +712,19 @@ export const dockerSandbox = (o: {
           return sha || (yield* infra(`no commit for ${ref}`));
         });
 
-      const cached = join(o.data, 'cache');
-      for (const id of findDeadCheckouts(cached)) {
-        mkdirSync(join(cached, 'index'), { recursive: true });
-        const dir = join(cached, 'work', id);
-        const git = { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: join(cached, 'index', id) };
-        if (
-          yield* (existsSync(dir) ? commitCheckoutOnce(git, `refs/agentgraph/reaped/${id}`, []) : Effect.void).pipe(
-            Effect.as(true),
-            Effect.catchAll(e => Effect.as(Effect.logWarning(`kept unsaved checkout ${dir}: ${e.detail}`), false))
-          )
-        )
-          removeCheckout(cached, id);
+      const checkoutGit = ({ dir, index }: ReturnType<typeof getCheckoutPaths>) => ({
+        GIT_DIR: mirror,
+        GIT_WORK_TREE: dir,
+        GIT_INDEX_FILE: index,
+      });
+      const dead = findDeadCheckouts(o.data);
+      if (dead.length > 0) mkdirSync(getCachePath(o.data, 'index'), { recursive: true });
+      for (const id of dead) {
+        const paths = getCheckoutPaths(o.data, id);
+        yield* commitCheckoutOnce(checkoutGit(paths), `refs/agentgraph/reaped/${id}`, []).pipe(
+          Effect.zipRight(Effect.promise(() => removeCheckout(o.data, id))),
+          Effect.catchAll(e => Effect.logWarning(`kept unsaved checkout ${paths.dir}: ${e.detail}`))
+        );
       }
 
       const checkout = (
@@ -768,10 +772,8 @@ export const dockerSandbox = (o: {
               )
             : false;
           const id = randomBytes(6).toString('hex');
-          const dir = join(o.data, 'cache', 'work', id);
-          const index = join(o.data, 'cache', 'index', id);
-          const news = join(o.data, 'cache', 'news', id);
-          const scratch = join(o.data, 'cache', 'scratch', id);
+          const paths = getCheckoutPaths(o.data, id);
+          const { dir, index, news, scratch } = paths;
           const work: Checkout = {
             dir,
             base,
@@ -779,7 +781,7 @@ export const dockerSandbox = (o: {
             ...(saved && { saved }),
             ...(env?.complete && setup && !saved && match && { ready: true }),
             ...(env && { env: { key: env.key, mode: env.mode, match } }),
-            git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index },
+            git: checkoutGit(paths),
             news: join(news, 'news.md'),
           };
           const save = (name: string) =>
@@ -844,11 +846,8 @@ export const dockerSandbox = (o: {
           const remove = Effect.promise(() => {
             made.delete(dir);
             return Promise.all([
-              ...[dir, `${dir}.owner`, index, news, scratch, admin].filter(Boolean).map(p =>
-                rm(p, { recursive: true, force: true }).catch(e => {
-                  if ((e as NodeJS.ErrnoException).code !== 'ENOTDIR') throw e;
-                })
-              ),
+              removeCheckout(o.data, id),
+              admin && rm(admin, { recursive: true, force: true }),
               discard(sharedMounts),
             ]);
           });
