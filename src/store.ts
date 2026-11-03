@@ -19,13 +19,13 @@ import { gunzip, gzip, zstdCompress, zstdDecompress, zstdDecompressSync } from '
 import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope } from 'effect';
 import { createLock, LockHeldError } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
-import { isRunDone, type Run } from './workflow.ts';
+import { isOnIssue, isRunDone, type Run, type RunRecord } from './workflow.ts';
 import { PluginMetadata, getRunOrigin } from './meta.ts';
 import { ResultSheet } from './results.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
-const changes = (before: Run | undefined, next: Run): Trace | undefined => {
-  const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(next)])] as (keyof Run)[];
+const changes = (before: RunRecord | undefined, next: RunRecord): Trace | undefined => {
+  const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(next)])] as (keyof RunRecord)[];
   const changed = keys.filter(k => JSON.stringify(before?.[k]) !== JSON.stringify(next[k]));
   if (changed.length === 0) return;
   const cleared = changed.filter(k => next[k] === undefined);
@@ -128,8 +128,12 @@ export class Store extends Context.Tag('agentgraph/Store')<
   Store,
   {
     get: (id: string) => Effect.Effect<Run | undefined, StoreError>;
+    getRecord: (id: string) => Effect.Effect<RunRecord | undefined, StoreError>;
     list: (filter?: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>>) => Effect.Effect<Run[], StoreError>;
-    put: (run: Run) => Effect.Effect<void, StoreError>;
+    listRecords: (
+      filter?: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>>
+    ) => Effect.Effect<RunRecord[], StoreError>;
+    put: (run: RunRecord) => Effect.Effect<void, StoreError>;
     trace: (id: string, ...lines: Trace[]) => Effect.Effect<void, StoreError>;
     read: (id: string, from?: number) => Stream.Stream<Trace, StoreError>;
     addChecks: (id: string, ...entries: CheckEntry[]) => Effect.Effect<void, StoreError>;
@@ -291,8 +295,18 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
   const readRun = (id: string) =>
     io(runFile(id), () =>
       readFile(runFile(id), 'utf8').then(
-        text => current(JSON.parse(text)) as Run,
+        text => current(JSON.parse(text)) as RunRecord,
         e => (missing(e) ? undefined : Promise.reject(e))
+      )
+    );
+  const listRecords = (filter: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>> = {}) =>
+    io(dir, () => readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e)))).pipe(
+      Effect.flatMap(ids => Effect.forEach(ids, readRun)),
+      Effect.map(runs =>
+        runs.filter(
+          (run): run is RunRecord =>
+            run !== undefined && Object.entries(filter).every(([key, value]) => run[key as keyof Run] === value)
+        )
       )
     );
   const trace = (id: string, ...lines: Trace[]) => appendJsonlRows(traceFile(id), lines);
@@ -343,17 +357,10 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
         if (createHash('sha256').update(bytes).digest('hex') !== hash) throw new Error('file hash mismatch');
         return bytes;
       }),
-    get: readRun,
-    list: filter =>
-      io(dir, () => readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e)))).pipe(
-        Effect.flatMap(ids => Effect.forEach(ids, readRun)),
-        Effect.map(runs =>
-          runs.filter(
-            (run): run is Run =>
-              run !== undefined && Object.entries(filter ?? {}).every(([key, value]) => run[key as keyof Run] === value)
-          )
-        )
-      ),
+    getRecord: readRun,
+    get: id => readRun(id).pipe(Effect.map(run => (run && isOnIssue(run) ? run : undefined))),
+    listRecords,
+    list: filter => listRecords(filter).pipe(Effect.map(runs => runs.filter(isOnIssue))),
     put: next =>
       Effect.gen(function* () {
         const before = yield* readRun(next.id);
@@ -365,7 +372,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
         });
         const { ended: _ended, ...open } = next;
         const ended = next.ended ?? before?.ended ?? new Date().toISOString();
-        const run: Run = isRunDone(next) ? { ...next, ended } : open;
+        const run: RunRecord = isRunDone(next) ? { ...next, ended } : open;
         const line = changes(before, run);
         if (line) yield* trace(run.id, line);
         yield* io(runFile(run.id), async () => writeFileAtomic(runFile(run.id), run));

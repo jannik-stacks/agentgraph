@@ -46,6 +46,7 @@ import {
   type CheckResult,
   type Outcome,
   type Run,
+  type RunRecord,
   type Seen,
   type Step,
   type Workflow,
@@ -468,7 +469,7 @@ export const instruct = (
   graph: Graph,
   instruction: Instruction,
   meta?: Run['meta']
-): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+): Effect.Effect<RunRecord[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const supplied = yield* Schema.decodeUnknown(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
       Effect.mapError(() => new ForgeError({ message: 'invalid run metadata' }))
@@ -505,7 +506,7 @@ export const instruct = (
       const { checks, kind: _kind, ...where } = instruction;
       const unknown = checks.filter(name => !(name in graph.checks));
       if (unknown.length) return yield* new ForgeError({ message: `the graph has no check ${unknown.join(', ')}` });
-      const ended = (yield* Effect.flatMap(Store, s => s.list(where))).filter(isRunDone);
+      const ended = (yield* Effect.flatMap(Store, s => s.listRecords(where))).filter(isRunDone);
       const runs = yield* Effect.forEach(ended, r => runLaterChecks(graph, r.id, checks), {
         concurrency: graph.limits.parallel,
       });
@@ -997,9 +998,9 @@ const checkFiles = (work: Checkout) => ({
   ...traceFiles(work),
 });
 
-const scriptEnv = (work: Pick<Checkout, 'base'>, issue: number) => ({
+const scriptEnv = (work: Pick<Checkout, 'base'>, issue: number | undefined) => ({
   AGENTGRAPH_BASE: work.base,
-  AGENTGRAPH_ISSUE: String(issue),
+  ...(issue !== undefined && { AGENTGRAPH_ISSUE: String(issue) }),
 });
 
 /** Whether a run is a retro, a run of a workflow that feedback starts. */
@@ -1036,7 +1037,7 @@ const tracesAt = (work: Checkout) =>
 /** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
 type Left = Checkout & {
   run: string;
-  issue: number;
+  issue?: number;
   context: string;
   reply: string;
   proposals: Proposal[];
@@ -1700,7 +1701,7 @@ const prepare = (graph: Graph, left: Left, traces: boolean) =>
         writeFile(files.AGENTGRAPH_REPLY, left.reply),
       ])
     );
-    if (traces) yield* traced(graph, left.issue, left.run, left);
+    if (traces && left.issue !== undefined) yield* traced(graph, left.issue, left.run, left);
   });
 
 /**
@@ -1760,10 +1761,10 @@ const explain = (e: SandboxError | SessionStop | ForgeError) =>
 const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeError | StoreError, R>) =>
   Effect.catchAll(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
 
-const formatRunIssue = (run: Run) =>
+const formatRunIssue = (run: RunRecord) =>
   run.title === undefined ? '' : `## #${run.issue} ${run.title}\n\n${run.body ?? ''}`;
 
-const whyNotApplicable = (check: Check, run: Run, traced: boolean) =>
+const whyNotApplicable = (check: Check, run: RunRecord, traced: boolean) =>
   check.reads === 'traces'
     ? traced
       ? undefined
@@ -1772,7 +1773,7 @@ const whyNotApplicable = (check: Check, run: Run, traced: boolean) =>
       ? 'the run kept no change'
       : undefined;
 
-const reopen = (graph: Graph, run: Run, traces: boolean, reply: string) =>
+const reopen = (graph: Graph, run: RunRecord, traces: boolean, reply: string) =>
   Effect.gen(function* () {
     const made = yield* Effect.flatMap(Sandbox, s =>
       s.checkout(traces ? undefined : `refs/agentgraph/runs/${run.id}`, undefined, undefined, graph)
@@ -1783,7 +1784,7 @@ const reopen = (graph: Graph, run: Run, traces: boolean, reply: string) =>
     const left: Left = {
       ...work,
       run: run.id,
-      issue: run.issue,
+      ...(run.issue !== undefined && { issue: run.issue }),
       context: formatRunIssue(run),
       reply,
       proposals: [],
@@ -1807,7 +1808,7 @@ const readRunSpend = (id: string) =>
 
 const checkEnded = (
   graph: Graph,
-  run: Run,
+  run: RunRecord,
   names: string[],
   o: { later?: true; settled?: (name: string) => Effect.Effect<unknown, StoreError, Store> } = {}
 ) =>
@@ -1881,7 +1882,7 @@ const runLaterChecks = (graph: Graph, id: string, names: string[]) =>
   Effect.gen(function* () {
     const store = yield* Store;
     if (Either.isLeft(yield* Effect.either(store.lock(id)))) return;
-    const run = yield* store.get(id);
+    const run = yield* store.getRecord(id);
     if (!run?.ended) return;
     const after = (yield* store.readChecks(id)).filter(e => e.at >= run.ended! && !e.item);
     const due = names.filter(

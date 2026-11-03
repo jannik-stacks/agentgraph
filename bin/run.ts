@@ -52,7 +52,7 @@ import {
 import { readHostSettings, whyModelHostsMissing } from '../src/services.ts';
 import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
-import type { Run } from '../src/workflow.ts';
+import { isOnIssue, type Run, type RunRecord } from '../src/workflow.ts';
 
 const usage = `usage: agi <verb> [flags]
   start "<title>[\\n<body>]" [--workflow <name>]   files an issue and drives it until it waits or ends
@@ -153,7 +153,7 @@ const relabel = async (data: string) => {
 };
 const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
-const printRuns = (runs: Run[]) => {
+const printRuns = (runs: RunRecord[]) => {
   if (verb === 'resume' && !runs.length) console.log('0 runs parked by runner errors');
   for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
@@ -681,14 +681,14 @@ async function loop(i: Instance) {
           ));
       if (why) console.error(why);
       else {
-        const runs = await start(
+        const runs: RunRecord[] = await start(
           { graph, issue: 'all', data: i.data, base: i.base, choice: makeHarnessChoice(connection.provider.name) },
           undefined,
           {},
           stopping.signal
         ).catch((e: unknown) => (stopping.signal.aborted ? [] : (console.error(e), [])));
         printRuns(runs);
-        for (const issue of new Set(runs.map(r => r.issue))) {
+        for (const issue of new Set(runs.filter(isOnIssue).map(r => r.issue))) {
           const result = await writePullToRepo(i, issue, { auto: true }).catch((e: Error) => ({ why: e.message }));
           if (result)
             console.log(

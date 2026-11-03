@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { Graph } from '../src/folder.ts';
 import { sum } from '../src/stats.ts';
 import { type CheckEntry, findLatestChecks, type Trace } from '../src/trace.ts';
-import type { Run } from '../src/workflow.ts';
+import type { RunRecord } from '../src/workflow.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { Effect, Schema } from 'effect';
 import { readConfiguredGraph } from '../src/harnesses.ts';
@@ -21,7 +21,7 @@ import { readBenchRows } from './bench.ts';
 import { readFileOrEmpty, readJsonl } from './resume.ts';
 import { type Step, tunesOf } from './tune.ts';
 
-const findDeadReason = (run: Run, trace: Trace[]) =>
+const findDeadReason = (run: RunRecord, trace: Trace[]) =>
   run.status === 'done' || run.status === 'stopped'
     ? trace.some(t => ('event' in t && t.event.type === 'start') || ('outcome' in t && t.outcome.kind === 'pass'))
       ? undefined
@@ -33,7 +33,7 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
   return (existsSync(data) ? readdirSync(data) : []).flatMap(id => {
     const json = readFileOrEmpty(join(data, id, 'run.json'));
     if (!json) return [];
-    const run = JSON.parse(json) as Run;
+    const run = JSON.parse(json) as RunRecord;
     const origin = getRunOrigin(run.meta);
     const trace = readJsonl<Trace>(join(data, id, 'trace.jsonl'));
     const dead = findDeadReason(run, trace);
@@ -48,7 +48,7 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
         href: `/runs/${encodeURIComponent(id)}`,
         ...(dead && { dead }),
         axes: {
-          issue: `#${run.issue}`,
+          ...(run.issue !== undefined && { issue: `#${run.issue}` }),
           workflow: run.workflow,
           status: run.status,
           ...(run.graph && { graph: run.graph }),

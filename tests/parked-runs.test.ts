@@ -7,7 +7,7 @@ import { drive, instruct, tick } from '../src/engine.ts';
 import { Forge } from '../src/forge.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
 import { Store } from '../src/store.ts';
-import { begin, type Run } from '../src/workflow.ts';
+import { begin, isOnIssue, type Run } from '../src/workflow.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { bodies, services, world } from './world.ts';
 
@@ -46,7 +46,8 @@ describe('resume', () => {
       expect(resumed[0]).toMatchObject({ id: 'retro-7', status: 'running', feedback: 'Keep the original feedback.' });
       expect(resumed[0]!.reason).toBeUndefined();
       expect(resumed[0]!.retried).toBeUndefined();
-      expect((await run(drive(flow, resumed[0]!, graph))).status).toBe('done');
+      const back = resumed.filter(isOnIssue)[0]!;
+      expect((await run(drive(flow, back, graph))).status).toBe('done');
       expect(specs).toHaveLength(1);
       expect(specs[0]!.resume).toEqual(original.sessions.implement);
       expect(marks.map(([kind]) => kind)).toEqual(['comment', 'comment']);

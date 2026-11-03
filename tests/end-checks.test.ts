@@ -428,6 +428,25 @@ describe('end checks', () => {
     expect(Either.isLeft(refused) && refused.left.message).toBe('the graph has no check nope');
   });
 
+  it('score a run with no issue, which the live reads of the store never see', async () => {
+    const where = world();
+    const h = ending({ hello: measure('wc -l < hello.txt') });
+    const { run } = services(where, []);
+    const startCommit = keep(where, 'imported');
+    const { issue: _issue, ...detached } = fresh();
+    await run(
+      Effect.flatMap(Store, s =>
+        s.put({ ...detached, workflow: 'import', status: 'done', title: 'Add hello', startCommit })
+      )
+    );
+    const [hidden, live] = await run(Effect.flatMap(Store, s => Effect.all([s.get('run-7'), s.list()])));
+    expect(hidden).toBeUndefined();
+    expect(live.map(r => r.id)).not.toContain('run-7');
+    await run(instruct(h, { kind: 'check', checks: ['hello'] }));
+    expect(results(where.data)).toEqual([expect.objectContaining({ check: 'hello', value: { n: 1 }, later: true })]);
+    expect((await run(Effect.flatMap(Store, s => s.getRecord('run-7'))))?.status).toBe('done');
+  });
+
   it('run checks that read only traces in an empty folder, without the files of the run', async () => {
     const where = world();
     const h = ending({ lines: { ...measure('wc -l < $AGENTGRAPH_RUN_TRACE'), reads: 'traces' } });

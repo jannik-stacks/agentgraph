@@ -19,7 +19,7 @@ import { graphAt, makeProductionLayers, settings, type Settings } from './servic
 import { writeIdleRunsCompressed, fileStore, Store, StoreError } from './store.ts';
 import { LockHeldError } from './owner.ts';
 import { parseLabels, writeRunLabels } from './labels.ts';
-import type { Run } from './workflow.ts';
+import type { Run, RunRecord } from './workflow.ts';
 
 export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
 const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()), 'utf8');
@@ -127,7 +127,7 @@ export const start = (
   defaults: Record<string, string> = {},
   signal?: AbortSignal,
   refresh: () => Promise<unknown> = async () => {}
-): Promise<Run[]> => {
+): Promise<RunRecord[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
     Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
   const read = Effect.tryPromise(() => readEngineEnv(defaults));
