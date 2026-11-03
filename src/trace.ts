@@ -53,14 +53,13 @@ export type SessionEvent =
       /** The model no list price was found for, when the harness reported no cost either. */
       unpriced?: string;
     }
-  | {
+  | (Pick<Exit, 'used'> & {
       type: 'end';
       final: string;
       ended: 'stop' | 'cap' | 'error';
       exit: number;
-      used?: Exit['used'];
       provider?: Extract<SessionEvent, { type: 'start' }>['provider'];
-    };
+    });
 
 export class SessionStop extends Data.TaggedError('SessionStop')<{
   reason: 'timeout' | 'stalled' | 'budget' | 'provider' | 'login' | 'human' | 'sandbox';
@@ -81,13 +80,12 @@ export type Trace = { at: string; step: string } & (
   | { event: SessionEvent; key?: string }
   | {
       key?: string;
-      session: {
+      session: Pick<Exit, 'used'> & {
         id?: string;
         resumed: boolean;
         aside?: true;
         ended: Extract<SessionEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
         exit?: number;
-        used?: Exit['used'];
         usd: number;
       };
     }
@@ -104,7 +102,7 @@ export type Trace = { at: string; step: string } & (
 /** A check's full output in the store: its sha256 and its length in bytes. */
 export type Log = { hash: string; bytes: number };
 
-export type CheckEntry = {
+export type CheckEntry = Pick<Exit, 'used'> & {
   at: string;
   step: string;
   check: CheckResult;
@@ -112,7 +110,6 @@ export type CheckEntry = {
   usd: number;
   item?: string;
   exit?: number;
-  used?: Exit['used'];
   log?: Log;
   later?: true;
 };

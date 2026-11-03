@@ -723,7 +723,7 @@ const setUp = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
     if (!graph.setup || work.ready) return;
     const started = Date.now();
     const out = yield* sh(graph.setup, graph, work.dir, { AGENTGRAPH_BASE: work.base }, graph.limits.minutes, 'proxy');
-    const setup = { ms: Date.now() - started, exit: out.code, ...(out.used && { used: out.used }) };
+    const setup = { ms: Date.now() - started, exit: out.code, ...keepUsed(out) };
     yield* Effect.flatMap(Store, s => s.trace(run.id, { at: now(), step: run.step, setup }));
     if (out.code !== 0)
       return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });
@@ -895,7 +895,7 @@ const converse = <A = never, R = never>(
             end = {
               ended: event.exit === 0 ? event.ended : 'error',
               exit: event.exit,
-              ...(event.used && { used: event.used }),
+              ...keepUsed(event),
             };
           }
           return write({ at: now(), step, event, key });
@@ -1048,17 +1048,18 @@ const heard = (answers: Run['answers'] = []) =>
         ...answers.map(a => (a.asked ? `Asked: ${squeeze(a.asked, 600)}\n\nAnswered: ${a.said}` : `Said: ${a.said}`)),
       ].join('\n\n');
 
-type Item = {
+type Item = Pick<Exit, 'used'> & {
   item: string | undefined;
   pass: boolean;
   value?: Result;
   findings: string;
   exit?: number;
-  used?: Exit['used'];
   output?: string;
   unread?: true;
   usd: number;
 };
+
+const keepUsed = (x?: Pick<Exit, 'used'>) => (x?.used ? { used: x.used } : {});
 
 /** The judge prompts that passed per data dir, run, check, judge and diff; the same judge, prompt and diff is not judged again. */
 const passes = new WeakMap<object, Set<string>>();
@@ -1141,7 +1142,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
         if (!check.agent) {
           const output = out?.output ?? '';
           const value = check.returns ? readScriptResult(output) : { pass: (out?.code ?? 0) === 0, why: output };
-          return { ...settle(item, value, out?.code, output), ...(out?.used && { used: out.used }) };
+          return { ...settle(item, value, out?.code, output), ...keepUsed(out) };
         }
         const agent = graph.agents[check.agent]!;
         const reads = agent.reads ?? check.reads;
@@ -1270,7 +1271,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
           usd: r.usd,
           item: r.item!,
           ...(r.exit !== undefined && { exit: r.exit }),
-          ...(r.used && { used: r.used }),
+          ...keepUsed(r),
           ...(r.log && { log: r.log }),
         })),
       {
@@ -1278,7 +1279,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
         check: result,
         usd: check.each ? 0 : usd,
         ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }),
-        ...(!check.each && results[0]?.used && { used: results[0].used }),
+        ...(!check.each && keepUsed(results[0])),
         ...(!check.each && logs[0] && { log: logs[0] }),
       }
     );
@@ -1366,7 +1367,7 @@ const attempt = (
         version: graph.sha.slice(0, 12),
         usd: 0,
         exit: out.code,
-        ...(out.used && { used: out.used }),
+        ...keepUsed(out),
         ...(log && { log }),
       });
       if (!result.pass)
