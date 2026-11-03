@@ -996,6 +996,10 @@ const BAD_FLAGS = [
   [{ AGENTGRAPH_EVERY: '0' }, ['show'], 'Invalid data at AGENTGRAPH_EVERY'],
   [{}, ['check', 'x', '--runs', '--issue', 'abc'], '--issue takes an issue number'],
   [{}, ['check', 'x', '--runs', '--issue', '0'], '--issue takes an issue number'],
+  [{}, ['say', '1', 'hi', '--label', 'needs-review'], 'say does not run on --forge'],
+  [{}, ['say', '1', 'hi', '--run-label', 'arm=v2'], '--run-label <key>=<value> labels the run start begins'],
+  [{}, ['start', 'x', '--run-label', 'Arm=v2'], '["Arm"]'],
+  [{}, ['start', 'x', '--run-label', 'arm-'], 'Expected string'],
 ] as const;
 
 describe('the CLI flags', () => {

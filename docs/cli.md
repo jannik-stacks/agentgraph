@@ -52,8 +52,8 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--save` | with `--provider` | Keep that provider for later commands |
 | `--harness <name>` | all | Run every agent on this harness, this command only |
 | `--model <model>` | all | Give every agent this model, this command only |
-| `--label <key>=<value>` | `start` | Put a [run label](runs.md#run-labels) on the run it begins; repeatable |
-| `--issue-label <label>` | `start`, `say` | Add a label to the issue; repeatable |
+| `--label <label>` | `start`, `say` | Add a label to the issue; repeatable |
+| `--run-label <key>=<value>` | `start` | Put a [run label](runs.md#run-labels) on the run it begins; repeatable |
 | `--workflow <name>` | `start`, `dispatch`, `check --runs` | Which workflow |
 | `--step <step>` | `dispatch` | The step to start at |
 | `--issue <n>` | `check --runs` | Only runs on this issue |

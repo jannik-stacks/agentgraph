@@ -70,7 +70,7 @@ const usage = `usage: agi <verb> [flags]
   studio                                          starts the studio for this repo and prints its URL
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
 flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
-       --read-only --provider <name> [--save] --harness <name> --model <model>; start and say take --issue-label <label>...; start takes --label <key>=<value>...`;
+       --read-only --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...; start takes --run-label <key>=<value>...`;
 const verbs = [...usage.matchAll(/^  ([a-z-]+)/gm)].map(m => m[1]);
 
 const { values, positionals } = parseArgs({
@@ -97,7 +97,7 @@ const { values, positionals } = parseArgs({
     model: { type: 'string' },
     save: { type: 'boolean' },
     label: { type: 'string', multiple: true },
-    'issue-label': { type: 'string', multiple: true },
+    'run-label': { type: 'string', multiple: true },
     help: { type: 'boolean', short: 'h' },
     version: { type: 'boolean' },
   },
@@ -129,12 +129,11 @@ if (values.help || !verb) {
   process.exit(0);
 }
 if (!verbs.includes(verb)) fail(`no verb ${verb}\n${usage}`);
-if (values.label && verb !== 'start')
-  fail('--label <key>=<value> labels the run start begins; agi label <run id> labels any run');
+if (values['run-label'] && verb !== 'start')
+  fail('--run-label <key>=<value> labels the run start begins; agi label <run id> labels any run');
 const startLabels = (() => {
   try {
-    const patch = parseLabelPatch(values.label ?? []);
-    return parseLabels(patch);
+    return parseLabels(parseLabelPatch(values['run-label'] ?? []));
   } catch (e) {
     return fail((e as Error).message);
   }
@@ -439,15 +438,17 @@ async function runOnInstance() {
       if (!text) fail(`start takes the issue text\n${usage}`);
       const graph = await synced();
       const { loaded, provider } = await prepare(i, graph, 'Nothing was filed.');
-      if (values.label && (await isLoopHeld(i.data)))
-        fail('a loop drives this repo, so the run is not started here: start without --label, then agi label <run id>');
+      if (values['run-label'] && (await isLoopHeld(i.data)))
+        fail(
+          'a loop drives this repo, so the run is not started here: start without --run-label, then agi label <run id>'
+        );
       const issue = await writeTriggeringIssue(
         { ...loaded, trust: [i.owner] },
         i.forge,
         text,
         i.owner,
         values.workflow,
-        values['issue-label']
+        values.label
       ).catch((e: Error) => fail(e.message));
       console.log(`#${issue} ${text.split('\n')[0]}`);
       return drive(i, issue, graph, provider);
@@ -458,8 +459,7 @@ async function runOnInstance() {
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
-      if (values['issue-label'])
-        await writeLabels(i.forge, i.owner, issue, values['issue-label']).catch((e: Error) => fail(e.message));
+      if (values.label) await writeLabels(i.forge, i.owner, issue, values.label).catch((e: Error) => fail(e.message));
       return drive(i, issue, graph, provider);
     }
     case 'review': {
