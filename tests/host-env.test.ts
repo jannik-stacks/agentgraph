@@ -1,9 +1,44 @@
-import { chmodSync, existsSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Fiber } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { hostGit } from '../src/git.ts';
 import { git, tmp, write } from './kit.ts';
+
+const interruptInEditor = async (editor: string) => {
+  const dir = tmp('host-lock');
+  write(dir, { 'a.txt': 'a\n' });
+  git(dir, 'init', '-q');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-qm', 'a');
+  writeFileSync(join(dir, 'a.txt'), 'b\n');
+  const editing = join(dir, 'editing');
+  const env = {
+    GIT_DIR: join(dir, '.git'),
+    GIT_WORK_TREE: dir,
+    GIT_AUTHOR_NAME: 't',
+    GIT_AUTHOR_EMAIL: 't@t',
+    GIT_COMMITTER_NAME: 't',
+    GIT_COMMITTER_EMAIL: 't@t',
+    GIT_EDITOR: `${editor} echo $$ > ${editing}; sleep 60;`,
+  };
+  const fiber = Effect.runFork(hostGit(env, ['commit', '-a']));
+  await vi.waitFor(() => readFileSync(editing, 'utf8').endsWith('\n') || Promise.reject(new Error('no editor yet')), {
+    timeout: 30_000,
+    interval: 20,
+  });
+  const locked = existsSync(join(dir, '.git', 'index.lock'));
+  await Effect.runPromise(Fiber.interrupt(fiber));
+  const editorPid = Number(readFileSync(editing, 'utf8'));
+  const alive = (() => {
+    try {
+      return process.kill(editorPid, 0);
+    } catch {
+      return false;
+    }
+  })();
+  return { locked, lockedAfter: existsSync(join(dir, '.git', 'index.lock')), alive };
+};
 
 describe('host git', () => {
   it('passes the variables it needs and none of the engine keys', async () => {
@@ -30,29 +65,10 @@ describe('host git', () => {
   });
 
   it('leaves no index lock behind when it is interrupted', async () => {
-    const dir = tmp('host-lock');
-    write(dir, { 'a.txt': 'a\n' });
-    git(dir, 'init', '-q');
-    git(dir, 'add', '.');
-    git(dir, 'commit', '-qm', 'a');
-    writeFileSync(join(dir, 'a.txt'), 'b\n');
-    const editing = join(dir, 'editing');
-    const env = {
-      GIT_DIR: join(dir, '.git'),
-      GIT_WORK_TREE: dir,
-      GIT_AUTHOR_NAME: 't',
-      GIT_AUTHOR_EMAIL: 't@t',
-      GIT_COMMITTER_NAME: 't',
-      GIT_COMMITTER_EMAIL: 't@t',
-      GIT_EDITOR: `touch ${editing}; sleep 60;`,
-    };
-    const fiber = Effect.runFork(hostGit(env, ['commit', '-a']));
-    await vi.waitFor(() => existsSync(editing) || Promise.reject(new Error('git has not opened its editor')), {
-      timeout: 30_000,
-      interval: 20,
-    });
-    const locked = existsSync(join(dir, '.git', 'index.lock'));
-    await Effect.runPromise(Fiber.interrupt(fiber));
-    expect([locked, existsSync(join(dir, '.git', 'index.lock'))]).toEqual([true, false]);
+    expect(await interruptInEditor('')).toEqual({ locked: true, lockedAfter: false, alive: false });
+  });
+
+  it('ends a helper that ignores SIGTERM once the grace period is over', async () => {
+    expect(await interruptInEditor("trap '' TERM;")).toEqual({ locked: true, lockedAfter: false, alive: false });
   });
 });

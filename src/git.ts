@@ -70,13 +70,18 @@ export const hostGit = (
     });
     let closed = false;
     let problem: string | undefined;
+    let escalation: ReturnType<typeof setTimeout> | undefined;
+    const send = (name: NodeJS.Signals) => {
+      try {
+        process.kill(-child.pid!, name);
+      } catch {
+        child.kill(name);
+      }
+    };
     const stop = () => {
       if (closed || child.pid === undefined) return;
-      try {
-        process.kill(-child.pid, 'SIGTERM');
-      } catch {
-        child.kill('SIGTERM');
-      }
+      send('SIGTERM');
+      escalation ??= setTimeout(() => send('SIGKILL'), 5_000);
     };
     const output: Buffer[] = [];
     const errors: Buffer[] = [];
@@ -96,6 +101,7 @@ export const hostGit = (
     const ending = new Promise<void>(resolve =>
       child.once('close', (code, signal) => {
         closed = true;
+        clearTimeout(escalation);
         resume(
           problem || (code !== 0 && !codes.includes(code ?? -1))
             ? Effect.fail(
