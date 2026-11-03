@@ -104,6 +104,15 @@ export default makePlugin({
 `examples/board/plugins/board.ts` uses it to move the issue's card on a GitHub project board.
 <!-- code: examples/board/plugins/board.ts -->
 
+## Trackers
+
+A plugin can provide `tracker` instead of tools. It receives `{ repo, studio, app, dir }` and returns `layer(trust)`, a
+layer that provides the `Tracker`, and `origin`, the git remote sandboxes mirror. `--tracker <value>` and
+`AGENTGRAPH_TRACKER` pick one: a value that names a plugin selects it, and any other value is the path of a folder for
+the built-in `folder` tracker, relative to the working directory. Without either, the App env selects `github`. Plugins
+of the graph `--dir` names count; a graph read from the repo cannot pick its own tracker.
+<!-- code: src/plugin.ts#TrackerHost src/services.ts#where src/tracker.ts#folder src/github.ts#github -->
+
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect

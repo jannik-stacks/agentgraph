@@ -2,7 +2,18 @@ import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ConfigProvider, Deferred, Effect, Fiber, Logger, Redacted, Stream, TestClock, TestContext } from 'effect';
+import {
+  ConfigProvider,
+  Deferred,
+  Effect,
+  Fiber,
+  Logger,
+  Option,
+  Redacted,
+  Stream,
+  TestClock,
+  TestContext,
+} from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { Tracker, TrackerError, currentRunLinkRef } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -276,7 +287,9 @@ describe('githubTracker', () => {
           })
         )
       );
-      await Effect.runPromise(Effect.provide(list, make({ ...configured, tracker: { id: '43', key: app.key } })));
+      await Effect.runPromise(
+        Effect.provide(list, make({ ...configured, app: Option.some({ id: '43', key: app.key }) }))
+      );
       expect(second).toEqual(first);
       expect(served).toBe(2);
       expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(2);

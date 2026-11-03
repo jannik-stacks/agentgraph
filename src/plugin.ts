@@ -5,7 +5,7 @@ import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type Tool, type ToolExecutionOptions } from 'ai';
-import { Effect, Either, JSONSchema, ParseResult, Schema } from 'effect';
+import { Effect, Either, JSONSchema, type Layer, type Option, ParseResult, type Redacted, Schema } from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
@@ -33,6 +33,18 @@ export type ToolContext<S = undefined> = {
 } & Pick<ToolExecutionOptions<unknown>, 'abortSignal'>;
 
 export { issueStatuses } from './event.ts';
+
+export type TrackerHost = {
+  repo: string;
+  studio: string;
+  app: Option.Option<{ id: string; key: Redacted.Redacted }>;
+  dir?: string;
+};
+
+type TrackerMember = (host: TrackerHost) => {
+  layer: (trust?: readonly string[]) => Layer.Layer<never>;
+  origin: { origin: string; local?: boolean; token?: Effect.Effect<string, unknown> };
+};
 
 export type StatusChange = { issue: number; repo: string; from?: IssueStatus; to: IssueStatus };
 
@@ -95,6 +107,7 @@ const PluginFile = Schema.Struct({
     Schema.declare((value): value is Schema.Schema.AnyNoContext => Schema.isSchema(value))
   ),
   studio: Schema.optional(StudioPage),
+  tracker: Schema.optional(Schema.declare((value): value is TrackerMember => typeof value === 'function')),
   on: Schema.optional(
     Schema.Struct({
       status: Schema.optional(Schema.declare((value): value is StatusHook<unknown> => typeof value === 'function')),
@@ -127,6 +140,7 @@ export const readPlugins = async (
   const plugins = new Map<string, string>();
   const tools: Record<string, { tool: Tool; settings: unknown; plugin: string }> = {};
   const hooks: { plugin: string; settings: unknown; status: StatusHook<unknown> }[] = [];
+  const trackers: Record<string, NonNullable<typeof PluginFile.Type.tracker>> = {};
   const pages: (Pick<typeof StudioPage.Type, 'title' | 'page' | 'dataSchema'> & {
     name: string;
     read: () => ReturnType<(typeof StudioPage.Type)['read']>;
@@ -176,8 +190,9 @@ export const readPlugins = async (
       decoded = result.right;
     }
     const names = Object.keys(plugin.tools);
-    if (!names.length && !plugin.studio && !plugin.on?.status)
-      throw new Error(`${file}: plugin has no tools, studio or hooks`);
+    if (!names.length && !plugin.studio && !plugin.on?.status && !plugin.tracker)
+      throw new Error(`${file}: plugin has no tools, studio, hooks or tracker`);
+    if (plugin.tracker) trackers[plugin.name] = plugin.tracker;
     if (plugin.on?.status) hooks.push({ plugin: plugin.name, settings: decoded, status: plugin.on.status });
     if (plugin.studio) {
       const { title, dataSchema, page, read, watch } = plugin.studio;
@@ -213,5 +228,5 @@ export const readPlugins = async (
   for (const name of Object.keys(settings)) {
     if (!plugins.has(name)) throw new Error(`plugins.${name}: unknown plugin`);
   }
-  return { tools, pages, hooks };
+  return { tools, pages, hooks, trackers };
 };

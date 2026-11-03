@@ -220,7 +220,6 @@ verb-first src/env.ts written
 verb-first src/folder.ts loadGraph
 verb-first src/folder.ts retiredIn
 verb-first src/git.ts hostGit
-verb-first src/github.ts appToken
 verb-first src/main.ts temporary
 verb-first src/services.ts graphAt
 verb-first src/store.ts locate

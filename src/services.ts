@@ -1,10 +1,11 @@
 import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Config, Effect, Layer, Option, Redacted, Struct } from 'effect';
-import { folderTracker, type Tracker } from './tracker.ts';
+import { folder, type TrackerSetup } from './tracker.ts';
 import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
-import { appToken, githubTracker } from './github.ts';
+import { github } from './github.ts';
 import type { Services } from './engine.ts';
 import {
   type HarnessSettings,
@@ -14,7 +15,9 @@ import {
   readConfiguredGraph,
   readHarnessSettings,
 } from './harnesses.ts';
-import { GraphError } from './folder.ts';
+import { GraphError, parseGraphSettings } from './folder.ts';
+import { readPlugins, type TrackerHost } from './plugin.ts';
+import { readOrUndefined } from './read.ts';
 import { remoteSandbox } from './remote.ts';
 import { priceTable } from './prices.ts';
 import { Sandbox } from './sandbox.ts';
@@ -39,8 +42,9 @@ export type Settings = {
   /** The studio's URL that posted bodies link back to; empty for none. */
   studio: string;
   trust: string[];
-  /** A tracker folder with its git remote in `origin.git`, or the GitHub App that acts on `repo`. */
-  tracker: string | { id: string; key: Redacted.Redacted };
+  /** A tracker plugin's name, or the path of a tracker folder with its git remote in `origin.git`. */
+  tracker: string;
+  app: TrackerHost['app'];
 };
 
 const proxyUrl = Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1'));
@@ -105,37 +109,26 @@ export const settings = Config.all({
   checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
   trust: Config.array(Config.string(), 'AGENTGRAPH_TRUST').pipe(Config.withDefault<string[]>([])),
+  app: Config.option(
+    Config.all({ id: Config.string('AGENTGRAPH_APP_ID'), key: Config.redacted('AGENTGRAPH_APP_KEY') })
+  ),
   tracker: Config.string('AGENTGRAPH_TRACKER').pipe(
-    Config.orElse(() =>
-      Config.all({ id: Config.string('AGENTGRAPH_APP_ID'), key: Config.redacted('AGENTGRAPH_APP_KEY') })
-    )
+    Config.orElse(() => Config.map(Config.string('AGENTGRAPH_APP_ID'), () => 'github'))
   ),
 }).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
 
-/** The tracker for `trust` and the origin the sandbox mirrors, on GitHub or on a tracker folder. */
-const where = (s: Settings) => {
-  if (typeof s.tracker === 'string') {
-    const dir = s.tracker;
-    return {
-      tracker: (trust?: readonly string[]) => folderTracker(dir, undefined, trust),
-      origin: { origin: join(dir, 'origin.git'), local: true },
-    };
-  }
-  const app = { repo: s.repo, ...s.tracker };
-  const token = appToken(app);
-  const trackers = new Map<string, Layer.Layer<Tracker>>();
-  return {
-    tracker: (trust?: readonly string[]) => {
-      const key = JSON.stringify(trust) ?? '';
-      let layer = trackers.get(key);
-      if (!layer) {
-        layer = githubTracker(app, globalThis.fetch, token, trust, s.studio);
-        trackers.set(key, layer);
-      }
-      return layer;
-    },
-    origin: { origin: `https://github.com/${app.repo}.git`, token: token('read') },
-  };
+/** The tracker plugin `s.tracker` names, from the built-ins and a graph on the host, else a tracker folder at that path. */
+const where = async (s: Settings) => {
+  const dir = isAbsolute(s.graph) && existsSync(s.graph) ? s.graph : undefined;
+  const text = dir && (await readFile(join(dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
+  const plugins = parseGraphSettings(text, () => {})?.plugins;
+  const { trackers } = await readPlugins(dir, plugins, undefined, [github, folder]);
+  const named = Object.hasOwn(trackers, s.tracker) ? trackers[s.tracker] : undefined;
+  const at = resolve(s.tracker);
+  if (!named && !existsSync(at))
+    throw new Error(`no tracker plugin ${s.tracker} and no folder ${at}; plugins: ${Object.keys(trackers).join(', ')}`);
+  const host = { ...Struct.pick(s, 'repo', 'studio', 'app'), ...(!named && { dir: at }) };
+  return (named ?? trackers.folder!)(host) as TrackerSetup;
 };
 
 /**
@@ -174,46 +167,55 @@ export const makeProductionLayers = () => {
     const key = JSON.stringify([
       s.repo,
       s.studio,
-      typeof s.tracker === 'string' ? s.tracker : [s.tracker.id, Redacted.value(s.tracker.key)],
+      s.graph,
+      s.tracker,
+      Option.getOrUndefined(Option.map(s.app, app => [app.id, Redacted.value(app.key)])),
     ]);
     if (key !== previous) {
       place = where(s);
       previous = key;
     }
-    const { tracker, origin } = place;
-    const sandbox = s.sandbox
-      ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
-      : dockerSandbox({
-          data: s.data,
-          cache: s.cache,
-          image: s.image,
-          direct: findLocalModelHosts(s.proxy.url),
-          ...origin,
-        });
-    // a graph that does not load trusts no one; every tick reports why it does not load
-    const trust = s.trust.length
-      ? Effect.succeed(s.trust)
-      : Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
-          Effect.provide(sandbox),
-          Effect.catchAll(() => Effect.succeed<string[]>([]))
-        );
-    const config = readHarnessSettings.pipe(
-      Effect.catchAll(e =>
-        Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {
-          harnesses: [],
-        } as HarnessSettings)
-      )
-    );
+    const current = place;
     return Layer.unwrapEffect(
-      Effect.map(Effect.all([trust, config]), ([trust, config]) =>
-        Layer.mergeAll(
-          tracker(trust),
-          fileStore(s.data, s.checkLogs),
-          harnessSession({
-            ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
-            ...Struct.pick(config, 'harnesses', 'providers', 'provider'),
-          }).pipe(Layer.provideMerge(sandbox))
-        )
+      Effect.map(
+        Effect.promise(() => current),
+        ({ layer: tracker, origin }) => {
+          const sandbox = s.sandbox
+            ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
+            : dockerSandbox({
+                data: s.data,
+                cache: s.cache,
+                image: s.image,
+                direct: findLocalModelHosts(s.proxy.url),
+                ...origin,
+              });
+          // a graph that does not load trusts no one; every tick reports why it does not load
+          const trust = s.trust.length
+            ? Effect.succeed(s.trust)
+            : Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
+                Effect.provide(sandbox),
+                Effect.catchAll(() => Effect.succeed<string[]>([]))
+              );
+          const config = readHarnessSettings.pipe(
+            Effect.catchAll(e =>
+              Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {
+                harnesses: [],
+              } as HarnessSettings)
+            )
+          );
+          return Layer.unwrapEffect(
+            Effect.map(Effect.all([trust, config]), ([trust, config]) =>
+              Layer.mergeAll(
+                tracker(trust),
+                fileStore(s.data, s.checkLogs),
+                harnessSession({
+                  ...Struct.pick(s, 'data', 'proxy', 'passed', 'prices'),
+                  ...Struct.pick(config, 'harnesses', 'providers', 'provider'),
+                }).pipe(Layer.provideMerge(sandbox))
+              )
+            )
+          );
+        }
       )
     );
   };

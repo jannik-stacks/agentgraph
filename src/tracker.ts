@@ -1,5 +1,5 @@
 import { readOrUndefined } from './read.ts';
-import type { ToolContext } from './plugin.ts';
+import { makePlugin, type ToolContext } from './plugin.ts';
 import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -75,6 +75,11 @@ export class Tracker extends Context.Tag('agentgraph/Tracker')<
     studio?: string;
   }
 >() {}
+
+export type TrackerSetup = {
+  layer: (trust?: readonly string[]) => Layer.Layer<Tracker>;
+  origin: { origin: string; local?: boolean; token?: Effect.Effect<string, TrackerError> };
+};
 
 export const parseIssueSearch = (
   query: string,
@@ -608,3 +613,14 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       };
     })
   );
+
+export const folder = makePlugin({
+  name: 'folder',
+  tracker: ({ dir }) => {
+    if (!dir) throw new Error('the folder tracker needs a folder: --tracker <dir>');
+    return {
+      layer: trust => folderTracker(dir, undefined, trust),
+      origin: { origin: join(dir, 'origin.git'), local: true },
+    };
+  },
+});

@@ -74,7 +74,7 @@ const usage = `usage: agi <verb> [flags]
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
   import <commit>|<patch> [<issue file>] [--from <commit>] [--meta <json file>]
                                                   records a change as an ended run, for check --runs
-flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --tracker github|<dir> --logs all|failed|off
+flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --tracker <name>|<dir> --logs all|failed|off
        --read-only --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...; start takes --run-label <key>=<value>...`;
 const verbs = [...usage.matchAll(/^  ([a-z-]+)/gm)].map(m => m[1]);
 
@@ -335,8 +335,8 @@ else await runOnInstance();
 async function runOnTracker() {
   if (values.provider || values.harness || values.model || values.save)
     fail('--provider, --harness, --model and --save work in a repo; a tracker runner reads the graph and its env');
-  const folder = values.tracker && values.tracker !== 'github' ? resolve(values.tracker) : undefined;
-  if (folder) process.env.AGENTGRAPH_TRACKER = folder;
+  if (values.tracker) process.env.AGENTGRAPH_TRACKER = values.tracker;
+  const github = (values.tracker ?? 'github') === 'github';
   const refresh = ['loop', 'check', 'dispatch', 'resume'].includes(verb) ? await applyNamedProvider() : undefined;
   const graph = values.dir && resolve(values.dir);
   const needGraph = () => graph ?? fail(`${verb} on a tracker needs --dir`);
@@ -355,12 +355,12 @@ async function runOnTracker() {
     case 'show': {
       const env = await readEngineEnv();
       const { AGENTGRAPH_APP_ID: id, AGENTGRAPH_APP_KEY: key } = env;
-      if (!folder && (!id || !key)) fail('set AGENTGRAPH_APP_ENV to the App env file');
+      if (github && (!id || !key)) fail('set AGENTGRAPH_APP_ENV to the App env file');
       const { repo } = await Effect.runPromise(readConfiguredGraph(needGraph()));
       const lines = [
-        ...(folder ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
+        ...(!github ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
         ...findRunsWaitingOnPeople(await listRuns(root)).flatMap(run =>
-          formatNextSteps(run, folder ? undefined : repo)
+          formatNextSteps(run, github ? repo : undefined)
         ),
       ];
       console.log(lines.length ? `Needs you\n${lines.join('\n')}` : 'Nothing needs you');

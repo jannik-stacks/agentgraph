@@ -2,7 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
+import { ConfigProvider, Effect, Layer, Option, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
@@ -1146,9 +1146,9 @@ describe('start with one issue', () => {
       expect(seen[0]).toMatchObject({
         repo: 'acme/sandbox',
         data: where.data,
-        tracker: { id: '42' },
+        tracker: 'github',
       });
-      expect(Redacted.value((seen[0]!.tracker as { key: Redacted.Redacted }).key)).toBe('PEM');
+      expect(Redacted.value(Option.getOrThrow(seen[0]!.app).key)).toBe('PEM');
       expect(Redacted.value(seen[0]!.proxy.keys)).toBe('implementor=k1,reviewer=k2');
       expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
 

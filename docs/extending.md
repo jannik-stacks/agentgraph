@@ -4,7 +4,7 @@ Start with the parts that ship, then change the ones your repo needs.
 
 ## Trackers
 
-A tracker reads issues and applies writes. The GitHub tracker uses a GitHub App; the folder tracker keeps issues in a local folder. The CLI chooses between them. From source, implement `Tracker` and pass it through `start`'s services argument. CLI registration is in progress. <!-- code: src/tracker.ts#Tracker src/services.ts#where src/main.ts#start -->
+A tracker reads issues and applies writes. Two ship as built-in plugins: `github` uses a GitHub App, and `folder` keeps issues in a local folder. A plugin with a `tracker` member adds another; see [Trackers](plugins.md#trackers). <!-- code: src/tracker.ts#Tracker src/services.ts#where src/main.ts#start -->
 
 ## Harnesses
 
@@ -23,7 +23,7 @@ The package ships a starter example; the clone has [more example graphs](../READ
 [Tool plugins](plugins.md) load now from the graph's `plugins/` folder. Other plugin parts are planned.
 <!-- code: src/plugin.ts#readPlugins -->
 
-The planned API extends those files. Each exports `makePlugin(...)` with only the parts it needs: tools agents can call, triggers that match events, actions that apply proposals, a tracker, or a studio page. The runner chooses the tracker; a graph cannot replace its own tracker.
+The planned API extends those files. Each exports `makePlugin(...)` with only the parts it needs: tools agents can call, triggers that match events, actions that apply proposals, a tracker, or a studio page.
 
 This example shows the planned shape. It does not run today:
 

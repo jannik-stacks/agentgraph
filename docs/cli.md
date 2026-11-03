@@ -47,7 +47,7 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--repo <dir>` | all | The repo, when not the current directory |
 | `--base <branch>` | all | The instance's base branch |
 | `--dir <dir>` | all | The graph folder; see [Which graph runs](reference.md#which-graph-runs) |
-| `--tracker github` or `<dir>` | all | Run as a runner on GitHub or on a tracker folder |
+| `--tracker <name>` or `<dir>` | all | Run as a runner on the tracker plugin `<name>`, such as `github`, or on a tracker folder |
 | `--logs all\|failed\|off` | all | Which check output to keep |
 | `--provider <name>` | all | The provider for this command |
 | `--save` | with `--provider` | Keep that provider for later commands |

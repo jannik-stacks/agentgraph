@@ -17,6 +17,7 @@ import {
   makePushResult,
 } from './tracker.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
+import { makePlugin } from './plugin.ts';
 import type { Proposal } from './proposal.ts';
 import type { Checkout } from './sandbox.ts';
 import { hostGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
@@ -254,7 +255,7 @@ type AppToken = (scope: TokenScope, refused?: string) => Effect.Effect<string, T
 const freshMs = 5_000;
 
 /** Mints installation tokens for the App, one per scope, reusing a token until a minute before it expires. */
-export const appToken = (
+const appToken = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch
 ): AppToken => {
@@ -1116,3 +1117,27 @@ export const readInstallationReach = (
     }
     return lines;
   });
+
+export const github = makePlugin({
+  name: 'github',
+  tracker: host => {
+    const app = {
+      repo: host.repo,
+      ...Option.getOrThrowWith(
+        host.app,
+        () => new Error('the github tracker needs AGENTGRAPH_APP_ID and AGENTGRAPH_APP_KEY')
+      ),
+    };
+    const token = appToken(app);
+    const layers = new Map<string, Layer.Layer<Tracker>>();
+    return {
+      layer: trust => {
+        const key = JSON.stringify(trust) ?? '';
+        const layer = layers.get(key) ?? githubTracker(app, globalThis.fetch, token, trust, host.studio);
+        layers.set(key, layer);
+        return layer;
+      },
+      origin: { origin: `https://github.com/${app.repo}.git`, token: token('read') },
+    };
+  },
+});
