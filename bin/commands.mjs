@@ -31,7 +31,7 @@ const braced = (text, open) => {
   }
 };
 
-/** What a bin file takes: its parseArgs options, its `Flag` table or its quoted `'--flag'` literals, and its verbs. */
+/** What a bin file takes: its parseArgs options, its `Flag` table or its quoted `'--flag'` literals, and its verbs. `agi` reads its table from src/cli.ts. */
 const takes = file => {
   const code = read(`bin/${file}`)
     .split('\n')
@@ -49,6 +49,11 @@ const takes = file => {
 };
 const known = Object.fromEntries(bins.map(f => [f, takes(f)]));
 known['../infra/local/sandbox/agi.mjs'] = takes('../infra/local/sandbox/agi.mjs');
+const table = takes('../src/cli.ts');
+known['run.ts'] = {
+  flags: new Set([...known['run.ts'].flags, ...table.flags]),
+  words: new Set([...known['run.ts'].words, ...table.words]),
+};
 const everyFlag = new Set(Object.values(known).flatMap(k => [...k.flags]));
 
 const bad = [];

@@ -9,7 +9,7 @@ const root = resolve(import.meta.dirname, '..');
 describe('commands', () => {
   it('fails a missing bin file, command, flag and npm script, one line each', () => {
     const dir = tmp('commands');
-    for (const path of ['bin/commands.mjs', 'bin/run.ts', 'package.json', 'studio/package.json'])
+    for (const path of ['bin/commands.mjs', 'bin/run.ts', 'src/cli.ts', 'package.json', 'studio/package.json'])
       cpSync(join(root, path), join(dir, path));
     write(dir, {
       'README.md':
