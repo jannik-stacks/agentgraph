@@ -636,7 +636,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
 
 export const folder = makePlugin({
   name: 'folder',
-  tracker: ({ dir }) => {
+  tracker: ({ dir }): TrackerSetup => {
     if (!dir) throw new Error('the folder tracker needs a folder: --tracker <dir>');
     return {
       layer: trust => folderTracker(dir, undefined, trust),

@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
-import { Config, Effect, Layer, Option, Redacted, Struct } from 'effect';
+import { Config, ConfigError, Effect, Either, Layer, Option, Redacted, Struct } from 'effect';
 import { folder, type TrackerSetup } from './tracker.ts';
 import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
 import { github } from './github.ts';
@@ -84,15 +84,27 @@ export const hostSettings = {
 
 const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
 
+const trackerName = Config.mapOrFail(
+  Config.all(['AGENTGRAPH_TRACKER', ...app].map(name => Config.string(name).pipe(Config.withDefault('')))),
+  ([tracker, ...apps]) =>
+    tracker || apps.some(Boolean)
+      ? Either.right(tracker || 'github')
+      : Either.left(ConfigError.MissingData(['AGENTGRAPH_TRACKER'], 'name a tracker or set the App env'))
+);
+
 export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker', string>>) => {
   const s = await Effect.runPromise(
-    Config.all({ ...hostSettings, config: Config.option(Config.string('AGENTGRAPH_CONFIG')) })
+    Config.all({
+      ...hostSettings,
+      config: Config.option(Config.string('AGENTGRAPH_CONFIG')),
+      tracker: Config.option(trackerName),
+    })
   );
-  const onTracker = flags.tracker !== undefined || app.some(name => process.env[name]);
+  const tracker = flags.tracker || Option.getOrUndefined(s.tracker);
   const data = resolve(flags.data ?? s.data);
   const file = join(data, 'config.ts');
-  const config = Option.getOrElse(s.config, () => (!onTracker && existsSync(file) ? file : undefined));
-  return { ...s, data, onTracker, config };
+  const config = Option.getOrElse(s.config, () => (!tracker && existsSync(file) ? file : undefined));
+  return { ...s, data, tracker, config };
 };
 
 export const settings = Config.all({
@@ -112,23 +124,42 @@ export const settings = Config.all({
   app: Config.option(
     Config.all({ id: Config.string('AGENTGRAPH_APP_ID'), key: Config.redacted('AGENTGRAPH_APP_KEY') })
   ),
-  tracker: Config.string('AGENTGRAPH_TRACKER').pipe(
-    Config.orElse(() => Config.map(Config.string('AGENTGRAPH_APP_ID'), () => 'github'))
-  ),
+  tracker: trackerName,
 }).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
 
-/** The tracker plugin `s.tracker` names, from the built-ins and a graph on the host, else a tracker folder at that path. */
+/**
+ * The tracker plugin `name` names, from the built-ins and the plugins of `graph`, else a tracker folder at that path.
+ * A graph read from the repo cannot bring its own tracker. Reads only; nothing is set up.
+ */
+export const pickTracker = async (
+  name: string,
+  graph?: { dir: string; fromRepo: boolean }
+): Promise<{ tracker: (host: TrackerHost) => TrackerSetup; dir?: string } | { problem: string }> => {
+  const text = graph && (await readFile(join(graph.dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
+  const builtins = [github, folder];
+  const { trackers, names } = await readPlugins(
+    graph?.dir,
+    parseGraphSettings(text, () => {})?.plugins,
+    undefined,
+    builtins
+  );
+  const named = Object.hasOwn(trackers, name);
+  const dir = named ? undefined : resolve(name);
+  if (named && graph?.fromRepo && !builtins.some(b => b.name === name))
+    return {
+      problem: `tracker ${name} is a plugin of a graph read from the repo; a runner loads it only from a graph on the host, with --dir`,
+    };
+  if (!named && names.includes(name)) return { problem: `plugin ${name} has no tracker` };
+  if (dir !== undefined && !existsSync(dir))
+    return { problem: `no tracker plugin ${name} and no folder ${dir}; trackers: ${Object.keys(trackers).join(', ')}` };
+  return { tracker: trackers[named ? name : 'folder'] as (host: TrackerHost) => TrackerSetup, ...(dir && { dir }) };
+};
+
 const where = async (s: Settings) => {
-  const dir = isAbsolute(s.graph) && existsSync(s.graph) ? s.graph : undefined;
-  const text = dir && (await readFile(join(dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
-  const plugins = parseGraphSettings(text, () => {})?.plugins;
-  const { trackers } = await readPlugins(dir, plugins, undefined, [github, folder]);
-  const named = Object.hasOwn(trackers, s.tracker) ? trackers[s.tracker] : undefined;
-  const at = resolve(s.tracker);
-  if (!named && !existsSync(at))
-    throw new Error(`no tracker plugin ${s.tracker} and no folder ${at}; plugins: ${Object.keys(trackers).join(', ')}`);
-  const host = { ...Struct.pick(s, 'repo', 'studio', 'app'), ...(!named && { dir: at }) };
-  return (named ?? trackers.folder!)(host) as TrackerSetup;
+  const graph = isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
+  const picked = await pickTracker(s.tracker, graph);
+  if ('problem' in picked) throw new Error(picked.problem);
+  return picked.tracker({ ...Struct.pick(s, 'repo', 'studio', 'app'), ...(picked.dir && { dir: picked.dir }) });
 };
 
 /**

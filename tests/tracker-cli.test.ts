@@ -1103,3 +1103,42 @@ describe('the CLI flags', () => {
     ]);
   });
 });
+
+describe('the tracker selection', () => {
+  const cli = (env: Record<string, string>, ...args: string[]) => {
+    const dir = tmp('selection');
+    const r = spawnSync(process.execPath, [runTs, ...args, '--data', join(dir, 'data')], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_OPTIONS: '',
+        AGENTGRAPH_CONFIG: '',
+        AGENTGRAPH_DIR: '',
+        AGENTGRAPH_TRACKER: '',
+        AGENTGRAPH_APP_ENV: '',
+        AGENTGRAPH_APP_ID: '',
+        AGENTGRAPH_APP_KEY: '',
+        AGENTGRAPH_APP_KEY_FILE: '',
+        ...env,
+      },
+    });
+    return { code: r.status, out: r.stdout.trim(), err: r.stderr.trim() };
+  };
+
+  it('comes from AGENTGRAPH_TRACKER alone, and check says when it names nothing', () => {
+    const checked = cli({ AGENTGRAPH_TRACKER: '__nope__' }, 'check', '--dir', sandboxGraph, '--provider', 'litellm');
+    expect(checked.code).toBe(1);
+    expect(checked.err).toMatch(/^tracker: no tracker plugin __nope__ and no folder /m);
+  });
+
+  it('keeps a folder AGENTGRAPH_TRACKER names over the App env, so show asks nothing of GitHub', () => {
+    const shown = cli(
+      { AGENTGRAPH_TRACKER: tmp('folder'), AGENTGRAPH_APP_ID: '1', AGENTGRAPH_APP_KEY: 'not a key' },
+      'show',
+      '--dir',
+      sandboxGraph
+    );
+    expect([shown.code, shown.out, shown.err]).toEqual([0, 'Nothing needs you', '']);
+  });
+});

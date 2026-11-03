@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { watch } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
@@ -52,7 +52,7 @@ import {
   formatShellWord,
 } from '../src/status.ts';
 import { isOnIssue } from '../src/graph.ts';
-import { readHostSettings, whyModelHostsMissing } from '../src/services.ts';
+import { pickTracker, readHostSettings, whyModelHostsMissing } from '../src/services.ts';
 import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
 import type { Run, RunRecord } from '../src/workflow.ts';
@@ -182,6 +182,8 @@ const makeHarnessChoice = (provider: string | undefined) => ({
 const formatUnserved = (provider: Provider, harness: string) =>
   `${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.`;
 const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefined) => {
+  const runner = process.env.AGENTGRAPH_DIR;
+  const picked = selection && (await pickTracker(selection, { dir: graph, fromRepo: !!runner && !isAbsolute(runner) }));
   const problems = await Effect.runPromise(
     Effect.zip(readHarnessSettings, readConfiguredGraph(graph)).pipe(
       Effect.map(([{ providers = [], provider: named }, loaded]) => {
@@ -192,6 +194,7 @@ const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefin
       Effect.withConfigProvider(makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i?.provider)))
     )
   );
+  if (picked && 'problem' in picked) problems.push({ path: 'tracker', message: picked.problem });
   for (const p of problems) console.error(`${p.path}: ${p.message}`);
   console.log(problems.length ? `${problems.length} problem(s)` : 'ok');
   process.exit(problems.length ? 1 : 0);
@@ -318,25 +321,25 @@ const trapInterrupt = () =>
   });
 
 const host = await readHostSettings(values).catch((e: Error) => fail(e.message));
-const { onTracker, data: root } = host;
+const { tracker: selection, data: root } = host;
 
 const graphDir = values.dir ?? process.env.AGENTGRAPH_DIR;
 const selected = formatInstanceFlags(values.repo && resolve(values.repo), values.data && root);
 
 if (verb === 'check' && values.dir && !values.runs) {
-  const repo = onTracker ? undefined : await findRepo(resolve(values.repo ?? '.'));
+  const repo = selection ? undefined : await findRepo(resolve(values.repo ?? '.'));
   if (values.repo && !repo) fail('--repo must name a readable git repo');
   const saved = repo ? findInstances(root).find(i => i.repo === realpathSync(repo)) : undefined;
   await checkGraph(resolve(values.dir), saved);
 }
-if (onTracker) await runOnTracker();
+if (selection) await runOnTracker(selection);
 else await runOnInstance();
 
-async function runOnTracker() {
+async function runOnTracker(selection: string) {
   if (values.provider || values.harness || values.model || values.save)
     fail('--provider, --harness, --model and --save work in a repo; a tracker runner reads the graph and its env');
-  if (values.tracker) process.env.AGENTGRAPH_TRACKER = values.tracker;
-  const github = (values.tracker ?? 'github') === 'github';
+  process.env.AGENTGRAPH_TRACKER = selection;
+  const github = selection === 'github';
   const refresh = ['loop', 'check', 'dispatch', 'resume'].includes(verb) ? await applyNamedProvider() : undefined;
   const graph = values.dir && resolve(values.dir);
   const needGraph = () => graph ?? fail(`${verb} on a tracker needs --dir`);

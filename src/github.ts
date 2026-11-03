@@ -16,6 +16,7 @@ import {
   withheld,
   makePushResult,
   makeStatusLabel,
+  type TrackerSetup,
 } from './tracker.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import { makePlugin } from './plugin.ts';
@@ -1123,7 +1124,7 @@ export const readInstallationReach = (
 
 export const github = makePlugin({
   name: 'github',
-  tracker: host => {
+  tracker: (host): TrackerSetup => {
     const app = {
       repo: host.repo,
       ...Option.getOrThrowWith(

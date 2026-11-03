@@ -5,7 +5,7 @@ import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type Tool, type ToolExecutionOptions } from 'ai';
-import { Effect, Either, JSONSchema, type Layer, type Option, ParseResult, type Redacted, Schema } from 'effect';
+import { Effect, Either, JSONSchema, type Option, ParseResult, type Redacted, Schema } from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
@@ -41,10 +41,7 @@ export type TrackerHost = {
   dir?: string;
 };
 
-type TrackerMember = (host: TrackerHost) => {
-  layer: (trust?: readonly string[]) => Layer.Layer<never>;
-  origin: { origin: string; local?: boolean; token?: Effect.Effect<string, unknown> };
-};
+type TrackerMember = (host: TrackerHost) => unknown;
 
 export type StatusChange = { issue: number; repo: string; from?: IssueStatus; to: IssueStatus };
 
@@ -228,5 +225,5 @@ export const readPlugins = async (
   for (const name of Object.keys(settings)) {
     if (!plugins.has(name)) throw new Error(`plugins.${name}: unknown plugin`);
   }
-  return { tools, pages, hooks, trackers };
+  return { tools, pages, hooks, trackers, names: [...plugins.keys()] };
 };
