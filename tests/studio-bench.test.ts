@@ -29,8 +29,14 @@ const row = (over: Partial<Row>): Row => ({
 });
 
 describe('bench score', () => {
-  it('rejects missing measurements instead of treating them as zero quality', () => {
-    expect(() => quality(row({}), defaultBenchScoreWeights)).toThrow('no scored components for a');
+  it('leaves a row with nothing to score unscored instead of treating it as zero quality', () => {
+    expect(quality(row({}), defaultBenchScoreWeights)).toBeUndefined();
+  });
+
+  it('leaves rows with nothing to score out of the point and its counts', () => {
+    const rows = [row({ case: 'a', hidden: 1, suite: 1 }), row({ case: 'b' }), row({ case: 'a', repeat: 2 })];
+    const [p] = summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes });
+    expect([p!.y, p!.n, p!.repeats, p!.perCase.map(s => s.row.case)]).toEqual([1, 1, 1, ['a']]);
   });
 
   it('puts nothing useful at 0 and the human at 1', () => {

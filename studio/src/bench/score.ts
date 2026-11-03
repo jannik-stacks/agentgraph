@@ -15,7 +15,10 @@ export const presets: Record<string, typeof defaultBenchScoreWeights> = {
 /** The row's cost at list price; `cacheOff` prices cache reads and writes as input. */
 export const cost = (row: Row, cacheOff = false) => (cacheOff ? row.usdUncached : row.usd);
 
-/** Quality on a fixed scale where 0 is nothing useful and 1 is the human; `human` is the human row of the same case. */
+/**
+ * Quality on a fixed scale where 0 is nothing useful and 1 is the human; `human` is the human row of the same case.
+ * Undefined when the row has nothing to score.
+ */
 export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[], human?: Row) => {
   if (row.outcome === 'no-change') return 0;
   const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
@@ -27,7 +30,7 @@ export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: s
       : [[w.suite, (row.suite ?? 1) * (row.typecheck ?? 1)] as [number, number]]),
   ];
   const weight = parts.reduce((a, [wt]) => a + wt, 0);
-  if (!weight) throw new Error(`no scored components for ${row.case}`);
+  if (!weight) return undefined;
   const base = parts.reduce((a, [wt, v]) => a + wt * v, 0) / weight;
   const bad = (r?: Row) => (r ? r.findings.critical + r.findings.high : 0);
   const crit = Math.min(1, Math.max(0, bad(row) - bad(human)) / 3);
@@ -100,12 +103,11 @@ export const summarise = (
     r => JSON.stringify(keys.map(k => [k, r.labels[k] ?? null]))
   );
   return [...byPoint].map(([key, all]) => {
-    const kept = all.filter(r => o.infraZero || !r.infra);
-    const scored = kept.map(r => ({
-      row: r,
-      y: r.infra ? 0 : quality(r, o.w, o.judges, humans.get(baseline(r))),
-      x: o.x(r),
-    }));
+    const scored = all.flatMap(r => {
+      const y = r.infra ? (o.infraZero ? 0 : undefined) : quality(r, o.w, o.judges, humans.get(baseline(r)));
+      return y === undefined ? [] : [{ row: r, y, x: o.x(r) }];
+    });
+    const kept = scored.map(s => s.row);
     const cases = [...group(scored, s => s.row.case).values()];
     const judged = kept.flatMap(r => {
       const votes = Object.entries(r.vsHuman).flatMap(([j, v]) => (!o.judges || o.judges.includes(j) ? [v] : []));

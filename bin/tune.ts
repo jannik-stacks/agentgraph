@@ -143,8 +143,8 @@ const ids = (t: Tune, ...splits: Split[]) =>
     .sort();
 
 /**
- * Per case the quality, usd and minutes of every v2 run that was not infra, the count of all runs and their total
- * cost and minutes.
+ * Per case the quality, usd and minutes of every scored v2 run that was not infra, the count of all runs and their
+ * total cost and minutes.
  */
 const scores = (rows: Row[], preset: Tune['preset']) => {
   const w = preset === 'hidden' ? { ...presets['hidden tests only']!, suite: 0.15 } : presets.composite!;
@@ -155,8 +155,9 @@ const scores = (rows: Row[], preset: Tune['preset']) => {
   >();
   for (const r of rows.filter(r => r.labels.arm === 'v2')) {
     const s = out.get(r.case) ?? { qs: [], paid: [], took: [], runs: 0, usd: 0, min: 0 };
-    if (!r.infra) {
-      s.qs.push(quality(r, w, undefined, human.get(r.case)));
+    const q = r.infra ? undefined : quality(r, w, undefined, human.get(r.case));
+    if (q !== undefined) {
+      s.qs.push(q);
       s.paid.push(r.usd ?? 0);
       s.took.push(r.minutes);
     }
