@@ -519,7 +519,12 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     const data = join(w.root, 'data');
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     const run = begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: '2026-10-16T00:00:01.000Z' });
-    await Effect.runPromise(Effect.flatMap(Store, store => store.put(run)).pipe(Effect.provide(fileStore(data))));
+    const { issue: _issue, ...imported } = { ...run, id: 'import-1' };
+    await Effect.runPromise(
+      Effect.flatMap(Store, store => Effect.zipRight(store.put(run), store.put(imported))).pipe(
+        Effect.provide(fileStore(data))
+      )
+    );
     const label = (...args: string[]) =>
       spawnSync(process.execPath, [runTs, 'label', ...args, '--data', data, '--forge', w.dir], {
         encoding: 'utf8',
@@ -530,12 +535,14 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       label('triage-1', 'arm-', 'set=explorer'),
       label('triage-1', 'Bad=1'),
       label('missing-1', 'arm=v2'),
+      label('import-1', 'arm=v1'),
     ];
     expect(runs.map(r => [r.status, r.stdout])).toEqual([
       [0, 'arm=v2\nmodel=gpt 6\n'],
       [0, 'model=gpt 6\nset=explorer\n'],
       [2, ''],
       [2, ''],
+      [0, 'arm=v1\n'],
     ]);
     const log = readFileSync(join(data, 'triage-1', 'labels.jsonl'), 'utf8')
       .trim()

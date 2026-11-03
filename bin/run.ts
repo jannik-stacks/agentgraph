@@ -147,7 +147,7 @@ const startLabels = (() => {
 })();
 const relabel = async (data: string) => {
   const [id = '', ...words] = rest;
-  if (!(await Effect.runPromise(Effect.flatMap(Store, s => s.get(id)).pipe(Effect.provide(fileStore(data))))))
+  if (!(await Effect.runPromise(Effect.flatMap(Store, s => s.getRecord(id)).pipe(Effect.provide(fileStore(data))))))
     fail(`no run ${id || '<run id>'} in ${data}`);
   try {
     const labels = words.length
