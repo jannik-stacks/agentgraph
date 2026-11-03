@@ -632,9 +632,14 @@ describe('a pass', () => {
         Effect.provide(fileStore(where.data))
       )
     );
+    const slowLook = Effect.runSync(Deferred.make<void>());
     const stalled = Layer.effect(
       Tracker,
-      Effect.map(Tracker, f => ({ ...f, since: (cursor: string) => (cursor ? f.since(cursor) : Stream.never) }))
+      Effect.map(Tracker, f => ({
+        ...f,
+        since: (cursor: string) =>
+          cursor ? f.since(cursor) : Stream.concat(Stream.execute(Deferred.succeed(slowLook, undefined)), Stream.never),
+      }))
     ).pipe(Layer.provide(folderTracker(where.tracker)));
     const layer = Layer.mergeAll(
       stalled,
@@ -644,7 +649,10 @@ describe('a pass', () => {
     );
     const one = { ...graph, limits: { ...graph.limits, parallel: 1 } };
     await Effect.runPromise(
-      scanIssuesAndRunningRuns(one).pipe(Effect.timeout('3 seconds'), Effect.ignore, Effect.provide(layer))
+      Effect.raceFirst(scanIssuesAndRunningRuns(one), Deferred.await(slowLook)).pipe(
+        Effect.ignore,
+        Effect.provide(layer)
+      )
     );
     expect((await runs(where)).find(r => r.id === 'router-2')!.status).toBe('done');
   });

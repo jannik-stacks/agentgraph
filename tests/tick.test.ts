@@ -2,7 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ConfigProvider, Effect, Layer, Option, Redacted, Stream } from 'effect';
+import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
@@ -1420,12 +1420,13 @@ describe('scanIssuesAndRunningRuns', () => {
     say(where, comment(8, 'morgan', true, '/agent', '2026-10-16T00:00:00.000Z'));
     let open = 0;
     let most = 0;
+    const both = Effect.runSync(Deferred.make<void>());
     const slow = Layer.succeed(Session, {
       open: () =>
         Stream.fromEffect(
           Effect.acquireUseRelease(
             Effect.sync(() => (most = Math.max(most, ++open))),
-            () => Effect.sleep('200 millis'),
+            () => Effect.suspend(() => (open === 2 ? Deferred.succeed(both, undefined) : Deferred.await(both))),
             () => Effect.sync(() => open--)
           )
         ).pipe(Stream.flatMap(() => Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })))),

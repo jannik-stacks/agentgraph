@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect, Layer, Stream } from 'effect';
+import { Deferred, Effect, Layer, Stream } from 'effect';
 import { expect, it } from 'vitest';
 import { drive, runStepChecks } from '../src/engine.ts';
 import type { Graph } from '../src/folder.ts';
@@ -41,11 +41,17 @@ const measureChecks = async (sessions: number, judged = false) => {
   let peak = 0;
   let scripts = 0;
   let judges = 0;
+  const full = Effect.runSync(Deferred.make<void>());
   const occupy = Effect.acquireRelease(
     Effect.sync(() => {
       peak = Math.max(peak, ++live);
     }),
     () => Effect.sync(() => void live--)
+  ).pipe(
+    Effect.zipRight(
+      Effect.suspend(() => (live >= Math.min(sessions, 5) ? Deferred.succeed(full, undefined) : Effect.void))
+    ),
+    Effect.zipRight(Deferred.await(full))
   );
   const sandbox = Layer.succeed(Sandbox, {
     readHead: () => Effect.die('unexpected readHead'),
@@ -98,7 +104,7 @@ const measureChecks = async (sessions: number, judged = false) => {
         );
       },
       { concurrency: 'unbounded' }
-    ).pipe(Effect.provide(layer), Effect.timeout('3 seconds'))
+    ).pipe(Effect.provide(layer))
   );
   const findings = ['run-0', 'run-1']
     .flatMap(run =>
@@ -153,9 +159,7 @@ it('caps checks across runs and repositories without changing results or deadloc
     [start('implementor'), reply({ kind: 'comment', body: 'Checked.' })],
     [result({ pass: true }), stop],
   ]);
-  const ended = await run(
-    drive(graph.workflows.issue!, { ...fresh(), step: 'implement' }, graph).pipe(Effect.timeout('3 seconds'))
-  );
+  const ended = await run(drive(graph.workflows.issue!, { ...fresh(), step: 'implement' }, graph));
   expect(ended).toMatchObject({ status: 'done' });
   expect(specs.map(spec => spec.agent)).toEqual(['implementor', 'reviewer']);
   expect(
