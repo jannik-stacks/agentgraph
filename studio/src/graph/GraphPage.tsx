@@ -307,7 +307,7 @@ export const GraphPage = () => {
   const [graphKey, setGraph] = useAtom(graphParam);
   const [runKey, setRun] = useAtom(runParam);
   const { value: real, failure } = useAtomValue(runsAtom);
-  const status = failure ? `runs failed to load: ${failure}` : !real && 'loading runs';
+  const status = failure ? `could not load runs: ${failure}` : !real && 'loading runs';
   const [hide, setHide] = useAtom(hideParam);
   const hidden = useMemo(() => new Set(hide?.split(',')), [hide]);
 
@@ -354,15 +354,16 @@ export const GraphPage = () => {
             }}
           />
         )}
-        {(runs.length > 0 || status) && (
+        {runs.length > 0 && (
           <Combobox
             label="Run"
-            placeholder={status || 'none, the workflows as written'}
+            placeholder="none, the workflows as written"
             value={picked?.key ?? null}
             options={runs.map(r => ({ value: r.key, label: r.label }))}
             onChange={setRun}
           />
         )}
+        {status && <span className="text-xs text-zinc-500">{status}</span>}
         <p className="w-full min-w-0 text-xs text-zinc-500 sm:w-auto sm:flex-1">
           {picked ? (
             <>
