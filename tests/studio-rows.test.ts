@@ -332,6 +332,8 @@ describe('a deep link into a run', () => {
     expect(html).toContain('judge n/a');
     expect(html).not.toContain('warned');
     const { issue: _issue, ...detached } = run;
-    expect(text(runRow({ fixture: 'kit/import', repo: 'o/r', run: detached as Run, trace: [] }))).not.toContain('#');
+    expect(
+      text(runRow({ fixture: 'kit/import', repo: 'o/r', labels: {}, run: detached as Run, trace: [] }))
+    ).not.toContain('#');
   });
 });
