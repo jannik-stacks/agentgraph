@@ -891,8 +891,8 @@ describe('tick', () => {
       ...merging,
       agents: { ...merging.agents, implementor: { ...merging.agents.implementor!, returns } },
     });
-    const forgeText = (where: ReturnType<typeof world>) =>
-      readdirSync(where.forge, { recursive: true, withFileTypes: true })
+    const trackerText = (where: ReturnType<typeof world>) =>
+      readdirSync(where.tracker, { recursive: true, withFileTypes: true })
         .filter(f => f.isFile() && !f.parentPath.includes('origin.git'))
         .map(f => readFileSync(join(f.parentPath, f.name), 'utf8'))
         .join('\n');
@@ -908,7 +908,7 @@ describe('tick', () => {
           ? [t.outcome.question]
           : []
       );
-      return { stored: stored!, asked, leaked: forgeText(where).includes(secret) };
+      return { stored: stored!, asked, leaked: trackerText(where).includes(secret) };
     };
 
     it.each([
