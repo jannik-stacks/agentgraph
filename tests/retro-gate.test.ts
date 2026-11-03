@@ -1,5 +1,5 @@
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { tick } from '../src/engine.ts';
@@ -90,5 +90,59 @@ describe('the retro gate example', () => {
     const where = world();
     const runs = await ticks(where, [implement(5)]);
     expect(runs.map(r => [r.workflow, r.step, r.status])).toEqual([['issue', 'merge', 'waiting']]);
+  });
+});
+
+describe('a run step', () => {
+  const issue = graph.workflows.issue!;
+  const gated = (seen: string, reads?: 'traces') => ({
+    ...graph,
+    workflows: {
+      ...graph.workflows,
+      issue: {
+        ...issue,
+        steps: issue.steps.map(s =>
+          s.name === 'gate'
+            ? {
+                ...s,
+                does: {
+                  run: `env | grep -o '^AGENTGRAPH_[A-Z_]*' | sort > ${seen}; if [ -n "$AGENTGRAPH_RUN_TRACE" ]; then grep -q pnpm "$AGENTGRAPH_RUN_TRACE" && grep -q pnpm "$AGENTGRAPH_TRACES" && echo populated >> ${seen}; fi; true`,
+                  ...(reads && { reads }),
+                },
+              }
+            : s
+        ),
+      },
+    },
+  });
+  const gate = async (reads?: 'traces') => {
+    const where = world();
+    const seen = join(dirname(where.forge), 'seen');
+    const checksRead: string[] = [];
+    const store = Layer.effect(
+      Store,
+      Effect.map(Store, s => ({
+        ...s,
+        readChecks: (id: string) => Effect.suspend(() => (checksRead.push(id), s.readChecks(id))),
+      }))
+    ).pipe(Layer.provide(fileStore(where.data)));
+    const layer = Layer.mergeAll(
+      fileForge(where.forge),
+      store,
+      hostSandbox(where.origin),
+      replaySession([implement(1)])
+    );
+    await Effect.runPromise(tick(gated(seen, reads)).pipe(Effect.provide(layer)));
+    return { seen: readFileSync(seen, 'utf8').split('\n').filter(Boolean), checksRead: checksRead.length };
+  };
+
+  it('gets the trace files only with reads: traces, and prepares no traces without it', async () => {
+    const plain = await gate();
+    const reading = await gate('traces');
+    expect(plain.seen).toContain('AGENTGRAPH_ISSUE');
+    expect(plain.seen).not.toContain('AGENTGRAPH_TRACES');
+    expect(plain.seen).not.toContain('AGENTGRAPH_RUN_TRACE');
+    expect(reading.seen).toEqual(expect.arrayContaining(['AGENTGRAPH_TRACES', 'AGENTGRAPH_RUN_TRACE', 'populated']));
+    expect(reading.checksRead - plain.checksRead).toBe(1);
   });
 });
