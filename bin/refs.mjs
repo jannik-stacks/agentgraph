@@ -169,15 +169,20 @@ const userFacing = () => {
   const add = (what, from, names) => names.forEach(name => items.push({ what, from, name }));
   for (const file of ['src/folder.ts', 'src/workflow.ts']) {
     const text = read(file);
+    const renamed = Object.fromEntries(
+      [...text.matchAll(/encodeKeys\(\{([^}]*)\}\)/g)].flatMap(m =>
+        [...m[1].matchAll(/(\w+): '([^']+)'/g)].map(r => [r[1], r[2]])
+      )
+    );
     for (const m of text.matchAll(/Schema\.Struct\(\{/g)) {
       for (const piece of topLevel(balanced(text, m.index + m[0].length - 1))) {
         const key = /^\s*(\w+)\s*:/.exec(piece)?.[1];
         if (!key) continue;
-        add('field', file, [/fromKey\('([^']+)'\)/.exec(piece)?.[1] ?? key]);
-        for (const lit of piece.matchAll(/Schema\.Literal\(([^)]*)\)/g)) add('value', file, strings(lit[1]));
+        add('field', file, [renamed[key] ?? key]);
+        for (const lit of piece.matchAll(/Schema\.Literals?\(([^)]*)\)/g)) add('value', file, strings(lit[1]));
       }
     }
-    for (const lit of text.matchAll(/EventName = Schema\.Literal\(([^)]*)\)/g)) add('value', file, strings(lit[1]));
+    for (const lit of text.matchAll(/EventName = Schema\.Literals?\(([^)]*)\)/g)) add('value', file, strings(lit[1]));
   }
   const literals = ast =>
     ast._tag === 'Literal' ? [ast.literal] : ast._tag === 'Union' ? ast.types.flatMap(literals) : [];
