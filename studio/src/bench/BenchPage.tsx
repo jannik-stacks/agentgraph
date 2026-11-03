@@ -6,8 +6,18 @@ import { getMean } from '../../../src/stats.ts';
 import { queryParam } from '../state.ts';
 import { usePluginData } from '../plugins.ts';
 import { BenchData, type BenchRow as Row } from './data.ts';
-import { Button, cx, Disclosure, Field, Fields, Help, Loading, Muted, Select, Tooltip } from '../ui.tsx';
-import { cost, defaultBenchBy, defaultBenchScoreWeights, frontier, presets, roughBelow, summarise } from './score.ts';
+import { Button, cx, Disclosure, Help, Loading, Muted, Select, Tooltip } from '../ui.tsx';
+import {
+  cost,
+  defaultBenchBy,
+  defaultBenchScoreWeights,
+  formatMinutes,
+  frontier,
+  presets,
+  roughBelow,
+  formatLabel,
+  summarise,
+} from './score.ts';
 import { Forest } from './Forest.tsx';
 import { Scatter } from './Scatter.tsx';
 import { readBenchRowResults, type RunResults } from '../results/result.ts';
@@ -24,6 +34,7 @@ const params = {
   infra: queryParam('infra'),
   drop: queryParam('drop'),
   point: queryParam('point'),
+  name: queryParam('name'),
 };
 const names = Object.keys(defaultBenchScoreWeights) as (keyof typeof defaultBenchScoreWeights)[];
 const tones = [
@@ -54,40 +65,6 @@ const presetHelp: Record<string, string> = {
   'hidden tests only': 'Only hidden tests count.',
   'judges only': 'Only judges count.',
 };
-const arm =
-  'How the change is made. v2 uses the engine and repo’s graph, with checks and one chance for a reviewer to send it back. floor is one plain agent session with the same sandbox and budget, without checks or review. human is the merged pull request. Circles show v2, squares show floor.';
-const set =
-  'A pinned list of cases. Compare points on the same set. core uses real merged pull requests from the org’s repos. smoke uses three small, fast core cases for quick checks.';
-const terms: [string, ReactNode][] = [
-  ['arm', arm],
-  ['case set', set],
-  ['base', 'The repo at the pull request’s parent commit, before any change.'],
-  ['tree', 'The git tree hash of the graph’s files, part of a point’s key. Changing the graph creates a new point.'],
-  [
-    'case',
-    'One merged pull request. It is valid, and kept, only when the human diff applies to base, setup works, the hidden tests fail on base and pass on the human, and the human passes the suite.',
-  ],
-  ['repeats', 'Running the same case again on the same point.'],
-  [
-    'infra',
-    'The environment failed the run: the proxy, docker or the machine broke, scoring setup failed, or the run never finished. These runs are left out by default. Every other failure counts against the agent, and a run that changed nothing scores 0.',
-  ],
-  ['waiting', 'A run stopped to ask a question. The bench answers once: “No more information. Use your judgment.”'],
-  [
-    'judges',
-    'opus and sonnet are Claude models. sol is a GPT model. They see the diffs in one or both orders, with names, issue numbers and lockfiles removed.',
-  ],
-  [
-    'chart',
-    <>
-      Higher and further left is better. The line joins setups whose quality no cheaper setup matches. It is faint and
-      dashed if any setup on it has fewer than 10 cases. Dimmed points have a cheaper match or are judge-only, which
-      judges alone score, so they stay off the line. Hollow points are dimmed but their quality interval still reaches
-      the line. Crosses show 95 percent intervals from a bootstrap over cases, then repeats.
-    </>,
-  ],
-];
-
 const BenchResults = ({ runs }: { runs: RunResults[] }) => {
   const fields = findCheckFields(runs).filter(f => f.check !== 'bench');
   if (!fields.length) return null;
@@ -100,17 +77,13 @@ const BenchResults = ({ runs }: { runs: RunResults[] }) => {
 
 const unpanelled = 'sol';
 
+const defaultNames = (varying: string[]) => {
+  const named = ['harness', 'model', 'arm'].filter(k => varying.includes(k));
+  return named.length ? named : varying.slice(0, 1);
+};
+
 const fmt = (v: number | undefined, digits = 2) => (v === undefined || Number.isNaN(v) ? '' : v.toFixed(digits));
 const usd = (v: number) => `$${v.toFixed(3)}`;
-const ci = ([lo, hi]: [number, number], f: (v: number) => string) => `${f(lo)} to ${f(hi)}`;
-const kilo = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : `${n}`);
-
-const tokens = (rs: Row[]) => {
-  const sum = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
-  for (const t of rs.flatMap(r => Object.values(r.tokens)))
-    for (const k of Object.keys(sum) as (keyof typeof sum)[]) sum[k] += t[k] / rs.length;
-  return `tokens per run: ${kilo(Math.round(sum.input))} in, ${kilo(Math.round(sum.cacheRead))} cache read, ${kilo(Math.round(sum.cacheWrite))} cache write, ${kilo(Math.round(sum.output))} out`;
-};
 const unpricedModels = (rs: Row[]) => {
   const missing = [...new Set(rs.flatMap(r => r.unpriced ?? []))];
   return missing.length ? `no list price for ${missing.join(', ')}, counted as $0` : '';
@@ -124,43 +97,22 @@ const statusTones: Record<DriveState['status'], string> = {
   finished: 'text-emerald-600 dark:text-emerald-400',
 };
 
-const Benches = ({ drives }: { drives: readonly DriveState[] }) =>
+const Progress = ({ drives }: { drives: readonly DriveState[] }) =>
   drives.length ? (
-    <section className="max-w-5xl overflow-x-auto">
-      <Tooltip
-        tip="Bench dirs a driver runs. Resume a paused, stopped or crashed one with node bench/drive.ts resume <dir>; finished jobs are kept and never rerun."
-        focusable
-      >
-        <h3 className="mb-1 text-xs font-medium">Benches</h3>
-      </Tooltip>
-      <table className="w-full text-left text-xs tabular-nums">
-        <thead className="text-zinc-500">
-          <tr className="border-b border-zinc-200 dark:border-zinc-800">
-            {['bench', 'status', 'done', 'partial', 'since', 'reason'].map(h => (
-              <th key={h} className="py-1 pr-3 font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {drives.map(d => (
-            <tr key={d.dir} className="border-b border-zinc-100 dark:border-zinc-900">
-              <td className="py-1 pr-3 font-mono whitespace-nowrap" title={d.dir}>
-                {d.dir.split('/').pop()}
-              </td>
-              <td className={cx('py-1 pr-3', statusTones[d.status])}>{d.status}</td>
-              <td className="py-1 pr-3 whitespace-nowrap">
-                {d.done}/{d.total}
-              </td>
-              <td className="py-1 pr-3">{d.partial || ''}</td>
-              <td className="py-1 pr-3 whitespace-nowrap">{d.at?.slice(0, 16).replace('T', ' ') ?? ''}</td>
-              <td className="py-1 pr-3 text-zinc-600 dark:text-zinc-400">{d.reason ?? ''}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
+    <p className="flex flex-wrap gap-x-4 text-xs text-zinc-500">
+      <span className="font-medium">Progress</span>
+      {drives.map(d => (
+        <Tooltip
+          key={d.dir}
+          tip={[d.dir, d.reason, d.at && `since ${d.at.slice(0, 16).replace('T', ' ')}`].filter(Boolean).join('\n')}
+        >
+          <span>
+            <span className="font-mono">{d.dir.split('/').pop()}</span>{' '}
+            <span className={statusTones[d.status]}>{d.status}</span> {d.done}/{d.total}
+          </span>
+        </Tooltip>
+      ))}
+    </p>
   ) : null;
 
 const Control = ({ label, tip, children }: { label: string; tip?: string; children: ReactNode }) => (
@@ -215,6 +167,7 @@ const BenchPage = () => {
   const [infra, setInfra] = useAtom(params.infra);
   const [drop, setDrop] = useAtom(params.drop);
   const [picked, setPicked] = useAtom(params.point);
+  const [nameParam, setNames] = useAtom(params.name);
   const weights = useMemo(() => {
     const given = w?.split(',').map(Number) ?? [];
     return Object.fromEntries(
@@ -243,7 +196,7 @@ const BenchPage = () => {
   if (!value.rows.length)
     return value.drives.length ? (
       <div className="p-4">
-        <Benches drives={value.drives} />
+        <Progress drives={value.drives} />
       </div>
     ) : (
       <Muted>No bench rows. Start the studio with --bench and one or more bench out dirs.</Muted>
@@ -257,16 +210,14 @@ const BenchPage = () => {
   const varying = [...new Set(points.flatMap(p => Object.keys(p.labels)))].filter(
     k => new Set(points.map(p => p.labels[k])).size > 1
   );
-  const label = (p: (typeof points)[number]) =>
-    varying
-      .map(k => p.labels[k] ?? '(missing)')
-      .map(v => (/^[0-9a-f]{7,}$/.test(v) ? v.slice(0, 6) : v))
-      .join(' / ') || 'all runs';
+  const shown = nameParam === null ? defaultNames(varying) : nameParam.split(',').filter(k => varying.includes(k));
+  const label = (p: (typeof points)[number]) => shown.map(k => formatLabel(p.labels[k])).join(' / ');
+  const weighting =
+    Object.entries(presets).find(([, p]) => names.every(k => p[k] === weights[k]))?.[0] ?? 'custom weights';
   const colors = [...new Set(points.map(p => p.labels[color]))].toSorted();
   const tone = (v: string | undefined) =>
     color ? tones[colors.indexOf(v) % tones.length]! : 'text-zinc-600 dark:text-zinc-400';
   const xLabel = minutes ? 'minutes per task' : `notional USD per task${cache === 'off' ? ', cache off' : ''}, log`;
-  const fx = (v: number) => (minutes ? `${v.toFixed(1)} min` : usd(v));
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
@@ -400,11 +351,23 @@ const BenchPage = () => {
         </Control>
       </aside>
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
-        <Benches drives={value.drives} />
+        <Progress drives={value.drives} />
         <section className="max-w-3xl">
-          <p className="mb-2 text-xs text-pretty text-zinc-600 dark:text-zinc-400">
-            Each point groups the selected labels. The human’s merged pull request is the baseline and scores 1.
-          </p>
+          <div className="mb-2 flex flex-wrap items-center gap-1 text-xs text-zinc-500">
+            <Tooltip tip="Which labels name the points on the chart. Each point is the runs that share the labels picked under By.">
+              <span className="mr-1">names</span>
+            </Tooltip>
+            {varying.map(k => (
+              <Button
+                key={k}
+                aria-pressed={shown.includes(k)}
+                className="aria-pressed:border-zinc-500 aria-pressed:text-zinc-900 dark:aria-pressed:text-zinc-100"
+                onClick={() => setNames((shown.includes(k) ? shown.filter(n => n !== k) : [...shown, k]).join(','))}
+              >
+                {k}
+              </Button>
+            ))}
+          </div>
           <Scatter
             log={!minutes}
             xLabel={xLabel}
@@ -432,24 +395,18 @@ const BenchPage = () => {
                 x: p.x,
                 y: p.y,
                 ...(sure && { xCi: p.xCi, yCi: p.yCi }),
-                ...((front.includes(p.key) || p.key === picked) && { label: label(p) }),
+                ...(shown.length && { label: label(p) }),
                 tone: tone(p.labels[color]),
                 square: p.labels.arm === 'floor',
                 dim: dominated,
                 open: dominated && !p.judgeOnly && p.yCi[1] >= stair(p.x),
                 tip: [
-                  JSON.stringify(p.labels, null, 2),
-                  `quality ${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`,
-                  `${fx(p.x)} per task (${ci(p.xCi, fx)})`,
-                  `${p.n} cases, ${p.repeats} runs, ${fmt(p.completion * 100, 0)}% complete`,
-                  `${fmt(p.minutes, 1)} min, checking ${usd(getMean(p.perCase.map(s => s.row.checkUsd)))} per run`,
-                  tokens(p.perCase.map(s => s.row)),
+                  varying.map(k => `${k} ${formatLabel(p.labels[k])}`).join(', '),
+                  `quality ${fmt(p.y)} ± ${fmt((p.yCi[1] - p.yCi[0]) / 2)}`,
+                  `${usd(getMean(p.perCase.map(s => cost(s.row, cache === 'off'))))} and ${formatMinutes(p.minutes)} per run`,
+                  `${p.n} cases, ${p.repeats} runs`,
                   unpricedModels(p.perCase.map(s => s.row)),
-                  p.judgeOnly
-                    ? 'judges alone score these cases, so the point stays off the line'
-                    : dominated && p.yCi[1] >= stair(p.x)
-                      ? 'within noise of the frontier'
-                      : '',
+                  p.judgeOnly ? 'judged only, so off the line' : '',
                 ]
                   .filter(Boolean)
                   .join('\n'),
@@ -457,24 +414,14 @@ const BenchPage = () => {
             })}
           />
           <p className="mt-1 text-[11px] text-zinc-500">Click a point or a row below to see its runs.</p>
-          <Disclosure summary="What the terms mean" className="mt-2 text-[11px] text-zinc-500">
-            <div className="mt-1 max-w-2xl">
-              <Fields>
-                {terms.map(([term, meaning]) => (
-                  <Field key={term} name={<span className="font-mono">{term}</span>}>
-                    {meaning}
-                  </Field>
-                ))}
-              </Fields>
-            </div>
-          </Disclosure>
         </section>
         <div className="overflow-x-auto">
           <Forest
             points={points}
-            label={label}
+            keys={varying.filter(k => k !== 'set')}
+            weighting={weighting}
             tone={p => tone(p.labels[color])}
-            usd={p => getMean(p.perCase.map(s => cost(s.row, cache === 'off')))}
+            rowCost={row => cost(row, cache === 'off')}
             picked={picked}
             onPick={setPicked}
           />

@@ -3,6 +3,19 @@ import type { BenchRow as Row } from './data.ts';
 
 export const roughBelow = 10;
 
+export const formatMinutes = (m: number) =>
+  m < 1 ? `${Math.round(m * 60)} s` : m < 60 ? `${m.toFixed(1)} min` : `${(m / 60).toFixed(1)} h`;
+
+export const formatLabel = (v: string | undefined) =>
+  v === undefined ? '(missing)' : /^[0-9a-f]{7,}$/.test(v) ? v.slice(0, 6) : v;
+
+export const getQuantile = (xs: number[], q: number) => {
+  const sorted = xs.toSorted((a, b) => a - b);
+  const i = (sorted.length - 1) * q;
+  const lo = sorted[Math.floor(i)] ?? 0;
+  return lo + ((sorted[Math.ceil(i)] ?? lo) - lo) * (i - Math.floor(i));
+};
+
 export const defaultBenchBy = ['harness', 'model', 'arm', 'engine', 'graph', 'set'];
 
 export const defaultBenchScoreWeights = { test: 0.5, judge: 0.35, suite: 0.15, crit: 0.1, help: 0.1 };

@@ -12,6 +12,7 @@ import {
   cost,
   defaultBenchScoreWeights,
   frontier,
+  getQuantile,
   presets,
   quality,
   summarise,
@@ -81,6 +82,11 @@ describe('bench score', () => {
   it('costs a row at list price, with or without its cache reads', () => {
     expect(cost(row({ usd: 0.3, usdUncached: 0.5 }))).toBe(0.3);
     expect(cost(row({ usd: 0.3, usdUncached: 0.5 }), true)).toBe(0.5);
+  });
+
+  it('takes the median and quartiles between case means, whatever their order', () => {
+    expect([0.25, 0.5, 0.75].map(q => getQuantile([1, 0, 0.5, 0.25], q))).toEqual([0.1875, 0.375, 0.625]);
+    expect(getQuantile([0.4], 0.5)).toBe(0.4);
   });
 
   it('bootstraps cases then repeats the same way for the same seed', () => {

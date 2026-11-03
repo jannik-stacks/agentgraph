@@ -18,6 +18,57 @@ type Dot = {
 
 const [width, left, right, top, bottom] = [640, 44, 96, 22, 30];
 
+type Box = [number, number, number, number];
+const overlaps = (a: Box, b: Box) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+
+const placeLabels = (
+  points: { key: string; cx: number; cy: number; label?: string | undefined }[],
+  reserved: Box[],
+  height: number,
+  picked?: string
+) => {
+  const taken: Box[] = [...reserved, ...points.map((p): Box => [p.cx - 6, p.cy - 6, p.cx + 6, p.cy + 6])];
+  const placed = new Map<string, { x: number; y: number; end: boolean }>();
+  for (const p of points.toSorted((a, b) => Number(b.key === picked) - Number(a.key === picked))) {
+    if (!p.label) continue;
+    const w = p.label.length * 5.6;
+    const spot = [0, -12, 12, -24, 24, -36, 36]
+      .flatMap(dy => [false, true].map(end => ({ x: end ? p.cx - 8 : p.cx + 8, y: p.cy + dy, end })))
+      .find(({ x, y, end }) => {
+        const box: Box = end ? [x - w, y - 6, x, y + 6] : [x, y - 6, x + w, y + 6];
+        if (
+          box[0] < 0 ||
+          box[2] > width ||
+          box[1] < 12 ||
+          box[3] > height - bottom ||
+          taken.some(t => overlaps(t, box))
+        )
+          return false;
+        taken.push(box);
+        return true;
+      });
+    if (spot) placed.set(p.key, spot);
+  }
+  return placed;
+};
+
+const Label = ({
+  from,
+  at,
+  text,
+}: {
+  from: [number, number];
+  at: { x: number; y: number; end: boolean };
+  text: string;
+}) => (
+  <>
+    {at.y !== from[1] && <line x1={from[0]} y1={from[1]} x2={at.x} y2={at.y} className="stroke-current opacity-40" />}
+    <text x={at.x} y={at.y} dy="0.32em" textAnchor={at.end ? 'end' : 'start'} className="fill-current">
+      {text}
+    </text>
+  </>
+);
+
 export const Scatter = ({
   dots,
   line = [],
@@ -90,6 +141,15 @@ export const Scatter = ({
     last = x(t);
     return true;
   });
+  const labels = placeLabels(
+    dots.map(d => ({ key: d.key, cx: at(d.x), cy: y(d.y), label: d.label })),
+    [
+      ...(note ? [[width - right - note.length * 5.6, top, width - right, top + 16] as Box] : []),
+      ...(hLine === undefined ? [] : [[width - right, y(hLine) - 6, width, y(hLine) + 6] as Box]),
+    ],
+    height,
+    picked
+  );
   const stairs = line
     .toSorted((a, b) => a.x - b.x)
     .map((p, i) => `${i ? `H${at(p.x)}V` : `M${at(p.x)},`}${y(p.y)}`)
@@ -206,11 +266,7 @@ export const Scatter = ({
                 className={cx('stroke-current', d.open ? 'fill-white dark:fill-zinc-950' : 'fill-current')}
               />
             )}
-            {d.label && (
-              <text x={at(d.x) + 8} y={y(d.y)} dy="0.32em" className="fill-current">
-                {d.label}
-              </text>
-            )}
+            {d.label && labels.has(d.key) && <Label from={[at(d.x), y(d.y)]} at={labels.get(d.key)!} text={d.label} />}
           </g>
         ))}
       </svg>
