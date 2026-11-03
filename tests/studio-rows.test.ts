@@ -316,4 +316,22 @@ describe('a deep link into a run', () => {
     for (const text of ['2', 'review', 'https://github.com/o/r', 'https://example.com/o/r/pull/8'])
       expect(isGitHubRef(text)).toBe(false);
   });
+
+  it('shows an n/a check as n/a, not as a failed gate, and a run with no issue without a number', async () => {
+    const { createElement } = await dependency<{ createElement: (...args: unknown[]) => unknown }>('react');
+    const { RunResultLines } = await studioModule<{ RunResultLines: (p: unknown) => unknown }>(
+      'results/ResultTable.tsx'
+    );
+    const html = renderToStaticMarkup(
+      createElement(RunResultLines, {
+        run: { key: 'import-1', at, axes: {}, results: { judge: { at, pass: false, empty: true, na: true } } },
+        fields: [{ check: 'judge', field: 'pass', type: 'boolean', mode: 'warn' }],
+      })
+    );
+    expect(html).toContain('all passed');
+    expect(html).toContain('judge n/a');
+    expect(html).not.toContain('warned');
+    const { issue: _issue, ...detached } = run;
+    expect(text(runRow({ fixture: 'kit/import', repo: 'o/r', run: detached as Run, trace: [] }))).not.toContain('#');
+  });
 });

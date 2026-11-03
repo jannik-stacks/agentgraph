@@ -252,7 +252,10 @@ const when = (r: RunResult) => (r.later ? `checked later ${r.at.slice(0, 10)}` :
 export const RunResultLines = ({ run, fields }: { run: RunResults; fields: CheckField[] }) => {
   const checks = Object.entries(run.results);
   if (!checks.length) return null;
-  const failed = checks.filter(([check, r]) => !r.pass && fields.some(f => f.check === check && f.mode !== 'info'));
+  const failed = checks.filter(
+    ([check, r]) => !r.pass && !r.na && fields.some(f => f.check === check && f.mode !== 'info')
+  );
+  const na = checks.filter(([, r]) => r.na).map(([check]) => check);
   const past = (f: CheckField) => {
     const v = readFieldValue(run, f);
     if (typeof v !== 'number' || !f.limit) return;
@@ -283,6 +286,7 @@ export const RunResultLines = ({ run, fields }: { run: RunResults; fields: Check
                 </span>
               );
             })}
+        {na.length > 0 && <span className="text-zinc-500">, {na.join(', ')} n/a</span>}
       </p>
       <p className="min-w-0 overflow-x-auto whitespace-nowrap">
         <span className="text-zinc-500">results </span>

@@ -89,7 +89,10 @@ export const getFieldSummary = (runs: RunResults[], field: CheckField, trend = '
     median: values.length ? getQuantile(values, 0.5) : undefined,
     low: Math.min(...values),
     high: Math.max(...values),
-    warned: live.filter(r => r.results[field.check] && !r.results[field.check]!.pass).length,
+    warned: live.filter(r => {
+      const result = r.results[field.check];
+      return result && !result.pass && !result.na;
+    }).length,
     outside: outside.map(p => p.run),
     dead: runs.length - live.length,
     trend: steps,

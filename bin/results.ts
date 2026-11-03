@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { Graph } from '../src/folder.ts';
 import { sum } from '../src/stats.ts';
 import { type CheckEntry, findLatestChecks, type Trace } from '../src/trace.ts';
-import type { RunRecord } from '../src/workflow.ts';
+import { isOnIssue, type RunRecord } from '../src/workflow.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { Effect, Schema } from 'effect';
 import { readConfiguredGraph } from '../src/harnesses.ts';
@@ -36,7 +36,7 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
     const run = JSON.parse(json) as RunRecord;
     const origin = getRunOrigin(run.meta);
     const trace = readJsonl<Trace>(join(data, id, 'trace.jsonl'));
-    const dead = findDeadReason(run, trace);
+    const dead = isOnIssue(run) ? findDeadReason(run, trace) : undefined;
     const started = trace.flatMap(line => ('event' in line && line.event.type === 'start' ? [line.event] : []));
     const dimensions = (key: 'model' | 'harness') =>
       [...new Set(started.map(event => event[key]).filter(Boolean))].toSorted().join(', ');

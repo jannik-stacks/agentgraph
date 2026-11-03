@@ -89,6 +89,37 @@ describe('results', () => {
     expect([...splitRunsByAxis(runs, 'workflow').keys()]).toEqual(['issue']);
   });
 
+  it('counts an imported run like any scored run, and an n/a result as neither warned nor a value', () => {
+    const data = tmp('results-import');
+    mkdirSync(join(data, 'import-1'));
+    writeFileSync(
+      join(data, 'import-1', 'run.json'),
+      JSON.stringify({ id: 'import-1', workflow: 'import', status: 'done', started: '2026-10-01T00:00:00Z' })
+    );
+    const na = { ...entry('2', 0), check: { check: 'judge', pass: false, empty: true, na: true as const, ms: 0 } };
+    writeFileSync(join(data, 'import-1', 'checks.jsonl'), [entry('2', 1), na].map(e => JSON.stringify(e)).join('\n'));
+    const { fields, runs } = readRunResults(
+      'runs',
+      { data },
+      {
+        checks: {
+          'run-stats': { ...checks['run-stats'], version: 'v1' },
+          judge: { mode: 'warn', version: 'v1' },
+        } as never,
+      }
+    );
+    expect(runs[0]).not.toHaveProperty('dead');
+    expect(runs[0]!.axes).not.toHaveProperty('issue');
+    expect(runs[0]!.results.judge).toMatchObject({ pass: false, na: true });
+    const s = getFieldSummary(
+      runs,
+      fields.find(f => f.field === 'usd')!
+    );
+    expect(s).toMatchObject({ values: [1], dead: 0, warned: 0 });
+    const judged = getFieldSummary(runs, { check: 'judge', field: 'pass', type: 'boolean', mode: 'warn' } as never);
+    expect(judged.warned).toBe(0);
+  });
+
   it('reads each run of a data dir with the latest result of each check and why a run says nothing', () => {
     const data = tmp('results');
     const put = (id: string, status: string, trace: object[], entries: CheckEntry[]) => {
