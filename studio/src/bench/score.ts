@@ -1,7 +1,7 @@
-import type { readBenchRows } from '../../../bin/bench.ts';
 import { getMean } from '../../../src/stats.ts';
+import type { BenchRow as Row } from './data.ts';
 
-type Row = ReturnType<typeof readBenchRows>[number];
+export const roughBelow = 10;
 
 export const defaultBenchBy = ['harness', 'model', 'arm', 'engine', 'graph', 'set'];
 
@@ -12,13 +12,8 @@ export const presets: Record<string, typeof defaultBenchScoreWeights> = {
   'judges only': { test: 0, judge: 1, suite: 0, crit: 0, help: 0 },
 };
 
-/** The row's cost at list price; `cacheOff` prices cache reads and writes as input. */
 export const cost = (row: Row, cacheOff = false) => (cacheOff ? row.usdUncached : row.usd);
 
-/**
- * Quality on a fixed scale where 0 is nothing useful and 1 is the human; `human` is the human row of the same case.
- * Undefined when the row has nothing to score.
- */
 export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[], human?: Row) => {
   if (row.outcome === 'no-change') return 0;
   const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
@@ -37,7 +32,6 @@ export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: s
   return base - w.crit * crit - w.help * Math.min(1, row.answers);
 };
 
-/** A seeded generator, so a redraw resamples the same way. */
 export const random = (seed: number) => {
   let state = seed;
   return () => {
@@ -48,13 +42,10 @@ export const random = (seed: number) => {
   };
 };
 
-const group = <T>(xs: T[], key: (x: T) => string) =>
+export const splitBy = <T>(xs: T[], key: (x: T) => string) =>
   xs.reduce((m, x) => m.set(key(x), [...(m.get(key(x)) ?? []), x]), new Map<string, T[]>());
 
-/**
- * Mean over cases of the mean over repeats, of `y` and `x`, and their 95% interval from a two-level bootstrap.
- * @internal
- */
+/** @internal */
 export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, seed = 1) => {
   const stat = (cs: { y: number; x: number }[][]) => {
     const per = cs.map(rs => [getMean(rs.map(r => r.y)), getMean(rs.map(r => r.x))] as const);
@@ -71,9 +62,8 @@ export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, see
   return { y: point[0], x: point[1], yCi: ci(0), xCi: ci(1) };
 };
 
-/** One summary per point of the bot rows, judge-only cases apart: quality and x with their intervals, cases, repeats and completion. */
 export const summarise = (
-  rows: Row[],
+  rows: readonly Row[],
   o: {
     w: typeof defaultBenchScoreWeights;
     x: (row: Row) => number;
@@ -93,8 +83,8 @@ export const summarise = (
         .toSorted(([a], [b]) => a.localeCompare(b)),
     ]);
   const humans = new Map(rows.filter(r => r.labels.arm === 'human').map(r => [baseline(r), r]));
-  const keys = [...new Set([...(o.by ?? defaultBenchBy), ...(o.color ? [o.color] : []), 'tests'])];
-  const byPoint = group(
+  const keys = [...new Set([...(o.by ?? defaultBenchBy), ...(o.color ? [o.color] : []), 'set', 'tests'])];
+  const byPoint = splitBy(
     rows.filter(
       r =>
         r.labels.arm !== 'human' &&
@@ -108,7 +98,7 @@ export const summarise = (
       return y === undefined ? [] : [{ row: r, y, x: o.x(r) }];
     });
     const kept = scored.map(s => s.row);
-    const cases = [...group(scored, s => s.row.case).values()];
+    const cases = [...splitBy(scored, s => s.row.case).values()];
     const judged = kept.flatMap(r => {
       const votes = Object.entries(r.vsHuman).flatMap(([j, v]) => (!o.judges || o.judges.includes(j) ? [v] : []));
       return votes.length ? [getMean(votes)] : [];
@@ -130,10 +120,6 @@ export const summarise = (
   });
 };
 
-/**
- * The keys of the points no cheaper point matches in quality, cheapest first. Judge-only points stay off it: judges
- * alone score them, so they do not compare with tested points.
- */
 export const frontier = (points: { key: string; x: number; y: number; judgeOnly?: boolean }[]) => {
   let best = -Infinity;
   return points

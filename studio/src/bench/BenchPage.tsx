@@ -1,13 +1,14 @@
 import { useAtom } from 'jotai';
 import { Schema } from 'effect';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import type { DriveState } from '../../../bench/drive.ts';
 import { getMean } from '../../../src/stats.ts';
 import { queryParam } from '../state.ts';
 import { usePluginData } from '../plugins.ts';
 import { BenchData, type BenchRow as Row } from './data.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Loading, Muted, Select, Tooltip } from '../ui.tsx';
-import { cost, defaultBenchBy, defaultBenchScoreWeights, frontier, presets, summarise } from './score.ts';
+import { cost, defaultBenchBy, defaultBenchScoreWeights, frontier, presets, roughBelow, summarise } from './score.ts';
+import { Forest } from './Forest.tsx';
 import { Scatter } from './Scatter.tsx';
 import { readBenchRowResults, type RunResults } from '../results/result.ts';
 import { findCheckFields } from '../../../src/results.ts';
@@ -214,7 +215,6 @@ const BenchPage = () => {
   const [infra, setInfra] = useAtom(params.infra);
   const [drop, setDrop] = useAtom(params.drop);
   const [picked, setPicked] = useAtom(params.point);
-  const [sort, setSort] = useState({ col: 'quality', down: true });
   const weights = useMemo(() => {
     const given = w?.split(',').map(Number) ?? [];
     return Object.fromEntries(
@@ -249,65 +249,24 @@ const BenchPage = () => {
       <Muted>No bench rows. Start the studio with --bench and one or more bench out dirs.</Muted>
     );
 
-  const front = frontier(points);
+  const oneSet = new Set(points.map(p => p.labels.set)).size === 1;
+  const front = oneSet ? frontier(points) : [];
   const onFront = points.filter(p => front.includes(p.key));
-  const rough = onFront.some(p => p.n < 10);
+  const rough = onFront.some(p => p.n < roughBelow);
   const stair = (x: number) => Math.max(-Infinity, ...onFront.filter(p => p.x <= x).map(p => p.y));
   const varying = [...new Set(points.flatMap(p => Object.keys(p.labels)))].filter(
     k => new Set(points.map(p => p.labels[k])).size > 1
   );
   const label = (p: (typeof points)[number]) =>
-    varying.map(k => (p.labels[k] ?? '(missing)').slice(0, 12)).join(' / ') || 'all runs';
+    varying
+      .map(k => p.labels[k] ?? '(missing)')
+      .map(v => (/^[0-9a-f]{7,}$/.test(v) ? v.slice(0, 6) : v))
+      .join(' / ') || 'all runs';
   const colors = [...new Set(points.map(p => p.labels[color]))].toSorted();
   const tone = (v: string | undefined) =>
     color ? tones[colors.indexOf(v) % tones.length]! : 'text-zinc-600 dark:text-zinc-400';
   const xLabel = minutes ? 'minutes per task' : `notional USD per task${cache === 'off' ? ', cache off' : ''}, log`;
   const fx = (v: number) => (minutes ? `${v.toFixed(1)} min` : usd(v));
-  const one = points.find(p => p.key === picked);
-  type Point = (typeof points)[number];
-  const all: [string, string, (p: Point) => number | string, (p: Point) => ReactNode][] = [
-    [
-      'point',
-      'Each dot groups runs by the selected labels, colour and test status.',
-      p => label(p),
-      p => (
-        <Tooltip tip={JSON.stringify(p.labels, null, 2)}>
-          <span>{label(p)}</span>
-        </Tooltip>
-      ),
-    ],
-    ['cases', 'Distinct cases with at least one kept run.', p => p.n, p => p.n],
-    ['runs', 'All kept runs, including repeats.', p => p.repeats, p => p.repeats],
-    ['completion', 'The share of runs that were not infra.', p => p.completion, p => fmt(p.completion)],
-    [
-      'quality',
-      'Mean quality and its 95 percent interval. Each run uses the weighted mean of its available hidden test, judge and CI scores, minus the findings and asking penalties. 0 means nothing useful.',
-      p => p.y,
-      p => `${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`,
-    ],
-    [
-      minutes ? 'minutes, interval' : 'usd per task',
-      minutes
-        ? 'Minutes per task and their 95 percent interval.'
-        : 'Notional USD cost per task and its 95 percent interval.',
-      p => p.x,
-      p => `${fx(p.x)} (${ci(p.xCi, fx)})`,
-    ],
-    ['minutes', 'Mean wall time per run, with time the machine slept removed.', p => p.minutes, p => fmt(p.minutes, 1)],
-    ['hidden pass', 'The share of runs that pass the hidden tests.', p => p.hidden ?? -1, p => fmt(p.hidden)],
-    [
-      'vs human',
-      'Average judge vote, before doubling for quality. A vote for the run scores 1, a tie 0.5, a vote for the human 0.',
-      p => p.vsHuman ?? -1,
-      p => fmt(p.vsHuman),
-    ],
-  ];
-  const columns = all.filter(([name]) => !(minutes && name === 'minutes'));
-  const by = (columns.find(([name]) => name === sort.col) ?? columns.find(([name]) => name === 'quality')!)[2];
-  const sorted = points.toSorted((a, b) => {
-    const [va, vb] = [by(a), by(b)];
-    return (va < vb ? -1 : va > vb ? 1 : 0) * (sort.down ? -1 : 1);
-  });
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
@@ -460,18 +419,20 @@ const BenchPage = () => {
             hLine={1}
             line={onFront}
             rough={rough}
-            note={rough ? 'few cases, the line is rough' : undefined}
+            note={
+              oneSet ? (rough ? 'few cases, the line is rough' : undefined) : 'pick one case set to see the frontier'
+            }
             picked={picked ?? undefined}
             onPick={key => setPicked(key === picked ? null : key)}
             dots={points.map(p => {
-              const dominated = !front.includes(p.key);
+              const dominated = oneSet && !front.includes(p.key);
+              const sure = p.n >= roughBelow;
               return {
                 key: p.key,
                 x: p.x,
                 y: p.y,
-                xCi: p.xCi,
-                yCi: p.yCi,
-                label: label(p),
+                ...(sure && { xCi: p.xCi, yCi: p.yCi }),
+                ...((front.includes(p.key) || p.key === picked) && { label: label(p) }),
                 tone: tone(p.labels[color]),
                 square: p.labels.arm === 'floor',
                 dim: dominated,
@@ -495,7 +456,7 @@ const BenchPage = () => {
               };
             })}
           />
-          <p className="mt-1 text-[11px] text-zinc-500">Click a point to see its runs.</p>
+          <p className="mt-1 text-[11px] text-zinc-500">Click a point or a row below to see its runs.</p>
           <Disclosure summary="What the terms mean" className="mt-2 text-[11px] text-zinc-500">
             <div className="mt-1 max-w-2xl">
               <Fields>
@@ -508,92 +469,17 @@ const BenchPage = () => {
             </div>
           </Disclosure>
         </section>
-        {one && (
-          <section className="max-w-3xl">
-            <Tooltip
-              tip="Each dot is one run. Green means hidden tests passed, red means they failed, and grey means infra or no hidden tests."
-              focusable
-            >
-              <h3 className="text-xs font-medium">{label(one)}, per case</h3>
-            </Tooltip>
-            <Scatter
-              log={!minutes}
-              height={200}
-              xLabel={xLabel}
-              yLabel="quality"
-              hLine={1}
-              dots={one.perCase.map(({ row, x, y }) => ({
-                key: readBenchRowResults(row).key,
-                x,
-                y,
-                tone:
-                  row.infra || row.hidden === undefined
-                    ? 'text-zinc-400 dark:text-zinc-500'
-                    : row.hidden
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-rose-500 dark:text-rose-400',
-                tip: [
-                  `${row.case}${row.repeat > 1 ? `, repeat ${row.repeat}` : ''}`,
-                  JSON.stringify(row.labels, null, 2),
-                  row.infra
-                    ? `infra: ${row.infra}`
-                    : row.hidden === undefined
-                      ? 'judged only'
-                      : row.hidden
-                        ? 'hidden tests pass'
-                        : 'hidden tests fail',
-                  `quality ${fmt(y)}, ${fx(x)}`,
-                  Object.entries(row.vsHuman)
-                    .map(([j, v]) => `${j} ${fmt(v)}`)
-                    .join(', '),
-                ]
-                  .filter(Boolean)
-                  .join('\n'),
-              }))}
-            />
-          </section>
-        )}
-        <BenchResults runs={sorted.flatMap(p => p.perCase.map(({ row }) => readBenchRowResults(row)))} />
         <div className="overflow-x-auto">
-          <table className="w-full max-w-5xl text-left text-xs whitespace-nowrap tabular-nums">
-            <thead className="text-zinc-500">
-              <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                {columns.map(([name, tip]) => (
-                  <th key={name} className="py-1 pr-3 font-medium">
-                    <Tooltip tip={tip} action="Sort by this column">
-                      <button
-                        type="button"
-                        onClick={() => setSort({ col: name, down: sort.col === name ? !sort.down : true })}
-                        className="transition-colors duration-150 hover:text-zinc-900 dark:hover:text-zinc-100"
-                      >
-                        {name}
-                        {sort.col === name && (sort.down ? ' ↓' : ' ↑')}
-                      </button>
-                    </Tooltip>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(p => (
-                <tr
-                  key={p.key}
-                  onClick={() => setPicked(p.key === picked ? null : p.key)}
-                  className={cx(
-                    'cursor-pointer border-b border-zinc-100 transition-colors duration-150 hover:bg-zinc-50 dark:border-zinc-900 dark:hover:bg-zinc-900',
-                    p.key === picked && 'bg-zinc-100 dark:bg-zinc-800'
-                  )}
-                >
-                  {columns.map(([name, , , show]) => (
-                    <td key={name} className={cx('py-1 pr-3', name === 'point' && 'font-mono')}>
-                      {show(p)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Forest
+            points={points}
+            label={label}
+            tone={p => tone(p.labels[color])}
+            usd={p => getMean(p.perCase.map(s => cost(s.row, cache === 'off')))}
+            picked={picked}
+            onPick={setPicked}
+          />
         </div>
+        <BenchResults runs={points.flatMap(p => p.perCase.map(({ row }) => readBenchRowResults(row)))} />
       </div>
     </div>
   );

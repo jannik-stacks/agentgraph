@@ -73,17 +73,19 @@ Keys come from `--keys` (`infra/local/.keys.env`). Paid steps stop past `--max-c
 cd studio && npm run dev -- --bench <runs dir> <runs dir>
 ```
 
-The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests, judge preference (doubled, capped at 1) and suite scores, weighted by sliders, minus penalties. Cases without hidden tests form a `judge-only` point. Checking cost stays out of an arm's cost. Crosses show 95% intervals; the staircase joins the points no cheaper point beats. Check fields are summed per point below; the [Results](checks.md#the-results-tab) tab has them all.
+Bench is a built-in [studio page plugin](plugins.md#studio-pages) at `/bench`. It is registered only when the studio starts with bench dirs, as above, so without them there is no Bench tab. Its reader serves every row of the bench out dirs under those dirs, each with its arm's run ids, and where each driven bench dir stands; it watches those dirs. <!-- code: studio/plugins.ts#makeStudioPagesPlugin studio/src/bench/read.ts#readBench -->
 
-Each row has one `labels` map containing case attributes, explicit case labels, free run labels, and the harness, model, arm, engine, graph and set. Case attributes override free labels. Generated run attributes override both. Results makes every label available as an axis; its point axis is a display grouping when no explicit point label exists.
+The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests, judge preference (doubled, capped at 1) and suite scores, weighted by sliders, minus penalties. Cases without hidden tests form a `judge-only` point. Checking cost stays out of an arm's cost. Crosses show 95% intervals from 10 cases on. The staircase joins the points no cheaper point beats, and shows only when one case set is in view, since points on different sets do not compare. Below the plot, one row per point, grouped by set, puts each case's mean quality behind the point's, then hidden tests passed, cost and minutes. A picked row lists its runs, each linked to its trace at `/runs/<id>?data=<arm data dir>`; the studio reads `data` only inside the bench dirs. Check fields are summed per point below the rows.
+
+Each row has one `labels` map containing case attributes, explicit case labels, free run labels, and the harness, model, arm, engine, graph and set. Case attributes override free labels. Generated run attributes override both. `node bin/results.ts bench` exports the rows as a result sheet with every label as an axis; its point axis is a display grouping when no explicit point label exists.
 
 `agents-md`, `claude-md` and `skills` are `true` or `false` from read-only `git ls-tree` at the case base commit. Skills include `.claude/skills`, `.agents/skills`, `.cursor/rules` and `.github/skills`. New scores save them in the result's case record. Old runs derive them from their case tree clone or the standard repo clone when the base is available; otherwise those labels are absent. Old JSON needs no migration, including graph trees recorded as `"hubs"`.
 
 <!-- code: bin/bench.ts#readBenchRows bin/bench.ts#readBenchSetupLabels studio/src/results/result.ts#readBenchRowResults -->
 
-The Bench controls discover every label key. URL `where` is a JSON object of label keys to allowed value arrays, `by` is a comma-separated list of grouping keys, and `color` is a label key (empty means no colour). Values within a filter are alternatives; all filtered keys must match. Colour also splits points. For example, `/bench?where=%7B%22repo%22%3A%5B%22stx-labs%2Fexplorer%22%5D%7D&by=model,graph&color=skills` compares model and graph on explorer, coloured by skill presence. Judge-only cases always stay separate. Omitting `by` groups by harness, model, arm, engine, graph and set; an empty `by` combines them.
+The Bench controls discover every label key. URL `where` is a JSON object of label keys to allowed value arrays, `by` is a comma-separated list of grouping keys, and `color` is a label key (empty means no colour). Values within a filter are alternatives; all filtered keys must match. Colour also splits points. For example, `/bench?where=%7B%22repo%22%3A%5B%22stx-labs%2Fexplorer%22%5D%7D&by=model,graph&color=skills` compares model and graph on explorer, coloured by skill presence. Judge-only cases and different sets always stay separate. Omitting `by` groups by harness, model, arm, engine, graph and set; an empty `by` combines them within each set.
 
-<!-- code: studio/src/bench/score.ts#summarise studio/src/bench/BenchPage.tsx#BenchPage -->
+<!-- code: studio/src/bench/score.ts#summarise studio/src/bench/BenchPage.tsx#BenchPage studio/src/bench/Forest.tsx#Forest -->
 
 ## Long runs
 

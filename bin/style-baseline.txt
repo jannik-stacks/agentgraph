@@ -68,8 +68,6 @@ no-comment src/trace.ts 10
 no-comment src/workflow.ts 27
 no-comment studio/src/Markdown.tsx 4
 no-comment studio/src/Problems.tsx 1
-no-comment studio/src/bench/Scatter.tsx 1
-no-comment studio/src/bench/score.ts 6
 no-comment studio/src/docs/DocsPage.tsx 1
 no-comment studio/src/graph/GraphPage.tsx 8
 no-comment studio/src/graph/StepDetails.tsx 7

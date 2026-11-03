@@ -145,9 +145,14 @@ describe('bench score', () => {
     ];
     const lens = { w: defaultBenchScoreWeights, x: (r: Row) => r.minutes, by: ['size'], color: 'skills' };
     const filtered = summarise(rows, { ...lens, where: { arm: ['v2'], size: ['S'], repo: ['me/a'] } });
-    expect(filtered.map(p => [p.labels, p.n, p.y])).toEqual([[{ size: 'S', skills: 'true' }, 1, 1]]);
+    expect(filtered.map(p => [p.labels, p.n, p.y])).toEqual([[{ size: 'S', skills: 'true', set: 'runs-3' }, 1, 1]]);
     expect(summarise(rows, lens).map(p => p.n)).toEqual([1, 1, 1]);
     expect(summarise(rows, { ...lens, color: '' }).map(p => p.n)).toEqual([2, 1]);
+    const other = row({ labels: { ...labels, set: 'core' }, case: 'd', hidden: 1 });
+    expect(summarise([...rows, other], { ...lens, by: [], color: '' }).map(p => p.labels.set)).toEqual([
+      'runs-3',
+      'core',
+    ]);
   });
 
   it('matches human findings within each repeat and avoids delimiter collisions', () => {

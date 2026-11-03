@@ -18,10 +18,6 @@ type Dot = {
 
 const [width, left, right, top, bottom] = [640, 44, 96, 22, 30];
 
-/**
- * A scatter of dots with optional interval crosses, a staircase through `line` (faint and dashed when `rough`) and a dashed line at `hLine`. `xTip`,
- * `yTip` and `hTip` explain the axis labels and the dashed line on hover and focus.
- */
 export const Scatter = ({
   dots,
   line = [],
@@ -87,8 +83,13 @@ export const Scatter = ({
     .nice()
     .range([height - bottom, top]);
   const at = (v: number) => x(log ? Math.max(v, x.domain()[0]!) : v);
-  const tick = log ? x.tickFormat(6, '$~g') : (t: number) => `${t}`;
-  const xTicks = x.ticks(6).filter(t => tick(t) !== '');
+  const tick = log ? x.tickFormat(6, '$~g') : x.tickFormat(6);
+  let last = -Infinity;
+  const xTicks = x.ticks(6).filter(t => {
+    if (tick(t) === '' || x(t) - last < 44) return false;
+    last = x(t);
+    return true;
+  });
   const stairs = line
     .toSorted((a, b) => a.x - b.x)
     .map((p, i) => `${i ? `H${at(p.x)}V` : `M${at(p.x)},`}${y(p.y)}`)
@@ -100,7 +101,7 @@ export const Scatter = ({
           <g key={t} className="text-zinc-400 dark:text-zinc-500">
             <line x1={left} x2={width - right} y1={y(t)} y2={y(t)} className="stroke-zinc-100 dark:stroke-zinc-900" />
             <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" className="fill-current tabular-nums">
-              {t}
+              {y.tickFormat(6)(t)}
             </text>
           </g>
         ))}
