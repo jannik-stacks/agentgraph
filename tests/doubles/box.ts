@@ -16,12 +16,19 @@ const read = async (request: IncomingMessage) => {
 export const startBoxServer = async (dir: string, { frame = true } = {}) => {
   const runs: { id: string; network: string; argv: string[] }[] = [];
   const faults = { pulls: 0, stops: 0 };
-  const children = new Map<string, ChildProcess>();
+  const children = new Map<string, { box: string; child: ChildProcess }>();
+  const stop = async (child: ChildProcess) => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise(resolve => child.once('close', resolve));
+    process.kill(-child.pid!, 'SIGKILL');
+    await exited;
+  };
   const server = createServer(async (request, response) => {
     const url = new URL(request.url!, 'http://box');
     const [id = '', op = ''] = url.pathname.slice(1).split('/');
     const root = join(dir, id);
     if (request.method === 'DELETE') {
+      await Promise.all([...children.values()].filter(c => c.box === id).map(c => stop(c.child)));
       rmSync(root, { recursive: true, force: true });
       return response.end();
     }
@@ -38,12 +45,8 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       return response.end('unreachable');
     }
     if (op === 'stop') {
-      const child = children.get(url.searchParams.get('arg') ?? '');
-      if (child && child.exitCode === null && child.signalCode === null) {
-        const exited = new Promise(resolve => child.once('close', resolve));
-        process.kill(-child.pid!, 'SIGKILL');
-        await exited;
-      }
+      const running = children.get(url.searchParams.get('arg') ?? '');
+      if (running) await stop(running.child);
       return response.end();
     }
     if (op === 'run') {
@@ -68,7 +71,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       };
       child.stdout.on('data', out);
       child.stderr.on('data', out);
-      children.set(url.searchParams.get('id') ?? '', child);
+      children.set(url.searchParams.get('id') ?? '', { box: id, child });
       child.on('close', code =>
         response.end(frame ? `${last === 10 ? '' : '\n'}\u0000agentgraph-exit ${code ?? 137}\n` : '')
       );

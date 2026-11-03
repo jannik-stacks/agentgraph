@@ -159,9 +159,9 @@ describe('remote sandbox', () => {
   it('gives the toolchain its own time, not the command minutes', async () => {
     const exit = await use(layer(), s =>
       Effect.gen(function* () {
-        const work = yield* s.checkout('main', undefined, undefined, { toolchain: 'sleep 2.5' });
+        const work = yield* s.checkout('main', undefined, undefined, { toolchain: 'sleep 5' });
         rmSync(join(boxes, basename(work.dir)), { recursive: true });
-        return yield* s.exec(sh(work.dir, 'echo quick', { minutes: 0.025 }));
+        return yield* s.exec(sh(work.dir, 'echo quick', { minutes: 0.075 }));
       })
     );
     expect(exit).toEqual(Exit.succeed({ code: 0, output: 'quick\n' }));
@@ -268,8 +268,10 @@ describe('remote sandbox', () => {
         const work = yield* s.checkout('main');
         id = basename(work.dir);
         server.faults.stops = 3;
-        yield* Effect.either(s.exec(sh(work.dir, 'echo early > e.txt; sleep 1; echo late > l.txt', { minutes: 0.01 })));
+        const late = 'echo early > e.txt; until [ -e go ]; do sleep 0.05; done; echo late > l.txt';
+        yield* Effect.either(s.exec(sh(work.dir, late, { minutes: 0.01 })));
         const next = yield* s.exec(sh(work.dir, 'ls'));
+        writeFileSync(join(boxes, id, 'work', 'go'), '');
         yield* Effect.sleep('1500 millis');
         return [next.output.includes('l.txt'), existsSync(join(boxes, id, 'work', 'l.txt'))];
       })
