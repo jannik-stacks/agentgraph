@@ -10,6 +10,8 @@ import type * as HarnessModule from '../src/harnesses.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import { ResultsData } from './src/results/data.ts';
 import { resultSources } from './src/results/result.ts';
+import { BenchData } from './src/bench/data.ts';
+import { readBench } from './src/bench/read.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 const entry = 'virtual:agentgraph-page/';
@@ -76,7 +78,28 @@ const readStudioPages = async () => {
         }),
     },
   });
-  return (await readPlugins(graph?.dir, graph?.plugins, undefined, [results])).pages;
+  const builtins = [
+    results,
+    ...(bench.length
+      ? [
+          makePlugin({
+            name: 'bench',
+            studio: {
+              title: 'Bench',
+              page: new URL('./src/bench/BenchPage.tsx', import.meta.url),
+              dataSchema: BenchData,
+              watch: () => bench,
+              read: () => Effect.promise(() => readBench(bench)),
+            },
+          }),
+        ]
+      : []),
+  ];
+  const { pages } = await readPlugins(graph?.dir, graph?.plugins, undefined, builtins);
+  return pages.map(page => ({
+    ...page,
+    href: builtins.some(b => b.name === page.name) ? `/${page.name}` : `/plugins/${page.name}`,
+  }));
 };
 
 export const makeStudioPagesPlugin = (): Plugin => {
@@ -106,7 +129,7 @@ export const makeStudioPagesPlugin = (): Plugin => {
         return `export const pages = [${loaded
           .map(
             page =>
-              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.name === 'results' ? '/results' : `/plugins/${page.name}`)},load:()=>import(${JSON.stringify(entry + page.name)})}`
+              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.href)},load:()=>import(${JSON.stringify(entry + page.name)})}`
           )
           .join(',')}];`;
       const page = id.startsWith(`\0${entry}`) && loaded.find(page => page.name === id.slice(entry.length + 1));

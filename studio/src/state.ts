@@ -4,7 +4,6 @@ import type { Step } from '../../bin/tune.ts';
 import { type ResultSource, resultSources, type RunResults } from './results/result.ts';
 import type { ServedRun } from './runs/trace.ts';
 
-export const routes = ['inbox', 'graph', 'runs', 'docs', 'bench'] as const;
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
 /** The current location; tests set it. @public */
@@ -21,10 +20,8 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
   set(locationAtom, readLocation());
 });
 
-/** The route and the id after it: `/inbox`, `/graph`, `/runs[/<id>]`, `/docs[/<page>]`, `/bench` or `/results`. */
 export const pageAtom = atom(get => {
-  const [page, id] = get(locationAtom).path.split('/').filter(Boolean);
-  const route = routes.find(r => r === page) ?? (['plugins', 'results'] as const).find(r => r === page);
+  const [route, id] = get(locationAtom).path.split('/').filter(Boolean);
   return { route, id: route && id ? decodeURIComponent(id) : null };
 });
 
@@ -50,10 +47,6 @@ const reload = () => {
   for (const change of changes) change();
 };
 
-/**
- * Answers `path` as JSON while something reads it, and again whenever the server reports the data dir changed: one
- * request at a time, with one more after it when a change came in meanwhile.
- */
 export const makeLiveJsonAtom = <T>(path: string, read: (value: unknown) => T | Promise<T> = value => value as T) => {
   const value = atom<{ value?: T; failure?: string }>({});
   value.onMount = set => {
@@ -112,7 +105,6 @@ export const resultsAtoms = Object.fromEntries(
 
 const opened = new Map<string, ReturnType<typeof makeLiveJsonAtom<ServedRun | null>>>();
 
-/** One run of the served graph with its whole trace, or null when the data dir has no such run. */
 export const runAtom = (id: string) => {
   if (!opened.has(id)) opened.set(id, makeLiveJsonAtom<ServedRun | null>(`/api/runs/${encodeURIComponent(id)}`));
   return opened.get(id)!;

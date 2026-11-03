@@ -66,10 +66,8 @@ no-comment src/session.ts 1
 no-comment src/store.ts 8
 no-comment src/trace.ts 10
 no-comment src/workflow.ts 27
-no-comment studio/fixtures.ts 5
 no-comment studio/src/Markdown.tsx 4
 no-comment studio/src/Problems.tsx 1
-no-comment studio/src/bench/BenchPage.tsx 2
 no-comment studio/src/bench/Scatter.tsx 1
 no-comment studio/src/bench/score.ts 6
 no-comment studio/src/docs/DocsPage.tsx 1
@@ -88,7 +86,7 @@ no-comment studio/src/runs/tools.tsx 11
 no-comment studio/src/runs/trace.ts 10
 no-comment studio/src/source/highlight.tsx 2
 no-comment studio/src/source/lang.ts 1
-no-comment studio/src/state.ts 8
+no-comment studio/src/state.ts 5
 no-comment studio/src/ui.tsx 14
 no-comment studio/src/virtual.d.ts 1
 no-comment studio/vite.config.ts 1

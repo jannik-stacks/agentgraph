@@ -1,7 +1,8 @@
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
+import { makeStudioPagesPlugin } from '../studio/plugins.ts';
+import type { BenchData } from '../studio/src/bench/data.ts';
 import { readBenchRowResults } from '../studio/src/results/result.ts';
 import type { readBenchRows } from '../bin/bench.ts';
 import { tmp } from './kit.ts';
@@ -169,36 +170,45 @@ describe('bench score', () => {
   });
 });
 
-describe('/api/bench', () => {
-  it('answers a failed scan with its error and keeps rows until a log changes', async () => {
+describe('the bench page data', () => {
+  it('rejects a failed scan, keeps rows until a log changes and links each arm to its runs', async () => {
     const out = tmp('bench-api');
     const at = (...path: string[]) => join(out, 'c', ...path);
     mkdirSync(at('human'), { recursive: true });
-    mkdirSync(at('v2'));
+    mkdirSync(at('v2', 'data', 'issue-1'), { recursive: true });
+    mkdirSync(at('v2', 'data', 'logs'));
+    writeFileSync(at('v2', 'data', 'issue-1', 'run.json'), '{}');
     writeFileSync(join(out, 'log.jsonl'), '');
     writeFileSync(at('case.json'), JSON.stringify({ repo: 'me/demo' }));
     writeFileSync(at('human', 'score.json'), '{');
+    vi.stubEnv('AGI_STUDIO_DIR', undefined);
     vi.stubEnv('AGI_STUDIO_BENCH', out);
     const routes: Record<string, (req: unknown, res: unknown) => void> = {};
-    const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
-    plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
+    const plugin = makeStudioPagesPlugin().configureServer as (server: unknown) => Promise<void>;
+    await plugin({
+      watcher: { add: () => {}, on: () => {}, off: () => {} },
+      middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) },
+    });
     const ask = () =>
-      new Promise<{ status: number; body: { rows?: unknown[]; error?: string } }>(done => {
+      new Promise<{ status: number; body: BenchData }>(done => {
         const res = {
           statusCode: 200,
           setHeader: () => {},
           end: (body: string) => done({ status: res.statusCode, body: JSON.parse(body) }),
         };
-        routes['/api/bench']!({ url: '/' }, res);
+        routes['/api/plugins']!({ url: '/bench/data', method: 'GET' }, res);
       });
     try {
-      expect(await ask()).toMatchObject({ status: 500, body: { error: expect.stringContaining('JSON') } });
+      expect((await ask()).status).toBe(500);
       writeFileSync(at('human', 'score.json'), '{}');
       expect((await ask()).body.rows).toHaveLength(1);
       writeFileSync(at('v2', 'score.json'), '{}');
       expect((await ask()).body.rows).toHaveLength(1);
       utimesSync(join(out, 'log.jsonl'), new Date(), new Date(Date.now() + 1000));
-      expect((await ask()).body.rows).toHaveLength(2);
+      const { rows, drives } = (await ask()).body;
+      expect(rows.map(r => r.runs)).toEqual([undefined, ['issue-1']]);
+      expect(rows[1]!.data).toBe(at('v2', 'data'));
+      expect(drives).toEqual([]);
     } finally {
       vi.unstubAllEnvs();
       rmSync(out, { recursive: true, force: true });

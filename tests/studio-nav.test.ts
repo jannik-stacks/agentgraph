@@ -18,7 +18,7 @@ let renderPicker: (keys: string[], hidden: string[]) => string;
 let makeStore: () => Store;
 let makeHiddenKeysAtom: (name: string) => Atom;
 const stored = new Map<string, string>();
-let routes: readonly string[];
+const routes = ['inbox', 'graph', 'runs', 'plugins/count', 'docs'];
 
 beforeAll(async () => {
   Object.assign(globalThis, {
@@ -33,8 +33,7 @@ beforeAll(async () => {
   const { renderToString } = await dependency<{ renderToString: (node: unknown) => string }>('react-dom/server');
   const jotai = await dependency<{ createStore: () => Store; Provider: unknown }>('jotai');
   const { App } = await studioModule<{ App: () => unknown }>('App.tsx');
-  const state = await studioModule<{ locationAtom: Atom; routes: readonly string[] }>('state.ts');
-  routes = state.routes;
+  const state = await studioModule<{ locationAtom: Atom }>('state.ts');
   render = path => {
     const store = jotai.createStore();
     store.set(state.locationAtom, { path, query: new URLSearchParams() });
@@ -67,17 +66,16 @@ const links = (html: string) =>
 const navs = (html: string) => [...html.matchAll(/<nav\b[\s\S]*?<\/nav>/g)].map(m => m[0]);
 
 describe('studio navigation', () => {
-  it('links every route from the header, and marks the one shown', () => {
-    expect(routes.length).toBeGreaterThan(0);
+  it('links every route from the header in order, plugin pages before docs, and marks the one shown', () => {
     for (const route of routes) {
       const [header = ''] = navs(render(`/${route}`));
-      const found = links(header);
-      for (const other of routes) expect(found).toContainEqual({ href: `/${other}`, current: other === route });
+      expect(links(header)).toEqual(routes.map(other => ({ href: `/${other}`, current: other === route })));
     }
   });
 
   it('links a declared plugin page and marks its route', () => {
     expect(links(navs(render('/plugins/count'))[0]!)).toContainEqual({ href: '/plugins/count', current: true });
+    expect(render('/plugins/count')).not.toContain('Page not found.');
   });
 
   it.each(['constructor', 'toString', '__proto__', 'missing'])('shows an unknown plugin page: %s', name => {

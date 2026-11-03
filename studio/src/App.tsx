@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { navigateAtom, pageAtom, routes } from './state.ts';
+import { navigateAtom, pageAtom } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
 import { cx, Link, Loading } from './ui.tsx';
@@ -10,10 +10,15 @@ const pages = {
   graph: lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage }))),
   runs: lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage }))),
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
-  bench: lazy(() => import('./bench/BenchPage.tsx').then(m => ({ default: m.BenchPage }))),
 };
 
-const plugins = new Map(declared.map(page => [page.name, lazy(page.load)]));
+const nav = [
+  ...(['inbox', 'graph', 'runs'] as const).map(r => ({ href: `/${r}`, title: r })),
+  ...declared,
+  { href: '/docs', title: 'docs' },
+];
+
+const plugins = new Map(declared.map(page => [page.href, lazy(page.load)]));
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   override state: { error?: Error } = {};
@@ -34,8 +39,9 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
 
 export const App = () => {
   const { route, id } = useAtomValue(pageAtom);
+  const here = route === 'plugins' ? `/plugins/${id ?? ''}` : `/${route ?? ''}`;
   const Page =
-    route === 'plugins' ? plugins.get(id ?? '') : route === 'results' ? plugins.get('results') : route && pages[route];
+    plugins.get(here) ?? (route && Object.hasOwn(pages, route) ? pages[route as keyof typeof pages] : undefined);
   const navigate = useSetAtom(navigateAtom);
   useEffect(() => {
     if (!route) navigate({ href: '/runs', replace: true });
@@ -48,34 +54,21 @@ export const App = () => {
           agentgraph
         </Link>
         <nav className="inline-flex min-w-0 gap-0.5 overflow-x-auto rounded-lg bg-zinc-100 p-0.5 text-[13px] leading-5 dark:bg-zinc-900">
-          {routes.map(r => (
+          {nav.map(({ href, title }) => (
             <Link
-              key={r}
-              href={`/${r}`}
-              aria-current={r === route ? 'page' : undefined}
+              key={href}
+              href={href}
+              aria-current={href === here ? 'page' : undefined}
               className={cx(
                 'rounded-md px-2 py-0.5 capitalize',
-                r === route
+                href === here
                   ? 'bg-white font-medium shadow-sm dark:bg-zinc-700'
                   : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
               )}
             >
-              {r}
+              {title}
             </Link>
           ))}
-          {declared.map(page => {
-            const isCurrent = route === 'plugins' ? id === page.name : route === page.name;
-            return (
-              <Link
-                key={page.name}
-                href={page.href}
-                aria-current={isCurrent ? 'page' : undefined}
-                className={cx('rounded-md px-2 py-0.5', isCurrent && 'bg-white shadow-sm dark:bg-zinc-700')}
-              >
-                {page.title}
-              </Link>
-            );
-          })}
         </nav>
       </header>
       <main className="min-h-0 flex-1">

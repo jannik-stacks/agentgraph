@@ -1,10 +1,11 @@
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom } from 'jotai';
 import { Schema } from 'effect';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { DriveState } from '../../../bench/drive.ts';
-import type { readBenchRows } from '../../../bin/bench.ts';
 import { getMean } from '../../../src/stats.ts';
-import { makeLiveJsonAtom, queryParam } from '../state.ts';
+import { queryParam } from '../state.ts';
+import { usePluginData } from '../plugins.ts';
+import { BenchData, type BenchRow as Row } from './data.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaultBenchBy, defaultBenchScoreWeights, frontier, presets, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
@@ -12,9 +13,6 @@ import { readBenchRowResults, type RunResults } from '../results/result.ts';
 import { findCheckFields } from '../../../src/results.ts';
 import { ResultTable } from '../results/ResultTable.tsx';
 
-type Row = ReturnType<typeof readBenchRows>[number];
-
-const benchAtom = makeLiveJsonAtom<{ rows: Row[]; drives?: DriveState[] }>('/api/bench');
 const params = {
   w: queryParam('w'),
   x: queryParam('x'),
@@ -99,13 +97,23 @@ const BenchResults = ({ runs }: { runs: RunResults[] }) => {
   );
 };
 
-/** Judges outside the default panel, unticked unless the page says otherwise. */
 const unpanelled = 'sol';
 
 const fmt = (v: number | undefined, digits = 2) => (v === undefined || Number.isNaN(v) ? '' : v.toFixed(digits));
 const usd = (v: number) => `$${v.toFixed(3)}`;
 const ci = ([lo, hi]: [number, number], f: (v: number) => string) => `${f(lo)} to ${f(hi)}`;
 const kilo = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : `${n}`);
+
+const tokens = (rs: Row[]) => {
+  const sum = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+  for (const t of rs.flatMap(r => Object.values(r.tokens)))
+    for (const k of Object.keys(sum) as (keyof typeof sum)[]) sum[k] += t[k] / rs.length;
+  return `tokens per run: ${kilo(Math.round(sum.input))} in, ${kilo(Math.round(sum.cacheRead))} cache read, ${kilo(Math.round(sum.cacheWrite))} cache write, ${kilo(Math.round(sum.output))} out`;
+};
+const unpricedModels = (rs: Row[]) => {
+  const missing = [...new Set(rs.flatMap(r => r.unpriced ?? []))];
+  return missing.length ? `no list price for ${missing.join(', ')}, counted as $0` : '';
+};
 
 const statusTones: Record<DriveState['status'], string> = {
   running: 'text-sky-600 dark:text-sky-400',
@@ -115,8 +123,7 @@ const statusTones: Record<DriveState['status'], string> = {
   finished: 'text-emerald-600 dark:text-emerald-400',
 };
 
-/** Every driven bench dir with its progress and, when it is not running, why. */
-const Benches = ({ drives }: { drives: DriveState[] }) =>
+const Benches = ({ drives }: { drives: readonly DriveState[] }) =>
   drives.length ? (
     <section className="max-w-5xl overflow-x-auto">
       <Tooltip
@@ -187,8 +194,8 @@ const LabelChoices = ({
   </div>
 );
 
-export const BenchPage = () => {
-  const { value, failure } = useAtomValue(benchAtom);
+const BenchPage = () => {
+  const { value, failure } = usePluginData('bench', BenchData);
   const [w, setW] = useAtom(params.w);
   const [xAxis, setX] = useAtom(params.x);
   const [whereParam, setWhere] = useAtom(params.where);
@@ -234,7 +241,7 @@ export const BenchPage = () => {
 
   if (!value) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (!value.rows.length)
-    return value.drives?.length ? (
+    return value.drives.length ? (
       <div className="p-4">
         <Benches drives={value.drives} />
       </div>
@@ -256,16 +263,6 @@ export const BenchPage = () => {
     color ? tones[colors.indexOf(v) % tones.length]! : 'text-zinc-600 dark:text-zinc-400';
   const xLabel = minutes ? 'minutes per task' : `notional USD per task${cache === 'off' ? ', cache off' : ''}, log`;
   const fx = (v: number) => (minutes ? `${v.toFixed(1)} min` : usd(v));
-  const tokens = (rs: Row[]) => {
-    const sum = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
-    for (const t of rs.flatMap(r => Object.values(r.tokens)))
-      for (const k of Object.keys(sum) as (keyof typeof sum)[]) sum[k] += t[k] / rs.length;
-    return `tokens per run: ${kilo(Math.round(sum.input))} in, ${kilo(Math.round(sum.cacheRead))} cache read, ${kilo(Math.round(sum.cacheWrite))} cache write, ${kilo(Math.round(sum.output))} out`;
-  };
-  const unpricedModels = (rs: Row[]) => {
-    const missing = [...new Set(rs.flatMap(r => r.unpriced ?? []))];
-    return missing.length ? `no list price for ${missing.join(', ')}, counted as $0` : '';
-  };
   const one = points.find(p => p.key === picked);
   type Point = (typeof points)[number];
   const all: [string, string, (p: Point) => number | string, (p: Point) => ReactNode][] = [
@@ -444,7 +441,7 @@ export const BenchPage = () => {
         </Control>
       </aside>
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
-        <Benches drives={value.drives ?? []} />
+        <Benches drives={value.drives} />
         <section className="max-w-3xl">
           <p className="mb-2 text-xs text-pretty text-zinc-600 dark:text-zinc-400">
             Each point groups the selected labels. The human’s merged pull request is the baseline and scores 1.
@@ -601,3 +598,5 @@ export const BenchPage = () => {
     </div>
   );
 };
+
+export default BenchPage;

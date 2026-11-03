@@ -1,13 +1,10 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findTraceLinks, mergeCheckEntries } from './src/runs/trace.ts';
 import { resultSources } from './src/results/result.ts';
-import type * as BenchModule from '../bin/bench.ts';
 import type * as ResultsModule from '../bin/results.ts';
-import type * as DriveModule from '../bench/drive.ts';
 import type * as HarnessesModule from '../src/harnesses.ts';
 import type * as StoreModule from '../src/store.ts';
 import type * as LabelsModule from '../src/labels.ts';
@@ -18,7 +15,6 @@ const id = 'virtual:fixtures';
 const root = new URL('../', import.meta.url);
 const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 
-/** The served graph as the engine loads it: the graph, or the problems that stop it loading. */
 const servedGraph = async () => {
   const dir = process.env.AGI_STUDIO_DIR;
   if (!dir) return;
@@ -39,27 +35,6 @@ const json = (res: ServerResponse, value: unknown, status = 200) => {
   res.end(JSON.stringify(value));
 };
 
-/** The bench out dirs at or under `dir`: those with a `log.jsonl`, never looking into case dirs. */
-const findBenchOutDirs = (dir: string, depth = 3): string[] => [
-  ...(existsSync(join(dir, 'log.jsonl')) ? [dir] : []),
-  ...(depth && existsSync(dir)
-    ? readdirSync(dir, { withFileTypes: true })
-        .filter(e => e.isDirectory() && !/^(\.|engine$)/.test(e.name) && !existsSync(join(dir, e.name, 'human')))
-        .flatMap(e => findBenchOutDirs(join(dir, e.name), depth - 1))
-    : []),
-];
-
-/** The driven bench dirs at or right under `dir`: those with a `set.json`. */
-const findDrivenBenchDirs = (dir: string): string[] => [
-  ...(existsSync(join(dir, 'set.json')) ? [dir] : []),
-  ...(existsSync(dir)
-    ? readdirSync(dir, { withFileTypes: true })
-        .filter(e => e.isDirectory() && existsSync(join(dir, e.name, 'set.json')))
-        .map(e => join(dir, e.name))
-    : []),
-];
-
-/** A JSON value with every string longer than a line cut to one. */
 const cut = (value: unknown): unknown =>
   typeof value === 'string'
     ? value.length > 160
@@ -74,18 +49,6 @@ const cut = (value: unknown): unknown =>
 const bodies = (docs: Record<string, { body: string }>) =>
   Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
 
-/**
- * Serves the fixture workflows, each with runs replayed through the engine's begin and transition, as
- * `virtual:fixtures`, plus the served graph's workflows. `GET /api/runs` answers that graph's runs in the data dir with
- * their traces, every text in them cut short; `GET /api/runs/<id>` answers one run with every trace line, and
- * `GET /api/logs/<hash>` the full output of a check, and `GET /api/locate?gh=<link or comment id>` what `locate` finds.
- * `GET /api/bench` answers the rows of every bench out dir under the dirs `AGI_STUDIO_BENCH` names, read again only when
- * a `log.jsonl`, `events.jsonl` or `done/` of theirs changes, and where each driven bench dir stands. A failing async
- * route answers 500 with the error.
- * `GET /api/results?from=runs|tune|exports` answers what each run, tune candidate or export gave, with its fields (`bin/results.ts`);
- * tunes are under `AGI_STUDIO_TUNE` (default: the `bin/tune.ts` root).
- * `GET /api/events` is a server-sent event stream that says `changed` when anything in the data dir does.
- */
 export const makeStudioDevApiPlugin = (): Plugin => ({
   name: 'agentgraph:fixtures',
   resolveId: source => (source === id ? `\0${id}` : undefined),
@@ -94,29 +57,6 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
       server.middlewares.use(path, (req, res) => {
         void handle(req, res).catch((e: Error) => json(res, { error: e.message }, 500));
       });
-    let rows: { key: string; read: Promise<ReturnType<typeof BenchModule.readBenchRows>> } | undefined;
-    use('/api/bench', async (_req, res) => {
-      const dirs = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
-      const outs = dirs.flatMap(dir => findBenchOutDirs(dir));
-      const drives = [...new Set(dirs.flatMap(findDrivenBenchDirs))];
-      const key = JSON.stringify(
-        [...outs, ...drives].map(dir =>
-          ['log.jsonl', 'events.jsonl', 'done'].map(f => statSync(join(dir, f), { throwIfNoEntry: false })?.mtimeMs)
-        )
-      );
-      if (rows?.key !== key)
-        rows = {
-          key,
-          read: from<typeof BenchModule>('bin/bench.ts')
-            .then(m => outs.flatMap(out => m.readBenchRows(out)))
-            .catch((e: Error) => {
-              rows = undefined;
-              throw e;
-            }),
-        };
-      const { readBenchDriveState }: typeof DriveModule = await from('bench/drive.ts');
-      json(res, { rows: await rows.read, drives: drives.map(readBenchDriveState) });
-    });
     use('/api/results', async (req, res) => {
       const source = resultSources.find(s => s === new URL(req.url ?? '/', 'http://studio').searchParams.get('from'));
       if (!source) return json(res, { error: 'bad from' }, 400);
