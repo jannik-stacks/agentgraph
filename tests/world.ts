@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { Effect, FiberRef, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
 import { drive } from '../src/engine.ts';
-import { folderTracker, Tracker, currentRunLinkRef } from '../src/tracker.ts';
-import type { Event, RunLink } from '../src/event.ts';
+import { folderTracker, Tracker, TrackerError, currentRunLinkRef } from '../src/tracker.ts';
+import type { Event, IssueStatus, RunLink } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -69,7 +69,8 @@ export const services = (
   where: ReturnType<typeof world>,
   turns: SessionEvent[][],
   slug?: string,
-  opened: (spec: SessionSpec) => unknown = () => undefined
+  opened: (spec: SessionSpec) => unknown = () => undefined,
+  refuse: (status: IssueStatus) => boolean = () => false
 ) => {
   const specs: SessionSpec[] = [];
   const commands: Command[] = [];
@@ -99,10 +100,12 @@ export const services = (
           f.apply(n, p, work)
         ),
       status: (...args: Parameters<NonNullable<typeof f.status>>) =>
-        Effect.zipRight(
-          Effect.map(FiberRef.get(currentRunLinkRef), mark => marks.push(['label', mark])),
-          f.status!(...args)
-        ),
+        refuse(args[1])
+          ? Effect.fail(new TrackerError({ message: 'refused' }))
+          : Effect.zipRight(
+              Effect.map(FiberRef.get(currentRunLinkRef), mark => marks.push(['label', mark])),
+              f.status!(...args)
+            ),
     }))
   ).pipe(Layer.provide(folderTracker(where.tracker)));
   const layer = Layer.mergeAll(named, fileStore(where.data), sandbox, recording);

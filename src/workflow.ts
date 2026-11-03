@@ -116,6 +116,7 @@ export type Run = {
   by?: string;
   startCommit?: string;
   owed?: string[];
+  unshown?: true;
   started: string;
   ended?: string;
 };

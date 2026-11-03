@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { Chunk, Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
-import { drive } from '../src/engine.ts';
+import { drive, tick } from '../src/engine.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Sandbox, SandboxError, type Checkout, type Command } from '../src/sandbox.ts';
@@ -407,16 +407,16 @@ describe('drive', () => {
     const at = (step: string, session?: string) => ({ run: 'run-7', step, ...(session && { session }) });
     const landed = (step: string, session: string) => ({ ...at(step, session), operation: expect.any(String) });
     expect(marks).toEqual([
-      ['comment', at('triage')],
       ['label', at('triage')],
+      ['comment', at('triage')],
       ['comment', landed('triage', 't1')],
       ['comment', at('implement')],
       ['push', landed('implement', 'i1')],
       ['pull_request', landed('implement', 'i1')],
       ['comment', at('review')],
       ['comment', at('implement', 'i1')],
-      ['comment', at('implement', 'i1')],
       ['label', at('implement', 'i1')],
+      ['comment', at('implement', 'i1')],
     ]);
   });
 
@@ -511,6 +511,29 @@ describe('drive', () => {
     expect(issue.labels).toEqual(['agentgraph:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
+  });
+
+  it('shows a status the tracker refused on the next pass, with no new transition', async () => {
+    const where = world();
+    let refusals = 1;
+    const { run } = services(
+      where,
+      [
+        [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
+        [start('i1'), wrote('secret.txt', 'key\n'), reply(push, pull)],
+        judged,
+      ],
+      undefined,
+      undefined,
+      to => to === 'stopped' && refusals-- > 0
+    );
+    const stopped = await run(drive(w, fresh(), graph));
+    const labels = async () => (await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels;
+    expect(await labels()).toEqual(['agentgraph:working']);
+    expect((await run(Effect.flatMap(Store, s => s.get(stopped.id))))?.unshown).toBe(true);
+    await run(tick(graph));
+    expect(await labels()).toEqual(['agentgraph:stopped']);
+    expect((await run(Effect.flatMap(Store, s => s.get(stopped.id))))?.unshown).toBeUndefined();
   });
 
   it.each([

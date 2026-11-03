@@ -1915,12 +1915,18 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
         })
     );
     const { to, from, proposals } = proposeStatusUpdates(run, t, tracker.studio, usd, others, isQuiet(w));
-    const status = yield* Effect.forEach(proposals, p => tracker.apply(run.issue, p));
-    if (to && graph.status !== false && tracker.status)
-      yield* tracker
-        .status(run.issue, to, graph.status)
-        .pipe(Effect.catchTag('TrackerError', e => Effect.logWarning(`status of issue ${run.issue}`, e)));
-    if (to) yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
+    const shown =
+      !to || graph.status === false || !tracker.status
+        ? true
+        : yield* tracker.status(run.issue, to, graph.status).pipe(
+            Effect.as(true),
+            Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`status of issue ${run.issue}`, e), false))
+          );
+    const status = yield* Effect.forEach(
+      shown ? proposals : proposeStatusUpdates(run, t, tracker.studio, usd, others, true).proposals,
+      p => tracker.apply(run.issue, p)
+    );
+    if (to && shown) yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
@@ -1933,12 +1939,13 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
         }))
       )
     );
-    if (!reply) return run;
-    const { comment: _gone, eyes, ...rest } = run;
+    if (!reply && shown === !run.unshown) return run;
+    const { comment, eyes, unshown: _unshown, ...rest } = run;
     const next = {
       ...rest,
       ...(eyes && !undone.length && { eyes }),
-      ...(reply.ok && reply.id && { comment: reply.id }),
+      ...(reply ? reply.ok && reply.id && { comment: reply.id } : comment && { comment }),
+      ...(!shown && { unshown: true as const }),
     };
     yield* store.put(next);
     return next;
@@ -2941,6 +2948,13 @@ export const tick = (
           Effect.catchAll(e => Effect.as(Effect.logError(`run ${r.id}`, e), r))
         ),
       { concurrency: graph.limits.parallel }
+    );
+    const looked = [...touched, ...driven];
+    yield* Effect.forEach(
+      (yield* store.list()).filter(
+        r => r.unshown && mine(r) && graph.workflows[r.workflow] && !looked.some(l => l.id === r.id)
+      ),
+      r => show(graph.workflows[r.workflow]!, r, graph)
     );
     const owing = (yield* store.list()).filter(r => r.owed && mine(r));
     const ended = (yield* Effect.forEach(owing, r => runEndChecks(graph, r.id), {
