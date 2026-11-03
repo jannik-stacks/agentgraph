@@ -514,6 +514,35 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     expect(trace.filter(t => t.prompt).at(-1).prompt.prompt).toContain('Remember the original request');
   });
 
+  it('sets, removes and prints run labels through the CLI', async () => {
+    const w = world();
+    const data = join(w.root, 'data');
+    const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
+    const run = begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: '2026-10-16T00:00:01.000Z' });
+    await Effect.runPromise(Effect.flatMap(Store, store => store.put(run)).pipe(Effect.provide(fileStore(data))));
+    const label = (...args: string[]) =>
+      spawnSync(process.execPath, [runTs, 'label', ...args, '--data', data, '--forge', w.dir], {
+        encoding: 'utf8',
+        env: { ...process.env, NODE_OPTIONS: '' },
+      });
+    const runs = [
+      label('triage-1', 'arm=v2', 'model=gpt 6'),
+      label('triage-1', 'arm-', 'set=explorer'),
+      label('triage-1', 'Bad=1'),
+      label('missing-1', 'arm=v2'),
+    ];
+    expect(runs.map(r => [r.status, r.stdout])).toEqual([
+      [0, 'arm=v2\nmodel=gpt 6\n'],
+      [0, 'model=gpt 6\nset=explorer\n'],
+      [2, ''],
+      [2, ''],
+    ]);
+    expect(JSON.parse(readFileSync(join(data, 'triage-1', 'labels.json'), 'utf8'))).toEqual({
+      model: 'gpt 6',
+      set: 'explorer',
+    });
+  });
+
   it('queues parked runs through the CLI and refreshes the sticky', async () => {
     const w = world();
     await w.forge('init', w.seed);

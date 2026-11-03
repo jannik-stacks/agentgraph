@@ -25,6 +25,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | `resume <run id>` or `resume --parked` | Queues one or all runs parked by a runner error for the next loop pass | yes |
 | `dispatch <n> ["<text>"]` | Starts any `--workflow` on issue n, with the text as what it was [asked](workflows.md#dispatch) | yes |
 | `prune-logs` | Counts [check logs](runs.md#check-logs) no trace names | yes |
+| `label <run id> [k=v\|k-]...` | Sets or removes [run labels](runs.md#run-labels), then prints them <!-- code: src/labels.ts#parseLabelPatch --> | yes |
 
 `resume` keeps the run ID, step, saved files, sessions and feedback. It clears the runner error and records a retry locally; it posts no comment. Human questions, cancelled runs and ended runs are excluded. A running `loop` picks it up on its next pass; `loop --once` makes one pass. Retros remain quiet when they run again. As a GitHub runner, use the same graph and runs folder as the loop:
 
@@ -51,7 +52,8 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--save` | with `--provider` | Keep that provider for later commands |
 | `--harness <name>` | all | Run every agent on this harness, this command only |
 | `--model <model>` | all | Give every agent this model, this command only |
-| `--label <label>` | `start`, `say` | Add a label; repeatable |
+| `--label <key>=<value>` | `start` | Put a [run label](runs.md#run-labels) on the run it begins; repeatable |
+| `--issue-label <label>` | `start`, `say` | Add a label to the issue; repeatable |
 | `--workflow <name>` | `start`, `dispatch`, `check --runs` | Which workflow |
 | `--step <step>` | `dispatch` | The step to start at |
 | `--issue <n>` | `check --runs` | Only runs on this issue |

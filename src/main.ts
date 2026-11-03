@@ -18,6 +18,7 @@ import type { Graph } from './folder.ts';
 import { graphAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import { writeIdleRunsCompressed, fileStore, Store, StoreError } from './store.ts';
 import { LockHeldError } from './owner.ts';
+import { parseLabels, writeRunLabels } from './labels.ts';
 import type { Run } from './workflow.ts';
 
 export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
@@ -108,7 +109,7 @@ export const isLoopHeld = (data: string) =>
  * with one sweep and then ticks every `every` minutes under the data dir's loop lock. Each pass first runs `refresh`,
  * then reads the settings and builds the services again, so a renewed login reaches it without a restart. With `one`,
  * it looks at that issue once, or at every open issue once when `issue` is `'all'`, and resolves with the runs it
- * touched; `base` is the branch workflows that name none start from. An abort of `signal` interrupts it, and a run it drove resumes on the next look.
+ * touched; `base` is the branch workflows that name none start from, and `labels` go on each run it begins. An abort of `signal` interrupts it, and a run it drove resumes on the next look.
  */
 export const start = (
   one?: {
@@ -117,6 +118,7 @@ export const start = (
     data: string;
     instruction?: Instruction;
     meta?: Run['meta'];
+    labels?: ReturnType<typeof parseLabels>;
     marked?: true;
     base?: string;
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
@@ -150,13 +152,28 @@ export const start = (
           AGENTGRAPH_DATA: one.data,
         });
         yield* warnTemporary(one.data);
-        return yield* provided(
-          one.instruction
-            ? instruct(graph, one.instruction, one.meta)
-            : one.issue === 'all'
-              ? scanIssuesAndRunningRuns(graph, 0, one.meta)
-              : tick(graph, one.issue, one.marked, 0, one.meta)
-        ).pipe(choose(provider));
+        const labels = parseLabels(one.labels ?? {});
+        const driven = one.instruction
+          ? instruct(graph, one.instruction, one.meta)
+          : one.issue === 'all'
+            ? scanIssuesAndRunningRuns(graph, 0, one.meta)
+            : tick(graph, one.issue, one.marked, 0, one.meta);
+        const labelled = Effect.updateService(driven, Store, store => ({
+          ...store,
+          put: run =>
+            Effect.zipRight(
+              Effect.flatMap(store.get(run.id), was =>
+                was || !Object.keys(labels).length
+                  ? Effect.void
+                  : Effect.try({
+                      try: () => writeRunLabels(one.data, run.id, labels),
+                      catch: cause => new StoreError({ path: one.data, cause }),
+                    })
+              ),
+              store.put(run)
+            ),
+        }));
+        return yield* provided(labelled).pipe(choose(provider));
       })
     : Effect.gen(function* () {
         const s = yield* settings.pipe(Effect.withConfigProvider(configured(yield* read)));

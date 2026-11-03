@@ -19,6 +19,7 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
+import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import {
   graph,
   removeAfter,
@@ -1115,7 +1116,13 @@ describe('start with one issue', () => {
       seen.push(s);
       return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), hostSandbox(where.origin), replaySession(turns));
     };
-    const one = { graph: sandbox, issue: 7, data: where.data, meta: { bench: { case: 'greeting' } } };
+    const one = {
+      graph: sandbox,
+      issue: 7,
+      data: where.data,
+      meta: { bench: { case: 'greeting' } },
+      labels: { case: 'greeting', arm: 'v2' },
+    };
     writeFileSync(join(where.forge, '7.jsonl'), '');
     say(where, {
       issue: 7,
@@ -1129,6 +1136,8 @@ describe('start with one issue', () => {
       const parked = await main(one, doubles);
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
       expect(parked[0]!.meta).toEqual(one.meta);
+      const started = readRunLabels(where.data, parked[0]!.id);
+      writeRunLabels(where.data, parked[0]!.id, { arm: null, note: 'flaky' });
       expect(seen[0]).toMatchObject({
         repo: 'acme/sandbox',
         data: where.data,
@@ -1142,6 +1151,10 @@ describe('start with one issue', () => {
       say(where, { issue: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
       const done = await main(one, doubles);
       expect(done.map(r => [r.id, r.status])).toEqual([[parked[0]!.id, 'done']]);
+      expect([started, readRunLabels(where.data, parked[0]!.id)]).toEqual([
+        one.labels,
+        { case: 'greeting', note: 'flaky' },
+      ]);
     } finally {
       for (const name of Object.keys(env)) delete process.env[name];
     }

@@ -58,4 +58,4 @@ Working on agentgraph: [Engine and code](patterns.md), [Bench](bench.md).
 | **run** | One workflow on one issue, until it is done or stopped |
 | **trace** | A run's event log |
 
-"Agent" is the role file, "agentgraph" the system, and "bot" the GitHub account that posts its writes. Issue, pull request, label, review and base keep their GitHub meanings.
+"Agent" is the role file, "agentgraph" the system, and "bot" the GitHub account that posts its writes. Issue, pull request, label, review and base keep their GitHub meanings; a run label is a `key=value` pair on a run.
