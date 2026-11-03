@@ -200,6 +200,62 @@ it('reloads the served graph and its problems when a graph file changes', async 
   }
 });
 
+const check = (description: string) =>
+  `---\nmode: info\nreturns: { type: object, required: [n], properties: { n: { type: number, description: ${description} } } }\nrun: "true"\n---\n`;
+
+it('serves a check edit to both result endpoints once the graph reloads', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-served-results-'));
+  const dir = join(root, 'graph');
+  const files = {
+    'agents/a.md': '---\nharness: opencode\n---\n',
+    'checks/lines.md': check('before'),
+    'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\nchecks: [lines]\n---\n',
+    '../data/r1/run.json': JSON.stringify({ id: 'r1', issue: 1, workflow: 'w', status: 'done', started: 'now' }),
+    '../data/r1/checks.jsonl': JSON.stringify({
+      at: '1',
+      step: 'x',
+      version: 'v1',
+      check: { check: 'lines', pass: true, value: { n: 3 }, ms: 1 },
+    }),
+  };
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(dir, path, '..'), { recursive: true });
+    writeFileSync(join(dir, path), text);
+  }
+  vi.stubEnv('AGI_STUDIO_DIR', dir);
+  vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
+  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
+  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
+  const server = await createServer({
+    configFile: join(studioDir, 'vite.config.ts'),
+    root: studioDir,
+    server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
+    logLevel: 'silent',
+  });
+  try {
+    await server.listen();
+    const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
+    const described = async () => {
+      const page = await (await fetch(`${base}/api/plugins/results/data`)).json();
+      const runs = await (await fetch(`${base}/api/results?from=runs`)).json();
+      return [page.runs.sheet.fields, runs.fields].map(
+        (fields: { check?: string; description?: string }[]) => fields.find(f => f.check === 'lines')?.description
+      );
+    };
+    expect(await described()).toEqual(['before', 'before']);
+    const sent = vi.spyOn(server.ws, 'send');
+    await vi.waitFor(() => expect(server.watcher.getWatched()).toHaveProperty(realpathSync(dir)), { timeout: 2000 });
+    writeFileSync(join(dir, 'checks/lines.md'), check('after'));
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledWith({ type: 'full-reload' }));
+    expect(await described()).toEqual(['after', 'after']);
+  } finally {
+    await server.close();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it.each(['results', 'bench'])('refuses a graph plugin named after the built-in %s page', async name => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-builtin-name-'));
   mkdirSync(join(dir, 'plugins', 'pages'), { recursive: true });

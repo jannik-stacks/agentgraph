@@ -1,13 +1,12 @@
 import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, join, sep } from 'node:path';
+import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
-import { startWatch } from './plugins.ts';
+import { makeServedGraph, startWatch } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries } from './src/runs/trace.ts';
 import { resultSources } from './src/results/result.ts';
 import type * as ResultsModule from '../bin/results.ts';
-import type * as HarnessesModule from '../src/harnesses.ts';
 import type * as StoreModule from '../src/store.ts';
 import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
@@ -16,24 +15,6 @@ import type * as FixturesModule from '../tests/fixtures.ts';
 const ids = ['virtual:fixtures', 'virtual:served'];
 const root = new URL('../', import.meta.url);
 const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
-
-const readServedGraph = async () => {
-  const dir = process.env.AGI_STUDIO_DIR;
-  if (!dir) return;
-  const { ConfigProvider, Effect, Result } = await import('effect');
-  const { makeHarnessConfigProvider, readConfiguredGraph }: typeof HarnessesModule = await from('src/harnesses.ts');
-  const choice = JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}');
-  const loaded = await Effect.runPromise(
-    Effect.result(
-      readConfiguredGraph(dir).pipe(
-        Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(choice))
-      )
-    )
-  );
-  return Result.isSuccess(loaded)
-    ? { name: basename(dir), graph: loaded.success, problems: [] }
-    : { name: basename(dir), graph: undefined, problems: loaded.failure.problems };
-};
 
 const json = (res: ServerResponse, value: unknown, status = 200) => {
   res.statusCode = status;
@@ -58,20 +39,15 @@ const outside = (res: ServerResponse) => json(res, { error: 'data is outside the
 const bodies = (docs: Record<string, { body: string }>) =>
   Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
 
-export const makeStudioDevApiPlugin = (): Plugin => {
-  let served: ReturnType<typeof readServedGraph> | undefined;
-  const servedGraph = () =>
-    (served ??= readServedGraph().catch((e: unknown) => {
-      served = undefined;
-      throw e;
-    }));
+export const makeStudioDevApiPlugin = (graph = makeServedGraph()): Plugin => {
+  const servedGraph = graph.read;
   return {
     name: 'agentgraph:fixtures',
     resolveId: source => (ids.includes(source) ? `\0${source}` : undefined),
     configureServer(server) {
       if (process.env.AGI_STUDIO_DIR)
         startWatch(server, [{ root: process.env.AGI_STUDIO_DIR, topic: 'graph' }], () => {
-          served = undefined;
+          graph.forget();
           for (const id of ids) {
             const module = server.moduleGraph.getModuleById(`\0${id}`);
             if (module) server.moduleGraph.invalidateModule(module);

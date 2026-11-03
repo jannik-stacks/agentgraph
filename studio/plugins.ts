@@ -1,74 +1,22 @@
-import { realpathSync } from 'node:fs';
-import { dirname, resolve, sep } from 'node:path';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Plugin, ViteDevServer } from 'vite';
-import { ConfigProvider, Effect, Result, Schema } from 'effect';
+import type { Plugin } from 'vite';
+import { Effect, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
 import type * as PluginModule from '../src/plugin.ts';
-import type * as HarnessModule from '../src/harnesses.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import { ResultsData } from './src/results/data.ts';
 import { resultSources } from './src/results/result.ts';
 import { BenchData } from './src/bench/data.ts';
 import { readBench } from './src/bench/read.ts';
+import { makeServedGraph, startWatch } from './served.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 
-const readRealPath = (root: string) => {
-  try {
-    return realpathSync(root);
-  } catch {
-    return resolve(root);
-  }
-};
-
-export const startWatch = (
-  server: ViteDevServer,
-  roots: { root: string; topic: string }[],
-  send: (topics: string[]) => void
-) => {
-  const real = roots.map(({ root, topic }) => ({ root: readRealPath(root), topic }));
-  const topics = new Set<string>();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const changed = (_event: string, path: string) => {
-    const hit = real.filter(({ root }) => path === root || path.startsWith(root + sep));
-    if (!hit.length) return;
-    for (const { topic } of hit) topics.add(topic);
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      send([...topics]);
-      topics.clear();
-    }, 150);
-  };
-  server.watcher.add([...new Set(real.map(({ root }) => root))]);
-  server.watcher.on('all', changed);
-  const stop = () => {
-    clearTimeout(timer);
-    server.watcher.off('all', changed);
-  };
-  server.httpServer?.once('close', stop);
-  return stop;
-};
 const entry = 'virtual:agentgraph-page/';
 
-const readStudioPages = async () => {
-  const dir = process.env.AGI_STUDIO_DIR;
-  const { readConfiguredGraph, makeHarnessConfigProvider }: typeof HarnessModule = await import(
-    new URL('../src/harnesses.ts', import.meta.url).href
-  );
-  const result = dir
-    ? await Effect.runPromise(
-        Effect.result(
-          readConfiguredGraph(dir).pipe(
-            Effect.provideService(
-              ConfigProvider.ConfigProvider,
-              makeHarnessConfigProvider(JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}'))
-            )
-          )
-        )
-      )
-    : undefined;
-  const graph = result && Result.isSuccess(result) ? result.success : undefined;
+const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
+  const graph = (await served.read())?.graph;
   const { readPlugins, makePlugin }: typeof PluginModule = await import(
     new URL('../src/plugin.ts', import.meta.url).href
   );
@@ -87,6 +35,7 @@ const readStudioPages = async () => {
           const { readRunResults }: typeof ResultsModule = yield* Effect.promise(
             () => import(new URL('../bin/results.ts', import.meta.url).href)
           );
+          const current = (yield* Effect.promise(served.read))?.graph;
           return Object.fromEntries(
             resultSources.map(from => {
               try {
@@ -100,7 +49,7 @@ const readStudioPages = async () => {
                           bench,
                           ...(tune && { tune }),
                         },
-                        graph
+                        current
                       );
                 const candidates = Object.fromEntries(
                   sheet.runs.flatMap(row => ('step' in row ? [[row.key, row.step]] : []))
@@ -136,8 +85,8 @@ const readStudioPages = async () => {
     }));
 };
 
-export const makeStudioPagesPlugin = (): Plugin => {
-  const pages = readStudioPages();
+export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
+  const pages = readStudioPages(served);
   let dispose: (() => void) | undefined;
   return {
     name: 'agentgraph:pages',

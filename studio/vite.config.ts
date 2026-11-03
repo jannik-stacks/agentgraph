@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { makeStudioDevApiPlugin } from './fixtures.ts';
 import { makeStudioPagesPlugin } from './plugins.ts';
+import { makeServedGraph } from './served.ts';
 
 const builtins = new Set(builtinModules);
 
@@ -22,6 +23,7 @@ const noNodeInBrowser = (): Plugin => ({
   },
 });
 
+const served = makeServedGraph();
 const server = { host: '127.0.0.1', port: Number(process.env.AGI_PORT) || 5182, strictPort: true };
 const allow = ['./', '../src/', '../node_modules/'].map(dir => fileURLToPath(new URL(dir, import.meta.url)));
 const ignored = (process.env.AGI_STUDIO_BENCH ?? '')
@@ -36,7 +38,7 @@ export default defineConfig({
   envPrefix: [],
   define: { 'import.meta.env.VITE_AGI_LOCAL': JSON.stringify(process.env.AGI_STUDIO_TRACKER ? '1' : '') },
   cacheDir: `node_modules/.vite-${server.port}`,
-  plugins: [noNodeInBrowser(), makeStudioPagesPlugin(), makeStudioDevApiPlugin(), react(), tailwindcss()],
+  plugins: [noNodeInBrowser(), makeStudioPagesPlugin(served), makeStudioDevApiPlugin(served), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
   optimizeDeps: { entries: ['index.html', 'src/**/*.tsx'], include: ['agentation', 'fumadocs-core/highlight'] },
   server: { ...server, fs: { allow, deny }, watch: { ignored }, warmup: { clientFiles: ['./src/main.tsx'] } },
