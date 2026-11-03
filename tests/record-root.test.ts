@@ -77,7 +77,7 @@ it('restores an instance from a copy of its folder without the cache', async () 
   mkdirSync(join(i.data, 'cache', 'work'), { recursive: true });
   writeFileSync(join(i.data, 'cache', 'work', 'x'), 'rebuildable');
 
-  expect(readdirSync(i.dir).toSorted()).toEqual(['data', 'tracker', 'instance.yaml']);
+  expect(readdirSync(i.dir).toSorted()).toEqual(['data', 'instance.yaml', 'tracker']);
   const moved = join(w.root, 'new');
   cpSync(i.dir, join(moved, basename(i.dir)), { recursive: true, filter: src => src !== join(i.data, 'cache') });
   db.close();
