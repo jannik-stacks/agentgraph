@@ -6,7 +6,7 @@ import { ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
-import { fileTracker, Tracker, TrackerError } from '../src/tracker.ts';
+import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
@@ -63,7 +63,7 @@ describe('tick', () => {
         },
       },
     };
-    const base = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin));
+    const base = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin));
     const turns = replaySession([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
     let during: Run['status'] | undefined;
     const session = Layer.effect(
@@ -454,7 +454,7 @@ describe('tick', () => {
         },
       },
     };
-    const base = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin));
+    const base = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin));
     const session = Layer.effect(
       Session,
       Effect.gen(function* () {
@@ -558,7 +558,7 @@ describe('tick', () => {
             ? Effect.fail(new TrackerError({ status: 403, message: 'forbidden' }))
             : f.apply(n, p, work),
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const flow = small.workflows.issue!;
     const layer = Layer.mergeAll(
       failing,
@@ -730,7 +730,7 @@ describe('tick', () => {
             ? Effect.fail(new TrackerError({ status: 403, message: 'forbidden' }))
             : f.apply(n, p, work),
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const recording = Layer.effect(
       Session,
       Effect.map(Session, s => ({ open: (spec: SessionSpec) => (specs.push(spec), s.open(spec)) }))
@@ -836,7 +836,7 @@ describe('tick', () => {
         },
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
     await Effect.runPromise(tick(merging, 7).pipe(Effect.provide(layer)));
     expect(readTrace(where.data, 'run-7')).toContainEqual(
       expect.objectContaining({ outcome: { kind: 'ask', question: 'SandboxError: sandbox image is missing' } })
@@ -1115,7 +1115,7 @@ describe('start with one issue', () => {
     const doubles = (s: Settings) => {
       seen.push(s);
       return Layer.mergeAll(
-        fileTracker(where.tracker),
+        folderTracker(where.tracker),
         fileStore(s.data),
         hostSandbox(where.origin),
         replaySession(turns)
@@ -1183,7 +1183,7 @@ describe('the loop', () => {
     const doubles = (s: Settings) => {
       seen.push(Redacted.value(s.passed.ANTHROPIC_API_KEY!));
       return Layer.mergeAll(
-        fileTracker(where.tracker),
+        folderTracker(where.tracker),
         fileStore(s.data),
         hostSandbox(where.origin),
         replaySession([])
@@ -1336,7 +1336,7 @@ describe('scanIssuesAndRunningRuns', () => {
           return tracker.since(cursor, columns);
         },
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const layer = Layer.mergeAll(observed, fileStore(where.data), hostSandbox(where.origin), replaySession([]));
     const unmarked = { ...small, workflows: {} };
     const started = '2026-10-16T00:00:00.000Z';
@@ -1435,7 +1435,7 @@ describe('scanIssuesAndRunningRuns', () => {
           )
         ).pipe(Stream.flatMap(() => Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })))),
     });
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), slow);
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), slow);
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status]).sort()).toEqual([
       [7, 'waiting'],
@@ -1457,7 +1457,7 @@ describe('scanIssuesAndRunningRuns', () => {
           ? Stream.die(new Error('spawn E2BIG'))
           : Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })),
     });
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), dying);
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), dying);
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status, r.reason]).toSorted()).toEqual([
       [7, 'waiting', 'Which file?'],

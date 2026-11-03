@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Stream } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fileTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
+import { folderTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
@@ -235,7 +235,7 @@ describe('fileStore', () => {
   });
 });
 
-describe('fileTracker', () => {
+describe('folderTracker', () => {
   it('reads issues, filters by label and parent, labels, opens issues and refuses a merge whose head moved', async () => {
     const dir = temp();
     writeFileSync(join(dir, '1.md'), '---\ntitle: One\nstate: open\nauthor: a\nlabels: [ready]\n---\n\nFirst.\n');
@@ -254,7 +254,7 @@ describe('fileTracker', () => {
           missing: missing._tag === 'Left' && missing.left.status,
           events: Chunk.toArray(yield* Stream.runCollect(tracker.since(''))).map(m => [m.kind, m.label, m.trusted]),
         };
-      }).pipe(Effect.provide(fileTracker(dir)))
+      }).pipe(Effect.provide(folderTracker(dir)))
     );
     expect(out).toEqual({
       labelled: [1],
@@ -270,7 +270,7 @@ describe('fileTracker', () => {
   });
 });
 
-describe('fileTracker files', () => {
+describe('folderTracker files', () => {
   it('gives issues filed at once their own numbers, and adopts a dropped file once', async () => {
     const dir = temp();
     writeFileSync(join(dir, '1.md'), '---\ntitle: One\nauthor: a\nlabels: [ready]\n---\n');
@@ -290,7 +290,7 @@ describe('fileTracker files', () => {
           Promise.all([1, 2].map(() => writeIssueFile(dir, { title: 'Two', author: 'a', labels: [] }, '')))
         );
         return { events, human, all: (yield* tracker.issues()).map(t => t.number) };
-      }).pipe(Effect.provide(fileTracker(dir)))
+      }).pipe(Effect.provide(folderTracker(dir)))
     );
     expect(numbers.events).toEqual([1, 1, 1]);
     expect(numbers.all.toSorted((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
@@ -298,7 +298,7 @@ describe('fileTracker files', () => {
   });
 });
 
-describe('fileTracker push', () => {
+describe('folderTracker push', () => {
   const setup = () => {
     const dir = temp();
     const origin = join(dir, 'origin.git');
@@ -322,7 +322,7 @@ describe('fileTracker push', () => {
       Effect.runPromise(
         Effect.flatMap(Tracker, f =>
           f.apply(1, { kind: 'push', branch: 'agentgraph/1', message: 'add hello' }, checkout)
-        ).pipe(Effect.provide(fileTracker(dir)))
+        ).pipe(Effect.provide(folderTracker(dir)))
       );
     return { dir, origin, work, checkout, push };
   };
@@ -363,7 +363,7 @@ describe('fileTracker push', () => {
         writeFileSync(join(work, 'other.txt'), 'other\n');
         const second = yield* tracker.apply(1, proposal, checkout);
         return [first, second, yield* tracker.apply(1, proposal, checkout)];
-      }).pipe(Effect.provide(fileTracker(dir)))
+      }).pipe(Effect.provide(folderTracker(dir)))
     );
     expect(results.map(r => r.ok)).toEqual([false, true, true]);
     expect(results.map(r => r.held)).toEqual(Array.from({ length: 3 }, () => ['.github/workflows/x.yml']));
@@ -390,7 +390,7 @@ describe('fileTracker push', () => {
           checkout
         );
         return [first, second, opened];
-      }).pipe(Effect.provide(fileTracker(dir)))
+      }).pipe(Effect.provide(folderTracker(dir)))
     );
     expect(first).toMatchObject({ ok: true, held: [] });
     expect(second).toMatchObject({
@@ -420,7 +420,7 @@ describe('fileTracker push', () => {
   });
 });
 
-describe('fileTracker issue', () => {
+describe('folderTracker issue', () => {
   it('reads back reviews, review comments, commits and checks, and withholds an outsider', async () => {
     const dir = temp();
     writeFileSync(join(dir, '8.md'), '---\ntitle: Fix\nstate: open\nauthor: a\n---\n\nCloses #7\n');
@@ -446,7 +446,9 @@ describe('fileTracker issue', () => {
       },
     ];
     writeFileSync(join(dir, '8.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
-    const t = await Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(fileTracker(dir))));
+    const t = await Effect.runPromise(
+      Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(folderTracker(dir)))
+    );
     expect(t.events.map(m => [m.kind, m.comment?.body ?? m.commit?.title ?? m.check?.conclusion])).toEqual([
       ['changes_requested', 'split it'],
       ['comment', 'rename'],

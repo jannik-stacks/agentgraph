@@ -34,7 +34,7 @@ describe('style lint', () => {
         'export const readGraph = (dir: string) => dir;',
         'export const trees = () => [];',
         'export const graphOf = () => 1;',
-        'export const fileTracker = () => 1;',
+        'export const folderTracker = () => 1;',
         'export const memoryStore = () => 1;',
         'export const Button = () => null;',
         'export const limits = { files: 1 };',

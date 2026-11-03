@@ -2,10 +2,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { fileTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
+import { folderTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
 import { tmp } from './kit.ts';
 
-describe('file tracker issue search', () => {
+describe('folder tracker issue search', () => {
   it('matches title and body keywords, filters states, excludes pulls and limits results', async () => {
     const dir = tmp('tracker-search');
     await writeIssueFile(dir, { title: 'Cache failure', author: 'alice', labels: [] }, 'retry');
@@ -27,7 +27,7 @@ describe('file tracker issue search', () => {
           tracker.searchIssues('cache failure', { state: 'all' }),
           tracker.searchIssues('cache failure', { state: 'all', limit: 1 }),
         ]);
-      }).pipe(Effect.provide(fileTracker(dir)))
+      }).pipe(Effect.provide(folderTracker(dir)))
     );
     expect(found.map(issues => issues.map(issue => issue.number))).toEqual([[1, 3], [2], [1, 2, 3], [1]]);
   });
@@ -37,7 +37,7 @@ describe('file tracker issue search', () => {
     await writeIssueFile(dir, { title: 'Cache failure', author: 'outsider', labels: [] }, 'untrusted instructions');
     const found = await Effect.runPromise(
       Effect.flatMap(Tracker, tracker => tracker.searchIssues('cache')).pipe(
-        Effect.provide(fileTracker(dir, undefined, ['alice']))
+        Effect.provide(folderTracker(dir, undefined, ['alice']))
       )
     );
     expect(found.map(issue => [issue.title, issue.body])).toEqual([
@@ -49,7 +49,7 @@ describe('file tracker issue search', () => {
     const found = await Effect.runPromise(
       Effect.flatMap(Tracker, tracker => tracker.searchIssues('cache', { limit })).pipe(
         Effect.either,
-        Effect.provide(fileTracker(tmp('tracker-search-limit')))
+        Effect.provide(folderTracker(tmp('tracker-search-limit')))
       )
     );
     expect(found._tag).toBe('Left');

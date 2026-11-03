@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { Effect, Layer, Stream, TestClock, TestContext } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
-import { fileTracker, Tracker, TrackerError } from '../src/tracker.ts';
+import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
@@ -190,7 +190,7 @@ describe('stacks', () => {
         },
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
     await Effect.runPromise(tick(merging, 9).pipe(Effect.provide(layer)));
     expect(readTrace(where.data, 'run-9')).toContainEqual(
       expect.objectContaining({ outcome: { kind: 'ask', question: 'SandboxError: sandbox image is missing' } })
@@ -213,7 +213,7 @@ describe('stacks', () => {
           return f.apply(n, p, work);
         },
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const layer = Layer.mergeAll(tracker, fileStore(where.data), hostSandbox(where.origin), replaySession([child()]));
     const run = <A, E>(effect: Effect.Effect<A, E, Tracker | Store | Sandbox | Session>) =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)));
@@ -348,7 +348,12 @@ describe('coworker', () => {
           })
         ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push, pull)]))),
     });
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session);
+    const layer = Layer.mergeAll(
+      folderTracker(where.tracker),
+      fileStore(where.data),
+      hostSandbox(where.origin),
+      session
+    );
     const agents = Object.fromEntries(Object.entries(small.agents).map(([k, a]) => [k, { ...a, tools: ['read'] }]));
     const done = await Effect.runPromise(
       drive({ ...flow, concurrency: 'queue' }, begun(), { ...small, agents }).pipe(
@@ -389,7 +394,12 @@ describe('coworker', () => {
         },
       }))
     ).pipe(Layer.provide(replaySession(turns)));
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session);
+    const layer = Layer.mergeAll(
+      folderTracker(where.tracker),
+      fileStore(where.data),
+      hostSandbox(where.origin),
+      session
+    );
     const go = (w: typeof flow) =>
       Effect.runPromise(drive(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext)));
     return { specs, go };
@@ -530,7 +540,7 @@ describe('coworker', () => {
         issue: (n: number) =>
           n === 8 ? Effect.fail(new TrackerError({ status: 404, message: 'Not Found' })) : f.issue(n),
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const session = replaySession([[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     const layer = Layer.mergeAll(tracker, fileStore(where.data), hostSandbox(where.origin), session);
     const runs = await Effect.runPromise(scanIssuesAndRunningRuns(ready).pipe(Effect.provide(layer)));
@@ -865,7 +875,7 @@ describe('compound engineering', () => {
     const counted = Layer.effect(
       Tracker,
       Effect.map(Tracker, f => ({ ...f, issue: (n: number) => (asked.push(n), f.issue(n)) }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const layer = Layer.mergeAll(counted, fileStore(where.data), hostSandbox(where.origin), replaySession([]));
     const go = <A, E>(e: Effect.Effect<A, E, Tracker | Store | Session | Sandbox>) =>
       Effect.runPromise(e.pipe(Effect.provide(layer)));

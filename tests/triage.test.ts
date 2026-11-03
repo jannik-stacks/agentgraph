@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Chunk, Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
-import { fileTracker, Tracker } from '../src/tracker.ts';
+import { folderTracker, Tracker } from '../src/tracker.ts';
 import { stoppedByRunner } from '../src/context.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -82,7 +82,7 @@ const run = <A, E>(
   effect: Effect.Effect<A, E, Tracker | Store | Session | Sandbox>
 ) => {
   const layer = Layer.mergeAll(
-    fileTracker(where.tracker),
+    folderTracker(where.tracker),
     fileStore(where.data),
     hostSandbox(where.origin),
     replaySession(turns)
@@ -91,9 +91,9 @@ const run = <A, E>(
 };
 
 const issues = (where: ReturnType<typeof world>) =>
-  Effect.runPromise(Effect.flatMap(Tracker, f => f.issues()).pipe(Effect.provide(fileTracker(where.tracker))));
+  Effect.runPromise(Effect.flatMap(Tracker, f => f.issues()).pipe(Effect.provide(folderTracker(where.tracker))));
 const issue = (where: ReturnType<typeof world>, n: number) =>
-  Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(n)).pipe(Effect.provide(fileTracker(where.tracker))));
+  Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(n)).pipe(Effect.provide(folderTracker(where.tracker))));
 const runs = (where: ReturnType<typeof world>) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
 
@@ -119,7 +119,7 @@ describe('triage', () => {
     where.label(1);
     const read = (trust: string[]) =>
       Effect.runPromise(
-        Effect.flatMap(Tracker, f => f.issue(1)).pipe(Effect.provide(fileTracker(where.tracker, undefined, trust)))
+        Effect.flatMap(Tracker, f => f.issue(1)).pipe(Effect.provide(folderTracker(where.tracker, undefined, trust)))
       );
     expect((await read(['morgan'])).events[0]).toMatchObject({ trusted: true });
     expect((await read(['ana'])).events[0]).toMatchObject({ trusted: false });
@@ -171,7 +171,7 @@ describe('triage', () => {
                     )
                   ),
             }))
-          ).pipe(Layer.provide(fileTracker(where.tracker)));
+          ).pipe(Layer.provide(folderTracker(where.tracker)));
           const layer = Layer.mergeAll(
             stopping,
             fileStore(where.data),
@@ -230,7 +230,7 @@ describe('triage', () => {
     expect(filed.body).toMatch(/## Done when[\s\S]*\n\nFound while working on #1$/);
     expect((await issue(where, 1)).events.some(m => m.comment?.body.startsWith('Split into'))).toBe(false);
 
-    const bot = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data));
+    const bot = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data));
     await Effect.runPromise(
       Effect.flatMap(Tracker, f =>
         Effect.all([f.apply(2, { kind: 'label', add: ['triage'] }), f.apply(2, { kind: 'comment', body: '/agent' })])
@@ -635,7 +635,7 @@ describe('a pass', () => {
     const stalled = Layer.effect(
       Tracker,
       Effect.map(Tracker, f => ({ ...f, since: (cursor: string) => (cursor ? f.since(cursor) : Stream.never) }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const layer = Layer.mergeAll(
       stalled,
       fileStore(where.data),

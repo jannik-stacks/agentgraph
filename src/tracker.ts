@@ -209,7 +209,7 @@ export const writeTimelineEvent = async (
  * Authors ending in `[bot]` are not trusted, and their issues' text is withheld. It acts as the bot, or as the
  * trusted person `as`.
  */
-export const fileTracker = (dir: string, as?: string, trust?: readonly string[]): Layer.Layer<Tracker> =>
+export const folderTracker = (dir: string, as?: string, trust?: readonly string[]): Layer.Layer<Tracker> =>
   Layer.effect(
     Tracker,
     Effect.map(Effect.makeSemaphore(1), lock => {

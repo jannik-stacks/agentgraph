@@ -4,7 +4,7 @@ Start with the parts that ship, then change the ones your repo needs.
 
 ## Trackers
 
-A tracker reads issues and applies writes. The GitHub tracker uses a GitHub App; the file tracker keeps issues in a local folder. The CLI chooses between them. From source, implement `Tracker` and pass it through `start`'s services argument. CLI registration is in progress. <!-- code: src/tracker.ts#Tracker src/services.ts#where src/main.ts#start -->
+A tracker reads issues and applies writes. The GitHub tracker uses a GitHub App; the folder tracker keeps issues in a local folder. The CLI chooses between them. From source, implement `Tracker` and pass it through `start`'s services argument. CLI registration is in progress. <!-- code: src/tracker.ts#Tracker src/services.ts#where src/main.ts#start -->
 
 ## Harnesses
 

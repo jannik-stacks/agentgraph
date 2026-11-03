@@ -63,7 +63,7 @@ Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
 
 ## The tracker folder
 
-A tracker folder stands in for GitHub: `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, it refuses a whole push that touches `.github/`. `--tracker <dir>` runs the CLI on one directly. <!-- code: src/tracker.ts#fileTracker -->
+A tracker folder stands in for GitHub: `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, it refuses a whole push that touches `.github/`. `--tracker <dir>` runs the CLI on one directly. <!-- code: src/tracker.ts#folderTracker -->
 
 Any `<n>.md` you write under an unused number is an issue. Frontmatter with a trusted `author` and a workflow's label starts that workflow on the next look; `agi start` writes such a file. <!-- code: src/tracker.ts#writeIssueFile -->
 

@@ -13,7 +13,7 @@ import {
 import { delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { fileTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
+import { folderTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import {
   ensureGraph,
@@ -68,7 +68,7 @@ const world = () => {
       return at < 0 ? undefined : args.splice(at, 2)[1];
     };
     const n = Number(args[0]);
-    const issues = Effect.provide(Tracker, fileTracker(dir));
+    const issues = Effect.provide(Tracker, folderTracker(dir));
     switch (verb) {
       case 'init':
         git(root, 'init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git'));
@@ -83,7 +83,7 @@ const world = () => {
       case 'label':
         await Effect.runPromise(
           Effect.flatMap(Tracker, f => f.apply(n, { kind: 'label', add: [args[1]!] })).pipe(
-            Effect.provide(fileTracker(dir, as))
+            Effect.provide(folderTracker(dir, as))
           )
         );
         return '';
@@ -134,7 +134,7 @@ const world = () => {
       seen.push(s);
       const trackerDir = s.tracker as string;
       return Layer.mergeAll(
-        fileTracker(trackerDir),
+        folderTracker(trackerDir),
         fileStore(s.data),
         Layer.effect(
           Sandbox,
@@ -699,7 +699,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
         effect.pipe(
           Effect.provide(
             Layer.mergeAll(
-              fileTracker(w.dir),
+              folderTracker(w.dir),
               fileStore(join(w.root, 'data')),
               hostSandbox(w.origin),
               replaySession([[start('router'), reply({ kind: 'comment', body: 'Here is why.' })]])
@@ -831,7 +831,7 @@ describe('an instance', () => {
     const run = (turns: SessionEvent[][], issue: number | 'all' = 1) =>
       main({ graph: sandboxGraph, issue, data: i.data, marked: true, base: i.base }, s =>
         Layer.mergeAll(
-          fileTracker(s.tracker as string, undefined, s.trust),
+          folderTracker(s.tracker as string, undefined, s.trust),
           fileStore(s.data),
           hostSandbox(join(s.tracker as string, 'origin.git')),
           replaySession(turns)

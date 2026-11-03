@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Chunk, Effect, Layer, Stream } from 'effect';
 import { afterEach, expect, it } from 'vitest';
-import { fileTracker } from '../src/tracker.ts';
+import { folderTracker } from '../src/tracker.ts';
 import { ensureBase, ensureGraph, ensureInstance } from '../src/instance.ts';
 import { loadGraph } from '../src/folder.ts';
 import { start as main, writeTriggeringIssue } from '../src/main.ts';
@@ -45,7 +45,7 @@ it('restores an instance from a copy of its folder without the cache', async () 
   const pull = { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Add hello', body: '' };
   const [run] = await main({ graph: dir, issue: 1, data: i.data, marked: true, base: i.base }, s =>
     Layer.mergeAll(
-      fileTracker(s.tracker as string, undefined, s.trust),
+      folderTracker(s.tracker as string, undefined, s.trust),
       fileStore(s.data),
       hostSandbox(join(s.tracker as string, 'origin.git')),
       replaySession([

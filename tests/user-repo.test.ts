@@ -18,7 +18,7 @@ import { Effect, Layer } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
 import { findDeadCheckouts } from '../src/env.ts';
-import { fileTracker } from '../src/tracker.ts';
+import { folderTracker } from '../src/tracker.ts';
 import {
   ensureBase,
   ensureGraph,
@@ -132,7 +132,7 @@ afterAll(() => {
 const drive = (i: { tracker: string; data: string; base: string }, turns: SessionEvent[][]) =>
   main({ graph: sandboxGraph, issue: 1, data: i.data, marked: true, base: i.base }, s =>
     Layer.mergeAll(
-      fileTracker(s.tracker as string, undefined, s.trust),
+      folderTracker(s.tracker as string, undefined, s.trust),
       fileStore(s.data),
       dockerSandbox({ data: s.data, origin: join(s.tracker as string, 'origin.git'), local: true, cache: '' }),
       replaySession(turns)

@@ -5,7 +5,7 @@ import { ConfigProvider, Effect, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive } from '../src/engine.ts';
 import { loadGraph } from '../src/folder.ts';
-import { fileTracker } from '../src/tracker.ts';
+import { folderTracker } from '../src/tracker.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
 import type { SessionSpec } from '../src/trace.ts';
@@ -80,7 +80,7 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
     const done = await Effect.runPromise(
       drive(workflow, begin(workflow, { id: 'tool-run', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph).pipe(
         Effect.provide(
-          Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session)
+          Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session)
         )
       )
     );

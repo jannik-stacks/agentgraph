@@ -140,7 +140,7 @@ reason, and the lint baseline or allowlist points back to this list. On every im
 reread this list and ask whether a restructure or rename would remove an exception. Don't add a new
 one without that check.
 
-- **Layer constructors are named `<how><Service>`, without a verb:** `fileTracker`, `githubTracker`,
+- **Layer constructors are named `<how><Service>`, without a verb:** `folderTracker`, `githubTracker`,
   `fileStore`, `harnessSession`, `dockerSandbox`, `remoteSandbox`, `hostSandbox` and the test double `replaySession`.
   They read as values handed to `Effect.provide`. `bin/style.mjs` exempts exactly the ones it
   would flag.

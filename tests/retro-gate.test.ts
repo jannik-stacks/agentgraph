@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { tick } from '../src/engine.ts';
 import type { Event } from '../src/event.ts';
 import { loadGraph } from '../src/folder.ts';
-import { fileTracker } from '../src/tracker.ts';
+import { folderTracker } from '../src/tracker.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
@@ -64,7 +64,7 @@ const implement = (failed: number): SessionEvent[] => [
 const ticks = async (where: ReturnType<typeof world>, ...turns: SessionEvent[][][]) => {
   const layer = (sessions: SessionEvent[][]) =>
     Layer.mergeAll(
-      fileTracker(where.tracker),
+      folderTracker(where.tracker),
       fileStore(where.data),
       hostSandbox(where.origin),
       replaySession(sessions)
@@ -132,7 +132,7 @@ describe('a run step', () => {
       }))
     ).pipe(Layer.provide(fileStore(where.data)));
     const layer = Layer.mergeAll(
-      fileTracker(where.tracker),
+      folderTracker(where.tracker),
       store,
       hostSandbox(where.origin),
       replaySession([implement(1)])

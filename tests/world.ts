@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Effect, FiberRef, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
 import { drive } from '../src/engine.ts';
-import { fileTracker, Tracker, currentRunLinkRef } from '../src/tracker.ts';
+import { folderTracker, Tracker, currentRunLinkRef } from '../src/tracker.ts';
 import type { Event, RunLink } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';
@@ -99,7 +99,7 @@ export const services = (
           f.apply(n, p, work)
         ),
     }))
-  ).pipe(Layer.provide(fileTracker(where.tracker)));
+  ).pipe(Layer.provide(folderTracker(where.tracker)));
   const layer = Layer.mergeAll(named, fileStore(where.data), sandbox, recording);
   const run = <A, E>(effect: Effect.Effect<A, E, Tracker | Store | Session | Sandbox>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)));

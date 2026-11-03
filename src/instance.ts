@@ -11,7 +11,7 @@ import { Effect } from 'effect';
 import { parse, stringify } from 'yaml';
 import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
-import { fileTracker, Tracker, formatIssueFile, parseIssueFile, writeTimelineEvent } from './tracker.ts';
+import { folderTracker, Tracker, formatIssueFile, parseIssueFile, writeTimelineEvent } from './tracker.ts';
 import { gitIdentity, hostGit, makeHostEnv, readGit } from './git.ts';
 import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
@@ -232,7 +232,7 @@ export const formatGraphName = async (i: Instance, graph: string) => {
 };
 
 const readIssues = (dir: string) =>
-  Effect.runPromise(Effect.flatMap(Tracker, f => f.issues()).pipe(Effect.provide(fileTracker(dir))));
+  Effect.runPromise(Effect.flatMap(Tracker, f => f.issues()).pipe(Effect.provide(folderTracker(dir))));
 
 export const findPull = async (dir: string, n: number) => {
   const pulls = (await readIssues(dir)).filter(
@@ -244,7 +244,7 @@ export const findPull = async (dir: string, n: number) => {
 
 const apply = async (dir: string, as: string, n: number, p: Proposal) => {
   const applied = await Effect.runPromise(
-    Effect.flatMap(Tracker, f => f.apply(n, p)).pipe(Effect.provide(fileTracker(dir, as)))
+    Effect.flatMap(Tracker, f => f.apply(n, p)).pipe(Effect.provide(folderTracker(dir, as)))
   );
   if (!applied.ok) throw new Error(applied.reason);
 };

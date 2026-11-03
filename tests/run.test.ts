@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
 import { drive } from '../src/engine.ts';
 import { harnessSession } from '../src/harnesses.ts';
-import { fileTracker, Tracker } from '../src/tracker.ts';
+import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Sandbox, SandboxError, type Checkout, type Command } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
@@ -65,7 +65,7 @@ describe('drive', () => {
       )
     );
     const layer = Layer.mergeAll(
-      fileTracker(where.tracker),
+      folderTracker(where.tracker),
       fileStore(where.data),
       sandbox,
       replaySession([[start('a'), wrote('pending.txt', 'keep me\n'), reply({ kind: 'ask', question: 'Continue?' })]])
@@ -80,7 +80,7 @@ describe('drive', () => {
     if (kind === 'docker') {
       writeFileSync(`${work!.dir}.owner`, '999999:gone');
       const restarted = Layer.mergeAll(
-        fileTracker(where.tracker),
+        folderTracker(where.tracker),
         fileStore(where.data),
         dockerSandbox({ data: where.data, origin: where.origin, cache: '' }),
         replaySession([[start('b'), reply({ kind: 'ask', question: 'Other run' })]])
@@ -98,7 +98,7 @@ describe('drive', () => {
     const where = world();
     const specs: string[] = [];
     const layer = Layer.mergeAll(
-      fileTracker(where.tracker),
+      folderTracker(where.tracker),
       fileStore(where.data),
       kind === 'docker'
         ? dockerSandbox({ data: where.data, origin: where.origin, cache: '' })
@@ -147,7 +147,7 @@ describe('drive', () => {
           ),
       }))
     ).pipe(Layer.provide(dockerSandbox({ data: where.data, origin: where.origin, cache: '' })));
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
     const done = await Effect.runPromise(
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
     );
@@ -178,7 +178,7 @@ describe('drive', () => {
     const previous = process.env.PATH;
     process.env.PATH = `${bin}${delimiter}${previous}`;
     const layer = Layer.mergeAll(
-      fileTracker(where.tracker),
+      folderTracker(where.tracker),
       fileStore(where.data),
       dockerSandbox({ data: where.data, origin: where.origin, cache: '' }),
       replaySession([])
@@ -642,7 +642,7 @@ describe('drive', () => {
         checkout: () => Effect.fail(new SandboxError({ reason: 'host', detail })),
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), missing, replaySession([]));
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), missing, replaySession([]));
     const parked = await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
     expect(parked).toMatchObject({
       status: 'waiting',
@@ -715,7 +715,7 @@ describe('drive', () => {
     const session = harnessSession({ data: where.data, proxy: { url: 'http://proxy', keys }, harnesses }).pipe(
       Layer.provide(sandbox)
     );
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), sandbox, session);
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), sandbox, session);
     await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
     const text = readFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'utf8');
     expect(text).toContain('"prompt"');
@@ -760,7 +760,7 @@ describe('setup', () => {
       proxy: { url: 'http://proxy', keys: Redacted.make('') },
       harnesses,
     }).pipe(Layer.provide(sandbox));
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), sandbox, session);
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), sandbox, session);
     await Effect.runPromise(drive(w, fresh(), { ...graph, setup: 'test -e README.md' }).pipe(Effect.provide(layer)));
     const trace = readTrace(where.data, 'run-7');
     expect(trace.flatMap(t => ('setup' in t ? [t.setup.used] : []))).toContainEqual(used);
@@ -777,7 +777,12 @@ describe('setup', () => {
           Effect.map(s.checkout(...args), made => ({ ...made, written: async () => 2 })),
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
-    const layer = Layer.mergeAll(fileTracker(where.tracker), fileStore(where.data), sandbox, replaySession(stopping()));
+    const layer = Layer.mergeAll(
+      folderTracker(where.tracker),
+      fileStore(where.data),
+      sandbox,
+      replaySession(stopping())
+    );
     await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
     const cache = readTrace(where.data, 'run-7').flatMap(t => ('cache' in t ? [t.cache] : []));
     expect(cache).toEqual([{ files: 2 }]);

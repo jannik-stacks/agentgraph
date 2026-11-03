@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Config, Effect, Layer, Option, Redacted, Struct } from 'effect';
-import { fileTracker, type Tracker } from './tracker.ts';
+import { folderTracker, type Tracker } from './tracker.ts';
 import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
 import { appToken, githubTracker } from './github.ts';
 import type { Services } from './engine.ts';
@@ -117,7 +117,7 @@ const where = (s: Settings) => {
   if (typeof s.tracker === 'string') {
     const dir = s.tracker;
     return {
-      tracker: (trust?: readonly string[]) => fileTracker(dir, undefined, trust),
+      tracker: (trust?: readonly string[]) => folderTracker(dir, undefined, trust),
       origin: { origin: join(dir, 'origin.git'), local: true },
     };
   }

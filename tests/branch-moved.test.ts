@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Deferred, Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, tick } from '../src/engine.ts';
-import { fileTracker, Tracker, TrackerError } from '../src/tracker.ts';
+import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -77,7 +77,7 @@ describe('a run branch that moved', () => {
             ? Effect.sync(() => ((refused = true), { proposal: p, ok: false, moved: true as const, reason: 'gone' }))
             : f.apply(n, p, work),
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const layer = Layer.mergeAll(
       tracker,
       fileStore(where.data),
@@ -226,7 +226,7 @@ describe('a run branch that moved', () => {
     expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('merged');
   });
 
-  it.each(['symlink', 'oversize'])('file tracker refuses unsafe push content: %s', async kind => {
+  it.each(['symlink', 'oversize'])('folder tracker refuses unsafe push content: %s', async kind => {
     const where = world();
     const { run } = services(
       where,
@@ -320,7 +320,7 @@ describe('a run branch that moved', () => {
           return f.apply(n, p, work);
         },
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const proposals: Proposal[] = [
       { kind: 'tell', issue: 8, text: 'Remember this' },
       push,
@@ -401,7 +401,7 @@ describe('a run branch that moved', () => {
           return f.apply(n, p, work);
         },
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const proposals = ['First part', 'Second part'].map(title => ({
       kind: 'issue',
       title,
@@ -464,7 +464,7 @@ describe('a run branch that moved', () => {
       })
     ).pipe(Layer.provide(hostSandbox(where.origin)));
     const layer = Layer.mergeAll(
-      fileTracker(where.tracker),
+      folderTracker(where.tracker),
       fileStore(where.data),
       sandbox,
       replaySession([[start('a'), wrote('hello.txt', 'hi'), reply(push, pull)]])
@@ -611,7 +611,7 @@ describe('a run branch that moved', () => {
             : f.apply(n, p, work);
         },
       }))
-    ).pipe(Layer.provide(fileTracker(where.tracker)));
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
     const skipped: Proposal[] = [
       { kind: 'comment', body: 'Fixed', under: 'review-1' },
       { kind: 'comment', body: 'Changes landed' },

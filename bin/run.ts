@@ -10,7 +10,7 @@ import { Effect, Redacted, Stream } from 'effect';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/engine.ts';
 import type { Graph } from '../src/folder.ts';
-import { fileTracker, Tracker } from '../src/tracker.ts';
+import { folderTracker, Tracker } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
@@ -429,7 +429,7 @@ async function runOnInstance() {
       ].join('\n')
     );
   Object.assign(process.env, { AGENTGRAPH_TRACKER: i.tracker, AGENTGRAPH_TRUST: i.owner });
-  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, fileTracker(i.tracker)));
+  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, folderTracker(i.tracker)));
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);
