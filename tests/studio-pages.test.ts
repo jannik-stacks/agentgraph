@@ -199,3 +199,36 @@ it('reloads the served graph and its problems when a graph file changes', async 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it.each(['results', 'bench'])('refuses a graph plugin named after the built-in %s page', async name => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-builtin-name-'));
+  mkdirSync(join(dir, 'plugins', 'pages'), { recursive: true });
+  writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
+  writeFileSync(join(dir, 'plugins/pages/Page.tsx'), 'export default () => null;');
+  writeFileSync(
+    join(dir, 'plugins', `${name}.ts`),
+    `import { makePlugin } from ${JSON.stringify(pathToFileURL(join(studioDir, '../src/plugin.ts')).href)};
+import { Effect, Schema } from ${JSON.stringify(import.meta.resolve('effect'))};
+export default makePlugin({ name: '${name}', studio: { title: 'Mine', page: new URL('./pages/Page.tsx', import.meta.url),
+dataSchema: Schema.String, read: () => Effect.succeed('') } });
+`
+  );
+  vi.stubEnv('AGI_STUDIO_DIR', dir);
+  vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
+  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
+  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
+  try {
+    await expect(
+      createServer({
+        configFile: join(studioDir, 'vite.config.ts'),
+        root: studioDir,
+        server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
+        logLevel: 'silent',
+      })
+    ).rejects.toThrow(`plugins/${name}.ts: plugin ${name} already defined in the built-in plugins`);
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -54,7 +54,10 @@ const tracker = instance?.tracker ?? values.tracker;
 if (tracker) process.env.AGI_STUDIO_TRACKER = resolve(tracker);
 if (values.bench) process.env.AGI_STUDIO_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
 if (values.tune) process.env.AGI_STUDIO_TUNE = resolve(values.tune);
-const vite = await createServer({ root: import.meta.dirname });
+const vite = await createServer({ root: import.meta.dirname }).catch((e: Error) => {
+  console.error(`agi: the studio does not start: ${e.message}`);
+  return process.exit(2);
+});
 await vite.listen().catch((e: Error) => {
   console.error(`agi: ${e.message}; pick another port with AGI_PORT`);
   process.exit(1);

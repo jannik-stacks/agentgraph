@@ -88,26 +88,24 @@ const readStudioPages = async () => {
   });
   const builtins = [
     results,
-    ...(bench.length
-      ? [
-          makePlugin({
-            name: 'bench',
-            studio: {
-              title: 'Bench',
-              page: new URL('./src/bench/BenchPage.tsx', import.meta.url),
-              dataSchema: BenchData,
-              watch: () => bench,
-              read: () => Effect.promise(() => readBench(bench)),
-            },
-          }),
-        ]
-      : []),
+    makePlugin({
+      name: 'bench',
+      studio: {
+        title: 'Bench',
+        page: new URL('./src/bench/BenchPage.tsx', import.meta.url),
+        dataSchema: BenchData,
+        watch: () => bench,
+        read: () => Effect.promise(() => readBench(bench)),
+      },
+    }),
   ];
   const { pages } = await readPlugins(graph?.dir, graph?.plugins, undefined, builtins);
-  return pages.map(page => ({
-    ...page,
-    href: builtins.some(b => b.name === page.name) ? `/${page.name}` : `/plugins/${page.name}`,
-  }));
+  return pages
+    .filter(page => page.name !== 'bench' || bench.length)
+    .map(page => ({
+      ...page,
+      href: builtins.some(b => b.name === page.name) ? `/${page.name}` : `/plugins/${page.name}`,
+    }));
 };
 
 export const makeStudioPagesPlugin = (): Plugin => {

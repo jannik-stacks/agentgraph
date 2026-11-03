@@ -171,8 +171,8 @@ export const readPlugins = async (
     read: () => ReturnType<(typeof StudioPage.Type)['read']>;
     watch: readonly string[];
   })[] = [];
-  const sources: { file: string; definition: unknown }[] = builtins.map((definition, index) => ({
-    file: `built-in ${index}`,
+  const sources: { file: string; definition: unknown }[] = builtins.map(definition => ({
+    file: 'the built-in plugins',
     definition,
   }));
   if (dir !== undefined) {
