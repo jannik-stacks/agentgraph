@@ -15,7 +15,7 @@ import {
 import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
-import { gunzip, gzip, zstdCompress, zstdDecompressSync } from 'node:zlib';
+import { gunzip, gzip, zstdCompress, zstdDecompress, zstdDecompressSync } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Either, Layer, Schema, Stream, type Scope } from 'effect';
 import { createLock, LockHeldError } from './owner.ts';
 import type { CheckEntry, Log, Trace } from './trace.ts';
@@ -170,19 +170,40 @@ const current = (value: unknown, key = ''): unknown => {
 
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 
-export const readRecord = (path: string) => {
+const absent = (e: unknown) => missing(e) || (e as NodeJS.ErrnoException).code === 'ENOTDIR';
+
+export const readRecordSync = (path: string) => {
   if (existsSync(path)) return readFileSync(path, 'utf8');
   return existsSync(`${path}.zst`) ? zstdDecompressSync(readFileSync(`${path}.zst`)).toString('utf8') : '';
 };
 
+const readRecord = (path: string): Promise<string> =>
+  readFile(path, 'utf8').catch(e =>
+    absent(e)
+      ? readFile(`${path}.zst`).then(
+          async packed => (await promisify(zstdDecompress)(packed)).toString('utf8'),
+          e => (absent(e) ? '' : Promise.reject(e))
+        )
+      : Promise.reject(e)
+  );
+
 export const writeIdleRunsCompressed = async (dir: string, days: number) => {
+  if (!days) return;
   const before = Date.now() - days * 86_400_000;
-  for (const id of days ? await readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e))) : []) {
-    const run = readRecord(join(dir, id, 'run.json'));
-    if (!run || !JSON.parse(run).ended) continue;
+  for (const id of await readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e)))) {
+    const idle: string[] = [];
     for (const path of ['trace.jsonl', 'checks.jsonl'].map(file => join(dir, id, file))) {
-      if (!existsSync(path) || statSync(path).mtimeMs > before) continue;
-      writeFileAtomic(`${path}.zst`, await promisify(zstdCompress)(readFileSync(path)));
+      const modified = await stat(path).then(
+        s => s.mtimeMs,
+        e => (absent(e) ? undefined : Promise.reject(e))
+      );
+      if (modified !== undefined && modified <= before) idle.push(path);
+    }
+    if (idle.length === 0) continue;
+    const run = await readRecord(join(dir, id, 'run.json'));
+    if (!run || !JSON.parse(run).ended) continue;
+    for (const path of idle) {
+      writeFileAtomic(`${path}.zst`, await promisify(zstdCompress)(await readFile(path)));
       await rm(path);
     }
   }
@@ -201,20 +222,18 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
   const checksFile = (id: string) => join(dir, id, 'checks.jsonl');
   const readLines = <A>(path: string) =>
     io(path, async () =>
-      readRecord(path)
-        .split('\n')
-        .flatMap((line, i, lines): A[] => {
-          if (!line) return [];
-          try {
-            return [current(JSON.parse(line)) as A];
-          } catch (e) {
-            if (i === lines.length - 1) {
-              console.error(`${path}: 1 skipped incomplete JSONL row at line ${i + 1}: ${String(e)}`);
-              return [];
-            }
-            throw e;
+      (await readRecord(path)).split('\n').flatMap((line, i, lines): A[] => {
+        if (!line) return [];
+        try {
+          return [current(JSON.parse(line)) as A];
+        } catch (e) {
+          if (i === lines.length - 1) {
+            console.error(`${path}: 1 skipped incomplete JSONL row at line ${i + 1}: ${String(e)}`);
+            return [];
           }
-        })
+          throw e;
+        }
+      })
     );
   const readRun = (id: string) =>
     io(runFile(id), () =>
@@ -224,16 +243,18 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       )
     );
   const writers = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
+  const unpacked = new Set<string>();
   const append = (path: string, lines: unknown[]) => {
     const writer = writers.get(path) ?? Effect.unsafeMakeSemaphore(1);
     writers.set(path, writer);
     return writer.withPermits(1)(
       io(path, async () => {
         await mkdir(dirname(path), { recursive: true });
-        if (existsSync(`${path}.zst`)) {
-          writeFileAtomic(path, readRecord(path));
+        if (!unpacked.has(path) && existsSync(`${path}.zst`)) {
+          writeFileAtomic(path, await readRecord(path));
           await rm(`${path}.zst`);
         }
+        unpacked.add(path);
         const file = await open(path, 'a+');
         try {
           const { size } = await file.stat();
@@ -406,7 +427,7 @@ export const pruneLogs = async (dir: string, apply = false) => {
   const named = new Set<string>();
   for (const id of await readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e))))
     for (const file of ['trace.jsonl', 'checks.jsonl'])
-      for (const [hash] of readRecord(join(dir, id, file)).matchAll(/[0-9a-f]{64}/g)) named.add(hash);
+      for (const [hash] of (await readRecord(join(dir, id, file))).matchAll(/[0-9a-f]{64}/g)) named.add(hash);
   const unused = { files: 0, bytes: 0 };
   for (const name of await readdir(join(dir, 'logs')).catch(e => (missing(e) ? [] : Promise.reject(e)))) {
     const hash = /^([0-9a-f]{64})\.gz$/.exec(name)?.[1];
