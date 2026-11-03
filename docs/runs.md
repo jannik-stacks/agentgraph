@@ -14,7 +14,7 @@ Locally, each repo gets an instance under the data root. As a runner (`--forge`)
     data/                           the runs folder:
       <run id>/run.json               current state
       <run id>/trace.jsonl            append-only events, .zst once idle
-      <run id>/labels.json            run labels, see below
+      <run id>/labels.jsonl           run labels, see below
       files/<sha256>                  uploaded files
       homes/<id>/                     harness homes, kept for resuming and forking
       logs/<sha256>.gz                full check output, shared by content
@@ -121,7 +121,7 @@ Ordinary polls and rejected inputs add no continuation. Bench replays use this s
 
 ## Run labels
 
-A run label is a `key=value` pair on a run, kept in `<run id>/labels.json` beside run.json. Keys are a-z, 0-9 and `-`, at most 32 characters; values are one line of at most 128. Labels carry no rules: nothing in the engine reads them, and adding or removing one never changes a run. The engine never writes the file after a run's start, so editing it cannot race a run being driven.
+A run label is a `key=value` pair on a run. Labels live in `<run id>/labels.jsonl` beside run.json, an append-only log with one line per key set or removed; a run's labels are what the log adds up to. Keys are a-z, 0-9 and `-`, at most 32 characters; values are one line of at most 128. Labels carry no rules: nothing in the engine reads them, and adding or removing one never changes a run. The engine never writes the log after a run's start, and an edit only appends, so it races neither a run being driven nor another edit.
 
 `agi start --label k=v` and programmatic `start({ ..., labels })` label each run the call begins, before its first save. `agi label <run id> k=v old-` sets `k` and removes `old` at any time. The [bench](bench.md#run-a-set) labels every run it starts, and the studio shows a run's labels, filters the Runs page by one, and keeps in the browser which label keys a reader hid. <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
 

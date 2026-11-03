@@ -158,21 +158,23 @@ export const start = (
           : one.issue === 'all'
             ? scanIssuesAndRunningRuns(graph, 0, one.meta)
             : tick(graph, one.issue, one.marked, 0, one.meta);
-        const labelled = Effect.updateService(driven, Store, store => ({
-          ...store,
-          put: run =>
-            Effect.zipRight(
-              Effect.flatMap(store.get(run.id), was =>
-                was || !Object.keys(labels).length
-                  ? Effect.void
-                  : Effect.try({
-                      try: () => writeRunLabels(one.data, run.id, labels),
-                      catch: cause => new StoreError({ path: one.data, cause }),
-                    })
-              ),
-              store.put(run)
-            ),
-        }));
+        const labelled = !Object.keys(labels).length
+          ? driven
+          : Effect.updateService(driven, Store, store => ({
+              ...store,
+              put: run =>
+                Effect.zipRight(
+                  Effect.flatMap(store.get(run.id), was =>
+                    was
+                      ? Effect.void
+                      : Effect.try({
+                          try: () => writeRunLabels(one.data, run.id, labels),
+                          catch: cause => new StoreError({ path: one.data, cause }),
+                        })
+                  ),
+                  store.put(run)
+                ),
+            }));
         return yield* provided(labelled).pipe(choose(provider));
       })
     : Effect.gen(function* () {

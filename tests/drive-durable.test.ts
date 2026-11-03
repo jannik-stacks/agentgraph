@@ -44,7 +44,10 @@ if (import.meta.main) {
       const labels = { case: id, arm: a, harness, model, repeat: flag('repeat')[0], ...Object.fromEntries(flag('label').map(l => l.split('='))) };
       mkdirSync(join(at, a, 'data', 'run-1'), { recursive: true });
       writeFileSync(join(at, a, 'data', 'run-1', 'run.json'), '{}');
-      writeFileSync(join(at, a, 'data', 'run-1', 'labels.json'), JSON.stringify(labels));
+      writeFileSync(
+        join(at, a, 'data', 'run-1', 'labels.jsonl'),
+        Object.entries(labels).map(([key, value]) => JSON.stringify({ key, value }) + '\\n').join('')
+      );
       writeFileSync(join(at, a, 'diff.patch'), 'd');
     }
   }

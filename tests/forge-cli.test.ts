@@ -537,10 +537,17 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       [2, ''],
       [2, ''],
     ]);
-    expect(JSON.parse(readFileSync(join(data, 'triage-1', 'labels.json'), 'utf8'))).toEqual({
-      model: 'gpt 6',
-      set: 'explorer',
-    });
+    const log = readFileSync(join(data, 'triage-1', 'labels.jsonl'), 'utf8')
+      .trim()
+      .split('\n');
+    expect(
+      log.map(line => JSON.parse(line) as { key: string; value: string | null }).map(l => [l.key, l.value])
+    ).toEqual([
+      ['arm', 'v2'],
+      ['model', 'gpt 6'],
+      ['arm', null],
+      ['set', 'explorer'],
+    ]);
   });
 
   it('queues parked runs through the CLI and refreshes the sticky', async () => {
