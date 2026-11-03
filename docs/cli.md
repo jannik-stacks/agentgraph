@@ -26,6 +26,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | `dispatch <n> ["<text>"]` | Starts any `--workflow` on issue n, with the text as what it was [asked](workflows.md#dispatch) | yes |
 | `prune-logs` | Counts [check logs](runs.md#check-logs) no trace names | yes |
 | `label <run id> [k=v\|k-]...` | Sets or removes [run labels](runs.md#run-labels), then prints them <!-- code: src/labels.ts#parseLabelPatch --> | yes |
+| `import <commit>\|<patch> [<issue file>]` | Keeps a change made elsewhere as an [imported run](runs.md#imported-runs) and prints its ID | |
 
 `resume` keeps the run ID, step, saved files, sessions and feedback. It clears the runner error and records a retry locally; it posts no comment. Human questions, cancelled runs and ended runs are excluded. A running `loop` picks it up on its next pass; `loop --once` makes one pass. Retros remain quiet when they run again. As a GitHub runner, use the same graph and runs folder as the loop:
 
@@ -65,6 +66,8 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--read-only` | all | Never write to this repo from now on, kept in `instance.yaml` |
 | `--once` | `loop` | Make one pass |
 | `--apply` | `prune-logs` | Delete the logs |
+| `--from <commit>` | `import` | The commit the change is measured from; default the commit's parent, or `HEAD` for a patch |
+| `--meta <file>` | `import` | JSON kept as the run's `meta.engine.origin.input` |
 
 Printed commands carry the `--repo` and `--data` given. Inside a repo, `check --dir` checks against the instance's saved provider. <!-- code: src/services.ts#settings -->
 

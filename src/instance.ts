@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { userInfo } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
@@ -12,10 +12,12 @@ import { parse, stringify } from 'yaml';
 import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
 import { fileForge, Forge, formatIssueFile, parseIssueFile, writeTimelineEvent } from './forge.ts';
-import { hostGit, makeHostEnv, readGit } from './git.ts';
+import { gitIdentity, hostGit, makeHostEnv, readGit } from './git.ts';
+import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
 import { formatShellWord } from './status.ts';
-import { writeFileAtomic } from './store.ts';
+import { fileStore, Store, writeFileAtomic } from './store.ts';
+import type { RunRecord } from './workflow.ts';
 
 export type Instance = {
   dir: string;
@@ -367,4 +369,49 @@ const sendPack = async (i: Instance, list: string) => {
     ) ?? [];
   if (!id) throw new Error(`git index-pack kept no pack in ${i.repo}`);
   return join(packs, `pack-${id}.keep`);
+};
+
+const commitPatch = async (i: Instance, base: string, patch: string) => {
+  const index = { GIT_DIR: origin(i), GIT_INDEX_FILE: join(tmpdir(), `agentgraph-import-${randomUUID()}.index`) };
+  try {
+    await git(index, ['read-tree', base]);
+    await git(index, ['apply', '--cached', patch]);
+    const tree = await git(index, ['write-tree']);
+    return await git(index, [...gitIdentity, 'commit-tree', tree, '-p', base, '-m', 'Imported change']);
+  } finally {
+    await rm(index.GIT_INDEX_FILE, { force: true });
+  }
+};
+
+export const writeImportedRun = async (
+  i: Instance,
+  change: string,
+  o: { version: string; from?: string; issue?: string; input?: JsonValue }
+) => {
+  const at = new Date().toISOString();
+  const id = `import-${at.replace(/\D/g, '')}-${randomUUID().slice(0, 4)}`;
+  const patch = existsSync(change) && statSync(change).isFile() ? resolve(change) : undefined;
+  const commit = patch ? undefined : await inRepo(i.repo, ['rev-parse', '--verify', `${change}^{commit}`]);
+  const from = o.from ?? (commit ? `${commit}^` : 'HEAD');
+  const base = await inRepo(i.repo, ['rev-parse', '--verify', `${from}^{commit}`]);
+  for (const sha of commit ? [base, commit] : [base])
+    await inForge(i, ['fetch', '-q', '--no-tags', '--no-write-fetch-head', i.repo, sha]);
+  await inForge(i, ['update-ref', `refs/agentgraph/runs/${id}`, commit ?? (await commitPatch(i, base, patch!))]);
+  const [title, ...body] = o.issue ? readFileSync(o.issue, 'utf8').trim().split('\n') : [];
+  const run: RunRecord = {
+    id,
+    workflow: 'import',
+    step: 'import',
+    status: 'done',
+    tries: 0,
+    rounds: {},
+    sessions: {},
+    ...(title && { title, body: body.join('\n').trim() }),
+    startCommit: base,
+    started: at,
+    ended: at,
+    meta: { engine: { origin: { plugin: 'agi', version: o.version, job: 'import', input: o.input ?? null } } },
+  };
+  await Effect.runPromise(Effect.flatMap(Store, s => s.put(run)).pipe(Effect.provide(fileStore(i.data))));
+  return id;
 };

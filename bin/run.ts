@@ -35,8 +35,10 @@ import {
   writeLabels,
   formatGraphName,
   whyGraphUncommitted,
+  writeImportedRun,
   type Instance,
 } from '../src/instance.ts';
+import type { JsonValue } from '../src/meta.ts';
 import { createLoopLock, isLoopHeld, readEngineEnv, start, writeTriggeringIssue } from '../src/main.ts';
 import { LockHeldError } from '../src/owner.ts';
 import {
@@ -69,6 +71,8 @@ const usage = `usage: agi <verb> [flags]
   dispatch <n> ["<text>"] --workflow <name>       starts any workflow on issue n, asked the text; --step <step> picks the step
   studio                                          starts the studio for this repo and prints its URL
   prune-logs [--apply]                            counts the check logs no run names, or deletes them
+  import <commit>|<patch> [<issue file>] [--from <commit>] [--meta <json file>]
+                                                  records a change as an ended run, for check --runs
 flags: --help --version --data <dir> --repo <dir> --base <branch> --dir <dir> --forge github|<dir> --logs all|failed|off
        --read-only --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...; start takes --run-label <key>=<value>...`;
 const verbs = [...usage.matchAll(/^  ([a-z-]+)/gm)].map(m => m[1]);
@@ -87,6 +91,8 @@ const { values, positionals } = parseArgs({
     line: { type: 'string' },
     as: { type: 'string' },
     patch: { type: 'string' },
+    from: { type: 'string' },
+    meta: { type: 'string' },
     'read-only': { type: 'boolean' },
     once: { type: 'boolean' },
     apply: { type: 'boolean' },
@@ -529,6 +535,20 @@ async function runOnInstance() {
       return prune(i.data);
     case 'label':
       return relabel(i.data);
+    case 'import': {
+      if (rest.length < 1 || rest.length > 2)
+        fail(`import takes a commit or patch file, then an optional issue file\n${usage}`);
+      const input =
+        values.meta === undefined ? undefined : (JSON.parse(readFileSync(values.meta, 'utf8')) as JsonValue);
+      const id = await writeImportedRun(i, rest[0]!, {
+        version,
+        ...(values.from && { from: values.from }),
+        ...(rest[1] && { issue: rest[1] }),
+        ...(input !== undefined && { input }),
+      }).catch((e: Error) => fail(e.message, 1));
+      console.log(id);
+      return;
+    }
     default:
       fail(usage);
   }
