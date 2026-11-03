@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   parseBenchJudgeResponse,
   armSlot,
@@ -30,6 +30,7 @@ import {
   makeCrossMakerJudgePanel,
   unpriced,
   parseBenchJudgeVerdict,
+  whyPointUnready,
 } from '../bin/bench.ts';
 import { faked } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
@@ -861,6 +862,23 @@ describe('prices', () => {
     expect(unpriced('v2', graph, 'opencode:deepseek-flash')).toEqual([]);
     expect(unpriced('v2', graph, 'opencode:nope')).toEqual(['nope']);
     expect(unpriced('floor', graph, undefined)).toEqual([]);
+  });
+
+  it('names a point that has no list price or that the proxy refuses with the key its agents get', async () => {
+    const at = tmp('keys');
+    dirs.push(at);
+    const file = join(at, 'keys.env');
+    writeFileSync(file, 'AGENTGRAPH_LLM_API_KEY_IMPLEMENTOR=impl-key\n');
+    readBenchKeys(file);
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('not allowed', { status: 403 }));
+    try {
+      expect(await whyPointUnready('opencode:nope')).toBe('opencode:nope: no list price for nope');
+      expect(fetch).not.toHaveBeenCalled();
+      expect(await whyPointUnready('codex:luna')).toBe('codex:luna: the proxy answered 403: not allowed');
+      expect(fetch.mock.calls[0]![1]!.headers).toMatchObject({ authorization: 'Bearer impl-key' });
+    } finally {
+      fetch.mockRestore();
+    }
   });
 
   it('prices tokens at list price, with cache priced as input too, and names the models it cannot price', () => {

@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   appendJsonl,
@@ -16,6 +16,7 @@ import {
   ensureRunSettingsPinned,
   readFileOrEmpty,
   release,
+  removeUnheldScoreTrees,
   startChildProcess,
 } from '../bin/resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
@@ -152,12 +153,18 @@ const slot = (j: Job) => j.point.replace(':', '-');
 const runDir = (dir: string, s: Settings, j: Job) => join(dir, s.SHA!, slot(j), `r${j.k}`);
 const formatJobName = (j: Job) => `${slot(j)}/r${j.k}/${j.c.id}`;
 const marker = (dir: string, j: Job) => join(dir, 'done', slot(j), `r${j.k}`, j.c.id);
-/** Done markers older drivers wrote: by engine for one point, by model for several. */
-const markers = (dir: string, s: Settings, j: Job) => [
-  marker(dir, j),
-  ...(s.POINTS!.includes(',') ? [] : [join(dir, 'done', s.SHA!, `r${j.k}`, j.c.id)]),
-  join(dir, 'done', j.point.split(':')[1]!, `r${j.k}`, j.c.id),
-];
+/** Done markers older drivers wrote: by engine for one point, by model for several unless two points share it. */
+const markers = (dir: string, s: Settings, j: Job) => {
+  const model = j.point.split(':')[1]!;
+  const points = s.POINTS!.split(',');
+  return [
+    marker(dir, j),
+    ...(points.length > 1 ? [] : [join(dir, 'done', s.SHA!, `r${j.k}`, j.c.id)]),
+    ...(points.filter(p => p.split(':').at(-1) === model).length > 1
+      ? []
+      : [join(dir, 'done', model, `r${j.k}`, j.c.id)]),
+  ];
+};
 
 /**
  * Whether a job's results are all on disk: its case is invalid, or both arms ran and were scored, and, when a panel
@@ -279,6 +286,15 @@ if (import.meta.main) {
     const engine = s.ENGINE!;
     if (!existsSync(join(engine, 'bin/bench.ts')))
       throw new Error(`no engine at ${engine || join(dir, s.SHA!, 'engine')}`);
+    const git = (...args: string[]) => {
+      const result = spawnSync('git', ['-C', engine, ...args], { encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(`engine git ${args[0]}: ${result.error?.message ?? result.stderr}`);
+      return result.stdout.trim();
+    };
+    const head = git('rev-parse', 'HEAD');
+    if (!head.startsWith(s.SHA!)) throw new Error(`engine ${engine} is at ${head}, not ${s.SHA}: check out ${s.SHA}`);
+    const changed = git('status', '--porcelain');
+    if (changed) throw new Error(`engine ${engine} has changes, so it is not ${s.SHA}:\n${changed}`);
     const judges = s.JUDGES!;
     const maxCodex = s.MAX_CODEX ? Number(s.MAX_CODEX) : undefined;
     const cap = s.CAP ? Number(s.CAP) : undefined;
@@ -306,14 +322,21 @@ if (import.meta.main) {
     const done = () => jobs.filter(j => finished(dir, s, j)).length;
     const queue = jobs.filter(j => !finished(dir, s, j));
     const dirs = [...new Set(jobs.map(j => runDir(dir, s, j)))];
-    const several = s.POINTS!.includes(',');
 
     const budgetLog = join(dir, 'budget-log.jsonl');
     const seen = new Set(readJsonl<{ label?: string }>(budgetLog).map(l => l.label));
-    const { codexUsed } =
-      maxCodex === undefined
-        ? { codexUsed: () => undefined }
-        : ((await import(join(engine, 'bin/bench.ts'))) as { codexUsed: () => number | undefined });
+    const { codexUsed, readBenchKeys, whyPointUnready } = (await import(join(engine, 'bin/bench.ts'))) as {
+      codexUsed: () => number | undefined;
+      readBenchKeys?: (file: string) => void;
+      whyPointUnready?: (point: string) => Promise<string | undefined>;
+    };
+    const points = [...new Set(queue.map(j => j.point))];
+    if (!whyPointUnready) log(`skipped the point preflight: the engine at ${s.SHA} has none`);
+    else {
+      readBenchKeys!(s.KEYS ?? join(engine, 'infra/local/.keys.env'));
+      const unready = (await Promise.all(points.map(whyPointUnready))).filter(Boolean);
+      if (unready.length) throw new Error(`points not ready:\n${unready.join('\n')}`);
+    }
     const reading = (label: string) => {
       const now = codexUsed();
       if (now === undefined || !Number.isFinite(now)) throw new Error('Codex usage unreadable; driver stopped');
@@ -371,12 +394,7 @@ if (import.meta.main) {
       release(lock);
     });
 
-    const tree = (path: string) => {
-      const result = spawnSync('git', ['-C', engine, 'rev-parse', `HEAD:./${path}`], { encoding: 'utf8' });
-      if (result.status !== 0) throw new Error(`engine tree ${path}: ${result.error?.message ?? result.stderr}`);
-      return result.stdout.trim();
-    };
-    const graphs = { v2: tree('examples'), floor: tree('bench/floor') };
+    const graphs = { v2: git('rev-parse', 'HEAD:./examples'), floor: git('rev-parse', 'HEAD:./bench/floor') };
     for (const j of jobs) {
       const at = runDir(dir, s, j);
       if (existsSync(join(at, 'point.json'))) continue;
@@ -409,7 +427,7 @@ if (import.meta.main) {
       const at = runDir(dir, s, j);
       const id = j.c.id;
       while (arms.some(a => isLockedByOtherProcess(join(at, id, a)))) await sleep(tick);
-      const logFile = join(dir, 'logs', `${several ? `${j.point.split(':')[1]}-` : ''}r${j.k}-${id}.log`);
+      const logFile = join(dir, 'logs', `${slot(j)}-r${j.k}-${id}.log`);
       const caseDir = join(dir, 'cases', id);
       const common = [caseDir, at, '--repo', join(s.REPOS!, j.c.repo.split('/').pop()!)];
       const paid = ['--max-codex', codexCap(at), '--max-claude-calls', '400'];
@@ -497,8 +515,12 @@ if (import.meta.main) {
       };
       step().catch(fail);
     });
+    for (const at of dirs) removeUnheldScoreTrees(at);
     for (const at of dirs) {
-      const code = await bench(['report', at], join(dir, 'logs', `report-${basename(at)}.log`));
+      const code = await bench(
+        ['report', at],
+        join(dir, 'logs', `report-${basename(dirname(at))}-${basename(at)}.log`)
+      );
       if (code) throw new Error(`report ${at} exit ${code}`);
     }
     if (maxCodex !== undefined) reading('end');

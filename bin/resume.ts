@@ -20,7 +20,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { type Disk, ensureFreeDisk } from '../src/disk.ts';
+import { type Disk, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
 import { parseModelUrls } from '../src/harnesses.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
 import { readRecord, writeFileAtomic } from '../src/store.ts';
@@ -147,6 +147,11 @@ export const probeUrl = (proxy = process.env.AGENTGRAPH_PROXY_URL ?? 'http://gat
   if (url.hostname === 'gateway') url.hostname = '127.0.0.1';
   url.pathname = '/health/liveliness';
   return url.href;
+};
+
+export const removeUnheldScoreTrees = (out: string) => {
+  for (const tree of findBuildDirs(out))
+    if (basename(tree) === 'tree' && !isLockedByOtherProcess(tree)) rmSync(tree, { recursive: true, force: true });
 };
 
 /**

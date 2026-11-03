@@ -19,7 +19,7 @@ import { Effect } from 'effect';
 import { dockerArgs, readImage, type CheckoutContainerSpec } from '../src/docker.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import { dependencyDirs, discard, readSandboxSetup, createSharedMounts, manifest, written } from '../src/env.ts';
-import { collect, ensureFreeDisk, findBuildDirs, readEnvRefs, writeEnvRef } from '../src/disk.ts';
+import { collect, ensureFreeDisk, readEnvRefs, writeEnvRef } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
 import type { CheckResult } from '../src/workflow.ts';
 import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
@@ -43,6 +43,7 @@ import {
   waitWhileServicesDown,
   readFileOrEmpty,
   removeSandboxContainersMountingDir,
+  removeUnheldScoreTrees,
 } from './resume.ts';
 import { isLockedByOtherProcess, waitForLock } from '../src/owner.ts';
 import { parseGraphSettings } from '../src/folder.ts';
@@ -408,6 +409,17 @@ const guard = (out: string, claude: boolean) => {
   if (claude && calls.length >= limits.claude) throw new Error(`${calls.length} claude judge calls, the limit`);
 };
 
+const readPointKeys = (point: string) => {
+  const key = keys[`AGENTGRAPH_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
+  const own = new Map(
+    (keys.AGENTGRAPH_PROXY_KEYS ?? '').split(',').flatMap(kv => {
+      const at = kv.indexOf('=');
+      return at > 0 ? [[kv.slice(0, at), kv.slice(at + 1)] as const] : [];
+    })
+  );
+  return { key, own, spare: key ?? own.get('implementor') ?? [...own.values()][0] };
+};
+
 /**
  * Points every agent of a graph at `harness:model`, by the two lines of its front matter. Every agent gets the point's
  * key, else its own, else the implementor's, so an agent a tune adds still has one.
@@ -434,14 +446,7 @@ export const repoint = (graph: string, point: string) => {
           )
       )
     );
-  const key = keys[`AGENTGRAPH_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
-  const own = new Map(
-    (keys.AGENTGRAPH_PROXY_KEYS ?? '').split(',').flatMap(kv => {
-      const at = kv.indexOf('=');
-      return at > 0 ? [[kv.slice(0, at), kv.slice(at + 1)] as const] : [];
-    })
-  );
-  const spare = key ?? own.get('implementor') ?? [...own.values()][0];
+  const { key, own, spare } = readPointKeys(point);
   for (const name of names.map(n => basename(n, '.md'))) if (spare && (key || !own.has(name))) own.set(name, spare);
   if (own.size) keys.AGENTGRAPH_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
 };
@@ -1087,12 +1092,6 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
   }
 };
 
-/** Removes the scoring trees under `out`, nested runs included, that no live process holds. */
-const reapTrees = (out: string) => {
-  for (const tree of findBuildDirs(out))
-    if (basename(tree) === 'tree' && !isLockedByOtherProcess(tree)) rmSync(tree, { recursive: true, force: true });
-};
-
 type Tests = {
   applied?: boolean;
   setup?: { ok: boolean };
@@ -1440,17 +1439,15 @@ const claude = (model: string) => (prompt: string, cwd: string) =>
     );
     child.stdin?.end(prompt);
   });
-const proxied = (model: string) => async (prompt: string) => {
-  const r = await fetch('http://127.0.0.1:4000/v1/chat/completions', {
+const ask = (model: string, key: string | undefined, prompt: string, ms = 1_800_000) =>
+  fetch('http://127.0.0.1:4000/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      authorization: `Bearer ${keys.AGENTGRAPH_LLM_API_KEY_REVIEWER}`,
-      'content-type': 'application/json',
-    },
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
+    signal: AbortSignal.timeout(ms),
   });
-  return parseBenchJudgeResponse(await r.json());
-};
+const proxied = (model: string) => async (prompt: string) =>
+  parseBenchJudgeResponse(await (await ask(model, keys.AGENTGRAPH_LLM_API_KEY_REVIEWER, prompt)).json());
 const judges: Record<string, (prompt: string, cwd: string) => Promise<Answer>> = {
   opus: claude('opus'),
   sonnet: claude('sonnet'),
@@ -1472,6 +1469,18 @@ export const unpriced = (arm: string, graph: string, point = options.point) => {
     .filter(n => n.endsWith('.md'))
     .map(n => /^model: *(\S+)/m.exec(readFileOrEmpty(join(dir, n)))?.[1] ?? 'default');
   return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !isModelPriced(prices, m));
+};
+
+/** Why `point` cannot run: its model has no list price, or the proxy refuses it a one-line request with its key. */
+export const whyPointUnready = async (point: string) => {
+  const model = point.split(':')[1]!;
+  if (unpriced('v2', '', point).length) return `${point}: no list price for ${model}`;
+  const r = await ask(model, readPointKeys(point).spare, 'Reply with exactly: ok', 120_000).catch(
+    (e: unknown) => e as Error
+  );
+  if (r instanceof Error) return `${point}: model proxy unreachable: ${r.message}`;
+  if (!r.ok) return `${point}: the proxy answered ${r.status}: ${(await r.text()).slice(0, 200)}`;
+  return undefined;
 };
 
 /**
@@ -2013,7 +2022,7 @@ if (import.meta.main) {
   for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
   if (env.image) process.env.AGENTGRAPH_IMAGE = image = env.image;
   engine = process.env.BENCH_ENGINE ?? engine;
-  if (out && command !== 'judge') reapTrees(resolve(out));
+  if (out && command !== 'judge') removeUnheldScoreTrees(resolve(out));
   const point = env.point ?? values.point ?? process.env.BENCH_POINT;
   if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
   if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);

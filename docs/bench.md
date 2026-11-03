@@ -15,6 +15,8 @@ node bench/drive.ts resume <dir>
 
 Each run dir, `<dir>/<sha>/<harness>-<model>/r<k>`, gets `report.md` and `point.json`. Points take aliases such as `opencode:glm` ([OpenRouter](../infra/local/README.md#openrouter-models)). `BENCH_EXCLUDE=<repo>,<repo>` skips repos. Results are cached in `<dir>/.cache` (`BENCH_CACHE`) by case, arm, graph, engine `src` tree, point and repeat; `BENCH_FRESH=1` ignores it.
 
+Before any job starts, the driver stops if the engine is not at `SHA` or has uncommitted changes, and names every queued point that has no list price or that the model proxy refuses a one-line request with the key its agents get. Logs go to `<dir>/logs/<harness>-<model>-r<k>-<case>.log` and `report-<harness>-<model>-r<k>.log`, and done markers to `<dir>/done/<harness>-<model>/r<k>/<case>`. A marker an older driver wrote under the model alone still counts unless two points share that model. When it finishes, the driver removes the score trees no process holds. <!-- code: bin/bench.ts#whyPointUnready bin/resume.ts#removeUnheldScoreTrees -->
+
 `LABELS=experiment=skills,team=bench` adds free labels to `point.json`. Like the engine and model, `LABELS` is fixed on first start and restored on resume.
 
 <!-- code: bench/drive.ts#parseBenchLabels bench/drive.ts#configure -->
@@ -37,7 +39,7 @@ Case commands override repo recipes. A case that touches test files without a te
 
 A tested case is valid only if its hidden tests fail on base and pass on the human change, and the human change applies, sets up and passes the suite and typecheck. A coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json`. Repos whose tests start containers are left out.
 
-Image selection uses case `image`, then the selected graph's `image`, then the operator fallback and stock sandbox. `BENCH_DIR` selects an external graph; floor replacement keeps that graph's resolved image. Each case saves its Docker ID in `image.json` before validity checks or arm reuse. Resume uses that ID even if the tag moves; restore a missing ID by rebuilding or pulling the original image. A new output dir selects a new image. Validity, scores and arm caches include the ID, and arm `meta.json` and score records expose it. Old records without image identity are recomputed. <!-- code: bin/bench.ts#readCaseImage bin/bench.ts#armSlot -->
+Image selection uses case `image`, then the selected graph's `image`, then the operator fallback and stock sandbox. `BENCH_DIR` selects an external graph; floor replacement keeps that graph's resolved image. Each case saves its Docker ID in `image.json` before validity checks or arm reuse. Resume uses that ID even if the tag moves; restore a missing ID by rebuilding or pulling the original image. A Docker daemon that does not answer is reported as unreachable, not as a missing image, and the arm waits for it. A new output dir selects a new image. Validity, scores and arm caches include the ID, and arm `meta.json` and score records expose it. Old records without image identity are recomputed. <!-- code: bin/bench.ts#readCaseImage bin/bench.ts#armSlot src/docker.ts#readImage -->
 
 Bench cleanup only considers labelled environment tags recorded in that case's `.envs/refs.jsonl`. It preserves live holds, pins and lower volumes still used by retained environments. Low disk blocks when scoped cleanup cannot free enough. <!-- code: src/disk.ts#collect src/disk.ts#ensureFreeDisk -->
 

@@ -1339,6 +1339,23 @@ describe('deployment image startup', () => {
   });
 });
 
+describe('image check without a docker daemon', () => {
+  it('says docker is unreachable instead of calling a pinned image missing', async () => {
+    const bin = tmp('daemon-down');
+    writeFileSync(
+      join(bin, 'docker'),
+      '#!/bin/sh\necho "Cannot connect to the Docker daemon at unix:///x.sock. Is the docker daemon running?" >&2\nexit 1\n'
+    );
+    chmodSync(join(bin, 'docker'), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    const exit = await Effect.runPromiseExit(readImage({}, undefined, 'sha256:gone'));
+    process.env.PATH = path;
+    expect(JSON.stringify(exit)).toContain('Cannot connect to the Docker daemon');
+    expect(JSON.stringify(exit)).not.toContain('is missing');
+  });
+});
+
 describe('image command contract', () => {
   it('rejects an entrypoint that ignores the supplied command', async () => {
     const bin = tmp('image-contract');

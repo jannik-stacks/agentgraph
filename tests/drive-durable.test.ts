@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configure, readBenchDriveState } from '../bench/drive.ts';
@@ -13,6 +13,9 @@ const fake = `import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 export const codexUsed = () => Number(process.env.FAKE_CODEX ?? 10);
+export const readBenchKeys = () => {};
+export const whyPointUnready = async point =>
+  (process.env.FAKE_UNREADY ?? '').split(',').includes(point) ? point + ': no list price' : undefined;
 if (import.meta.main) {
   const [cmd, a, b, c] = process.argv.slice(2);
   const out = cmd === 'run' ? c : b;
@@ -68,8 +71,9 @@ const bench = (cases = ['c1', 'c2']) => {
   writeFileSync(join(dir, 'set.json'), JSON.stringify({ cases: cases.map(id => ({ id, repo: 'o/r' })) }));
   return dir;
 };
+const sha = (dir: string) => git(join(dir, 'eng'), 'rev-parse', 'HEAD');
 const settings = (dir: string) => ({
-  SHA: 'abc',
+  SHA: sha(dir).slice(0, 8),
   ENGINE: join(dir, 'eng'),
   POINTS: 'opencode:m',
   REPEATS: '1',
@@ -97,9 +101,64 @@ const until = async (ok: () => boolean) => {
   for (let n = 0; n < 200 && !ok(); n++) await new Promise(r => setTimeout(r, 50));
   expect(ok()).toBe(true);
 };
-const run = (dir: string) => join(dir, 'abc/opencode-m/r1');
+const run = (dir: string, point = 'opencode-m') => join(dir, sha(dir).slice(0, 8), point, 'r1');
 
 describe('bench driver durability', () => {
+  it('refuses an engine that is not at SHA or has changes, before any job', async () => {
+    const dir = bench(['c1']);
+    const moved = await drive(dir, { ...settings(dir), SHA: 'f'.repeat(8) });
+    expect(moved.code).toBe(1);
+    expect(events(dir).at(-1)?.event).toBe('crash');
+    expect(moved.out).toMatch(/is at [0-9a-f]{40}, not ffffffff/);
+    rmSync(join(dir, 'drive.json'));
+    writeFileSync(join(dir, 'eng/examples/graph.txt'), 'edited');
+    const dirty = await drive(dir, settings(dir));
+    expect(dirty.code).toBe(1);
+    expect(dirty.out).toContain('M examples/graph.txt');
+    expect(calls(dir)).toEqual([]);
+  });
+
+  it('names every point that is not ready and starts no job', async () => {
+    const dir = bench(['c1']);
+    const result = await drive(dir, {
+      ...settings(dir),
+      POINTS: 'opencode:m,codex:m,pi:n',
+      FAKE_UNREADY: 'opencode:m,pi:n',
+    });
+    expect(result.code).toBe(1);
+    expect(result.out).toMatch(/points not ready:\nopencode:m: no list price\npi:n: no list price/);
+    expect(calls(dir)).toEqual([]);
+  });
+
+  it('keeps logs, reports and done markers apart for two harnesses on one model, and reaps trees at the end', async () => {
+    const dir = bench(['c1']);
+    const both = { ...settings(dir), POINTS: 'opencode:m,codex:m' };
+    mkdirSync(join(dir, 'done/m/r1'), { recursive: true });
+    writeFileSync(join(dir, 'done/m/r1/c1'), '{"judged":true}');
+    for (const point of ['opencode-m', 'codex-m']) {
+      const at = join(run(dir, point), 'c1');
+      for (const arm of ['v2', 'floor']) {
+        mkdirSync(join(at, arm), { recursive: true });
+        writeFileSync(join(at, arm, 'diff.patch'), 'd');
+        writeFileSync(join(at, arm, 'score.json'), '{}');
+      }
+      writeFileSync(join(at, 'valid.json'), '{}');
+    }
+    const tree = join(run(dir, 'codex-m'), 'c1/tree');
+    mkdirSync(tree);
+    writeFileSync(join(run(dir, 'codex-m'), 'c1/case.json'), '{}');
+    const result = await drive(dir, { ...both, JUDGES: 'opus:1' });
+    expect(result.code, result.out).toBe(0);
+    expect(calls(dir).filter(c => c.cmd === 'judge')).toHaveLength(2);
+    expect(readdirSync(join(dir, 'logs')).toSorted()).toEqual([
+      'codex-m-r1-c1.log',
+      'opencode-m-r1-c1.log',
+      'report-codex-m-r1.log',
+      'report-opencode-m-r1.log',
+    ]);
+    expect(existsSync(tree)).toBe(false);
+  });
+
   it('records an invalid parallel setting as a stopped run', async () => {
     const dir = bench(['c1']);
     writeFileSync(join(dir, 'parallel'), 'broken');
@@ -140,7 +199,7 @@ describe('bench driver durability', () => {
       'job-done',
       'finish',
     ]);
-    expect(JSON.parse(readFileSync(join(dir, 'drive.json'), 'utf8'))).toMatchObject({ SHA: 'abc', JUDGES: 'none' });
+    expect(JSON.parse(readFileSync(join(dir, 'drive.json'), 'utf8'))).toMatchObject({ JUDGES: 'none' });
     expect(existsSync(join(dir, 'done/opencode-m/r1/c1'))).toBe(true);
     expect(existsSync(join(dir, 'drive.lock'))).toBe(false);
     expect(JSON.parse(readFileSync(join(run(dir), 'point.json'), 'utf8')).labels).toEqual({ experiment: 'skills' });

@@ -43,7 +43,7 @@ An environment caches a repo's dependencies. A container takes the lockfiles and
 
 Bases that differ only in source share one. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox -->
 
-`AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. <!-- code: src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
+`AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. A Docker daemon that does not answer fails as unreachable, not as a missing image. <!-- code: src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
 
 ### Disk
 

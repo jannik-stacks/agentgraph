@@ -221,7 +221,7 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
     const dir = builds[tag];
     const label = fresh && dir ? '{{index .Config.Labels "agentgraph.source"}}' : '{{.Id}}';
     const built = (yield* run('docker', ['image', 'inspect', '--format', label, tag]).pipe(
-      Effect.orElseSucceed(() => '')
+      Effect.catchAll(e => (/no such image/i.test(e.detail) ? Effect.succeed('') : Effect.fail(e)))
     )).trim();
     if (!dir)
       return built
