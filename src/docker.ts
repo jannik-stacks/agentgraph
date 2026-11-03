@@ -25,7 +25,7 @@ import {
 import { ensureFreeDisk, readEnvRefs, writeEnvRef } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { commitCheckout, commitCheckoutOnce, hostGit, makeHostEnv } from './git.ts';
+import { commitCheckout, commitCheckoutOnce, hostGit, makeHostEnv, readGit } from './git.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
@@ -466,8 +466,7 @@ export const dockerSandbox = (o: {
         });
       /** Each live checkout as the host made it. */
       const made = new Map<string, CheckoutContainerSpec>();
-      const inMirror = (args: string[], env: Record<string, string> = {}) =>
-        Effect.map(hostGit({ GIT_DIR: mirror, ...env }, args), out => out.toString('utf8').trim());
+      const inMirror = (args: string[], env: Record<string, string> = {}) => readGit({ GIT_DIR: mirror, ...env }, args);
       const ready = yield* Effect.cachedFunction((network: string) =>
         run('docker', ['network', 'inspect', '--format', '{{.Internal}}', network]).pipe(
           Effect.filterOrFail(

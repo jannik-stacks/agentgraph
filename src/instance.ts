@@ -11,7 +11,7 @@ import { Effect } from 'effect';
 import { parse, stringify } from 'yaml';
 import type { Issue } from './event.ts';
 import { fileForge, Forge, formatIssueFile, parseIssueFile, writeTimelineEvent } from './forge.ts';
-import { hostGit, makeHostEnv } from './git.ts';
+import { hostGit, makeHostEnv, readGit } from './git.ts';
 import type { Proposal } from './proposal.ts';
 import { formatShellWord } from './status.ts';
 import { writeFileAtomic } from './store.ts';
@@ -29,7 +29,7 @@ export type Instance = {
 };
 
 const git = (env: Record<string, string>, args: string[], codes: number[] = [], input?: Uint8Array) =>
-  Effect.runPromise(hostGit(env, args, { codes, ...(input && { input }) })).then(out => out.toString('utf8').trim());
+  Effect.runPromise(readGit(env, args, { codes, ...(input && { input }) }));
 const inRepo = (repo: string, args: string[], codes?: number[]) => git({}, ['-C', repo, ...args], codes);
 const origin = (i: Pick<Instance, 'forge'>) => join(i.forge, 'origin.git');
 const inForge = (i: Pick<Instance, 'forge'>, args: string[], codes?: number[]) =>

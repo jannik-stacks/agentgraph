@@ -21,7 +21,7 @@ import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
-import { commitCheckoutOnce, gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
+import { commitCheckout, gitIdentity, hostGit, indexLock, mergeTreeOnto, readGit } from './git.ts';
 import { Session } from './session.ts';
 import { readPlugins, type StatusChange } from './plugin.ts';
 import { startTools } from './tools.ts';
@@ -729,17 +729,14 @@ const setUp = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
       return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });
   });
 
-const text = (work: Checkout, args: string[]) =>
-  Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
-
 /** The checkout's files as a tree id, written by host git from the same index a push commits. */
 const writeCheckoutTree = (work: Checkout) =>
-  indexLock.withPermits(1)(Effect.zipRight(text(work, ['add', '-A']), text(work, ['write-tree'])));
+  indexLock.withPermits(1)(Effect.zipRight(readGit(work.git, ['add', '-A']), readGit(work.git, ['write-tree'])));
 
 /** What the checkout changed since its base. */
 const changes = (work: Checkout, ...args: string[]) =>
   Effect.flatMap(writeCheckoutTree(work), tree =>
-    text(work, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args, work.base, tree])
+    readGit(work.git, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args, work.base, tree])
   );
 
 const readCheckoutDiff = (work: Checkout) => changes(work, '--text');
@@ -1556,7 +1553,7 @@ const attempt = (
       !back &&
       returns.includes('push') &&
       !world.some(p => p.kind === 'push') &&
-      tree !== (yield* text(work, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]));
+      tree !== (yield* readGit(work.git, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]));
     if (unpushed || (asked && commented && !held && (returns.includes('push') || returns.includes('pull_request'))))
       return done(
         {
@@ -1789,7 +1786,7 @@ const reopen = (graph: Graph, w: Workflow, run: Run, traces: boolean) =>
     yield* prepare(graph, left, true);
     const restore = traces
       ? Effect.void
-      : Effect.zipRight(text(work, ['read-tree', '-u', '--reset', ready]), text(work, ['clean', '-fdq']));
+      : Effect.zipRight(readGit(work.git, ['read-tree', '-u', '--reset', ready]), readGit(work.git, ['clean', '-fdq']));
     return { left, restore };
   });
 
@@ -2058,13 +2055,14 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         ((issue.state === 'open' ? issue.pull?.branch : undefined) ?? current.base?.branch ?? expand(base, issue));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, graph));
       if (own && made.saved) {
-        const message = yield* text(made, ['log', '-1', '--format=%B', made.saved]);
+        const message = yield* readGit(made.git, ['log', '-1', '--format=%B', made.saved]);
         const from =
-          /^baseline ([0-9a-f]{40,64})$/m.exec(message)?.[1] ?? (yield* text(made, ['rev-parse', `${made.saved}^`]));
+          /^baseline ([0-9a-f]{40,64})$/m.exec(message)?.[1] ??
+          (yield* readGit(made.git, ['rev-parse', `${made.saved}^`]));
         const onto = made.head ?? made.base;
         const tree = yield* writeCheckoutTree(made);
-        if (from !== onto && tree !== (yield* text(made, ['rev-parse', `${onto}^{tree}`]))) {
-          const head = yield* text(made, [...gitIdentity, 'commit-tree', tree, '-p', from, '-m', 'Saved work']);
+        if (from !== onto && tree !== (yield* readGit(made.git, ['rev-parse', `${onto}^{tree}`]))) {
+          const head = yield* readGit(made.git, [...gitIdentity, 'commit-tree', tree, '-p', from, '-m', 'Saved work']);
           const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: own, from, onto, head }, made);
           yield* store.trace(run.id, { at: now(), step: current.step, applied });
           if (!applied.ok)
@@ -2086,10 +2084,10 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
 
       if (!w.on.feedback) yield* setUp(graph, work, current);
       const attempts = `refs/agentgraph/attempts/${run.id}/`;
-      let count = (yield* text(work, ['rev-parse', `--glob=${attempts}*`])).split('\n').filter(Boolean).length;
+      let count = (yield* readGit(work.git, ['rev-parse', `--glob=${attempts}*`])).split('\n').filter(Boolean).length;
       while (current.status === 'running') {
         const tried = yield* attempt({ ...w, base }, current, graph, work, own);
-        yield* commitCheckoutOnce(work.git, `${attempts}${++count}`, [
+        yield* commitCheckout(work.git, `${attempts}${++count}`, '', [
           work.head ?? work.base,
           work.saved,
           work.published,
@@ -2159,8 +2157,8 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
 /** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
 const following = (work: Checkout, onto: string, first: boolean) =>
   Effect.gen(function* () {
-    if (first && work.head && (yield* text(work, ['merge-base', onto, work.head])) !== onto) {
-      const head = yield* text(work, [
+    if (first && work.head && (yield* readGit(work.git, ['merge-base', onto, work.head])) !== onto) {
+      const head = yield* readGit(work.git, [
         ...gitIdentity,
         'commit-tree',
         yield* writeCheckoutTree(work),
@@ -2226,7 +2224,7 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
     );
     const work = { ...made, head: pull.head };
     const onto = work.base;
-    const from = yield* text(work, ['merge-base', pull.head, onto]);
+    const from = yield* readGit(work.git, ['merge-base', pull.head, onto]);
     const moved = step.follow !== 'none' && !run.base && from !== onto;
     const renewed = run.blocked !== undefined || (run.graph ?? graph.sha) !== graph.sha;
     const { blocked: _blocked, ...current } = { ...unthreaded(run), graph: graph.sha };
@@ -2296,8 +2294,8 @@ const catchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['p
     const later = own ? step.checks.filter(judged) : [];
     let { outcome } = yield* runStepChecks(own ? { ...step, checks: scripts } : to, left, graph);
     if (outcome.kind === 'pass' && later.length > 0) {
-      const log = yield* text(work, ['log', '--oneline', '--no-decorate', `${from}..${onto}`]);
-      const stat = yield* text(work, ['diff', '--stat', from, onto]);
+      const log = yield* readGit(work.git, ['log', '--oneline', '--no-decorate', `${from}..${onto}`]);
+      const stat = yield* readGit(work.git, ['diff', '--stat', from, onto]);
       const reply = [
         `The base ${pull.base} moved from ${from.slice(0, 7)} to ${onto.slice(0, 7)}; the change stays the same.`,
         log,

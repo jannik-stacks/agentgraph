@@ -646,7 +646,6 @@ export const writeCheckoutOwner = (dir: string) => {
   writeFileSync(`${dir}.owner`, startHeartbeat());
 };
 
-/** The checkouts under `data` whose owner is gone, except those whose save failed. */
 export const findDeadCheckouts = (data: string) => {
   const work = join(data, 'work');
   let ids: string[] = [];
@@ -667,7 +666,6 @@ export const findDeadCheckouts = (data: string) => {
   });
 };
 
-/** Removes checkout `id` under `data` with its owner, index, news and scratch dirs. */
 export const removeCheckout = (data: string, id: string) => {
   for (const p of [`work/${id}`, `work/${id}.owner`, `index/${id}`, `news/${id}`, `scratch/${id}`])
     rmSync(join(data, p), { recursive: true, force: true });
