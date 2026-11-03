@@ -473,7 +473,6 @@ export const dockerSandbox = (o: {
             )
           ),
       });
-      const ready = (network: string) => Cache.get(internal, network);
 
       const tools = yield* Effect.cached(
         process.platform === 'linux'
@@ -499,7 +498,7 @@ export const dockerSandbox = (o: {
         Effect.gen(function* () {
           const box = made.get(c.dir) ?? { mounts: [] };
           yield* roomy(box.image ?? image);
-          if (c.network === 'proxy') yield* ready(networks[box.network ?? 'egress']);
+          if (c.network === 'proxy') yield* Cache.get(internal, networks[box.network ?? 'egress']);
           if (c.tools) {
             const endpoint = yield* Effect.try({
               try: () => new URL(c.tools!.url),

@@ -12,7 +12,7 @@ import {
   type Services,
 } from './engine.ts';
 import { writeIssueFile } from './tracker.ts';
-import { makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
+import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
 import { graphAt, makeProductionLayers, settings, type Settings } from './services.ts';
@@ -77,7 +77,7 @@ const warnTemporary = (data: string) =>
   Effect.forEach(temporary(data), p => Effect.logWarning(`${p} is under a temp dir, which the OS may empty`));
 
 const configured = (env: Record<string, string>, extra: Record<string, string> = {}) =>
-  ConfigProvider.fromEnv({ env: { ...env, ...extra } });
+  makeEnvProvider({ ...env, ...extra });
 
 const failLoopLock = (error: unknown): never => {
   const cause = error instanceof StoreError ? error.cause : undefined;

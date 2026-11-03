@@ -209,7 +209,7 @@ describe('githubTracker', () => {
     async query => {
       const f = fake({});
       const found = await run(f, Effect.result(Effect.flatMap(Tracker, tracker => tracker.searchIssues(query))));
-      expect(found._tag).toBe('Left');
+      expect(found._tag).toBe('Failure');
       expect(f.calls).toEqual([]);
     }
   );
@@ -1194,8 +1194,8 @@ describe('githubTracker', () => {
         expect(signal?.aborted).toBe(true);
         const result = yield* Fiber.join(fiber);
         expect(result).toMatchObject({
-          _tag: 'Left',
-          left: { _tag: 'TrackerError', message: expect.stringMatching(/timed out/) },
+          _tag: 'Failure',
+          failure: { _tag: 'TrackerError', message: expect.stringMatching(/timed out/) },
         });
       }).pipe(Effect.provide(TestClock.layer()))
     );

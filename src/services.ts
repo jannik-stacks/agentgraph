@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
-import { Config, Effect, Layer, Option, Redacted, Schema, Struct } from 'effect';
+import { Config, ConfigProvider, Effect, Layer, Option, Redacted, Schema, Struct } from 'effect';
 import { folder, type TrackerSetup } from './tracker.ts';
 import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
 import { github } from './github.ts';
@@ -10,6 +10,7 @@ import type { Services } from './engine.ts';
 import {
   type HarnessSettings,
   harnessSession,
+  makeEnvProvider,
   parseModelUrls,
   splitNames,
   readConfiguredGraph,
@@ -80,7 +81,10 @@ export const hostSettings = {
     Schema.Number.check(Schema.makeFilter(n => n > 0 || 'Expected minutes above 0')),
     'AGENTGRAPH_EVERY'
   ).pipe(Config.withDefault(5)),
-  compress: Config.Number('AGENTGRAPH_COMPRESS_DAYS').pipe(Config.withDefault(14)),
+  compress: Config.schema(
+    Schema.Number.check(Schema.makeFilter(n => !Number.isNaN(n) || 'Expected a number')),
+    'AGENTGRAPH_COMPRESS_DAYS'
+  ).pipe(Config.withDefault(14)),
   image: Config.String('AGENTGRAPH_IMAGE').pipe(Config.withDefault(sandboxImage)),
   sandbox: Config.String('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
 };
@@ -101,9 +105,9 @@ export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker',
       ...hostSettings,
       config: Config.option(Config.String('AGENTGRAPH_CONFIG')),
       tracker: Config.option(trackerName),
-    })
+    }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider()))
   );
-  const tracker = flags.tracker || Option.getOrUndefined(s.tracker);
+  const tracker = flags.tracker || Option.getOrUndefined(s.tracker) || undefined;
   const data = resolve(flags.data ?? s.data);
   const file = join(data, 'config.ts');
   const config = Option.getOrElse(s.config, () => (!tracker && existsSync(file) ? file : undefined));
@@ -124,7 +128,7 @@ export const settings = Config.all({
   checkLogs: Config.Literals(checkLogs, 'AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.String('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
   trust: Config.String('AGENTGRAPH_TRUST').pipe(
-    Config.map(trust => trust.split(',')),
+    Config.map(trust => trust.split(',').map(login => login.trim())),
     Config.withDefault<string[]>([])
   ),
   app: Config.option(
@@ -141,6 +145,7 @@ export const pickTracker = async (
   name: string,
   graph?: { dir: string; fromRepo: boolean }
 ): Promise<{ tracker: (host: TrackerHost) => TrackerSetup; dir?: string } | { problem: string }> => {
+  if (!name) return { problem: 'name a tracker with AGENTGRAPH_TRACKER or set the App env' };
   const text = graph && (await readFile(join(graph.dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
   const builtins = [github, folder];
   const { trackers, names } = await readPlugins(

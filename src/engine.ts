@@ -2473,8 +2473,7 @@ const runnerRetry = 'Tried again after a runner error. Go on from where the run 
 const isRunnerRetryDue = (id: string) =>
   Effect.map(
     Effect.flatMap(Store, s => Stream.runCollect(s.read(id))),
-    lines => {
-      const trace = lines;
+    trace => {
       const tries = trace.filter(t => 'outcome' in t && t.outcome.kind === 'answer' && t.outcome.text === runnerRetry);
       const last = trace.at(-1)?.at;
       return tries.length < 5 && (!last || Date.now() - Date.parse(last) >= 600_000 * 2 ** tries.length);

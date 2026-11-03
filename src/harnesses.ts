@@ -88,9 +88,12 @@ export const readConfiguredGraph = (dir: string) =>
     return { ...graph, repo: repo || graph.repo };
   });
 
+export const makeEnvProvider = (env?: Record<string, string>) =>
+  ConfigProvider.fromEnv({ env, preserveEmptyStrings: true });
+
 export const makeHarnessConfigProvider = (
   choice: Partial<Record<'config' | 'provider' | 'harness', string | undefined>>,
-  fallback = ConfigProvider.fromEnv()
+  fallback = makeEnvProvider()
 ) => {
   const names = { config: 'AGENTGRAPH_CONFIG', provider: 'AGENTGRAPH_PROVIDER', harness: 'AGENTGRAPH_HARNESS' };
   const chosen = Object.entries(choice).flatMap(([k, v]) => (v ? [[names[k as keyof typeof names], v] as const] : []));

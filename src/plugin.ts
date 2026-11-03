@@ -4,7 +4,7 @@ import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { tool as aiTool, asSchema, jsonSchema, type Tool, type ToolExecutionOptions } from 'ai';
+import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
 import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue } from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
 
@@ -51,15 +51,44 @@ export type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abor
 
 type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;
 
+type JsonNode = Record<string, unknown>;
+const nonFinite = JSON.stringify({ type: 'string', enum: ['Infinity', '-Infinity', 'NaN'] });
+
+const narrow = (node: unknown, optional = false): unknown => {
+  if (Array.isArray(node)) return node.map(n => narrow(n));
+  if (!node || typeof node !== 'object') return node;
+  const required = new Set((node as { required?: string[] }).required);
+  const out: JsonNode = Object.fromEntries(
+    Object.entries(node).map(([key, value]) => [
+      key,
+      key === 'properties' || key === '$defs'
+        ? Object.fromEntries(
+            Object.entries(value as JsonNode).map(([name, s]) => [
+              name,
+              narrow(s, key === 'properties' && !required.has(name)),
+            ])
+          )
+        : narrow(value),
+    ])
+  );
+  if (!Array.isArray(out.anyOf)) return out;
+  const { anyOf: members, ...rest } = out;
+  const kept = (members as JsonNode[]).filter(
+    m => JSON.stringify(m) !== nonFinite && !(optional && JSON.stringify(m) === '{"type":"null"}')
+  );
+  return kept.length === 1 ? { ...rest, ...kept[0] } : { ...rest, anyOf: kept };
+};
+
 export const tool = <A, I, S = undefined>(definition: {
   description: string;
   inputSchema: Schema.Codec<A, I>;
   execute: (input: A, context: ToolContext<S>) => unknown;
 }): Tool<A, unknown, ToolContext<S>> => {
   const { schema, definitions } = Schema.toJsonSchemaDocument(definition.inputSchema, { onExcessProperty: 'error' });
+  const advertised = narrow(Object.keys(definitions).length ? { ...schema, $defs: definitions } : schema);
   return aiTool<A, unknown, ToolContext<S>>({
     description: definition.description,
-    inputSchema: jsonSchema<A>(Object.keys(definitions).length ? { ...schema, $defs: definitions } : schema, {
+    inputSchema: jsonSchema<A>(advertised as JSONSchema7, {
       validate: async value => {
         const decoded = await Effect.runPromise(
           Effect.result(Schema.decodeUnknownEffect(definition.inputSchema, { onExcessProperty: 'error' })(value))

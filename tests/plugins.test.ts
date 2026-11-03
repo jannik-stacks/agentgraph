@@ -12,7 +12,7 @@ import { makePlugin, readPlugins, tool } from '../src/plugin.ts';
 const source = (name = 'search', toolName = 'issues') => `
 import { makePlugin, readPlugins, tool } from '${pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href}';
 import { Schema } from '${import.meta.resolve('effect')}';
-const settings=Schema.Struct({limit:Schema.NumberFromString});
+const settings=Schema.Struct({limit:Schema.FiniteFromString});
 export default makePlugin<typeof settings.Type>({name:'${name}',settingsSchema:settings,tools:{'${toolName}':tool({description:'Search issues',inputSchema:Schema.Struct({query:Schema.String}),execute:({query},ctx)=>ctx.tracker.searchIssues(query,{limit:ctx.settings.limit})})}});
 `;
 
@@ -355,5 +355,64 @@ exports.cjsTool = require('ai').tool;
         .replace('limit:ctx.settings.limit', 'limit:10'),
     });
     await expect(readCheckedPlugins(dir, { search: {} })).rejects.toThrow('no settingsSchema');
+  });
+});
+
+describe('tool input schemas', () => {
+  type Json = Record<string, unknown>;
+  const matches = (schema: Json, value: unknown, root: Json = schema): boolean => {
+    if (typeof schema.$ref === 'string')
+      return matches(root.$defs![schema.$ref.slice('#/$defs/'.length) as never], value, root);
+    if (Array.isArray(schema.anyOf)) return schema.anyOf.some(s => matches(s as Json, value, root));
+    if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return false;
+    const kind = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+    if (schema.type === 'integer') return Number.isInteger(value);
+    if (schema.type && schema.type !== kind) return false;
+    if (kind === 'array' && schema.items)
+      return (value as unknown[]).every(v => matches(schema.items as Json, v, root));
+    if (kind !== 'object') return true;
+    const properties = (schema.properties ?? {}) as Record<string, Json>;
+    const entries = Object.entries(value as Json);
+    return (
+      ((schema.required ?? []) as string[]).every(key => key in (value as Json)) &&
+      entries.every(([key, v]) =>
+        properties[key] ? matches(properties[key], v, root) : schema.additionalProperties !== false
+      )
+    );
+  };
+  interface Node {
+    readonly size: number;
+    readonly children?: readonly Node[];
+  }
+  const Node = Schema.Struct({
+    size: Schema.Number,
+    children: Schema.optionalKey(Schema.Array(Schema.suspend((): Schema.Codec<Node> => Node))),
+  }).annotate({ identifier: 'Node' });
+  const input = Schema.Struct({
+    state: Schema.optional(Schema.Literals(['open', 'closed'])),
+    note: Schema.NullOr(Schema.String),
+    count: Schema.Int,
+    tree: Node,
+  });
+  const valid = { note: null, count: 1, tree: { size: 1 } };
+
+  it.each([
+    ['the smallest input', valid],
+    ['an optional literal', { ...valid, state: 'open' }],
+    ['null for an optional field', { ...valid, state: null }],
+    ['an unknown literal', { ...valid, state: 'all' }],
+    ['a nullable field set', { ...valid, note: 'hi' }],
+    ['a missing nullable field', { count: 1, tree: { size: 1 } }],
+    ['NaN as a string', { ...valid, count: 'NaN' }],
+    ['Infinity as a string', { ...valid, tree: { size: 'Infinity' } }],
+    ['a fraction for an integer', { ...valid, count: 1.5 }],
+    ['nested definitions', { ...valid, tree: { size: 1, children: [{ size: 2, children: [] }] } }],
+    ['a bad nested node', { ...valid, tree: { size: 1, children: [{ size: 'big' }] } }],
+    ['an extra key', { ...valid, extra: true }],
+  ])('advertises what the validator accepts: %s', async (_name, value) => {
+    const schema = asSchema(tool({ description: 'Probe', inputSchema: input, execute: x => x }).inputSchema);
+    const advertised = (await schema.jsonSchema) as Json;
+    expect(advertised.$defs).toHaveProperty('Node');
+    expect(matches(advertised, value)).toBe((await schema.validate!(value)).success);
   });
 });

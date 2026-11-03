@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { ConfigProvider, Effect, Result, Redacted } from 'effect';
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import { makeEnvProvider } from '../src/harnesses.ts';
 import { makeProductionLayers, pickTracker, readHostSettings, settings } from '../src/services.ts';
 import { Tracker, writeIssueFile } from '../src/tracker.ts';
 import { tmp, write } from './kit.ts';
@@ -116,4 +117,42 @@ it('selects the tracker once: the flag, else AGENTGRAPH_TRACKER, else github whe
   } finally {
     names.forEach((name, i) => (saved[i] === undefined ? delete process.env[name] : (process.env[name] = saved[i])));
   }
+});
+
+const readWith = (env: Record<string, string>) =>
+  Effect.runPromise(
+    Effect.result(settings).pipe(
+      Effect.provideService(
+        ConfigProvider.ConfigProvider,
+        makeEnvProvider({ AGENTGRAPH_REPO: 'owner/repository', AGENTGRAPH_TRACKER: '/tracker', ...env })
+      )
+    )
+  );
+
+it.each([
+  ['an empty trust list trusts no one instead of the graph list', { AGENTGRAPH_TRUST: '' }, { trust: [''] }],
+  ['trusted logins are trimmed', { AGENTGRAPH_TRUST: 'alice, bob ,carol' }, { trust: ['alice', 'bob', 'carol'] }],
+  ['an empty cache volume disables the cache', { AGENTGRAPH_CACHE_VOLUME: '' }, { cache: '' }],
+  ['unset settings take their defaults', {}, { trust: [], cache: 'agentgraph-cache', checkLogs: 'all' }],
+])('%s', async (_name, env, expected) => {
+  expect(Result.getOrThrow(await readWith(env))).toMatchObject(expected);
+});
+
+it.each([
+  ['AGENTGRAPH_CHECK_LOGS', ''],
+  ['AGENTGRAPH_COMPRESS_DAYS', 'NaN'],
+  ['AGENTGRAPH_EVERY', ''],
+])('refuses %s=%j and names it', async (name, value) => {
+  const result = await readWith({ [name]: value });
+  expect(Result.isFailure(result)).toBe(true);
+  expect(JSON.stringify(Result.getFailure(result))).toContain(name);
+});
+
+afterEach(() => vi.unstubAllEnvs());
+
+it('reads host settings from the environment, keeping empty values and naming a bad number', async () => {
+  vi.stubEnv('AGENTGRAPH_COMPRESS_DAYS', 'NaN');
+  await expect(readHostSettings({ data: '/data' })).rejects.toThrow('AGENTGRAPH_COMPRESS_DAYS');
+  vi.stubEnv('AGENTGRAPH_COMPRESS_DAYS', '');
+  await expect(readHostSettings({ data: '/data' })).rejects.toThrow('AGENTGRAPH_COMPRESS_DAYS');
 });

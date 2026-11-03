@@ -132,8 +132,7 @@ export const makeStudioDevApiPlugin = (): Plugin => ({
         Effect.gen(function* () {
           const store = yield* Store;
           const entry = (run: WorkflowModule.RunRecord, all: boolean) =>
-            Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (chunk, checks) => {
-              const trace = chunk;
+            Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
               const lines = mergeCheckEntries(trace, checks);
               return {
                 fixture: `${bench ? 'bench' : served!.name}/${run.workflow}`,
