@@ -2,7 +2,7 @@ import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, join, sep } from 'node:path';
 import type { Plugin } from 'vite';
-import { readRealPath } from './plugins.ts';
+import { startWatch } from './plugins.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries } from './src/runs/trace.ts';
 import { resultSources } from './src/results/result.ts';
@@ -69,28 +69,15 @@ export const makeStudioDevApiPlugin = (): Plugin => {
     name: 'agentgraph:fixtures',
     resolveId: source => (ids.includes(source) ? `\0${source}` : undefined),
     configureServer(server) {
-      const dir = process.env.AGI_STUDIO_DIR && readRealPath(process.env.AGI_STUDIO_DIR);
-      if (dir) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const changed = (_event: string, path: string) => {
-          if (path !== dir && !path.startsWith(dir + sep)) return;
-          clearTimeout(timer);
-          timer = setTimeout(() => {
-            served = undefined;
-            for (const id of ids) {
-              const module = server.moduleGraph.getModuleById(`\0${id}`);
-              if (module) server.moduleGraph.invalidateModule(module);
-            }
-            server.ws.send({ type: 'full-reload' });
-          }, 150);
-        };
-        server.watcher.add(dir);
-        server.watcher.on('all', changed);
-        server.httpServer?.once('close', () => {
-          clearTimeout(timer);
-          server.watcher.off('all', changed);
+      if (process.env.AGI_STUDIO_DIR)
+        startWatch(server, [{ root: process.env.AGI_STUDIO_DIR, topic: 'graph' }], () => {
+          served = undefined;
+          for (const id of ids) {
+            const module = server.moduleGraph.getModuleById(`\0${id}`);
+            if (module) server.moduleGraph.invalidateModule(module);
+          }
+          server.ws.send({ type: 'full-reload' });
         });
-      }
       const use = (path: string, handle: (req: IncomingMessage, res: ServerResponse) => Promise<unknown>) =>
         server.middlewares.use(path, (req, res) => {
           void handle(req, res).catch((e: Error) => json(res, { error: e.message }, 500));

@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Plugin } from 'vite';
+import type { Plugin, ViteDevServer } from 'vite';
 import { ConfigProvider, Effect, Result, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
 import type * as PluginModule from '../src/plugin.ts';
@@ -14,12 +14,40 @@ import { readBench } from './src/bench/read.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 
-export const readRealPath = (root: string) => {
+const readRealPath = (root: string) => {
   try {
     return realpathSync(root);
   } catch {
     return resolve(root);
   }
+};
+
+export const startWatch = (
+  server: ViteDevServer,
+  roots: { root: string; topic: string }[],
+  send: (topics: string[]) => void
+) => {
+  const real = roots.map(({ root, topic }) => ({ root: readRealPath(root), topic }));
+  const topics = new Set<string>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const changed = (_event: string, path: string) => {
+    const hit = real.filter(({ root }) => path === root || path.startsWith(root + sep));
+    if (!hit.length) return;
+    for (const { topic } of hit) topics.add(topic);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      send([...topics]);
+      topics.clear();
+    }, 150);
+  };
+  server.watcher.add([...new Set(real.map(({ root }) => root))]);
+  server.watcher.on('all', changed);
+  const stop = () => {
+    clearTimeout(timer);
+    server.watcher.off('all', changed);
+  };
+  server.httpServer?.once('close', stop);
+  return stop;
 };
 const entry = 'virtual:agentgraph-page/';
 
@@ -151,29 +179,14 @@ export const makeStudioPagesPlugin = (): Plugin => {
     },
     async configureServer(server) {
       const loaded = await pages;
-      const roots = [
-        ...(process.env.AGI_STUDIO_DATA ? [{ root: process.env.AGI_STUDIO_DATA, topic: 'data' }] : []),
-        ...loaded.flatMap(page => page.watch.map(root => ({ root, topic: page.name }))),
-      ].map(({ root, topic }) => ({ root: readRealPath(root), topic }));
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const topics = new Set<string>();
-      const changed = (_event: string, path: string) => {
-        const hit = roots.filter(({ root }) => path === root || path.startsWith(root + sep));
-        if (!hit.length) return;
-        for (const { topic } of hit) topics.add(topic);
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          server.ws.send('agi:changed', { topics: [...topics] });
-          topics.clear();
-        }, 150);
-      };
-      server.watcher.add([...new Set(roots.map(({ root }) => root))]);
-      server.watcher.on('all', changed);
-      dispose = () => {
-        clearTimeout(timer);
-        server.watcher.off('all', changed);
-      };
-      server.httpServer?.once('close', dispose);
+      dispose = startWatch(
+        server,
+        [
+          ...(process.env.AGI_STUDIO_DATA ? [{ root: process.env.AGI_STUDIO_DATA, topic: 'data' }] : []),
+          ...loaded.flatMap(page => page.watch.map(root => ({ root, topic: page.name }))),
+        ],
+        topics => server.ws.send('agi:changed', { topics })
+      );
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
