@@ -1,7 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { ConfigProvider, Effect, Result, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
@@ -14,6 +13,14 @@ import { BenchData } from './src/bench/data.ts';
 import { readBench } from './src/bench/read.ts';
 
 const manifest = 'virtual:agentgraph-pages';
+
+const real = (root: string) => {
+  try {
+    return realpathSync(root);
+  } catch {
+    return resolve(root);
+  }
+};
 const entry = 'virtual:agentgraph-page/';
 
 const readStudioPages = async () => {
@@ -105,7 +112,6 @@ const readStudioPages = async () => {
 
 export const makeStudioPagesPlugin = (): Plugin => {
   const pages = readStudioPages();
-  const clients = new Set<ServerResponse>();
   let dispose: (() => void) | undefined;
   return {
     name: 'agentgraph:pages',
@@ -148,46 +154,28 @@ export const makeStudioPagesPlugin = (): Plugin => {
     async configureServer(server) {
       const loaded = await pages;
       const roots = [
-        ...new Set(
-          [
-            ...(process.env.AGI_STUDIO_DATA ? [process.env.AGI_STUDIO_DATA] : []),
-            ...loaded.flatMap(page => page.watch),
-          ].map(root => {
-            try {
-              return realpathSync(root);
-            } catch {
-              return resolve(root);
-            }
-          })
-        ),
-      ];
+        ...(process.env.AGI_STUDIO_DATA ? [{ root: process.env.AGI_STUDIO_DATA, topic: 'data' }] : []),
+        ...loaded.flatMap(page => page.watch.map(root => ({ root, topic: page.name }))),
+      ].map(({ root, topic }) => ({ root: real(root), topic }));
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const topics = new Set<string>();
       const changed = (_event: string, path: string) => {
-        if (!roots.some(root => path === root || path.startsWith(root + sep))) return;
+        const hit = roots.filter(({ root }) => path === root || path.startsWith(root + sep));
+        if (!hit.length) return;
+        for (const { topic } of hit) topics.add(topic);
         clearTimeout(timer);
         timer = setTimeout(() => {
-          for (const client of clients) client.write('data: changed\n\n');
+          server.ws.send('agi:changed', { topics: [...topics] });
+          topics.clear();
         }, 150);
       };
-      server.watcher.add(roots);
+      server.watcher.add([...new Set(roots.map(({ root }) => root))]);
       server.watcher.on('all', changed);
       dispose = () => {
         clearTimeout(timer);
         server.watcher.off('all', changed);
-        for (const client of clients) client.end();
-        clients.clear();
       };
       server.httpServer?.once('close', dispose);
-      server.middlewares.use('/api/events', (req, res) => {
-        res.writeHead(200, {
-          'content-type': 'text/event-stream',
-          'cache-control': 'no-cache',
-          connection: 'keep-alive',
-        });
-        res.write(': open\n\n');
-        clients.add(res);
-        req.on('close', () => clients.delete(res));
-      });
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
@@ -212,7 +200,8 @@ export const makeStudioPagesPlugin = (): Plugin => {
             if (Buffer.byteLength(text) > 16_777_216) throw new Error('Plugin data exceeds 16 MiB');
             res.end(text);
           })
-          .catch(() => {
+          .catch((e: Error) => {
+            server.config.logger.error(`studio  plugin ${page.name} could not read its data: ${e.message}`);
             res.statusCode = 500;
             res.end('{"error":"Could not read plugin data"}');
           });

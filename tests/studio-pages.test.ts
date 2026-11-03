@@ -5,11 +5,12 @@ import { pathToFileURL } from 'node:url';
 import { expect, it, vi } from 'vitest';
 import { studioDir } from './studio.ts';
 
-it('encodes page data, hides reader failures and shares invalidation for external roots', async () => {
+it('encodes page data, hides reader failures and sends change topics per watch root', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-pages-'));
   const external = join(dir, 'external');
   const graph = join(dir, 'graph');
   mkdirSync(external);
+  mkdirSync(join(dir, 'data'));
   mkdirSync(join(graph, 'plugins', 'pages'), { recursive: true });
   writeFileSync(join(external, 'value'), '7');
   writeFileSync(join(graph, 'settings.yaml'), `plugins: { count: { root: ${JSON.stringify(external)} } }\n`);
@@ -56,7 +57,6 @@ export default function Page() { const { value } = usePluginData('count', Schema
     server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
     logLevel: 'silent',
   });
-  const controller = new AbortController();
   try {
     await server.listen();
     const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
@@ -91,18 +91,17 @@ export default function Page() { const { value } = usePluginData('count', Schema
       timeout: 2000,
     });
     const listeners = server.watcher.listenerCount('all');
-    const stream = await fetch(`${base}/api/events`, { signal: controller.signal });
-    const second = await fetch(`${base}/api/events`, { signal: controller.signal });
-    const reader = stream.body!.getReader();
-    await reader.read();
-    await second.body!.getReader().read();
+    const sent = vi.spyOn(server.ws, 'send');
     writeFileSync(join(external, 'value'), '8');
-    const hint = await reader.read();
-    expect(new TextDecoder().decode(hint.value)).toContain('data: changed');
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledOnce());
+    expect(sent.mock.calls[0]![0]).toBe('agi:changed');
+    expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'count', 'results']);
+    writeFileSync(join(dir, 'data', 'new'), '');
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(2));
+    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['data', 'results']);
     expect(server.watcher.listenerCount('all')).toBe(listeners);
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('8');
   } finally {
-    controller.abort();
     await server.close();
     vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });

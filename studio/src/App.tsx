@@ -1,9 +1,9 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { navigateAtom, pageAtom } from './state.ts';
+import { connectedAtom, navigateAtom, pageAtom } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
-import { cx, Link, Loading } from './ui.tsx';
+import { accent, cx, Link, Loading } from './ui.tsx';
 
 const pages = {
   inbox: lazy(() => import('./runs/InboxPage.tsx').then(m => ({ default: m.InboxPage }))),
@@ -43,6 +43,7 @@ export const App = () => {
   const Page =
     plugins.get(here) ?? (route && Object.hasOwn(pages, route) ? pages[route as keyof typeof pages] : undefined);
   const navigate = useSetAtom(navigateAtom);
+  const connected = useAtomValue(connectedAtom);
   useEffect(() => {
     if (!route) navigate({ href: '/runs', replace: true });
   }, [route, navigate]);
@@ -70,6 +71,12 @@ export const App = () => {
             </Link>
           ))}
         </nav>
+        {!connected && (
+          <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs text-zinc-500" role="status">
+            <span className={cx('size-2 rounded-full bg-current', accent.text)} />
+            server unreachable, waiting to reload
+          </span>
+        )}
       </header>
       <main className="min-h-0 flex-1">
         <Boundary key={`${route}/${id ?? ''}`}>

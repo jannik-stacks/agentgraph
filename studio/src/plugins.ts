@@ -19,7 +19,7 @@ export const usePluginData = <D, I>(name: string, schema: Schema.Codec<D, I>) =>
   if (!cached) {
     cached = {
       schema,
-      atom: makeLiveJsonAtom(`/api/plugins/${encodeURIComponent(name)}/data`, value =>
+      atom: makeLiveJsonAtom(`/api/plugins/${encodeURIComponent(name)}/data`, [name], value =>
         Effect.runPromise(Schema.decodeUnknownEffect(schema)(value)).catch(() => {
           throw new Error('Invalid plugin data');
         })

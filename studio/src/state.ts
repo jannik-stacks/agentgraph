@@ -41,13 +41,24 @@ export const queryParam = (key: string) =>
 /** The step selected on the graph, as `workflow/step`, then what was opened from it, as `/check:name` and `/agent:name`. */
 export const selectedStepAtom = queryParam('step');
 
-const changes = new Set<() => void>();
-let events: EventSource | undefined;
-const reload = () => {
-  for (const change of changes) change();
+const loads = new Map<() => void, readonly string[]>();
+
+export const readChanged = (topics: readonly string[]) => {
+  for (const [load, follows] of loads) if (follows.some(topic => topics.includes(topic))) load();
 };
 
-export const makeLiveJsonAtom = <T>(path: string, read: (value: unknown) => T | Promise<T> = value => value as T) => {
+export const connectedAtom = atom(true);
+connectedAtom.onMount = set => {
+  const lost = () => set(false);
+  import.meta.hot?.on('vite:ws:disconnect', lost);
+  return () => import.meta.hot?.off('vite:ws:disconnect', lost);
+};
+
+export const makeLiveJsonAtom = <T>(
+  path: string,
+  topics: readonly string[],
+  read: (value: unknown) => T | Promise<T> = value => value as T
+) => {
   const value = atom<{ value?: T; failure?: string }>({});
   value.onMount = set => {
     let active = true;
@@ -57,8 +68,11 @@ export const makeLiveJsonAtom = <T>(path: string, read: (value: unknown) => T | 
       if (busy) return void (again = true);
       busy = true;
       void fetch(path)
-        .then(r => (r.ok ? r.json() : Promise.reject(new Error(`${path} answered ${r.status}`))))
-        .then(read)
+        .then(async r => {
+          if (r.ok) return read(await r.json());
+          const body = (await r.json().catch(() => undefined)) as { error?: unknown } | undefined;
+          throw new Error(typeof body?.error === 'string' ? body.error : `${path} answered ${r.status}`);
+        })
         .then(
           next => {
             if (active) set({ value: next });
@@ -75,40 +89,34 @@ export const makeLiveJsonAtom = <T>(path: string, read: (value: unknown) => T | 
           }
         });
     };
-    changes.add(load);
-    if (!events) {
-      events = new EventSource('/api/events');
-      events.addEventListener('message', reload);
-      events.addEventListener('open', reload);
-    }
+    loads.set(load, topics);
     load();
     return () => {
       active = false;
-      changes.delete(load);
-      if (!changes.size) {
-        events?.close();
-        events = undefined;
-      }
+      loads.delete(load);
     };
   };
   return value;
 };
 
 /** Every run of the served graph, with its trace, every text in it cut short. */
-export const runsAtom = makeLiveJsonAtom<ServedRun[]>('/api/runs');
+export const runsAtom = makeLiveJsonAtom<ServedRun[]>('/api/runs', ['data']);
 
 type ServedResults = Omit<ReturnType<typeof readRunResults>, 'runs'> & { runs: (RunResults & { step?: Step })[] };
 
 const opened = new Map<string, object>();
-const openOnce = <T>(url: string) => {
-  if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<T>(url));
+const openOnce = <T>(url: string, data?: string | null) => {
+  if (!opened.has(url)) {
+    opened.set(url, makeLiveJsonAtom<T>(url, [data ? 'bench' : 'data']));
+    if (opened.size > 100) opened.delete(opened.keys().next().value!);
+  }
   return opened.get(url) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
 
 export const dataParam = queryParam('data');
 
 export const runResultsAtom = (data?: string | null) =>
-  openOnce<ServedResults>(makeDataHref('/api/results?from=runs', data));
+  openOnce<ServedResults>(makeDataHref('/api/results?from=runs', data), data);
 
 export const runAtom = (id: string, data?: string | null) =>
-  openOnce<ServedRun | null>(makeDataHref(`/api/runs/${encodeURIComponent(id)}`, data));
+  openOnce<ServedRun | null>(makeDataHref(`/api/runs/${encodeURIComponent(id)}`, data), data);
