@@ -21,7 +21,7 @@ import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
-import { commitCheckout, gitIdentity, hostGit, indexLock, mergeTreeOnto, readGit } from './git.ts';
+import { commitCheckout, gitIdentity, hostGit, mergeTreeOnto, readGit, writeCheckoutTree } from './git.ts';
 import { Session } from './session.ts';
 import { readPlugins, type StatusChange } from './plugin.ts';
 import { startTools } from './tools.ts';
@@ -728,10 +728,6 @@ const setUp = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
     if (out.code !== 0)
       return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });
   });
-
-/** The checkout's files as a tree id, written by host git from the same index a push commits. */
-const writeCheckoutTree = (work: Checkout) =>
-  indexLock.withPermits(1)(Effect.zipRight(readGit(work.git, ['add', '-A']), readGit(work.git, ['write-tree'])));
 
 /** What the checkout changed since its base. */
 const changes = (work: Checkout, ...args: string[]) =>
