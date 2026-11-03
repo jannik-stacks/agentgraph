@@ -131,8 +131,11 @@ export const simulate = (
       trail
     );
     if (!outcome) break;
-    trail.push({ at: run, outcome: makeTrailOutcome(outcome) });
-    const step = run.step;
+    const { step, status, tries, rounds, reason } = run;
+    trail.push({
+      at: { step, status, tries, rounds, ...(reason !== undefined && { reason }) },
+      outcome: makeTrailOutcome(outcome),
+    });
     run = engine.transition(w, run, outcome);
     trace.push({
       at: '',
