@@ -1104,7 +1104,6 @@ describe('start with one issue', () => {
       AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2',
       AGENTGRAPH_DIR: sandbox,
     };
-    Object.assign(process.env, env);
     const seen: Settings[] = [];
     const fix: Proposal = { ...push, message: 'feat: add hello' };
     const turns = [
@@ -1137,32 +1136,28 @@ describe('start with one issue', () => {
       trusted: true,
       at: new Date().toISOString(),
     });
-    try {
-      const parked = await main(one, doubles);
-      expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
-      expect(parked[0]!.meta).toEqual(one.meta);
-      const started = readRunLabels(where.data, parked[0]!.id);
-      await Effect.runPromise(writeRunLabels(where.data, parked[0]!.id, { arm: null, note: 'flaky' }));
-      expect(seen[0]).toMatchObject({
-        repo: 'acme/sandbox',
-        data: where.data,
-        tracker: 'github',
-      });
-      expect(Redacted.value(Option.getOrThrow(seen[0]!.app).key)).toBe('PEM');
-      expect(Redacted.value(seen[0]!.proxy.keys)).toBe('implementor=k1,reviewer=k2');
-      expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
+    const parked = await main(one, doubles, env);
+    expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
+    expect(parked[0]!.meta).toEqual(one.meta);
+    const started = readRunLabels(where.data, parked[0]!.id);
+    await Effect.runPromise(writeRunLabels(where.data, parked[0]!.id, { arm: null, note: 'flaky' }));
+    expect(seen[0]).toMatchObject({
+      repo: 'acme/sandbox',
+      data: where.data,
+      tracker: 'github',
+    });
+    expect(Redacted.value(Option.getOrThrow(seen[0]!.app).key)).toBe('PEM');
+    expect(Redacted.value(seen[0]!.proxy.keys)).toBe('implementor=k1,reviewer=k2');
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
 
-      const later = new Date(Date.now() + 1000).toISOString();
-      say(where, { issue: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
-      const done = await main(one, doubles);
-      expect(done.map(r => [r.id, r.status])).toEqual([[parked[0]!.id, 'done']]);
-      expect([started, readRunLabels(where.data, parked[0]!.id)]).toEqual([
-        one.labels,
-        { case: 'greeting', note: 'flaky' },
-      ]);
-    } finally {
-      for (const name of Object.keys(env)) delete process.env[name];
-    }
+    const later = new Date(Date.now() + 1000).toISOString();
+    say(where, { issue: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
+    const done = await main(one, doubles, env);
+    expect(done.map(r => [r.id, r.status])).toEqual([[parked[0]!.id, 'done']]);
+    expect([started, readRunLabels(where.data, parked[0]!.id)]).toEqual([
+      one.labels,
+      { case: 'greeting', note: 'flaky' },
+    ]);
   });
 });
 
