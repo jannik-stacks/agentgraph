@@ -426,14 +426,6 @@ const start = (args: string[], secrets: Command['secrets'], name: string, on: (c
 const timeout = (c: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
 
-const forgeConfig = (origin: string) => ({
-  'remote.origin.url': origin,
-  'remote.origin.pushurl': origin,
-  'receive.autogc': 'false',
-  'receive.denyCurrentBranch': 'ignore',
-  'gc.auto': '0',
-});
-
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`, or of
  * `origin` itself when it is a `local` tracker's bare repo. With
@@ -675,7 +667,13 @@ export const dockerSandbox = (o: {
         Effect.gen(function* () {
           if (o.local) {
             if (configured) return;
-            for (const [key, value] of Object.entries(forgeConfig(mirror)))
+            for (const [key, value] of Object.entries({
+              'remote.origin.url': mirror,
+              'remote.origin.pushurl': mirror,
+              'receive.autogc': 'false',
+              'receive.denyCurrentBranch': 'ignore',
+              'gc.auto': '0',
+            }))
               if ((yield* inMirror(['config', '--get-all', key]).pipe(Effect.orElseSucceed(() => ''))) !== value)
                 yield* inMirror(['config', '--replace-all', key, value]);
             configured = true;
