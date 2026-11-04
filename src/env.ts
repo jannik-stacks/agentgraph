@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { makeHostEnv } from './git.ts';
 import { isOwnerRunning, ownerId, readStateDir, startHeartbeat, waitForLock } from './owner.ts';
 
@@ -28,10 +28,12 @@ type SandboxSetup = {
 
 /**
  * What a sandbox setup is built from: `git` is a repo dir holding `base`, `image` the image it starts from, and `cache`
- * the prefix of the repo's cache volume.
+ * the prefix of the repo's cache volume. `repo` names the repo, or is empty, and then `origin`, its URL or absolute
+ * path, tells it apart.
  */
 type SandboxSetupSpec = {
   repo: string;
+  origin: string;
   image: string;
   git: string;
   base: string;
@@ -223,8 +225,6 @@ const makeRepoSlug = (repo: string) =>
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^[^a-z0-9]+/, '') || 'repo';
 
-const makeImageTag = (repo: string, key: string) => `agentgraph-env/${makeRepoSlug(repo)}:${key}`;
-
 const labels = async (tag: string) => {
   const out = await runDockerCli(['image', 'inspect', '--format', '{{json .Config.Labels}}', tag]).catch(() => '');
   const l = out ? (JSON.parse(out) as Record<string, string> | null) : null;
@@ -257,7 +257,9 @@ const hash = (value: unknown) => getSha(JSON.stringify(value), 24);
  * again on every file, and later bases of the same toolchain and setup go there first. Throws when the toolchain fails
  * on every file; no `env` when setup fails on every file, so setup runs in each checkout as before.
  */
-export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<{ cache: string; env?: SandboxSetup }> => {
+export const readSandboxSetup = async (
+  spec: SandboxSetupSpec
+): Promise<{ cache: string; env?: SandboxSetup | undefined }> => {
   const [tree, files, from, skeleton] = await Promise.all([
     git(spec.git, 'rev-parse', `${spec.base}^{tree}`),
     git(spec.git, 'ls-tree', '--name-only', spec.base),
@@ -267,15 +269,18 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<{ cache:
   const lines = [...makeToolchainSetupCommands(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join(
     '\n'
   );
-  const slug = makeRepoSlug(spec.repo);
-  const family = hash([envVersion, from, lines, spec.setup ?? '', spec.cache, slug]);
-  const cache = `${spec.cache}-${slug}-${family}`;
+  if (!/^\w[\w.-]*$/.test(spec.cache)) throw new Error(`volume name not allowed: ${spec.cache}`);
+  const slug = makeRepoSlug(spec.repo || basename(spec.origin).replace(/\.git$/, ''));
+  const cache = `${spec.cache}-${slug}-${hash([spec.repo || spec.origin, from, lines])}`;
+  await createCacheVolume(cache);
+  touch(cache);
   if (!lines && !spec.setup) return { cache };
+  const family = hash([envVersion, cache, spec.setup ?? '']);
   const wide = join(readStateDir(), 'tree-only', family);
   const one = async (mode: SandboxSetup['mode']) => {
     const inputs = mode === 'deps' ? skeleton.digest : tree;
     const key = hash([family, mode, inputs]);
-    const tag = makeImageTag(spec.repo, key);
+    const tag = `agentgraph-env/${slug}:${key}`;
     const pending = building.get(tag);
     if (pending) return pending;
     const made = waitForLock(`env-${key}`).then(release =>
@@ -291,11 +296,19 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<{ cache:
     writeTimestampFile(wide);
   }
   const env = await one('tree');
-  return env === 'setup' ? { cache } : { cache, ...(env && { env }) };
+  return { cache, env: env === 'setup' ? undefined : env };
 };
 
 const createCacheVolume = (name: string) =>
-  runDockerCli(['volume', 'create', '--label', `agentgraph.cache=${name}`, name]);
+  runDockerCli([
+    'volume',
+    'create',
+    '--label',
+    `agentgraph.cache=${name}`,
+    '--label',
+    `agentgraph.version=${envVersion}`,
+    name,
+  ]);
 
 const createSandboxSetup = async (
   spec: SandboxSetupSpec,
@@ -324,7 +337,6 @@ const createSandboxSetup = async (
     if (env) await runDockerCli(['rmi', '-f', tag]).catch(() => '');
     const name = `agentgraph-envbuild-${key}`;
     await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, makeSetupVolumeName(key)]);
-    await createCacheVolume(b.cache);
     const started = Date.now();
     const args = [
       'run',
@@ -371,13 +383,16 @@ const createSandboxSetup = async (
       mode === 'deps' ? b.skeleton.paths.join('\n') : '',
       mode === 'deps' ? b.skeleton.stubs.join('\n') : '',
     ];
-    const out = await runDockerCli(args, 7_200_000).then(
-      output => ({ code: 0, output }),
-      (e: { code?: number; output?: string; message: string }) => ({
-        code: typeof e.code === 'number' ? e.code : -1,
-        output: e.output ?? e.message,
-      })
-    );
+    const release = await waitForLock(`cache-${b.cache}`);
+    const out = await runDockerCli(args, 7_200_000)
+      .then(
+        output => ({ code: 0, output }),
+        (e: { code?: number; output?: string; message: string }) => ({
+          code: typeof e.code === 'number' ? e.code : -1,
+          output: e.output ?? e.message,
+        })
+      )
+      .finally(release);
     if (/Conflict\. The container name/.test(out.output)) {
       await runDockerCli(['rm', '-f', name]).catch(() => '');
       continue;
@@ -592,9 +607,16 @@ export const createSharedMounts = async (
       }
     }
     if (shared) {
-      await createCacheVolume(cache);
       const [lower, upper] = await mountpoints(cache, shared);
-      await runDockerCli(['volume', 'create', ...label, ...makeOverlayOpts(lower!, upper!), `${shared}-o`]);
+      await runDockerCli([
+        'volume',
+        'create',
+        ...label,
+        '--label',
+        `agentgraph.lower=${cache}`,
+        ...makeOverlayOpts(lower!, upper!),
+        `${shared}-o`,
+      ]);
       sharedMounts.push({ name: `${shared}-o`, dst: '/cache', upper: shared });
     }
   } catch (e) {

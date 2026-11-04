@@ -234,6 +234,81 @@ describe('collect', () => {
   });
 });
 
+const caches = (more = '') => ({
+  ...box,
+  'volume ls --format': [
+    `agentgraph-cache-r-new\tagentgraph.cache=agentgraph-cache-r-new,agentgraph.version=${envVersion}`,
+    'agentgraph-cache-r-old\tagentgraph.cache=agentgraph-cache-r-old,agentgraph.version=1',
+    `agentgraph-cache-r-run\tagentgraph.cache=agentgraph-cache-r-run,agentgraph.version=${envVersion}`,
+    'agentgraph-cache\t',
+    'agentgraph-copy\tagentgraph.cache=agentgraph-cache-r-new',
+    more,
+  ].join('\\n'),
+  'ps -a': 'agentgraph-sandbox:local|agentgraph-cache-r-run,agentgraph-cache\\n',
+  'system df': JSON.stringify({ Volumes: [{ Name: 'agentgraph-cache-r-new', Size: '2GB' }] }),
+});
+const removals = (log: () => string) =>
+  log()
+    .split('\n')
+    .filter(l => l.startsWith('volume rm'));
+
+describe('toolchain cache volumes', () => {
+  it('lists labelled cache volumes with their size, old versions always, and holds what a container mounts', async () => {
+    await faked(caches(), async () => {
+      const by = Object.fromEntries((await inventory()).filter(i => i.kind === 'cache').map(i => [i.refs[0], i]));
+      expect(Object.keys(by).toSorted()).toEqual([
+        'agentgraph-cache-r-new',
+        'agentgraph-cache-r-old',
+        'agentgraph-cache-r-run',
+      ]);
+      expect(by['agentgraph-cache-r-new']).toMatchObject({ bytes: 2e9 });
+      expect(by['agentgraph-cache-r-new']?.always).toBeUndefined();
+      expect(by['agentgraph-cache-r-old']).toMatchObject({ always: true, gone: 'old version' });
+      expect(by['agentgraph-cache-r-run']?.held).toBe('container');
+    });
+  });
+
+  it('removes old and unused cache volumes, never a mounted one or the bare default volume', async () => {
+    await faked(caches(), async log => {
+      await collect({});
+      expect(removals(log)).toEqual(['volume rm agentgraph-cache-r-old']);
+      await collect({ limit: 0 });
+      expect(removals(log)).toContain('volume rm agentgraph-cache-r-new');
+      expect(log()).not.toMatch(/volume rm (agentgraph-cache-r-run|agentgraph-cache|agentgraph-copy)\n/);
+    });
+  });
+
+  it('keeps a cache volume a live checkout overlays', async () => {
+    const owner = startHeartbeat();
+    const live = `agentgraph-layer-x-c-o\tagentgraph.lower=agentgraph-cache-r-new,agentgraph.layer=${owner}`;
+    await faked(caches(live), async () => {
+      const item = (await inventory()).find(i => i.refs[0] === 'agentgraph-cache-r-new');
+      expect(item?.held).toBe('live checkout');
+    });
+  });
+
+  it('collects only the cache volumes recorded in scope', async () => {
+    await faked(caches(), async log => {
+      await collect({ eligible: ['agentgraph-cache-r-new'], limit: 0 });
+      expect(removals(log)).toEqual(['volume rm agentgraph-cache-r-new']);
+    });
+  });
+
+  it('measures docker free space under a container root without mounting a volume', async () => {
+    await faked(
+      { ...box, run: 'Filesystem 1024-blocks Used Available Capacity Mounted\\noverlay 100 1 50 1 /\\n' },
+      async log => {
+        await expect(ensureFreeDisk({ dir: tmp('disk'), image: 'img' }, 1e9)).rejects.toBeInstanceOf(DiskLow);
+        const run = log()
+          .split('\n')
+          .find(l => l.startsWith('run '));
+        expect(run).toMatch(/ img df -Pk \/$/);
+        expect(run).not.toContain('type=volume');
+      }
+    );
+  });
+});
+
 describe('findBuildDirs', () => {
   it('finds score trees beside a case and tagged target dirs, never inside records', () => {
     const root = tmp('runs');

@@ -17,8 +17,11 @@ import { basename, join } from 'node:path';
 import { runDockerCli, envVersion, held, makeSetupVolumeName, unlogged, used } from './env.ts';
 import { isLockedByOtherProcess, isOwnerRunning, readStateDir } from './owner.ts';
 
-/** What a cache item is: a sandbox setup image with its dependency volume, a dependency volume no image uses, or a host build dir. */
-type Kind = 'env' | 'lower' | 'tree';
+/**
+ * What a cache item is: a sandbox setup image with its dependency volume, a dependency volume no image uses, a repo's
+ * toolchain cache volume, or a host build dir.
+ */
+type Kind = 'env' | 'lower' | 'cache' | 'tree';
 
 /**
  * One deletable cache thing. `refs` are what removing it names: image tags, volume names or one host path. `bytes` are
@@ -51,7 +54,10 @@ export const readEnvRefs = (dir: string): string[] => {
         .map(line => JSON.parse(line))
     : [];
   if (
-    !refs.every((ref): ref is string => typeof ref === 'string' && /^agentgraph-env\/[a-z0-9._-]+:[a-z0-9]+$/.test(ref))
+    !refs.every(
+      (ref): ref is string =>
+        typeof ref === 'string' && /^agentgraph-env\/[a-z0-9._-]+:[a-z0-9]+$|^[a-z0-9][a-z0-9._-]*$/.test(ref)
+    )
   )
     throw new Error(`invalid environment refs in ${file}`);
   return [...new Set(refs)];
@@ -263,6 +269,19 @@ export const inventory = async (
       ...(held(key) && { held: 'recent use' }),
     });
   }
+  for (const v of vols) {
+    if (v.labels['agentgraph.cache'] !== v.name || (o.eligible !== undefined && !o.eligible.includes(v.name))) continue;
+    const stamp = join(used(), v.name);
+    items.push({
+      kind: 'cache',
+      refs: [v.name],
+      bytes: df.volumes.get(v.name) ?? 0,
+      used: existsSync(stamp) ? statSync(stamp).mtimeMs : 0,
+      ...(v.labels['agentgraph.version'] !== String(envVersion) && { always: true, gone: 'old version' }),
+      ...(mounted.has(v.name) ? { held: 'container' } : overlaid(v.name) && { held: 'live checkout' }),
+      ...(held(v.name, false) && { held: 'recent use' }),
+    });
+  }
   for (const path of (o.roots ?? []).flatMap(root => findBuildDirs(root))) {
     const score = basename(path) === 'tree';
     items.push({
@@ -313,6 +332,7 @@ const remove = async (i: DiskCacheEntry) => {
         return false;
       }
     );
+  if (i.kind === 'cache') return ok(['volume', 'rm', i.refs[0]!]);
   const tags = i.refs.filter(r => r.includes(':'));
   if (tags.length && !(await ok(['rmi', ...tags]))) return false;
   for (const v of i.refs.filter(r => !r.includes(':'))) {
@@ -353,15 +373,14 @@ export const collect = async (
   return { removed, items };
 };
 
-/** Where room() measures: the data dir on this host, and through `volume` and `image`, the disk docker writes to. */
-export type Disk = { dir: string; image?: string; volume?: string; eligible?: string[] };
+/** Where room() measures: the data dir on this host, and through a container of `image`, the disk docker writes to. */
+export type Disk = { dir: string; image?: string; eligible?: string[] };
 
 const inDocker = new Map<string, { at: number; free: Promise<number> }>();
 
-/** Free bytes of the docker disk holding `volume`, measured at most once a minute. */
-const dockerFree = (image: string, volume: string) => {
-  const key = `${image} ${volume}`;
-  const hit = inDocker.get(key);
+/** Free bytes of the docker disk, under a container's root, measured at most once a minute. */
+const dockerFree = (image: string) => {
+  const hit = inDocker.get(image);
   if (hit && Date.now() - hit.at < 60_000) return hit.free;
   const free = runDockerCli(
     [
@@ -376,12 +395,10 @@ const dockerFree = (image: string, volume: string) => {
       'none',
       '--read-only',
       '--cap-drop=ALL',
-      '--mount',
-      `type=volume,src=${volume},dst=/disk,readonly`,
       image,
       'df',
       '-Pk',
-      '/disk',
+      '/',
     ],
     60_000
   ).then(out => {
@@ -389,14 +406,14 @@ const dockerFree = (image: string, volume: string) => {
     if (!Number.isFinite(free) || free < 0) throw new Error('docker df did not report free bytes');
     return free;
   });
-  inDocker.set(key, { at: Date.now(), free });
+  inDocker.set(image, { at: Date.now(), free });
   return free;
 };
 
 /** Free bytes where `disk` writes, the smaller of the host dir and the docker disk. */
-const getFreeBytes = async ({ dir, image, volume }: Disk) => {
+const getFreeBytes = async ({ dir, image }: Disk) => {
   const s = statfsSync(dir);
-  return Math.min(s.bavail * s.bsize, image && volume ? await dockerFree(image, volume) : Infinity);
+  return Math.min(s.bavail * s.bsize, image ? await dockerFree(image) : Infinity);
 };
 
 const gb = (b: number) => (b / 1e9).toFixed(1);

@@ -66,7 +66,7 @@ ENV DO_NOT_TRACK=1 \
     PATH=/cache/cargo/bin:$PATH
 
 # The run's worktree is mounted here, HOME is the run's own home, /tmp is tmpfs (read-only root) and /cache is the
-# shared toolchain volume. A new volume takes /cache's mode, so any uid can write it.
+# repo's own toolchain volume. A new volume takes /cache's mode, so any uid can write it.
 WORKDIR /work
 COPY file.ts agi.mjs /opt/
 RUN printf '#!/bin/sh\nexec node /opt/agi.mjs "$@"\n' > /usr/local/bin/agi && chmod 755 /usr/local/bin/agi

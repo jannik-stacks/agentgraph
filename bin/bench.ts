@@ -510,7 +510,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   }
   writeFileAtomic(
     join(graph, 'settings.yaml'),
-    stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image })
+    stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image, repo: c.repo })
   );
   if (options.point) repoint(graph, options.point);
   const dir = join(at, 'tracker');
@@ -703,7 +703,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
         down(net, {
           dir: join(out, c.id),
           eligible: readEnvRefs(join(out, c.id)),
-          ...(cache && { image: c.image, volume: cache }),
+          ...(cache && { image: c.image }),
         })
       );
       aside();
@@ -875,11 +875,11 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   const found = spawnSync('docker', ['image', 'inspect', start], { encoding: 'utf8' });
   if (found.status !== 0)
     throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
-  if (cache)
-    await ensureFreeDisk({ dir: dirname(tree), image: start, volume: cache, eligible: readEnvRefs(dirname(tree)) });
+  if (cache) await ensureFreeDisk({ dir: dirname(tree), image: start, eligible: readEnvRefs(dirname(tree)) });
   const { cache: repoCache, env } = cache
     ? await readSandboxSetup({
         repo: c.repo,
+        origin: resolve(git),
         image: start,
         git,
         base: c.base,
@@ -888,6 +888,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
         ...(c.toolchain && { toolchain: c.toolchain }),
       })
     : { cache: '', env: undefined };
+  if (repoCache) writeEnvRef(dirname(tree), repoCache);
   if (env) writeEnvRef(dirname(tree), env.image);
   const sharedMounts = repoCache
     ? await createSharedMounts(

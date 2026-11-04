@@ -437,7 +437,7 @@ describe('docker with a stand-in docker client', () => {
     const args = Exit.isSuccess(exit) ? exit.value : [];
     expect(args[args.indexOf('--network') + 1]).toBe('agentgraph-models');
     expect(args.join('\n')).not.toContain('HTTPS_PROXY');
-    expect(args.slice(-10, -8)).toEqual([expect.stringMatching(/^agentgraph-env\/repo:\w+$/), 'sh']);
+    expect(args.slice(-10, -8)).toEqual([expect.stringMatching(/^agentgraph-env\/agentgraph-origin-\w+:\w+$/), 'sh']);
     const build = readFileSync(`${log}.all`, 'utf8')
       .split('\n')
       .findLast(l => l.includes('agentgraph.envbuild'));
@@ -462,6 +462,28 @@ describe('docker with a stand-in docker client', () => {
     expect(logged().join('\n')).not.toContain('npm_config_cache');
   });
 
+  it('keeps repos whose names sanitize alike apart', async () => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
+      Effect.all(
+        ['acme/one-two', 'acme-one/two'].map(repo =>
+          s.checkout('main', undefined, undefined, { repo, toolchain: 'true' })
+        )
+      )
+    );
+    const keys = Exit.isSuccess(exit) ? exit.value.map(w => w.env?.key) : [];
+    expect(new Set(keys).size).toBe(2);
+    const text = readFileSync(all, 'utf8');
+    const builds = text.split('\n').filter(l => l.includes('agentgraph.envbuild'));
+    expect(builds).toHaveLength(2);
+    const caches = new Set(builds.map(l => /src=(\S+),dst=\/cache /.exec(l)?.[1]));
+    expect([...caches]).toEqual([
+      expect.stringMatching(/^agentgraph-cache-acme-one-two-/),
+      expect.stringMatching(/^agentgraph-cache-acme-one-two-/),
+    ]);
+  });
+
   it('keeps one cache volume per repo and setup, reused by every checkout of them', async () => {
     const all = `${log}.all`;
     writeFileSync(all, '');
@@ -474,7 +496,11 @@ describe('docker with a stand-in docker client', () => {
       })
     );
     expect(Exit.isSuccess(exit)).toBe(true);
-    const caches = [...readFileSync(all, 'utf8').matchAll(/volume create --label agentgraph\.cache=(\S+) (\S+)/g)];
+    const caches = [
+      ...readFileSync(all, 'utf8').matchAll(
+        /volume create --label agentgraph\.cache=(\S+) --label agentgraph\.version=\d+ (\S+)/g
+      ),
+    ];
     expect(caches.every(([, label, name]) => label === name)).toBe(true);
     const names = [...new Set(caches.map(([, name]) => name!))];
     expect(names).toEqual([
@@ -485,7 +511,32 @@ describe('docker with a stand-in docker client', () => {
       .split('\n')
       .filter(l => l.includes('agentgraph.envbuild'));
     expect(builds.map(l => /src=(\S+),dst=\/cache /.exec(l)?.[1])).toEqual(names);
-    expect(readFileSync(all, 'utf8')).not.toMatch(/src=agentgraph-cache,|agentgraph-cache /);
+    const text = readFileSync(all, 'utf8');
+    const readOverlayLower = (overlay: string) =>
+      new RegExp(`volume create .*--label agentgraph\\.lower=(\\S+) .* ${overlay}$`, 'm').exec(text)?.[1];
+    const execs = text
+      .split('\n')
+      .filter(l => l.includes('echo hi'))
+      .map(l => readOverlayLower(/src=(agentgraph-layer-\w+-c-o),dst=\/cache,/.exec(l)?.[1] ?? 'none'));
+    expect(execs).toEqual([names[0], names[0], names[1]]);
+    expect(text).not.toMatch(/src=agentgraph-cache,|agentgraph-cache /);
+  });
+
+  it('tells repos without a name apart by their origin', async () => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    for (const from of [origin(), origin()])
+      await use(dockerSandbox({ data: tmp('data'), origin: from }), s =>
+        s.checkout('main', undefined, undefined, { toolchain: 'true' })
+      );
+    const names = [...readFileSync(all, 'utf8').matchAll(/volume create --label agentgraph\.cache=(\S+)/g)].map(
+      ([, name]) => name
+    );
+    expect(names).toHaveLength(2);
+    expect(names[0]).not.toBe(names[1]);
+    expect(names).toEqual(
+      names.map(() => expect.stringMatching(/^agentgraph-cache-agentgraph-origin-\w+-[0-9a-f]{24}$/))
+    );
   });
 
   it.each([false, true])('creates missing mountpoints for a read-only command (streamed: %s)', async streamed => {
@@ -664,16 +715,18 @@ describe('docker images and sandbox setups shared by concurrent callers', () => 
         '#!/bin/sh',
         `s=${state}`,
         `[ "$1" = network ] && { echo true; exit 0; }`,
-        `case "$1" in rm|volume) exit 0;; commit) touch $s/committed; exit 0;; esac`,
+        `for t; do :; done; t=$(echo "$t" | tr /: __)`,
+        `case "$1" in rm|volume) exit 0;; commit) touch $s/committed-$t; exit 0;; esac`,
         `[ "$1" = build ] && { echo x >> $s/builds; sleep 0.3; touch $s/sandbox; exit 0; }`,
         `[ "$1" = image ] && case "$*" in`,
-        `  *Labels*) [ -e $s/committed ] || exit 1; echo '{"agentgraph.env":"k","agentgraph.mode":"deps","agentgraph.complete":"true"}'; exit 0;;`,
+        `  *Labels*) [ -e $s/committed-$t ] || exit 1; echo '{"agentgraph.env":"k","agentgraph.mode":"deps","agentgraph.complete":"true"}'; exit 0;;`,
         `  *agentgraph-sandbox:local*) [ -e $s/sandbox ] || { echo "No such image" >&2; exit 1; }; echo sha256:base; exit 0;;`,
         `  *sha256*|*ghcr.io*) echo "No such image" >&2; exit 1;;`,
         `  *) echo sha256:base; exit 0;;`,
         `esac`,
         `case "$*" in *agentgraph.envbuild*)`,
-        `  mkdir $s/busy 2>/dev/null || exit 137; echo x >> $s/envbuilds; sleep 0.3; rmdir $s/busy`,
+        `  p=; for a; do [ "$p" = --name ] && n=$a; p=$a; done`,
+        `  mkdir $s/busy-$n 2>/dev/null || exit 137; echo x >> $s/envbuilds; sleep 0.3; rmdir $s/busy-$n`,
         `  printf '@@ignored\\n@@untracked\\n@@lower\\n5\\n'; exit 0;;`,
         `esac`,
         `echo started`,
@@ -716,11 +769,32 @@ describe('docker images and sandbox setups shared by concurrent callers', () => 
       base: 'main',
       cache: 'c',
       toolchain: 'true',
+      origin: repo,
     };
     const envs = await Promise.all([1, 2].map(() => readSandboxSetup({ ...spec, repo: 'one' })));
     expect(envs.map(e => e.env?.mode)).toEqual(['deps', 'deps']);
     expect(envs[0]!.cache).toBe(envs[1]!.cache);
     expect(count(join(state, 'envbuilds'))).toBe(1);
+    const others = await Promise.all(
+      ['two', 'three'].map(name => readSandboxSetup({ ...spec, repo: name, setup: 'x' }))
+    );
+    expect(others.map(e => e.env?.mode)).toEqual(['deps', 'deps']);
+    expect(new Set([envs[0]!.cache, ...others.map(e => e.cache)]).size).toBe(3);
+    expect(count(join(state, 'envbuilds'))).toBe(3);
+  });
+
+  it('refuses a cache prefix docker cannot name', async () => {
+    const repo = origin();
+    await expect(
+      readSandboxSetup({
+        repo: 'r',
+        origin: repo,
+        image: 'base:1',
+        git: join(repo, '.git'),
+        base: 'main',
+        cache: '--x',
+      })
+    ).rejects.toThrow('volume name not allowed: --x');
   });
 });
 

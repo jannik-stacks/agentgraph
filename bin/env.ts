@@ -1,5 +1,5 @@
 /**
- * Lists and collects the cache sandbox setups, dependency volumes and score trees hold, pins what a paused bench still needs,
+ * Lists and collects the cache sandbox setups, dependency volumes, toolchain cache volumes and score trees hold, pins what a paused bench still needs,
  * and removes dependency volumes of dead runners.
  *
  *   node bin/env.ts list [--root <dir>]...

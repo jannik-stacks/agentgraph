@@ -3,7 +3,7 @@ import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Cache, Cause, Duration, Effect, Layer, Queue, Redacted, Schema, Semaphore, Stream } from 'effect';
 import { isIP } from 'node:net';
@@ -460,7 +460,7 @@ export const dockerSandbox = (o: {
           try: () =>
             ensureFreeDisk({
               dir: o.data,
-              ...(cache && { image: base, volume: cache }),
+              ...(cache && { image: base }),
               eligible: readEnvRefs(o.data),
             }),
           catch: e => infra((e as Error).message),
@@ -758,7 +758,8 @@ export const dockerSandbox = (o: {
               ? yield* Effect.tryPromise({
                   try: () =>
                     readSandboxSetup({
-                      repo: graph.repo ?? 'repo',
+                      repo: graph.repo ?? '',
+                      origin: URL.canParse(o.origin) ? o.origin : resolve(o.origin),
                       image: box,
                       git: mirror,
                       base,
@@ -769,6 +770,7 @@ export const dockerSandbox = (o: {
                   catch: e => infra((e as Error).message),
                 })
               : { cache: '', env: undefined };
+          if (repoCache) yield* Effect.sync(() => writeEnvRef(o.data, repoCache));
           if (env) yield* Effect.sync(() => writeEnvRef(o.data, env.image));
           const match = env
             ? yield* Effect.promise(() =>
@@ -840,7 +842,7 @@ export const dockerSandbox = (o: {
             work.written = () => written(sharedMounts, from);
             made.set(dir, {
               image: from,
-              ...(repoCache && { cache: repoCache }),
+              cache: repoCache,
               ...(graph?.network !== undefined && { network: graph.network }),
               sharedMounts,
               mounts: [
