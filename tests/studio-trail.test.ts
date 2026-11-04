@@ -105,13 +105,14 @@ describe('a live run trail', async () => {
   const { simulate } = await studioModule<{
     simulate: (w: unknown, next: () => unknown, e: unknown) => { trace: unknown[]; run: { reason?: string } };
   }>('graph/scenarios.ts');
-  const { makeRunTrail, makeWorkflowRunVisits } = await studioModule<{
+  const { makeRunTrail, makeWorkflowRunVisits, makeRunStory } = await studioModule<{
     makeRunTrail: (trace: unknown[]) => unknown[];
     makeWorkflowRunVisits: (
       graph: unknown,
       trail: unknown[],
       run: unknown
     ) => { visits: { node: { step: string }; outOfRounds?: boolean }[] };
+    makeRunStory: (visits: unknown) => string;
   }>('graph/visits.ts');
   const workflow = fixture('kit').workflows.issue!;
   const graph = makeWorkflowGraph(workflow, {});
@@ -138,5 +139,17 @@ describe('a live run trail', async () => {
   it('marks the way back that found no round left', () => {
     const { marked } = replay([...twice, back]);
     expect(marked).toEqual(['review']);
+  });
+
+  it('keeps a run whose steps left the graph, naming them in its story', () => {
+    const queue = [pass, pass, back];
+    const { trace, run } = simulate(workflow, () => queue.shift(), engine) as {
+      trace: { step: string }[];
+      run: object;
+    };
+    const renamed = trace.map(line => (line.step === 'triage' ? { ...line, step: 'retired' } : line));
+    const visits = makeWorkflowRunVisits(graph, makeRunTrail(renamed), { ...run, step: 'vanished' });
+    expect(visits.visits.map(v => v.node.step)).toEqual(['implement', 'review']);
+    expect(makeRunStory(visits)).toMatch(/\. Steps retired, vanished are not in the current graph\.$/);
   });
 });

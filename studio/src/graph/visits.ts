@@ -42,8 +42,15 @@ export type End =
 const isAgent = (n: Node) => getStepDoerKind(n.doer) === 'agent';
 
 /** Unrolls a run into the visits it made, in order. */
-export function makeWorkflowRunVisits(graph: WorkflowGraph, trail: Trail, run: Run): { visits: Visit[]; end: End } {
+export function makeWorkflowRunVisits(
+  graph: WorkflowGraph,
+  all: Trail,
+  run: Run
+): { visits: Visit[]; end: End; missing: string[] } {
   const node = (step: string) => graph.nodes.find(n => n.step === step)!;
+  const isKnown = (step: string) => graph.nodes.some(n => n.step === step);
+  const trail = all.filter(entry => isKnown(entry.at.step));
+  const missing = [...new Set([...all.map(entry => entry.at.step), run.step].filter(step => !isKnown(step)))];
   const visits: Visit[] = [];
   const enter = (step: string, previous?: Trail[number]) => {
     const n = node(step);
@@ -77,7 +84,8 @@ export function makeWorkflowRunVisits(graph: WorkflowGraph, trail: Trail, run: R
     else if (o.kind === 'pass' || o.kind === 'back' || o.kind === 'stop') visit.left = o.kind;
   });
   const last = visits.at(-1);
-  if (run.status !== 'done' && run.status !== 'stopped' && (!last || last.left)) enter(run.step, trail.at(-1));
+  if (run.status !== 'done' && run.status !== 'stopped' && (!last || last.left) && isKnown(run.step))
+    enter(run.step, trail.at(-1));
 
   const end: End =
     run.status === 'done'
@@ -89,7 +97,7 @@ export function makeWorkflowRunVisits(graph: WorkflowGraph, trail: Trail, run: R
           : run.status === 'waiting'
             ? { kind: 'waiting' }
             : { kind: 'running', try: run.tries + 1 };
-  return { visits, end };
+  return { visits, end, missing };
 }
 
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
@@ -122,7 +130,7 @@ const collapse = (groups: string[][]): string[] => {
 };
 
 /** The run told in one sentence, the way a person would say it. */
-export function makeRunStory({ visits, end }: { visits: Visit[]; end: End }): string {
+export function makeRunStory({ visits, end, missing = [] }: { visits: Visit[]; end: End; missing?: string[] }): string {
   const groups = visits.map((v, i): string[] => {
     const step = v.node.step;
     const failed = v.failed.length > 0 ? [`${step} failed its checks ${times(v.failed.length)}`] : [];
@@ -147,5 +155,10 @@ export function makeRunStory({ visits, end }: { visits: Visit[]; end: End }): st
   if (end.kind === 'stopped') parts.push(`stopped, ${end.why}`);
   if (end.kind === 'asking') parts.push(`${visits.at(-1)?.node.step ?? 'the run'} is asking you`);
   const text = parts.join(', ');
-  return text.charAt(0).toUpperCase() + text.slice(1) + '.';
+  const gone = missing.length
+    ? [
+        `${missing.length === 1 ? 'Step' : 'Steps'} ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not in the current graph.`,
+      ]
+    : [];
+  return [...(text ? [text.charAt(0).toUpperCase() + text.slice(1) + '.'] : []), ...gone].join(' ') || '.';
 }
