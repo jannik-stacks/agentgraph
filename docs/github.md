@@ -53,6 +53,13 @@ gh auth refresh -s read:project
 
 The runner then uses `gh auth token`. Where there is no `gh`, set `AGENTGRAPH_PROJECT_TOKEN` to a token with `read:project`. It is only read from the environment and never logged or stored. See [Project boards](workflows.md#project-boards).
 
+The board plugin also moves cards, which needs the `project` scope on the same token instead:
+
+```sh
+gh auth refresh -s project
+```
+
+
 ## Start the runner
 
 From a checkout of agentgraph, prepare a data folder with the agents' model keys, then start the loop:

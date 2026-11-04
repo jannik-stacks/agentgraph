@@ -1,5 +1,5 @@
 import { getSha } from './hash.ts';
-import { readDirOrEmpty, readOrUndefined } from './read.ts';
+import { readDirOrEmpty } from './read.ts';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
@@ -666,7 +666,8 @@ export const findDeadCheckouts = (data: string) => {
     try {
       return !isOwnerRunning(readFileSync(owner, 'utf8').trim(), statSync(owner).mtimeMs);
     } catch (e) {
-      return readOrUndefined(e) ?? true;
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return true;
+      throw e;
     }
   });
 };

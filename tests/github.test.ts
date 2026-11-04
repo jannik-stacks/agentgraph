@@ -60,6 +60,25 @@ const fake = (routes: Record<string, Route>) => {
   return { fetch, calls };
 };
 
+const board = (
+  projectV2: unknown = {
+    id: 'project-3',
+    field: { id: 'field-status', options: [{ id: 'opt-review', name: 'In Review' }] },
+  }
+) => ({
+  data: { repository: { issue: { id: 'issue-7' } }, repositoryOwner: { projectV2 } },
+});
+const moveCard = (
+  f: ReturnType<typeof fake>,
+  name = 'In Review',
+  token: Effect.Effect<string, TrackerError> = Effect.succeed('user-token')
+) =>
+  Effect.runPromiseExit(
+    Effect.flatMap(Tracker, t => t.moveToColumn!(7, { project: 'acme/3', name })).pipe(
+      Effect.provide(githubTracker(app, f.fetch, undefined, undefined, undefined, token))
+    )
+  );
+
 const run = <A, E>(f: ReturnType<typeof fake>, effect: Effect.Effect<A, E, Tracker>) =>
   Effect.runPromise(Effect.provide(effect, githubTracker(app, f.fetch)));
 
@@ -594,59 +613,65 @@ describe('githubTracker', () => {
     ]).toEqual([expected, queries, said.length, true]);
   });
 
-  it.each([
-    ['adds the card when missing, then moves it', [{ id: 'item-other', project: { id: 'project-3x' } }], 'item-new', 3],
-    ['moves the existing card', [{ id: 'item-7', project: { id: 'project-3' } }], 'item-7', 2],
-  ])('%s to a board column', async (_, items, item, queries) => {
+  it('adds the card, which answers the existing one when present, then moves it with the project token', async () => {
     const f = fake({
       'POST /graphql': (body: Body) => {
         const query = (body as { query: string }).query;
         if (query.includes('addProjectV2ItemById'))
-          return { body: { data: { addProjectV2ItemById: { item: { id: 'item-new' } } } } };
+          return { body: { data: { addProjectV2ItemById: { item: { id: 'item-7' } } } } };
         if (query.includes('updateProjectV2ItemFieldValue')) return { body: { data: {} } };
-        return {
-          body: {
-            data: {
-              repository: { issue: { id: 'issue-7', projectItems: { nodes: items } } },
-              repositoryOwner: {
-                projectV2: {
-                  id: 'project-3',
-                  field: { id: 'field-status', options: [{ id: 'opt-review', name: 'In Review' }] },
-                },
-              },
-            },
-          },
-        };
+        return { body: board() };
       },
     });
-    await Effect.runPromise(
-      Effect.flatMap(Tracker, t => t.moveToColumn!(7, { project: 'acme/3', name: 'In Review' })).pipe(
-        Effect.provide(githubTracker(app, f.fetch, undefined, undefined, undefined, Effect.succeed('user-token')))
-      )
-    );
+    const exit = await moveCard(f);
     const posted = f.calls.filter(c => c.path === '/graphql');
-    expect([posted.length, posted[0]!.body?.variables, posted.at(-1)!.body?.variables]).toEqual([
-      queries,
-      { owner: 'o', name: 'r', issue: 7, login: 'acme', number: 3 },
-      { project: 'project-3', item, field: 'field-status', option: 'opt-review' },
+    expect([exit._tag, posted.map(c => c.body?.variables), posted.map(c => c.headers.get('authorization'))]).toEqual([
+      'Success',
+      [
+        { owner: 'o', name: 'r', issue: 7, login: 'acme', number: 3 },
+        { project: 'project-3', content: 'issue-7' },
+        { project: 'project-3', item: 'item-7', field: 'field-status', option: 'opt-review' },
+      ],
+      ['Bearer user-token', 'Bearer user-token', 'Bearer user-token'],
     ]);
   });
 
-  it('fails moving to a column the board does not have', async () => {
-    const f = fake({
-      'POST /graphql': {
-        data: {
-          repository: { issue: { id: 'issue-7', projectItems: { nodes: [] } } },
-          repositoryOwner: { projectV2: { id: 'project-3', field: { id: 'field-status', options: [] } } },
-        },
-      },
-    });
-    const exit = await Effect.runPromiseExit(
-      Effect.flatMap(Tracker, t => t.moveToColumn!(7, { project: 'acme/3', name: 'Done' })).pipe(
-        Effect.provide(githubTracker(app, f.fetch, undefined, undefined, undefined, Effect.succeed('user-token')))
-      )
+  it.each([
+    ['a board that is not there', { body: board(null) }, 'In Review', 'no project acme/3'],
+    [
+      'a board without a Status field',
+      { body: board({ id: 'project-3', field: null }) },
+      'In Review',
+      'has no single-select Status field',
+    ],
+    ['a column the board does not have', { body: board() }, 'Done', 'has no Status option Done; it has In Review'],
+    [
+      'a GraphQL error',
+      { body: { errors: [{ message: 'Something went wrong' }] } },
+      'In Review',
+      'Something went wrong',
+    ],
+    [
+      'a token without the project scope',
+      { body: { errors: [{ type: 'INSUFFICIENT_SCOPES', message: 'needs project' }] } },
+      'In Review',
+      'gh auth refresh -s project',
+    ],
+  ])('fails moving a card to %s', async (_, reply, name, said) => {
+    const f = fake({ 'POST /graphql': () => reply });
+    const exit = await moveCard(f, name);
+    expect([exit._tag, JSON.stringify(exit).includes(said), f.calls.filter(c => c.path === '/graphql').length]).toEqual(
+      ['Failure', true, 1]
     );
-    expect(JSON.stringify(exit)).toContain('project acme/3 has no Status option Done');
+  });
+
+  it('says how to get a token with the project scope when there is none', async () => {
+    const f = fake({});
+    const exit = await moveCard(f, 'In Review', Effect.fail(new TrackerError({ message: 'no token' })));
+    expect([
+      JSON.stringify(exit).includes('gh auth refresh -s project'),
+      f.calls.filter(c => c.path === '/graphql'),
+    ]).toEqual([true, []]);
   });
 
   it('trusts only the listed logins when given a trust list, labels included', async () => {

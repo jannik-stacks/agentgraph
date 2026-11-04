@@ -179,7 +179,7 @@ const current = (value: unknown, key = ''): unknown => {
   return Object.fromEntries(Object.entries(value).map(([k, v]) => [renamed[k] ?? k, current(v, k)]));
 };
 
-const absent = (e: unknown) => ['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code!);
+const absent = (e: unknown) => ['ENOENT', 'ENOTDIR'].includes(String((e as NodeJS.ErrnoException).code));
 
 export const readRecordSync = (path: string) => {
   if (existsSync(path)) return readFileSync(path, 'utf8');

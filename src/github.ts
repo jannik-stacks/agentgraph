@@ -127,10 +127,8 @@ const columnQuery = `query($owner: String!, $name: String!, $after: String) {
   }
 }`;
 
-const itemQuery = `query($owner: String!, $name: String!, $issue: Int!, $login: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    issue(number: $issue) { id projectItems(first: 100) { nodes { id project { id } } } }
-  }
+const boardQuery = `query($owner: String!, $name: String!, $issue: Int!, $login: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { issue(number: $issue) { id } }
   repositoryOwner(login: $login) {
     ... on ProjectV2Owner {
       projectV2(number: $number) {
@@ -148,8 +146,8 @@ const moveItemMutation = `mutation($project: ID!, $item: ID!, $field: ID!, $opti
     input: { projectId: $project, itemId: $item, fieldId: $field, value: { singleSelectOptionId: $option } }
   ) { projectV2Item { id } }
 }`;
-type ProjectItem = {
-  repository: { issue: { id: string; projectItems: { nodes: { id: string; project: { id: string } }[] } } };
+type Board = {
+  repository: { issue: { id: string } };
   repositoryOwner: {
     projectV2: { id: string; field: { id: string; options: { id: string; name: string }[] } | null } | null;
   } | null;
@@ -348,13 +346,17 @@ export const githubTracker = (
   projectToken = readProjectToken
 ): Layer.Layer<Tracker> => {
   const request = requester(fetch);
-  const graphql = <T>(query: string, variables: Record<string, unknown>) =>
-    Effect.flatMap(projectToken, auth =>
-      request<{ data?: T; errors?: { message: string }[] }>('POST', '/graphql', auth, { query, variables })
-    ).pipe(
+  const graphql = <T>(auth: string, query: string, variables: Record<string, unknown>) =>
+    request<{ data?: T; errors?: { type?: string; message: string }[] }>('POST', '/graphql', auth, {
+      query,
+      variables,
+    }).pipe(
       Effect.filterOrFail(
         ({ data }) => !data.errors?.length && data.data !== undefined,
-        ({ data }) => new TrackerError({ message: data.errors?.map(e => e.message).join('; ') ?? 'no data' })
+        ({ data }) =>
+          new TrackerError({
+            message: data.errors?.map(e => [e.type, e.message].filter(Boolean).join(': ')).join('; ') ?? 'no data',
+          })
       ),
       Effect.map(({ data }) => data.data!)
     );
@@ -1122,9 +1124,10 @@ export const githubTracker = (
       slug: me,
       moveToColumn: (number, column) =>
         Effect.gen(function* () {
+          const auth = yield* projectToken;
           const [owner, name] = app.repo.split('/');
           const [login, board] = column.project.split('/');
-          const found = yield* graphql<ProjectItem>(itemQuery, {
+          const found = yield* graphql<Board>(auth, boardQuery, {
             owner,
             name,
             issue: number,
@@ -1132,20 +1135,35 @@ export const githubTracker = (
             number: Number(board),
           });
           const project = found.repositoryOwner?.projectV2;
-          const option = project?.field?.options.find(o => o.name === column.name);
-          if (!project?.field || !option)
+          if (!project) return yield* new TrackerError({ message: `no project ${column.project}` });
+          if (!project.field)
             return yield* new TrackerError({
-              message: `project ${column.project} has no Status option ${column.name}`,
+              message: `project ${column.project} has no single-select Status field`,
             });
-          const { issue } = found.repository;
-          const item =
-            issue.projectItems.nodes.find(i => i.project.id === project.id)?.id ??
-            (yield* graphql<{ addProjectV2ItemById: { item: { id: string } } }>(addItemMutation, {
-              project: project.id,
-              content: issue.id,
-            })).addProjectV2ItemById.item.id;
-          yield* graphql(moveItemMutation, { project: project.id, item, field: project.field.id, option: option.id });
-        }),
+          const option = project.field.options.find(o => o.name === column.name);
+          if (!option)
+            return yield* new TrackerError({
+              message: `project ${column.project} has no Status option ${column.name}; it has ${project.field.options.map(o => o.name).join(', ')}`,
+            });
+          const added = yield* graphql<{ addProjectV2ItemById: { item: { id: string } } }>(auth, addItemMutation, {
+            project: project.id,
+            content: found.repository.issue.id,
+          });
+          yield* graphql(auth, moveItemMutation, {
+            project: project.id,
+            item: added.addProjectV2ItemById.item.id,
+            field: project.field.id,
+            option: option.id,
+          });
+        }).pipe(
+          Effect.mapError(e =>
+            /INSUFFICIENT_SCOPES|^no token$/.test(e.message)
+              ? new TrackerError({
+                  message: `Moving project cards needs a GitHub token with the project scope: run \`gh auth refresh -s project\`, or set AGENTGRAPH_PROJECT_TOKEN. (${e.message})`,
+                })
+              : e
+          )
+        ),
       ...(studio && { studio }),
     };
   });
