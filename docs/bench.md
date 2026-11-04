@@ -89,7 +89,7 @@ node bench/graph-size.ts <set or run dir>...
 node bench/graph-size.ts <run dir> --git-dir <repo>
 ```
 
-It writes ordinary labels: `graph-words` counts whitespace-separated tokens in Markdown under `prompts/`, `agents/`, `skills/`, `workflows/` and `checks/`, including frontmatter; `graph-checks` counts check Markdown files; `graph-script-lines` counts nonblank lines in every file under `scripts/`. It excludes `node_modules/`. Counts use the attempt's graph copy, or the run's `graphTree` in its git repository (use the second form for another repository). Trees are cached within a pass; unchanged labels add no entries. Imported references are counted as skips with a reason; missing graphs fail. This script is outside the published package. <!-- code: bench/graph-size.ts#readGraphSize bench/graph-size.ts#writeGraphSizeLabels -->
+It writes ordinary labels: `graph-words` counts whitespace-separated tokens in Markdown under `prompts/`, `agents/`, `skills/`, `workflows/` and `checks/`, including frontmatter; `graph-checks` counts check Markdown files; `graph-script-lines` counts nonblank lines in every file under `scripts/`. It excludes `node_modules/`. Counts use the attempt's graph copy, or the run's `graphTree` in its git repository (use the second form for another repository). Trees are cached within a pass; unchanged labels add no entries. Imported references, runs without `graphTree`, and runs with neither a graph copy nor a git repository are counted as skips with a one-line reason. This script is outside the published package. <!-- code: bench/graph-size.ts#readGraphSize bench/graph-size.ts#writeGraphSizeLabels -->
 
 ## Long runs
 

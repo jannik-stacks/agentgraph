@@ -1,9 +1,40 @@
-import { readFileSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { readGraphSize, writeGraphSizeLabels } from '../bench/graph-size.ts';
 import { readRunLabels } from '../src/labels.ts';
 import { git, tmp, write } from './kit.ts';
+
+it.each([
+  { workflow: 'import', graphTree: 'missing', why: 'imported reference has no graph' },
+  { workflow: 'issue', graphTree: undefined, why: 'missing graphTree' },
+  { workflow: 'issue', graphTree: 'missing', why: 'no graph copy or git repository' },
+])('skips a run with $why and continues writing labels', async ({ workflow, graphTree, why }) => {
+  const dir = tmp('graph-size-skip');
+  const skipped = join(dir, 'skipped');
+  const available = join(dir, 'available');
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    write(join(skipped, 'data', 'run-1'), {
+      'run.json': JSON.stringify({ id: 'run-1', workflow, started: '', graphTree }),
+    });
+    write(join(available, 'data', 'run-2'), {
+      'run.json': JSON.stringify({ id: 'run-2', workflow: 'issue', started: '', graphTree: 'available' }),
+    });
+    write(join(available, 'graph'), { 'agents/a.md': 'Read this.\n' });
+    expect(await writeGraphSizeLabels([skipped, available])).toEqual({ written: 1, unchanged: 0, skipped: 1 });
+    expect(log.mock.calls).toEqual([[`skip run-1: ${why}`]]);
+    expect(existsSync(join(skipped, 'data', 'run-1', 'labels.jsonl'))).toBe(false);
+    expect(readRunLabels(join(available, 'data'), 'run-2')).toEqual({
+      'graph-words': '2',
+      'graph-checks': '0',
+      'graph-script-lines': '0',
+    });
+  } finally {
+    log.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 it('counts graph text and scripts, recovers a tree, and writes labels once', async () => {
   const dir = tmp('graph-size');

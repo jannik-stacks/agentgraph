@@ -40,12 +40,20 @@ export const writeGraphSizeLabels = async (roots: string[], gitDir?: string) => 
       skipped++;
       continue;
     }
-    if (!run.graphTree) throw new Error(`${run.id}: missing graphTree`);
+    if (!run.graphTree) {
+      console.log(`skip ${run.id}: missing graphTree`);
+      skipped++;
+      continue;
+    }
     let size = cache.get(run.graphTree);
     if (!size) {
       const graph = join(at, 'graph');
       const repository = gitDir ?? [join(data, 'mirror.git'), join(at, 'tracker', 'origin.git')].find(existsSync);
-      if (!existsSync(graph) && !repository) throw new Error(`${run.id}: no graph copy or git repository`);
+      if (!existsSync(graph) && !repository) {
+        console.log(`skip ${run.id}: no graph copy or git repository`);
+        skipped++;
+        continue;
+      }
       size = existsSync(graph) ? readGraphSize(graph) : readGraphSize(repository!, run.graphTree);
       cache.set(run.graphTree, size);
     }
