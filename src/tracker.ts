@@ -1,6 +1,6 @@
-import { readOrUndefined } from './read.ts';
+import { readDirEntriesOrEmpty, readOrUndefined } from './read.ts';
 import { makePlugin, type ToolContext } from './plugin.ts';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { appendFile, link, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -224,32 +224,35 @@ const isIssueFolder = (name: string) => /^\d+$/.test(name);
 const isStatusFolder = (name: string) =>
   !isIssueFolder(name) && !/[/\\]/.test(name) && !['', '.', '..', 'origin.git'].includes(name) && !name.startsWith('.');
 
-const readFolders = (dir: string) => {
-  try {
-    return readdirSync(dir, { withFileTypes: true }).flatMap(f => (f.isDirectory() ? [f.name] : []));
-  } catch (e) {
-    return readOrUndefined(e) ?? [];
-  }
-};
+const findFolders = (entries: ReturnType<typeof readDirEntriesOrEmpty>) =>
+  entries.flatMap(f => (f.isDirectory() ? [f.name] : []));
 
-const readStatusFolders = (dir: string) => readFolders(dir).filter(isStatusFolder);
+const readStatusFolders = (dir: string) => findFolders(readDirEntriesOrEmpty(dir)).filter(isStatusFolder);
 
 export const findIssueNumbers = (dir: string) => {
-  const old = (existsSync(dir) ? readdirSync(dir) : []).find(f => /^\d+\.(md|jsonl)$/.test(f));
+  const entries = readDirEntriesOrEmpty(dir);
+  const old = entries.find(f => /^\d+\.(md|jsonl)$/.test(f.name))?.name;
   if (old)
     throw new Error(`${dir} holds ${old} in the old flat layout; move each issue into its folder <n>/ (see runs.md)`);
+  const folders = findFolders(entries);
   return [
     ...new Set(
-      [...readFolders(dir), ...readStatusFolders(dir).flatMap(s => readFolders(join(dir, s)))]
+      [...folders, ...folders.filter(isStatusFolder).flatMap(s => findFolders(readDirEntriesOrEmpty(join(dir, s))))]
         .filter(isIssueFolder)
         .map(Number)
     ),
   ].toSorted((a, b) => a - b);
 };
 
-export const findIssueDir = (dir: string, n: number) =>
-  [join(dir, String(n)), ...readStatusFolders(dir).map(s => join(dir, s, String(n)))].find(existsSync) ??
-  join(dir, String(n));
+export const findIssueDir = (dir: string, n: number) => {
+  const top = join(dir, String(n));
+  if (existsSync(top)) return top;
+  return (
+    readStatusFolders(dir)
+      .map(s => join(dir, s, String(n)))
+      .find(existsSync) ?? top
+  );
+};
 
 const fileIssue = async (dir: string, front: IssueFront, body: string): Promise<number> => {
   const draft = join(dir, `.new-${randomUUID()}`);
@@ -331,11 +334,10 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       const held = new Map<string, Set<string>>();
 
       const read = async (n: number): Promise<Issue | undefined> => {
-        const text = await readIssueFile(n, 'issue.md');
+        const [text, pull] = await Promise.all([readIssueFile(n, 'issue.md'), readIssueFile(n, 'pull.json')]);
         if (text === undefined) return undefined;
         const { front, body } = parseIssueFile(text);
         const [, first = '', rest = ''] = /^#*\s*(.*)\n?([\s\S]*)$/.exec(body.trim()) ?? [];
-        const pull = await readIssueFile(n, 'pull.json');
         return {
           number: n,
           state: 'open',
@@ -369,12 +371,14 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         const events = t.labels.map(label => ({ issue: n, kind: 'label', label, actor: t.author, trusted, at }));
         await publish(timelinePath(dir, n), events.map(m => `${JSON.stringify(m)}\n`).join(''));
       };
-      const readTimeline = async (n: number) => {
-        await adopt(n);
-        return ((await readIssueFile(n, 'events.jsonl')) ?? '')
+      const readEvents = async (n: number) =>
+        ((await readIssueFile(n, 'events.jsonl')) ?? '')
           .split('\n')
           .filter(Boolean)
           .map(line => JSON.parse(line) as Event);
+      const readTimeline = async (n: number) => {
+        await adopt(n);
+        return readEvents(n);
       };
       const readIssueEvents = async (n: number) =>
         (await readTimeline(n))
@@ -438,7 +442,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         await adopt(n);
         switch (p.kind) {
           case 'comment': {
-            const all = await readTimeline(n);
+            const all = await readEvents(n);
             if (p.edit !== undefined) {
               const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === who);
               if (at < 0) return no(`no comment ${p.edit} of ours on #${n}`);

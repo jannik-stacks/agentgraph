@@ -1,8 +1,10 @@
 import { readdirSync } from 'node:fs';
 
-export const readDirOrEmpty = (dir: string) => {
+export const readDirOrEmpty = (dir: string) => readDirEntriesOrEmpty(dir).map(e => e.name);
+
+export const readDirEntriesOrEmpty = (dir: string) => {
   try {
-    return readdirSync(dir);
+    return readdirSync(dir, { withFileTypes: true });
   } catch (e) {
     return readOrUndefined(e) ?? [];
   }

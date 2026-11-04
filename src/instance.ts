@@ -310,7 +310,7 @@ export const writeClosed = (dir: string, as: string, n: number) =>
     if (!existsSync(md)) throw new Error(`no issue #${n}`);
     const { front, body } = parseIssueFile(readFileSync(md, 'utf8'));
     writeFileAtomic(md, formatIssueFile({ ...front, state: 'closed' }, body.trim()));
-    await writeTimelineEvent(dir, { issue: n, kind: 'closed', actor: as, trusted: true });
+    await writeTrustedEvent(dir, as, { issue: n, kind: 'closed' });
   });
 
 export const mergePull = (i: Pick<Instance, 'tracker' | 'owner'>, n: number) =>
