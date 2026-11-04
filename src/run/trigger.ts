@@ -818,8 +818,7 @@ const makeIssueScan = (
                 )
               ),
         }),
-        Effect.catchTag('TrackerError', e => Effect.as(Effect.logError(`look at #${n}`, e), [])),
-        gate(n).withPermits(1)
+        Effect.catchTag('TrackerError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
       );
     return { all, runs, from, listed, latest, fetched, gate, look };
   });
@@ -850,37 +849,37 @@ export const scanIssuesAndRunningRuns = (
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
     const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
-    const changed = (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();
+    const changed = (yield* Effect.forEach(issues, n => gate(n).withPermits(1)(look(n)), {
+      concurrency: graph.limits.parallel,
+    })).flat();
     const kept = yield* Effect.flatMap(Store, s => s.list());
     const sandbox = yield* Sandbox;
     const branches = yield* sandbox
       .readBranches()
       .pipe(Effect.catch(e => Effect.as(Effect.logWarning('local branches', e), [])));
+    const uses = (branch: string) => (r: Run) => {
+      if (r.checkout) return r.checkout.branch === branch;
+      const template = graph.workflows[r.workflow]?.branch;
+      return (
+        branch.split(/\D+/).includes(String(r.issue)) ||
+        (!!template && matchesGlob(branch, template.replaceAll('{issue}', String(r.issue)).replaceAll('{parent}', '*')))
+      );
+    };
     for (const branch of branches.filter(isAgentBranch)) {
-      const using = kept.filter(r => {
-        if (r.checkout) return r.checkout.branch === branch;
-        const template = graph.workflows[r.workflow]?.branch;
-        return (
-          branch.split(/\D+/).includes(String(r.issue)) ||
-          (!!template &&
-            matchesGlob(branch, template.replaceAll('{issue}', String(r.issue)).replaceAll('{parent}', '*')))
-        );
-      });
+      const using = kept.filter(uses(branch));
       if (!using.length || using.some(r => !isRunDone(r) || r.owed)) continue;
       yield* [...new Set(using.map(r => r.issue))].reduce(
         (effect, n) => gate(n).withPermits(1)(effect),
         Effect.gen(function* () {
           const current = yield* Effect.flatMap(Store, s => s.list());
-          if (current.some(r => using.some(before => before.issue === r.issue) && (!isRunDone(r) || r.owed))) return;
-          const found = fetched.filter(t => t.pull?.branch === branch);
-          const pull = [
-            ...found,
-            ...(found.some(t => t.state === 'merged')
-              ? []
-              : yield* tracker
-                  .issues({ branch })
-                  .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), [])))),
-          ].find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull;
+          if (current.filter(uses(branch)).some(r => !isRunDone(r) || r.owed)) return;
+          const pull =
+            fetched.find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull ??
+            (yield* tracker
+              .issues({ branch })
+              .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), [])))).find(
+              t => t.state === 'merged' && t.pull?.branch === branch
+            )?.pull;
           yield* sandbox
             .removeBranch(
               branch,
@@ -900,23 +899,36 @@ export const scanTrackerEvents = (
   graph: Graph,
   cursor: string,
   fork: Parameters<typeof tick>[5],
-  locks: NonNullable<Parameters<typeof scanIssuesAndRunningRuns>[4]>
+  locks: NonNullable<Parameters<typeof scanIssuesAndRunningRuns>[4]>,
+  due: Set<number>
 ) =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
     const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
     const events = yield* Stream.runCollect(tracker.since(cursor, boards));
     const trusted = events.filter(m => m.trusted);
-    if (trusted.length)
+    if (trusted.length || due.size)
       yield* Effect.gen(function* () {
-        const { all, listed, look } = yield* makeIssueScan(graph, 0, undefined, fork, locks);
-        const numbers = trusted.map(m => m.issue);
-        const issues = new Set(numbers);
+        const { all, listed, gate, look } = yield* makeIssueScan(graph, 0, undefined, fork, locks);
+        const numbers = new Set(trusted.map(m => m.issue));
+        const missing = yield* Effect.forEach(
+          [...numbers].filter(n => !listed.some(t => t.number === n)),
+          n => tracker.issue(n)
+        );
+        const issues = new Set([...numbers, ...due]);
         for (const r of all) {
           const w = graph.workflows[r.workflow];
-          if (w && numbers.some(n => findPullNumber(w, r.issue, listed) === n)) issues.add(r.issue);
+          const pull = w && findPullNumber(w, r.issue, [...listed, ...missing]);
+          if (pull !== undefined && numbers.has(pull)) issues.add(r.issue);
         }
-        yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel });
+        yield* Effect.forEach(
+          issues,
+          n =>
+            gate(n)
+              .withPermitsIfAvailable(1)(look(n))
+              .pipe(Effect.tap(result => Effect.sync(() => (Option.isSome(result) ? due.delete(n) : due.add(n))))),
+          { concurrency: graph.limits.parallel }
+        );
       }).pipe(Effect.catchTag('TrackerError', e => Effect.logError(e)));
 
     return pickNewest(cursor, ...events.map(m => m.at)) ?? cursor;
@@ -928,6 +940,7 @@ export const startLoopDrives = () => {
     passes: Effect.runSync(Scope.provide(FiberSet.make(), scope)),
     driving: new Set<string>(),
     ticks: new Map<number, Semaphore.Semaphore>(),
+    due: new Set<number>(),
     permits: Semaphore.makeUnsafe(1),
     settled: [] as Run[],
     stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),

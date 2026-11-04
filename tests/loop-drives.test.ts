@@ -10,7 +10,7 @@ import type { SessionSpec } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
-import { issuePath, writeIssueAt } from './kit.ts';
+import { issuePath, write, writeIssueAt } from './kit.ts';
 import type { Graph } from '../src/folder.ts';
 import { comment, fresh, readChecks, readTrace, say, world } from './world.ts';
 
@@ -102,7 +102,9 @@ const setup = (parallel: number, holdSweep = false) => {
   let cursor = '2026-10-16T00:00:00.000Z';
   const poll = async () => {
     cursor = await Effect.runPromise(
-      runPass(drives, fork => scanTrackerEvents(graph, cursor, fork, drives.ticks)).pipe(Effect.provide(layer))
+      runPass(drives, fork => scanTrackerEvents(graph, cursor, fork, drives.ticks, drives.due)).pipe(
+        Effect.provide(layer)
+      )
     );
     return cursor;
   };
@@ -213,37 +215,68 @@ describe('loop drives', () => {
     }
   });
 
-  it('waits for the sweep tick on the same issue, then ticks once', async () => {
-    const loop = setup(2, true);
+  it('keeps reading events while a busy issue is due and ticks it once after it frees', async () => {
+    const loop = setup(1, true);
     const sweep = loop.pass();
-    let poll: Promise<string> | undefined;
-    let finished = false;
     const ticks: number[] = [];
     try {
       await vi.waitFor(() => expect(loop.isHolding()).toBe(true));
       const lock = loop.drives.ticks.get(7)!;
-      const withPermits = lock.withPermits.bind(lock);
-      lock.withPermits = permits => effect =>
-        withPermits(permits)(
+      const withPermitsIfAvailable = lock.withPermitsIfAvailable.bind(lock);
+      lock.withPermitsIfAvailable = permits => effect =>
+        withPermitsIfAvailable(permits)(
           Effect.andThen(
             Effect.sync(() => ticks.push(7)),
             effect
           )
         );
       loop.where.human('/agent', '2026-10-16T00:01:00.000Z');
-      poll = loop.poll().then(cursor => {
-        finished = true;
-        return cursor;
-      });
-      await vi.waitFor(() => expect(loop.listings()).toBe(2));
-      expect([finished, ticks]).toEqual([false, []]);
+      expect(await loop.poll()).toBe('2026-10-16T00:01:00.000Z');
+      expect([[...loop.drives.due], ticks]).toEqual([[7], []]);
+      loop.ask();
+      say(loop.where, comment(9, 'morgan', true, '/agent', '2026-10-16T00:02:00.000Z'));
+      const before = loop.cursors.length;
+      await loop.poll();
+      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+      expect([loop.cursors[before], [...loop.drives.due], ticks]).toEqual(['2026-10-16T00:01:00.000Z', [7], []]);
       loop.releaseSweep();
-      await Promise.all([sweep, poll]);
-      expect([finished, ticks]).toEqual([true, [7]]);
+      await sweep;
+      await loop.poll();
+      await loop.poll();
+      expect([[...loop.drives.due], ticks]).toEqual([[], [7]]);
     } finally {
       loop.releaseSweep();
       loop.release();
-      await Promise.all([sweep, poll]);
+      await sweep;
+      await loop.drives.stop();
+    }
+  });
+
+  it('ticks the waiting run issue when its merged PR is missing from the open listing', async () => {
+    const loop = setup(2);
+    loop.graph.workflows.issue = {
+      ...loop.graph.workflows.issue!,
+      steps: [{ name: 'merge', does: { wait: 'human' }, checks: [], tries: 1 }],
+    };
+    const run = { ...fresh(), step: 'merge', status: 'waiting' as const };
+    try {
+      await Effect.runPromise(Effect.flatMap(Store, s => s.put(run)).pipe(Effect.provide(fileStore(loop.where.data))));
+      writeIssueAt(
+        issuePath(loop.where.tracker, 8),
+        '---\ntitle: Landed\nstate: merged\nauthor: morgan\nlabels: []\n---\n'
+      );
+      write(loop.where.tracker, {
+        '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'landed' }),
+      });
+      say(loop.where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' });
+      await loop.poll();
+      expect([loop.looked.includes(8), loop.drives.ticks.has(7), (await loop.read(run.id))?.seen]).toEqual([
+        true,
+        true,
+        '2026-10-16T00:01:00.000Z',
+      ]);
+    } finally {
+      loop.release();
       await loop.drives.stop();
     }
   });

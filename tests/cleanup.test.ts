@@ -48,7 +48,7 @@ const cleanOldRun = async (exact: boolean) => {
 };
 
 describe('landed checkout cleanup', () => {
-  it('keeps a branch reused after the cleanup snapshot', async () => {
+  it.each([7, 9])('keeps a branch reused by issue #%s after the cleanup snapshot', async issue => {
     const run = setup();
     git(run.origin, 'update-ref', 'refs/heads/main', run.head, git(run.origin, 'rev-parse', 'main'));
     writeIssueAt(issuePath(run.tracker, 7), '---\ntitle: Done\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
@@ -62,7 +62,7 @@ describe('landed checkout cleanup', () => {
           readBranches: () =>
             Effect.andThen(
               locks.get(7)!.withPermits(1)(
-                store.put({ ...fresh(), id: 'replacement-7', checkout: run.checkout }).pipe(Effect.orDie)
+                store.put({ ...fresh(), id: `replacement-${issue}`, issue, checkout: run.checkout }).pipe(Effect.orDie)
               ),
               sandbox.readBranches()
             ),

@@ -194,7 +194,7 @@ export const start = (
               )
             ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(env)))
           );
-        const poll = look((graph, fork) => scanTrackerEvents(graph, cursor, fork, drives.ticks)).pipe(
+        const poll = look((graph, fork) => scanTrackerEvents(graph, cursor, fork, drives.ticks, drives.due)).pipe(
           Effect.map(next => (cursor = next)),
           Effect.catch(e => Effect.logError(e))
         );
