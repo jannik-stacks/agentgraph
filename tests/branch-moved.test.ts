@@ -8,7 +8,7 @@ import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
-import { begin, transition } from '../src/workflow.ts';
+import { begin, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
@@ -27,6 +27,8 @@ import {
   comment,
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+
+const refuse = (p: Proposal) => Effect.succeed({ proposal: p, ok: false, reason: 'branch moved' });
 
 describe('a run branch that moved', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
@@ -620,13 +622,13 @@ describe('a run branch that moved', () => {
     expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('other');
   });
 
-  it('returns a refused push to the agent, posting only its thread replies', async () => {
+  const unpushed = 'The push with this reply failed, so its changes are not on the pull request yet.';
+
+  const failingPush = (pushed: (p: Proposal) => ReturnType<Tracker['Service']['apply']>, turns: SessionEvent[][]) => {
     const where = world();
     pullRequest(where);
-    const at = '2026-10-16T00:00:03.000Z';
-    const review = comment(8, 'morgan', true, '/agent question only what is sfw?', at);
+    const review = comment(8, 'morgan', true, '/agent question only what is sfw?', '2026-10-16T00:00:03.000Z');
     say(where, { ...review, comment: { ...review.comment!, id: 'r1', path: 'hello.txt', line: 1 } });
-    const answer = { kind: 'comment', body: 'Socket Firewall.', under: 'r1' } satisfies Proposal;
     const attempted: Proposal[] = [];
     const failing = Layer.effect(
       Tracker,
@@ -634,27 +636,42 @@ describe('a run branch that moved', () => {
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
           attempted.push(p);
-          return p.kind === 'push'
-            ? Effect.succeed({ proposal: p, ok: false, reason: 'branch moved' })
-            : f.apply(n, p, work);
+          return p.kind === 'push' ? pushed(p) : f.apply(n, p, work);
         },
       }))
     ).pipe(Layer.provide(folderTracker(where.tracker)));
+    const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), replaySession(turns));
+    const drive = (said?: Run['said']) =>
+      Effect.runPromise(
+        runWorkflow(
+          flow,
+          { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), ...(said && { said }) },
+          small
+        ).pipe(Effect.provide(layer))
+      );
+    const replies = async () =>
+      (await Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(layer)))).events
+        .flatMap(m => m.comment ?? [])
+        .filter(c => c.author === 'agentgraph[bot]')
+        .map(c => [c.body, c.under]);
+    return { where, attempted, drive, replies };
+  };
+
+  it('returns a refused push to the agent, posting only its thread replies with a note', async () => {
+    const answers = [
+      { kind: 'comment', body: 'Socket Firewall.', under: 'r1' },
+      { kind: 'comment', body: 'Fixed; the validation now rejects empty input.', under: 'r1' },
+    ] satisfies Proposal[];
     const skipped: Proposal[] = [
       { kind: 'comment', body: 'Changes landed' },
       { kind: 'label', add: ['done'] },
       { kind: 'issue', title: 'Follow up', body: '## Done when\nDetails', relation: 'follow-up' } as Proposal,
     ];
-    const session = replaySession([
-      [start('a'), wrote('hello.txt', 'hello\n'), reply(answer, ...skipped, push, pull)],
+    const { where, attempted, drive, replies } = failingPush(refuse, [
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(...answers, ...skipped, push, pull)],
       [start('a'), reply({ kind: 'ask', question: 'Retry later' })],
     ]);
-    const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), session);
-    const done = await Effect.runPromise(
-      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(
-        Effect.provide(layer)
-      )
-    );
+    const done = await drive();
     expect(done).toMatchObject({ status: 'waiting', reason: 'Retry later' });
     expect(attempted.some(p => skipped.some(s => JSON.stringify(s) === JSON.stringify(p)))).toBe(false);
     const failed = readTrace(where.data, 'run-7').flatMap(t =>
@@ -662,8 +679,33 @@ describe('a run branch that moved', () => {
     );
     expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped.slice(0, 2), pull, skipped[2]]);
     expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).not.toContain('Changes landed');
-    const pr = await Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(layer)));
-    const replies = pr.events.flatMap(m => m.comment ?? []).filter(c => c.author === 'agentgraph[bot]');
-    expect(replies.map(c => [c.body, c.under])).toEqual([['Socket Firewall.', 'r1']]);
+    expect(await replies()).toEqual(answers.map(a => [`${a.body}\n\n${unpushed}`, 'r1']));
+  });
+
+  it('notes a refused push under a reply routed to the thread that woke the run', async () => {
+    const { drive, replies } = failingPush(refuse, [
+      [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Fixed.' }, push, pull)],
+      [start('a'), reply({ kind: 'ask', question: 'Retry later' })],
+    ]);
+    await drive([{ issue: 8, under: 'r1' }]);
+    expect(await replies()).toEqual([
+      [`Fixed.\n\n${unpushed}`, 'r1'],
+      ['Retry later', undefined],
+    ]);
+  });
+
+  it('posts the thread reply once, then parks as a runner error, when the push throws', async () => {
+    const answer = { kind: 'comment', body: 'Socket Firewall.', under: 'r1' } satisfies Proposal;
+    const { drive, replies } = failingPush(
+      () => Effect.fail(new TrackerError({ status: 502, message: 'bad gateway' })),
+      [
+        [start('a'), wrote('hello.txt', 'hello\n'), reply(answer, push, pull)],
+        [start('a'), reply(answer, push, pull)],
+      ]
+    );
+    const parked = await drive();
+    expect(parked).toMatchObject({ status: 'waiting', retried: true });
+    expect(parked.reason).toMatch(/^Stopped by a runner error/);
+    expect(await replies()).toEqual([[`Socket Firewall.\n\n${unpushed}`, 'r1']]);
   });
 });

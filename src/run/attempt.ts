@@ -239,7 +239,11 @@ export const runAttempt = (
   graph: Graph,
   work: Checkout,
   own?: string
-): Effect.Effect<{ outcome: Outcome; run: Run }, SandboxError | SessionStop | TrackerError | StoreError, Services> =>
+): Effect.Effect<
+  { outcome: Outcome; run: Run } | { failure: TrackerError; run: Run },
+  SandboxError | SessionStop | TrackerError | StoreError,
+  Services
+> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const step = w.steps.find(s => s.name === run.step)!;
@@ -555,7 +559,11 @@ export const runAttempt = (
           ...children.map((proposal): Applied => ({ proposal, ok: false, reason: 'push failed; not applied' })),
         ];
       return [...applied, ...(yield* createIssues(w, tried, children))];
-    }).pipe(useRunLink(tried, spoke));
+    }).pipe(
+      useRunLink(tried, spoke),
+      Effect.catchTag('TrackerError', failure => Effect.succeed({ failure }))
+    );
+    if ('failure' in landed) return { failure: landed.failure, run: tried };
     if (landed.some(a => a.ok)) tried = removeThreads(tried);
     if (tried.onto && landed.some(a => a.ok && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;

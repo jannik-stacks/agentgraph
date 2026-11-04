@@ -133,6 +133,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
           work.saved,
           work.published,
         ]);
+        if ('failure' in tried) {
+          current = tried.run;
+          return yield* tried.failure;
+        }
         if (
           tried.outcome.kind === 'failed' &&
           tried.outcome.proposals.some(a => !a.ok && a.proposal.kind === 'push' && a.moved)

@@ -29,11 +29,11 @@ An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a ste
 1. `ask` waits at once; checks and other proposals are skipped.
 2. Checks run. A blocking failure fails the try.
 3. `back` returns to its step, and nothing else applies.
-4. Otherwise `tell`, then pushes, then the other writes in order, then `issue` filings. A failed push skips the writes after it, except a reply `under` a review comment, which still answers the person. `run` dispatches last, only when nothing failed.
+4. Otherwise `tell`, then pushes, then the other writes in order, then `issue` filings. A failed push skips the writes after it, except a reply in a review thread: it still answers the person, with a line saying the push failed and its changes are not on the pull request yet. `run` dispatches last, only when nothing failed.
 
 A missing block, invalid JSON, wrong fields or a kind the step may not use fails the try, with the expected shape as feedback. A kind it may not use fails the try before anything applies, an `ask` included. <!-- code: src/run/attempt.ts#runAttempt -->
 
-A refused write fails the try. Any other GitHub error is a [runner error](workflows.md#order-and-limits), never a question to the person.
+A refused write fails the try. Any other GitHub error is a [runner error](workflows.md#order-and-limits), never a question to the person. The try's sessions are kept, so the retry resumes them. A push that hits such an error still lets the thread replies after it post first.
 
 ## Comments
 

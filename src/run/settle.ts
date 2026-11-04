@@ -203,6 +203,8 @@ export const writeOnce = (
     return yield* writeApplied(run, issue, key, yield* marked);
   });
 
+const unpushed = 'The push with this reply failed, so its changes are not on the pull request yet.';
+
 /**
  * Applies the accepted proposals after a pass, pushes first. A comment with no thread of its own goes once to a place in
  * `run.said` that no comment here answers, the top level before the newest thread, else to where a human last spoke,
@@ -237,20 +239,32 @@ export const writeProposals = (
           ? yield* writeCheckoutTree(work).pipe(Effect.mapError(e => new TrackerError({ message: e.detail })))
           : undefined;
       let refused = false;
-      for (const [i, [issue, p]] of sent.entries()) {
+      let thrown: TrackerError | undefined;
+      for (const [i, [issue, proposed]] of sent.entries()) {
+        if (refused && !(proposed.kind === 'comment' && proposed.under !== undefined)) {
+          applied.push({ proposal: proposed, ok: false, reason: 'push failed; not applied' });
+          continue;
+        }
+        const p =
+          refused && proposed.kind === 'comment' ? { ...proposed, body: `${proposed.body}\n\n${unpushed}` } : proposed;
+        const write = writeOnce(
+          run,
+          issue,
+          work ? getOperationKey(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
+          tracker.apply(issue, p, work),
+          work && p
+        );
         const a =
-          refused && !(p.kind === 'comment' && p.under !== undefined)
-            ? { proposal: p, ok: false, reason: 'push failed; not applied' }
-            : yield* writeOnce(
-                run,
-                issue,
-                work ? getOperationKey(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
-                tracker.apply(issue, p, work),
-                work && p
-              );
+          p.kind === 'push'
+            ? yield* Effect.catchTag(write, 'TrackerError', e => {
+                thrown = e;
+                return Effect.succeed<Applied>({ proposal: p, ok: false, reason: e.message });
+              })
+            : yield* write;
         applied.push(a);
         if (p.kind === 'push' && !a.ok) refused = true;
       }
+      if (thrown) return yield* thrown;
       return applied;
     })
   ).pipe(useRunLink(run));

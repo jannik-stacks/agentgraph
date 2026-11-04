@@ -572,22 +572,26 @@ describe('tick', () => {
       }))
     ).pipe(Layer.provide(folderTracker(where.tracker)));
     const flow = small.workflows.issue!;
-    const layer = Layer.mergeAll(
-      failing,
-      fileStore(where.data),
-      hostSandbox(where.origin),
-      replaySession([
-        [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push, pull)],
-        [start('a'), reply({ kind: 'comment', body: 'boom' }, push, pull)],
-      ])
-    );
-    const parked = await Effect.runPromise(
-      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(
-        Effect.provide(layer)
+    const specs: SessionSpec[] = [];
+    const recording = Layer.effect(
+      Session,
+      Effect.map(Session, s => ({ open: (spec: SessionSpec) => (specs.push(spec), s.open(spec)) }))
+    ).pipe(
+      Layer.provide(
+        replaySession([
+          [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push, pull)],
+          [start('a'), reply({ kind: 'comment', body: 'boom' }, push, pull)],
+        ])
       )
     );
+    const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), recording);
+    const begun = begin(flow, { id: 'run-7', issue: 7, started: fresh().started });
+    const parked = await Effect.runPromise(runWorkflow(flow, begun, small).pipe(Effect.provide(layer)));
     const issue = await Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(7)).pipe(Effect.provide(layer)));
+    expect(specs.map(s => s.resume?.id)).toEqual([undefined, 'a']);
     expect(parked).toMatchObject({ step: 'implement', status: 'waiting', retried: true });
+    expect(parked.sessions.implement).toMatchObject({ id: 'a', seen: { at: expect.any(String) } });
+    expect(parked.seen).not.toBe(begun.seen);
     expect(parked.reason).toMatch(/^Stopped by a runner error/);
     expect(bodies(issue).filter(b => b.includes('forbidden'))).toEqual([]);
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
