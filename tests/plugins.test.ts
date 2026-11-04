@@ -393,6 +393,7 @@ describe('tool input schemas', () => {
     note: Schema.NullOr(Schema.String),
     clear: Schema.optionalKey(Schema.NullOr(Schema.String)),
     count: Schema.Int,
+    mode: Schema.optionalKey(Schema.Union([Schema.Number, Schema.Literals(['NaN', 'Infinity', '-Infinity'])])),
     tree: Node,
   });
   const valid = { note: null, count: 1, tree: { size: 1 } };
@@ -408,6 +409,9 @@ describe('tool input schemas', () => {
     ['a string for an optional nullable field', { ...valid, clear: 'x' }],
     ['NaN as a string', { ...valid, count: 'NaN' }],
     ['Infinity as a string', { ...valid, tree: { size: 'Infinity' } }],
+    ['a declared Infinity string', { ...valid, mode: 'Infinity' }],
+    ['a number beside declared strings', { ...valid, mode: 1.5 }],
+    ['an undeclared string beside declared strings', { ...valid, mode: 'Inf' }],
     ['a fraction for an integer', { ...valid, count: 1.5 }],
     ['nested definitions', { ...valid, tree: { size: 1, children: [{ size: 2, children: [] }] } }],
     ['a bad nested node', { ...valid, tree: { size: 1, children: [{ size: 'big' }] } }],

@@ -52,10 +52,6 @@ export type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abor
 type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;
 
 type Node = Record<string, unknown>;
-const isNonFinite = (m: Node) =>
-  m.type === 'string' &&
-  JSON.stringify((m.enum as string[] | undefined)?.toSorted()) === '["-Infinity","Infinity","NaN"]';
-
 const map = (node: unknown, f: (node: Node) => unknown): unknown =>
   Array.isArray(node)
     ? node.map(n => map(n, f))
@@ -63,26 +59,25 @@ const map = (node: unknown, f: (node: Node) => unknown): unknown =>
       ? f(Object.fromEntries(Object.entries(node).map(([k, v]) => [k, map(v, f)])))
       : node;
 
-const dropUndefined = (node: Node) => {
+const { checks: finite } = SchemaRepresentation.toRepresentation(Schema.Finite.ast).representation as Extract<
+  SchemaRepresentation.Representation,
+  { _tag: 'Number' }
+>;
+
+const narrow = (node: Node) => {
+  if (node._tag === 'Number') return { ...node, checks: [...(node.checks as Node[]), ...finite] };
   if (node._tag !== 'Union') return node;
   const types = (node.types as Node[]).filter(t => t._tag !== 'Undefined');
   return types.length === 1 && !(node.checks as unknown[]).length && !node.annotations ? types[0] : { ...node, types };
 };
 
-const dropNonFinite = (node: Node) => {
-  if (!Array.isArray(node.anyOf)) return node;
-  const { anyOf: members, ...rest } = node;
-  const kept = (members as Node[]).filter(m => !isNonFinite(m));
-  return kept.length === 1 ? { ...rest, ...kept[0] } : { ...rest, anyOf: kept };
-};
-
 const advertise = (schema: Schema.Top) => {
-  const representation = map(SchemaRepresentation.toRepresentation(schema.ast), dropUndefined);
+  const representation = map(SchemaRepresentation.toRepresentation(schema.ast), narrow);
   const { schema: root, definitions } = SchemaRepresentation.toJsonSchemaDocument(
     representation as SchemaRepresentation.Document,
     { onExcessProperty: 'error' }
   );
-  return map(Object.keys(definitions).length ? { ...root, $defs: definitions } : root, dropNonFinite);
+  return Object.keys(definitions).length ? { ...root, $defs: definitions } : root;
 };
 
 export const tool = <A, I, S = undefined>(definition: {
