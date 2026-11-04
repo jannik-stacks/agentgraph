@@ -127,13 +127,13 @@ const columnQuery = `query($owner: String!, $name: String!, $after: String) {
   }
 }`;
 
-const boardQuery = `query($owner: String!, $name: String!, $issue: Int!, $login: String!, $number: Int!) {
+const boardQuery = `query($owner: String!, $name: String!, $issue: Int!, $login: String!, $number: Int!, $field: String!) {
   repository(owner: $owner, name: $name) { issue(number: $issue) { id } }
   repositoryOwner(login: $login) {
     ... on ProjectV2Owner {
       projectV2(number: $number) {
         id
-        field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
+        field(name: $field) { ... on ProjectV2SingleSelectField { id options { id name } } }
       }
     }
   }
@@ -141,10 +141,13 @@ const boardQuery = `query($owner: String!, $name: String!, $issue: Int!, $login:
 const addItemMutation = `mutation($project: ID!, $content: ID!) {
   addProjectV2ItemById(input: { projectId: $project, contentId: $content }) { item { id } }
 }`;
-const moveItemMutation = `mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+const setFieldMutation = `mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
   updateProjectV2ItemFieldValue(
     input: { projectId: $project, itemId: $item, fieldId: $field, value: { singleSelectOptionId: $option } }
   ) { projectV2Item { id } }
+}`;
+const clearFieldMutation = `mutation($project: ID!, $item: ID!, $field: ID!) {
+  clearProjectV2ItemFieldValue(input: { projectId: $project, itemId: $item, fieldId: $field }) { projectV2Item { id } }
 }`;
 type Board = {
   repository: { issue: { id: string } };
@@ -1122,44 +1125,41 @@ export const githubTracker = (
       status: (number, to, names) => Effect.asVoid(act(number, makeStatusLabel(to, names))),
       findPost,
       slug: me,
-      moveToColumn: (number, column) =>
+      writeField: (number, { project: where, field, value }) =>
         Effect.gen(function* () {
           const auth = yield* projectToken;
           const [owner, name] = app.repo.split('/');
-          const [login, board] = column.project.split('/');
+          const [login, board] = where.split('/');
           const found = yield* graphql<Board>(auth, boardQuery, {
             owner,
             name,
             issue: number,
             login,
             number: Number(board),
+            field,
           });
           const project = found.repositoryOwner?.projectV2;
-          if (!project) return yield* new TrackerError({ message: `no project ${column.project}` });
+          if (!project) return yield* new TrackerError({ message: `no project ${where}` });
           if (!project.field)
+            return yield* new TrackerError({ message: `project ${where} has no single-select ${field} field` });
+          const option = project.field.options.find(o => o.name === value);
+          if (value !== null && !option)
             return yield* new TrackerError({
-              message: `project ${column.project} has no single-select Status field`,
-            });
-          const option = project.field.options.find(o => o.name === column.name);
-          if (!option)
-            return yield* new TrackerError({
-              message: `project ${column.project} has no Status option ${column.name}; it has ${project.field.options.map(o => o.name).join(', ')}`,
+              message: `project ${where} has no ${field} option ${value}; it has ${project.field.options.map(o => o.name).join(', ')}`,
             });
           const added = yield* graphql<{ addProjectV2ItemById: { item: { id: string } } }>(auth, addItemMutation, {
             project: project.id,
             content: found.repository.issue.id,
           });
-          yield* graphql(auth, moveItemMutation, {
-            project: project.id,
-            item: added.addProjectV2ItemById.item.id,
-            field: project.field.id,
-            option: option.id,
-          });
+          const item = { project: project.id, item: added.addProjectV2ItemById.item.id, field: project.field.id };
+          yield* option
+            ? graphql(auth, setFieldMutation, { ...item, option: option.id })
+            : graphql(auth, clearFieldMutation, item);
         }).pipe(
           Effect.mapError(e =>
             /INSUFFICIENT_SCOPES|^no token$/.test(e.message)
               ? new TrackerError({
-                  message: `Moving project cards needs a GitHub token with the project scope: run \`gh auth refresh -s project\`, or set AGENTGRAPH_PROJECT_TOKEN. (${e.message})`,
+                  message: `Writing project fields needs a GitHub token with the project scope: run \`gh auth refresh -s project\`, or set AGENTGRAPH_PROJECT_TOKEN. (${e.message})`,
                 })
               : e
           )

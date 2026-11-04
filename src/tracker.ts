@@ -83,7 +83,10 @@ export class Tracker extends Context.Service<
     ) => Effect.Effect<void, TrackerError>;
     /** The login people mention to talk to the bot, when the tracker has one. */
     slug?: Effect.Effect<string, TrackerError>;
-    moveToColumn?: (number: number, column: NonNullable<Event['column']>) => Effect.Effect<void, TrackerError>;
+    writeField?: (
+      number: number,
+      field: { project: string; field: string; value: string | null }
+    ) => Effect.Effect<void, TrackerError>;
     /** The studio's URL that bodies link back to, when set. */
     studio?: string;
   }

@@ -128,7 +128,7 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
 const announce = (graph: Graph, change: StatusChange) =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
-    const { moveToColumn } = tracker;
+    const { writeField } = tracker;
     const { hooks } = yield* Effect.tryPromise(() => readPlugins(graph.dir, graph.plugins));
     for (const hook of hooks)
       yield* Effect.tryPromise(async () =>
@@ -137,7 +137,7 @@ const announce = (graph: Graph, change: StatusChange) =>
           settings: hook.settings,
           tracker: {
             searchIssues: (...args) => Effect.runPromise(tracker.searchIssues(...args)),
-            ...(moveToColumn && { moveToColumn: (issue, column) => Effect.runPromise(moveToColumn(issue, column)) }),
+            ...(writeField && { writeField: (issue, field) => Effect.runPromise(writeField(issue, field)) }),
           },
         })
       ).pipe(Effect.catch(e => Effect.logWarning(`status hook of plugin ${hook.plugin}`, e)));

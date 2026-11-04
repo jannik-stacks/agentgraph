@@ -94,9 +94,10 @@ Known secrets are masked before output and tracing. Plugin credentials stay on t
 
 A plugin can declare `on.status` instead of, or next to, tools. The engine calls it after it changes an issue's
 [status](workflows.md#status-on-the-issue), with `{ issue, repo, from, to }`; `from` is absent on the first status.
-The context holds `repo`, the plugin's `settings`, `tracker.searchIssues` and, on GitHub, `tracker.moveToColumn(issue,
-{ project, name })`, which puts the issue's card in that column of a project board. It uses the project token, which
-needs the `project` scope: `gh auth refresh -s project`. Hooks run in filename order. A hook that throws is logged and the run goes on.
+The context holds `repo`, the plugin's `settings`, `tracker.searchIssues` and, on GitHub, `tracker.writeField(issue,
+{ project, field, value })`, which sets a single-select field of the issue's card on a project board, such as Status, and
+adds the card when it is missing; `value: null` clears the field. It uses the project token, which needs the `project`
+scope: `gh auth refresh -s project`. Hooks run in filename order. A hook that throws is logged and the run goes on.
 <!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/run/settle.ts#announce src/tracker.ts#Tracker -->
 
 ```ts
@@ -106,7 +107,7 @@ export default makePlugin({
 });
 ```
 
-`examples/board/plugins/board.ts` uses it to move the issue's card on a GitHub project board.
+`examples/board/plugins/board.ts` uses it to mirror the status onto fields of a GitHub project board.
 <!-- code: examples/board/plugins/board.ts -->
 
 ## Trackers

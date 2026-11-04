@@ -5,8 +5,12 @@ limits:
 plugins:
   board:
     project: jannik-stacks/1
-    status:
-      working: In Progress
-      needs-review: In Review
-      needs-answer: Waiting
-      done: Done
+    fields:
+      Status:
+        working: In Progress
+        needs-review: In Review
+        needs-answer: Waiting
+        done: Done
+      Needs:
+        needs-answer: Stuck
+        needs-review: Review
