@@ -6,7 +6,6 @@ import { Config, ConfigProvider, Effect, Layer, Option, Redacted, Schema, Struct
 import { folder, type TrackerSetup } from './tracker.ts';
 import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
 import { github } from './github.ts';
-import type { Services } from './engine.ts';
 import {
   type HarnessSettings,
   harnessSession,
@@ -23,6 +22,7 @@ import { remoteSandbox } from './remote.ts';
 import { priceTable } from './prices.ts';
 import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
+import type { Services } from './run/execute.ts';
 
 /** Everything the runner reads from the environment. */
 export type Settings = {

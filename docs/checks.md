@@ -32,7 +32,7 @@ A result that cannot be read or does not match `returns` fails the check, except
 
 ## Judges
 
-A judge reads the diff, the item or the script's output, and calls the `result` tool, whose input is `returns`; a call that does not match is refused with the reason. A judge that stops without a result is asked once more, and one that crashes is retried once. If none comes, a `block` or `stop` check parks the run as a runner error, and an `info` or `warn` check records it. <!-- code: src/engine.ts#runJudge src/result.ts#makeResultServer -->
+A judge reads the diff, the item or the script's output, and calls the `result` tool, whose input is `returns`; a call that does not match is refused with the reason. A judge that stops without a result is asked once more, and one that crashes is retried once. If none comes, a `block` or `stop` check parks the run as a runner error, and an `info` or `warn` check records it. <!-- code: src/run/execute.ts#runJudge src/result.ts#makeResultServer -->
 
 With `each`, a judge answers every item on its own, and any failed item fails the check. No items passes; more than `max` fail as one finding; a failing slicer command fails with its output.
 

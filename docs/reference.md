@@ -56,9 +56,9 @@ A committed graph with symlinks or submodules is refused. On GitHub, the runner 
 | `minutes` | number | 30 | Deadline per session, script or setup |
 | `usd-per-run` | number | 10 | Spend cap per run |
 | `parallel` | integer | 2 | Concurrent runs |
-| `sessions` | integer | 4 | Concurrent sessions and scripts across the process, judges included <!-- code: src/engine.ts#getGate --> |
+| `sessions` | integer | 4 | Concurrent sessions and scripts across the process, judges included <!-- code: src/run/execute.ts#getGate --> |
 
-Sessions, script checks, fan-out commands and setup share permits. Each releases its permit before checks or judges start. If graphs set different limits, the process keeps the smallest limit it has seen. Check findings still return together after every check settles. <!-- code: src/engine.ts#runShell src/engine.ts#runSession src/engine.ts#getGate src/engine.ts#runStepChecks -->
+Sessions, script checks, fan-out commands and setup share permits. Each releases its permit before checks or judges start. If graphs set different limits, the process keeps the smallest limit it has seen. Check findings still return together after every check settles. <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#getGate src/engine.ts#runStepChecks -->
 
 ## Workflows
 

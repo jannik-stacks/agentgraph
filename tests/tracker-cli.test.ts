@@ -31,7 +31,7 @@ import {
   writeInstanceProvider,
 } from '../src/instance.ts';
 import { formatIssueList, formatIssueTimeline } from '../src/status.ts';
-import { scanIssuesAndRunningRuns, tick, type Instruction, type Services } from '../src/engine.ts';
+import { scanIssuesAndRunningRuns, tick, type Instruction } from '../src/engine.ts';
 import { stoppedByRunner } from '../src/context.ts';
 import { begin } from '../src/workflow.ts';
 import { loadGraph } from '../src/folder.ts';
@@ -44,6 +44,7 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
+import type { Services } from '../src/run/execute.ts';
 
 const runTs = join(import.meta.dirname, '..', 'bin', 'run.ts');
 const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');

@@ -3,14 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
 import { ConfigProvider, Effect, Exit, Layer, Scope } from 'effect';
-import {
-  instruct,
-  issueDebounceMs,
-  scanIssuesAndRunningRuns,
-  tick,
-  type Instruction,
-  type Services,
-} from './engine.ts';
+import { instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick, type Instruction } from './engine.ts';
 import { writeIssueFile } from './tracker.ts';
 import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
@@ -20,6 +13,7 @@ import { writeIdleRunsCompressed, fileStore, Store, StoreError } from './store.t
 import { LockHeldError } from './owner.ts';
 import { parseLabels, writeRunLabels } from './labels.ts';
 import type { Run, RunRecord } from './workflow.ts';
+import type { Services } from './run/execute.ts';
 
 export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
 const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()), 'utf8');
