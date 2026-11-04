@@ -112,7 +112,7 @@ describe('loop drives', () => {
     try {
       const [first] = await loop.pass();
       await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
-      loop.where.human('/agent stop', '2026-10-16T00:02:00.000Z');
+      loop.where.human('/agent:stop', '2026-10-16T00:02:00.000Z');
       await loop.pass();
       const during = await loop.status(first!.id);
       loop.release();
@@ -132,7 +132,7 @@ describe('loop drives', () => {
       await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
       loop.ask();
       const [second] = await loop.pass();
-      say(loop.where, comment(9, 'morgan', true, '/agent stop', '2026-10-16T00:03:00.000Z'));
+      say(loop.where, comment(9, 'morgan', true, '/agent:stop', '2026-10-16T00:03:00.000Z'));
       loop.release();
       await vi.waitFor(() => expect(loop.drives.driving.size).toBe(0), { timeout: 20_000 });
       expect([await loop.status(second!.id), loop.opened.length]).toEqual(['stopped', 1]);
@@ -165,7 +165,7 @@ describe('loop drives', () => {
       await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
       loop.ask();
       const [second] = await loop.pass();
-      say(loop.where, comment(9, 'morgan', true, '/agent stop', '2026-10-16T00:03:00.000Z'));
+      say(loop.where, comment(9, 'morgan', true, '/agent:stop', '2026-10-16T00:03:00.000Z'));
       await loop.pass(later);
       const owed = (await loop.read(second!.id))?.owed;
       loop.release();
