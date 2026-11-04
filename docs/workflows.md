@@ -43,7 +43,7 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 
 A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's, limited by the step's `returns`. That list defaults to `[run]`, so a repo command such as `npm test` can't push, open a pull request, comment or merge. A script that needs more lists it, as in `gate: { run: node gate.mjs, returns: [run, comment] }`. Unlike an agent, a script gets no `ask` or `back` unless listed. Any other kind fails the try, and nothing it printed applies. <!-- code: src/graph.ts#getStepReturns -->
 
-A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. A `run` step gets the traces only with `reads: traces`, because writing them reads every run on the issue on each try. <!-- code: src/engine.ts#attempt src/workflow.ts#compileWorkflow -->
+A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. A `run` step gets the traces only with `reads: traces`, because writing them reads every run on the issue on each try. <!-- code: src/engine.ts#runAttempt src/workflow.ts#compileWorkflow -->
 
 `examples/retro-gate` counts the failed tool calls in the run's trace after the implement step. Past five, it starts a `retro` workflow whose agent reads the traces and files a `graph` issue per recurring cause with the edit to a skill, agent prompt or `AGENTS.md` that would have prevented it.
 
@@ -94,7 +94,7 @@ plugins:
 
 Owners, members and collaborators steer the bot; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins, read at startup. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. Locally, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker -->
 
-The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels, except an `XL` part the engine [triages again](proposals.md#filing-issues). `milestone` limits new runs to issues in that milestone. <!-- code: src/engine.ts#runStepChecks src/engine.ts#inScope -->
+The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels, except an `XL` part the engine [triages again](proposals.md#filing-issues). `milestone` limits new runs to issues in that milestone. <!-- code: src/engine.ts#runStepChecks src/engine.ts#isInScope -->
 
 ## Dispatch
 
@@ -112,17 +112,17 @@ An agent that may return `run` can start a workflow with `on: dispatch`:
 { "kind": "run", "workflow": "triage", "issue": 12, "step": "implement" }
 ```
 
-`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/engine.ts#undispatchable src/engine.ts#dispatch src/engine.ts#settled -->
+`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/engine.ts#findUndispatchable src/engine.ts#startProposedRun src/engine.ts#settled -->
 
 ### Routing
 
-An `issue_comment` workflow whose agent may `tell` is a router and runs beside other live runs. In a graph with a router, only `issue_comment` workflows hear `/agent` comments; the others hear what the router tells them. <!-- code: src/engine.ts#heardBy -->
+An `issue_comment` workflow whose agent may `tell` is a router and runs beside other live runs. In a graph with a router, only `issue_comment` workflows hear `/agent` comments; the others hear what the router tells them. <!-- code: src/engine.ts#getHeardEvent -->
 
 ```json
 { "kind": "tell", "issue": 12, "text": "stop" }
 ```
 
-The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/engine.ts#recipient src/engine.ts#readRunEvents src/engine.ts#tick -->
+The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/engine.ts#findRecipient src/engine.ts#readRunEvents src/engine.ts#tick -->
 
 ## The session
 
@@ -146,29 +146,29 @@ A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The que
 
 ## Asides
 
-At a human wait step, an aside answers `/agent` comments. It forks the session `back` targets into a throwaway checkout of the pull request head, or starts fresh. Only comments and `back` apply: a comment answers and the run keeps waiting; a `back` resumes work, and the fork becomes that step's session. The answering agent comments only when its `returns` lists `comment`; any kind it may not use fails the aside, and nothing from that reply is posted. Edits are dropped. Without an open pull request, the comment sends the run back directly. <!-- code: src/engine.ts#aside -->
+At a human wait step, an aside answers `/agent` comments. It forks the session `back` targets into a throwaway checkout of the pull request head, or starts fresh. Only comments and `back` apply: a comment answers and the run keeps waiting; a `back` resumes work, and the fork becomes that step's session. The answering agent comments only when its `returns` lists `comment`; any kind it may not use fails the aside, and nothing from that reply is posted. Edits are dropped. Without an open pull request, the comment sends the run back directly. <!-- code: src/engine.ts#runAside -->
 
 ## Comments while it works
 
-A trusted `/agent` comment reaches a working run by the workflow's `concurrency`: <!-- code: src/engine.ts#attempt -->
+A trusted `/agent` comment reaches a working run by the workflow's `concurrency`: <!-- code: src/engine.ts#runAttempt -->
 
 - `steer` (default): the session sees it in its news, and resumes for one more turn before checks if it missed any.
 - `queue`: the try and its checks finish, then the comment applies as an answer.
 - `cancel`: the session stops and the step resumes with the comment as feedback; the cut try does not count.
 
-`/agent cancel` parks the step and asks how to go on. `/agent stop` ends the run. Comments in a row become one answer, and the first `stop` or `cancel` wins. The engine waits for 30 seconds of quiet before it starts or wakes a run. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#fold src/engine.ts#issueDebounceMs src/engine.ts#told -->
+`/agent cancel` parks the step and asks how to go on. `/agent stop` ends the run. Comments in a row become one answer, and the first `stop` or `cancel` wins. The engine waits for 30 seconds of quiet before it starts or wakes a run. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#fold src/engine.ts#issueDebounceMs src/engine.ts#readHeardOutcome -->
 
 ## When the base or the graph moves
 
 A catch-up error is recorded once in the run trace. The run stays waiting and retries when the base head, branch head or graph changes. <!-- code: src/engine.ts#tick -->
 
-Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/engine.ts#catchUp -->
+Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/engine.ts#runCatchUp -->
 
 If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts.
 
-A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. A second conflict at the same base asks for a manual update. <!-- code: src/engine.ts#following -->
+A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. A second conflict at the same base asks for a manual update. <!-- code: src/engine.ts#moveCheckoutOnto -->
 
-A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the same branch, so give it the same `branch`. Like a retro it shares the issue’s sticky status, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/engine.ts#catchUp src/workflow.ts#isQuiet -->
+A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the same branch, so give it the same `branch`. Like a retro it shares the issue’s sticky status, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/engine.ts#runCatchUp src/workflow.ts#isQuiet -->
 
 ## Status on the issue
 

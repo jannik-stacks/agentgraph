@@ -61,7 +61,7 @@ that level first.
 
 18. No code comments. The one exception is `// UNEXPECTED: <what and why>`. TSDoc counts as a comment;
     lint directives and knip's `@internal` stay.
-19. Explanation lives in `docs/`. A claim links to its code with a hidden `<!-- code: src/engine.ts#land -->`,
+19. Explanation lives in `docs/`. A claim links to its code with a hidden `<!-- code: src/engine.ts#writeProposals -->`,
     never a visible `workflow.ts#load`.
 20. Links are checked both ways: `bin/refs.mjs` fails on dead ones, and review checks the docs when
     linked code changes.

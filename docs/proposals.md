@@ -31,7 +31,7 @@ An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a ste
 3. `back` returns to its step, and nothing else applies.
 4. Otherwise `tell`, then pushes, then the other writes in order, then `issue` filings, which a failed push skips. `run` dispatches last, only when nothing failed.
 
-A missing block, invalid JSON, wrong fields or a kind the step may not use fails the try, with the expected shape as feedback. A kind it may not use fails the try before anything applies, an `ask` included. <!-- code: src/engine.ts#attempt -->
+A missing block, invalid JSON, wrong fields or a kind the step may not use fails the try, with the expected shape as feedback. A kind it may not use fails the try before anything applies, an `ask` included. <!-- code: src/engine.ts#runAttempt -->
 
 A refused write fails the try. Any other GitHub error parks the run with a question.
 
@@ -39,19 +39,19 @@ A refused write fails the try. Any other GitHub error parks the run with a quest
 
 An agent posts only the kinds its `returns` lists, so a reviewer that returns `[back]` keeps its findings in the run: a pass leaves its reply in the trace, and `back` hands it to the next step as feedback.
 
-A comment goes where a person started or woke the run, else to the branch's open pull request, else the issue. `under` names a review comment to reply under. When people spoke in several places, a comment without `under` posts once, at top level if one of them was. <!-- code: src/engine.ts#land -->
+A comment goes where a person started or woke the run, else to the branch's open pull request, else the issue. `under` names a review comment to reply under. When people spoke in several places, a comment without `under` posts once, at top level if one of them was. <!-- code: src/engine.ts#writeProposals -->
 
 ## Pushes
 
 `push` and `pull_request` must name the run's own `agentgraph/` branch. A push is refused if the branch moved since the checkout last saw it, and never forces except to finish a [rebase](workflows.md#when-the-base-or-the-graph-moves).
 
-While the branch has no open pull request, an agent that may return `pull_request` must return one, or an `ask`, a `back`, an `issue` part, or comments answering a finished run. <!-- code: src/engine.ts#attempt -->
+While the branch has no open pull request, an agent that may return `pull_request` must return one, or an `ask`, a `back`, an `issue` part, or comments answering a finished run. <!-- code: src/engine.ts#runAttempt -->
 
 A `pull_request` on a branch whose pull request is open rewrites its title and body. A step of its own after review, with an agent that returns only `pull_request`, keeps the description current each time the change goes round again. <!-- code: src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
 A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/tracker.ts#unpushable -->
 
-Both trackers report held paths in the push result's `held` list, recorded in the trace. The first push holding a path on a branch is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. Later pushes still list that held path but succeed unless another failure occurs. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. After a newly held path, later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/tracker.ts#makePushResult src/engine.ts#land -->
+Both trackers report held paths in the push result's `held` list, recorded in the trace. The first push holding a path on a branch is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. Later pushes still list that held path but succeed unless another failure occurs. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. After a newly held path, later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/tracker.ts#makePushResult src/engine.ts#writeProposals -->
 
 ## Filing issues
 
@@ -63,9 +63,9 @@ Every `issue` body ends with a `## Done when` section of one to three observable
 | `follow-up` | Work outside the issue, ending with `Found while working on #n`; it runs only once someone adds a trigger label | `follow-up` |
 | `graph` | A recurring miss and the check or prompt that would catch it | `graph` |
 
-<!-- code: src/engine.ts#file -->
+<!-- code: src/engine.ts#createIssues -->
 
-The parent gets a `Split into:` comment with a task list. Each `XL` part starts the same workflow again. A follow-up or graph issue whose title matches an open one becomes a comment there. Filing uses a token limited to `issues: write`. <!-- code: src/engine.ts#filed src/github.ts#scopes -->
+The parent gets a `Split into:` comment with a task list. Each `XL` part starts the same workflow again. A follow-up or graph issue whose title matches an open one becomes a comment there. Filing uses a token limited to `issues: write`. <!-- code: src/engine.ts#readFiledIssues src/github.ts#scopes -->
 
 One refused filing fails the try and files nothing. The engine refuses a body without `## Done when`, any filing while an outsider's issue text is withheld, a part whose title matches an open issue, a reference to anything but an earlier part, and parts of an issue already three levels deep (`deepest`). <!-- code: src/engine.ts#deepest -->
 
@@ -75,7 +75,7 @@ One refused filing fails the try and files nothing. The engine refuses a body wi
 
 With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/engine.ts#findStackBase src/github.ts#githubTracker -->
 
-A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/engine.ts#pending src/engine.ts#follow -->
+A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/engine.ts#pending src/engine.ts#runFollow -->
 
 ### The triage example
 

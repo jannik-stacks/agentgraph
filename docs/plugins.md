@@ -119,7 +119,7 @@ the graph `--dir` names count; a graph read from the repo cannot pick its own tr
 when the selection names nothing, names a plugin without a tracker, or needs a graph read from the repo. A tracker's
 optional `status(n, to, names)` shows an issue's status; the built-ins swap labels named by the graph's `status`
 setting. A status the tracker refuses is shown again on the next pass.
-<!-- code: src/plugin.ts#TrackerHost src/services.ts#readHostSettings src/services.ts#pickTracker src/tracker.ts#folder src/github.ts#github src/engine.ts#show -->
+<!-- code: src/plugin.ts#TrackerHost src/services.ts#readHostSettings src/services.ts#pickTracker src/tracker.ts#folder src/github.ts#github src/engine.ts#writeStatus -->
 
 ## Studio pages
 
