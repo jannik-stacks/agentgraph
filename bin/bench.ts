@@ -29,7 +29,7 @@ import type { CheckEntry } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/tracker.ts';
 import { writeComment, writeImportedRun } from '../src/instance.ts';
-import { appendJsonlRows, writeFileAtomic } from '../src/store.ts';
+import { appendJsonlRows, readJsonlRows, writeFileAtomic } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeRunLabels } from '../src/labels.ts';
 import { parseNamePairs } from '../src/harnesses.ts';
 import {
@@ -1609,18 +1609,40 @@ const judge = async (arm: string, caseDir: string, set: string) => {
   );
   const version = hash(JSON.stringify(asks));
   if (isCurrent(found, ['bench/judge'], version)) return;
+  const file = join(found.data, found.run.id, 'checks.jsonl');
+  const calls = () => (readJsonlRows(file) as CheckEntry[]).filter(e => e.item && e.version === version);
+  const kept = calls();
   const verdicts = await Promise.all(
     asks.map(async ({ name, order, prompt }) => {
-      let usd = 0;
+      const item = `${name}:${order.join('-')}`;
+      const saved = kept.find(e => e.item === item && e.check.pass)?.check.value as JudgedVerdict | undefined;
+      if (saved) return saved;
       for (let attempt = 0; attempt < 3; attempt++) {
         guard(set, getModelMakerFromUpstreamName(judgeModels[name]!) === 'anthropic');
         const got = await step(set, { step: 'judge', case: c.id, arm, judge: name, order }, () =>
           judges[name]!(prompt, tmpdir())
         ).catch(() => ({ text: '' }) as Answer);
         const tokens = got.tokens && { [judgeModels[name]!]: got.tokens };
-        usd += getBenchUsageCost({ ...(got.usd !== undefined && { usd: got.usd }), ...(tokens && { tokens }) }).usd;
-        const v = parseBenchJudgeVerdict(got.text);
-        if (v) return { judge: name, order, usd, ...v };
+        const usd = getBenchUsageCost({
+          ...(got.usd !== undefined && { usd: got.usd }),
+          ...(tokens && { tokens }),
+        }).usd;
+        const parsed = parseBenchJudgeVerdict(got.text);
+        const v = parsed && { judge: name, order, ...parsed };
+        await Effect.runPromise(
+          appendJsonlRows(file, [
+            {
+              at: new Date().toISOString(),
+              step: 'bench',
+              check: { check: 'bench/judge', pass: Boolean(v), ms: 0, ...(v && { value: v }) },
+              item,
+              version,
+              usd,
+              later: true,
+            } satisfies CheckEntry,
+          ])
+        );
+        if (v) return v;
         logger(set, { step: 'judge', case: c.id, arm, judge: name })({
           event: 'invalid',
           reason: 'judge returned no valid verdict',
@@ -1634,7 +1656,7 @@ const judge = async (arm: string, caseDir: string, set: string) => {
     found,
     [makeBenchJudgeResult(verdicts, arm, human.run.id)],
     version,
-    getRounded(verdicts.reduce((n, v) => n + v.usd, 0))
+    getRounded(calls().reduce((n, e) => n + e.usd, 0))
   );
 };
 

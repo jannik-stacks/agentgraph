@@ -528,6 +528,45 @@ describe('bin/bench.ts score and judge', () => {
     });
   });
 
+  it('keeps each judge verdict and its cost as it lands, and a resume asks only the missing judges', async () => {
+    const root = tmp('bench-judge');
+    dirs.push(root);
+    const { repo, base, merged, set, kase } = makeSumCase(root);
+    const env = hostDocker();
+    const bench = (...args: string[]) => spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', env });
+    expect(bench('score', 'v2', kase, set, '--repo', repo).status).toBe(0);
+    const v2 = makeBenchInput(readBenchCase(kase), 'v2', 1);
+    await addArmRun(set, repo, base, v2, git(repo, 'diff', base, merged, '--', 'sum.js'));
+    expect(bench('score', 'v2', kase, set, '--repo', repo).status).toBe(0);
+    const bin = env.PATH.split(delimiter)[0]!;
+    const verdict = '```json\\n{\\"prefer\\": \\"A\\"}\\n```';
+    writeFileSync(
+      join(bin, 'claude'),
+      [
+        '#!/bin/sh',
+        'cat > /dev/null',
+        `echo "$*" >> ${join(bin, 'judged')}`,
+        `case "$*" in *sonnet*) [ -e ${join(bin, 'sonnet-ok')} ] || { printf '%s' '{"result":"no","total_cost_usd":0.1}'; exit 0; };; esac`,
+        `printf '%s' '{"result":"${verdict}","total_cost_usd":0.1}'`,
+      ].join('\n')
+    );
+    chmodSync(join(bin, 'claude'), 0o755);
+    writeFileSync(join(set, 'budget.json'), JSON.stringify({ now: 0, at: Date.now() }));
+    expect(bench('judge', 'v2', kase, set, '--judges', 'opus:1,sonnet:1').status).not.toBe(0);
+    expect(readSlotResults(set, v2)['bench/judge']).toBeUndefined();
+    writeFileSync(join(bin, 'sonnet-ok'), '');
+    expect(bench('judge', 'v2', kase, set, '--judges', 'opus:1,sonnet:1').status).toBe(0);
+    const asked = readFileSync(join(bin, 'judged'), 'utf8').split('\n');
+    expect([asked.filter(a => a.includes('opus')).length, asked.filter(a => a.includes('sonnet')).length]).toEqual([
+      1, 4,
+    ]);
+    const judged = readSlotResults(set, v2)['bench/judge']!;
+    expect([judged.usd, Object.keys((judged.check.value as { vsHuman: object }).vsHuman).toSorted()]).toEqual([
+      0.5,
+      ['opus', 'sonnet'],
+    ]);
+  });
+
   it('ends an arm that never started a run as infra after its last attempt', () => {
     const root = tmp('bench-norun');
     dirs.push(root);
