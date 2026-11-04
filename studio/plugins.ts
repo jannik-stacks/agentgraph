@@ -183,6 +183,8 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
                 const module = server.moduleGraph.getModuleById(`\0${id}`);
                 if (module) server.moduleGraph.invalidateModule(module);
               }
+              for (const [id, module] of server.moduleGraph.idToModuleMap)
+                if (id.startsWith(`\0${entry}`)) server.moduleGraph.invalidateModule(module);
               server.ws.send({ type: 'full-reload' });
             })
             .catch((e: Error) => server.config.logger.error(e.message));

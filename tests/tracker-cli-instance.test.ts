@@ -308,9 +308,16 @@ await runLocked(dir, async () => {
     };
     await Effect.runPromise(Effect.flatMap(Store, store => store.put(parked)).pipe(Effect.provide(fileStore(data))));
     const flags = ['--dir', sandboxGraph, '--repo', w.seed, '--data', join(w.root, 'instances'), '--tracker', w.dir];
+    const env = {
+      ...process.env,
+      NODE_OPTIONS: '',
+      AGENTGRAPH_PROVIDER: 'litellm',
+      AGENTGRAPH_PROXY_KEYS: '*=test',
+      AGENTGRAPH_SANDBOX_URL: 'http://unused',
+    };
     const resumed = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', ...flags], {
       encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '' },
+      env,
     });
     expect(resumed.status, resumed.stderr).toBe(0);
     expect(resumed.stdout).toContain('triage-1 triage running');
@@ -321,13 +328,13 @@ await runLocked(dir, async () => {
     expect(stored).toMatchObject({ status: 'running' });
     const empty = spawnSync(process.execPath, [runTs, 'resume', '--parked', ...flags], {
       encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '' },
+      env,
     });
     expect(empty.status, empty.stderr).toBe(0);
     expect(empty.stdout).toContain('0 runs parked');
     const invalid = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', '--parked', ...flags], {
       encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '' },
+      env,
     });
     expect(invalid.status).not.toBe(0);
     expect(invalid.stderr).toContain('usage: agi resume');
@@ -356,7 +363,16 @@ await runLocked(dir, async () => {
         '--step',
         'triage',
       ],
-      { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '',
+          AGENTGRAPH_PROVIDER: 'litellm',
+          AGENTGRAPH_PROXY_KEYS: '*=test',
+          AGENTGRAPH_SANDBOX_URL: 'http://unused',
+        },
+      }
     );
     expect(dispatched.status, dispatched.stderr).toBe(0);
     const [run] = await Effect.runPromise(
@@ -398,7 +414,16 @@ await runLocked(dir, async () => {
         '--workflow',
         'router',
       ],
-      { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '',
+          AGENTGRAPH_PROVIDER: 'litellm',
+          AGENTGRAPH_PROXY_KEYS: '*=test',
+          AGENTGRAPH_SANDBOX_URL: 'http://unused',
+        },
+      }
     );
     expect(dispatched.status, dispatched.stderr).toBe(0);
     const [run] = await Effect.runPromise(

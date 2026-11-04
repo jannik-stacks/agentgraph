@@ -499,16 +499,24 @@ async function runOnInstance(
     case 'dispatch': {
       if (verb === 'check' && !values.runs) return checkGraph(await synced(), i);
       const graph = await synced();
+      const { provider } = await prepare(i, graph, 'Nothing was driven.');
+      trapInterrupt();
       return printRuns(
-        await start({
-          graph,
-          issue: 'all',
-          data: i.data,
-          instance: i,
-          ...overrides,
-          setup: { ...scope, tracker: trackerSetup },
-          instruction: instruction!,
-        })
+        await start(
+          {
+            graph,
+            issue: 'all',
+            data: i.data,
+            instance: i,
+            ...overrides,
+            setup: { ...scope, tracker: trackerSetup },
+            instruction: instruction!,
+            choice: makeHarnessChoice(provider),
+          },
+          undefined,
+          {},
+          stopping.signal
+        )
       );
     }
     case 'loop':
@@ -729,6 +737,7 @@ async function loop(i: Instance, first: string) {
         ...(trackerSetup.origin.local ? [waitForTrackerEdit(i.tracker, signal)] : []),
       ]).catch(() => {});
       woken.abort();
+      if (stopping.signal.aborted) break;
       scope = await readInstanceEnv(i, makeHarnessChoice(connection.provider.name), defaults, commandEnv);
       await applySettings(connection.provider).catch((e: Error) =>
         console.error(
@@ -748,8 +757,11 @@ async function loop(i: Instance, first: string) {
       }
     }
   } finally {
-    await drives?.stop();
-    await release();
+    try {
+      await drives?.stop();
+    } finally {
+      await release();
+    }
   }
 }
 

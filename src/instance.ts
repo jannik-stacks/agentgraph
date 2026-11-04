@@ -183,10 +183,16 @@ export const ensureBase = async (i: Instance): Promise<string | undefined> => {
 };
 
 export const ensureGraph = async (i: Instance, flag = i.graph) => {
-  const tree =
-    flag || !existsSync(origin(i))
-      ? undefined
-      : await inTracker(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
+  const source = flag
+    ? undefined
+    : existsSync(origin(i))
+      ? origin(i)
+      : await inRepo(i.checkout, ['rev-parse', '--absolute-git-dir']);
+  const env = source ? { GIT_DIR: source } : {};
+  if (!flag && !existsSync(origin(i))) await git(env, ['rev-parse', '--verify', `refs/heads/${i.base}`]);
+  const tree = flag
+    ? undefined
+    : await git(env, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
   if (!tree) {
     const dir = flag ? resolve(flag) : join(i.checkout, '.agentgraph');
     if (existsSync(dir)) return dir;
@@ -197,11 +203,11 @@ export const ensureGraph = async (i: Instance, flag = i.graph) => {
   }
   const dir = getCachePath(i.data, 'graphs', tree);
   if (existsSync(dir)) return dir;
-  const linked = (await inTracker(i, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
+  const linked = (await git(env, ['ls-tree', '-r', tree])).split('\n').filter(l => /^(120000|160000) /.test(l));
   if (linked.length)
     throw new Error(`.agentgraph holds links or submodules: ${linked.map(l => l.split('\t')[1]).join(', ')}`);
   const draft = `${dir}.${randomUUID()}`;
-  const index = { GIT_DIR: origin(i), GIT_INDEX_FILE: `${draft}.index`, GIT_WORK_TREE: draft };
+  const index = { ...env, GIT_INDEX_FILE: `${draft}.index`, GIT_WORK_TREE: draft };
   await mkdir(draft, { recursive: true });
   try {
     await git(index, ['read-tree', tree]);

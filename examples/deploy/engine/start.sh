@@ -1,5 +1,9 @@
 set -eu
 cd "$(dirname "$0")/../../.."
+[ -f "$AGENTGRAPH_DATA/live/instance.yaml" ] || {
+  echo "provision $AGENTGRAPH_DATA/live/instance.yaml and its checkout before starting the engine; see docs/hosting.md" >&2
+  exit 1
+}
 if [ -z "${AGENTGRAPH_SANDBOX_URL:-}" ]; then
   tries=0
   until docker info > /dev/null 2>&1; do
@@ -20,4 +24,4 @@ if [ -z "${AGENTGRAPH_SANDBOX_URL:-}" ]; then
     docker build -q -t "$image" infra/local/sandbox
   fi
 fi
-exec node bin/run.ts loop --data "$AGENTGRAPH_DATA"
+exec node bin/run.ts loop --instance live --data "$AGENTGRAPH_DATA"

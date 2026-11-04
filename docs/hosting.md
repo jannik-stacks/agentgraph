@@ -1,6 +1,6 @@
 # Hosting <!-- untested -->
 
-Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: settings from the environment, data in one folder, commands through docker or a box server named by `AGENTGRAPH_SANDBOX_URL`. <!-- code: src/services.ts#makeProductionLayers -->
+Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: a named instance in the data root, environment overrides, commands through docker or a box server named by `AGENTGRAPH_SANDBOX_URL`. <!-- code: src/services.ts#makeProductionLayers -->
 
 | Folder | Runs on | Sandbox | Tested |
 | --- | --- | --- | --- |
@@ -14,6 +14,35 @@ None has run on a real account yet. The folders share the engine image (`example
 
 Every folder takes `AGENTGRAPH_REPO`, `AGENTGRAPH_APP_ID`, the App key in `AGENTGRAPH_APP_KEY` or `AGENTGRAPH_APP_KEY_FILE`, `GATEWAY_URL`, `GATEWAY_HEADERS` and the [model settings](sandbox.md#models). Git ignores `.env`, `.env.*` and `*.pem`.
 
+## Named instance
+
+The entrypoints run `loop --instance live`. Provision `live/instance.yaml` and its checkout
+in the persistent data root before starting a service. The engine image itself needs no Git checkout.
+Run these steps with write access to the volume, then give uid 1000 ownership:
+
+```sh
+data=/var/lib/agentgraph
+mkdir -p "$data/live"
+git clone https://github.com/owner/name.git "$data/live/checkout"
+cat > "$data/live/instance.yaml" <<'YAML'
+checkout: checkout
+repo: owner/name
+base: main
+owner: your-login
+tracker: github
+loop: true
+exported: {}
+YAML
+sudo chown -R 1000:1000 "$data/live"
+```
+
+Use the checkout's default branch for `base` and your GitHub login for `owner`. Clone private
+repositories with your existing Git credentials. App and model credentials stay in the service
+environment or secret files. Keep `AGENTGRAPH_REPO` consistent with the record. Omitted `graph`
+selects the checkout's committed `.agentgraph/`, including when there is no local tracker origin.
+The saved checkout must remain present across restarts. Update it with Git when deploying graph changes.
+<!-- code: src/instance.ts#readInstance src/instance.ts#ensureGraph -->
+
 ## VPS
 
 On a Linux host with Docker and the compose plugin, from `examples/deploy/vps`:
@@ -25,7 +54,7 @@ sudo install -d -o 1000 -g 1000 /var/lib/agentgraph
 docker compose up -d --build
 ```
 
-The engine runs as uid 1000 with the host's docker socket, so in effect it is root on the host. The data folder has the same path on the host and in the container, because docker resolves mounts on the host. Do not share a docker with `infra/local`: both use the same networks and the name `gateway`.
+Provision the named instance above before `docker compose up`. The engine runs as uid 1000 with the host's docker socket, so in effect it is root on the host. The data folder has the same path on the host and in the container, because docker resolves mounts on the host. Do not share a docker with `infra/local`: both use the same networks and the name `gateway`.
 
 ## One image
 
@@ -51,7 +80,7 @@ kubectl create secret generic agentgraph-app-key --from-file=app.pem
 kubectl apply -f examples/deploy/k8s/agentgraph.yaml
 ```
 
-Push the engine image where the cluster can pull it and set it in the manifest. The other images build in the sidecar at each pod start.
+Seed the volume claim with the same `live/instance.yaml` and `live/checkout` layout through a temporary pod before starting the Deployment. Push the engine image where the cluster can pull it and set it in the manifest. The other images build in the sidecar at each pod start.
 
 ## AWS
 
@@ -81,12 +110,24 @@ examples/deploy/cloudflare/up
 | `GATEWAY_URL` | Your model gateway's base; the request path is appended, `/v1` included |
 | `AGENTGRAPH_PROXY_KEYS`, `GATEWAY_HEADERS`, `AGENTGRAPH_PROXY_URL`, `AGENTGRAPH_SESSION_ENV` | Optional, read from the environment only; only the model login names allowed by `AGENTGRAPH_SESSION_ENV` are sent as secrets too |
 
+Before the first successful engine start, provision the same `live` folder locally and archive the data
+root, including `live/checkout/.git` and `live/instance.yaml`:
+
+```sh
+tar -czf /tmp/agentgraph-data.tar.gz -C "$data" live
+```
+
+After `up` creates the bucket, upload this archive as `data.tar.gz` in `agentgraph-data` using the R2
+dashboard. The next cron start restores it and selects `live`; an empty bucket cannot start a named
+instance. Relative checkout paths make the record work under the container's `/data`. Backups retain
+the checkout and record and exclude instance data locks.
+
 Values already in the environment are used without asking, so a second `up` only redeploys. A cron trigger starts the engine within five minutes; `npx wrangler tail` follows it.
 
 ```
  Worker "agentgraph"
    cron, every 5 minutes --> Engine container, one instance
-                               node bin/run.ts loop, data in /data
+                               node bin/run.ts loop --instance live, data in /data
                                reaches GitHub, and box.internal, data.internal, gateway.internal, keys.internal
    box.internal/<id> ------> Box container, one per checkout, the sandbox image
                                reaches gateway.internal and the egress allowlist, per command
