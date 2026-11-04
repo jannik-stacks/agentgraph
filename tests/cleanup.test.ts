@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Effect, Logger } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { removeBranch } from '../src/disk.ts';
+import { getCheckoutPaths } from '../src/env.ts';
 import * as host from '../src/git.ts';
 import { Store } from '../src/store.ts';
 import { Tracker } from '../src/tracker.ts';
@@ -13,14 +14,14 @@ import { fresh, graph, say, services, world } from './world.ts';
 
 const setup = () => {
   const where = world();
-  const path = join(where.root, 'checkout');
+  const path = getCheckoutPaths(where.data, 'checkout').dir;
   git(where.origin, 'worktree', 'add', '-b', 'agentgraph/7', path, 'main');
   write(path, { '.gitignore': 'node_modules\ntarget/\n' });
   const head = commit(path, { 'landed.txt': 'landed' });
   git(where.origin, 'update-ref', 'refs/agentgraph/attempts/run-7/1', head, '');
   git(where.origin, 'update-ref', 'refs/agentgraph/runs/run-7', head, '');
   const clean = (merged = true) =>
-    Effect.runPromise(removeBranch(where.origin, 'agentgraph/7', 'main', merged ? head : undefined));
+    Effect.runPromise(removeBranch(where.origin, 'agentgraph/7', 'main', merged ? head : undefined, where.data));
   return { ...where, path, head, clean, checkout: { branch: 'agentgraph/7', base: 'main' } };
 };
 
@@ -146,7 +147,7 @@ describe('landed checkout cleanup', () => {
       write(shared, { 'dependency.js': 'keep' });
       if (kind === 'symlink') symlinkSync(shared, join(run.path, 'node_modules'));
       else write(run.path, { 'node_modules/dependency.js': 'local dependency' });
-      await Effect.runPromise(removeBranch(run.origin, 'agentgraph/7', 'main', head));
+      await Effect.runPromise(removeBranch(run.origin, 'agentgraph/7', 'main', head, run.data));
       expect(existsSync(run.path)).toBe(false);
       expect(git(run.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
       expect(readFileSync(join(shared, 'dependency.js'), 'utf8')).toBe('keep');
@@ -172,7 +173,7 @@ describe('landed checkout cleanup', () => {
     const messages: { level: string; text: string }[] = [];
     try {
       await Effect.runPromise(
-        removeBranch(run.origin, 'agentgraph/7', 'main', run.head).pipe(
+        removeBranch(run.origin, 'agentgraph/7', 'main', run.head, run.data).pipe(
           Effect.provide(
             Logger.layer([
               Logger.make(({ logLevel, message }) => messages.push({ level: logLevel, text: String(message) })),
@@ -208,7 +209,7 @@ describe('landed checkout cleanup', () => {
     const messages: string[] = [];
     try {
       await Effect.runPromise(
-        removeBranch(run.origin, 'agentgraph/7', 'main', run.head).pipe(
+        removeBranch(run.origin, 'agentgraph/7', 'main', run.head, run.data).pipe(
           Effect.provide(Logger.layer([Logger.make(({ message }) => messages.push(String(message)))]))
         )
       );
@@ -222,13 +223,30 @@ describe('landed checkout cleanup', () => {
     expect(messages.some(m => m.includes('1 skipped removal') && m.includes('HEAD changed'))).toBe(true);
   });
 
+  it('keeps a handmade worktree outside the engine checkout root and its ignored files', async () => {
+    const run = setup();
+    const path = join(run.root, 'handmade');
+    git(run.origin, 'worktree', 'move', run.path, path);
+    write(path, { 'target/notes.txt': 'unique ignored notes' });
+    const messages: string[] = [];
+    await Effect.runPromise(
+      removeBranch(run.origin, 'agentgraph/7', 'main', run.head, run.data).pipe(
+        Effect.provide(Logger.layer([Logger.make(({ message }) => messages.push(String(message)))]))
+      )
+    );
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(join(path, 'target/notes.txt'), 'utf8')).toBe('unique ignored notes');
+    expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
+    expect(messages.some(m => m.includes('outside engine checkout root'))).toBe(true);
+  });
+
   it('skips symbolic agent refs and preserves their main target', async () => {
     const run = world();
     const main = git(run.origin, 'rev-parse', 'main');
     git(run.origin, 'symbolic-ref', 'refs/heads/agentgraph/7', 'refs/heads/main');
     const messages: string[] = [];
     await Effect.runPromise(
-      removeBranch(run.origin, 'agentgraph/7', 'main').pipe(
+      removeBranch(run.origin, 'agentgraph/7', 'main', undefined, run.data).pipe(
         Effect.provide(Logger.layer([Logger.make(({ message }) => messages.push(String(message)))]))
       )
     );
@@ -366,7 +384,7 @@ describe('landed checkout cleanup', () => {
     const ended = await engine.run(runWorkflow(flow, begun, selected));
     expect(ended.status).toBe('done');
     expect(ended.checkout).toEqual({ branch: resolvedBranch, base: resolvedBase });
-    const path = join(run.root, 'checkout');
+    const path = getCheckoutPaths(run.data, 'checkout').dir;
     git(run.origin, 'worktree', 'add', '-b', resolvedBranch, path, resolvedBase);
     writeIssueAt(
       issuePath(run.tracker, 7),
@@ -402,7 +420,7 @@ describe('landed checkout cleanup', () => {
     git(run.origin, 'config', 'filter.planted.clean', `touch ${marker}; cat`);
     git(run.origin, 'config', 'filter.planted.required', 'true');
     write(run.path, { 'landed.txt': 'change' });
-    await Effect.runPromise(removeBranch(run.origin, 'agentgraph/7', 'main', head));
+    await Effect.runPromise(removeBranch(run.origin, 'agentgraph/7', 'main', head, run.data));
     expect(existsSync(marker)).toBe(false);
     expect(readFileSync(join(run.path, 'landed.txt'), 'utf8')).toBe('change');
     expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(head);

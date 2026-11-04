@@ -906,7 +906,9 @@ export const dockerSandbox = (o: {
         readBranches: () => readBranches(mirror),
         readHead,
         removeBranch: (branch, base, head) =>
-          lock.withPermits(1)(removeBranch(mirror, branch, o.local && base === 'origin/HEAD' ? 'HEAD' : base, head)),
+          lock.withPermits(1)(
+            removeBranch(mirror, branch, o.local && base === 'origin/HEAD' ? 'HEAD' : base, head, o.data)
+          ),
         checkout,
         exec,
         lines,

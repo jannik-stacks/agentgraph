@@ -90,7 +90,7 @@ export const services = (
       ...s,
       exec: (c: Command) => (commands.push(c), order.push(c), s.exec(c)),
     }))
-  ).pipe(Layer.provide(hostSandbox(where.origin)));
+  ).pipe(Layer.provide(hostSandbox(where.origin, where.data)));
   const named = Layer.effect(
     Tracker,
     Effect.map(Tracker, f => ({

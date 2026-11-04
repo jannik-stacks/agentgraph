@@ -40,10 +40,11 @@ const attempts = 'refs/agentgraph/attempts/*';
 const graphs = 'refs/agentgraph/graphs/*';
 
 /** Commands on the host, with clones of the local git repo `repo` as worktrees. No network rules. */
-export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
+export const hostSandbox = (repo: string, data = dirname(repo)): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
     readBranches: () => readBranches(repo),
-    removeBranch: (branch, base, head) => removeBranch(repo, branch, base === 'origin/HEAD' ? 'HEAD' : base, head),
+    removeBranch: (branch, base, head) =>
+      removeBranch(repo, branch, base === 'origin/HEAD' ? 'HEAD' : base, head, data),
     readHead: ref =>
       Effect.tryPromise({
         try: () => git('git', ['rev-parse', '--verify', ref], { cwd: repo }).then(r => r.stdout.trim()),

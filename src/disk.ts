@@ -17,8 +17,9 @@ import {
   writeFileSync,
   unlinkSync,
 } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
+  getCheckoutPaths,
   runDockerCli,
   envVersion,
   held,
@@ -160,7 +161,13 @@ const du = (path: string) =>
     )
   );
 
-export const removeBranch = (git: string, branch: string, base: string | undefined, head?: string) =>
+export const removeBranch = (
+  git: string,
+  branch: string,
+  base: string | undefined,
+  head: string | undefined,
+  data: string
+) =>
   Effect.gen(function* () {
     if (!existsSync(git)) return;
     const env = { GIT_DIR: git };
@@ -186,6 +193,20 @@ export const removeBranch = (git: string, branch: string, base: string | undefin
         const fields = t.split('\0');
         return { path: fields[0]!.slice('worktree '.length), sha: fields.find(f => f.startsWith('HEAD '))!.slice(5) };
       });
+    const outside = yield* Effect.try(() => {
+      if (!trees.length) return [];
+      const root = realpathSync(getCheckoutPaths(data, '').dir);
+      return trees.filter(({ path }) => {
+        const at = relative(root, existsSync(path) ? realpathSync(path) : resolve(path));
+        return !at || at === '..' || at.startsWith(`..${sep}`) || isAbsolute(at);
+      });
+    }).pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped cleanup ${branch}: checkout root`, e), trees)));
+    if (outside.length) {
+      yield* Effect.forEach(outside, ({ path }) =>
+        Effect.logWarning(`1 skipped cleanup ${path} ${branch}: outside engine checkout root`)
+      );
+      return;
+    }
     for (const { path, sha } of trees) {
       const inspect = () =>
         Effect.try(() => {
