@@ -11,7 +11,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | Verb | What it does | As a runner |
 | --- | --- | --- |
 | `start "<text>"` | Files the text as an issue and drives it. The first line is the title. <!-- code: src/main.ts#writeTriggeringIssue --> | |
-| `say <n> "<text>"` | Comments `/agent <text>` on issue n and drives it: an answer, feedback, `stop`, `cancel` or `restart` | |
+| `say <n> "<text>"` | Comments `/agent <text>` on issue n and drives it: an answer or feedback. Text that starts with a colon is a [command](workflows.md#commands): `say 12 ":restart:implement"` comments `/agent:restart:implement` <!-- code: src/tracker.ts#formatAgentComment --> | |
 | `review <n> approve` | Approves the pull request of issue n | |
 | `review <n> changes "<why>"` | Requests changes, with any line comments made before, and drives the issue | |
 | `merge <n>` | Moves the base to the pull request's head, retargets stacked pull requests, closes the issue and writes the branch into your repo; fails if the base moved past it <!-- code: src/instance.ts#mergePull --> | |

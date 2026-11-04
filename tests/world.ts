@@ -17,7 +17,7 @@ import { makeTestGraph, result, seeded, start } from './fixtures.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { appendIssueAt, issuePath, writeIssueAt } from './kit.ts';
 
-export const replyHint = 'Reply `/agent` and your answer, or `/agent stop` to end the run.';
+export const replyHint = 'Reply `/agent` and your answer, or `/agent:stop` to end the run.';
 export const graph = makeTestGraph('kit', {
   types: { run: '! grep -q TODO hello.txt' },
   safety: { run: '! test -e secret.txt' },

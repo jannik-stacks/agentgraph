@@ -123,7 +123,7 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
     const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => getHeardEvent(graph, w, m)), ...tells]
       .filter(m => m.at > since)
       .flatMap(m => {
-        const o = getEventOutcome(w, run, { ...m, issue: run.issue });
+        const o = getEventOutcome(w, run, { ...m, issue: run.issue }, [], graph.commands);
         return o ? [{ o, at: m.at, event: m }] : [];
       });
     const outcome = fold(said.map(s => s.o));

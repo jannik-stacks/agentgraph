@@ -362,14 +362,14 @@ describe('the human verbs on a tracker folder', () => {
     const w = world();
     await w.tracker('init', w.seed);
     await w.tracker('issue', 'Add a greeting');
-    await w.tracker('comment', '1', '/agent stop');
+    await w.tracker('comment', '1', '/agent:stop');
     expect(await w.run([])).toEqual([]);
 
     await w.tracker('comment', '1', '/agent');
     const asked = await w.run([[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(asked.map(r => [r.step, r.status])).toEqual([['router', 'waiting']]);
 
-    await w.tracker('comment', '1', '/agent stop wrong issue');
+    await w.tracker('comment', '1', '/agent:stop wrong issue');
     const stopped = await w.run([]);
     expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['router', 'stopped', 'wrong issue']]);
   });

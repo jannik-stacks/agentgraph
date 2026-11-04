@@ -1,6 +1,6 @@
 import { Duration, Effect, Option, Schema, Stream } from 'effect';
 import { formatEventLine, stoppedByRunner } from '../context.ts';
-import { Tracker, TrackerError } from '../tracker.ts';
+import { Tracker, TrackerError, formatAgentComment } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
@@ -11,6 +11,7 @@ import { SessionStop, makeOutcomeLine } from '../trace.ts';
 import {
   begin,
   fold,
+  getCommand,
   getEventOutcome,
   makeRunWithFreshRound,
   transition,
@@ -64,7 +65,7 @@ const spokenByCli = (issue: number, text: string, at: string, parent?: Comment):
   comment: {
     id: '',
     author: 'cli',
-    body: `/agent ${text}`,
+    body: formatAgentComment(text),
     agentRequest: text,
     at,
     ...(parent && { path: parent.path!, line: parent.line, under: parent.under ?? parent.id }),
@@ -197,14 +198,14 @@ const settled = (child: Run) =>
         : `asks: ${child.reason}`
   }`;
 
-/** A trusted person's comment, review or pushed commit; a bare stop, cancel or restart is a command, not feedback. */
+/** A trusted person's comment, review or pushed commit; a bare `/agent:` command is not feedback. */
 const feedback = (m: Event) =>
   m.trusted &&
   (m.kind === 'comment' ||
     m.kind === 'changes_requested' ||
     m.kind === 'commit' ||
     (m.kind === 'approved' && !!m.comment?.body.trim())) &&
-  !/^(stop|cancel|restart(\s+\S+)?)$/i.test(parseAgentRequest(m) ?? '');
+  !/^:\S+$/.test(parseAgentRequest(m) ?? '');
 
 /** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
 export const issueDebounceMs = 30_000;
@@ -369,7 +370,8 @@ export const tick = (
               w,
               run,
               tells.includes(m) || (isParked(run) && isQuiet(w)) ? m : getHeardEvent(graph, w, m),
-              lined
+              lined,
+              graph.commands
             );
           return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
         };
@@ -521,24 +523,42 @@ export const tick = (
         touched.push(run);
       });
     for (const m of events) {
-      const words = parseAgentRequest(m)?.split(/\s+/) ?? [];
-      const named = triggered.find(w => w.name === words[0]);
+      const newest = runs
+        .filter(r => r.issue === m.issue && graph.workflows[r.workflow])
+        .toSorted((a, b) => a.started.localeCompare(b.started))
+        .at(-1);
+      const target = (newest && graph.workflows[newest.workflow]) ?? triggered[0];
+      const command = getCommand(m, triggered, target, graph.commands);
+      if (command && 'why' in command) {
+        const { why } = command;
+        const issue = origin.get(m) ?? m.issue;
+        const answered = latest.some(
+          n => n.issue === issue && n.at >= m.at && n.actor.endsWith('[bot]') && n.comment?.body.includes(why)
+        );
+        if (m.trusted && !answered)
+          yield* tracker
+            .apply(issue, { kind: 'comment', body: why })
+            .pipe(Effect.catchTag('TrackerError', e => Effect.logWarning(`reply on #${issue}`, e)));
+        continue;
+      }
       const relabelled = events.some(
         n => n.issue === m.issue && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
       );
       const sourced = Object.values(graph.workflows).find(w => isIssueTriggered(w, m));
+      const restart = command?.verb === 'restart' ? (command.step ?? '') : undefined;
       const w =
         m.kind === 'label' && relabelled
           ? undefined
-          : (sourced ?? (parseAgentRequest(m) !== undefined ? (named ?? triggered[0]) : undefined));
-      const [verb = '', step = ''] = named ? words.slice(1) : words;
-      const restart = /^restart$/i.test(verb) ? step : undefined;
+          : (sourced ??
+            (parseAgentRequest(m) !== undefined
+              ? (command?.workflow ?? (restart === undefined ? triggered[0] : target))
+              : undefined));
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !isInScope(graph, yield* tracker.issue(m.issue)))) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
       const concerns = (name: string) => m.kind !== 'comment' || !routed || !!graph.workflows[name]?.on.issue_comment;
       if (
-        /^(stop|cancel)$/i.test(verb) &&
+        (command?.verb === 'stop' || command?.verb === 'cancel') &&
         !runs.some(r => r.issue === m.issue && !isRunDone(r) && !concerns(r.workflow))
       )
         continue;

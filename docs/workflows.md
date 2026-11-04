@@ -59,11 +59,34 @@ To start a run by hand, use `agi dispatch 12 --workflow issue`. Runs can also st
 
 More triggers are planned through [plugins](extending.md#plugins-in-progress); `pull_request` and `branches` are accepted but do not trigger runs yet. <!-- code: src/workflow.ts#Front -->
 
-With several comment workflows, `/agent` starts the first, or the one its first word names (`/agent plan`). Comments without the marker are context. Comments on the issue's pull request count for the issue; bot comments never do. `/agent restart` starts the workflow again with its human answers, and `/agent restart implement` starts at that step. An eyes reaction marks the comment or issue until the engine replies. <!-- code: src/run/trigger.ts#tick -->
+With several comment workflows, `/agent` starts the first. Comments without the marker are context. Comments on the issue's pull request count for the issue; bot comments never do. An eyes reaction marks the comment or issue until the engine replies. <!-- code: src/run/trigger.ts#tick -->
+
+### Commands
+
+`/agent <text>` is always text: a start, an answer or feedback, whatever its first word. A command joins its words to `/agent` with colons and no spaces: <!-- code: src/workflow.ts#getCommand src/tracker.ts#makeCommentWithAgentRequest -->
+
+| Comment | What it does |
+| --- | --- |
+| `/agent:stop [reason]` | Ends the live run |
+| `/agent:cancel` | Parks the working step and asks how to go on |
+| `/agent:restart` | Starts the issue's newest workflow again, with its human answers |
+| `/agent:restart:<step>` | The same, from that step |
+| `/agent:<workflow> [text]` | Starts that comment workflow, or answers its live run |
+| `/agent:<workflow>:restart[:<step>]` | Starts that comment workflow again |
+
+`commands` in `settings.yaml` says who may use each command; a workflow pick counts under the workflow's name. `true` or no entry lets everyone in `trust` use it, `false` turns it off, and a list of logins keeps it to those trusted logins. A command the router passes on with `tell` counts as said by the router run, so a list of logins keeps it from the router. <!-- code: src/folder.ts#Graph -->
+
+```yaml
+commands:
+  restart: [jannik-stacks]
+  stop: true
+```
+
+A command that is unknown, names an unknown step, or is turned off or kept from its author does nothing. The engine answers it once on the issue with why, and with the valid commands for an unknown one. `agi check` fails a workflow named `stop`, `cancel` or `restart`, and a `commands` entry that names neither a command nor a comment workflow. <!-- code: src/run/trigger.ts#tick src/workflow.ts#compileWorkflow -->
 
 A comment that asks for no work can end the run after one session that only comments. That works without a branch, with an open pull request, or after a finished run of that workflow. Otherwise a first session that may push fails when it changed nothing.
 
-A workflow can take both triggers: `on: { issue_comment: {}, issues: { label: agent:ready } }`. A label starts it once per issue; after that, use restart. One live run holds an issue, a label added meanwhile is ignored, and removing a live run's trigger label stops it. <!-- code: src/workflow.ts#getEventOutcome -->
+A workflow can take both triggers: `on: { issue_comment: {}, issues: { label: agent:ready } }`. A label starts it once per issue; after that, use `/agent:restart`. One live run holds an issue, a label added meanwhile is ignored, and removing a live run's trigger label stops it. <!-- code: src/workflow.ts#getEventOutcome -->
 
 ## Project boards
 
@@ -121,10 +144,10 @@ An agent that may return `run` can start a workflow with `on: dispatch`:
 An `issue_comment` workflow whose agent may `tell` is a router and runs beside other live runs. In a graph with a router, only `issue_comment` workflows hear `/agent` comments; the others hear what the router tells them. <!-- code: src/run/hear.ts#getHeardEvent -->
 
 ```json
-{ "kind": "tell", "issue": 12, "text": "stop" }
+{ "kind": "tell", "issue": 12, "text": ":stop" }
 ```
 
-The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/run/start.ts#findRecipient src/run/hear.ts#readRunEvents src/run/trigger.ts#tick -->
+The live run on that issue hears the text as a maintainer comment: feedback, an answer, `:stop` or `:cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/run/start.ts#findRecipient src/run/hear.ts#readRunEvents src/run/trigger.ts#tick -->
 
 ## The session
 
@@ -144,7 +167,7 @@ At a `wait: human` step with `back`, a review requesting changes goes back with 
 
 ## Waiting
 
-A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The question is its own comment; answer with `/agent` to resume the step. Out of rounds, the next review or `/agent` comment grants one more. Answers stay paired with their questions for every later step and check. `/agent stop` or closing the issue ends the run. <!-- code: src/run/check.ts#formatAnswers src/context.ts#answerWith -->
+A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The question is its own comment; answer with `/agent` to resume the step. Out of rounds, the next review or `/agent` comment grants one more. Answers stay paired with their questions for every later step and check. `/agent:stop` or closing the issue ends the run. <!-- code: src/run/check.ts#formatAnswers src/context.ts#answerWith -->
 
 ## Asides
 
@@ -158,7 +181,7 @@ A trusted `/agent` comment reaches a working run by the workflow's `concurrency`
 - `queue`: the try and its checks finish, then the comment applies as an answer.
 - `cancel`: the session stops and the step resumes with the comment as feedback; the cut try does not count.
 
-`/agent cancel` parks the step and asks how to go on. `/agent stop` ends the run. Comments in a row become one answer, and the first `stop` or `cancel` wins. The engine waits for 30 seconds of quiet before it starts or wakes a run. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#fold src/run/trigger.ts#issueDebounceMs src/run/hear.ts#readHeardOutcome -->
+`/agent:cancel` parks the step and asks how to go on. `/agent:stop` ends the run. Comments in a row become one answer, and the first command wins. The engine waits for 30 seconds of quiet before it starts or wakes a run. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#fold src/run/trigger.ts#issueDebounceMs src/run/hear.ts#readHeardOutcome -->
 
 ## When the base or the graph moves
 
@@ -206,6 +229,6 @@ Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, th
 
 ## Retros
 
-`on: feedback` starts a retro on trusted comments, change requests, approvals with a comment, and commits people push where a run worked, also after merge. A bare `/agent stop`, `cancel` or `restart` is not feedback. Feedback is batched after 30 seconds of quiet. <!-- code: src/run/trigger.ts#feedback -->
+`on: feedback` starts a retro on trusted comments, change requests, approvals with a comment, and commits people push where a run worked, also after merge. A command without text, such as `/agent:stop`, is not feedback. Feedback is batched after 30 seconds of quiet. <!-- code: src/run/trigger.ts#feedback -->
 
 A retro never holds an issue, shares its sticky status without changing labels, skips setup, and stops where another workflow would wait. Its problems remain visible in the sticky and `show`. It ends with nothing, a [graph change](proposals.md#filing-issues) for a recurring miss, or a follow-up issue. <!-- code: src/workflow.ts#transition -->

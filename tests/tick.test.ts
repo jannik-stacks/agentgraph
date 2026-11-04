@@ -92,9 +92,9 @@ describe('tick', () => {
                 if (event.type !== 'start' || checked) return Effect.void;
                 checked = true;
                 return Effect.gen(function* () {
-                  if (source === 'event') where.human('/agent stop', '2026-10-16T00:00:05.000Z');
+                  if (source === 'event') where.human('/agent:stop', '2026-10-16T00:00:05.000Z');
                   const incoming =
-                    source === 'cli' ? instruct(kit, { kind: 'say', issue: 7, text: 'stop' }) : tick(kit, 7);
+                    source === 'cli' ? instruct(kit, { kind: 'say', issue: 7, text: ':stop' }) : tick(kit, 7);
                   yield* incoming.pipe(
                     Effect.provideService(Tracker, f),
                     Effect.provideService(Store, store),
@@ -481,7 +481,7 @@ describe('tick', () => {
               Stream.tap(event => {
                 if (event.type !== 'start' || sent) return Effect.void;
                 sent = true;
-                return instruct(kit, { kind: 'say', issue: 8, text: 'stop' }).pipe(
+                return instruct(kit, { kind: 'say', issue: 8, text: ':stop' }).pipe(
                   Effect.provideService(Tracker, f),
                   Effect.provideService(Store, store),
                   Effect.provideService(Sandbox, sandbox),
@@ -1164,7 +1164,7 @@ describe('tick', () => {
     say(where, comment(8, 'agentgraph[bot]', false, '/agent undo everything', '2026-10-16T00:00:06.000Z'));
     const { specs, run } = services(where, []);
     expect(await run(Effect.andThen(waiting(where), tick(merging, 7)))).toEqual([]);
-    where.human('/agent stop not needed', '2026-10-16T00:00:07.000Z');
+    where.human('/agent:stop not needed', '2026-10-16T00:00:07.000Z');
     const stopped = await run(tick(merging, 7));
     expect(stopped.map(r => [r.id, r.status, r.reason])).toEqual([['run-7', 'stopped', 'not needed']]);
     expect(specs).toHaveLength(0);
@@ -1175,7 +1175,7 @@ describe('tick', () => {
     const answers = [{ asked: 'Hello or hi?', said: 'hello' }];
     const { specs, run } = services(where, [[start('i'), reply({ kind: 'ask', question: 'Which file?' })]]);
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped', answers })));
-    where.human('/agent restart implement', '2026-10-16T00:01:00.000Z');
+    where.human('/agent:restart:implement', '2026-10-16T00:01:00.000Z');
     const touched = await run(tick(graph));
     expect(touched.map(r => [r.id, r.step, r.status, r.answers])).toEqual([
       ['issue-7-20261016000100000', 'implement', 'waiting', answers],
@@ -1192,7 +1192,7 @@ describe('tick', () => {
         s.put({ ...fresh(), step: 'implement', status: 'waiting', reason: 'Hello or hi?', answers })
       )
     );
-    where.human('/agent restart', '2026-10-16T00:01:00.000Z');
+    where.human('/agent:restart', '2026-10-16T00:01:00.000Z');
     await run(tick(graph));
     const stored = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored.map(r => [r.id, r.step, r.status, r.reason]).sort()).toEqual([
@@ -1200,6 +1200,43 @@ describe('tick', () => {
       ['run-7', 'implement', 'stopped', 'a human restarted it'],
     ]);
     expect(stored.find(r => r.id !== 'run-7')!.answers).toEqual(answers);
+  });
+
+  it('answers a refused or unknown command once on the issue and changes nothing', async () => {
+    const where = world();
+    const { specs, run } = services(where, []);
+    const asked = { ...fresh(), step: 'implement', status: 'waiting' as const, reason: 'Hello or hi?' };
+    await run(Effect.flatMap(Store, s => s.put(asked)));
+    const kept = { ...graph, commands: { restart: ['ana'], stop: false } };
+    say(where, comment(7, 'morgan', true, '/agent:restart', '2026-10-16T00:01:00.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:stop', '2026-10-16T00:01:01.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:bogus', '2026-10-16T00:01:02.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:restart:nope', '2026-10-16T00:01:03.000Z'));
+    say(where, comment(7, 'mallory', false, '/agent:restart', '2026-10-16T00:01:04.000Z'));
+    await run(tick(kept));
+    await run(tick(kept));
+    const stored = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored.map(r => [r.id, r.status, r.reason])).toEqual([['run-7', 'waiting', 'Hello or hi?']]);
+    expect(specs).toHaveLength(0);
+    const replies = readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')
+      .split('\n')
+      .filter(line => line.includes('agentgraph[bot]') && line.includes('"kind":"comment"'))
+      .map(line => (JSON.parse(line) as Event).comment!.body);
+    expect(replies).toEqual([
+      'Only ana may use `/agent:restart`.',
+      '`/agent:stop` is turned off here.',
+      '`/agent:bogus` is not a command. Use `/agent:stop`, `/agent:cancel`, `/agent:restart`, `/agent:restart:<step>`, `/agent:issue`, `/agent:plan`.',
+      '`/agent:restart:nope`: issue has no step nope. Its steps are triage, implement, review, merge.',
+    ]);
+  });
+
+  it('restarts for a login a restart is kept to', async () => {
+    const where = world();
+    const { run } = services(where, [[start('t'), reply({ kind: 'ask', question: 'Which file?' })]]);
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped' })));
+    say(where, comment(7, 'ana', true, '/agent:restart:implement', '2026-10-16T00:01:00.000Z'));
+    const touched = await run(tick({ ...graph, commands: { restart: ['ana'] } }));
+    expect(touched.map(r => [r.step, r.status])).toEqual([['implement', 'waiting']]);
   });
 
   it('ends a run waiting at merge done when its pull request is merged and its issue closed with it', async () => {

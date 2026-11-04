@@ -51,7 +51,12 @@ const table: [verb: string, args: string | undefined, flags: (keyof typeof own)[
   ['label', 'run key=value|key-', [], 'sets or removes labels on a run and prints them'],
   ['loop', undefined, ['once'], 'drives every open issue, again every AGENTGRAPH_EVERY minutes'],
   ['show', 'n|graph', [], 'what needs you and every issue, one issue in full, or the graph'],
-  ['say', 'n text', ['line', 'label'], 'an /agent comment on issue n, then drives it'],
+  [
+    'say',
+    'n text',
+    ['line', 'label'],
+    'an /agent comment on issue n, then drives it; ":restart:implement" posts /agent:restart:implement',
+  ],
   ['review', 'n approve|changes text', [], "a review of issue n's pull request; changes drives it"],
   ['merge', 'n', [], "merges issue n's pull request and closes the issue"],
   ['export', 'n', ['as', 'patch'], "writes issue n's branch into your repo again"],

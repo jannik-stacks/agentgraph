@@ -303,6 +303,19 @@ describe('loadGraph', () => {
     expect([unset.milestone, unset.trust]).toEqual([undefined, undefined]);
   });
 
+  it('reads who may use each command, and refuses a command workflow or an entry no command or comment workflow has', async () => {
+    const { dir } = fromFixture('kit');
+    writeFileSync(join(dir, 'settings.yaml'), 'repo: o/r\ncommands: { restart: [ana], stop: false, plan: true }\n');
+    const graph = await Effect.runPromise(loadGraph(dir, harnesses));
+    expect(graph.commands).toEqual({ restart: ['ana'], stop: false, plan: true });
+    writeFileSync(join(dir, 'settings.yaml'), 'repo: o/r\ncommands: { merge: true }\n');
+    cpSync(join(dir, 'workflows/plan.md'), join(dir, 'workflows/restart.md'));
+    expect(await problems(dir)).toEqual([
+      'workflows/restart.md: restart is the command /agent:restart; rename the workflow',
+      'settings.yaml: commands.merge: no command or comment workflow is named merge',
+    ]);
+  });
+
   it('takes AGENTGRAPH_REPO over the repo the graph file names', async () => {
     const dir = graphDir({ 'settings.yaml': 'repo: o/r\n' });
     const read = (env: Record<string, string>) =>

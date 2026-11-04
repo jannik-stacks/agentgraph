@@ -122,7 +122,10 @@ export const parseIssueSearch = (
     return Effect.succeed({ terms, state, limit });
   });
 
-/** The comment with what it asks the bot after its first `/agent` or `@agent` outside quoted lines and fenced code. */
+/**
+ * The comment with what it asks the bot after its first `/agent` or `@agent` outside quoted lines and fenced code. A
+ * command such as `/agent:restart:plan` leads it with `:restart:plan`; plain text never starts with a colon.
+ */
 export const makeCommentWithAgentRequest = (c: Comment): Comment => {
   let fenced = false;
   let offset = 0;
@@ -133,14 +136,18 @@ export const makeCommentWithAgentRequest = (c: Comment): Comment => {
     if (fenced || /^\s*>/.test(line)) continue;
     const found = /(?<![\w./-])[/@]agent(?![\w/-])/i.exec(line);
     if (!found) continue;
-    const agentRequest = `${c.body.slice(0, start + found.index).trimEnd()} ${c.body
-      .slice(start + found.index + found[0].length)
-      .replace(/^[,:]/, '')
-      .trimStart()}`.trim();
-    return { ...c, agentRequest };
+    const after = c.body.slice(start + found.index + found[0].length);
+    const command = /^:[\w-]+(?::[\w-]+)*/.exec(after)?.[0] ?? '';
+    const text =
+      `${c.body.slice(0, start + found.index).trimEnd()} ${after.slice(command.length).replace(/^[\s,:]+/, '')}`
+        .trim()
+        .replace(/^:+/, '');
+    return { ...c, agentRequest: `${command} ${text}`.trim() };
   }
   return c;
 };
+
+export const formatAgentComment = (text: string) => (text.startsWith(':') ? `/agent${text}` : `/agent ${text}`);
 
 /** Whether an issue passes the `issues` filter. */
 export const matches =

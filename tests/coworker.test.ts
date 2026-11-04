@@ -443,9 +443,9 @@ describe('coworker', () => {
   });
 
   it('cancel parks a working run with its session, and stop ends it, whatever the concurrency', async () => {
-    const parked = await during(world(), comment(7, 'ana', true, '/agent cancel', later(1)), [], true).go(flow);
+    const parked = await during(world(), comment(7, 'ana', true, '/agent:cancel', later(1)), [], true).go(flow);
     expect(parked).toMatchObject({ status: 'waiting', reason: cancelled, sessions: { implement: { id: 'a' } } });
-    const stop = comment(7, 'ana', true, '/agent stop wrong issue', later(1));
+    const stop = comment(7, 'ana', true, '/agent:stop wrong issue', later(1));
     const stopped = await during(world(), stop, [], true).go({ ...flow, concurrency: 'queue' });
     expect(stopped).toMatchObject({ status: 'stopped', reason: 'wrong issue' });
   });
@@ -804,7 +804,7 @@ describe('compound engineering', () => {
     const where = world();
     say(where, comment(7, 'mallory', false, 'this is wrong', '2026-10-16T00:00:04.000Z'));
     say(where, pushed(7, '2026-10-16T00:00:05.000Z'));
-    say(where, comment(7, 'morgan', true, '/agent stop', '2026-10-16T00:00:06.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:stop', '2026-10-16T00:00:06.000Z'));
     say(where, {
       ...comment(7, 'morgan', true, 'Fine, but the new field needs docs.', '2026-10-16T00:00:07.000Z'),
       kind: 'approved',
@@ -865,12 +865,12 @@ describe('compound engineering', () => {
 
   it('takes a stop with a reason as feedback, and a bare stop as a command', async () => {
     const where = world();
-    say(where, comment(7, 'morgan', true, '/agent stop', '2026-10-16T00:00:04.000Z'));
-    say(where, comment(7, 'morgan', true, '/agent stop you rewrote the whole module', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:stop', '2026-10-16T00:00:04.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:stop you rewrote the whole module', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [[start('r'), reply()]]);
     await run(done());
     expect((await run(tick(looking))).map(r => r.workflow)).toEqual(['retro']);
-    expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan: /agent stop you rewrote the whole module\n');
+    expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan: /agent:stop you rewrote the whole module\n');
   });
 
   it('looks up no open issue a run never worked on', async () => {

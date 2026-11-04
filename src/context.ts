@@ -118,7 +118,7 @@ const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required'
 
 export const stoppedByRunner = 'Stopped by a runner error';
 
-const answerWith = 'Reply `/agent` and your answer, or `/agent stop` to end the run.';
+const answerWith = 'Reply `/agent` and your answer, or `/agent:stop` to end the run.';
 
 export function proposeStatusUpdates(
   run: Run,

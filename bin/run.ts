@@ -9,7 +9,7 @@ import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { findIssueDir, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
+import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
@@ -433,7 +433,9 @@ async function runOnInstance() {
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
-      await writeComment(i.tracker, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
+      await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line).catch((e: Error) =>
+        fail(e.message)
+      );
       if (values.label) await writeLabels(i.tracker, i.owner, issue, values.label).catch((e: Error) => fail(e.message));
       return drive(i, issue, graph, provider);
     }

@@ -218,6 +218,8 @@ export function compileWorkflow(
   }
   const front = decoded.success;
   const name = basename(path, '.md');
+  if (commandVerbs.includes(name))
+    problems.push({ path, message: `${name} is the command /agent:${name}; rename the workflow` });
   const trigger = typeof front.on === 'string' ? undefined : front.on.issues;
   if (trigger?.project !== undefined && trigger.column === undefined) say('on.issues.project', 'project needs column');
 
@@ -486,17 +488,69 @@ export const isIssueTriggered = (w: Workflow, m: Event) =>
 /** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
 export const parseAgentRequest = (m: Event) => (m.kind === 'comment' ? m.comment?.agentRequest : undefined);
 
+export const CommandSettings = Schema.Record(
+  Schema.String,
+  Schema.Union([Schema.Boolean, Schema.Array(Schema.String)])
+);
+
+export const commandVerbs = ['stop', 'cancel', 'restart'];
+
+export function getCommand(
+  m: Event,
+  picks: Workflow[],
+  target: Workflow | undefined,
+  commands: typeof CommandSettings.Type = {}
+) {
+  const said = parseAgentRequest(m) ?? '';
+  const found = /^:[\w-]+(?::[\w-]+)*/.exec(said);
+  if (!found) return undefined;
+  const words = found[0].slice(1).split(':');
+  const picked = picks.find(w => w.name === words[0]);
+  const [verb, step, ...extra] = picked ? words.slice(1) : words;
+  const workflow = picked ?? target;
+  if (
+    (verb !== undefined && !commandVerbs.includes(verb)) ||
+    (step !== undefined && verb !== 'restart') ||
+    extra.length
+  )
+    return {
+      why: `\`/agent${found[0]}\` is not a command. Use ${[...commandVerbs, 'restart:<step>', ...picks.map(w => w.name)]
+        .map(c => `\`/agent:${c}\``)
+        .join(', ')}.`,
+    };
+  if (step !== undefined && !workflow?.steps.some(s => s.name === step))
+    return {
+      why: `\`/agent${found[0]}\`: ${workflow?.name ?? 'the issue'} has no step ${step}. Its steps are ${
+        workflow?.steps.map(s => s.name).join(', ') ?? 'none'
+      }.`,
+    };
+  const whyNot = (name: string) => {
+    const allowed = commands[name] ?? true;
+    if (allowed === false) return `\`/agent:${name}\` is turned off here.`;
+    if (allowed !== true && !allowed.includes(m.actor)) return `Only ${allowed.join(', ')} may use \`/agent:${name}\`.`;
+  };
+  const why = m.source === 'cli' ? undefined : [picked?.name, verb].map(name => name && whyNot(name)).find(Boolean);
+  return why ? { why } : { workflow: picked, verb, step, text: said.slice(found[0].length).trim() };
+}
+
 /**
  * The question a run parks with when a human cancels the try it is on.
  * @internal
  */
-export const cancelled = 'Cancelled. Say /agent and how to go on from here, or /agent stop to end the run.';
+export const cancelled = 'Cancelled. Say /agent and how to go on from here, or /agent:stop to end the run.';
 
 /**
- * What a new event means for a live run: a review at a human step, an answer elsewhere, `cancel` parks a working run;
- * undefined when it is only context. `lined` are the line comments that came with a review.
+ * What a new event means for a live run: a review at a human step, an answer elsewhere, `/agent:cancel` parks a working
+ * run; undefined when it is only context or a command `commands` refuses. `lined` are the line comments that came with
+ * a review.
  */
-export function getEventOutcome(w: Workflow, run: Run, m: Event, lined: Event[] = []): Outcome | undefined {
+export function getEventOutcome(
+  w: Workflow,
+  run: Run,
+  m: Event,
+  lined: Event[] = [],
+  commands?: typeof CommandSettings.Type
+): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
@@ -505,12 +559,11 @@ export function getEventOutcome(w: Workflow, run: Run, m: Event, lined: Event[] 
   if (m.kind === 'closed' && !isRunDone(run)) return { kind: 'stop', why: 'closed' };
   const said = parseAgentRequest(m);
   const body = m.comment?.body.trim() ?? '';
-  const [first = '', ...rest] = said?.split(/\s+/) ?? [];
-  if (first.toLowerCase() === 'stop' && !isRunDone(run))
-    return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
-  if (first.toLowerCase() === 'restart' && !isRunDone(run)) return { kind: 'stop', why: 'a human restarted it' };
-  if (first.toLowerCase() === 'cancel')
-    return run.status === 'running' ? { kind: 'ask', question: cancelled } : undefined;
+  const command = getCommand(m, w.on.issue_comment ? [w] : [], w, commands);
+  if (command && 'why' in command) return undefined;
+  if (command?.verb === 'stop' && !isRunDone(run)) return { kind: 'stop', why: command.text || 'a human said stop' };
+  if (command?.verb === 'restart' && !isRunDone(run)) return { kind: 'stop', why: 'a human restarted it' };
+  if (command?.verb === 'cancel') return run.status === 'running' ? { kind: 'ask', question: cancelled } : undefined;
   const step = w.steps.find(s => s.name === run.step);
   if (waiting && step && isHumanWaitStep(step)) {
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
@@ -524,7 +577,7 @@ export function getEventOutcome(w: Workflow, run: Run, m: Event, lined: Event[] 
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };
     }
   }
-  if (said !== undefined && !isRunDone(run)) return { kind: 'answer', text: said };
+  if (said !== undefined && !isRunDone(run)) return { kind: 'answer', text: command?.text ?? said };
   return undefined;
 }
 

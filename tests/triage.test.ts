@@ -411,14 +411,14 @@ describe('dispatch', () => {
       reason: 'Which size?',
     };
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(triage)).pipe(Effect.provide(fileStore(where.data))));
-    mention(where, '/agent stop the triage, it is not needed');
-    const first = await run(where, [turn({ kind: 'tell', issue: 1, text: 'stop not needed' })], tick(graph));
+    mention(where, '/agent:stop the triage, it is not needed');
+    const first = await run(where, [turn({ kind: 'tell', issue: 1, text: ':stop not needed' })], tick(graph));
     expect(first.value.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
     const trace = await Effect.runPromise(
       Effect.flatMap(Store, s => Stream.runCollect(s.read('triage-1'))).pipe(Effect.provide(fileStore(where.data)))
     );
     expect(trace.flatMap(t => ('told' in t ? [t.told] : []))).toEqual([
-      { text: 'stop not needed', by: first.value[0]!.id },
+      { text: ':stop not needed', by: first.value[0]!.id },
     ]);
     await run(where, [], tick(graph));
     expect((await runs(where)).find(r => r.id === 'triage-1')).toMatchObject({ status: 'stopped' });
@@ -427,7 +427,7 @@ describe('dispatch', () => {
   it('refuses a tell where no run is live', async () => {
     const where = world();
     mention(where, '/agent tell the triage to stop');
-    const { value } = await run(where, Array(3).fill(turn({ kind: 'tell', issue: 1, text: 'stop' })), tick(graph));
+    const { value } = await run(where, Array(3).fill(turn({ kind: 'tell', issue: 1, text: ':stop' })), tick(graph));
     expect(value[0]!.reason).toContain('no live run on #1 to tell');
   });
 

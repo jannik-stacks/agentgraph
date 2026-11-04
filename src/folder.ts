@@ -9,7 +9,16 @@ import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
 import { CheckMode, defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
-import { compileWorkflow, formatIssues, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
+import {
+  CommandSettings,
+  commandVerbs,
+  compileWorkflow,
+  formatIssues,
+  splitFrontmatter,
+  type Doc,
+  type Problem,
+  type Workflow,
+} from './workflow.ts';
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
@@ -56,6 +65,7 @@ export type Graph = {
   milestone?: string;
   /** The logins whose text reaches agents and whose marks start runs; the repo's collaborators when unset. */
   trust?: string[];
+  commands?: typeof CommandSettings.Type;
   status?: false | Partial<Record<IssueStatus, string>>;
 };
 
@@ -75,6 +85,7 @@ const SettingsFile = Schema.Struct({
   stacks: Schema.optionalKey(Schema.Boolean),
   milestone: Schema.optionalKey(Schema.String),
   trust: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
+  commands: Schema.optionalKey(CommandSettings),
   status: Schema.optionalKey(
     Schema.Union([
       Schema.Literal(false),
@@ -260,6 +271,9 @@ const compile = (
   }
   for (const w of Object.values(workflows))
     for (const step of w.steps) if ('agent' in step.does && step.does.skill) used.add(step.does.skill);
+  for (const name of Object.keys(settings?.commands ?? {}))
+    if (!commandVerbs.includes(name) && !workflows[name]?.on.issue_comment)
+      sayer('settings.yaml')(`commands.${name}: no command or comment workflow is named ${name}`);
   if (Object.keys(workflows).length === groups.workflows.length) {
     const steps = Object.values(workflows).flatMap(w => w.steps);
     const usedChecks = new Set([...steps, ...Object.values(workflows)].flatMap(s => s.checks));
@@ -433,6 +447,7 @@ export const loadGraph = (
       ...(settings.stacks !== undefined && { stacks: settings.stacks }),
       ...(settings.milestone !== undefined && { milestone: settings.milestone }),
       ...(settings.trust !== undefined && { trust: settings.trust }),
+      ...(settings.commands !== undefined && { commands: settings.commands }),
       ...(settings.status !== undefined && { status: settings.status }),
       ...parts,
       checks,
