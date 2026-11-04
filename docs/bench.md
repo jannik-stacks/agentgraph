@@ -80,7 +80,7 @@ The Bench controls discover every label key. URL `where` is a JSON object of lab
 
 <!-- code: studio/src/bench/score.ts#summarise studio/src/bench/BenchPage.tsx#BenchPage studio/src/bench/Forest.tsx#Forest -->
 
-The x axis also lists row fields and labels whose values are finite numbers on every filtered row. Blank or missing values exclude a field. Numeric axes are linear, named after the field, and averaged over repeats within each case, then over cases, like minutes. For example, `x=graph-words` plots a numeric run label; filtering, grouping and colouring still use its string value. <!-- code: studio/src/bench/score.ts#getBenchNumbers studio/src/bench/score.ts#findBenchNumericFields -->
+The x axis also lists row fields and labels whose values are finite numbers on every filtered row. Blank or missing values exclude a field. If the selected field becomes unavailable, the plot falls back to cost and an inline note names the field; the controls stay usable. Numeric axes are linear, named after the field, and averaged over repeats within each case, then over cases, like minutes. For example, `x=graph-words` plots a numeric run label; filtering, grouping and colouring still use its string value. <!-- code: studio/src/bench/score.ts#getBenchNumbers studio/src/bench/score.ts#findBenchNumericFields -->
 
 For graph-size experiments, run the optional script from a clone:
 
@@ -89,7 +89,7 @@ node bench/graph-size.ts <set or run dir>...
 node bench/graph-size.ts <run dir> --git-dir <repo>
 ```
 
-It writes ordinary labels: `graph-words` counts whitespace-separated tokens in Markdown under `prompts/`, `agents/`, `skills/`, `workflows/` and `checks/`, including frontmatter; `graph-checks` counts check Markdown files; `graph-script-lines` counts nonblank lines in every file under `scripts/`. It excludes `node_modules/`. Counts use the attempt's graph copy, or the run's `graphTree` in its git repository (use the second form for another repository). Trees are cached within a pass; unchanged labels add no entries. Imported references, runs without `graphTree`, and runs with neither a graph copy nor a git repository are counted as skips with a one-line reason. This script is outside the published package. <!-- code: bench/graph-size.ts#readGraphSize bench/graph-size.ts#writeGraphSizeLabels -->
+It writes ordinary labels: `graph-words` counts whitespace-separated tokens in Markdown under `prompts/`, `agents/`, `skills/`, `workflows/` and `checks/`, including frontmatter; `graph-checks` counts check Markdown files; `graph-script-lines` counts nonblank lines in every file under `scripts/`. It excludes `node_modules/`. Counts use the attempt's graph copy even without `graphTree`, or the run's `graphTree` in its local git repository (use the second form for another repository). Git reads never fetch missing objects. Trees are cached within a pass, and an available graph copy takes precedence; unchanged labels add no entries. Imported references, runs without a graph copy and the tree or repository needed for recovery, and unreadable local graph objects are counted as skips with a one-line reason. This script is outside the published package. <!-- code: bench/graph-size.ts#readGraphSize bench/graph-size.ts#writeGraphSizeLabels -->
 
 ## Long runs
 

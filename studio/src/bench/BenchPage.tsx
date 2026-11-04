@@ -9,6 +9,7 @@ import { Button, cx, Disclosure, Live, Link, MultiSelect, Muted, Select, Tooltip
 import {
   cost,
   getBenchNumbers,
+  getBenchAxis,
   findBenchNumericFields,
   defaultBenchBy,
   defaultBenchScoreWeights,
@@ -110,7 +111,7 @@ const BenchPage = () => <Live state={usePluginData('bench', BenchData)}>{value =
 const Bench = ({ value }: { value: BenchData }) => {
   const fade = useScrollFade();
   const [w, setW] = useAtom(params.w);
-  const [xAxis, setX] = useAtom(params.x);
+  const [selectedAxis, setX] = useAtom(params.x);
   const [whereParam, setWhere] = useAtom(params.where);
   const [byParam, setBy] = useAtom(params.by);
   const [colorParam, setColor] = useAtom(params.color);
@@ -135,8 +136,6 @@ const Bench = ({ value }: { value: BenchData }) => {
     ) as typeof defaultBenchScoreWeights;
   }, [w]);
   const dropped = useMemo(() => (drop ?? unpanelled).split(',').filter(Boolean), [drop]);
-  const minutes = xAxis === 'minutes';
-  const isCost = xAxis === null || xAxis === 'usd';
   const rows = value.rows;
   const judges = useMemo(() => [...new Set(rows.flatMap(r => Object.keys(r.vsHuman)))].toSorted(), [rows]);
   const labelKeys = useMemo(() => [...new Set(rows.flatMap(r => Object.keys(r.labels)))].toSorted(), [rows]);
@@ -147,8 +146,9 @@ const Bench = ({ value }: { value: BenchData }) => {
   const infraRows = rows.filter(r => r.infra && isBenchMatch(r, {}));
   const matchingInfraRows = infraRows.filter(r => isBenchMatch(r, where));
   const numericFields = findBenchNumericFields(rows.filter(r => isBenchMatch(r, where)));
-  if (rows.some(r => isBenchMatch(r, where)) && !isCost && !numericFields.includes(xAxis))
-    throw new Error(`Non-numeric bench field: ${xAxis}`);
+  const xAxis = getBenchAxis(selectedAxis, numericFields);
+  const minutes = xAxis === 'minutes';
+  const isCost = xAxis === null || xAxis === 'usd';
   const points = useMemo(() => {
     return summarise(value.rows, {
       where,
@@ -252,6 +252,7 @@ const Bench = ({ value }: { value: BenchData }) => {
               setCache(v === 'off' ? 'off' : null);
             }}
           />
+          {selectedAxis !== xAxis && <Muted>{selectedAxis} is unavailable on the current rows. Showing cost.</Muted>}
         </Control>
         <Control
           label="Filter"

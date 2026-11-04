@@ -36,6 +36,9 @@ export const findBenchNumericFields = (rows: readonly Row[]) => {
   return Object.keys(numbers[0] ?? {}).filter(key => numbers.every(row => Object.hasOwn(row, key)));
 };
 
+export const getBenchAxis = (selected: string | null, numericFields: string[]) =>
+  selected === null || selected === 'usd' || numericFields.includes(selected) ? selected : null;
+
 const countBad = (f?: Row['findings']) => (f ? f.critical + f.high : 0);
 
 export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[]) => {

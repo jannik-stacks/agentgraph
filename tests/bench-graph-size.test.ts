@@ -7,7 +7,7 @@ import { git, tmp, write } from './kit.ts';
 
 it.each([
   { workflow: 'import', graphTree: 'missing', why: 'imported reference has no graph' },
-  { workflow: 'issue', graphTree: undefined, why: 'missing graphTree' },
+  { workflow: 'issue', graphTree: undefined, why: 'missing graphTree and graph copy' },
   { workflow: 'issue', graphTree: 'missing', why: 'no graph copy or git repository' },
 ])('skips a run with $why and continues writing labels', async ({ workflow, graphTree, why }) => {
   const dir = tmp('graph-size-skip');
@@ -50,12 +50,12 @@ it('counts graph text and scripts, recovers a tree, and writes labels once', asy
       'README.md': 'Not counted.',
       'node_modules/noise/checks/a.md': 'Not counted.',
     });
-    const size = { words: 12, checks: 1, scriptLines: 2 };
-    expect(readGraphSize(graph)).toEqual(size);
+    const size = { 'graph-words': 12, 'graph-checks': 1, 'graph-script-lines': 2 };
+    expect(await readGraphSize(graph)).toEqual(size);
     git(graph, 'init', '-q');
     git(graph, 'add', '.');
     const tree = git(graph, 'write-tree');
-    expect(readGraphSize(join(graph, '.git'), tree)).toEqual(size);
+    expect(await readGraphSize(join(graph, '.git'), tree)).toEqual(size);
     write(run, { 'run.json': JSON.stringify({ id: 'run-1', workflow: 'issue', started: '', graphTree: tree }) });
     expect(await writeGraphSizeLabels([dir])).toEqual({ written: 1, unchanged: 0, skipped: 0 });
     const log = readFileSync(join(run, 'labels.jsonl'), 'utf8');
@@ -72,6 +72,66 @@ it('counts graph text and scripts, recovers a tree, and writes labels once', asy
     });
     expect(readFileSync(join(run, 'labels.jsonl'), 'utf8')).toBe(log);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it('labels a graph copy without graphTree and prefers copies over cached trees', async () => {
+  const dir = tmp('graph-size-copy');
+  const roots = ['first', 'second', 'no-tree'].map(name => join(dir, name));
+  try {
+    roots.forEach((root, i) => {
+      write(join(root, 'data', `run-${i}`), {
+        'run.json': JSON.stringify({
+          id: `run-${i}`,
+          workflow: 'issue',
+          started: '',
+          ...(i < 2 && { graphTree: 'same' }),
+        }),
+      });
+      write(join(root, 'graph'), { 'agents/a.md': 'word '.repeat(i + 1) });
+    });
+    expect(await writeGraphSizeLabels(roots)).toEqual({ written: 3, unchanged: 0, skipped: 0 });
+    expect(roots.map((root, i) => readRunLabels(join(root, 'data'), `run-${i}`)['graph-words'])).toEqual([
+      '1',
+      '2',
+      '3',
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it.each(['tree', 'blob'])('skips a missing promised %s without starting a transport', async missing => {
+  const dir = tmp('graph-size-promised');
+  const repository = join(dir, 'repository');
+  const transport = join(dir, 'transport');
+  const marker = join(dir, 'transport-started');
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    write(repository, { 'agents/a.md': 'Read this.\n' });
+    git(repository, 'init', '-q');
+    git(repository, 'add', '.');
+    const tree = git(repository, 'write-tree');
+    const object = missing === 'tree' ? tree : git(repository, 'rev-parse', `${tree}:agents/a.md`);
+    rmSync(join(repository, '.git', 'objects', object.slice(0, 2), object.slice(2)));
+    write(dir, { transport: `#!/bin/sh\ntouch '${marker}'\nexit 1\n` });
+    git(repository, 'config', 'remote.origin.url', 'ssh://unavailable/graph');
+    git(repository, 'config', 'remote.origin.promisor', 'true');
+    git(repository, 'config', 'remote.origin.partialclonefilter', 'blob:none');
+    git(repository, 'config', 'core.sshCommand', `sh '${transport}'`);
+    const run = join(dir, 'attempt', 'data', 'run-1');
+    write(run, { 'run.json': JSON.stringify({ id: 'run-1', workflow: 'issue', started: '', graphTree: tree }) });
+    expect(await writeGraphSizeLabels([run], join(repository, '.git'))).toEqual({
+      written: 0,
+      unchanged: 0,
+      skipped: 1,
+    });
+    expect(log.mock.calls).toEqual([['skip run-1: cannot read graph objects locally']]);
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(join(run, 'labels.jsonl'))).toBe(false);
+  } finally {
+    log.mockRestore();
     rmSync(dir, { recursive: true, force: true });
   }
 });

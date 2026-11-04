@@ -17,6 +17,7 @@ import { getBenchSlot } from '../bench/runs.ts';
 import {
   bootstrap,
   getBenchNumbers,
+  getBenchAxis,
   findBenchNumericFields,
   cost,
   defaultBenchScoreWeights,
@@ -115,6 +116,27 @@ describe('bench score', () => {
         where: { words: ['4'] },
       }).map(p => [p.labels.words, p.x])
     ).toEqual([['4', 4]]);
+  });
+
+  it('falls back to cost when a filter brings in an unlabelled run and allows axis recovery', () => {
+    const labelled = row({ hidden: 1, usd: 2, labels: { ...row({}).labels, 'graph-words': '12' } });
+    const unlabelled = row({ case: 'b', hidden: 1, usd: 4 });
+    const selected = 'graph-words';
+    expect(getBenchAxis(selected, findBenchNumericFields([labelled]))).toBe(selected);
+    const rows = [labelled, unlabelled];
+    const fields = findBenchNumericFields(rows);
+    const axis = getBenchAxis(selected, fields);
+    expect(axis).toBeNull();
+    expect(axis).not.toBe(selected);
+    expect(
+      summarise(rows, {
+        w: defaultBenchScoreWeights,
+        by: [],
+        x: r => (axis === null ? cost(r) : getBenchNumbers(r)[axis]!),
+      }).map(p => p.x)
+    ).toEqual([3]);
+    expect(getBenchAxis('minutes', fields)).toBe('minutes');
+    expect(getBenchAxis(selected, findBenchNumericFields([labelled]))).toBe(selected);
   });
 
   it('costs a row at list price, with or without its cache reads', () => {
