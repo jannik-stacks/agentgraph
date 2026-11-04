@@ -14,7 +14,8 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
+import { getSha } from '../src/hash.ts';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { dockerArgs, readImage, type CheckoutContainerSpec } from '../src/docker.ts';
@@ -94,7 +95,7 @@ type Verdict = {
   why?: string;
 };
 
-const bots = ['v2', 'floor'];
+export const bots = ['v2', 'floor'];
 const graphAliases: Record<string, string> = { 'agentgraph-sandbox': 'sandbox' };
 const findExampleGraphName = (repo: string) => {
   const name = repo.split('/').pop() ?? '';
@@ -117,7 +118,7 @@ const caseStart = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|#\[(?:tokio::)?test\]|def t
 const branches = /\b(?:if|for|while|match|case|catch|loop)\b|&&|\|\|/g;
 const comment = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
 
-const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 20);
+const hash = (text: string) => getSha(text, 20);
 const treeText = (dir: string): string =>
   readdirSync(dir, { withFileTypes: true })
     .flatMap(e => (e.isDirectory() ? [treeText(join(dir, e.name))] : [e.name, readFileSync(join(dir, e.name), 'utf8')]))

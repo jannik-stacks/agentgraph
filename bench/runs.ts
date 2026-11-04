@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { readRunLabels } from '../src/labels.ts';
@@ -10,6 +9,7 @@ import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
 import type { RunRecord } from '../src/workflow.ts';
 import type { ResultSheet } from '../src/results.ts';
 import { readJsonlRows, readRecordSync } from '../src/store.ts';
+import { getSha } from '../src/hash.ts';
 
 export type BenchInput = {
   case: string;
@@ -22,13 +22,11 @@ export type BenchInput = {
 
 export const referenceArms = ['base', 'human'];
 
-const hash = (text: string) => createHash('sha256').update(text).digest('hex');
-
 export const getBenchSlot = (set: string, input: BenchInput) =>
   join(
     set,
     'runs',
-    `${input.case}-${input.arm}-r${input.repeat}-${hash(JSON.stringify([input.case, input.arm, input.repeat, input.point ?? '', input.graph ?? '', ...(input.labels ? [Object.entries(input.labels).toSorted()] : [])])).slice(0, 8)}`
+    `${input.case}-${input.arm}-r${input.repeat}-${getSha(JSON.stringify([input.case, input.arm, input.repeat, input.point ?? '', input.graph ?? '', ...(input.labels ? [Object.entries(input.labels).toSorted()] : [])]), 8)}`
   );
 
 export const readBenchAttempts = (slot: string) =>

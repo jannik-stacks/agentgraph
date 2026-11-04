@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import {
   appendBenchResults,
+  bots,
   writeReferenceRun,
   readBenchCase,
   readBenchSetupLabels,
@@ -288,7 +289,7 @@ export const copyOldBenchRuns = async (old: string, set: string, repos: string) 
       const repo = join(repos, c.repo.split('/').pop()!);
       const labels = readBenchSetupLabels(repo, c.base);
       await migrateReferences(join(dir, id), c, set, repo, labels);
-      for (const arm of ['v2', 'floor']) await migrateArm(join(dir, id), c, set, repo, p, arm, labels);
+      for (const arm of bots) await migrateArm(join(dir, id), c, set, repo, p, arm, labels);
       console.log(`migrated ${dir} ${id}`);
     }
   }
