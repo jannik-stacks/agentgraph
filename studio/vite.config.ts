@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { makeStudioDevApiPlugin } from './fixtures.ts';
 import { makeStudioPagesPlugin } from './plugins.ts';
-import { makeServedGraph, makeUnservedFilter, readDataRoots } from './served.ts';
+import { makeServedGraph } from './served.ts';
 
 const builtins = new Set(builtinModules);
 
@@ -35,11 +35,6 @@ export default defineConfig({
   plugins: [noNodeInBrowser(), makeStudioPagesPlugin(served), makeStudioDevApiPlugin(served), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
   optimizeDeps: { entries: ['index.html', 'src/**/*.tsx'], include: ['agentation', 'fumadocs-core/highlight'] },
-  server: {
-    ...server,
-    fs: { allow, deny },
-    watch: { ignored: [makeUnservedFilter(readDataRoots())] },
-    warmup: { clientFiles: ['./src/main.tsx'] },
-  },
+  server: { ...server, fs: { allow, deny }, warmup: { clientFiles: ['./src/main.tsx'] } },
   preview: server,
 });

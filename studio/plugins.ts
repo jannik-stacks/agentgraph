@@ -9,20 +9,25 @@ import { ResultsData } from './src/results/data.ts';
 import { resultSources } from './src/results/result.ts';
 import { BenchData } from './src/bench/data.ts';
 import { readBench } from './src/bench/read.ts';
-import { makeServedGraph, servedIds, startWatch } from './served.ts';
+import { layouts, makeServedGraph, makeUnservedFilter, servedIds, startWatch, type WatchRoot } from './served.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 
 const entry = 'virtual:agentgraph-page/';
+
+const readStudioDirs = () => ({
+  dir: process.env.AGI_STUDIO_DIR,
+  data: process.env.AGI_STUDIO_DATA,
+  bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
+  tune: process.env.AGI_STUDIO_TUNE,
+});
 
 const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
   const graph = (await served.read())?.graph;
   const { readPlugins, makePlugin }: typeof PluginModule = await import(
     new URL('../src/plugin.ts', import.meta.url).href
   );
-  const data = process.env.AGI_STUDIO_DATA;
-  const bench = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
-  const tune = process.env.AGI_STUDIO_TUNE;
+  const { data, bench, tune } = readStudioDirs();
   const results = makePlugin({
     name: 'results',
     studio: {
@@ -85,6 +90,22 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
     }));
 };
 
+const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>): WatchRoot[] => {
+  const { dir, data, bench, tune } = readStudioDirs();
+  const rootLayouts = new Map([
+    ...(data ? [[data, layouts.data] as const] : []),
+    ...bench.map(root => [root, layouts.bench] as const),
+    ...(tune ? [[tune, layouts.tune] as const] : []),
+  ]);
+  return [
+    ...(dir ? [{ root: dir, topic: 'graph', layout: layouts.any }] : []),
+    ...(data ? [{ root: data, topic: 'data', layout: layouts.data }] : []),
+    ...pages.flatMap(page =>
+      page.watch.map(root => ({ root, topic: page.name, layout: rootLayouts.get(root) ?? layouts.any }))
+    ),
+  ];
+};
+
 export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
   const pages = readStudioPages(served);
   let dispose: (() => void) | undefined;
@@ -98,7 +119,10 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
           alias: { '@jannik-stacks/agi/studio': fileURLToPath(new URL('./src/plugins.ts', import.meta.url)) },
           dedupe: ['react', 'react-dom', 'jotai', 'effect'],
         },
-        server: { fs: { allow: loaded.map(page => dirname(fileURLToPath(page.page))) } },
+        server: {
+          fs: { allow: loaded.map(page => dirname(fileURLToPath(page.page))) },
+          watch: { ignored: [makeUnservedFilter(readWatchRoots(loaded))] },
+        },
       };
     },
     resolveId(source) {
@@ -128,23 +152,15 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
     },
     async configureServer(server) {
       const loaded = await pages;
-      dispose = startWatch(
-        server,
-        [
-          ...(process.env.AGI_STUDIO_DIR ? [{ root: process.env.AGI_STUDIO_DIR, topic: 'graph' }] : []),
-          ...(process.env.AGI_STUDIO_DATA ? [{ root: process.env.AGI_STUDIO_DATA, topic: 'data' }] : []),
-          ...loaded.flatMap(page => page.watch.map(root => ({ root, topic: page.name }))),
-        ],
-        topics => {
-          if (!topics.includes('graph')) return server.ws.send('agi:changed', { topics });
-          served.forget();
-          for (const id of servedIds) {
-            const module = server.moduleGraph.getModuleById(`\0${id}`);
-            if (module) server.moduleGraph.invalidateModule(module);
-          }
-          server.ws.send({ type: 'full-reload' });
+      dispose = startWatch(server, readWatchRoots(loaded), topics => {
+        if (!topics.includes('graph')) return server.ws.send('agi:changed', { topics });
+        served.forget();
+        for (const id of servedIds) {
+          const module = server.moduleGraph.getModuleById(`\0${id}`);
+          if (module) server.moduleGraph.invalidateModule(module);
         }
-      );
+        server.ws.send({ type: 'full-reload' });
+      });
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];

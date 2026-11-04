@@ -24,30 +24,29 @@ const readServedGraph = async () => {
     : { name: basename(dir), graph: undefined, problems: loaded.failure.problems };
 };
 
-const unserved =
-  /^(homes|cache|work|tree|engine|logs|target|node_modules|\.attic|\.cache|\.locks|\.envs|.+\.git)$|\.lock$|^[jt]sconfig.*\.json$/;
+const dataInfra = /^(cache|homes|logs|\.attic|\.locks|\.envs|.+\.git)$/;
+const benchInfra = /^(homes|work|tree|engine|logs|target|node_modules|\.attic|\.cache|\.locks|\.envs|.+\.git)$/;
+const neverServed = /\.lockb?$|^(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|[jt]sconfig.*\.json)$/;
 
-const isServed = (path: string, { root, depth }: { root: string; depth: number }) => {
-  const names = path.slice(root.length + 1).split(sep);
-  return names.length <= depth && !names.some(name => unserved.test(name));
+export const layouts = {
+  data: (names: string[]) =>
+    !dataInfra.test(names[0]!) && (names.length <= 2 || (names[0] === 'plugins' && names.length <= 4)),
+  bench: (names: string[]) => !names.some(name => benchInfra.test(name)),
+  tune: (names: string[]) => names.length <= 3,
+  any: () => true,
 };
 
-export const readDataRoots = () => [
-  ...(process.env.AGI_STUDIO_DATA ? [{ root: process.env.AGI_STUDIO_DATA, depth: 4 }] : []),
-  ...(process.env.AGI_STUDIO_BENCH ?? '')
-    .split(':')
-    .filter(Boolean)
-    .map(root => ({ root, depth: Infinity })),
-  ...(process.env.AGI_STUDIO_TUNE ? [{ root: process.env.AGI_STUDIO_TUNE, depth: 4 }] : []),
-];
+export type WatchRoot = { root: string; topic: string; layout: (names: string[]) => boolean };
 
-export const makeUnservedFilter = (roots: { root: string; depth: number }[]) => {
-  const all = roots.flatMap(({ root, depth }) =>
-    [...new Set([resolve(root), readRealPath(root)])].map(root => ({ root, depth }))
+export const makeUnservedFilter = (roots: WatchRoot[]) => {
+  const all = roots.flatMap(({ root, layout }) =>
+    [...new Set([resolve(root), readRealPath(root)])].map(root => ({ root, layout }))
   );
   return (path: string) => {
     const under = all.filter(({ root }) => path.startsWith(root + sep));
-    return !!under.length && (!under.some(root => isServed(path, root)) || existsSync(join(path, '.git')));
+    if (!under.length) return false;
+    if (neverServed.test(basename(path)) || existsSync(join(path, '.git'))) return true;
+    return !under.some(({ root, layout }) => layout(path.slice(root.length + 1).split(sep)));
   };
 };
 
@@ -67,11 +66,7 @@ export const makeServedGraph = () => {
   };
 };
 
-export const startWatch = (
-  server: ViteDevServer,
-  roots: { root: string; topic: string }[],
-  send: (topics: string[]) => void
-) => {
+export const startWatch = (server: ViteDevServer, roots: WatchRoot[], send: (topics: string[]) => void) => {
   const real = roots.map(({ root, topic }) => ({ root: readRealPath(root), topic }));
   const topics = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | undefined;
