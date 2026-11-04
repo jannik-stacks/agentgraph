@@ -308,46 +308,40 @@ const readRow = (
   };
 };
 
-const readCaseKey = (f: FoundRun) => {
-  const input = (getRunOrigin(f.run.meta)?.input ?? {}) as Partial<BenchInput>;
-  return { key: JSON.stringify([f.set ?? '', input.case ?? '']), arm: input.arm };
-};
-
 export const readBenchRows = (roots: readonly string[]) => {
-  const slots = [...Map.groupBy(findBenchRuns(roots), f => f.slot).values()].map(fs =>
-    fs.toSorted((a, b) => b.attempt - a.attempt || b.run.started.localeCompare(a.run.started))
-  );
-  const refs = (arm: string) =>
-    new Map(slots.flatMap(([f]) => (readCaseKey(f!).arm === arm ? [[readCaseKey(f!).key, f!] as const] : [])));
+  const slots = [...Map.groupBy(findBenchRuns(roots), f => f.slot).values()].map(fs => {
+    const [found, ...earlier] = fs.toSorted(
+      (a, b) => b.attempt - a.attempt || b.run.started.localeCompare(a.run.started)
+    ) as [FoundRun, ...FoundRun[]];
+    const input = (getRunOrigin(found.run.meta)?.input ?? {}) as Partial<BenchInput>;
+    return {
+      found,
+      earlier,
+      key: JSON.stringify([found.set ?? '', input.case ?? '']),
+      arm: input.arm,
+      latest: readLatestRunChecks(found.data, found.run.id),
+    };
+  });
+  const refs = (arm: string) => new Map(slots.flatMap(s => (s.arm === arm ? [[s.key, s] as const] : [])));
   const bases = refs('base');
   const humans = refs('human');
   const invalid = new Set(
-    slots.flatMap(([f]) => {
-      const valid = readCaseKey(f!).arm === 'human' && readLatestRunChecks(f!.data, f!.run.id).get('bench/valid');
-      return valid && !valid.check.pass ? [readCaseKey(f!).key] : [];
-    })
+    [...humans.values()].flatMap(s => (s.latest.get('bench/valid')?.check.pass === false ? [s.key] : []))
   );
-  return slots.flatMap(([found, ...earlier]) => {
-    const { key, arm } = readCaseKey(found!);
+  return slots.flatMap(({ found, earlier, key, arm, latest }) => {
     if (invalid.has(key)) return [];
     const [base, human] = [bases.get(key), humans.get(key)];
-    const hasArm = readLatestRunChecks(found!.data, found!.run.id).has('bench/arm');
-    if (arm === 'control' || (found!.run.workflow !== 'import' && !hasArm)) return [];
-    const files = [found!, ...earlier, ...(base ? [base] : []), ...(human ? [human] : [])].flatMap(f =>
+    if (arm === 'control' || (found.run.workflow !== 'import' && !latest.has('bench/arm'))) return [];
+    const files = [found, ...earlier, ...(base ? [base.found] : []), ...(human ? [human.found] : [])].flatMap(f =>
       ['run.json', 'checks.jsonl', 'labels.jsonl', 'trace.jsonl'].map(
         n => statSync(join(f.data, f.run.id, n), { throwIfNoEntry: false })?.mtimeMs ?? 0
       )
     );
     const cacheKey = JSON.stringify(files);
-    const cached = rowCache.get(found!.slot);
+    const cached = rowCache.get(found.slot);
     if (cached?.key === cacheKey) return [cached.row];
-    const row = readRow(
-      found!,
-      earlier,
-      base && readLatestRunChecks(base.data, base.run.id),
-      human && readLatestRunChecks(human.data, human.run.id)
-    );
-    rowCache.set(found!.slot, { key: cacheKey, row });
+    const row = readRow(found, earlier, base?.latest, human?.latest);
+    rowCache.set(found.slot, { key: cacheKey, row });
     return [row];
   });
 };
