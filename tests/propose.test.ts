@@ -122,7 +122,7 @@ beforeEach(async () => {
     git(dir, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
     const data = join(at, 'data');
     const run = await writeImportedRun(
-      { repo, tracker: join(at, 'tracker'), data },
+      { checkout: repo, tracker: join(at, 'tracker'), data },
       git(repo, 'rev-parse', 'HEAD').trim(),
       {
         version: 't',

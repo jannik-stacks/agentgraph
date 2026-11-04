@@ -4,7 +4,7 @@ import { makeTestGraph } from './fixtures.ts';
 
 const graph = { ...makeTestGraph('kit'), image: 'graph' };
 const instance = {
-  slug: 'owner/repository',
+  repo: 'owner/repository',
   owner: 'owner',
   image: 'instance',
   limits: { parallel: 3 },

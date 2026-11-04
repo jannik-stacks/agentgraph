@@ -20,18 +20,7 @@ const flag = (name: string) => {
 const shared = {
   data: text(Flag.String('data')),
   instance: text(Flag.String('instance')),
-  image: text(Flag.String('image')),
-  trust: text(Flag.String('trust')),
-  parallel: Flag.Int('parallel').pipe(
-    Flag.filter(
-      value => value > 0,
-      () => 'parallel must be above 0'
-    ),
-    Flag.atLeast(0),
-    Flag.map(values => values.at(-1))
-  ),
   repo: text(Flag.String('repo')),
-  slug: text(Flag.String('slug')),
   base: text(Flag.String('base')),
   dir: text(Flag.String('dir')),
   tracker: text(Flag.String('tracker').pipe(Flag.withDescription('<name>|<dir>'))),

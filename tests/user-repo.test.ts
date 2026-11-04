@@ -157,7 +157,13 @@ describe("the user's repo", () => {
     expect(await formatGraphName(i, graph)).toMatch(/^\.agentgraph\/ at main [0-9a-f]{7}$/);
     const loaded = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     expect(
-      await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.tracker, 'Add a greeting', i.owner, 'issue')
+      await writeTriggeringIssue(
+        { ...loaded, trust: [i.owner] },
+        folderTracker(i.tracker, i.owner),
+        'Add a greeting',
+        i.owner,
+        'issue'
+      )
     ).toBe(1);
     Object.assign(process.env, {
       AGENTGRAPH_TRACKER: i.tracker,
@@ -225,7 +231,13 @@ describe("the user's repo", () => {
     expect(await ensureBase(i)).toBeUndefined();
     expect(await whyGraphUncommitted(i, await ensureGraph(i))).toBeUndefined();
     const loaded = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
-    await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.tracker, 'Add a greeting', i.owner, 'issue');
+    await writeTriggeringIssue(
+      { ...loaded, trust: [i.owner] },
+      folderTracker(i.tracker, i.owner),
+      'Add a greeting',
+      i.owner,
+      'issue'
+    );
     Object.assign(process.env, {
       AGENTGRAPH_TRACKER: i.tracker,
       AGENTGRAPH_TRUST: i.owner,

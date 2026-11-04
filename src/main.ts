@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
-import { ConfigProvider, Effect, Exit, Layer, Scope } from 'effect';
+import { ConfigProvider, Effect, Exit, Layer, Scope, Schema } from 'effect';
 import {
   instruct,
   issueDebounceMs,
@@ -13,11 +14,25 @@ import {
   tick,
   type Instruction,
 } from './run/trigger.ts';
-import { writeIssueFile } from './tracker.ts';
-import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
+import { Tracker } from './tracker.ts';
+import {
+  makeEnvProvider,
+  makeHarnessConfigProvider,
+  splitNames,
+  readOverrides,
+  readConfiguredGraph,
+} from './harnesses.ts';
 import { type Instance, readRealPath } from './instance.ts';
-import type { Graph } from './folder.ts';
-import { graphAt, makeProductionLayers, settings, type Settings } from './services.ts';
+import { GraphSettings, type Graph } from './folder.ts';
+import { getSettings } from './settings.ts';
+import {
+  graphAt,
+  makeProductionLayers,
+  type makeTrackerSetup,
+  readTrackerName,
+  settings,
+  type Settings,
+} from './services.ts';
 import { writeIdleRunsCompressed, fileStore, Store, StoreError } from './store.ts';
 import { LockHeldError } from './owner.ts';
 import { parseLabels, writeRunLabels } from './labels.ts';
@@ -47,9 +62,49 @@ export const readEngineEnv = async (
   return Object.fromEntries(Object.entries(merged).filter((e): e is [string, string] => e[1] !== undefined));
 };
 
+export const readInstanceEnv = async (
+  instance?: Partial<Instance>,
+  choice: Parameters<typeof makeHarnessConfigProvider>[0] = {},
+  defaults: Record<string, string> = {},
+  tracker?: string
+) => {
+  const file = instance?.dir && join(dirname(instance.dir), 'config.ts');
+  const env = await readEngineEnv(
+    { ...(file && existsSync(file) && { AGENTGRAPH_CONFIG: file }), ...defaults },
+    instance?.env
+  );
+  if (instance) {
+    const overrides = await Effect.runPromise(
+      readOverrides.pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider(env)))
+    );
+    const resolved = getSettings(Schema.decodeUnknownSync(GraphSettings)({}), instance, undefined, overrides);
+    Object.assign(env, {
+      AGENTGRAPH_REPO: resolved.repo,
+      ...(resolved.trust !== undefined && { AGENTGRAPH_TRUST: resolved.trust.join(',') }),
+      ...(resolved.image !== undefined && { AGENTGRAPH_IMAGE: resolved.image }),
+      AGENTGRAPH_TRACKER_DIR: instance.tracker ?? '',
+      ...(instance.data && { AGENTGRAPH_DATA: instance.data }),
+    });
+  }
+  const named = await Effect.runPromise(
+    readTrackerName.pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider(env)))
+  );
+  env.AGENTGRAPH_TRACKER = tracker ?? (named || instance?.trackerName || (instance ? 'folder' : ''));
+  return {
+    env,
+    config: makeHarnessConfigProvider(
+      {
+        ...choice,
+        provider: choice.provider ?? env.AGENTGRAPH_PROVIDER ?? instance?.provider,
+      },
+      makeEnvProvider(env)
+    ),
+  };
+};
+
 export const writeTriggeringIssue = async (
   graph: Graph,
-  tracker: string,
+  tracker: Layer.Layer<Tracker>,
   text: string,
   author: string,
   workflow?: string,
@@ -66,12 +121,19 @@ export const writeTriggeringIssue = async (
   if (author.endsWith('[bot]') || (graph.trust && !graph.trust.includes(author)))
     throw new Error(`${author} may not start runs on this graph`);
   const [title = '', ...body] = text.split('\n');
-  const milestone = graph.milestone && { milestone: graph.milestone };
-  return writeIssueFile(
-    tracker,
-    { title, author, labels: [...new Set([label, ...more])], ...milestone },
-    body.join('\n').trim()
+  const applied = await Effect.runPromise(
+    Effect.flatMap(Tracker, t =>
+      t.apply(0, {
+        kind: 'issue',
+        ...(graph.milestone !== undefined && { milestone: graph.milestone }),
+        title,
+        body: body.join('\n').trim(),
+        labels: [...new Set([label, ...more])],
+      })
+    ).pipe(Effect.provide(tracker))
   );
+  if (!applied.ok || !applied.id) throw new Error(applied.reason ?? 'tracker did not return an issue number');
+  return Number(applied.id);
 };
 
 /** The data dir and its mirror, where they sit under a temp dir the OS may empty. */
@@ -84,9 +146,6 @@ export const temporary = (data: string): string[] => {
 
 const warnTemporary = (data: string) =>
   Effect.forEach(temporary(data), p => Effect.logWarning(`${p} is under a temp dir, which the OS may empty`));
-
-const configured = (env: Record<string, string>, extra: Record<string, string> = {}) =>
-  makeEnvProvider({ ...env, ...extra });
 
 const failLoopLock = (error: unknown): never => {
   const cause = error instanceof StoreError ? error.cause : undefined;
@@ -122,15 +181,16 @@ export const start = (
     marked?: true;
     base?: string;
     instance?: Instance;
-    flags?: Parameters<typeof readConfiguredGraph>[2];
+    setup?: Awaited<ReturnType<typeof readInstanceEnv>> & {
+      tracker: Awaited<ReturnType<typeof makeTrackerSetup>>;
+    };
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
     drives?: ReturnType<typeof startLoopDrives>;
   },
-  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(),
+  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(one?.setup?.tracker),
   defaults: Record<string, string> = {},
   signal?: AbortSignal,
-  refresh: () => Promise<unknown> = async () => {},
-  flags: Parameters<typeof readConfiguredGraph>[2] = {}
+  refresh: () => Promise<unknown> = async () => {}
 ): Promise<RunRecord[]> => {
   const provided = <A, E, R>(effect: Effect.Effect<A, E, R>, graph?: Graph) =>
     Effect.provide(
@@ -150,42 +210,18 @@ export const start = (
         )
       )
     );
-  const read = Effect.tryPromise(() => readEngineEnv(defaults, one?.instance?.env)).pipe(
-    Effect.map((env): Record<string, string> => ({
-      ...env,
-      ...(flags.repo !== undefined && { AGENTGRAPH_REPO: flags.repo }),
-      ...(flags.trust !== undefined && { AGENTGRAPH_TRUST: flags.trust.join(',') }),
-      ...(flags.image !== undefined && { AGENTGRAPH_IMAGE: flags.image }),
-    }))
-  );
+  const read = Effect.tryPromise(() => readInstanceEnv(one?.instance, one?.choice, defaults));
   const program = one
     ? Effect.gen(function* () {
-        const env = yield* read;
-        const choose = (fallback: ConfigProvider.ConfigProvider) =>
-          Effect.provideService(
-            ConfigProvider.ConfigProvider,
-            makeHarnessConfigProvider(
-              {
-                ...(one.instance?.provider && { provider: env.AGENTGRAPH_PROVIDER ?? one.instance.provider }),
-                ...one.choice,
-              },
-              fallback
-            )
-          );
+        const scope = one.setup ?? (yield* read);
         const graph = yield* readConfiguredGraph(one.graph, one.instance, {
-          ...flags,
-          ...one.flags,
           ...(one.base !== undefined && { base: one.base }),
-        }).pipe(choose(configured(env)));
-        const provider = configured(env, {
+        }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config));
+        const config = makeEnvProvider({
           AGENTGRAPH_REPO: graph.repo,
-          ...(one.instance && {
-            AGENTGRAPH_TRACKER: env.AGENTGRAPH_TRACKER || one.instance.trackerName || 'folder',
-            AGENTGRAPH_TRACKER_DIR: one.instance.tracker,
-          }),
           AGENTGRAPH_DIR: one.graph,
           AGENTGRAPH_DATA: one.data,
-        });
+        }).pipe(ConfigProvider.orElse(scope.config));
         yield* warnTemporary(one.data);
         const labels = parseLabels(one.labels ?? {});
         const look = (fork?: Parameters<typeof tick>[5]) => {
@@ -208,12 +244,12 @@ export const start = (
                     ),
                 })),
             graph
-          ).pipe(choose(provider));
+          ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, config));
         };
         return yield* one.drives ? runPass(one.drives, look) : look();
       })
     : Effect.gen(function* () {
-        const s = yield* settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(yield* read)));
+        const s = yield* settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, (yield* read).config));
         yield* Effect.flatMap(Store, store => store.lock('loop')).pipe(Effect.provide(fileStore(s.data)));
         const drives = yield* Effect.acquireRelease(Effect.sync(startLoopDrives), d => Effect.promise(d.stop));
         yield* warnTemporary(s.data);
@@ -222,14 +258,12 @@ export const start = (
         );
         let cursor = new Date(Date.now() - 300_000).toISOString();
         const look = <A, E>(scan: (graph: Graph, fork: Parameters<typeof tick>[5]) => Effect.Effect<A, E, Services>) =>
-          Effect.flatMap(read, env =>
+          Effect.flatMap(read, scope =>
             runPass(drives, fork =>
               provided(
-                Effect.flatMap(settings, now => graphAt(now.graph, flags)).pipe(
-                  Effect.flatMap(graph => scan(graph, fork))
-                )
+                Effect.flatMap(settings, now => graphAt(now.graph)).pipe(Effect.flatMap(graph => scan(graph, fork)))
               )
-            ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(env)))
+            ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
           );
         const poll = look((graph, fork) => scanTrackerEvents(graph, cursor, fork, drives.gates, drives.due)).pipe(
           Effect.map(next => (cursor = next)),

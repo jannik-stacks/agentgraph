@@ -360,7 +360,7 @@ const addArmRun = async (set: string, repo: string, base: string, input: BenchIn
   writeFileSync(join(at, 'change.patch'), `${patch}\n`);
   const data = join(at, 'data');
   const id = await writeImportedRun(
-    { repo, tracker: join(at, 'tracker'), data },
+    { checkout: repo, tracker: join(at, 'tracker'), data },
     patch ? join(at, 'change.patch') : base,
     {
       version: 't',

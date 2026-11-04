@@ -686,7 +686,7 @@ const writeEmptyRun = async (c: Case, at: string, repo: string, input: BenchInpu
   const tracker = join(at, 'tracker');
   if (!existsSync(join(tracker, 'origin.git')))
     sh('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
-  await writeImportedRun({ repo: resolve(repo), tracker, data: join(at, 'data') }, c.base, {
+  await writeImportedRun({ checkout: resolve(repo), tracker, data: join(at, 'data') }, c.base, {
     version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
     from: c.base,
     input,
@@ -802,7 +802,7 @@ export const writeReferenceRun = async (
     if (change !== undefined) writeFileAtomic(join(at, 'change.patch'), change.endsWith('\n') ? change : `${change}\n`);
     const data = join(at, 'data');
     const id = await writeImportedRun(
-      { repo: resolve(repo), tracker, data },
+      { checkout: resolve(repo), tracker, data },
       change === undefined ? c.base : join(at, 'change.patch'),
       {
         version: hash(readFileSync(new URL(import.meta.url), 'utf8')),

@@ -2,21 +2,25 @@ import { existsSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { readRealPath } from '../src/instance.ts';
+import type * as MainModule from '../src/main.ts';
 import type * as HarnessesModule from '../src/harnesses.ts';
 
 const readServedGraph = async () => {
   const dir = process.env.AGI_STUDIO_DIR;
   if (!dir) return;
   const { ConfigProvider, Effect, Result } = await import('effect');
-  const { makeHarnessConfigProvider, readConfiguredGraph }: typeof HarnessesModule = await import(
+  const { readConfiguredGraph }: typeof HarnessesModule = await import(
     new URL('../src/harnesses.ts', import.meta.url).href
   );
-  const choice = JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}');
+  const { readInstanceEnv }: typeof MainModule = await import(new URL('../src/main.ts', import.meta.url).href);
+  const { readInstance } = await import(new URL('../src/instance.ts', import.meta.url).href);
+  const reference = JSON.parse(process.env.AGI_STUDIO_INSTANCE ?? 'null');
+  const instance = reference ? readInstance(reference.root, reference.name) : undefined;
+  const scope = await readInstanceEnv(instance, JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}'));
+
   const loaded = await Effect.runPromise(
     Effect.result(
-      readConfiguredGraph(dir, JSON.parse(process.env.AGI_STUDIO_INSTANCE ?? '{}')).pipe(
-        Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(choice))
-      )
+      readConfiguredGraph(dir, instance).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
     )
   );
   return Result.isSuccess(loaded)

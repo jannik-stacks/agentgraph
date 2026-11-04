@@ -375,11 +375,11 @@ describe('loadGraph', () => {
     ]);
   });
 
-  it('takes AGENTGRAPH_REPO over the instance slug', async () => {
+  it('takes AGENTGRAPH_REPO over the instance repo', async () => {
     const dir = graphDir({ 'settings.yaml': '{}' });
     const read = (env: Record<string, string>) =>
       Effect.runPromise(
-        readConfiguredGraph(dir, { slug: 'o/r' }).pipe(
+        readConfiguredGraph(dir, { repo: 'o/r' }).pipe(
           Effect.provideService(
             ConfigProvider.ConfigProvider,
             ConfigProvider.fromEnv({ env, preserveEmptyStrings: true })

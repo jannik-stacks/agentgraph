@@ -122,10 +122,10 @@ The CLI [picks a provider](cli.md#picking-a-provider), listed in `agentgraph.con
 A provider can give `setup` text for the CLI to show when none is ready or a selected provider is not ready, and `whyLogin` guidance when its recorded session ends with a rejected login. Both are optional. For example, add an entry to the config's `providers` list:
 
 ```ts
-{ name: 'company', harnesses: ['opencode'], ready: () => !!process.env.COMPANY_KEY,
+{ name: 'company', harnesses: ['opencode'], ready: ({ env }) => !!env.COMPANY_KEY,
   setup: 'Export COMPANY_KEY to use the company provider.',
-  settings: () => ({ AGENTGRAPH_PROXY_URL: 'https://models.example.com/v1',
-    AGENTGRAPH_PROXY_KEYS: `*=${process.env.COMPANY_KEY}` }),
+  settings: ({ env }) => ({ AGENTGRAPH_PROXY_URL: 'https://models.example.com/v1',
+    AGENTGRAPH_PROXY_KEYS: `*=${env.COMPANY_KEY}` }),
   whyLogin: () => 'Renew COMPANY_KEY and start again.' }
 ```
 

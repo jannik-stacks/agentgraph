@@ -36,11 +36,11 @@ export type Provider = {
   name: string;
   harnesses: string[];
   auth?: ModelRoute['auth'];
-  ready: (host: { image: string; sandbox: string }) => boolean | Promise<boolean>;
+  ready: (host: { image: string; sandbox: string; env: Record<string, string> }) => boolean | Promise<boolean>;
   detect?: (host: Parameters<Provider['ready']>[0]) => boolean;
   setup?: string;
   whyLogin?: () => string;
-  settings?: () => Record<string, string> | Promise<Record<string, string>>;
+  settings?: (host: Parameters<Provider['ready']>[0]) => Record<string, string> | Promise<Record<string, string>>;
   login?: (host: Parameters<Provider['ready']>[0]) => Promise<void>;
 };
 
@@ -81,6 +81,23 @@ export const readHarnessSettings = Effect.gen(function* () {
   });
 });
 
+export const readOverrides = Config.all({
+  repo: Config.option(Config.String('AGENTGRAPH_REPO')),
+  trust: Config.option(Config.String('AGENTGRAPH_TRUST')),
+  image: Config.option(Config.String('AGENTGRAPH_IMAGE')),
+}).pipe(
+  Config.map(env => ({
+    ...(Option.isSome(env.repo) && { repo: env.repo.value }),
+    ...(Option.isSome(env.trust) && {
+      trust: env.trust.value
+        .split(',')
+        .map(login => login.trim())
+        .filter(Boolean),
+    }),
+    ...(Option.isSome(env.image) && { image: env.image.value }),
+  }))
+);
+
 export const readConfiguredGraph = (
   dir: string,
   instance: Parameters<typeof getSettings>[1] = {},
@@ -89,19 +106,7 @@ export const readConfiguredGraph = (
   Effect.gen(function* () {
     const settings = yield* readHarnessSettings;
     const graph = yield* loadGraph(dir, settings.harnesses, settings.harness);
-    const env = yield* Effect.orDie(
-      Config.all({
-        repo: Config.option(Config.String('AGENTGRAPH_REPO')),
-        trust: Config.option(Config.String('AGENTGRAPH_TRUST')),
-        image: Config.option(Config.String('AGENTGRAPH_IMAGE')),
-      })
-    );
-    const overrides = {
-      ...(Option.isSome(env.repo) && { repo: env.repo.value }),
-      ...(Option.isSome(env.trust) && { trust: env.trust.value.split(',').map(login => login.trim()) }),
-      ...(Option.isSome(env.image) && { image: env.image.value }),
-      ...flags,
-    };
+    const overrides = { ...(yield* Effect.orDie(readOverrides)), ...flags };
     const resolved = getSettings(graph, instance, undefined, overrides);
     return {
       ...graph,

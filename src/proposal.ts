@@ -35,6 +35,7 @@ const PullRequest = Schema.Struct({
 const Merge = Schema.Struct({ kind: Schema.Literal('merge'), number: Schema.Int, head: Schema.String });
 const Filed = Schema.Struct({
   kind: Schema.Literal('issue'),
+  milestone: Text,
   title: Schema.String,
   body: Schema.String,
   parent: Schema.optionalKey(Schema.Int),

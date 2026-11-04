@@ -212,11 +212,15 @@ describe('skill benchmark', () => {
       const input = makeJobInput(like, t, job(c));
       const at = join(getBenchSlot(like, input), '1');
       git(repo, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
-      const id = await writeImportedRun({ repo, tracker: join(at, 'tracker'), data: join(at, 'data') }, base, {
-        version: 't',
-        from: base,
-        input,
-      });
+      const id = await writeImportedRun(
+        { checkout: repo, tracker: join(at, 'tracker'), data: join(at, 'data') },
+        base,
+        {
+          version: 't',
+          from: base,
+          input,
+        }
+      );
       const run = readSlotRun(getBenchSlot(like, input))!;
       await Effect.runPromise(writeRunLabels(join(at, 'data'), id, { case: c, cand: 'i000-init' }));
       await appendBenchResults(run, [{ check: 'bench/arm', pass: true } as never], 't');

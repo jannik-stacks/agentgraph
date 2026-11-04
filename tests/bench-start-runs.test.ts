@@ -123,7 +123,7 @@ const makeSet = () => {
 const addRun = async (s: ReturnType<typeof makeSet>, input: BenchInput, ...checks: object[]) => {
   const at = join(getBenchSlot(s.set, input), '1');
   git(s.repo, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
-  await writeImportedRun({ repo: s.repo, tracker: join(at, 'tracker'), data: join(at, 'data') }, s.base, {
+  await writeImportedRun({ checkout: s.repo, tracker: join(at, 'tracker'), data: join(at, 'data') }, s.base, {
     version: 't',
     from: s.base,
     input,

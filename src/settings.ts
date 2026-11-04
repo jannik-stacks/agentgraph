@@ -3,8 +3,8 @@ import { GraphSettings, type Graph } from './folder.ts';
 import type { Workflow } from './workflow.ts';
 
 export const InstanceFile = Schema.Struct({
-  repo: Schema.String,
-  slug: Schema.optionalKey(Schema.String),
+  checkout: Schema.String,
+  repo: Schema.optionalKey(Schema.String),
   graph: Schema.optionalKey(Schema.String),
   base: Schema.String,
   owner: Schema.String,
@@ -25,7 +25,7 @@ export const getSettings = (
   workflow: Pick<Workflow, 'base'> | undefined,
   flags: Partial<Pick<Graph, 'repo' | 'trust' | 'image'>> & { parallel?: number; base?: string }
 ) => ({
-  repo: flags.repo ?? instance.slug ?? '',
+  repo: flags.repo ?? instance.repo ?? '',
   trust: flags.trust ?? instance.trust ?? (instance.owner === undefined ? undefined : [instance.owner]),
   image: flags.image ?? instance.image ?? graph.image,
   parallel: flags.parallel ?? instance.limits?.parallel ?? graph.limits.parallel,

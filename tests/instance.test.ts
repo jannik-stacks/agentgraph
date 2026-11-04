@@ -11,7 +11,7 @@ it('names two independent instances of one checkout within an explicit root', as
   const live = await ensureInstance(data, 'live', seed);
   const bench = await ensureInstance(data, 'bench', seed);
   expect([live.dir, bench.dir]).toEqual([join(data, 'live'), join(data, 'bench')]);
-  expect(findInstances(data).map(i => i.repo)).toEqual([live.repo, live.repo]);
+  expect(findInstances(data).map(i => i.checkout)).toEqual([live.checkout, live.checkout]);
   expect(findInstances(join(root, 'other'))).toEqual([]);
   expect((await ensureInstance(data, 'live', seed)).made).toBe(false);
   await expect(ensureInstance(data, '../escape', seed)).rejects.toThrow('one path component');
@@ -25,7 +25,7 @@ it('reads every instance field strictly and resolves paths against its folder', 
   const file = join(instance.dir, 'instance.yaml');
   const record = {
     ...parse(readFileSync(file, 'utf8')),
-    slug: 'owner/repository',
+    repo: 'owner/repository',
     graph: '../../seed',
     env: '../keys.env',
     loop: true,
@@ -36,7 +36,7 @@ it('reads every instance field strictly and resolves paths against its folder', 
   writeFileSync(file, stringify(record));
   const [read] = findInstances(join(root, 'instances'));
   expect(read).toMatchObject({
-    slug: 'owner/repository',
+    repo: 'owner/repository',
     env: join(root, 'instances', 'keys.env'),
     graph: seed,
     loop: true,

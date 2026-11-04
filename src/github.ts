@@ -1085,7 +1085,20 @@ export const githubTracker = (
           return Effect.as(gh('PUT', `${repo}/pulls/${p.number}/merge`, { sha: p.head }, 'merge'), {});
         case 'issue':
           return Effect.gen(function* () {
-            const fields = { title: p.title, body: p.body, ...(p.labels?.length && { labels: p.labels }) };
+            const milestone =
+              p.milestone === undefined
+                ? undefined
+                : (yield* all<{ number: number; title: string }>(`${repo}/milestones?state=all&per_page=100`)).find(
+                    m => m.title === p.milestone
+                  )?.number;
+            if (p.milestone !== undefined && milestone === undefined)
+              return yield* Effect.fail(new TrackerError({ message: `no milestone ${p.milestone}` }));
+            const fields = {
+              title: p.title,
+              body: p.body,
+              ...(p.labels?.length && { labels: p.labels }),
+              ...(milestone !== undefined && { milestone }),
+            };
             const made = yield* gh<{ id: number; number: number; html_url: string }>(
               'POST',
               `${repo}/issues`,

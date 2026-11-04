@@ -4,4 +4,4 @@
 
 Choose instance names with `--instance` and keep checkout, tracker repository and trust in the instance record. Resolve command overrides consistently, including workflow bases.
 
-Existing setups require manual folder renames and settings edits; see “Migrating an existing instance” in docs/local.md. Graph settings now reject `repo` and `trust`.
+Rename the instance checkout field to `checkout`, move graph `repo` and `trust` into the instance, and rename the instance folder to its chosen name; see “Migrating an existing instance” in docs/local.md. Graph settings now reject `repo` and `trust`.

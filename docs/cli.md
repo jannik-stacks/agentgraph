@@ -83,7 +83,7 @@ agi start --provider anthropic --save "Add a greet function"
 agi loop --tracker github --dir .agentgraph --data ~/agentgraph-data
 ```
 
-Shared flags also include `--instance <name>`, `--slug <owner/name>`, `--trust <logins>`, `--image <image>`, and `--parallel <n>`. See the [settings table](local.md#named-instances-and-settings).
+The shared `--instance <name>` flag chooses the named instance. See the [settings table](local.md#named-instances-and-settings).
 
 ## Environment
 
@@ -98,7 +98,7 @@ The runner reads these. Instance defaults and command overrides follow the [sett
 | `AGENTGRAPH_EVERY` | Poll interval in minutes, 5 |
 | `AGENTGRAPH_COMPRESS_DAYS` | Days after which `loop` compresses an untouched ended run's trace and check record with zstd, 14; 0 never |
 | `AGENTGRAPH_TRACKER_DIR` | The folder a tracker plugin picked by name keeps its files in; a local instance sets its `tracker/` |
-| `AGENTGRAPH_REPO` | Tracker repository override of instance `slug` |
+| `AGENTGRAPH_REPO` | Tracker repository override of instance `repo` |
 | `AGENTGRAPH_TRUST` | Comma-separated logins overriding instance trust |
 | `AGENTGRAPH_PROVIDER` | The provider; agents that name no harness get its first |
 | `AGENTGRAPH_HARNESS` | The harness every agent runs on |

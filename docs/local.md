@@ -86,25 +86,29 @@ An explicit name can select a saved checkout from outside its repo. Use two name
 live instance and a bench instance of the same checkout. Every lookup uses the selected
 `--data` root. Names are single path components; reusing one for another checkout fails. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
 
-The record holds `repo` (checkout path), `slug` (tracker repository, such as `owner/name`),
+The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),
 `base`, `owner`, `exported`, and `loop` (boolean, initially false). Optional fields are
 `graph`, `tracker` (plugin name), `trust` (logins), `env` (secrets/env file), `provider`,
-`readonly`, `image`, and `limits.parallel`. Relative `repo`, `graph`, and `env` paths resolve
+`readonly`, `image`, and `limits.parallel`. Relative `checkout`, `graph`, and `env` paths resolve
 against the instance folder. Omitted `graph` means the checkout's `.agentgraph/`.
 Edit the record to change saved defaults; flags apply to one command. `loop` records intent
 for a later engine scheduler; F1 still starts loops explicitly. Unknown fields fail.
 <!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph -->
 
 Highest priority comes first in this single precedence table.
-<!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph -->
+<!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#readInstanceEnv src/services.ts#readTrackerName -->
 
 | Value | Precedence |
 | --- | --- |
-| Tracker repository | `--slug`, `AGENTGRAPH_REPO`, instance `slug`, empty |
-| Trust | `--trust`, `AGENTGRAPH_TRUST`, instance `trust`, instance `owner`, tracker collaborators |
-| Image | `--image`, `AGENTGRAPH_IMAGE`, instance `image`, graph `image`, stock sandbox image |
-| Parallel drives | `--parallel`, instance `limits.parallel`, graph `limits.parallel` |
+| Tracker repository | `AGENTGRAPH_REPO`, instance `repo`, empty |
+| Trust | `AGENTGRAPH_TRUST`, instance `trust`, instance `owner`, tracker collaborators |
+| Image | `AGENTGRAPH_IMAGE`, instance `image`, graph `image`, stock sandbox image |
+| Parallel drives | instance `limits.parallel`, graph `limits.parallel` |
 | Base | `--base`, workflow `base`, instance `base`, tracker default |
+| Tracker | `--tracker`, `AGENTGRAPH_TRACKER`, App env inference, instance `tracker`, folder tracker |
+| Provider | `--provider`, `AGENTGRAPH_PROVIDER`, instance `provider`, harness config |
+| Harness config | `AGENTGRAPH_CONFIG`, data root `config.ts`, engine config |
+| Graph path | `--dir`, `AGENTGRAPH_DIR`, instance `graph`, checkout `.agentgraph/` |
 
 An explicit empty trust list trusts nobody. The runtime graph carries these resolved values;
 graph `settings.yaml` rejects `repo` and `trust`. Image and parallel remain graph defaults.
@@ -116,7 +120,7 @@ secret variables keep their existing meanings.
 
 The instance `env` file supplies scoped values before the process environment and App env
 file; explicit command flags win. It never changes `process.env`.
-<!-- code: src/main.ts#readEngineEnv src/main.ts#start -->
+<!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/main.ts#start -->
 
 ### Migrating an existing instance
 
@@ -127,11 +131,15 @@ mv "$root/$old_name" "$root/$name"
 ```
 
 For a graph with `repo:` and `image:`, delete only `repo: owner/name` from `settings.yaml`
-and add `slug: owner/name` to the renamed folder's `instance.yaml`. Keep `repo: <checkout>`
-in that record. Keep graph `image:` and `limits.parallel:` unchanged; they remain defaults.
+and add `repo: owner/name` to the renamed folder's `instance.yaml`. Rename its checkout
+line from `repo: <checkout path>` to `checkout: <checkout path>` first. Keep graph `image:` and `limits.parallel:` unchanged; they remain defaults.
 If graph `trust:` exists, delete it there and add the same list as `trust:` in the instance.
 Keep `base`, `owner`, `provider`, and `exported`; add `loop: false`. For an external graph,
 add `graph: <absolute graph path>` to the instance. Add `tracker: github` and
 `env: <App env file>` for a GitHub instance; local instances may omit `tracker`.
 Use `--instance <name>` on subsequent commands when the name differs from the checkout
-basename. Folder migration is manual.
+basename. Folder migration is manual. Tracker flags and App variables select a backend for this same
+instance; every command keeps its data directory and trust. GitHub instances use their
+`env` file for App credentials. Local origin confinement and branch export apply to local
+trackers. Provider callbacks, validation and studio reloads read the same scoped environment.
+<!-- code: src/main.ts#readInstanceEnv src/services.ts#makeTrackerSetup src/status.ts#formatInstanceFlags studio/served.ts#readServedGraph -->

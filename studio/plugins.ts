@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { Effect, Schema } from 'effect';
@@ -151,15 +151,25 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
     },
     async configureServer(server) {
       const loaded = await pages;
-      dispose = startWatch(server, readWatchRoots(loaded), topics => {
-        if (!topics.includes('graph')) return server.ws.send('agi:changed', { topics });
-        served.forget();
-        for (const id of servedIds) {
-          const module = server.moduleGraph.getModuleById(`\0${id}`);
-          if (module) server.moduleGraph.invalidateModule(module);
+      const reference = JSON.parse(process.env.AGI_STUDIO_INSTANCE ?? 'null');
+      const { readInstance } = await import(new URL('../src/instance.ts', import.meta.url).href);
+      const instance = reference ? readInstance(reference.root, reference.name) : undefined;
+      const files = reference
+        ? [join(reference.root, reference.name, 'instance.yaml'), ...(instance?.env ? [instance.env] : [])]
+        : [];
+      dispose = startWatch(
+        server,
+        [...readWatchRoots(loaded), ...files.map(root => ({ root, topic: 'graph', layout: () => false }))],
+        topics => {
+          if (!topics.includes('graph')) return server.ws.send('agi:changed', { topics });
+          served.forget();
+          for (const id of servedIds) {
+            const module = server.moduleGraph.getModuleById(`\0${id}`);
+            if (module) server.moduleGraph.invalidateModule(module);
+          }
+          server.ws.send({ type: 'full-reload' });
         }
-        server.ws.send({ type: 'full-reload' });
-      });
+      );
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
