@@ -121,7 +121,8 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
       }
 
-      const work = current.onto ? yield* moveCheckoutOnto(made, current.onto.sha, current.tries === 0) : made;
+      const onto = current.onto?.sha ?? (made.saved && !made.head ? current.base?.sha : undefined);
+      const work = onto ? yield* moveCheckoutOnto(made, onto, !current.onto || current.tries === 0) : made;
       current = { ...current, startCommit: work.base };
 
       if (!w.on.feedback) yield* runSetup(graph, work, current);

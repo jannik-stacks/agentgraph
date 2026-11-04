@@ -141,6 +141,23 @@ describe('stacks', () => {
     expect(git(where.origin, 'show', 'agentgraph/9:more.txt')).toBe('more');
   });
 
+  it('takes the new head of #8 as its base when its own branch was never pushed', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    await run(runWorkflow(flow, run9(), merging));
+    const moved = move('more.txt', 'more\n');
+    await run(tick(merging, 9));
+    expect(readTrace(where.data, 'run-9').some(t => 'applied' in t && t.applied.proposal.kind === 'rebase')).toBe(
+      false
+    );
+    expect(saved(where)).toMatchObject({ status: 'waiting', base: { sha: moved } });
+    expect(saved(where).base?.from).toBeUndefined();
+    expect(saved(where).reason).not.toContain('could not follow');
+    await services(where, [child()]).run(driveStored(flow, { ...saved(where), status: 'running' }, merging));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(moved);
+  });
+
   it('rebases the branch onto the new head when #8 moves, keeping its own commit on top', async () => {
     const where = world();
     const { move } = parent(where);
