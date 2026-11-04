@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, symlinkSync, rmSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { Effect, Logger } from 'effect';
+import { describe, expect, it, vi } from 'vitest';
 import { removeBranch } from '../src/disk.ts';
+import * as host from '../src/git.ts';
 import { Store } from '../src/store.ts';
 import { Tracker } from '../src/tracker.ts';
 import { runWorkflow } from '../src/run/drive.ts';
@@ -46,7 +47,6 @@ describe('landed checkout cleanup', () => {
     );
     write(run.tracker, { '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: run.head }) });
     say(run, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' });
-    writeIssueAt(issuePath(run.tracker, 9), '---\ntitle: Other\nstate: open\nauthor: morgan\nlabels: []\n---\n');
     await engine.run(scanIssuesAndRunningRuns(graph));
     expect(existsSync(run.path)).toBe(false);
     expect(git(run.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
@@ -59,6 +59,112 @@ describe('landed checkout cleanup', () => {
     expect(readFileSync(join(run.data, 'run-7/logs/output'), 'utf8')).toBe('log');
     expect(readFileSync(join(shared, 'dependency.js'), 'utf8')).toBe('shared');
     await run.clean();
+  });
+
+  it('cleans an idle repository with only ended runs and their merged PR, looking up each branch once', async () => {
+    const run = setup();
+    writeIssueAt(issuePath(run.tracker, 7), '---\ntitle: Done\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
+    writeIssueAt(issuePath(run.tracker, 8), '---\ntitle: Landed\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+    write(run.tracker, { '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: run.head }) });
+    const engine = services(run, []);
+    await engine.run(
+      Effect.flatMap(Store, s =>
+        Effect.andThen(
+          s.put({ ...fresh(), checkout: run.checkout, status: 'done' }),
+          s.put({ ...fresh(), checkout: run.checkout, id: 'older-7', status: 'done' })
+        )
+      )
+    );
+    const branches: string[] = [];
+    await engine.run(
+      Effect.updateService(
+        Effect.andThen(scanIssuesAndRunningRuns(graph), scanIssuesAndRunningRuns(graph)),
+        Tracker,
+        tracker => ({
+          ...tracker,
+          issues: filter => {
+            if (filter?.branch) branches.push(filter.branch);
+            return tracker.issues(filter);
+          },
+        })
+      )
+    );
+    expect(branches).toEqual(['agentgraph/7']);
+    expect(existsSync(run.path)).toBe(false);
+    expect(git(run.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
+  });
+
+  it('cleans landed work while an unrelated run waits without checkout metadata', async () => {
+    const run = setup();
+    git(run.origin, 'update-ref', 'refs/heads/main', run.head, git(run.origin, 'rev-parse', 'main'));
+    writeIssueAt(issuePath(run.tracker, 7), '---\ntitle: Done\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
+    writeIssueAt(issuePath(run.tracker, 9), '---\ntitle: Waiting\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
+    const engine = services(run, []);
+    await engine.run(
+      Effect.flatMap(Store, s =>
+        Effect.andThen(
+          s.put({ ...fresh(), checkout: run.checkout, status: 'done' }),
+          s.put({ ...fresh(), id: 'waiting-9', issue: 9, status: 'waiting' })
+        )
+      )
+    );
+    await engine.run(scanIssuesAndRunningRuns(graph));
+    expect(existsSync(run.path)).toBe(false);
+    expect(git(run.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
+    expect((await engine.run(Effect.flatMap(Store, s => s.get('waiting-9'))))?.status).toBe('waiting');
+  });
+
+  it.each(['directory', 'symlink'])(
+    'still removes ignored build output and %s node_modules without following symlinks',
+    async kind => {
+      const run = setup();
+      const head = commit(run.path, { '.gitignore': 'node_modules/\nbuild/\n' });
+      write(run.path, { 'build/output': 'generated' });
+      const shared = join(run.root, 'shared');
+      write(shared, { 'dependency.js': 'keep' });
+      if (kind === 'symlink') symlinkSync(shared, join(run.path, 'node_modules'));
+      else write(run.path, { 'node_modules/dependency.js': 'local dependency' });
+      await Effect.runPromise(removeBranch(run.origin, 'agentgraph/7', 'main', head));
+      expect(existsSync(run.path)).toBe(false);
+      expect(git(run.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
+      expect(readFileSync(join(shared, 'dependency.js'), 'utf8')).toBe('keep');
+    }
+  );
+
+  it.each(['--assume-unchanged', '--skip-worktree'])('keeps hidden edits marked %s', async flag => {
+    const run = setup();
+    git(run.path, 'update-index', flag, 'landed.txt');
+    write(run.path, { 'landed.txt': 'hidden edit' });
+    await run.clean();
+    expect(readFileSync(join(run.path, 'landed.txt'), 'utf8')).toBe('hidden edit');
+    expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
+  });
+
+  it('lets Git refuse an edit made after inspection and logs a skip', async () => {
+    const run = setup();
+    const original = host.hostGit;
+    const spy = vi.spyOn(host, 'hostGit').mockImplementation((env, args, options) => {
+      if (args.includes('remove')) write(run.path, { 'landed.txt': 'late edit' });
+      return original(env, args, options);
+    });
+    const messages: { level: string; text: string }[] = [];
+    try {
+      await Effect.runPromise(
+        removeBranch(run.origin, 'agentgraph/7', 'main', run.head).pipe(
+          Effect.provide(
+            Logger.layer([
+              Logger.make(({ logLevel, message }) => messages.push({ level: logLevel, text: String(message) })),
+            ])
+          )
+        )
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(readFileSync(join(run.path, 'landed.txt'), 'utf8')).toBe('late edit');
+    expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
+    expect(messages.some(m => m.level === 'Warn' && m.text.includes('1 skipped removal'))).toBe(true);
+    expect(messages.some(m => m.level === 'Error')).toBe(false);
   });
 
   it('does not fetch issues for a done run whose local branch is gone', async () => {

@@ -484,7 +484,18 @@ export const githubTracker = (
 
     const issues: Tracker['Service']['issues'] = (filter = {}) =>
       Effect.gen(function* () {
-        const { state, labels = [], parent } = filter;
+        const { state, labels = [], parent, branch } = filter;
+        if (branch !== undefined) {
+          const self = yield* me;
+          const query = new URLSearchParams({
+            state: listState(state),
+            head: `${app.repo.split('/')[0]}:${branch}`,
+            per_page: '100',
+          });
+          return (yield* all<RestIssue & RestPull>(`${repo}/pulls?${query}`))
+            .map(p => toIssue(p, self, p))
+            .filter(matches(filter));
+        }
         const query = new URLSearchParams({
           state: listState(state),
           per_page: '100',

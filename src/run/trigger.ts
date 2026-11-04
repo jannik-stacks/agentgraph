@@ -1,3 +1,4 @@
+import { matchesGlob } from 'node:path';
 import { Cache, Deferred, Duration, Effect, Exit, FiberSet, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine, stoppedByRunner } from '../context.ts';
 import { Tracker, TrackerError, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
@@ -807,7 +808,10 @@ export const scanIssuesAndRunningRuns = (
           ...tracker,
           issue: n => Cache.get(readIssue, n),
           issues: filter =>
-            filter?.state === 'open' && !filter.labels?.length && filter.parent === undefined
+            filter?.state === 'open' &&
+            !filter.labels?.length &&
+            filter.parent === undefined &&
+            filter.branch === undefined
               ? listing
               : tracker.issues(filter),
           since: at => Stream.fromIterableEffect(at < cursor ? history : latest).pipe(Stream.filter(m => m.at > at)),
@@ -826,19 +830,40 @@ export const scanIssuesAndRunningRuns = (
       );
     const changed = (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();
     const kept = yield* Effect.flatMap(Store, s => s.list());
-    if (kept.some(r => (!isRunDone(r) || r.owed) && !r.checkout)) return changed;
     const sandbox = yield* Sandbox;
     const branches = yield* sandbox
       .readBranches()
       .pipe(Effect.catch(e => Effect.as(Effect.logWarning('local branches', e), [])));
+    const pulls = yield* Cache.make({
+      capacity: Infinity,
+      lookup: (branch: string) =>
+        tracker
+          .issues({ branch })
+          .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), []))),
+    });
     for (const branch of branches.filter(isAgentBranch)) {
-      const using = kept
-        .filter(r => r.checkout?.branch === branch)
-        .toSorted((a, b) => a.started.localeCompare(b.started));
-      if (!using.length || using.some(r => !isRunDone(r) || r.owed)) continue;
-      const pull = fetched.find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull;
+      const using = kept.filter(r => r.checkout?.branch === branch);
+      const busy = kept.some(r => {
+        if (isRunDone(r) && !r.owed) return false;
+        if (r.checkout) return r.checkout.branch === branch;
+        const template = graph.workflows[r.workflow]?.branch;
+        return (
+          branch.split(/\D+/).includes(String(r.issue)) ||
+          (!!template &&
+            matchesGlob(branch, template.replaceAll('{issue}', String(r.issue)).replaceAll('{parent}', '*')))
+        );
+      });
+      if (!using.length || busy) continue;
+      const found = fetched.filter(t => t.pull?.branch === branch);
+      const pull = [...found, ...(found.some(t => t.state === 'merged') ? [] : yield* Cache.get(pulls, branch))].find(
+        t => t.state === 'merged' && t.pull?.branch === branch
+      )?.pull;
       yield* sandbox
-        .removeBranch(branch, pull?.base ?? using.at(-1)!.checkout!.base, pull?.head)
+        .removeBranch(
+          branch,
+          pull?.base ?? using.reduce((a, b) => (a.started > b.started ? a : b)).checkout!.base,
+          pull?.head
+        )
         .pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup ${branch}`, e)));
     }
     return changed;
