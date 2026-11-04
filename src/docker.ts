@@ -903,7 +903,7 @@ export const dockerSandbox = (o: {
         });
 
       return {
-        readBranches: () => readBranches(mirror),
+        readBranches: () => readBranches(mirror, !o.local),
         readHead,
         removeBranch: (branch, base, head) =>
           lock.withPermits(1)(
