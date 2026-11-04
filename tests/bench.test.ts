@@ -65,7 +65,6 @@ const hostDocker = (image = true) => {
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  delete process.env.BENCH_EXCLUDE;
 });
 
 const diff = `diff --git a/src/a.ts b/src/a.ts

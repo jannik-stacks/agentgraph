@@ -13,7 +13,7 @@ import { readJsonlRows, readRecordSync } from '../src/store.ts';
 
 export type BenchInput = { case: string; arm: string; repeat: number; point?: string; graph?: string };
 
-export const referenceArms = ['human', 'base'];
+export const referenceArms = ['base', 'human'];
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 

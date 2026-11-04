@@ -95,8 +95,6 @@ type Verdict = {
 };
 
 const bots = ['v2', 'floor'];
-/** Repos a bench never runs. */
-const benched = (repo = '') => !process.env.BENCH_EXCLUDE?.split(',').includes(repo.split('/').pop() ?? '');
 const graphAliases: Record<string, string> = { 'agentgraph-sandbox': 'sandbox' };
 const findExampleGraphName = (repo: string) => {
   const name = repo.split('/').pop() ?? '';
@@ -659,7 +657,6 @@ const patience = 6;
  */
 const runArm = async (arm: string, caseDir: string, set: string, repo: string) => {
   const c = await readCaseImage(readBenchCase(caseDir), set);
-  if (!benched(c.repo)) throw new Error(`${c.repo} is never benched`);
   const input = readInput(c, arm);
   const slot = getBenchSlot(set, input);
   const ended = () => {
@@ -1254,7 +1251,7 @@ const scoreRuns = async (c: Case & Commands, set: string, repo: string, slots: s
  * human's change, and the issue must name what the hidden tests call.
  */
 const writeCaseValid = async (c: Case & Commands, set: string, repo: string) => {
-  const [base, human] = referenceArms.toReversed().map(arm => readSlotRun(readGateSlot(set, c, arm)));
+  const [base, human] = referenceArms.map(arm => readSlotRun(readGateSlot(set, c, arm)));
   if (!base || !human) throw new Error(`${c.id}: reference runs are missing`);
   const version = scorer(c);
   if (!isCurrent(human, ['bench/valid'], version)) {
@@ -1297,13 +1294,13 @@ const writeCaseValid = async (c: Case & Commands, set: string, repo: string) => 
 /** Imports and scores the case's reference runs, gates the case, then scores `arm`'s run when the case is valid. */
 const score = async (arm: string, caseDir: string, set: string, repo: string, drop = false) => {
   const c = await readCaseImage(readBenchCase(caseDir), set);
-  for (const ref of referenceArms.toReversed()) await writeReferenceRun(ref, caseDir, set, repo, 1);
+  for (const ref of referenceArms) await writeReferenceRun(ref, caseDir, set, repo, 1);
   if (!c.why || c.hasTests === false)
     await scoreRuns(
       c,
       set,
       repo,
-      referenceArms.toReversed().map(ref => readGateSlot(set, c, ref))
+      referenceArms.map(ref => readGateSlot(set, c, ref))
     );
   if ((await writeCaseValid(c, set, repo)) && arm !== 'control') {
     const slot = getBenchSlot(set, readInput(c, arm));
@@ -1507,6 +1504,33 @@ export const parsePanel = (spec: string) =>
  * one or both orders, and the run gets a `bench/judge` result with how often it was preferred and the findings on
  * each side.
  */
+export type JudgedVerdict = Verdict & { judge: string; order: [string, string] };
+
+export const makeBenchJudgeResult = (verdicts: JudgedVerdict[], arm: string, human: string) => {
+  const byJudge: Record<string, number[]> = {};
+  for (const v of verdicts)
+    (byJudge[v.judge] ??= []).push(v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === arm));
+  const count = (side: string, severity: string) =>
+    getMean(
+      verdicts.map(
+        v => (v[v.order[0] === side ? 'A' : 'B']?.findings ?? []).filter(f => f.severity === severity).length
+      )
+    );
+  const severities = (side: string) => ({ critical: count(side, 'critical'), high: count(side, 'high') });
+  const vsHuman = Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, getMean(ps)]));
+  return {
+    check: 'bench/judge',
+    pass: getMean(Object.values(vsHuman)) >= 0.5,
+    value: {
+      vsHuman,
+      findings: severities(arm),
+      against: severities('human'),
+      human,
+      verdicts: verdicts.map(({ judge, order, prefer, why }) => ({ judge, order, prefer, ...(why && { why }) })),
+    },
+  };
+};
+
 const judge = async (arm: string, caseDir: string, set: string) => {
   const c = await readCaseImage(readBenchCase(caseDir), set);
   const human = readSlotRun(readGateSlot(set, c, 'human'));
@@ -1553,30 +1577,9 @@ const judge = async (arm: string, caseDir: string, set: string) => {
       throw new Error(`${c.id}/${arm}/${name}: no valid judge verdict after 3 attempts`);
     })
   );
-  const byJudge: Record<string, number[]> = {};
-  for (const v of verdicts)
-    (byJudge[v.judge] ??= []).push(v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === arm));
-  const found_ = (side: string, severity: string) =>
-    getMean(
-      verdicts.map(
-        v => (v[v.order[0] === side ? 'A' : 'B']?.findings ?? []).filter(f => f.severity === severity).length
-      )
-    );
-  const severities = (side: string) => ({ critical: found_(side, 'critical'), high: found_(side, 'high') });
-  const vsHuman = Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, getMean(ps)]));
   await appendBenchResult(
     found,
-    {
-      check: 'bench/judge',
-      pass: getMean(Object.values(vsHuman)) >= 0.5,
-      value: {
-        vsHuman,
-        findings: severities(arm),
-        against: severities('human'),
-        human: human.run.id,
-        verdicts: verdicts.map(({ judge, order, prefer, why }) => ({ judge, order, prefer, ...(why && { why }) })),
-      },
-    },
+    makeBenchJudgeResult(verdicts, arm, human.run.id),
     version,
     getRounded(verdicts.reduce((n, v) => n + v.usd, 0))
   );

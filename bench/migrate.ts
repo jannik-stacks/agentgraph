@@ -10,10 +10,12 @@ import {
   readSlotRun,
   type Tests,
   makeBenchResults,
+  makeBenchJudgeResult,
+  type JudgedVerdict,
 } from '../bin/bench.ts';
 import { readFileOrEmpty } from '../bin/resume.ts';
 import { getRunOrigin } from '../src/meta.ts';
-import { getMean, getRounded } from '../src/stats.ts';
+import { getRounded } from '../src/stats.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { writeRunLabels } from '../src/labels.ts';
 import { type BenchInput, getBenchSlot, readAttemptRun } from './runs.ts';
@@ -23,14 +25,6 @@ const bots = ['v2', 'floor'];
 const leftOut = new Set(['work', 'homes', 'scratch']);
 
 type Score = Tests & { image?: string; answers?: number; attempts?: { dir: string; ms: number; infra?: string }[] };
-type Verdict = {
-  judge: string;
-  order: [string, string];
-  prefer: 'A' | 'B' | 'tie';
-  why?: string;
-  A?: { findings?: { severity: string }[] };
-  B?: { findings?: { severity: string }[] };
-};
 type Point = {
   harness: string;
   model: string;
@@ -92,26 +86,14 @@ const writeScores = async (
     await appendBenchResult(found, check, version);
 };
 
-const readVerdicts = (root: string, arm: string) =>
+const findJudgeFiles = (root: string, arm: string, pattern: RegExp) =>
   (existsSync(join(root, 'judge')) ? readdirSync(join(root, 'judge')) : [])
     .filter(pair => pair.split('-').includes(arm) && pair.split('-').includes('human'))
     .flatMap(pair =>
       readdirSync(join(root, 'judge', pair))
-        .filter(name => /^[a-z0-9]+\.json$/.test(name))
-        .flatMap(name => readJson<Verdict>(join(root, 'judge', pair, name)) ?? [])
+        .filter(name => pattern.test(name))
+        .map(name => join(root, 'judge', pair, name))
     );
-
-const readJudgeUsd = (root: string, arm: string) =>
-  getRounded(
-    (existsSync(join(root, 'judge')) ? readdirSync(join(root, 'judge')) : [])
-      .filter(pair => pair.split('-').includes(arm) && pair.split('-').includes('human'))
-      .flatMap(pair =>
-        readdirSync(join(root, 'judge', pair))
-          .filter(name => name.endsWith('.cost.json'))
-          .map(name => readJson<{ usd?: number }>(join(root, 'judge', pair, name))?.usd ?? 0)
-      )
-      .reduce((a, b) => a + b, 0)
-  );
 
 const writeJudge = async (
   found: NonNullable<ReturnType<typeof readSlotRun>>,
@@ -119,35 +101,13 @@ const writeJudge = async (
   arm: string,
   human: string
 ) => {
-  const verdicts = readVerdicts(root, arm);
+  const verdicts = findJudgeFiles(root, arm, /^[a-z0-9]+\.json$/).flatMap(f => readJson<JudgedVerdict>(f) ?? []);
   if (!verdicts.length) return;
-  const byJudge: Record<string, number[]> = {};
-  for (const v of verdicts)
-    (byJudge[v.judge] ??= []).push(v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === arm));
-  const count = (side: string, severity: string) =>
-    getMean(
-      verdicts.map(
-        v => (v[v.order[0] === side ? 'A' : 'B']?.findings ?? []).filter(f => f.severity === severity).length
-      )
-    );
-  const severities = (side: string) => ({ critical: count(side, 'critical'), high: count(side, 'high') });
-  const vsHuman = Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, getMean(ps)]));
-  await appendBenchResult(
-    found,
-    {
-      check: 'bench/judge',
-      pass: getMean(Object.values(vsHuman)) >= 0.5,
-      value: {
-        vsHuman,
-        findings: severities(arm),
-        against: severities('human'),
-        human,
-        verdicts: verdicts.map(({ judge, order, prefer, why }) => ({ judge, order, prefer, ...(why && { why }) })),
-      },
-    },
-    version,
-    readJudgeUsd(root, arm)
+  const usd = findJudgeFiles(root, arm, /\.cost\.json$/).reduce(
+    (n, f) => n + (readJson<{ usd?: number }>(f)?.usd ?? 0),
+    0
   );
+  await appendBenchResult(found, makeBenchJudgeResult(verdicts, arm, human), version, getRounded(usd));
 };
 
 const migrateReferences = async (root: string, caseDir: string, set: string, repo: string) => {
