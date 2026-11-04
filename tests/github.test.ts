@@ -629,17 +629,6 @@ describe('githubTracker', () => {
         return { body: board() };
       },
     });
-  it('reads the named field of the board and sets its option', async () => {
-    const f = boardReplies();
-    const exit = await writeField(f, 'In Review', undefined, 'Needs');
-    const posted = f.calls.filter(c => c.path === '/graphql');
-    expect([exit._tag, posted[0]?.body?.variables, findMutations(f)]).toEqual([
-      'Success',
-      { owner: 'o', name: 'r', issue: 7, login: 'acme', number: 3, field: 'Needs' },
-      [undefined, 'addProjectV2ItemById', 'updateProjectV2ItemFieldValue'],
-    ]);
-  });
-
   it('clears the field on a null value, adding the card first', async () => {
     const f = boardReplies();
     const exit = await writeField(f, null);
@@ -652,12 +641,12 @@ describe('githubTracker', () => {
 
   it('adds the card, which answers the existing one when present, then sets the field with the project token', async () => {
     const f = boardReplies();
-    const exit = await writeField(f);
+    const exit = await writeField(f, 'In Review', undefined, 'Needs');
     const posted = f.calls.filter(c => c.path === '/graphql');
     expect([exit._tag, posted.map(c => c.body?.variables), posted.map(c => c.headers.get('authorization'))]).toEqual([
       'Success',
       [
-        { owner: 'o', name: 'r', issue: 7, login: 'acme', number: 3, field: 'Status' },
+        { owner: 'o', name: 'r', issue: 7, login: 'acme', number: 3, field: 'Needs' },
         { project: 'project-3', content: 'issue-7' },
         { project: 'project-3', item: 'item-7', field: 'field-status', option: 'opt-review' },
       ],
@@ -692,6 +681,16 @@ describe('githubTracker', () => {
     expect([exit._tag, JSON.stringify(exit).includes(said), f.calls.filter(c => c.path === '/graphql').length]).toEqual(
       ['Failure', true, 1]
     );
+  });
+
+  it.each(['In Review', null])('refuses a field that is not single-select, writing %s', async value => {
+    const f = fake({ 'POST /graphql': () => ({ body: board({ id: 'project-3', field: {} }) }) });
+    const exit = await writeField(f, value);
+    expect([
+      JSON.stringify(exit).includes('TrackerError') &&
+        JSON.stringify(exit).includes('has no single-select Status field'),
+      f.calls.filter(c => c.path === '/graphql').length,
+    ]).toEqual([true, 1]);
   });
 
   it('says how to get a token with the project scope when there is none', async () => {

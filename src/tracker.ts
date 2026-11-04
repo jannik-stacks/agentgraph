@@ -1,5 +1,5 @@
 import { readDirEntriesOrEmpty, readOrUndefined } from './read.ts';
-import { makePlugin, type ToolContext } from './plugin.ts';
+import { type HookContext, makePlugin, type ToolContext } from './plugin.ts';
 import { existsSync } from 'node:fs';
 import { appendFile, link, mkdir, readFile, rename, stat, unlink, watch, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -84,8 +84,7 @@ export class Tracker extends Context.Service<
     /** The login people mention to talk to the bot, when the tracker has one. */
     slug?: Effect.Effect<string, TrackerError>;
     writeField?: (
-      number: number,
-      field: { project: string; field: string; value: string | null }
+      ...args: Parameters<NonNullable<HookContext['tracker']['writeField']>>
     ) => Effect.Effect<void, TrackerError>;
     /** The studio's URL that bodies link back to, when set. */
     studio?: string;

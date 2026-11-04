@@ -152,7 +152,10 @@ const clearFieldMutation = `mutation($project: ID!, $item: ID!, $field: ID!) {
 type Board = {
   repository: { issue: { id: string } };
   repositoryOwner: {
-    projectV2: { id: string; field: { id: string; options: { id: string; name: string }[] } | null } | null;
+    projectV2: {
+      id: string;
+      field: { id: string; options: { id: string; name: string }[] } | Record<string, never> | null;
+    } | null;
   } | null;
 };
 
@@ -1140,18 +1143,19 @@ export const githubTracker = (
           });
           const project = found.repositoryOwner?.projectV2;
           if (!project) return yield* new TrackerError({ message: `no project ${where}` });
-          if (!project.field)
+          const select = project.field;
+          if (!select || !('options' in select))
             return yield* new TrackerError({ message: `project ${where} has no single-select ${field} field` });
-          const option = project.field.options.find(o => o.name === value);
+          const option = select.options.find(o => o.name === value);
           if (value !== null && !option)
             return yield* new TrackerError({
-              message: `project ${where} has no ${field} option ${value}; it has ${project.field.options.map(o => o.name).join(', ')}`,
+              message: `project ${where} has no ${field} option ${value}; it has ${select.options.map(o => o.name).join(', ')}`,
             });
           const added = yield* graphql<{ addProjectV2ItemById: { item: { id: string } } }>(auth, addItemMutation, {
             project: project.id,
             content: found.repository.issue.id,
           });
-          const item = { project: project.id, item: added.addProjectV2ItemById.item.id, field: project.field.id };
+          const item = { project: project.id, item: added.addProjectV2ItemById.item.id, field: select.id };
           yield* option
             ? graphql(auth, setFieldMutation, { ...item, option: option.id })
             : graphql(auth, clearFieldMutation, item);
