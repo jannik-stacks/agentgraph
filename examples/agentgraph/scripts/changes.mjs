@@ -2,7 +2,12 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 
-const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const read = new Map();
+const git = (...args) => {
+  const key = args.join('\0');
+  if (!read.has(key)) read.set(key, execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+  return read.get(key);
+};
 
 export const readBaseShaFromEnv = () => {
   const sha = process.env.AGENTGRAPH_BASE;
@@ -50,13 +55,17 @@ export const changedFiles = sha => {
 };
 
 /** Whether `path` exists in the commit `sha`. */
+const based = new Map();
 export const inBase = (sha, path) => {
-  try {
-    execFileSync('git', ['cat-file', '-e', `${sha}:./${basePath(sha, path)}`], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+  const object = `${sha}:./${basePath(sha, path)}`;
+  if (!based.has(object))
+    try {
+      execFileSync('git', ['cat-file', '-e', object], { stdio: 'ignore' });
+      based.set(object, true);
+    } catch {
+      based.set(object, false);
+    }
+  return based.get(object);
 };
 
 /** The lines a file gains, with their line numbers in the new version. A new file gains all of its lines. */
