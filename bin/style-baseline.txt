@@ -99,12 +99,13 @@ no-comment studio/src/virtual.d.ts 1
 no-comment studio/vite.config.ts 1
 no-comment tests/agentgraph-example.test.ts 6
 no-comment tests/agentgraph-ui-checks.test.ts 1
-no-comment tests/base-moved.test.ts 3
+no-comment tests/base-moved-fixtures.ts 3
 no-comment tests/bench.test.ts 1
 no-comment tests/check-logs.test.ts 1
-no-comment tests/coworker.test.ts 3
+no-comment tests/coworker-collaboration.test.ts 2
+no-comment tests/coworker-stacks.test.ts 1
 no-comment tests/disk.test.ts 1
-no-comment tests/docker.test.ts 3
+no-comment tests/docker-client.test.ts 2
 no-comment tests/docs.test.ts 1
 no-comment tests/doubles/sandbox.ts 1
 no-comment tests/doubles/session.ts 1
@@ -130,7 +131,7 @@ no-comment tests/studio-nav.test.ts 3
 no-comment tests/studio-rows.test.ts 2
 no-comment tests/studio-tooltip.test.ts 1
 no-comment tests/studio.ts 3
-no-comment tests/tick.test.ts 1
+no-comment tests/tick-fixtures.ts 1
 no-comment tests/transition.test.ts 1
 no-comment tests/triage.test.ts 2
 no-comment tests/tune.test.ts 3
