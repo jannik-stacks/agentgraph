@@ -19,7 +19,7 @@ import { presets, quality, random } from '../studio/src/bench/score.ts';
 import { getMean, getRounded, sum } from '../src/stats.ts';
 import { propose as proposeWith, readCandidateRows } from '../tune/propose.ts';
 import { codexUsed, makeBenchInput, pickBenchTestCommands, readBenchCase } from './bench.ts';
-import { type BenchRow, getBenchSlot, isBenchCaseValid, isBenchUnitDone } from '../bench/runs.ts';
+import { type BenchRow, getBenchSlot, isBenchCaseValid, isBenchRunDone } from '../bench/runs.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import {
   agentgraphDir,
@@ -260,7 +260,7 @@ const bench = {
         );
         child.on('close', code => done(code ?? 1));
       });
-    const finished = (j: Job) => isBenchUnitDone(dir, makeJobInput(dir, t, j), Boolean(o.judged));
+    const finished = (j: Job) => isBenchRunDone(dir, makeJobInput(dir, t, j), Boolean(o.judged));
     let queue: Job[] = [];
     const next = async () => {
       for (let j = queue.shift(); j; j = queue.shift()) {
@@ -823,7 +823,7 @@ export const status = (dir: string, limits = limitsDefault) => {
       .map(f => statSync(f).mtimeMs)
   );
   const ofPhase = (p: { jobs: Job[] }) => {
-    const done = p.jobs.filter(j => isBenchUnitDone(dir, makeJobInput(dir, t, j), false)).length;
+    const done = p.jobs.filter(j => isBenchRunDone(dir, makeJobInput(dir, t, j), false)).length;
     return `  ${done} of ${p.jobs.length} runs done`;
   };
   return [

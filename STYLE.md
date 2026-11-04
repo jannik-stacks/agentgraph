@@ -150,7 +150,7 @@ one without that check.
 - **The public `tool()` helper keeps the AI SDK name:** plugin files use the same spelling as the
   SDK definition it delegates to. `bin/style.mjs` exempts this helper.
 
-- **Bench readers accept the recorded `hubs` tree field:** old runs use it for graph trees. Those results retain their graph identity during read-only exploration without migrating run directories. New runs write `graphs`.
+- **`bench/migrate.ts` accepts the recorded `hubs` tree field:** old bench dirs use it for graph trees, and migration keeps their graph identity. Delete it with the migration once the old dirs are migrated.
 
 ## Commits
 

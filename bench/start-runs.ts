@@ -1,11 +1,10 @@
 /**
- * Starts the bench runs a plan names and skips the ones already on disk. The plan is every case of `<set>/set.json`
- * times each arm, point and repeat; each unit gates its case on the reference runs, then runs, scores and judges its
- * slot through bin/bench.ts.
+ * Starts a run for every case of `<set>/set.json` times each arm, point and repeat, and skips the ones already on
+ * disk; each gates its case on the reference runs, then runs, scores and judges its slot through bin/bench.ts.
  * Usage: node bench/start-runs.ts <set> [--cases a,b] [--arms v2,floor] [--points opencode:luna] [--repeats 3]
  *        [--graph dir] [--label key=value]... [--parallel 3] [--max-codex 90] [--cap usd --per usd --orenv file]
  *        [--keys file] [--judges opus:1,sonnet:2|none] [--repos dir] [--dry]
- * Exits 1 while units are left, so a queue tries again later.
+ * Exits 1 while runs are left, so a queue tries again later.
  */
 import { spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
@@ -15,7 +14,7 @@ import { parseArgs } from 'node:util';
 import { claim, onStop, readFileOrEmpty, release, startChildProcess } from '../bin/resume.ts';
 import type * as BenchModule from '../bin/bench.ts';
 import { parseLabelPatch, parseLabels } from '../src/labels.ts';
-import { isBenchCaseValid, isBenchUnitDone } from './runs.ts';
+import { isBenchCaseValid, isBenchRunDone } from './runs.ts';
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
@@ -89,9 +88,6 @@ export const spendGuard = async (cap: number, per: number, usage: () => Promise<
   return { check, finished: () => void done++ };
 };
 
-type Entry = { id: string; repo: string; split?: string; use?: boolean };
-type Unit = { c: Entry; arm: string; point: string; repeat: number };
-
 const list = (text: string) => text.split(',').filter(Boolean);
 
 if (import.meta.main) {
@@ -118,7 +114,7 @@ if (import.meta.main) {
   });
   const set = resolve(positionals[0] ?? '');
   if (!existsSync(join(set, 'set.json'))) {
-    console.error('usage: node bench/start-runs.ts <set dir with set.json> [plan flags]');
+    console.error('usage: node bench/start-runs.ts <set dir with set.json> [flags]');
     process.exit(2);
   }
   const repeats = Number(values.repeats);
@@ -128,20 +124,22 @@ if (import.meta.main) {
   const graph = values.graph && resolve(values.graph);
   const bench: typeof BenchModule = await import('../bin/bench.ts');
   const picked = list(values.cases);
-  const cases = (JSON.parse(readFileSync(join(set, 'set.json'), 'utf8')) as { cases: Entry[] }).cases.filter(
-    c => (c.split !== 'gate' || c.use) && (!picked.length || picked.includes(c.id))
-  );
-  const units = list(values.points).flatMap(point =>
+  const cases = (
+    JSON.parse(readFileSync(join(set, 'set.json'), 'utf8')) as {
+      cases: { id: string; repo: string; split?: string; use?: boolean }[];
+    }
+  ).cases.filter(c => (c.split !== 'gate' || c.use) && (!picked.length || picked.includes(c.id)));
+  const wanted = list(values.points).flatMap(point =>
     Array.from({ length: repeats }, (_, i) => i + 1).flatMap(repeat =>
       cases.flatMap(c => list(values.arms).map(arm => ({ c, arm, point, repeat })))
     )
   );
   const judged = values.judges !== 'none';
   const labels = parseLabels(parseLabelPatch(values.label));
-  const done = (u: Unit) =>
-    isBenchUnitDone(set, bench.makeBenchInput(u.c, u.arm, u.repeat, { point: u.point, graph, labels }), judged);
-  const queue = units.filter(u => !done(u));
-  log(`planned ${units.length}, on disk ${units.length - queue.length}, starting ${queue.length}`);
+  const done = (u: (typeof wanted)[number]) =>
+    isBenchRunDone(set, bench.makeBenchInput(u.c, u.arm, u.repeat, { point: u.point, graph, labels }), judged);
+  const queue = wanted.filter(u => !done(u));
+  log(`planned ${wanted.length}, on disk ${wanted.length - queue.length}, starting ${queue.length}`);
   if (values.dry) process.exit(0);
   const lock = join(set, 'start-runs');
   if (!claim(lock)) {
@@ -183,7 +181,7 @@ if (import.meta.main) {
       values['max-claude-calls'],
       ...(values.keys ? ['--keys', resolve(values.keys)] : []),
     ];
-    const runUnit = async (u: Unit) => {
+    const runOne = async (u: (typeof wanted)[number]) => {
       const name = `${u.c.id}-${u.arm}-${u.point.replace(':', '-')}-r${u.repeat}`;
       const caseDir = join(set, 'cases', u.c.id);
       const slot = [
@@ -227,7 +225,7 @@ if (import.meta.main) {
           active++;
           const name = `${u.c.id}/${u.arm}/${u.point}/r${u.repeat}`;
           log(`start ${name} (active ${active}, queued ${queue.length})`);
-          void runUnit(u)
+          void runOne(u)
             .catch((e: unknown) => `error ${String(e).slice(0, 300)}`)
             .then(why => {
               active--;
@@ -241,9 +239,9 @@ if (import.meta.main) {
       };
       void next();
     });
-    const left = units.filter(u => !done(u)).length;
+    const left = wanted.filter(u => !done(u)).length;
     log(
-      `finished: ${units.length - left}/${units.length} done${failed.length ? `, failed: ${failed.join(', ')}` : ''}`
+      `finished: ${wanted.length - left}/${wanted.length} done${failed.length ? `, failed: ${failed.join(', ')}` : ''}`
     );
     process.exitCode = left ? 1 : 0;
   } finally {

@@ -246,7 +246,7 @@
             "patterns": [
               {
                 "group": ["../bin/**", "!../bin/bench.ts", "!../bin/resume.ts", "../studio/**"],
-                "message": "bench and tune import src only"
+                "message": "start-runs and migrate drive bin/bench.ts; other bin and studio code stays out"
               }
             ]
           }

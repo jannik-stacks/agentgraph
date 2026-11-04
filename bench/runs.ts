@@ -74,7 +74,7 @@ const readSlotChecks = (slot: string) => {
 export const isBenchCaseValid = (set: string, id: string) =>
   readSlotChecks(getBenchSlot(set, { case: id, arm: 'human', repeat: 1 })).get('bench/valid')?.check.pass;
 
-export const isBenchUnitDone = (set: string, input: BenchInput, judged: boolean) => {
+export const isBenchRunDone = (set: string, input: BenchInput, judged: boolean) => {
   if (isBenchCaseValid(set, input.case) === false) return true;
   const checks = readSlotChecks(getBenchSlot(set, input));
   const armed = checks.get('bench/arm');
@@ -179,7 +179,7 @@ const findBenchRuns = (roots: readonly string[]) =>
     ];
   });
 
-type Found = ReturnType<typeof findBenchRuns>[number];
+type FoundRun = ReturnType<typeof findBenchRuns>[number];
 
 const toResults = (latest: ReturnType<typeof readLatestRunChecks>): (typeof ResultSheet.Type.runs)[number]['results'] =>
   Object.fromEntries(
@@ -215,15 +215,17 @@ const readCaseLabels = (set: string | undefined, id: string): Record<string, str
   };
 };
 
-type Findings = { critical: number; high: number };
-type JudgeValue = { vsHuman: Record<string, number>; findings: Findings; against: Findings };
-
 const isPass = (e: CheckEntry | undefined) =>
   e && !e.check.na && !e.check.empty ? (+e.check.pass as 0 | 1) : undefined;
 
 const rowCache = new Map<string, { key: string; row: ReturnType<typeof readRow> }>();
 
-const readRow = (found: Found, earlier: Found[], base?: Map<string, CheckEntry>, human?: Map<string, CheckEntry>) => {
+const readRow = (
+  found: FoundRun,
+  earlier: FoundRun[],
+  base?: Map<string, CheckEntry>,
+  human?: Map<string, CheckEntry>
+) => {
   const { run, data, set } = found;
   const latest = readLatestRunChecks(data, run.id);
   const input = (getRunOrigin(run.meta)?.input ?? {}) as Partial<BenchInput>;
@@ -233,7 +235,9 @@ const readRow = (found: Found, earlier: Found[], base?: Map<string, CheckEntry>,
   const [harness, model] = input.point?.split(':') ?? [];
   const hidden = latest.get('bench/hidden');
   const armed = latest.get('bench/arm');
-  const judged = latest.get('bench/judge')?.check.value as JudgeValue | undefined;
+  const judged = latest.get('bench/judge')?.check.value as
+    | (Record<'findings' | 'against', Record<'critical' | 'high', number>> & { vsHuman: Record<string, number> })
+    | undefined;
   const size = latest.get('bench/size')?.check.value as { files?: number } | undefined;
   const setup = latest.get('bench/setup')?.check.value as
     | { labels?: Record<string, string>; setup?: boolean }
@@ -253,7 +257,7 @@ const readRow = (found: Found, earlier: Found[], base?: Map<string, CheckEntry>,
       for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) sum[k] += t[k];
     }
   const total = (k: 'usd' | 'checkUsd' | 'sessions') => getRounded(usage.reduce((n, u) => n + u[k], 0));
-  const armMs = (f: Found, u: (typeof usage)[number]) =>
+  const armMs = (f: FoundRun, u: (typeof usage)[number]) =>
     Number((readLatestRunChecks(f.data, f.run.id).get('bench/arm')?.check.value as { ms?: number })?.ms ?? u.ms);
   const ms = [found, ...earlier].reduce((n, f, i) => n + armMs(f, usage[i]!), 0);
   const split = {
@@ -306,7 +310,7 @@ const readRow = (found: Found, earlier: Found[], base?: Map<string, CheckEntry>,
   };
 };
 
-const readCaseKey = (f: Found) => {
+const readCaseKey = (f: FoundRun) => {
   const input = (getRunOrigin(f.run.meta)?.input ?? {}) as Partial<BenchInput>;
   return { key: JSON.stringify([f.set ?? '', input.case ?? '']), arm: input.arm };
 };

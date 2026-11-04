@@ -32,7 +32,7 @@ import {
   type BenchInput,
   getBenchSlot,
   getBenchUsageCost,
-  isBenchUnitDone,
+  isBenchRunDone,
   readAttemptRun,
   readBenchRows,
   readLatestRunChecks,
@@ -478,7 +478,7 @@ describe('bin/bench.ts score and judge', () => {
       na: true,
       findings: 'no change to judge',
     });
-    expect(isBenchUnitDone(set, floor, true)).toBe(true);
+    expect(isBenchRunDone(set, floor, true)).toBe(true);
     const judged = readSlotResults(set, v2)['bench/judge']!;
     expect(judged).toMatchObject({ usd: 0.2, later: true });
     expect(judged.check.value).toMatchObject({
@@ -543,7 +543,7 @@ describe('bin/bench.ts score and judge', () => {
     expect(first.status, first.stderr).toBe(0);
     const found = readAttemptRun(join(getBenchSlot(set, input), '6'))!;
     expect(readLatestRunChecks(found.data, found.run.id).get('bench/arm')!.check).toMatchObject({ pass: false });
-    expect(isBenchUnitDone(set, input, true)).toBe(true);
+    expect(isBenchRunDone(set, input, true)).toBe(true);
     expect(run().status).toBe(0);
     expect(existsSync(join(getBenchSlot(set, input), '7'))).toBe(false);
   });

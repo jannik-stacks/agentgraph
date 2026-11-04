@@ -199,8 +199,9 @@ const migrateArm = async (
   labels: Record<string, string>
 ) => {
   const final = join(root, arm);
-  type Meta = { answers?: number; ms?: number; infra?: string; status?: string };
-  const meta = readJson<Meta>(join(final, 'meta.json'));
+  const meta = readJson<{ answers?: number } & Parameters<typeof whyInfra>[0] & { ms?: number }>(
+    join(final, 'meta.json')
+  );
   if (!meta) return;
   const input: BenchInput = {
     case: c.id,
@@ -239,7 +240,7 @@ const migrateArm = async (
           ...(p.graphs[arm] && { graph: p.graphs[arm].slice(0, 12) }),
         })
       );
-      const m = from === final ? meta : (readJson<Meta>(join(from, 'meta.json')) ?? {});
+      const m = from === final ? meta : (readJson<typeof meta>(join(from, 'meta.json')) ?? {});
       const why = whyInfra(m);
       const usage =
         imported &&
