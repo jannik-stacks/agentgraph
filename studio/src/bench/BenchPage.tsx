@@ -150,8 +150,8 @@ const Bench = ({ value }: { value: BenchData }) => {
     key,
     values: [...new Set(rows.flatMap(r => (r.labels[key] === undefined ? [] : [r.labels[key]!])))].toSorted(),
   }));
-  const infraRows = rows.filter(r => r.infra && isBenchMatch(r, where));
-  const infraTotal = rows.filter(r => r.infra && isBenchMatch(r, {})).length;
+  const infraRows = rows.filter(r => r.infra && isBenchMatch(r, {}));
+  const matchingInfraRows = infraRows.filter(r => isBenchMatch(r, where));
   const points = useMemo(() => {
     return summarise(value.rows, {
       where,
@@ -261,7 +261,7 @@ const Bench = ({ value }: { value: BenchData }) => {
                   selected={where[key] ?? values}
                   onChange={vs => {
                     const next = { ...where, [key]: vs };
-                    if (vs.length === values.length) delete next[key];
+                    if (values.every(value => vs.includes(value))) delete next[key];
                     setWhere(Object.keys(next).length ? JSON.stringify(next) : null);
                   }}
                 />
@@ -294,7 +294,7 @@ const Bench = ({ value }: { value: BenchData }) => {
           tip="Infrastructure failures are excluded from scores by default. Count them as zero to include them, or inspect their reasons and runs below."
         >
           <p className="text-zinc-500">
-            {infraRows.length} of {infraTotal} infra runs match filters
+            {matchingInfraRows.length} of {infraRows.length} infra runs match filters
           </p>
           <label className="flex items-start gap-1.5 text-zinc-600 dark:text-zinc-400">
             <input
@@ -305,9 +305,9 @@ const Bench = ({ value }: { value: BenchData }) => {
             />
             Count infra runs as 0
           </label>
-          <Disclosure summary={`Inspect infra runs (${infraRows.length})`}>
+          <Disclosure summary={`Inspect infra runs (${matchingInfraRows.length})`}>
             <ul className="mt-2 space-y-2">
-              {infraRows.map(row => (
+              {matchingInfraRows.map(row => (
                 <li key={row.run} className="space-y-0.5 break-words">
                   <Link href={atLink(row.run, undefined, row.data)} className="underline underline-offset-2">
                     {row.labels.model} / {row.labels.harness} / {row.case} / repeat {row.repeat}

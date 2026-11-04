@@ -62,6 +62,7 @@ const toolTests = [
   'tests/sessions.test.ts',
   'tests/sized.test.ts',
   'tests/skill.test.ts',
+  'tests/studio-controls.e2e.test.ts',
   'tests/studio-watch.test.ts',
   'tests/style.test.ts',
   'tests/test-processes.test.ts',

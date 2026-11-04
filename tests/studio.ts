@@ -11,13 +11,13 @@ export const studioModule = <T>(path: string): Promise<T> =>
   import(/* @vite-ignore */ pathToFileURL(join(studioDir, 'src', path)).href) as Promise<T>;
 
 // UNEXPECTED: servers sharing the config's cache folder rewrite each other's prebundled deps and send reloads.
-export const createStudioServer = async () => {
+export const createStudioServer = async (include: string[] = []) => {
   const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
   return createServer({
     configFile: join(studioDir, 'vite.config.ts'),
     root: studioDir,
     cacheDir: mkdtempSync(join(tmpdir(), 'agentgraph-vite-')),
-    optimizeDeps: { noDiscovery: true },
+    optimizeDeps: { noDiscovery: true, include },
     server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
     logLevel: 'silent',
   });

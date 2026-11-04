@@ -75,6 +75,10 @@ Use `<!-- unfinished -->` or `<!-- untested -->` on the same line as a heading o
 
 `npm run check` is the gate before a merge: format, lint, unused code, docs, example graphs, types, all tests with coverage and the studio build, with the tests running alongside the rest. The commit hook runs `npm run check:static`, which is everything but the tests and the studio build. `npm run hooks` turns the hooks on. `sh bin/precommit.sh` runs the agentgraph example's fast checks on the uncommitted change against `HEAD`, or `AGENTGRAPH_BASE`.
 
+The bench interaction tests use an installed Chrome or Chromium in standard macOS or Linux locations, with an
+isolated browser profile and synthetic data. Without that browser, Vitest counts the tests as skipped and names
+why in the suite title. No browser package is required. <!-- code: tests/studio-controls.e2e.test.ts#startBrowser -->
+
 Docs tie claims to code with hidden `<!-- code: src/run/settle.ts#writeProposals -->` comments. `node bin/refs.mjs` fails on a missing file or symbol, `--coverage` on a field, value, status, proposal kind, flag or `AGENTGRAPH_` variable in no docs code span, and `--diff main` lists pairs changed on one side only. `node bin/commands.mjs` fails on documented commands, flags or scripts that do not exist.
 
 `bin/lsp.ts` gives find references and rename from the shell through the TypeScript language server. Positions are `file:line:col` from 1.

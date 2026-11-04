@@ -7,3 +7,5 @@ The bench sidebar has searchable checkbox dropdowns for Filter and Group points 
 Infra shows matching failure counts, reasons and run links even when those runs are excluded from scores.
 
 Separate sidebar sections with evenly spaced dividers and add a quick "only" action to Filter and Group points by choices.
+
+Keep saved bench filters and grouping selections correct when label values disappear, and use native popover search focus.

@@ -473,15 +473,12 @@ export const MultiSelect = ({
           const next = e.newState === 'open';
           setOpen(next);
           if (!next) setSearch('');
-          if (next && button.current) {
-            place(e.currentTarget, button.current.getBoundingClientRect());
-            e.currentTarget.querySelector('input')?.focus();
-          }
+          if (next && button.current) place(e.currentTarget, button.current.getBoundingClientRect());
         }}
         className="fixed inset-auto m-0 w-72 max-w-[calc(100vw-1rem)] rounded-md border border-zinc-300 bg-white p-2 text-xs text-zinc-900 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
       >
         <input
-          autoFocus
+          ref={input => input?.setAttribute('autofocus', '')}
           type="search"
           aria-label={`Search ${label}`}
           placeholder="Search…"
@@ -504,7 +501,7 @@ export const MultiSelect = ({
                   type="checkbox"
                   className="mt-0.5 shrink-0"
                   checked={selected.includes(v)}
-                  onChange={e => onChange(e.target.checked ? [...selected, v] : selected.filter(s => s !== v))}
+                  onChange={e => onChange(e.target.checked ? [...picks, v] : picks.filter(s => s !== v))}
                 />
                 {v || '(empty)'}
               </label>
