@@ -328,6 +328,31 @@ describe('folderTracker files', () => {
     expect(numbers.all.toSorted((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(readdirSync(dir).filter(f => !/^\d+$/.test(f))).toEqual([]);
   });
+
+  it('skips a half-filed draft, refuses unsafe status folders, and stops on the old flat layout', async () => {
+    const dir = temp();
+    mkdirSync(join(dir, '.new-draft'));
+    writeFileSync(join(dir, '.new-draft', 'issue.md'), '');
+    const n = await writeIssueFile(dir, { title: 'One', author: 'a', labels: [] }, '');
+    const refused = await Effect.runPromise(
+      Effect.gen(function* () {
+        const tracker = yield* Tracker;
+        const all = yield* tracker.issues();
+        const names = ['.', '..', 'origin.git', '7', '.hidden', 'a\\b', 'a/b'];
+        const messages = yield* Effect.forEach(names, done =>
+          Effect.map(Effect.flip(tracker.status!(n, 'done', { done })), e => e.message)
+        );
+        return { all: all.map(t => t.number), messages };
+      }).pipe(Effect.provide(folderTracker(dir)))
+    );
+    expect(refused.all).toEqual([1]);
+    expect(refused.messages.every(m => m.startsWith('status done cannot be the folder name'))).toBe(true);
+    expect(findStatus(dir, n)).toBe('');
+    writeFileSync(join(dir, '2.md'), '---\ntitle: Old\nauthor: a\nlabels: []\n---\n');
+    await expect(writeIssueFile(dir, { title: 'Two', author: 'a', labels: [] }, '')).rejects.toThrow(
+      'holds 2.md in the old flat layout'
+    );
+  });
 });
 
 describe('folderTracker push', () => {

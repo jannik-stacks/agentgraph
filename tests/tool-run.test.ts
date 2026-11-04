@@ -38,7 +38,7 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
 `,
     });
     write(join(where.root, 'other-tracker'), {
-      '99.md':
+      '99/issue.md':
         '---\ntitle: Another greeting\nstate: open\nauthor: morgan\nlabels: []\n---\nOutside the selected tracker.\n',
     });
     const graph = await Effect.runPromise(

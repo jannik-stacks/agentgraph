@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { findIssueDir } from '../src/tracker.ts';
@@ -12,7 +12,10 @@ export const issuePath = (dir: string, n: number, name = 'issue.md') => {
   return join(at, name);
 };
 
-export const findStatus = (dir: string, n: number) => relative(dir, dirname(findIssueDir(dir, n)));
+export const findStatus = (dir: string, n: number) => {
+  const at = findIssueDir(dir, n);
+  return existsSync(join(at, 'issue.md')) ? relative(dir, dirname(at)) : undefined;
+};
 
 /** Runs git in `cwd` with a fixed identity and no signing. */
 export const git = (cwd: string, ...args: string[]) =>

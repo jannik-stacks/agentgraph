@@ -313,25 +313,24 @@ export const writeClosed = (dir: string, as: string, n: number) =>
     await writeTimelineEvent(dir, { issue: n, kind: 'closed', actor: as, trusted: true });
   });
 
-export const mergePull = async (i: Pick<Instance, 'tracker' | 'owner'>, n: number) => {
-  const pr = await findPull(i.tracker, n);
-  if (!pr || pr.state !== 'open') throw new Error(`#${n} has no open pull request`);
-  const { base, branch, head } = pr.pull;
-  const at = await inTracker(i, ['rev-parse', `refs/heads/${base}`]);
-  if (!(await isAncestor(i, at, head)))
-    throw new Error(`${base} moved since ${branch} branched; review ${n} changes "rebase" first`);
-  await inTracker(i, ['update-ref', `refs/heads/${base}`, head, at]);
-  await apply(i.tracker, i.owner, pr.number, { kind: 'merge', number: pr.number, head });
-  await runLocked(i.tracker, async () => {
-    for (const t of await readIssues(i.tracker))
-      if (t.state === 'open' && t.pull?.base === branch)
+export const mergePull = (i: Pick<Instance, 'tracker' | 'owner'>, n: number) =>
+  runLocked(i.tracker, async () => {
+    const pr = await findPull(i.tracker, n);
+    if (!pr || pr.state !== 'open') throw new Error(`#${n} has no open pull request`);
+    const { base, branch, head } = pr.pull;
+    const at = await inTracker(i, ['rev-parse', `refs/heads/${base}`]);
+    if (!(await isAncestor(i, at, head)))
+      throw new Error(`${base} moved since ${branch} branched; review ${n} changes "rebase" first`);
+    await inTracker(i, ['update-ref', `refs/heads/${base}`, head, at]);
+    await apply(i.tracker, i.owner, pr.number, { kind: 'merge', number: pr.number, head });
+    const open = (await readIssues(i.tracker)).filter(t => t.state === 'open');
+    for (const t of open)
+      if (t.pull?.base === branch)
         writeFileAtomic(join(findIssueDir(i.tracker, t.number), 'pull.json'), { ...t.pull, base });
+    const issue = Number(/(\d+)$/.exec(branch)?.[1]);
+    if (open.some(t => t.number === issue)) await writeClosed(i.tracker, i.owner, issue);
+    return pr.pull;
   });
-  const issue = Number(/(\d+)$/.exec(branch)?.[1]);
-  const named = (await readIssues(i.tracker)).find(t => t.number === issue);
-  if (named?.state === 'open') await writeClosed(i.tracker, i.owner, issue);
-  return pr.pull;
-};
 
 export const writePullToRepo = async (
   i: Instance,

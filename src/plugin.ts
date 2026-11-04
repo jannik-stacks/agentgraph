@@ -104,8 +104,9 @@ export const tool = <A, I, S = undefined>(definition: {
   });
 };
 
-export const makePlugin = <S = undefined, D = unknown, I = D>(
-  definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'studio' | 'on'> & {
+export const makePlugin = <S = undefined, D = unknown, I = D, T = unknown>(
+  definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'studio' | 'on' | 'tracker'> & {
+    tracker?: (host: TrackerHost) => T;
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Codec<D, I>;
       read: (settings: S) => Effect.Effect<D, unknown>;

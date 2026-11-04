@@ -130,16 +130,22 @@ new name:
 
 ```ts
 // .agentgraph/plugins/my-folder.ts
-import { join } from 'node:path';
 import { makePlugin } from '@jannik-stacks/agi/plugins';
 import { folder } from '@jannik-stacks/agi/trackers';
 
 export default makePlugin({
   ...folder,
   name: 'my-folder',
-  tracker: host => folder.tracker!({ ...host, dir: join(host.dir ?? '.', 'issues') }),
+  tracker: host => {
+    const setup = folder.tracker!(host);
+    return { ...setup, layer: (trust: readonly string[] = []) => setup.layer([...trust, 'ci-bot']) };
+  },
 });
 ```
+
+On an instance the tracker keeps the folder it is given: `agi` refuses one whose `origin.git` lies elsewhere, since
+merge and export work on that remote. The CLI verbs write your side, issues, comments, reviews and closes, straight to
+the folder, so a wrapper shapes what the bot reads and writes.
 
 To change more, copy `folderTracker` from `src/tracker.ts` in a clone into the plugin and edit it. Pick the plugin
 with `--tracker my-folder`, `AGENTGRAPH_TRACKER=my-folder` or `tracker: my-folder` in instance.yaml, and run

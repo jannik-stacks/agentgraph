@@ -10,7 +10,7 @@ import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { findIssueDir, Tracker } from '../src/tracker.ts';
+import { findIssueDir, Tracker, type TrackerSetup } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
@@ -382,13 +382,22 @@ async function runOnInstance() {
     AGENTGRAPH_TRACKER_DIR: i.tracker,
     AGENTGRAPH_TRUST: i.owner,
   });
-  const getTracker = async () => {
+  const readSetup = async () => {
+    const name = i.trackerName ?? 'folder';
     const graph = await ensureGraph(i, graphDir).catch(() => undefined);
-    const picked = await pickTracker(i.trackerName ?? 'folder', graph ? { dir: graph, fromRepo: false } : undefined);
+    const picked = await pickTracker(name, graph ? { dir: graph, fromRepo: false } : undefined);
     if ('problem' in picked) return fail(picked.problem, 1);
-    const { layer } = picked.tracker({ repo: i.repo, studio: '', app: Option.none(), dir: picked.dir ?? i.tracker });
-    return Effect.runPromise(Effect.provide(Tracker, layer()));
+    const made = picked.tracker({ repo: i.repo, studio: '', app: Option.none(), dir: i.tracker });
+    if (made.origin.origin !== join(i.tracker, 'origin.git'))
+      fail(
+        `tracker ${name} keeps its issues outside ${i.tracker}; an instance tracker wraps the folder it is given`,
+        1
+      );
+    return made;
   };
+  let setup: Promise<TrackerSetup> | undefined = i.trackerName ? readSetup() : undefined;
+  await setup;
+  const getTracker = async () => Effect.runPromise(Effect.provide(Tracker, (await (setup ??= readSetup())).layer()));
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);

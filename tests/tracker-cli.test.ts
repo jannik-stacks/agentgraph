@@ -44,7 +44,7 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import type { Services } from '../src/run/execute.ts';
-import { git, tmp, issuePath } from './kit.ts';
+import { findStatus, git, tmp, issuePath } from './kit.ts';
 
 const runTs = join(import.meta.dirname, '..', 'bin', 'run.ts');
 const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');
@@ -56,6 +56,14 @@ afterEach(() => {
   delete process.env.AGENTGRAPH_PROXY_KEYS;
   delete process.env.AGENTGRAPH_TRUST;
 });
+
+const holdLock = async (dir: string) => {
+  const held = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const holder = runLocked(dir, () => (held.resolve(), gate.promise));
+  await held.promise;
+  return () => (gate.resolve(), holder);
+};
 
 const world = () => {
   const { root, seed, data } = seeded('tracker-cli', {
@@ -492,14 +500,79 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     dirs.push(dir);
     const n = await writeIssueFile(dir, { title: 'Lock', author: 'morgan', labels: [] }, '');
     const state = () => readFileSync(issuePath(dir, n), 'utf8').match(/state: (\w+)/)?.[1];
-    let closing: Promise<void> | undefined;
-    await runLocked(dir, async () => {
-      closing = writeClosed(dir, 'morgan', n);
-      await new Promise(done => setTimeout(done, 700));
-      expect(state()).toBe('open');
-    });
+    const free = await holdLock(dir);
+    const closing = writeClosed(dir, 'morgan', n);
+    await new Promise(done => setTimeout(done, 700));
+    expect(state()).toBe('open');
+    await free();
     await closing;
     expect(state()).toBe('closed');
+  });
+
+  it('moves the base only once it holds the tracker lock for the whole merge', async () => {
+    const w = world();
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'Fix it');
+    writeFileSync(join(w.seed, 'fix.txt'), 'fixed\n');
+    git(w.seed, 'add', 'fix.txt');
+    git(w.seed, 'commit', '-qm', 'fix');
+    git(w.seed, 'push', '-q', w.origin, 'HEAD:refs/heads/agentgraph/1');
+    const head = git(w.seed, 'rev-parse', 'HEAD');
+    const pr = await writeIssueFile(w.dir, { title: 'Fix it', author: 'agentgraph[bot]', labels: [] }, '');
+    writeFileSync(issuePath(w.dir, pr, 'pull.json'), JSON.stringify({ branch: 'agentgraph/1', base: 'main', head }));
+    const base = () => git(w.root, '--git-dir', w.origin, 'rev-parse', 'refs/heads/main');
+    const before = base();
+    const free = await holdLock(w.dir);
+    const merging = mergePull({ tracker: w.dir, owner: 'morgan' }, pr);
+    await new Promise(done => setTimeout(done, 700));
+    expect(base()).toBe(before);
+    await free();
+    expect(await merging).toMatchObject({ base: 'main', head });
+    expect(base()).toBe(head);
+    expect(readFileSync(issuePath(w.dir, 1), 'utf8')).toContain('state: closed');
+  });
+
+  it('waits for another process moving an issue, for both a comment and a scan', async () => {
+    const dir = tmp('tracker-lock-process');
+    dirs.push(dir);
+    const n = await writeIssueFile(dir, { title: 'Race', author: 'morgan', labels: [] }, '');
+    await writeComment(dir, 'morgan', n, 'first');
+    const tracker = JSON.stringify(join(import.meta.dirname, '..', 'src', 'tracker.ts'));
+    const child = spawn(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { join } from 'node:path';
+import { runLocked } from ${tracker};
+const dir = process.argv[1];
+await runLocked(dir, async () => {
+  renameSync(join(dir, '${n}'), join(dir, '.moving'));
+  const events = readFileSync(join(dir, '.moving', 'events.jsonl'), 'utf8');
+  console.log('held');
+  await new Promise(done => setTimeout(done, 1500));
+  writeFileSync(join(dir, '.moving', 'events.jsonl'), events);
+  mkdirSync(join(dir, 'working'));
+  renameSync(join(dir, '.moving'), join(dir, 'working', '${n}'));
+});`,
+        dir,
+      ],
+      { env: { ...process.env, NODE_OPTIONS: '' } }
+    );
+    const exited = new Promise(done => child.on('exit', done));
+    await new Promise<void>(held => child.stdout.on('data', () => held()));
+    const [listed] = await Promise.all([
+      Effect.runPromise(Effect.flatMap(Tracker, f => f.issues()).pipe(Effect.provide(folderTracker(dir)))),
+      writeComment(dir, 'morgan', n, 'second'),
+    ]);
+    expect(await exited).toBe(0);
+    expect({
+      listed: listed.map(t => t.number),
+      status: findStatus(dir, n),
+      top: existsSync(join(dir, String(n))),
+      events: readFileSync(join(dir, 'working', String(n), 'events.jsonl'), 'utf8').includes('second'),
+    }).toEqual({ listed: [n], status: 'working', top: false, events: true });
   });
 
   it('parks say after both checkout attempts fail', async () => {
@@ -846,6 +919,35 @@ export default { name: 'mine', tracker: host => (writeFileSync(host.dir + '.pick
     });
     expect(shown.stdout, shown.stderr).toContain('#1 open Mine');
     expect(existsSync(`${i.tracker}.picked`)).toBe(true);
+  });
+
+  it('refuses an instance tracker that keeps its issues outside the instance folder', async () => {
+    const w = world();
+    const root = join(w.root, 'agentgraph-data');
+    const i = await ensureInstance(root, w.seed);
+    const graph = join(w.seed, '.agentgraph');
+    cpSync(join(import.meta.dirname, '..', 'examples', 'starter'), graph, { recursive: true });
+    mkdirSync(join(graph, 'plugins'));
+    writeFileSync(
+      join(graph, 'plugins', 'moved.ts'),
+      `import { folder } from ${JSON.stringify(join(import.meta.dirname, '..', 'src', 'tracker.ts'))};
+export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: host.dir + '/issues' }) };`
+    );
+    const file = join(i.dir, 'instance.yaml');
+    writeFileSync(file, `${readFileSync(file, 'utf8')}tracker: moved\n`);
+    const env = {
+      ...process.env,
+      NODE_OPTIONS: '',
+      AGENTGRAPH_TRACKER: '',
+      AGENTGRAPH_DIR: '',
+      AGENTGRAPH_APP_ENV: '',
+    };
+    const runs = [['show'], ['start', 'Fix it'], ['close', '1']].map(args =>
+      spawnSync(process.execPath, [runTs, ...args, '--data', root], { cwd: w.seed, encoding: 'utf8', env })
+    );
+    const why = `tracker moved keeps its issues outside ${i.tracker}`;
+    expect(runs.map(r => [r.status, r.stderr.includes(why)])).toEqual(runs.map(() => [1, true]));
+    expect(findIssueNumbers(i.tracker)).toEqual([]);
   });
 
   it.each([
