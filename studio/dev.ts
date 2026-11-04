@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import { ConfigProvider, Effect, Result } from 'effect';
 import { createServer } from 'vite';
 import { readConfiguredGraph } from '../src/harnesses.ts';
-import { ensureInstanceGraph, ensureInstance, readInstance, findRepo } from '../src/instance.ts';
+import { ensureInstanceGraph, ensureInstance, readPickedInstance, findRepo } from '../src/instance.ts';
 import { readHostSettings, makeTrackerSetup, settings } from '../src/services.ts';
 
 const { values, positionals } = parseArgs({
@@ -25,7 +25,7 @@ const quit = (e: Error) => {
   return process.exit(2);
 };
 const { data: root, config } = await readHostSettings(values).catch(quit);
-const saved = values.instance !== undefined ? readInstance(root, values.instance) : undefined;
+const saved = await readPickedInstance(root, values.instance, values.repo !== undefined).catch(quit);
 const repo = values.repo === undefined ? saved?.checkout : await findRepo(resolve(values.repo));
 if (values.repo && !repo) quit(new Error(`${values.repo} is not in a git repo`));
 const instance = repo === undefined ? undefined : await ensureInstance(root, values.instance, repo).catch(quit);

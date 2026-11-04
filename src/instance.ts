@@ -117,6 +117,15 @@ export const findInstances = (root: string) =>
     }
   });
 
+export const readPickedInstance = async (root: string, name: string | undefined, creating: boolean) => {
+  const found = name === undefined ? undefined : readInstance(root, name);
+  if (found || creating || name === undefined) return found;
+  const names = findInstances(root).map(i => basename(i.dir));
+  throw new Error(
+    `no instance ${name} under ${root}${names.length ? `; it holds ${names.join(', ')}` : ''}. Pass --repo <dir> to create it`
+  );
+};
+
 const isInside = (dir: string, path: string) => {
   const inside = relative(dir, path);
   return inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
@@ -155,7 +164,7 @@ export const ensureInstance = async (
   );
   if (unknown.length)
     throw new Error(
-      `${root} has no instance ${name} but holds ${unknown.join(', ')}; pass --instance <name> to use one, or --instance ${name} to make it`
+      `${root} has no instance ${name} but holds ${unknown.join(', ')}; pass --instance <name> to use one, or --instance ${name} --repo ${formatShellWord(checkout)} to make it`
     );
   const dir = join(resolve(root), name);
   if (found && found.checkout !== real) throw new Error(`instance ${name} belongs to ${found.checkout}, not ${real}`);
