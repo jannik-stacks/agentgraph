@@ -303,8 +303,12 @@ async function runOnTracker(selection: string) {
           AGENTGRAPH_DIR: graph,
           AGENTGRAPH_REPO: (await Effect.runPromise(readConfiguredGraph(graph))).repo,
         });
-      await start(undefined, undefined, {}, undefined, refresh).catch(failLoopLock);
-      return;
+      const looping = start(undefined, undefined, {}, stopping.signal, refresh).then(
+        () => {},
+        (e: unknown) => (stopping.signal.aborted ? undefined : failLoopLock(e))
+      );
+      trapInterrupt(() => (stopping.abort(), looping));
+      return looping;
     }
     case 'show': {
       const env = await readEngineEnv();
