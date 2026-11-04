@@ -37,8 +37,18 @@ export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =
     return work;
   });
 
-/** Rebases a stacked run's branch onto `head`, the new head of the pull request it stacks on; a conflict is said on the issue. */
-export const runFollow = (w: Workflow, given: Run, known: NonNullable<Run['base']>, head: string, graph: Graph) =>
+/**
+ * Rebases a stacked run's branch, now at `tip`, onto `head`, the new head of the pull request it stacks on; a conflict is
+ * said on the issue and not tried again until `head` or `tip` moves.
+ */
+export const runFollow = (
+  w: Workflow,
+  given: Run,
+  known: NonNullable<Run['base']>,
+  head: string,
+  tip: string,
+  graph: Graph
+) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const tracker = yield* Tracker;
@@ -46,14 +56,14 @@ export const runFollow = (w: Workflow, given: Run, known: NonNullable<Run['base'
     const run = (yield* store.get(given.id)) ?? given;
     if (isRunDone(run)) return;
     const base = run.base ?? known;
-    if (base.sha === head && !base.from) return;
+    if (base.sha === head && (!base.from || base.tip === tip)) return;
     const from = base.from ?? base.sha;
     const branch = formatTemplate(w.branch!, yield* tracker.issue(run.issue));
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
     const applied = yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work);
     const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
     yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
-    const { from: _pending, ...rest } = base;
+    const { from: _pending, tip: _tip, ...rest } = base;
     const { reason, ...kept } = run;
     yield* store.put(
       yield* writeStatus(
@@ -61,7 +71,7 @@ export const runFollow = (w: Workflow, given: Run, known: NonNullable<Run['base'
         {
           ...kept,
           ...(!applied.ok ? { reason: body } : reason && !base.from ? { reason } : {}),
-          base: { ...rest, sha: head, ...(!applied.ok && { from }) },
+          base: { ...rest, sha: head, ...(!applied.ok && { from, ...(!applied.moved && { tip }) }) },
         },
         graph
       )
