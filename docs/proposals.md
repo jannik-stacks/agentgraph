@@ -1,6 +1,6 @@
 # Proposals
 
-Agents have no GitHub token. They ask the engine for writes with proposals: a reply ends with a fenced `agentgraph` block, read as a JSON array, one object, or one object per line. <!-- code: src/engine.ts#parseProposals -->
+Agents have no GitHub token. They ask the engine for writes with proposals: a reply ends with a fenced `agentgraph` block, read as a JSON array, one object, or one object per line. <!-- code: src/run/attempt.ts#parseProposals -->
 
 ```agentgraph
 [{"kind": "push", "branch": "agentgraph/42", "message": "Fix fee rounding"},
