@@ -99,7 +99,7 @@ export const Live = <T,>({
   children: (value: T) => ReactNode;
 }) =>
   value === undefined ? (
-    failure ? (
+    failure !== undefined ? (
       <div role="alert" className="space-y-2 p-4 text-zinc-500">
         <p>{failure}</p>
         {retry && <Button onClick={retry}>Retry</Button>}
@@ -109,7 +109,7 @@ export const Live = <T,>({
     )
   ) : (
     <>
-      {failure && (
+      {failure !== undefined && (
         <p role="alert" className="px-4 pt-2 text-xs text-amber-600">
           Could not refresh, showing earlier data. {failure}
         </p>

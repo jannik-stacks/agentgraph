@@ -2,7 +2,7 @@ import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
-import { makeServedGraph, startWatch } from './served.ts';
+import { makeServedGraph, servedIds } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries } from './src/runs/trace.ts';
 import { resultSources } from './src/results/result.ts';
@@ -12,7 +12,6 @@ import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
 
-const ids = ['virtual:fixtures', 'virtual:served'];
 const root = new URL('../', import.meta.url);
 const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 
@@ -39,24 +38,14 @@ const outside = (res: ServerResponse) => json(res, { error: 'data is outside the
 const bodies = (docs: Record<string, { body: string }>) =>
   Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
 
-export const makeStudioDevApiPlugin = (graph = makeServedGraph()): Plugin => {
-  const servedGraph = graph.read;
+export const makeStudioDevApiPlugin = (reader = makeServedGraph()): Plugin => {
   return {
     name: 'agentgraph:fixtures',
-    resolveId: source => (ids.includes(source) ? `\0${source}` : undefined),
+    resolveId: source => (servedIds.includes(source) ? `\0${source}` : undefined),
     configureServer(server) {
-      if (process.env.AGI_STUDIO_DIR)
-        startWatch(server, [{ root: process.env.AGI_STUDIO_DIR, topic: 'graph' }], () => {
-          graph.forget();
-          for (const id of ids) {
-            const module = server.moduleGraph.getModuleById(`\0${id}`);
-            if (module) server.moduleGraph.invalidateModule(module);
-          }
-          server.ws.send({ type: 'full-reload' });
-        });
       const use = (path: string, handle: (req: IncomingMessage, res: ServerResponse) => Promise<unknown>) =>
         server.middlewares.use(path, (req, res) => {
-          void handle(req, res).catch((e: Error) => json(res, { error: e.message }, 500));
+          void handle(req, res).catch((e: Error & { _tag?: string }) => json(res, { error: e.message || e._tag }, 500));
         });
       use('/api/results', async (req, res) => {
         const source = resultSources.find(s => s === new URL(req.url ?? '/', 'http://studio').searchParams.get('from'));
@@ -70,7 +59,7 @@ export const makeStudioDevApiPlugin = (graph = makeServedGraph()): Plugin => {
         };
         const [{ readRunResults }, served] = await Promise.all([
           from<typeof ResultsModule>('bin/results.ts'),
-          servedGraph(),
+          reader.read(),
         ]);
         json(res, readRunResults(source, dirs, served?.graph));
       });
@@ -99,7 +88,7 @@ export const makeStudioDevApiPlugin = (graph = makeServedGraph()): Plugin => {
         json(res, found.success ?? null, found.success ? 200 : 404);
       });
       use('/api/runs', async (req, res) => {
-        const served = await servedGraph();
+        const served = await reader.read();
         const dir = await readDataDir(req);
         if (!dir) return outside(res);
         const { data, bench } = dir;
@@ -116,13 +105,14 @@ export const makeStudioDevApiPlugin = (graph = makeServedGraph()): Plugin => {
             const entry = (run: WorkflowModule.RunRecord, all: boolean) =>
               Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
                 const lines = mergeCheckEntries(trace, checks);
+                const summary = makeRunSummary(run, lines);
+                const { usd, lastAt, urls } = summary;
                 return {
                   fixture: `${bench ? 'bench' : served!.name}/${run.workflow}`,
                   repo: served?.graph?.repo ?? '',
                   run,
                   labels: readRunLabels(data, run.id),
-                  ...makeRunSummary(run, lines),
-                  ...(all && { trace: lines }),
+                  ...(all ? { usd, lastAt, urls, trace: lines } : summary),
                   ...findTraceLinks(trace),
                   ...(bench && { data: bench }),
                 };
@@ -140,8 +130,11 @@ export const makeStudioDevApiPlugin = (graph = makeServedGraph()): Plugin => {
     },
     async load(source) {
       if (source === '\0virtual:served') {
-        const served = await servedGraph();
-        return `export const served = ${JSON.stringify(served ? { name: served.name, problems: served.problems } : null)};`;
+        const served = await reader.read();
+        return {
+          code: `export const served = ${JSON.stringify(served ? { name: served.name, problems: served.problems } : null)};`,
+          map: { mappings: '' },
+        };
       }
       if (source !== '\0virtual:fixtures') return;
       const { graphs, fixture }: typeof FixturesModule = await from('tests/fixtures.ts');
@@ -155,7 +148,7 @@ export const makeStudioDevApiPlugin = (graph = makeServedGraph()): Plugin => {
           runs: scenarios(workflow, checks).map(({ label, next }) => ({ label, ...simulate(workflow, next, engine) })),
         }));
       });
-      const served = await servedGraph();
+      const served = await reader.read();
       const graph = served?.graph;
       const real: Fixture[] = Object.values(graph?.workflows ?? {}).map(workflow => ({
         id: `${served!.name}/${workflow.name}`,
@@ -175,7 +168,7 @@ export const makeStudioDevApiPlugin = (graph = makeServedGraph()): Plugin => {
           ])
         ),
       }));
-      return `export const fixtures = ${JSON.stringify([...real, ...all])};`;
+      return { code: `export const fixtures = ${JSON.stringify([...real, ...all])};`, map: { mappings: '' } };
     },
   };
 };

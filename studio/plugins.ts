@@ -9,7 +9,7 @@ import { ResultsData } from './src/results/data.ts';
 import { resultSources } from './src/results/result.ts';
 import { BenchData } from './src/bench/data.ts';
 import { readBench } from './src/bench/read.ts';
-import { makeServedGraph, startWatch } from './served.ts';
+import { makeServedGraph, servedIds, startWatch } from './served.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 
@@ -131,10 +131,19 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
       dispose = startWatch(
         server,
         [
+          ...(process.env.AGI_STUDIO_DIR ? [{ root: process.env.AGI_STUDIO_DIR, topic: 'graph' }] : []),
           ...(process.env.AGI_STUDIO_DATA ? [{ root: process.env.AGI_STUDIO_DATA, topic: 'data' }] : []),
           ...loaded.flatMap(page => page.watch.map(root => ({ root, topic: page.name }))),
         ],
-        topics => server.ws.send('agi:changed', { topics })
+        topics => {
+          if (!topics.includes('graph')) return server.ws.send('agi:changed', { topics });
+          served.forget();
+          for (const id of servedIds) {
+            const module = server.moduleGraph.getModuleById(`\0${id}`);
+            if (module) server.moduleGraph.invalidateModule(module);
+          }
+          server.ws.send({ type: 'full-reload' });
+        }
       );
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');

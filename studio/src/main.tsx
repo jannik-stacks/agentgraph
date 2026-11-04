@@ -7,6 +7,7 @@ import './styles.css';
 const Agentation = import.meta.env.DEV ? lazy(() => import('agentation').then(m => ({ default: m.Agentation }))) : null;
 
 import.meta.hot?.on('agi:changed', ({ topics }: { topics: string[] }) => readChanged(topics));
+import.meta.hot?.on('vite:ws:connect', () => readChanged());
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

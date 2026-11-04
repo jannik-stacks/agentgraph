@@ -59,10 +59,11 @@ const splitRunsByIssue = (runs: ServedRun[]) => {
     }));
 };
 
+const RunListLive = () => <Live state={useAtomValue(runsAtom)}>{runs => <Runs runs={runs} />}</Live>;
+
 const RunList = () => {
   const gh = useAtomValue(ghParam);
-  const state = useAtomValue(runsAtom);
-  return gh ? <Locate gh={gh} /> : <Live state={state}>{runs => <Runs runs={runs} />}</Live>;
+  return gh ? <Locate gh={gh} /> : <RunListLive />;
 };
 
 const RunResults = ({ ids }: { ids: string[] }) => {

@@ -1,4 +1,4 @@
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -79,8 +79,16 @@ it('serves an imported run in the studio run list and on its own page', async ()
     body: [{ run: { id, workflow: 'import' }, usd: 0, urls: [], checks: [] }],
   });
   expect((list.body as object[])[0]).not.toHaveProperty('trace');
-  expect(await ask(`/${id}`)).toMatchObject({
+  const one = await ask(`/${id}`);
+  expect(one).toMatchObject({
     status: 200,
-    body: { run: { id, status: 'done' }, trace: [{ saved: { id } }] },
+    body: { run: { id, status: 'done' }, usd: 0, urls: [], trace: [{ saved: { id } }] },
   });
+  expect(Object.keys(one.body as object)).not.toEqual(expect.arrayContaining(['trail']));
+  expect(Object.keys(one.body as object)).not.toEqual(expect.arrayContaining(['checks']));
+  mkdirSync(join(i.data, 'broken'));
+  writeFileSync(join(i.data, 'broken', 'run.json'), '{');
+  const broken = await ask('/');
+  expect(broken.status).toBe(500);
+  expect(broken.body).toEqual({ error: expect.stringMatching(/.+/) });
 }, 30_000);

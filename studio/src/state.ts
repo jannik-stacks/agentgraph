@@ -2,7 +2,7 @@ import { atom } from 'jotai';
 import type { readRunResults } from '../../bin/results.ts';
 import type { Step } from '../../bin/tune.ts';
 import type { RunResults } from './results/result.ts';
-import { type ServedRun, makeDataHref } from './runs/trace.ts';
+import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
 
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
@@ -43,8 +43,8 @@ export const selectedStepAtom = queryParam('step');
 
 const loads = new Map<() => void, readonly string[]>();
 
-export const readChanged = (topics: readonly string[]) => {
-  for (const [load, follows] of loads) if (follows.some(topic => topics.includes(topic))) load();
+export const readChanged = (topics?: readonly string[]) => {
+  for (const [load, follows] of loads) if (!topics || follows.some(topic => topics.includes(topic))) load();
 };
 
 export const connectedAtom = atom(true);
@@ -69,9 +69,10 @@ export const makeLiveJsonAtom = <T>(
       busy = true;
       void fetch(path)
         .then(async r => {
+          if (r.ok) return read(await r.json());
           const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
-          if (r.ok || (r.status === 404 && body === null)) return read(body);
-          throw new Error(typeof body?.error === 'string' ? body.error : `${path} answered ${r.status}`);
+          if (r.status === 404 && body === null) return read(null);
+          throw new Error(typeof body?.error === 'string' && body.error ? body.error : `${path} answered ${r.status}`);
         })
         .then(
           next => {
@@ -100,7 +101,10 @@ export const makeLiveJsonAtom = <T>(
 };
 
 /** Every run of the served graph, with its trace, every text in it cut short. */
-export const runsAtom = makeLiveJsonAtom<ServedRun[]>('/api/runs', ['data']);
+export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof makeRunSummary>, 'trail' | 'checks'>)[]>(
+  '/api/runs',
+  ['data']
+);
 
 type ServedResults = Omit<ReturnType<typeof readRunResults>, 'runs'> & { runs: (RunResults & { step?: Step })[] };
 

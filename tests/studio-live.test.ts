@@ -159,3 +159,60 @@ it('reads a run the server answers 404 and null for as gone, not as a failure', 
     vi.unstubAllGlobals();
   }
 });
+
+it('fails on a broken body or an empty error, keeping the earlier snapshot, and reads every atom on connect', async () => {
+  vi.stubGlobal('location', new URL('http://studio/runs'));
+  const answers: Response[] = [
+    new Response('[1', { status: 200 }),
+    Response.json(['old']),
+    new Response('[1', { status: 200 }),
+    Response.json({ error: '' }, { status: 500 }),
+    Response.json(['new']),
+  ];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => answers.shift()!)
+  );
+  const { createStore } = await dependency<{
+    createStore: () => { get: (atom: object) => unknown; sub: (atom: object, listener: () => void) => () => void };
+  }>('jotai');
+  const { makeLiveJsonAtom, readChanged } = await studioModule<{
+    makeLiveJsonAtom: (path: string, topics: string[]) => object;
+    readChanged: (topics?: string[]) => void;
+  }>('state.ts');
+  const store = createStore();
+  const list = makeLiveJsonAtom('/list', ['data']);
+  const stop = store.sub(list, () => {});
+  const state = () => store.get(list) as { value?: unknown; failure?: string; retry?: () => void };
+  try {
+    await vi.waitFor(() => expect(state().failure).toBeTypeOf('string'));
+    expect(state().value).toBeUndefined();
+    state().retry!();
+    await vi.waitFor(() => expect(state()).toEqual({ value: ['old'] }));
+    readChanged(['data']);
+    await vi.waitFor(() => expect(state().failure).toBeTypeOf('string'));
+    expect(state().value).toEqual(['old']);
+    readChanged(['data']);
+    await vi.waitFor(() => expect(state().failure).toBe('/list answered 500'));
+    expect(state().value).toEqual(['old']);
+    readChanged();
+    await vi.waitFor(() => expect(state()).toEqual({ value: ['new'] }));
+  } finally {
+    stop();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('shows an empty failure as a failure', async () => {
+  const { createElement } = await dependency<{
+    createElement: (type: unknown, props: object | null, ...children: unknown[]) => unknown;
+  }>('react');
+  const { renderToStaticMarkup } = await dependency<{ renderToStaticMarkup: (value: unknown) => string }>(
+    'react-dom/server'
+  );
+  const { Live } = await studioModule<{ Live: unknown }>('ui.tsx');
+  const show = (state: object) =>
+    renderToStaticMarkup(createElement(Live, { state, children: (value: string) => `shown ${value}` }));
+  expect(show({ failure: '', retry: () => {} })).toContain('Retry');
+  expect(show({ value: 'old', failure: '' })).toContain('Could not refresh, showing earlier data.');
+});

@@ -23,6 +23,8 @@ const readServedGraph = async () => {
     : { name: basename(dir), graph: undefined, problems: loaded.failure.problems };
 };
 
+export const servedIds = ['virtual:fixtures', 'virtual:served'];
+
 export const makeServedGraph = () => {
   let served: ReturnType<typeof readServedGraph> | undefined;
   return {
