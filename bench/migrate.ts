@@ -19,8 +19,8 @@ import { readFileOrEmpty } from '../bin/resume.ts';
 import { writeImportedRun } from '../src/instance.ts';
 import { getRounded } from '../src/stats.ts';
 import { writeFileAtomic } from '../src/store.ts';
-import { writeRunLabels } from '../src/labels.ts';
-import { type BenchInput, getBenchSlot, readAttemptRun } from './runs.ts';
+import { readRunLabels, writeRunLabels } from '../src/labels.ts';
+import { type BenchInput, getBenchSlot, readAttemptRun, readBenchAttempts } from './runs.ts';
 
 const version = 'migrated';
 const leftOut = new Set(['work', 'homes', 'scratch']);
@@ -46,7 +46,7 @@ const findPointDirs = (dir: string, depth = 3): string[] =>
 const readPoint = (dir: string) => {
   const p =
     readJson<
-      Partial<Record<'harness' | 'model' | 'set' | 'engine', string>> & {
+      Partial<Record<'harness' | 'model' | 'set' | 'engine' | 'at', string>> & {
         repeat?: number;
         labels?: Record<string, string>;
         graphs?: Record<string, string>;
@@ -59,6 +59,7 @@ const readPoint = (dir: string) => {
     repeat: p.repeat ?? 1,
     set: p.set ?? basename(dir),
     engine: p.engine,
+    at: p.at ?? '',
     labels: p.labels ?? {},
     graphs: p.graphs ?? p.hubs ?? {},
   };
@@ -154,14 +155,28 @@ const writeJudge = async (
   await appendBenchResults(found, [makeBenchJudgeResult(verdicts, arm, human)], version, getRounded(usd));
 };
 
-const writeSlot = async (set: string, input: BenchInput, build: (draft: string) => Promise<void>) => {
+const writeSlot = async (
+  set: string,
+  input: BenchInput,
+  done: (slot: string) => boolean,
+  build: (draft: string) => Promise<void>
+) => {
   const slot = getBenchSlot(set, input);
-  if (existsSync(slot)) return;
-  const draft = join(set, 'runs', '.migrating');
-  rmSync(getBenchSlot(draft, input), { recursive: true, force: true });
-  await build(draft);
-  renameSync(getBenchSlot(draft, input), slot);
+  if (done(slot)) return;
+  const draft = getBenchSlot(join(set, 'runs', '.migrating'), input);
+  rmSync(draft, { recursive: true, force: true });
+  await build(join(set, 'runs', '.migrating'));
+  if (!existsSync(slot)) return renameSync(draft, slot);
+  const before = readBenchAttempts(slot).length;
+  for (const at of readBenchAttempts(draft)) renameSync(at, join(slot, String(before + Number(basename(at)))));
+  rmSync(draft, { recursive: true });
 };
+
+const hasEngine = (engine: string | undefined) => (slot: string) =>
+  readBenchAttempts(slot).some(at => {
+    const found = readAttemptRun(at);
+    return !engine || (found && readRunLabels(found.data, found.run.id).engine === engine);
+  });
 
 const migrateReferences = async (
   root: string,
@@ -173,7 +188,7 @@ const migrateReferences = async (
   for (const arm of ['base', 'human']) {
     if (!existsSync(join(root, arm, 'score.json'))) continue;
     const input = { case: c.id, arm, repeat: 1 };
-    await writeSlot(set, input, async draft => {
+    await writeSlot(set, input, existsSync, async draft => {
       await writeReferenceRun(arm, c.dir, draft, repo, 1);
       const found = readSlotRun(getBenchSlot(draft, input))!;
       await writeScores(found, c, root, arm, labels);
@@ -208,9 +223,8 @@ const migrateArm = async (
     repeat: p.repeat,
     point: `${p.harness}:${p.model}`,
     ...(p.graphs[arm] && { graph: p.graphs[arm] }),
-    ...(p.engine && { labels: { engine: p.engine } }),
   };
-  await writeSlot(set, input, async draft => {
+  await writeSlot(set, input, hasEngine(p.engine), async draft => {
     const slot = getBenchSlot(draft, input);
     for (const [n, from] of [...findEarlierAttempts(final), final].entries()) {
       const at = join(slot, String(n + 1));
@@ -272,8 +286,9 @@ export const copyOldBenchRuns = async (old: string, set: string, repos: string) 
   if (!existsSync(join(set, 'cases'))) cpSync(join(old, 'cases'), join(set, 'cases'), clone);
   if (!existsSync(join(set, 'set.json')) && existsSync(join(old, 'set.json')))
     cpSync(join(old, 'set.json'), join(set, 'set.json'));
-  for (const dir of findPointDirs(old)) {
-    const p = readPoint(dir);
+  for (const { dir, p } of findPointDirs(old)
+    .map(dir => ({ dir, p: readPoint(dir) }))
+    .toSorted((a, b) => a.p.at.localeCompare(b.p.at))) {
     for (const id of findCaseIds(dir)) {
       const caseDir = join(set, 'cases', id);
       if (!existsSync(join(caseDir, 'case.json'))) {

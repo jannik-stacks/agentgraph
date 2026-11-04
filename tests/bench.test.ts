@@ -675,7 +675,11 @@ describe('arm graphs', () => {
     writeFileSync(join(graph, 'settings.yaml'), 'image: b\n');
     const after = makeBenchInput(c, 'v2', 1, { point: 'opencode:luna', graph });
     expect(getBenchSlot('set', before)).not.toBe(getBenchSlot('set', after));
-    expect(makeBenchInput(c, 'v2', 1).graph).toMatch(/^[0-9a-f]{20}$/);
+    expect(makeBenchInput(c, 'v2', 1).graph).toMatch(/^[0-9a-f]{40}$/);
+    git(graph, 'init', '-q');
+    git(graph, 'add', '-A');
+    git(graph, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'graph');
+    expect(after.graph).toBe(git(graph, 'rev-parse', 'HEAD^{tree}'));
     mkdirSync(join(graph, 'skills', 'alpha'), { recursive: true });
     writeFileSync(join(graph, 'skills', 'alpha', 'SKILL.md'), 'x');
     const alpha = makeBenchInput(c, 'v2', 1, { graph }).graph;

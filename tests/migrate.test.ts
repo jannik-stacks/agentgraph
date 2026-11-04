@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { copyOldBenchRuns } from '../bench/migrate.ts';
-import { readAttemptRun, readBenchRows, readRunChange } from '../bench/runs.ts';
+import { makeBenchInput } from '../bin/bench.ts';
+import { isBenchRunDone, readAttemptRun, readBenchRows, readRunChange } from '../bench/runs.ts';
 import { writeImportedRun } from '../src/instance.ts';
 import { git, tmp } from './kit.ts';
 
@@ -112,22 +113,50 @@ describe('bench/migrate.ts', () => {
     expect(readFileSync(join(v2.data, v2.run, 'checks.jsonl'), 'utf8')).toBe(checks);
   });
 
-  it('keeps a point per engine and graph, and the tracker layout and origin-less runs of later engines', async () => {
+  it('adds a later engine of the same evaluation as an attempt, and keeps another graph in its own slot', async () => {
     const { root, old, out, addArm } = await makeOldBench();
-    const other = join(old, 'ef567890', 'codex-sol', 'r1');
-    save(join(other, 'point.json'), {
-      ...JSON.parse(readFileSync(join(out, 'point.json'), 'utf8')),
-      engine: 'ef567890',
-    });
+    const point = JSON.parse(readFileSync(join(out, 'point.json'), 'utf8'));
+    save(join(out, 'point.json'), { ...point, at: '2026-10-01T00:00:00.000Z' });
+    const later = join(old, 'ef567890', 'codex-sol', 'r1');
+    save(join(later, 'point.json'), { ...point, engine: 'ef567890', at: '2026-10-02T00:00:00.000Z' });
+    save(join(later, 'demo', 'human', 'score.json'), makeScore(true));
+    await addArm(join(later, 'demo', 'v2'), { score: makeScore(false), tracker: 'tracker' });
+    const other = join(old, 'ab12', 'codex-sol', 'r1');
+    save(join(other, 'point.json'), { ...point, engine: 'ab12', graphs: { v2: 'tree2' } });
     save(join(other, 'demo', 'human', 'score.json'), makeScore(true));
-    await addArm(join(other, 'demo', 'v2'), { score: makeScore(false), tracker: 'tracker' });
+    await addArm(join(other, 'demo', 'v2'));
+    await copyOldBenchRuns(old, old, join(root, 'repos'));
     await copyOldBenchRuns(old, old, join(root, 'repos'));
     const v2 = readBenchRows([join(old, 'runs')]).filter(r => r.labels.arm === 'v2');
-    expect(v2.map(r => [r.labels.engine, r.hidden]).toSorted()).toEqual([
-      ['abcd1234', 1],
-      ['ef567890', 0],
+    expect(v2.map(r => [r.labels.graph, r.labels.engine, r.hidden]).toSorted()).toEqual([
+      ['tree1', 'ef567890', 0],
+      ['tree2', 'ab12', 1],
     ]);
-    expect(v2.map(r => readRunChange(r.at, readAttemptRun(r.at)!.run).includes('a + b'))).toEqual([true, true]);
+    const merged = v2.find(r => r.labels.graph === 'tree1')!;
+    expect(readdirSync(join(merged.at, '..'))).toEqual(['1', '2']);
+    expect(readRunChange(merged.at, readAttemptRun(merged.at)!.run)).toContain('a + b');
+  });
+
+  it('keys a migrated run on the tree id the old drive recorded, so planning the same graph finds it done', async () => {
+    const { root, old, out } = await makeOldBench();
+    const graphs = join(root, 'engine');
+    save(join(graphs, 'examples', 'skills', 'fix', 'SKILL.md'), 'Fix it.\n');
+    save(join(graphs, 'examples', 'settings.yaml'), 'limits: {}\n');
+    git(graphs, 'init', '-q', '-b', 'main');
+    git(graphs, 'add', '-A');
+    git(graphs, 'commit', '-qm', 'engine');
+    const point = JSON.parse(readFileSync(join(out, 'point.json'), 'utf8'));
+    save(join(out, 'point.json'), { ...point, graphs: { v2: git(graphs, 'rev-parse', 'HEAD:./examples') } });
+    await copyOldBenchRuns(old, old, join(root, 'repos'));
+    const plan = (graph: string) =>
+      isBenchRunDone(
+        old,
+        makeBenchInput({ id: 'demo', repo: 'me/demo' }, 'v2', 1, { point: 'codex:sol', graph }),
+        true
+      );
+    expect(plan(join(graphs, 'examples'))).toBe(true);
+    save(join(graphs, 'examples', 'skills', 'fix', 'SKILL.md'), 'Fix it well.\n');
+    expect(plan(join(graphs, 'examples'))).toBe(false);
   });
 
   it('keeps every attempt, numbered or in the attic, and an arm saved without its run data', async () => {

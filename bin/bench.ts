@@ -12,9 +12,9 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { getSha } from '../src/hash.ts';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
@@ -28,6 +28,7 @@ import type { CheckResult } from '../src/workflow.ts';
 import type { CheckEntry } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/tracker.ts';
+import { addGraphArgs } from '../src/git.ts';
 import { writeComment, writeImportedRun } from '../src/instance.ts';
 import { appendJsonlRows, readJsonlRows, writeFileAtomic } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeRunLabels } from '../src/labels.ts';
@@ -119,19 +120,19 @@ const branches = /\b(?:if|for|while|match|case|catch|loop)\b|&&|\|\|/g;
 const comment = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
 
 const hash = (text: string) => getSha(text, 20);
-const treeText = (dir: string) =>
-  readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter(e => statSync(join(e.parentPath, e.name)).isFile())
-    .map(e => relative(dir, join(e.parentPath, e.name)))
-    .filter(path => !path.split(sep).includes('node_modules'))
-    .toSorted()
-    .map(path => {
-      const text = readFileSync(join(dir, path), 'utf8');
-      return `${path}\0${text.length}\0${text}`;
-    })
-    .join('\0');
 const sh = (cmd: string, args: string[], o: { cwd?: string; env?: Record<string, string> } = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...o, env: { ...process.env, ...o.env } });
+const graphTrees = join(tmpdir(), 'agentgraph-graph-trees');
+export const readGraphTree = (dir: string) => {
+  if (!existsSync(join(graphTrees, 'objects'))) sh('git', ['init', '-q', '--bare', graphTrees]);
+  const env = { GIT_DIR: graphTrees, GIT_WORK_TREE: dir, GIT_INDEX_FILE: join(graphTrees, `index-${randomUUID()}`) };
+  try {
+    sh('git', addGraphArgs, { cwd: dir, env });
+    return sh('git', ['write-tree'], { cwd: dir, env }).trim();
+  } finally {
+    rmSync(env.GIT_INDEX_FILE, { force: true });
+  }
+};
 const logger =
   (out: string, entry: Record<string, unknown> = {}) =>
   (more: object) =>
@@ -476,11 +477,8 @@ export const makeBenchInput = (
         arm,
         repeat,
         ...(o.point && { point: o.point }),
-        graph: hash(
-          JSON.stringify([
-            treeText(findCaseGraphDir(c, o.graph)),
-            arm === 'floor' ? treeText(join(agentgraphDir, 'bench/floor')) : '',
-          ])
+        graph: readGraphTree(
+          arm === 'floor' ? join(agentgraphDir, 'bench/floor') : (o.graph ?? join(agentgraphDir, 'examples'))
         ),
         ...(o.labels && Object.keys(o.labels).length && { labels: o.labels }),
       };

@@ -139,6 +139,8 @@ export const readGit = (...args: Parameters<typeof hostGit>) =>
 export const writeCheckoutTree = ({ git }: Pick<Checkout, 'git'>) =>
   indexLock.withPermits(1)(Effect.andThen(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])));
 
+export const addGraphArgs = ['add', '-A', '--', '.', ':(exclude,glob)**/node_modules/**'];
+
 export const ensureGraphRef = (git: Checkout['git'], dir: string) => {
   const env = {
     GIT_DIR: git.GIT_DIR,
@@ -146,7 +148,7 @@ export const ensureGraphRef = (git: Checkout['git'], dir: string) => {
     GIT_INDEX_FILE: join(tmpdir(), `agentgraph-graph-${randomUUID()}`),
   };
   return Effect.gen(function* () {
-    yield* hostGit(env, ['add', '-A', '--', '.', ':(exclude,glob)**/node_modules/**']);
+    yield* hostGit(env, addGraphArgs);
     const tree = yield* readGit(env, ['write-tree']);
     const ref = `refs/agentgraph/graphs/${tree}`;
     yield* hostGit(env, ['update-ref', ref, tree, '']).pipe(
