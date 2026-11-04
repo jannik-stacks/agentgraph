@@ -105,9 +105,18 @@ export const writeInstanceProvider = (i: Instance, provider: string) => {
   writeInstance({ ...(readInstance(dirname(i.dir), basename(i.dir)) ?? i), provider });
 };
 
+const readInstanceOrWarn = (root: string, name: string) => {
+  try {
+    return readInstance(root, name);
+  } catch (e) {
+    console.error(`skipping ${join(root, name, 'instance.yaml')}: ${String(e).split('\n')[0]}`);
+    return undefined;
+  }
+};
+
 export const findInstances = (root: string) =>
   (existsSync(root) ? readdirSync(root) : []).flatMap(name =>
-    existsSync(join(root, name, 'instance.yaml')) ? (readInstance(root, name) ?? []) : []
+    existsSync(join(root, name, 'instance.yaml')) ? (readInstanceOrWarn(root, name) ?? []) : []
   );
 
 const isInside = (dir: string, path: string) => {
@@ -115,9 +124,18 @@ const isInside = (dir: string, path: string) => {
   return inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
 };
 
+const isOtherInstance = (root: string, name: string, checkout: string) => {
+  try {
+    const at = readInstance(root, name)?.checkout;
+    return at !== undefined && at !== checkout;
+  } catch {
+    return false;
+  }
+};
+
 export const ensureInstance = async (
   root: string,
-  name: string,
+  picked: string | undefined,
   checkout: string,
   base?: string,
   readonly?: boolean
@@ -131,7 +149,16 @@ export const ensureInstance = async (
       );
   };
   assertOutside(root);
+  const name = picked ?? basename(checkout);
   const found = readInstance(root, name);
+  const others = found || picked || !existsSync(root) ? [] : readdirSync(root).filter(n => n !== name);
+  const unknown = others.filter(
+    n => statSync(join(root, n), { throwIfNoEntry: false })?.isDirectory() && !isOtherInstance(root, n, real)
+  );
+  if (unknown.length)
+    throw new Error(
+      `${root} has no instance ${name} but holds ${unknown.join(', ')}; pass --instance <name> to use one, or --instance ${name} to make it`
+    );
   const dir = join(resolve(root), name);
   if (found && found.checkout !== real) throw new Error(`instance ${name} belongs to ${found.checkout}, not ${real}`);
   const paths = [dir, found?.data ?? join(dir, 'data'), origin(found ?? { tracker: join(dir, 'tracker') })];
