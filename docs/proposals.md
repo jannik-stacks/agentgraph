@@ -75,7 +75,7 @@ One refused filing fails the try and files nothing. The engine refuses a body wi
 
 With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/engine.ts#findStackBase src/github.ts#githubTracker -->
 
-A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/engine.ts#pending src/engine.ts#runFollow -->
+A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/engine.ts#pending src/run/follow.ts#runFollow -->
 
 ### The triage example
 

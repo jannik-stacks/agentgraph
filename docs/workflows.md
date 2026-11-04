@@ -146,7 +146,7 @@ A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The que
 
 ## Asides
 
-At a human wait step, an aside answers `/agent` comments. It forks the session `back` targets into a throwaway checkout of the pull request head, or starts fresh. Only comments and `back` apply: a comment answers and the run keeps waiting; a `back` resumes work, and the fork becomes that step's session. The answering agent comments only when its `returns` lists `comment`; any kind it may not use fails the aside, and nothing from that reply is posted. Edits are dropped. Without an open pull request, the comment sends the run back directly. <!-- code: src/engine.ts#runAside -->
+At a human wait step, an aside answers `/agent` comments. It forks the session `back` targets into a throwaway checkout of the pull request head, or starts fresh. Only comments and `back` apply: a comment answers and the run keeps waiting; a `back` resumes work, and the fork becomes that step's session. The answering agent comments only when its `returns` lists `comment`; any kind it may not use fails the aside, and nothing from that reply is posted. Edits are dropped. Without an open pull request, the comment sends the run back directly. <!-- code: src/run/follow.ts#runAside -->
 
 ## Comments while it works
 
@@ -162,13 +162,13 @@ A trusted `/agent` comment reaches a working run by the workflow's `concurrency`
 
 A catch-up error is recorded once in the run trace. The run stays waiting and retries when the base head, branch head or graph changes. <!-- code: src/engine.ts#tick -->
 
-Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/engine.ts#runCatchUp -->
+Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp -->
 
 If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts.
 
-A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. A second conflict at the same base asks for a manual update. <!-- code: src/engine.ts#moveCheckoutOnto -->
+A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. A second conflict at the same base asks for a manual update. <!-- code: src/run/follow.ts#moveCheckoutOnto -->
 
-A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the same branch, so give it the same `branch`. Like a retro it shares the issue’s sticky status, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/engine.ts#runCatchUp src/workflow.ts#isQuiet -->
+A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the same branch, so give it the same `branch`. Like a retro it shares the issue’s sticky status, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/run/follow.ts#runCatchUp src/workflow.ts#isQuiet -->
 
 ## Status on the issue
 
