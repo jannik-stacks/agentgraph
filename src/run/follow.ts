@@ -21,13 +21,14 @@ import { makeAgentSessionSpec, runSession } from './execute.ts';
 /** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
 export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =>
   Effect.gen(function* () {
-    if (first && work.head && (yield* readGit(work.git, ['merge-base', onto, work.head])) !== onto) {
+    const tip = work.head ?? work.base;
+    if (first && (yield* readGit(work.git, ['merge-base', onto, tip])) !== onto) {
       const head = yield* readGit(work.git, [
         ...gitIdentity,
         'commit-tree',
         yield* writeCheckoutTree(work),
         '-p',
-        work.head,
+        tip,
         '-m',
         'Saved work',
       ]);
@@ -37,7 +38,7 @@ export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =
     return work;
   });
 
-/** Rebases a stacked branch onto its parent's head. */
+/** Rebases a stacked branch onto its parent's head; a branch not pushed yet only takes the new head as its base. */
 export const runFollow = (
   w: Workflow,
   given: Run,
@@ -57,9 +58,12 @@ export const runFollow = (
     const from = base.from ?? base.sha;
     const branch = formatTemplate(w.branch!, yield* tracker.issue(run.issue));
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
-    const applied = yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work);
-    const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
-    yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
+    const applied = work.head && (yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work));
+    if (applied) yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
+    const failed = applied && !applied.ok ? applied : undefined;
+    const body =
+      failed &&
+      `#${base.pull} moved and ${branch} could not follow: ${failed.reason}. Rebase it by hand, or say what to do.`;
     const { from: _pending, tip: _tip, ...rest } = base;
     const { reason, ...kept } = run;
     yield* store.put(
@@ -67,11 +71,11 @@ export const runFollow = (
         w,
         {
           ...kept,
-          ...(!applied.ok ? { reason: body } : reason && !base.from ? { reason } : {}),
+          ...(body ? { reason: body } : reason && !base.from ? { reason } : {}),
           base: {
             ...rest,
             sha: head,
-            ...(!applied.ok && { from, ...(!applied.moved && tip !== undefined && { tip }) }),
+            ...(failed && { from, ...(!failed.moved && tip !== undefined && { tip }) }),
           },
         },
         graph
