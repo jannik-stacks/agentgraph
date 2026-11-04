@@ -1,58 +1,65 @@
 /**
- * Replays merged pull requests on v2 and on a plain single session (floor), then scores and judges them blind.
- * Usage: node bin/bench.ts run (v2|floor) <case dir> <out> --repo <clone> [--point harness:model] [--repeat k]
- *        node bin/bench.ts score <case dir> <out> --repo <clone> [--drop-env]
- *        node bin/bench.ts judge <case dir> <out> [--pairs all|human]
- *        node bin/bench.ts report <out>
- * A case dir holds case.json, issue.md and merged.diff. Each step skips outputs that exist, keeps everything under
- * <out>/<case id>/<arm>, and appends to <out>/log.jsonl. Paid steps stop past --max-codex weekly Codex points over the
- * first reading, or after --max-claude-calls judge calls. Model keys come from --keys, infra/local/.keys.env by default.
+ * Replays merged pull requests as bench runs and scores them. Each command works on one slot of a set: the case, arm,
+ * repeat, point and graph pick it, and every try of it is a numbered attempt dir with its own graph, tracker and data.
+ * Usage: node bin/bench.ts run (v2|floor) <case dir> <set> --repo <clone> [--point harness:model] [--repeat k] [--graph dir]
+ *        node bin/bench.ts import (human|base|control) <case dir> <set> --repo <clone> [--repeat k]
+ *        node bin/bench.ts score <arm> <case dir> <set> --repo <clone> [same slot flags]
+ *        node bin/bench.ts judge <arm> <case dir> <set> [same slot flags] [--judges opus:1,sonnet:2]
+ * Scores and judgements are later results on the slot's run, versioned by what produced them, so a rerun skips a
+ * current one. Paid steps stop past --max-codex weekly Codex percent, or after --max-claude-calls judge calls. Model
+ * keys come from --keys, infra/local/.keys.env by default.
  */
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { dockerArgs, readImage, type CheckoutContainerSpec } from '../src/docker.ts';
-import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
+import { isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import { dependencyDirs, discard, readSandboxSetup, createSharedMounts, manifest, written } from '../src/env.ts';
 import { collect, ensureFreeDisk, readEnvRefs, writeEnvRefs } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
+import { getRunOrigin } from '../src/meta.ts';
 import type { CheckResult } from '../src/workflow.ts';
-import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
+import type { CheckEntry } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
-import { findIssueDir, findIssueNumbers, writeIssueFile } from '../src/tracker.ts';
-import { writeComment } from '../src/instance.ts';
-import { writeFileAtomic } from '../src/store.ts';
-import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
+import { writeIssueFile } from '../src/tracker.ts';
+import { writeComment, writeImportedRun } from '../src/instance.ts';
+import { appendJsonlRows, writeFileAtomic } from '../src/store.ts';
+import { parseLabelPatch, parseLabels, writeRunLabels } from '../src/labels.ts';
 import { parseNamePairs } from '../src/harnesses.ts';
 import {
   agentgraphDir,
   appendJsonl,
-  moveDirToAttic,
-  readBenchResultEnv,
   claim,
   clock,
   down,
   readJsonl,
   onStop,
-  ensureRunSettingsPinned,
-  copyDirIfAbsentAtomic,
   release,
   waitWhileServicesDown,
   readFileOrEmpty,
   removeSandboxContainersMountingDir,
-  removeUnheldScoreTrees,
   getHostProxyUrl,
 } from './resume.ts';
-import { isLockedByOtherProcess, waitForLock } from '../src/owner.ts';
+import { waitForLock } from '../src/owner.ts';
 import { parseGraphSettings } from '../src/folder.ts';
 import { parse, stringify } from 'yaml';
 import { hostSettings } from '../src/services.ts';
-let engine = process.env.BENCH_ENGINE ?? agentgraphDir;
+import {
+  type BenchInput,
+  getBenchSlot,
+  getBenchUsageCost,
+  makeNextAttempt,
+  readAttemptRun,
+  readBenchAttempts,
+  readLatestRunChecks,
+  readRunChange,
+  referenceArms,
+} from '../bench/runs.ts';
 
 type Case = {
   id: string;
@@ -88,19 +95,22 @@ type Verdict = {
 };
 
 const bots = ['v2', 'floor'];
-/** Repos a bench never runs or reports. */
+/** Repos a bench never runs. */
 const benched = (repo = '') => !process.env.BENCH_EXCLUDE?.split(',').includes(repo.split('/').pop() ?? '');
-const arms = ['human', ...bots, 'control'];
 const graphAliases: Record<string, string> = { 'agentgraph-sandbox': 'sandbox' };
 const findExampleGraphName = (repo: string) => {
   const name = repo.split('/').pop() ?? '';
   const graph = graphAliases[name] ?? name;
-  return existsSync(join(engine, 'examples', graph, 'settings.yaml')) ? graph : 'bench';
+  return existsSync(join(agentgraphDir, 'examples', graph, 'settings.yaml')) ? graph : 'bench';
 };
-const caseLabelKeys = ['repo', 'tests', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/agent No more information. Use your judgment.';
-const limits = { codex: 30, claude: 60 };
-const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all', labels: parseLabels({}) };
+const limits = { codex: 90, claude: 60 };
+const options = {
+  point: undefined as string | undefined,
+  repeat: 1,
+  graph: undefined as string | undefined,
+  labels: parseLabels({}),
+};
 let panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_tests?\.\w+$/;
 const noise =
@@ -114,10 +124,6 @@ const treeText = (dir: string): string =>
   readdirSync(dir, { withFileTypes: true })
     .flatMap(e => (e.isDirectory() ? [treeText(join(dir, e.name))] : [e.name, readFileSync(join(dir, e.name), 'utf8')]))
     .join('\0');
-/** Where a result is kept for reuse: nothing is reused without BENCH_CACHE or with BENCH_FRESH. */
-const slot = (kind: string, ...key: unknown[]) =>
-  process.env.BENCH_CACHE ? join(process.env.BENCH_CACHE, kind, hash(JSON.stringify(key))) : undefined;
-const reusable = (dir: string | undefined) => dir !== undefined && !process.env.BENCH_FRESH && existsSync(dir);
 const sh = (cmd: string, args: string[], o: { cwd?: string; env?: Record<string, string> } = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...o, env: { ...process.env, ...o.env } });
 const logger =
@@ -330,7 +336,7 @@ const tested = (repo: string, tests: string[]): Commands => {
     : {};
 };
 
-const loadCase = (dir: string): Case & Commands => {
+export const readBenchCase = (dir: string): Case & Commands => {
   const c = JSON.parse(readFileSync(join(dir, 'case.json'), 'utf8')) as Omit<Case, 'id' | 'dir' | 'body'> &
     Commands & { tests?: unknown };
   const issue = readFileSync(join(dir, 'issue.md'), 'utf8');
@@ -395,18 +401,19 @@ export const codexUsed = () => {
   return m ? Number(m[1]) : undefined;
 };
 
-const guard = (out: string, claude: boolean) => {
-  const file = join(out, 'budget.json');
-  const b = JSON.parse(readFileOrEmpty(file) || '{}') as { start?: number; now?: number; at?: number };
+/** Stops paid work once the weekly Codex use, read at most every ten minutes, passes --max-codex percent. */
+const guard = (set: string, claude: boolean) => {
+  const file = join(set, 'budget.json');
+  const b = JSON.parse(readFileOrEmpty(file) || '{}') as { now?: number; at?: number };
   if (!b.at || Date.now() - b.at > 600_000) {
     const now = codexUsed();
     if (now === undefined || !Number.isFinite(now)) throw new Error('Codex usage unreadable; no paid work started');
-    Object.assign(b, { start: b.start ?? now, now });
-    writeFileAtomic(file, { ...b, at: Date.now() });
+    Object.assign(b, { now, at: Date.now() });
+    writeFileAtomic(file, b);
   }
-  if (b.now !== undefined && b.now - (b.start ?? b.now) > limits.codex)
-    throw new Error(`Codex weekly use is ${b.now}%, more than ${limits.codex} points over ${b.start}%`);
-  const calls = readJsonl(join(out, 'log.jsonl')).filter(
+  if (b.now !== undefined && b.now > limits.codex)
+    throw new Error(`Codex weekly use is ${b.now}%, over ${limits.codex}%`);
+  const calls = readJsonl(join(set, 'log.jsonl')).filter(
     l => l.event === 'start' && /opus|sonnet/.test(String(l.judge))
   );
   if (claude && calls.length >= limits.claude) throw new Error(`${calls.length} claude judge calls, the limit`);
@@ -449,25 +456,83 @@ export const repoint = (graph: string, point: string) => {
   if (own.size) keys.AGENTGRAPH_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
 };
 
-const makeArmRunLabels = (c: Pick<Case, 'id'>, arm: string) => {
-  const [harness, model] = options.point?.split(':') ?? [];
-  return parseLabels({
+export const getBenchGraphHash = (dir: string) => hash(treeText(dir));
+
+/** The slot input of `arm` for this invocation; a reference takes no point or graph. */
+const readInput = (c: Pick<Case, 'id'>, arm: string, repeat = options.repeat): BenchInput => {
+  const agent = !referenceArms.includes(arm) && arm !== 'control';
+  return {
     case: c.id,
     arm,
+    repeat,
+    ...(agent && options.point && { point: options.point }),
+    ...(agent && options.graph && { graph: getBenchGraphHash(options.graph) }),
+  };
+};
+
+/** The first repeat of a reference arm, which gates the case and is what agent runs are judged against. */
+const readGateSlot = (set: string, c: Pick<Case, 'id'>, arm: string) => getBenchSlot(set, readInput(c, arm, 1));
+
+const makeArmRunLabels = (input: BenchInput) => {
+  const [harness, model] = input.point?.split(':') ?? [];
+  return parseLabels({
+    case: input.case,
+    arm: input.arm,
     ...(harness && model && { harness, model }),
-    repeat: String(options.repeat),
-    engine: sh('git', ['-C', engine, 'rev-parse', 'HEAD']).trim(),
+    repeat: String(input.repeat),
+    engine: sh('git', ['-C', agentgraphDir, 'rev-parse', 'HEAD']).trim(),
     ...options.labels,
   });
 };
 
-const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
-  const { start } = (await import(join(engine, 'src/main.ts'))) as typeof MainModule;
-  if (resolve(engine) !== resolve(agentgraphDir)) Object.assign(process.env, keys);
-  const own = process.env.BENCH_DIR ?? `examples/${findExampleGraphName(c.repo)}`;
+const makeBenchMeta = (set: string, input: BenchInput) => ({
+  engine: {
+    origin: {
+      plugin: 'bench',
+      version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
+      job: basename(set),
+      input,
+    },
+  },
+});
+
+/** A case's scoring dir in its set: its image pin, environment refs and score tree. */
+const findCaseWorkDir = (set: string, c: Pick<Case, 'id'>) => join(set, 'work', c.id);
+
+/** The newest attempt's run of a slot, with its attempt dir. */
+export const readSlotRun = (slot: string) => {
+  const at = readBenchAttempts(slot).at(-1);
+  const found = at && readAttemptRun(at);
+  return found ? { ...found, at } : undefined;
+};
+
+type SlotRun = NonNullable<ReturnType<typeof readSlotRun>>;
+
+/** Appends a later bench result to a run, as `agi check --runs` appends one. */
+export const appendBenchResult = (
+  found: SlotRun,
+  check: Omit<CheckResult, 'ms'> & Partial<Pick<CheckResult, 'ms'>>,
+  version: string,
+  usd = 0
+) =>
+  Effect.runPromise(
+    appendJsonlRows(join(found.data, found.run.id, 'checks.jsonl'), [
+      { at: new Date().toISOString(), step: 'bench', check: { ms: 0, ...check }, version, usd, later: true },
+    ] satisfies CheckEntry[])
+  );
+
+const setLimit = (yaml: string, key: string, value: number) =>
+  new RegExp(`^ {2}${key}:`, 'm').test(yaml)
+    ? yaml.replace(new RegExp(`^( {2}${key}:).*$`, 'm'), `$1 ${value}`)
+    : /^limits:/m.test(yaml)
+      ? yaml.replace(/^limits:/m, `limits:\n  ${key}: ${value}`)
+      : `${yaml}limits:\n  ${key}: ${value}\n`;
+
+/** Writes the graph an arm's attempt runs, pinned to the case's image and pointed at `--point`. */
+export const writeArmGraph = (c: Case & Commands, arm: string, at: string) => {
   const graph = join(at, 'graph');
   cpSync(findCaseGraphDir(c), graph, { recursive: true });
-  if (own === 'examples/bench' && c.runner) {
+  if (!options.graph && findExampleGraphName(c.repo) === 'bench' && c.runner) {
     writeFileAtomic(
       join(graph, 'scripts/tests.sh'),
       `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n[ -z "$files" ] || ${c.runner} $files\n`
@@ -482,7 +547,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
         `setup: ${JSON.stringify(c.setup)}\n${readFileOrEmpty(join(graph, 'settings.yaml'))}`
       );
   }
-  if (own === 'examples/bench' && !c.runner) {
+  if (!options.graph && findExampleGraphName(c.repo) === 'bench' && !c.runner) {
     rmSync(join(graph, 'checks'), { recursive: true });
     writeFileAtomic(
       join(graph, 'workflows/issue.md'),
@@ -492,15 +557,9 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   const raw = readFileOrEmpty(join(graph, 'settings.yaml'));
   if (/^setup: pnpm install/m.test(raw))
     writeFileAtomic(join(graph, 'settings.yaml'), raw.replace(/^setup: .*\n/m, ''));
-  const limit = (yaml: string, key: string, value: number) =>
-    new RegExp(`^ {2}${key}:`, 'm').test(yaml)
-      ? yaml.replace(new RegExp(`^( {2}${key}:).*$`, 'm'), `$1 ${value}`)
-      : /^limits:/m.test(yaml)
-        ? yaml.replace(/^limits:/m, `limits:\n  ${key}: ${value}`)
-        : `${yaml}limits:\n  ${key}: ${value}\n`;
   writeFileAtomic(
     join(graph, 'settings.yaml'),
-    limit(limit(readFileOrEmpty(join(graph, 'settings.yaml')), 'parallel', 1), 'sessions', 3)
+    setLimit(setLimit(readFileOrEmpty(join(graph, 'settings.yaml')), 'parallel', 1), 'sessions', 3)
   );
   if (arm === 'floor') {
     rmSync(join(graph, 'workflows'), { recursive: true });
@@ -513,6 +572,12 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image, repo: c.repo })
   );
   if (options.point) repoint(graph, options.point);
+  return graph;
+};
+
+const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string, set: string, input: BenchInput) => {
+  const { start } = (await import(join(agentgraphDir, 'src/main.ts'))) as typeof MainModule;
+  const graph = writeArmGraph(c, arm, at);
   const dir = join(at, 'tracker');
   sh('git', ['init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git')]);
   sh('git', ['-C', repo, 'push', '-q', join(dir, 'origin.git'), `${c.base}:refs/heads/main`]);
@@ -524,22 +589,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   let reason: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
     const [run] = await start(
-      {
-        graph,
-        issue: 1,
-        data: join(at, 'data'),
-        meta: {
-          engine: {
-            origin: {
-              plugin: 'bench',
-              version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
-              job: basename(dirname(dirname(at))),
-              input: { case: c.id, arm, repeat: options.repeat },
-            },
-          },
-        },
-        labels: makeArmRunLabels(c, arm),
-      },
+      { graph, issue: 1, data: join(at, 'data'), meta: makeBenchMeta(set, input), labels: makeArmRunLabels(input) },
       undefined,
       keys
     );
@@ -551,36 +601,19 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     await writeComment(dir, 'maintainer', 1, answer);
     answers++;
   }
-  const origin = join(dir, 'origin.git');
-  const pull = findIssueNumbers(dir)
-    .map(n => join(findIssueDir(dir, n), 'pull.json'))
-    .find(existsSync);
-  const branch = ['--git-dir', origin, 'rev-parse', '-q', '--verify', 'refs/heads/agentgraph/1'];
-  const head = pull
-    ? (JSON.parse(readFileOrEmpty(pull)) as { head: string }).head
-    : spawnSync('git', branch, { encoding: 'utf8' }).stdout.trim();
-  const diff = head ? sh('git', ['--git-dir', origin, 'diff', c.base, head]) : '';
-  return { answers, status, ...(reason && { reason: reason.slice(0, 500) }), diff };
+  return { answers, status, ...(reason && { reason: reason.slice(0, 500) }) };
 };
 
 /** Why an arm attempt broke on its environment, not on the agent: the engine stopped on a runner error. */
 export const runnerError = (reason = '') =>
   /runner error|^(SandboxError|SessionStop|TrackerError)\b/.test(reason) ? reason.slice(0, 200) : undefined;
 
-/**
- * Why an arm's run says nothing about the arm, when its environment failed it: a recorded environment failure, a
- * failed setup or a run that never finished. A run that changed nothing is the agent's result, not infra.
- */
-export const infra = (s: { infra?: string; setup?: { ok: boolean }; status?: string | undefined }) =>
-  (s.infra === 'empty diff' ? undefined : s.infra) ??
-  (s.setup?.ok === false ? 'setup fails' : s.status === 'running' ? 'run did not finish' : undefined);
-
-/** The graph an arm of the case starts from: `BENCH_DIR` when set, else the example graph of its repo. */
+/** The graph an arm of the case starts from: `--graph` when given, else the example graph of its repo. */
 const findCaseGraphDir = (c: Pick<Case, 'repo'>) =>
-  resolve(engine, process.env.BENCH_DIR ?? join('examples', findExampleGraphName(c.repo)));
+  options.graph ?? join(agentgraphDir, 'examples', findExampleGraphName(c.repo));
 
-export const readCaseImage = async (c: Case & Commands, out: string) => {
-  const file = join(out, c.id, 'image.json');
+export const readCaseImage = async (c: Case & Commands, set: string, graph = findCaseGraphDir(c)) => {
+  const file = join(findCaseWorkDir(set, c), 'image.json');
   const release = await waitForLock(`bench-image-${hash(file)}`);
   try {
     const saved = JSON.parse(readFileOrEmpty(file) || '{}') as Pick<Commands, 'image'>;
@@ -588,10 +621,9 @@ export const readCaseImage = async (c: Case & Commands, out: string) => {
       throw new Error(`invalid image pin in ${file}`);
     let selected = saved.image;
     if (!selected) {
-      const dir = findCaseGraphDir(c);
-      if (!existsSync(dir)) throw new Error(`case graph is missing: ${dir}`);
+      if (!existsSync(graph)) throw new Error(`case graph is missing: ${graph}`);
       const problems: string[] = [];
-      const settings = parseGraphSettings(readFileOrEmpty(join(dir, 'settings.yaml')), m => problems.push(m));
+      const settings = parseGraphSettings(readFileOrEmpty(join(graph, 'settings.yaml')), m => problems.push(m));
       if (!settings || problems.length) throw new Error(`invalid case graph: ${problems.join('; ')}`);
       selected = await Effect.runPromise(readImage(settings, image, c.image));
       writeFileAtomic(file, { image: selected });
@@ -601,48 +633,6 @@ export const readCaseImage = async (c: Case & Commands, out: string) => {
     return { ...c, image: selected };
   } finally {
     await release();
-  }
-};
-
-/** Where an arm run is kept: by case, arm, engine, graph (`BENCH_DIR` when set) and commands, and the point and repeat when given. */
-export const armSlot = (
-  c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup' | 'toolchain' | 'image'>,
-  arm: string,
-  {
-    point,
-    repeat,
-    tree = sh('git', ['-C', engine, 'rev-parse', 'HEAD:./src']).trim(),
-  }: Pick<typeof options, 'point' | 'repeat'> & { tree?: string } = options
-) =>
-  slot(
-    'arm',
-    c.id,
-    c.base,
-    c.image,
-    arm,
-    tree,
-    treeText(findCaseGraphDir(c)),
-    arm === 'floor' ? treeText(join(agentgraphDir, 'bench/floor')) : '',
-    c.runner,
-    c.setup,
-    ...(c.toolchain ? [c.toolchain] : []),
-    ...(point || repeat > 1 ? [point ?? '', repeat] : [])
-  );
-
-/**
- * Publishes a cached arm at `at`, notes in its `meta.json` which slot it came from, and gives its runs `labels` in
- * place of the ones they were cached with.
- */
-export const reuse = async (kept: string, at: string, labels: Record<string, string>) => {
-  copyDirIfAbsentAtomic(kept, at);
-  writeFileAtomic(join(at, 'meta.json'), {
-    ...JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}'),
-    reusedFrom: kept,
-  });
-  const data = join(at, 'data');
-  for (const id of (existsSync(data) ? readdirSync(data) : []).filter(id => existsSync(join(data, id, 'run.json')))) {
-    const inherited = Object.keys(readRunLabels(data, id)).map(key => [key, null] as const);
-    await Effect.runPromise(writeRunLabels(data, id, { ...Object.fromEntries(inherited), ...labels }));
   }
 };
 
@@ -658,95 +648,134 @@ export const harnessError = (data: string) => {
   return last?.ended === 'error' ? `harness error: ${String(last.final ?? '').slice(0, 160)}` : undefined;
 };
 
-/** Environment failures an arm may have before it counts as infra, across restarts. */
+/** Environment failures an arm may have before it counts as infra. */
 const patience = 6;
 
 /**
- * Runs one arm of a case once. Done means `diff.patch` exists, written last. A run that never finished is tried
- * twice, then done as infra; a run that changed nothing is done as the agent's result. A run its environment broke
- * (proxy, docker, a runner error, the machine asleep) waits for the environment and is tried again, and stays undone
- * until it works or fails `patience` times.
+ * Runs one arm of a case into its slot, each try in a new attempt dir, until an attempt ends with a `bench/arm` result.
+ * A run that never finished is tried twice, then ends as infra; a run that changed nothing is the agent's result. A run
+ * its environment broke (proxy, docker, a runner error, the machine asleep) waits for the environment and is tried
+ * again, up to `patience` attempts, then ends as infra.
  */
-const runArm = async (arm: string, caseDir: string, out: string, repo: string) => {
-  const c = await readCaseImage(loadCase(caseDir), out);
-  const at = join(out, c.id, arm);
+const runArm = async (arm: string, caseDir: string, set: string, repo: string) => {
+  const c = await readCaseImage(readBenchCase(caseDir), set);
   if (!benched(c.repo)) throw new Error(`${c.repo} is never benched`);
-  if (
-    existsSync(join(at, 'diff.patch')) &&
-    (JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}') as Pick<Commands, 'image'>).image === c.image
-  )
-    return;
+  const input = readInput(c, arm);
+  const slot = getBenchSlot(set, input);
+  const ended = () => {
+    const found = readSlotRun(slot);
+    return found && readLatestRunChecks(found.data, found.run.id).has('bench/arm');
+  };
+  if (ended()) return;
   const missing = unpriced(arm, findCaseGraphDir(c));
   if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to infra/local/aliases.json`);
   if (!keys.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
-  const log = logger(out, { case: c.id, arm });
-  if (!claim(at)) return log({ event: 'busy' });
+  const log = logger(set, { case: c.id, arm, slot: basename(slot) });
+  if (!claim(slot)) return log({ event: 'busy' });
   onStop(signal => {
     log({ event: 'paused', signal });
-    removeSandboxContainersMountingDir(at);
-    release(at);
+    removeSandboxContainersMountingDir(slot);
+    release(slot);
   });
+  const work = findCaseWorkDir(set, c);
   try {
-    removeSandboxContainersMountingDir(at);
-    if (await prepare(c, out, repo)) return;
-    const aside = () => {
-      const to = moveDirToAttic(at);
-      if (to) log({ event: 'attic', to });
-    };
-    aside();
-    const kept = armSlot(c, arm);
-    if (reusable(kept)) return reuse(kept!, at, makeArmRunLabels(c, arm));
-    const failed = () =>
-      readJsonl(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
-    for (let attempt = 0, empty = 0; ; attempt++) {
+    removeSandboxContainersMountingDir(slot);
+    for (let empty = 0; ;) {
       await waitWhileServicesDown(log, false, net =>
-        down(net, {
-          dir: join(out, c.id),
-          eligible: readEnvRefs(join(out, c.id)),
-          ...(cache && { image: c.image }),
-        })
+        down(net, { dir: work, eligible: readEnvRefs(work), ...(cache && { image: c.image }) })
       );
-      aside();
-      guard(out, false);
+      guard(set, false);
+      const at = makeNextAttempt(slot);
+      mkdirSync(at, { recursive: true });
       const started = Date.now();
       const time = clock();
       let ran: Awaited<ReturnType<typeof engineArm>> | undefined;
       let broke: string | undefined;
       try {
-        ran = await step(out, { step: 'run', case: c.id, arm }, () => engineArm(c, arm, at, resolve(repo)));
+        ran = await step(set, { step: 'run', case: c.id, arm }, () => engineArm(c, arm, at, resolve(repo), set, input));
       } catch (e) {
         broke = String(e).slice(0, 200);
       }
       time.stop();
-      const { diff = '', ...meta } = ran ?? {};
-      const nothing = ran && infra(meta);
+      const found = readSlotRun(slot);
+      const change = found?.at === at ? readRunChange(at, found.run) : '';
+      const nothing = ran?.status === 'running' ? 'run did not finish' : undefined;
       const env =
         broke ??
         runnerError(ran?.reason) ??
         harnessError(join(at, 'data')) ??
-        (nothing || !diff.trim() ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
-      writeFileAtomic(join(at, 'meta.json'), {
-        ...meta,
-        image: c.image,
-        ms: Date.now() - started - time.missed(),
-        ...(time.missed() && { slept: time.missed() }),
-        ...((env ?? nothing) && { infra: env ?? nothing }),
-      });
-      if (env) {
-        log({ event: 'infra', why: env, attempt });
-        if (failed().length < patience) {
-          await sleep(Math.min(60_000 * 2 ** attempt, 900_000));
-          continue;
-        }
+        (nothing || !change.trim() ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
+      if (env) log({ event: 'infra', why: env, attempt: basename(at) });
+      if (env && readBenchAttempts(slot).length < patience) {
+        await sleep(Math.min(60_000 * 2 ** readBenchAttempts(slot).length, 900_000));
+        continue;
       }
       if (!env && nothing && ++empty < 2) continue;
-      writeFileAtomic(join(at, 'usage.json'), readArmUsageOverAttempts(at));
-      writeFileAtomic(join(at, 'diff.patch'), diff);
-      if (!env && !nothing) keep(at, kept);
-      return;
+      if (found?.at !== at) throw new Error(`${basename(slot)}: attempt ${basename(at)} left no run: ${env ?? broke}`);
+      const why = env ?? nothing;
+      return await appendBenchResult(
+        found,
+        {
+          check: 'bench/arm',
+          pass: !why,
+          ...(why && { findings: why }),
+          value: {
+            answers: ran?.answers ?? 0,
+            ms: Date.now() - started - time.missed(),
+            ...(time.missed() && { slept: time.missed() }),
+          },
+        },
+        hash(readFileSync(new URL(import.meta.url), 'utf8'))
+      );
     }
   } finally {
-    release(at);
+    release(slot);
+  }
+};
+
+/** Records a reference run of a case: the merged change (`human`), no change (`base`) or a planted control. */
+export const writeReferenceRun = async (
+  arm: string,
+  caseDir: string,
+  set: string,
+  repo: string,
+  repeat = options.repeat
+) => {
+  const c = readBenchCase(caseDir);
+  const input = readInput(c, arm, repeat);
+  const slot = getBenchSlot(set, input);
+  while (!claim(slot)) await sleep(5000);
+  try {
+    if (readSlotRun(slot)) return;
+    const at = makeNextAttempt(slot);
+    const tracker = join(at, 'tracker');
+    sh('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
+    writeFileAtomic(join(at, 'issue.md'), `${c.title}\n\n${c.body}\n`);
+    const human = readFileOrEmpty(join(c.dir, 'merged.diff'));
+    const change =
+      arm === 'base'
+        ? undefined
+        : arm === 'human'
+          ? human
+          : c.control === 'bug'
+            ? plant(human)
+            : c.control && pad(human);
+    if (change === undefined && arm !== 'base') throw new Error(`${c.id}: no ${arm} change for this case`);
+    if (change !== undefined) writeFileAtomic(join(at, 'change.patch'), change.endsWith('\n') ? change : `${change}\n`);
+    const data = join(at, 'data');
+    const id = await writeImportedRun(
+      { repo: resolve(repo), tracker, data },
+      change === undefined ? c.base : join(at, 'change.patch'),
+      {
+        version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
+        from: c.base,
+        issue: join(at, 'issue.md'),
+        input,
+      }
+    );
+    await Effect.runPromise(writeRunLabels(data, id, makeArmRunLabels(input)));
+  } finally {
+    release(slot);
   }
 };
 
@@ -933,196 +962,14 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     await discard(sharedMounts);
   }
 };
-/**
- * Sessions, recorded cost and tokens by model of an arm's traces, and what checking its runs cost; input counts only
- * uncached tokens. `split` is session, tool, graph setup and check time in ms; sessions running at once each count.
- */
-const effort = (data: string) => {
-  const ids = existsSync(data) ? readdirSync(data) : [];
-  const traces = ids.flatMap(id => readJsonl(join(data, id, 'trace.jsonl')));
-  const checks = ids.flatMap(id => readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')));
-  const sessions = traces.flatMap(t => (t.session ? [t.session as { usd: number }] : []));
-  const models: Record<string, string> = {};
-  const tokens: Record<string, TokenCounts> = {};
-  const split = { agent: 0, tools: 0, setup: 0, checks: 0 };
-  for (const e of checks) if (e.item === undefined) split.checks += e.check.ms ?? 0;
-  const opened: Record<string, number> = {};
-  for (const t of traces) {
-    const e = (t.event ?? {}) as Partial<Record<'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'ms', number>> & {
-      type?: string;
-      model?: string;
-    };
-    const key = String(t.key);
-    split.setup += (t.setup as { ms?: number } | undefined)?.ms ?? 0;
-    if (e.type === 'tool') split.tools += e.ms ?? 0;
-    const when = Date.parse(String(t.at));
-    if (e.type === 'start') opened[key] = when;
-    if (t.session && Number.isFinite(when - opened[key]!)) split.agent += when - opened[key]!;
-    if (e.type === 'start' && e.model) models[key] = e.model;
-    if (e.type !== 'usage') continue;
-    const [read, write] = [e.cacheRead ?? 0, e.cacheWrite ?? 0];
-    const sum = (tokens[models[key] ?? 'unknown'] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
-    sum.input += (e.input ?? 0) - read - write;
-    sum.cacheRead += read;
-    sum.cacheWrite += write;
-    sum.output += e.output ?? 0;
-  }
-  return {
-    sessions: sessions.length,
-    usd: getRounded(sessions.reduce((a, s) => a + s.usd, 0)),
-    checkUsd: getRounded(checks.reduce((a, e) => a + e.usd, 0)),
-    tokens,
-    split,
-  };
-};
 
-/** The earlier attempts of the arm at `at`: older `<arm>.<ms>` dirs beside it and `.attic/<arm>-<time>` dirs. */
-const earlier = (at: string) => {
-  const within = (dir: string, name: RegExp) =>
-    existsSync(dir) ? readdirSync(dir).flatMap(n => (name.test(n) ? [join(dir, n)] : [])) : [];
-  return [
-    ...within(dirname(at), new RegExp(`^${basename(at)}\\.\\d+$`)),
-    ...within(join(dirname(at), '.attic'), new RegExp(`^${basename(at)}-\\d{4}-`)),
-  ];
-};
-
-const readEndCheckResults = (dir: string) => {
-  const data = join(dir, 'data');
-  const results: Record<
-    string,
-    Pick<CheckResult, 'pass' | 'value' | 'share' | 'empty'> & { at: string; later?: true }
-  > = {};
-  for (const id of existsSync(data) ? readdirSync(data) : []) {
-    const { ended } = JSON.parse(readFileOrEmpty(join(data, id, 'run.json')) || '{}') as { ended?: string };
-    if (!ended) continue;
-    for (const { at, later, check } of findLatestChecks(
-      readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')),
-      {},
-      ended
-    ))
-      results[check.check] = {
-        at,
-        pass: check.pass,
-        ...(check.value && { value: check.value }),
-        ...(check.share !== undefined && { share: check.share }),
-        ...(check.empty && { empty: check.empty }),
-        ...(later && { later }),
-      };
-  }
-  return results;
-};
-
-/** Wall time of one attempt: its `meta.json` ms, else the span of its traces. */
-const took = (dir: string) => {
-  const ms = (JSON.parse(readFileOrEmpty(join(dir, 'meta.json')) || '{}') as { ms?: number }).ms;
-  if (typeof ms === 'number') return ms;
-  const data = join(dir, 'data');
-  const at = (existsSync(data) ? readdirSync(data) : [])
-    .flatMap(id => readJsonl(join(data, id, 'trace.jsonl')))
-    .flatMap(t => (typeof t.at === 'string' ? [Date.parse(t.at)] : []));
-  return at.length ? Math.max(...at) - Math.min(...at) : 0;
-};
-
-/** Sessions, cost, tokens and wall time summed over every attempt of an arm, with each attempt's own numbers. */
-export const readArmUsageOverAttempts = (at: string) => {
-  const attempts = [...earlier(at), ...(existsSync(at) ? [at] : [])].map(dir => {
-    const { infra } = JSON.parse(readFileOrEmpty(join(dir, 'meta.json')) || '{}') as { infra?: string };
-    return { dir: relative(dirname(at), dir), ms: took(dir), ...(infra && { infra }), ...effort(join(dir, 'data')) };
-  });
-  const tokens: ReturnType<typeof effort>['tokens'] = {};
-  for (const a of attempts)
-    for (const [model, t] of Object.entries(a.tokens)) {
-      const sum = (tokens[model] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
-      for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) sum[k] += t[k];
-    }
-  const total = (k: 'sessions' | 'usd' | 'checkUsd' | 'ms') => getRounded(attempts.reduce((n, a) => n + a[k], 0));
-  const part = (k: keyof ReturnType<typeof effort>['split']) => attempts.reduce((n, a) => n + a.split[k], 0);
-  const split = {
-    agent: part('agent'),
-    tools: part('tools'),
-    setup: part('setup'),
-    checks: part('checks'),
-    infra: attempts.reduce((n, a) => n + (a.infra ? a.ms : 0), 0),
-  };
-  return {
-    sessions: total('sessions'),
-    usd: total('usd'),
-    checkUsd: total('checkUsd'),
-    ms: total('ms'),
-    tokens,
-    split,
-    attempts,
-  };
-};
-
-const usage = (at: string): Partial<ReturnType<typeof readArmUsageOverAttempts>> => {
-  const saved = JSON.parse(readFileOrEmpty(join(at, 'usage.json')) || '{}') as Partial<
-    ReturnType<typeof readArmUsageOverAttempts>
-  >;
-  return !saved.attempts && (existsSync(join(at, 'data')) || earlier(at).length) ? readArmUsageOverAttempts(at) : saved;
-};
-
-/** Writes an arm's usage beside it, then copies it to `kept` without its data, tracker, graph or attic dirs. */
-export const keep = (at: string, kept: string | undefined) => {
-  if (!existsSync(join(at, 'usage.json'))) writeFileAtomic(join(at, 'usage.json'), readArmUsageOverAttempts(at));
-  if (kept) copyDirIfAbsentAtomic(at, kept, p => !/\/(data|tracker|graph|\.attic)$/.test(p));
-};
-
-const scoreArms = async (c: Case & Commands, out: string, repo: string, which: string[]) => {
-  const root = join(out, c.id);
-  const merged = readFileOrEmpty(join(c.dir, 'merged.diff'));
-  if (!existsSync(join(root, 'human/diff.patch'))) writeFileAtomic(join(root, 'human/diff.patch'), merged);
-  if (!existsSync(join(root, 'base/diff.patch'))) writeFileAtomic(join(root, 'base/diff.patch'), '');
-  const fields = JSON.parse(readFileSync(join(c.dir, 'case.json'), 'utf8'));
-  writeFileAtomic(join(root, 'case.json'), {
-    ...fields,
-    labels: { ...fields.labels, ...readBenchSetupLabels(repo, c.base) },
-  });
-  const human = splitUnifiedDiffByFile(merged).map(f => f.path);
-  const hidden = human.filter(p => testPath.test(p) && !noise.test(p));
-  const tree = join(root, 'tree');
-  while (!claim(tree)) await sleep(5000);
-  try {
-    if (!existsSync(tree)) sh('git', ['clone', '-q', '--shared', '--no-checkout', resolve(repo), tree]);
-    for (const arm of which) {
-      const at = join(root, arm);
-      if (!existsSync(join(at, 'diff.patch'))) continue;
-      const saved = JSON.parse(readFileOrEmpty(join(at, 'score.json')) || '{}') as Tests & Pick<Commands, 'image'>;
-      if (saved.image === c.image && isBenchScoreComplete(c, saved)) continue;
-      const diff = readFileOrEmpty(join(at, 'diff.patch'));
-      const meta = JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
-      const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
-        c.test || c.suite || c.typecheck ? check(c, tree, diff, c.hasTests === false ? [] : hidden, resolve(repo)) : {}
-      );
-      const offline = (tests as Tests).setup?.ok === false && (await down(true));
-      if (offline) throw new Error(`infra: setup failed while ${offline}, ${c.id}/${arm} stays unscored`);
-      writeFileAtomic(join(at, 'score.json'), {
-        ...tests,
-        ...(c.hasTests === false && { skipped: c.why }),
-        ...stats(diff, human),
-        ...meta,
-        ...usage(at),
-        image: c.image,
-      });
-    }
-  } finally {
-    rmSync(tree, { recursive: true, force: true });
-    release(tree);
-  }
-};
-
-type Tests = {
+export type Tests = {
   applied?: boolean;
   setup?: { ok: boolean };
   suite?: { ok: boolean };
   typecheck?: { ok: boolean };
   hidden?: Pick<ReturnType<typeof exec>, 'ok'> & Partial<Pick<ReturnType<typeof exec>, 'tail'>>;
 };
-
-const isBenchScoreComplete = (c: Commands, tests: Tests) =>
-  (c.hasTests === false || typeof tests.hidden?.ok === 'boolean') &&
-  (!(c.suite || c.test) || typeof tests.suite?.ok === 'boolean') &&
-  (!c.typecheck || typeof tests.typecheck?.ok === 'boolean');
 
 /** Why a case cannot tell arms apart, when it cannot: the hidden tests must fail on base and pass on the human. */
 export const invalid = (base: Tests, human: Tests, tested = true) => {
@@ -1261,96 +1108,213 @@ export const couplings = (diff: string, issue: string, base: Base) => {
   return found;
 };
 
-const scorer = (c: Pick<Commands, 'image'>) => hash([pickBenchTestCommands, check, invalid, exec, c.image].join('\0'));
+/** Hidden test paths of a case: the test files its merged change touches. */
+const findHiddenTests = (c: Case & Commands) =>
+  c.hasTests === false
+    ? []
+    : splitUnifiedDiffByFile(readFileOrEmpty(join(c.dir, 'merged.diff')))
+        .map(f => f.path)
+        .filter(p => testPath.test(p) && !noise.test(p));
 
-const prepare = async (c: Case & Commands, out: string, repo: string) => {
-  const file = join(out, c.id, 'valid.json');
-  if (existsSync(file) && (JSON.parse(readFileOrEmpty(file)) as Pick<Commands, 'image'>).image !== c.image)
-    rmSync(file);
-  const tests = (arm: string) => JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
-  const old = existsSync(file)
-    ? (JSON.parse(readFileSync(file, 'utf8')) as Pick<Scored, 'invalid' | 'skipped'>)
-    : undefined;
-  if (
-    old &&
-    (!c.why || c.hasTests === false) &&
-    (!old.invalid || old.invalid === 'no hidden tests run') &&
-    (old.invalid === 'no hidden tests run' || !['base', 'human'].every(arm => isBenchScoreComplete(c, tests(arm))))
-  )
-    rmSync(file);
-  if (c.why && c.hasTests !== false) {
-    writeFileAtomic(join(out, c.id, 'case.json'), readFileOrEmpty(join(c.dir, 'case.json')));
-    writeFileAtomic(file, { image: c.image, invalid: c.why });
-  }
-  if (!existsSync(file) && !existsSync(join(c.dir, 'hidden.relaxed.diff'))) {
-    const coupled = couplings(
+const scorer = (c: Case & Commands) =>
+  hash(
+    [
+      pickBenchTestCommands,
+      check,
+      invalid,
+      exec,
+      c.image,
+      readFileOrEmpty(join(c.dir, 'case.json')),
       readFileOrEmpty(join(c.dir, 'merged.diff')),
-      `${c.title}\n${c.body}`,
-      readRepoBase(repo, c.base)
-    );
-    if (coupled.length) writeFileAtomic(file, { image: c.image, invalid: 'coupled', coupled });
-  }
-  const kept = slot(
-    'valid',
-    c.id,
-    c.base,
-    c.merged,
-    c.runner,
-    c.hasTests,
-    c.why,
-    c.suite,
-    c.setup,
-    c.test,
-    ...(c.toolchain ? [c.toolchain] : []),
-    ...[readFileOrEmpty(join(c.dir, 'hidden.relaxed.diff'))].filter(Boolean),
-    ...(c.image ? [c.image] : []),
-    ...(c.typecheck ? [c.typecheck] : []),
-    scorer(c)
+      readFileOrEmpty(join(c.dir, 'hidden.relaxed.diff')),
+    ].join('\0')
   );
-  if (!existsSync(file) && reusable(kept)) {
-    cpSync(kept!, join(out, c.id), {
-      recursive: true,
-      filter: p => !p.endsWith('/valid.json') && !p.endsWith('/image.json') && !p.endsWith('/.envs'),
-    });
-    writeFileAtomic(file, readFileOrEmpty(join(kept!, 'valid.json')));
-  }
-  if (!existsSync(file)) {
-    await scoreArms(c, out, repo, ['base', 'human']);
-    const why = invalid(tests('base'), tests('human'), c.hasTests !== false);
-    writeFileAtomic(file, { image: c.image, invalid: why, ...(c.hasTests === false && { skipped: c.why }) });
-    if (kept && why !== 'setup fails')
-      copyDirIfAbsentAtomic(
-        join(out, c.id),
-        kept,
-        p => !/\/(tree|v2|floor|judge|\.attic)$/.test(p) && !p.endsWith('.lock')
-      );
-  }
-  const verdict = JSON.parse(readFileSync(file, 'utf8')) as Pick<Scored, 'invalid' | 'skipped'>;
-  if (c.hasTests === false && c.why && verdict.skipped !== c.why) {
-    verdict.skipped = c.why;
-    writeFileAtomic(file, verdict);
-  }
-  const testCounts = ['base', 'human']
-    .map(arm => {
-      const result = tests(arm);
-      const states = (['hidden', 'suite', 'typecheck'] as const).map(
-        name => `${name}=${result[name] ? (result[name].ok ? 'pass' : 'fail') : 'not run'}`
-      );
-      const measured = result.hidden ? counts(result.hidden.tail) : { passed: 0, total: 0 };
-      return `${arm} ${states.join(' ')} tests=${JSON.stringify(measured ?? 'unreported')}`;
-    })
-    .join(', ');
-  console.log(
-    `gate ${c.id}: ${verdict.invalid ? 'invalid' : verdict.skipped ? 'skipped' : 'valid'}: ${verdict.invalid ?? verdict.skipped ?? 'hidden tests distinguish base and human'}; ${testCounts}; skips=${Number(Boolean(verdict.skipped))}`
-  );
-  return verdict.invalid;
+
+const wantedResults = (c: Commands) => [
+  'bench/setup',
+  'bench/size',
+  'bench/hidden',
+  ...(c.suite || c.test ? ['bench/suite'] : []),
+  ...(c.typecheck ? ['bench/typecheck'] : []),
+];
+
+const isCurrent = (found: SlotRun, names: string[], version: string) => {
+  const latest = readLatestRunChecks(found.data, found.run.id);
+  return names.every(name => latest.get(name)?.version === version);
 };
 
-const score = async (caseDir: string, out: string, repo: string, drop = false) => {
-  const c = await readCaseImage(loadCase(caseDir), out);
-  if (!(await prepare(c, out, repo))) await scoreArms(c, out, repo, bots);
-  const root = join(out, c.id);
-  if (cache) await collect({ eligible: readEnvRefs(root), ...(drop && { limit: 0 }) });
+/** A score run as the results it writes; a failed run keeps its output's tail as findings. */
+export const makeBenchResults = (
+  c: Case & Commands,
+  tests: object,
+  diff: string,
+  labels: Record<string, string>,
+  base?: Tests
+): CheckResult[] => {
+  type Ran = ReturnType<typeof exec>;
+  const t = tests as Partial<Record<'setup' | 'suite' | 'typecheck' | 'hidden', Ran>> &
+    Partial<Record<'applied', boolean> & Record<'env', string> & Record<'cache', number>>;
+  const ran = (name: string, r: Ran): CheckResult => ({
+    check: name,
+    pass: r.ok,
+    ms: r.ms,
+    ...(!r.ok && { findings: r.tail }),
+  });
+  const human = splitUnifiedDiffByFile(readFileOrEmpty(join(c.dir, 'merged.diff'))).map(f => f.path);
+  const why =
+    t.applied === false ? 'the change does not apply to base' : t.setup?.ok === false ? t.setup.tail : undefined;
+  const share = t.hidden && hiddenShare(t.hidden, base?.hidden && { ok: base.hidden.ok, tail: base.hidden.tail ?? '' });
+  const hidden: CheckResult =
+    c.hasTests === false || !c.test
+      ? { check: 'bench/hidden', pass: true, na: true, ms: 0, findings: c.why ?? 'the case has no hidden tests' }
+      : !t.hidden
+        ? { check: 'bench/hidden', pass: false, na: true, ms: 0, findings: 'no hidden tests run' }
+        : {
+            ...ran('bench/hidden', t.hidden),
+            ...(share !== undefined && { share }),
+            ...(!t.hidden.ok && { value: { class: failureClass(t.hidden.tail) } }),
+          };
+  return [
+    {
+      check: 'bench/setup',
+      pass: !why,
+      ms: t.setup?.ms ?? 0,
+      value: {
+        applied: t.applied !== false,
+        labels,
+        ...(t.setup && { setup: t.setup.ok }),
+        ...(c.image && { image: c.image }),
+        ...(t.env && { env: t.env }),
+        ...(t.cache !== undefined && { cache: t.cache }),
+      },
+      ...(why && { findings: why }),
+    },
+    { check: 'bench/size', pass: true, ms: 0, value: stats(diff, human) },
+    ...(t.suite ? [ran('bench/suite', t.suite)] : []),
+    ...(t.typecheck ? [ran('bench/typecheck', t.typecheck)] : []),
+    hidden,
+  ];
+};
+
+/** A run's score results read back as the test outcomes `invalid` compares. */
+const readTests = (found: SlotRun): Tests => {
+  const latest = readLatestRunChecks(found.data, found.run.id);
+  const ok = (name: string) => {
+    const e = latest.get(name);
+    return e && !e.check.na ? { ok: e.check.pass, tail: e.check.findings ?? '' } : undefined;
+  };
+  const setup = latest.get('bench/setup')?.check.value as { applied?: boolean; setup?: boolean } | undefined;
+  const [suite, typecheck, hidden] = [ok('bench/suite'), ok('bench/typecheck'), ok('bench/hidden')];
+  return {
+    ...(setup?.applied !== undefined && { applied: setup.applied }),
+    ...(setup?.setup !== undefined && { setup: { ok: setup.setup } }),
+    ...(suite && { suite }),
+    ...(typecheck && { typecheck }),
+    ...(hidden && { hidden }),
+  };
+};
+
+/** Scores the runs of `slots` in the case's scoring tree, each once per scorer version. */
+const scoreRuns = async (c: Case & Commands, set: string, repo: string, slots: string[]) => {
+  const version = scorer(c);
+  const work = findCaseWorkDir(set, c);
+  const tree = join(work, 'tree');
+  const labels = readBenchSetupLabels(repo, c.base);
+  while (!claim(tree)) await sleep(5000);
+  try {
+    for (const slot of slots) {
+      const found = readSlotRun(slot);
+      if (!found || isCurrent(found, wantedResults(c), version)) continue;
+      const diff = readRunChange(found.at, found.run);
+      const input = getRunOrigin(found.run.meta)?.input as BenchInput;
+      if (!existsSync(tree)) sh('git', ['clone', '-q', '--shared', '--no-checkout', resolve(repo), tree]);
+      const tests = await step(set, { step: 'score', case: c.id, arm: input.arm, slot: basename(slot) }, () =>
+        c.test || c.suite || c.typecheck ? check(c, tree, diff, findHiddenTests(c), resolve(repo)) : {}
+      );
+      const offline = (tests as Tests).setup?.ok === false && (await down(true));
+      if (offline) throw new Error(`infra: setup failed while ${offline}, ${basename(slot)} stays unscored`);
+      const base = readSlotRun(readGateSlot(set, c, 'base'));
+      const results = makeBenchResults(
+        c,
+        tests,
+        diff,
+        labels,
+        input.arm === 'base' || !base ? undefined : readTests(base)
+      );
+      for (const result of results) await appendBenchResult(found, result, version);
+    }
+  } finally {
+    rmSync(tree, { recursive: true, force: true });
+    release(tree);
+  }
+};
+
+/**
+ * Records on the human run whether the case can tell runs apart: its hidden tests must fail on base and pass on the
+ * human's change, and the issue must name what the hidden tests call.
+ */
+const writeCaseValid = async (c: Case & Commands, set: string, repo: string) => {
+  const [base, human] = referenceArms.toReversed().map(arm => readSlotRun(readGateSlot(set, c, arm)));
+  if (!base || !human) throw new Error(`${c.id}: reference runs are missing`);
+  const version = scorer(c);
+  if (!isCurrent(human, ['bench/valid'], version)) {
+    const coupled =
+      c.why || existsSync(join(c.dir, 'hidden.relaxed.diff'))
+        ? []
+        : couplings(readFileOrEmpty(join(c.dir, 'merged.diff')), `${c.title}\n${c.body}`, readRepoBase(repo, c.base));
+    const why =
+      (c.hasTests !== false && c.why) ||
+      (coupled.length ? 'coupled' : invalid(readTests(base), readTests(human), c.hasTests !== false));
+    await appendBenchResult(
+      human,
+      {
+        check: 'bench/valid',
+        pass: !why,
+        ...(why && { findings: why }),
+        ...(coupled.length && { value: { coupled } }),
+      },
+      version
+    );
+  }
+  const valid = readLatestRunChecks(human.data, human.run.id).get('bench/valid')!.check;
+  const states = [base, human]
+    .map(found => {
+      const tests = readTests(found);
+      const names = (['hidden', 'suite', 'typecheck'] as const).map(
+        name => `${name}=${tests[name] ? (tests[name].ok ? 'pass' : 'fail') : 'not run'}`
+      );
+      const measured = tests.hidden ? counts(tests.hidden.tail) : { passed: 0, total: 0 };
+      return `${(getRunOrigin(found.run.meta)?.input as BenchInput | undefined)?.arm} ${names.join(' ')} tests=${JSON.stringify(measured ?? 'unreported')}`;
+    })
+    .join(', ');
+  const skipped = c.hasTests === false && c.why;
+  console.log(
+    `gate ${c.id}: ${valid.pass ? (skipped ? 'skipped' : 'valid') : 'invalid'}: ${valid.findings ?? (skipped || 'hidden tests distinguish base and human')}; ${states}; skips=${Number(Boolean(skipped))}`
+  );
+  return valid.pass;
+};
+
+/** Imports and scores the case's reference runs, gates the case, then scores `arm`'s run when the case is valid. */
+const score = async (arm: string, caseDir: string, set: string, repo: string, drop = false) => {
+  const c = await readCaseImage(readBenchCase(caseDir), set);
+  for (const ref of referenceArms.toReversed()) await writeReferenceRun(ref, caseDir, set, repo, 1);
+  if (!c.why || c.hasTests === false)
+    await scoreRuns(
+      c,
+      set,
+      repo,
+      referenceArms.toReversed().map(ref => readGateSlot(set, c, ref))
+    );
+  if ((await writeCaseValid(c, set, repo)) && arm !== 'control') {
+    const slot = getBenchSlot(set, readInput(c, arm));
+    const found = readSlotRun(slot);
+    if (
+      found &&
+      (found.run.workflow === 'import' || readLatestRunChecks(found.data, found.run.id).get('bench/arm')?.check.pass)
+    )
+      await scoreRuns(c, set, repo, [slot]);
+  }
+  if (cache) await collect({ eligible: readEnvRefs(findCaseWorkDir(set, c)), ...(drop && { limit: 0 }) });
 };
 
 const flips: [RegExp, string][] = [
@@ -1405,8 +1369,7 @@ export const parseBenchJudgeVerdict = (text: string): Verdict | undefined => {
   }
 };
 
-type Tokens = ReturnType<typeof effort>['tokens'][string];
-type Answer = { text: string; tokens?: Tokens; usd?: number };
+type Answer = { text: string; tokens?: TokenCounts; usd?: number };
 
 /** A judge's reply with its tokens and cost when reported, from claude's JSON output or a chat completion. */
 export const parseBenchJudgeResponse = (raw: unknown): Answer => {
@@ -1501,19 +1464,6 @@ export const whyPointUnready = async (point: string) => {
   return undefined;
 };
 
-/**
- * What an arm's tokens cost at list price, also with cache reads and writes priced as input, and the models the table
- * has no price for. Without tokens it is the cost the run recorded.
- */
-export const getBenchUsageCost = (u: { usd?: number; tokens?: Record<string, TokenCounts> }, table = prices) => {
-  const models = Object.keys(u.tokens ?? {});
-  if (!models.length) return { usd: u.usd ?? 0, usdUncached: u.usd ?? 0 };
-  const at = (uncached: boolean) =>
-    getRounded(models.reduce((sum, m) => sum + (getListPriceUsd(table, [m], u.tokens![m]!, uncached) ?? 0), 0));
-  const unpriced = models.filter(m => !isModelPriced(table, m));
-  return { usd: at(false), usdUncached: at(true), ...(unpriced.length > 0 && { unpriced }) };
-};
-
 /** The maker of a proxy alias or model, from its upstream name: openai, anthropic, google, z-ai, x-ai and so on. */
 export const getModelMakerFromUpstreamName = (model: string, aliases = prices.aliases) => {
   const name = (aliases[model] ?? model).replace(/^openrouter\//, '');
@@ -1552,466 +1502,84 @@ export const parsePanel = (spec: string) =>
     })
   );
 
-const judge = async (caseDir: string, out: string) => {
-  const c = await readCaseImage(loadCase(caseDir), out);
-  const root = join(out, c.id);
-  if ((JSON.parse(readFileOrEmpty(join(root, 'valid.json')) || '{}') as { invalid?: string }).invalid) return;
-  const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
-  const human = readFileOrEmpty(join(root, 'human/diff.patch'));
-  if (c.control) {
-    const changed = c.control === 'bug' ? plant(human) : pad(human);
-    if (!changed) throw new Error(`${c.id}: no comparison to flip in the human diff`);
-    writeFileAtomic(join(root, 'control/diff.patch'), changed);
-  }
-  const have = c.control
-    ? ['human', 'control']
-    : arms.filter(a => a !== 'control' && readFileOrEmpty(join(root, a, 'diff.patch')).trim());
-  const block = (label: string, arm: string) =>
-    `## Candidate ${label}\n\n\`\`\`diff\n${scrub(readFileOrEmpty(join(root, arm, 'diff.patch')), names)}\n\`\`\``;
-  const issue = scrub(`# ${c.title}\n\n${c.body}`, names);
-  for (const [i, x] of have.entries())
-    for (const y of have.slice(i + 1).filter(y => options.pairs === 'all' || x === 'human' || y === 'human'))
-      for (const [at, [a, b]] of (
-        [
-          [x, y],
-          [y, x],
-        ] as const
-      ).entries()) {
-        const prompt = `${readFileOrEmpty(join(agentgraphDir, 'bench/judge.md'))}\n## Issue\n\n${issue}\n\n${block('A', a)}\n\n${block('B', b)}\n`;
-        const dir = join(root, 'judge', `${a}-${b}`);
-        writeFileAtomic(join(dir, 'prompt.md'), prompt);
-        await Promise.all(
-          Object.entries(makeCrossMakerJudgePanel(panel, options.point?.split(':')[1] ?? 'smart'))
-            .filter(([, n]) => orders(n, `${c.id}/${x}-${y}`).includes(at))
-            .map(async ([name]) => {
-              const ask = judges[name]!;
-              const kept = slot('judge', name, prompt);
-              for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
-                const hit = reusable(kept);
-                if (!hit) guard(out, getModelMakerFromUpstreamName(judgeModels[name]!) === 'anthropic');
-                const started = Date.now();
-                const got: Answer = hit
-                  ? { text: readFileOrEmpty(kept!) }
-                  : await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
-                      ask(prompt, tmpdir())
-                    ).catch(() => ({ text: '' }));
-                const raw = got.text;
-                writeFileAtomic(join(dir, `${name}.${attempt}.raw.md`), raw);
-                if (!hit) {
-                  const tokens = got.tokens && { [judgeModels[name]!]: got.tokens };
-                  const cost = { ms: Date.now() - started, ...(tokens && { tokens }) };
-                  writeFileAtomic(join(dir, `${name}.${attempt}.cost.json`), {
-                    ...cost,
-                    ...getBenchUsageCost({ ...cost, ...(got.usd !== undefined && { usd: got.usd }) }),
-                  });
-                }
-                const v = parseBenchJudgeVerdict(raw);
-                if (v) writeFileAtomic(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
-                if (v && kept && !hit) writeFileAtomic(kept, raw);
-                if (!v)
-                  logger(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name })({
-                    event: 'invalid',
-                    reason: 'judge returned no valid verdict',
-                    attempt,
-                  });
-              }
-              if (!existsSync(join(dir, `${name}.json`))) {
-                throw new Error(`${c.id}/${a}-${b}/${name}: no valid judge verdict after 3 attempts`);
-              }
-            })
-        );
-      }
-  writeFileAtomic(join(root, 'judge', 'panel.json'), { panel });
-};
-
-/** The 95% interval of the mean of `xs` over resampled sets of the same size. */
-export const bootstrap = (xs: number[], n = 2000): [number, number] => {
-  const means = Array.from({ length: n }, () => getMean(xs.map(() => xs[Math.floor(Math.random() * xs.length)]!)));
-  means.sort((a, b) => a - b);
-  return [getRounded(means[Math.floor(n * 0.025)]!), getRounded(means[Math.floor(n * 0.975)]!)];
-};
-
-const metrics = (s: Record<string, unknown>): Record<string, number> =>
-  Object.fromEntries(
-    Object.entries(s).flatMap(([k, v]): [string, number][] => {
-      if (k === 'ms' && typeof v === 'number') return [['min', getRounded(v / 60_000)]];
-      if (typeof v === 'number') return [[k, v]];
-      if (typeof v === 'boolean') return [[k, +v]];
-      return v && typeof v === 'object' && 'ok' in v ? [[k, +Boolean(v.ok)]] : [];
-    })
-  );
-
-const table = (rows: [string, Record<string, number | string>][]) => {
-  const cols = [...new Set(rows.flatMap(([, r]) => Object.keys(r)))];
-  return [
-    `| arm | ${cols.join(' | ')} |`,
-    `|${'---|'.repeat(cols.length + 1)}`,
-    ...rows.map(([n, r]) => `| ${n} | ${cols.map(k => r[k] ?? '').join(' | ')} |`),
-  ].join('\n');
-};
-
-type Judged = Verdict & { judge: string; order: [string, string] };
-type Scored = {
-  id: string;
-  invalid?: string;
-  skipped?: string;
-  infra: Record<string, string>;
-  labels: Record<string, string>;
-  rows: [string, Record<string, number>][];
-  failures: string[];
-  verdicts: Judged[];
-};
-
-const readBenchPoint = (out: string) => ({
-  harness: 'opencode',
-  model: 'smart',
-  engine: 'unknown',
-  set: basename(resolve(out)),
-  repeat: 1,
-  graphs: undefined as Record<string, string> | undefined,
-  labels: {} as Record<string, string>,
-  ...(JSON.parse(readFileOrEmpty(join(out, 'point.json')) || '{}') as Partial<Record<'hubs', Record<string, string>>>),
-});
-
-const setupLabels = new Map<string, Record<string, string>>();
-
-const findJudgePairFiles = (caseDir: string) => {
-  const judged = join(caseDir, 'judge');
-  return (existsSync(judged) ? readdirSync(judged, { withFileTypes: true }) : [])
-    .filter(pair => pair.isDirectory())
-    .flatMap(pair => readdirSync(join(judged, pair.name)).map(f => join(judged, pair.name, f)));
-};
-
-const loadScored = (out: string, id: string): Scored => {
-  const c = JSON.parse(readFileOrEmpty(join(out, id, 'case.json')) || '{}') as Record<string, unknown>;
-  const p = readBenchPoint(out);
-  const labels: Record<string, string> = {
-    ...p.labels,
-    harness: p.harness,
-    model: p.model,
-    engine: p.engine,
-    set: p.set,
-    ...(c.labels as Record<string, string>),
-    ...Object.fromEntries(
-      caseLabelKeys.flatMap(k => (c[k] === undefined || typeof c[k] === 'object' ? [] : [[k, String(c[k])]]))
-    ),
-  };
-  if (
-    typeof c.base === 'string' &&
-    !['agents-md', 'claude-md', 'skills'].every(k => k in ((c.labels ?? {}) as Record<string, string>))
-  ) {
-    const key = `${String(c.repo)}@${c.base}`;
-    if (!setupLabels.has(key)) {
-      const repo = [
-        join(out, id, 'tree'),
-        join(homedir(), '.agentgraph/tune/repos', String(c.repo).split('/').pop()!),
-      ].find(
-        repo =>
-          existsSync(join(repo, '.git')) &&
-          spawnSync('git', ['-C', repo, 'cat-file', '-e', `${c.base}^{commit}`]).status === 0
-      );
-      setupLabels.set(key, repo ? readBenchSetupLabels(repo, c.base) : {});
-    }
-    Object.assign(labels, setupLabels.get(key));
-  }
-  if (c.repo) labels.issue = Array.isArray(c.flags) && c.flags.includes('no-issue-pr-body') ? 'pr-body' : 'issue';
-  const scores = Object.fromEntries(
-    ['base', ...arms].flatMap(arm => {
-      const s = readFileOrEmpty(join(out, id, arm, 'score.json'));
-      return s ? [[arm, JSON.parse(s) as Record<string, unknown>]] : [];
-    })
-  );
-  if (scores.human) labels.tests = scores.human.hidden ? 'hidden' : 'judge-only';
-  const excluded = Object.fromEntries(
-    bots.flatMap(arm => {
-      const reason = scores[arm] && infra(scores[arm]);
-      return reason ? [[arm, reason]] : [];
-    })
-  );
-  const rows = Object.entries(scores)
-    .filter(([arm]) => !(arm in excluded))
-    .map(([arm, s]): [string, Record<string, number>] => {
-      const u = { ...s, ...usage(join(out, id, arm)) };
-      return [arm, metrics({ ...u, usd: getBenchUsageCost(u).usd })];
-    });
-  const failures = bots.flatMap(arm => {
-    const h = (scores[arm] as { hidden?: { ok: boolean; tail: string; class?: string } } | undefined)?.hidden;
-    return h && !h.ok && !(arm in excluded) ? [`${id}/${arm}: ${h.class ?? failureClass(h.tail)}`] : [];
-  });
-  const verdicts = findJudgePairFiles(join(out, id))
-    .filter(f => /^\w+\.json$/.test(basename(f)))
-    .map(f => JSON.parse(readFileOrEmpty(f)) as Judged)
-    .filter(v => !v.order.some(arm => arm in excluded));
-  const { invalid, skipped } = JSON.parse(readFileOrEmpty(join(out, id, 'valid.json')) || '{}') as {
-    invalid?: string;
-    skipped?: string;
-  };
-  return {
-    id,
-    ...(invalid && { invalid }),
-    ...((skipped || (!invalid && !scores.human?.hidden)) && { skipped: skipped ?? 'no recorded hidden test result' }),
-    infra: excluded,
-    labels,
-    rows,
-    failures,
-    verdicts,
-  };
-};
-
 /**
- * One row per case and arm run of an out dir, keyed by its point. A dir without `point.json` reads as opencode:smart,
- * repeat 1, engine unknown, with the dir name as its set.
+ * Judges `arm`'s run of a valid case against the human's first repeat: each judge of the panel reads both changes, in
+ * one or both orders, and the run gets a `bench/judge` result with how often it was preferred and the findings on
+ * each side.
  */
-export const readBenchRows = (out: string, repos?: string[]) => {
-  const p = readBenchPoint(out);
-  const ok = (v: unknown) => (v && typeof v === 'object' && 'ok' in v ? (+Boolean(v.ok) as 0 | 1) : undefined);
-  return readdirSync(out)
-    .filter(id => existsSync(join(out, id, 'human')))
-    .map(id => loadScored(out, id))
-    .filter(c => !c.invalid && benched(c.labels.repo) && (!repos || repos.includes(c.labels.repo ?? '')))
-    .flatMap(c => {
-      const base = JSON.parse(readFileOrEmpty(join(out, c.id, 'base', 'score.json')) || '{}') as Record<
-        string,
-        unknown
-      >;
-      return ['human', ...bots].flatMap(arm => {
-        const s = JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || 'null') as Record<
-          string,
-          unknown
-        > | null;
-        if (!s) return [];
-        const seen = c.verdicts.filter(v => v.order.includes(arm));
-        const byJudge: Record<string, number[]> = {};
-        for (const v of seen.filter(v => arm !== 'human' && v.order.includes('human')))
-          (byJudge[v.judge] ??= []).push(v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === arm));
-        const found = (severity: string) =>
-          seen.length
-            ? getMean(
-                seen.map(
-                  v => (v[v.order[0] === arm ? 'A' : 'B']?.findings ?? []).filter(f => f.severity === severity).length
-                )
-              )
-            : 0;
-        const spent = { ...s, ...usage(join(out, c.id, arm)) };
-        const checks = readEndCheckResults(join(out, c.id, arm));
-        const [hidden, typecheck] = [ok(s.hidden), ok(s.typecheck)];
-        const suite = ok(base.suite) === 0 ? undefined : ok(s.suite);
-        const share = hiddenShare(
-          s.hidden as Parameters<typeof hiddenShare>[0],
-          base.hidden as Parameters<typeof hiddenShare>[0]
-        );
-        return [
-          {
-            labels: {
-              ...c.labels,
-              harness: p.harness,
-              model: p.model,
-              arm,
-              engine: p.engine,
-              graph: (p.graphs ?? p['hubs'] ?? {})[arm] ?? '',
-              set: p.set,
-            } as Record<string, string>,
-            case: c.id,
-            repeat: p.repeat,
-            ...(c.infra[arm] && { infra: c.infra[arm] }),
-            ...(c.skipped && { skipped: c.skipped }),
-            ...(!c.infra[arm] && arm !== 'human' && s.files === 0 && { outcome: 'no-change' as const }),
-            ...(hidden !== undefined && { hidden }),
-            ...(share !== undefined && { hiddenShare: share }),
-            ...(suite !== undefined && { suite }),
-            ...(typecheck !== undefined && { typecheck }),
-            vsHuman: Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, getMean(ps)])),
-            findings: { critical: found('critical'), high: found('high') },
-            answers: Number(s.answers ?? 0),
-            minutes: Number(spent.ms ?? 0) / 60_000,
-            tokens: spent.tokens ?? {},
-            ...(Object.keys(checks).length > 0 && { checks }),
-            ...(spent.split && { split: spent.split }),
-            ...getBenchUsageCost(spent),
-            checkUsd: spent.checkUsd ?? 0,
-          },
-        ];
-      });
-    });
-};
-
-const summary = (cases: Scored[]) => {
-  const perArm: Record<string, Record<string, number>[]> = {};
-  const wins: Record<string, number[]> = {};
-  const severities: Record<string, Record<string, number>> = {};
-  const agreed: boolean[] = [];
-  for (const { rows, verdicts } of cases) {
-    for (const [arm, r] of rows) (perArm[arm] ??= []).push(r);
-    const pairs: Record<string, Record<string, number[]>> = {};
-    for (const v of verdicts) {
-      const [x, y] = [...v.order].sort((p, q) => arms.indexOf(p) - arms.indexOf(q)) as [string, string];
-      const point = v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === x);
-      ((pairs[`${x} vs ${y}`] ??= {})[v.judge] ??= []).push(point);
-      for (const side of ['A', 'B'] as const)
-        for (const f of v[side]?.findings ?? []) {
-          const by = (severities[v.order[+(side === 'B')]!] ??= {});
-          by[f.severity] = (by[f.severity] ?? 0) + 1;
-        }
-    }
-    for (const [pair, byJudge] of Object.entries(pairs)) {
-      (wins[pair] ??= []).push(getMean(Object.values(byJudge).flat()));
-      const calls = Object.values(byJudge).map(ps => (ps.every(p => p === ps[0]) ? ps[0] : 0.5));
-      agreed.push(calls.length > 1 && calls.every(p => p === calls[0]));
-    }
-  }
-  const winRows: [string, Record<string, number | string>][] = Object.entries(wins).map(([pair, ws]) => [
-    pair,
-    { cases: ws.length, 'first wins': getRounded(getMean(ws)), '95% CI': bootstrap(ws).join(' to ') },
-  ]);
-  const means: [string, Record<string, number>][] = Object.entries(perArm).map(([arm, rs]) => [
-    arm,
-    Object.fromEntries(
-      [...new Set(rs.flatMap(Object.keys))].map(k => [k, getRounded(getMean(rs.flatMap(r => (k in r ? [r[k]!] : []))))])
-    ),
-  ]);
-  return [
-    ...(winRows.length ? ['Win rates', '', table(winRows), ''] : []),
-    'Mean metrics',
-    '',
-    table(means),
-    '',
-    ...(Object.keys(severities).length ? ['Findings by severity', '', table(Object.entries(severities)), ''] : []),
-    `Judges agree, order-consistent, on ${agreed.filter(Boolean).length} of ${agreed.length} case pairs.`,
-    '',
-  ];
-};
-
-/** Calls, cost and minutes of every judge call under `out`, cached ones left out. */
-const judging = (out: string, ids: string[]) => {
-  const calls = ids.flatMap(id =>
-    findJudgePairFiles(join(out, id))
-      .filter(f => f.endsWith('.cost.json'))
-      .map(f => JSON.parse(readFileOrEmpty(f)) as { ms: number; usd: number })
+const judge = async (arm: string, caseDir: string, set: string) => {
+  const c = await readCaseImage(readBenchCase(caseDir), set);
+  const human = readSlotRun(readGateSlot(set, c, 'human'));
+  const valid = human && readLatestRunChecks(human.data, human.run.id).get('bench/valid');
+  if (!human || !valid?.check.pass) return;
+  const found = readSlotRun(getBenchSlot(set, readInput(c, arm)));
+  if (!found) throw new Error(`${c.id}/${arm}: no run to judge`);
+  const armed = readLatestRunChecks(found.data, found.run.id).get('bench/arm');
+  if (found.run.workflow !== 'import' && !armed?.check.pass) return;
+  const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
+  const changes = { human: readRunChange(human.at, human.run), [arm]: readRunChange(found.at, found.run) };
+  if (!changes[arm]!.trim()) return;
+  const block = (label: string, side: string) =>
+    `## Candidate ${label}\n\n\`\`\`diff\n${scrub(changes[side]!, names)}\n\`\`\``;
+  const issue = scrub(`# ${c.title}\n\n${c.body}`, names);
+  const chosen = makeCrossMakerJudgePanel(panel, options.point?.split(':')[1] ?? 'smart');
+  const asks = Object.entries(chosen).flatMap(([name, n]) =>
+    orders(n, `${c.id}/human-${arm}`).map(at => {
+      const [a, b] = at ? [arm, 'human'] : ['human', arm];
+      const prompt = `${readFileOrEmpty(join(agentgraphDir, 'bench/judge.md'))}\n## Issue\n\n${issue}\n\n${block('A', a)}\n\n${block('B', b)}\n`;
+      return { name, order: [a, b] as [string, string], prompt };
+    })
   );
-  const sum = (k: 'ms' | 'usd') => calls.reduce((n, c) => n + (c[k] ?? 0), 0);
-  return calls.length
-    ? [`Judges: ${calls.length} calls, $${getRounded(sum('usd'))}, ${Math.round(sum('ms') / 60_000)} min.`, '']
-    : [];
-};
-
-const headline = (cases: Scored[], valid: Scored[]) => {
-  const infras = valid.flatMap(c => Object.entries(c.infra).map(([arm, why]) => `${c.id}/${arm}: ${why}`));
-  const skips = cases.flatMap(c => (c.skipped ? [`${c.id}: ${c.skipped}`] : []));
-  const invalids = cases.flatMap(c => (c.invalid ? [`${c.id}: ${c.invalid}`] : []));
-  const rate = ([arm, passes]: [string, number[]]): [string, Record<string, number>] => [
-    arm,
-    { passed: passes.reduce((a, p) => a + p, 0), of: passes.length, rate: getRounded(getMean(passes)) },
-  ];
-  const hidden = ['base', ...arms].flatMap((arm): [string, number[]][] => {
-    const passes = valid.flatMap(c => c.rows.flatMap(([a, r]) => (a === arm && 'hidden' in r ? [r.hidden!] : [])));
-    return passes.length ? [[arm, passes]] : [];
-  });
-  const list = (title: string, items: string[]) => (items.length ? [title, '', ...items.map(i => `- ${i}`), ''] : []);
-  return [
-    `${valid.length} valid cases, ${invalids.length} invalid, ${infras.length} infra arm runs.`,
-    '',
-    `Hidden test skips: ${skips.length}.`,
-    '',
-    ...list('Hidden test skip reasons', skips),
-    ...(hidden.length
-      ? ['Hidden tests passed, valid cases, infra arms left out', '', table(hidden.map(rate)), '']
-      : []),
-    ...list(
-      'Hidden test failures, coupled to the human API or behaviour',
-      valid.flatMap(c => c.failures)
-    ),
-    ...list('Invalid cases, not run or judged', invalids),
-    ...list('Infra arm runs, left out of every number below', infras),
-  ];
-};
-
-type Unit = { out: string; case: string; arm: string };
-
-/** Where a set of arm runs stands: each unit's state, environment retries, a current wait and the time left. */
-export const progress = (units: Unit[], parallel = 1) => {
-  const json = (path: string) => JSON.parse(readFileOrEmpty(path) || '{}') as Record<string, unknown>;
-  const state = (u: Unit) => {
-    const at = join(u.out, u.case, u.arm);
-    if (existsSync(join(at, 'diff.patch'))) return json(join(at, 'meta.json')).infra ? 'infra' : 'done';
-    if (json(join(u.out, u.case, 'valid.json')).invalid) return 'invalid';
-    return isLockedByOtherProcess(at) ? 'running' : 'left';
-  };
-  const states = units.map(u => ({ ...u, state: state(u) }));
-  const count = (k: string) => states.filter(u => u.state === k).length;
-  const logs = [...new Set(units.map(u => u.out))].flatMap(out => readJsonl(join(out, 'log.jsonl')));
-  logs.sort((a, b) => String(a.at).localeCompare(String(b.at)));
-  const last = logs.filter(l => ['wait', 'resume', 'start', 'end', 'paused'].includes(String(l.event))).at(-1);
-  const ms = states.flatMap(u =>
-    u.state === 'done' ? [Number(json(join(u.out, u.case, u.arm, 'meta.json')).ms) || []].flat() : []
+  const version = hash(JSON.stringify(asks));
+  if (isCurrent(found, ['bench/judge'], version)) return;
+  const verdicts = await Promise.all(
+    asks.map(async ({ name, order, prompt }) => {
+      let usd = 0;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        guard(set, getModelMakerFromUpstreamName(judgeModels[name]!) === 'anthropic');
+        const got = await step(set, { step: 'judge', case: c.id, arm, judge: name, order }, () =>
+          judges[name]!(prompt, tmpdir())
+        ).catch(() => ({ text: '' }) as Answer);
+        const tokens = got.tokens && { [judgeModels[name]!]: got.tokens };
+        usd += getBenchUsageCost({ ...(got.usd !== undefined && { usd: got.usd }), ...(tokens && { tokens }) }).usd;
+        const v = parseBenchJudgeVerdict(got.text);
+        if (v) return { judge: name, order, usd, ...v };
+        logger(set, { step: 'judge', case: c.id, arm, judge: name })({
+          event: 'invalid',
+          reason: 'judge returned no valid verdict',
+          attempt,
+        });
+      }
+      throw new Error(`${c.id}/${arm}/${name}: no valid judge verdict after 3 attempts`);
+    })
   );
-  const minutes = ms.length ? getMean(ms) / 60_000 : undefined;
-  return {
-    total: units.length,
-    done: count('done'),
-    infra: count('infra'),
-    invalid: count('invalid'),
-    left: count('left'),
-    running: states.filter(u => u.state === 'running').map(u => `${u.case}/${u.arm}`),
-    retries: logs.filter(l => l.event === 'infra').length,
-    ...(last?.event === 'wait' && { waiting: `${String(last.why)} since ${String(last.at)}` }),
-    ...(minutes !== undefined && {
-      eta: Math.round((minutes * (count('left') + count('running'))) / Math.max(1, parallel)),
-    }),
-  };
-};
-
-/** The units of an out dir: from `units.json` when a driver wrote one, else every case and arm seen. */
-const readPlannedUnits = (out: string) => {
-  const planned = JSON.parse(readFileOrEmpty(join(out, 'units.json')) || 'null') as {
-    units: Omit<Unit, 'out'>[];
-    parallel?: number;
-  } | null;
-  const seen = readdirSync(out).flatMap(id =>
-    existsSync(join(out, id, 'human'))
-      ? bots
-          .filter(a => existsSync(join(out, id, a)) || existsSync(join(out, id, `${a}.lock`)))
-          .map(arm => ({ case: id, arm }))
-      : []
+  const byJudge: Record<string, number[]> = {};
+  for (const v of verdicts)
+    (byJudge[v.judge] ??= []).push(v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === arm));
+  const found_ = (side: string, severity: string) =>
+    getMean(
+      verdicts.map(
+        v => (v[v.order[0] === side ? 'A' : 'B']?.findings ?? []).filter(f => f.severity === severity).length
+      )
+    );
+  const severities = (side: string) => ({ critical: found_(side, 'critical'), high: found_(side, 'high') });
+  const vsHuman = Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, getMean(ps)]));
+  await appendBenchResult(
+    found,
+    {
+      check: 'bench/judge',
+      pass: getMean(Object.values(vsHuman)) >= 0.5,
+      value: {
+        vsHuman,
+        findings: severities(arm),
+        against: severities('human'),
+        human: human.run.id,
+        verdicts: verdicts.map(({ judge, order, prefer, why }) => ({ judge, order, prefer, ...(why && { why }) })),
+      },
+    },
+    version,
+    getRounded(verdicts.reduce((n, v) => n + v.usd, 0))
   );
-  return { units: (planned?.units ?? seen).map(u => ({ ...u, out })), parallel: planned?.parallel ?? 1 };
-};
-
-export const statusText = (p: ReturnType<typeof progress>) =>
-  [
-    `${p.done}/${p.total} done, ${p.infra} infra, ${p.invalid} invalid, ${p.running.length} running, ${p.left} left`,
-    ...(p.running.length ? [`running: ${p.running.join(', ')}`] : []),
-    `environment retries: ${p.retries}`,
-    ...(p.waiting ? [`waiting: ${p.waiting}`] : []),
-    ...(p.eta !== undefined ? [`about ${p.eta} min left`] : []),
-  ].join('\n');
-
-const report = (out: string) => {
-  const ids = readdirSync(out).filter(
-    id => existsSync(join(out, id, 'valid.json')) || existsSync(join(out, id, 'human'))
-  );
-  const all = ids.map(id => loadScored(out, id)).filter(c => benched(c.labels.repo));
-  const cases = all.filter(c => !c.invalid);
-  const md = [
-    '# Bench report',
-    '',
-    ...headline(all, cases),
-    `Invalid judge attempts: ${readJsonl(join(out, 'log.jsonl')).filter(e => e.step === 'judge' && e.event === 'invalid').length}.`,
-    '',
-    ...judging(
-      out,
-      cases.map(c => c.id)
-    ),
-    `## All ${cases.length} valid cases`,
-    '',
-    ...summary(cases),
-  ];
-  for (const key of [...new Set(cases.flatMap(c => Object.keys(c.labels)))].toSorted())
-    for (const value of [...new Set(cases.flatMap(c => c.labels[key] ?? []))].toSorted()) {
-      const some = cases.filter(c => c.labels[key] === value);
-      md.push(`## ${key} ${value}, ${some.length} cases`, '', ...summary(some));
-    }
-  for (const c of cases) md.push(`## ${c.id}`, '', table(c.rows), '');
-  return md.join('\n');
 };
 
 if (import.meta.main) {
@@ -2020,61 +1588,42 @@ if (import.meta.main) {
     options: {
       repo: { type: 'string' },
       keys: { type: 'string' },
-      'max-codex': { type: 'string', default: '30' },
+      'max-codex': { type: 'string', default: '90' },
       'max-claude-calls': { type: 'string', default: '60' },
       judges: { type: 'string', default: 'opus:1,sonnet:2' },
       point: { type: 'string' },
       repeat: { type: 'string', default: '1' },
-      pairs: { type: 'string', default: 'all' },
+      graph: { type: 'string' },
       'drop-env': { type: 'boolean', default: false },
       label: { type: 'string', multiple: true },
     },
   });
-  const [command, a, b, c] = positionals;
-  const out = command === 'run' ? c : ['score', 'judge'].includes(command ?? '') ? b : undefined;
-  const savedImage = out
-    ? (JSON.parse(readFileOrEmpty(join(resolve(out), 'env.json')) || '{}') as Pick<Commands, 'image'>).image
-    : undefined;
-  const sandbox =
-    savedImage ?? (out && command !== 'judge' && !image.startsWith('sha256:') ? imageId(image) : undefined);
-  const env = out
-    ? ensureRunSettingsPinned(join(resolve(out), 'env.json'), {
-        ...readBenchResultEnv(),
-        ...(values.keys && { keys: resolve(values.keys) }),
-        ...(values.point && { point: values.point }),
-        ...(sandbox && { image: sandbox }),
-      })
-    : {};
-  for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
-  if (env.image) process.env.AGENTGRAPH_IMAGE = image = env.image;
-  engine = process.env.BENCH_ENGINE ?? engine;
-  if (out && command !== 'judge') removeUnheldScoreTrees(resolve(out));
-  const point = env.point ?? values.point ?? process.env.BENCH_POINT;
-  if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
-  if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);
+  const [command, arm, caseDir, out] = positionals;
+  if (values.point && !/^[\w-]+:[\w.-]+$/.test(values.point)) throw new Error(`bad --point ${values.point}`);
   Object.assign(options, {
-    point,
+    point: values.point,
     repeat: Number(values.repeat),
-    pairs: values.pairs,
+    graph: values.graph && resolve(values.graph),
     labels: parseLabels(parseLabelPatch(values.label ?? [])),
   });
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
   panel = parsePanel(values.judges);
-  readBenchKeys(env.keys ?? values.keys ?? join(agentgraphDir, 'infra/local/.keys.env'));
-  if (command === 'run' && a && bots.includes(a) && b && c && values.repo) await runArm(a, b, resolve(c), values.repo);
-  else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo, values['drop-env']);
-  else if (command === 'judge' && a && b) await judge(a, resolve(b));
-  else if (command === 'report' && a) {
-    writeFileAtomic(join(a, 'report.md'), report(a));
-    console.log(readFileOrEmpty(join(a, 'report.md')));
-  } else if (command === 'status' && a) {
-    const { units, parallel } = readPlannedUnits(resolve(a));
-    console.log(statusText(progress(units, parallel)));
-  } else {
+  readBenchKeys(values.keys ?? join(agentgraphDir, 'infra/local/.keys.env'));
+  if (command !== 'judge' && !image.startsWith('sha256:'))
+    process.env.AGENTGRAPH_IMAGE = image = imageId(image) ?? image;
+  const set = out && resolve(out);
+  const dir = caseDir && resolve(caseDir);
+  if (command === 'run' && arm && bots.includes(arm) && dir && set && values.repo)
+    await runArm(arm, dir, set, values.repo);
+  else if (command === 'import' && arm && dir && set && values.repo)
+    await writeReferenceRun(arm, dir, set, values.repo);
+  else if (command === 'score' && arm && dir && set && values.repo)
+    await score(arm, dir, set, values.repo, values['drop-env']);
+  else if (command === 'judge' && arm && dir && set) await judge(arm, dir, set);
+  else {
     console.error(
-      'usage: node bin/bench.ts (run (v2|floor) <case> <out> [--label <key>=<value>]... | score <case> <out>) --repo <clone>'
+      'usage: node bin/bench.ts (run|import|score|judge) <arm> <case dir> <set> --repo <clone> [slot flags]'
     );
-    console.error('       node bin/bench.ts judge <case> <out> | report <out> | status <out>');
     process.exit(2);
   }
 }

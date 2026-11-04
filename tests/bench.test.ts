@@ -1,40 +1,40 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { Effect } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   parseBenchJudgeResponse,
-  armSlot,
   readCaseImage,
-  bootstrap,
-  getBenchUsageCost,
   couplings,
   getModelMakerFromUpstreamName,
   hiddenShare,
-  infra,
   invalid,
   orders,
   pad,
   parsePanel,
   pickBenchTestCommands,
   plant,
-  keep,
   readBenchKeys,
   repoint,
-  reuse,
-  readBenchRows,
   readBenchSetupLabels,
   scrub,
-  readArmUsageOverAttempts,
   stats,
   makeCrossMakerJudgePanel,
   unpriced,
   parseBenchJudgeVerdict,
   whyPointUnready,
+  writeArmGraph,
 } from '../bin/bench.ts';
 import { faked } from './fixtures.ts';
-import { readRunLabels, writeRunLabels } from '../src/labels.ts';
+import {
+  type BenchInput,
+  getBenchSlot,
+  getBenchUsageCost,
+  readAttemptRun,
+  readBenchRows,
+  readLatestRunChecks,
+} from '../bench/runs.ts';
+import { writeImportedRun } from '../src/instance.ts';
 import { git, tmp } from './kit.ts';
 import { getRounded } from '../src/stats.ts';
 
@@ -234,15 +234,6 @@ describe('bench helpers', () => {
     ]);
   });
 
-  it('calls a failed setup, an unfinished run or a broken environment infra, and an empty diff a result', () => {
-    expect(infra({})).toBeUndefined();
-    expect(infra({ infra: 'empty diff' })).toBeUndefined();
-    expect(infra({ setup: { ok: false } })).toBe('setup fails');
-    expect(infra({ status: 'running' })).toBe('run did not finish');
-    expect(infra({ infra: 'boom' })).toBe('boom');
-    expect(infra({ status: 'waiting', setup: { ok: true } })).toBeUndefined();
-  });
-
   it('plants one flipped comparison in a source line and pads with tests', () => {
     const src = diff.replace('if (x && y) return 1;', 'if (n >= 2) return 1;');
     const bug = plant(src)!;
@@ -285,327 +276,238 @@ describe('bench helpers', () => {
     });
     expect(makeCrossMakerJudgePanel({ opus: 1, sol: 2 }, 'claude-sonnet', aliases)).toEqual({ gemini: 1, sol: 2 });
   });
-
-  it('gives a bootstrap interval around the mean', () => {
-    expect(bootstrap([1, 1, 1])).toEqual([1, 1]);
-    const [low, high] = bootstrap([0, 1, 0, 1, 1, 0, 1, 1]);
-    expect(low).toBeLessThan(0.625);
-    expect(high).toBeGreaterThan(0.625);
-  });
 });
 
 describe('case image pins', () => {
   it('rejects a missing graph before selecting a fallback image', async () => {
     const graph = join(tmp('graph'), 'missing');
     const out = tmp('out');
-    process.env.BENCH_DIR = graph;
     const c = { id: 'demo', dir: graph, repo: 'me/demo', base: 'a', merged: 'b', title: '', body: '' };
-    await expect(readCaseImage(c, out)).rejects.toThrow('case graph is missing');
-    delete process.env.BENCH_DIR;
-    expect(existsSync(join(out, 'demo/image.json'))).toBe(false);
+    await expect(readCaseImage(c, out, graph)).rejects.toThrow('case graph is missing');
+    expect(existsSync(join(out, 'work/demo/image.json'))).toBe(false);
   });
 
   it('reads graph settings strictly before saving a pin', async () => {
     const graph = tmp('graph');
     const out = tmp('out');
     writeFileSync(join(graph, 'settings.yaml'), 'image: graph:1\nunknown: true\n');
-    process.env.BENCH_DIR = graph;
     const c = { id: 'demo', dir: graph, repo: 'me/demo', base: 'a', merged: 'b', title: '', body: '' };
-    await expect(readCaseImage(c, out)).rejects.toThrow('unknown');
-    delete process.env.BENCH_DIR;
-    expect(existsSync(join(out, 'demo/image.json'))).toBe(false);
+    await expect(readCaseImage(c, out, graph)).rejects.toThrow('unknown');
+    expect(existsSync(join(out, 'work/demo/image.json'))).toBe(false);
   });
 
   it('pins separate repos and resumes by ID even after graph changes', async () => {
     const graph = tmp('graph');
     const out = tmp('out');
     writeFileSync(join(graph, 'settings.yaml'), 'image: graph:1\n');
-    process.env.BENCH_DIR = graph;
     const c = { id: 'demo', dir: graph, repo: 'me/demo', base: 'a', merged: 'b', title: '', body: '' };
     await faked({ 'image inspect': 'sha256:one' }, async () => {
-      await readCaseImage(c, out);
+      await readCaseImage(c, out, graph);
     });
     writeFileSync(join(graph, 'settings.yaml'), 'image: graph:2\n');
     await faked(
       { 'image inspect --format {{.Id}} sha256:one': 'sha256:one', 'image inspect': 'sha256:two' },
       async log => {
-        const resumed = await readCaseImage(c, out);
-        const second = await readCaseImage({ ...c, id: 'other', repo: 'me/other' }, out);
+        const resumed = await readCaseImage(c, out, graph);
+        const second = await readCaseImage({ ...c, id: 'other', repo: 'me/other' }, out, graph);
         expect(resumed.image).toBe('sha256:one');
         expect(second.image).toBe('sha256:two');
         expect(log()).toContain('{{.Id}} sha256:one');
         expect(log()).toContain('{{.Id}} graph:2');
       }
     );
-    delete process.env.BENCH_DIR;
   });
 });
 
-describe('bin/bench.ts score and report', () => {
-  it('reports unsupported hidden tests as invalid before scoring or judging', () => {
+const makeSumCase = (root: string, fields: object = {}) => {
+  const repo = join(root, 'repo');
+  mkdirSync(join(repo, 'test'), { recursive: true });
+  git(repo, 'init', '-q', '-b', 'main');
+  writeFileSync(join(repo, 'sum.js'), 'module.exports = (a, b) => a - b;\n');
+  writeFileSync(join(repo, 'test', 'run.js'), 'process.exit(0);\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'base');
+  const base = git(repo, 'rev-parse', 'HEAD').trim();
+  writeFileSync(join(repo, 'sum.js'), 'module.exports = (a, b) => a + b;\n');
+  writeFileSync(join(repo, 'test', 'run.js'), "process.exit(require('../sum.js')(1, 2) === 3 ? 0 : 1);\n");
+  git(repo, 'commit', '-q', '-am', 'fix');
+  const merged = git(repo, 'rev-parse', 'HEAD').trim();
+  const set = join(root, 'set');
+  const kase = join(set, 'cases', 'demo');
+  mkdirSync(kase, { recursive: true });
+  const json = { repo: 'me/demo', base, merged, title: 'Fix sum', test: 'node test/run.js', tests: ['test/run.js'] };
+  writeFileSync(join(kase, 'case.json'), JSON.stringify({ ...json, ...fields }));
+  writeFileSync(join(kase, 'issue.md'), '# Fix sum\n\nsum subtracts.\n');
+  writeFileSync(join(kase, 'merged.diff'), git(repo, 'diff', base, merged));
+  return { repo, base, merged, set, kase };
+};
+
+const addArmRun = async (set: string, repo: string, base: string, input: BenchInput, patch: string) => {
+  const at = join(getBenchSlot(set, input), '1');
+  mkdirSync(at, { recursive: true });
+  git(at, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
+  writeFileSync(join(at, 'change.patch'), `${patch}\n`);
+  const data = join(at, 'data');
+  const id = await writeImportedRun(
+    { repo, tracker: join(at, 'tracker'), data },
+    patch ? join(at, 'change.patch') : base,
+    {
+      version: 't',
+      from: base,
+      input,
+    }
+  );
+  const trace = [
+    { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', harness: 'opencode', model: 'smart' } },
+    { at: '2026-10-22T10:00:30.000Z', key: 'k', event: { type: 'usage', input: 100, cacheRead: 90, output: 5 } },
+    { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd: 0.25 } },
+  ];
+  writeFileSync(join(data, id, 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
+  const armed = { check: 'bench/arm', pass: true, ms: 0, value: { answers: 0, ms: 60_000 } };
+  writeFileSync(
+    join(data, id, 'checks.jsonl'),
+    `${JSON.stringify({ at: '2026-10-22T10:02:00.000Z', step: 'bench', check: armed, version: 't', usd: 0, later: true })}\n`
+  );
+  return { at, data, id };
+};
+
+const readSlotResults = (set: string, input: BenchInput) => {
+  const at = join(getBenchSlot(set, input), '1');
+  const found = readAttemptRun(at)!;
+  return Object.fromEntries([...readLatestRunChecks(found.data, found.run.id)].map(([k, e]) => [k, e]));
+};
+
+describe('bin/bench.ts score and judge', () => {
+  it('gates a case on its reference runs and records why it is invalid', () => {
     const root = tmp('bench-invalid');
     dirs.push(root);
-    const kase = join(root, 'cases', 'unknown');
-    const out = join(root, 'out');
-    mkdirSync(kase, { recursive: true });
-    writeFileSync(join(kase, 'case.json'), JSON.stringify({ repo: 'leather-io/mono', tests: ['tests/a.test.ts'] }));
-    writeFileSync(join(kase, 'issue.md'), '# Unknown case');
-    writeFileSync(join(kase, 'merged.diff'), '');
-    const gate = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', join(root, 'missing')], {
+    const { repo, set, kase } = makeSumCase(root, { repo: 'leather-io/mono', test: undefined });
+    const gate = spawnSync(process.execPath, [cli, 'score', 'v2', kase, set, '--repo', repo], {
       encoding: 'utf8',
       env: hostDocker(),
     });
     expect(gate.status, gate.stderr).toBe(0);
-    expect(gate.stdout).toContain('gate unknown: invalid: no test command for leather-io/mono');
-    expect(gate.stdout).toContain('base hidden=not run suite=not run typecheck=not run tests={"passed":0,"total":0}');
-    expect(JSON.parse(readFileSync(join(out, 'unknown', 'valid.json'), 'utf8')).invalid).toContain('set case.test');
-    const report = spawnSync(process.execPath, [cli, 'report', out], { encoding: 'utf8', env: hostDocker() });
-    expect(report.status, report.stderr).toBe(0);
-    expect(report.stdout).toContain('0 valid cases, 1 invalid');
-    expect(report.stdout).toContain('unknown: no test command');
+    expect(gate.stdout).toContain('gate demo: invalid: no test command for leather-io/mono');
+    expect(gate.stdout).toContain('base hidden=not run suite=not run typecheck=not run');
+    const valid = readSlotResults(set, { case: 'demo', arm: 'human', repeat: 1 })['bench/valid']!;
+    expect(valid.check).toMatchObject({ pass: false, findings: expect.stringContaining('set case.test') });
+    expect(valid.later).toBe(true);
+    expect(readBenchRows([set])).toEqual([]);
   });
 
-  it('runs the merged tests on each arm, keeps scores, and skips them on a rerun', () => {
+  it('scores the references and an agent run as later results, skips current ones, and judges against the human', async () => {
     const root = tmp('bench');
     dirs.push(root);
-    const repo = join(root, 'repo');
-    mkdirSync(join(repo, 'test'), { recursive: true });
-    git(repo, 'init', '-q', '-b', 'main');
-    writeFileSync(join(repo, 'sum.js'), 'module.exports = (a, b) => a - b;\n');
-    writeFileSync(join(repo, 'test', 'run.js'), 'process.exit(0);\n');
-    git(repo, 'add', '-A');
-    git(repo, 'commit', '-q', '-m', 'base');
-    const base = git(repo, 'rev-parse', 'HEAD').trim();
-    writeFileSync(join(repo, 'sum.js'), 'module.exports = (a, b) => a + b;\n');
-    writeFileSync(join(repo, 'test', 'run.js'), "process.exit(require('../sum.js')(1, 2) === 3 ? 0 : 1);\n");
-    git(repo, 'commit', '-q', '-am', 'fix');
-    const merged = git(repo, 'rev-parse', 'HEAD').trim();
-
-    const kase = join(root, 'cases', 'demo');
-    mkdirSync(kase, { recursive: true });
-    const json = {
-      repo: 'me/demo',
-      base,
-      merged,
-      title: 'Fix sum',
-      test: 'node test/run.js',
-      tests: ['test/run.js'],
-      kind: 'bug',
-      flags: ['no-issue-pr-body'],
-    };
-    writeFileSync(join(kase, 'case.json'), JSON.stringify(json));
-    writeFileSync(join(kase, 'issue.md'), '# Fix sum\n\nsum subtracts.\n');
-    writeFileSync(join(kase, 'merged.diff'), git(repo, 'diff', base, merged));
-    const out = join(root, 'out');
-    mkdirSync(join(out, 'demo', 'v2'), { recursive: true });
-    writeFileSync(join(out, 'demo', 'v2', 'diff.patch'), git(repo, 'diff', base, merged, '--', 'sum.js'));
-    const tokens = { smart: { input: 10, cacheRead: 90, cacheWrite: 0, output: 5 } };
-    writeFileSync(join(out, 'demo', 'v2', 'usage.json'), JSON.stringify({ sessions: 2, usd: 0.25, tokens }));
-
-    const missing = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
+    const { repo, base, merged, set, kase } = makeSumCase(root, { kind: 'bug', flags: ['no-issue-pr-body'] });
+    const missing = spawnSync(process.execPath, [cli, 'score', 'v2', kase, set, '--repo', repo], {
       encoding: 'utf8',
       env: hostDocker(false),
     });
     expect(missing.status).not.toBe(0);
-    expect(missing.stderr).toContain('docker image inspect');
-    expect(existsSync(join(out, 'demo', 'base', 'score.json'))).toBe(false);
-
-    mkdirSync(join(out, 'demo', 'base'), { recursive: true });
-    mkdirSync(join(out, 'demo', 'human'), { recursive: true });
-    writeFileSync(join(out, 'demo', 'base', 'score.json'), '{}');
-    writeFileSync(join(out, 'demo', 'human', 'score.json'), '{}');
-    writeFileSync(join(out, 'demo', 'valid.json'), '{}');
     const env = hostDocker();
     const bench = (...args: string[]) => {
       const r = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', env });
       expect(r.status, r.stderr).toBe(0);
       return r.stdout;
     };
-    expect(bench('score', kase, out, '--repo', repo)).toContain(
+    expect(bench('score', 'v2', kase, set, '--repo', repo)).toContain(
       'gate demo: valid: hidden tests distinguish base and human'
     );
-    expect(JSON.parse(readFileSync(join(out, 'env.json'), 'utf8'))).toMatchObject({ image: 'sha256:one' });
+    expect(JSON.parse(readFileSync(join(set, 'work/demo/image.json'), 'utf8'))).toEqual({ image: 'sha256:one' });
     writeFileSync(join(env.PATH.split(delimiter)[0]!, 'image-id'), 'sha256:two');
-    const moved = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
-      encoding: 'utf8',
-      env,
-    });
-    expect(moved.status, moved.stderr).toBe(0);
-    expect(JSON.parse(readFileSync(join(out, 'demo/image.json'), 'utf8'))).toEqual({ image: 'sha256:one' });
+    bench('score', 'v2', kase, set, '--repo', repo);
+    expect(JSON.parse(readFileSync(join(set, 'work/demo/image.json'), 'utf8'))).toEqual({ image: 'sha256:one' });
     const failPin = join(env.PATH.split(delimiter)[0]!, 'fail-pin');
     writeFileSync(failPin, '');
-    const gone = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
+    const gone = spawnSync(process.execPath, [cli, 'score', 'v2', kase, set, '--repo', repo], {
       encoding: 'utf8',
       env,
     });
     expect(gone.status).not.toBe(0);
     expect(gone.stderr).toContain('sha256:one');
     rmSync(failPin);
-    const score = (arm: string) => JSON.parse(readFileSync(join(out, 'demo', arm, 'score.json'), 'utf8'));
-    expect(score('base')).toMatchObject({ applied: true, suite: { ok: true }, hidden: { ok: false } });
-    expect(score('v2')).toMatchObject({ applied: true, hidden: { ok: true }, srcAdded: 1, overlap: 0.5, usd: 0.25 });
-    expect(score('human')).toMatchObject({ hidden: { ok: true }, testsAdded: 1, overlap: 1 });
 
-    bench('score', kase, out, '--repo', repo);
-    expect(JSON.parse(readFileSync(join(out, 'demo', 'valid.json'), 'utf8'))).toEqual({ image: 'sha256:one' });
-    const log = readFileSync(join(out, 'log.jsonl'), 'utf8').trim().split('\n');
-    expect(log.filter(l => l.includes('"event":"end"'))).toHaveLength(3);
-    const said = (order: string, judge: string, prefer: string) => {
-      mkdirSync(join(out, 'demo', 'judge', order), { recursive: true });
-      const high = { findings: [{ severity: 'high', category: 'tests', text: 'no test' }] };
-      const v = { judge, order: order.split('-'), prefer, ...(prefer === 'A' ? { B: high } : { A: high }) };
-      writeFileSync(join(out, 'demo', 'judge', order, `${judge}.json`), JSON.stringify(v));
-    };
-    said('human-v2', 'opus', 'A');
-    said('v2-human', 'opus', 'B');
-    said('human-v2', 'sonnet', 'A');
-    said('v2-human', 'sonnet', 'A');
-    writeFileSync(join(out, 'demo', 'judge', 'human-v2', 'opus.0.cost.json'), JSON.stringify({ ms: 90_000, usd: 0.5 }));
+    const v2 = { case: 'demo', arm: 'v2', repeat: 1 };
+    const floor = { case: 'demo', arm: 'floor', repeat: 1 };
+    await addArmRun(set, repo, base, v2, git(repo, 'diff', base, merged, '--', 'sum.js'));
+    await addArmRun(set, repo, base, floor, '');
+    bench('score', 'v2', kase, set, '--repo', repo);
+    bench('score', 'floor', kase, set, '--repo', repo);
+    const results = (input: BenchInput) =>
+      Object.fromEntries(Object.entries(readSlotResults(set, input)).map(([k, e]) => [k, e.check]));
+    expect(results({ case: 'demo', arm: 'base', repeat: 1 })).toMatchObject({
+      'bench/setup': { pass: true, value: { applied: true, image: 'sha256:one' } },
+      'bench/suite': { pass: true },
+      'bench/hidden': { pass: false },
+    });
+    expect(results(v2)).toMatchObject({
+      'bench/hidden': { pass: true, share: 1 },
+      'bench/size': { value: { srcAdded: 1, overlap: 0.5 } },
+    });
+    expect(results({ case: 'demo', arm: 'human', repeat: 1 })).toMatchObject({
+      'bench/hidden': { pass: true },
+      'bench/size': { value: { testsAdded: 1, overlap: 1 } },
+      'bench/valid': { pass: true },
+    });
+    const ends = () =>
+      readFileSync(join(set, 'log.jsonl'), 'utf8')
+        .split('\n')
+        .filter(l => l.includes('"event":"end"'));
+    const scored = ends().length;
+    bench('score', 'v2', kase, set, '--repo', repo);
+    expect(ends()).toHaveLength(scored);
+
+    const bin = env.PATH.split(delimiter)[0]!;
+    const verdict =
+      '```json\\n{\\"prefer\\": \\"A\\", \\"A\\": {\\"findings\\": [{\\"severity\\": \\"high\\", \\"category\\": \\"tests\\", \\"text\\": \\"no test\\"}]}}\\n```';
     writeFileSync(
-      join(out, 'demo', 'judge', 'v2-human', 'opus.0.cost.json'),
-      JSON.stringify({ ms: 30_000, usd: 0.25 })
+      join(bin, 'claude'),
+      `#!/bin/sh\ncat > /dev/null\nprintf '%s' '{"result":"${verdict}","total_cost_usd":0.1}'\n`
     );
-    mkdirSync(join(out, 'demo', 'floor'), { recursive: true });
-    writeFileSync(join(out, 'demo', 'floor', 'score.json'), JSON.stringify({ files: 0, hidden: { ok: false } }));
-    writeFileSync(join(out, 'demo', 'judge', 'panel.json'), JSON.stringify({ panel: { opus: 2, sonnet: 2 } }));
-    mkdirSync(join(out, 'bad', 'human'), { recursive: true });
-    writeFileSync(join(out, 'bad', 'valid.json'), JSON.stringify({ invalid: 'base already passes the hidden tests' }));
-    const report = bench('report', out);
-    expect(report).toContain('1 valid cases, 1 invalid, 0 infra arm runs.');
-    expect(report).toContain('Judges: 2 calls, $0.75, 2 min.');
-    expect(report).toContain('| v2 | 1 | 1 | 1 |');
-    expect(report).toContain('| floor | 0 | 1 | 0 |');
-    expect(report).toContain('- bad: base already passes the hidden tests');
-    expect(report).not.toContain('- demo/floor: empty diff');
-    expect(report).toContain('| human vs v2 | 1 | 0.75 | 0.75 to 0.75 |');
-    expect(report).toContain('| v2 | 3 |');
-    expect(report).toContain('## kind bug, 1 cases');
-    expect(report).toContain('## issue pr-body, 1 cases');
-    expect(report).toContain('## tests hidden, 1 cases');
-    expect(report).toContain('Judges agree, order-consistent, on 0 of 1 case pairs.');
-    expect(report).toContain('| v2 | 1 | 1 | 1 | 1 | 1 | 1 |');
+    chmodSync(join(bin, 'claude'), 0o755);
+    writeFileSync(join(set, 'budget.json'), JSON.stringify({ now: 0, at: Date.now() }));
+    bench('judge', 'v2', kase, set, '--judges', 'opus:2');
+    bench('judge', 'v2', kase, set, '--judges', 'opus:2');
+    const judged = readSlotResults(set, v2)['bench/judge']!;
+    expect(judged).toMatchObject({ usd: 0.2, later: true });
+    expect(judged.check.value).toMatchObject({
+      vsHuman: { opus: 0.5 },
+      findings: { critical: 0, high: 0.5 },
+      against: { critical: 0, high: 0.5 },
+    });
+    expect(
+      readFileSync(join(set, 'log.jsonl'), 'utf8').match(
+        /"step":"judge","case":"demo","arm":"v2","judge":"opus".*"event":"start"/g
+      )
+    ).toHaveLength(2);
 
-    const rows = readBenchRows(out);
-    expect(rows.map(r => r.labels.arm)).toEqual(['human', 'v2', 'floor']);
-    expect(rows[1]).toMatchObject({
+    const rows = readBenchRows([set]);
+    expect(rows.map(r => r.labels.arm).toSorted()).toEqual(['base', 'floor', 'human', 'v2']);
+    const row = (arm: string) => rows.find(r => r.labels.arm === arm)!;
+    expect(row('v2')).toMatchObject({
       case: 'demo',
       repeat: 1,
-      labels: { kind: 'bug', issue: 'pr-body', tests: 'hidden', harness: 'opencode', model: 'smart' },
+      labels: { kind: 'bug', issue: 'pr-body', tests: 'hidden', set: 'set', 'agents-md': 'false' },
       hidden: 1,
+      hiddenShare: 1,
       suite: 1,
-      vsHuman: { opus: 0, sonnet: 0.5 },
-      findings: { critical: 0, high: 0.75 },
-      tokens,
-      usd: getBenchUsageCost({ tokens }).usd,
+      vsHuman: { opus: 0.5 },
+      minutes: 1,
+      tokens: { smart: { input: 10, cacheRead: 90, cacheWrite: 0, output: 5 } },
     });
-    expect(rows[0]!.findings.high).toBe(0.25);
-    expect(rows[1]).toMatchObject({ hiddenShare: 1 });
-    expect(rows[2]).toMatchObject({ outcome: 'no-change', hidden: 0, vsHuman: {} });
-    expect(rows[2]).not.toHaveProperty('infra');
-    expect(rows[1]).not.toHaveProperty('outcome');
-    const point = {
-      harness: 'pi',
-      model: 'luna',
-      engine: 'abc',
-      graphs: { v2: 'h2' },
-      labels: { experiment: 'new' },
-      set: 'core@1',
-      repeat: 2,
-    };
-    writeFileSync(join(out, 'point.json'), JSON.stringify(point));
-    expect(readBenchRows(out)[1]).toMatchObject({
-      labels: { harness: 'pi', model: 'luna', arm: 'v2', engine: 'abc', graph: 'h2', set: 'core@1' },
-      repeat: 2,
-    });
-    writeFileSync(join(out, 'point.json'), JSON.stringify({ ...point, graphs: undefined, hubs: { v2: 'old-tree' } }));
-    expect(readBenchRows(out)[1]!.labels).toMatchObject({ graph: 'old-tree', experiment: 'new' });
-    writeFileSync(join(out, 'demo', 'base', 'score.json'), JSON.stringify({ ...score('base'), suite: { ok: false } }));
-    expect(readBenchRows(out)[1]).not.toHaveProperty('suite');
-    mkdirSync(join(out, 'nope', 'human'), { recursive: true });
-    writeFileSync(join(out, 'nope', 'case.json'), JSON.stringify({ repo: 'acme/private-app' }));
-    writeFileSync(join(out, 'nope', 'human', 'score.json'), '{}');
-    expect(readBenchRows(out).map(r => r.case)).toContain('nope');
-    process.env.BENCH_EXCLUDE = 'private-app';
-    Object.assign(env, { BENCH_EXCLUDE: 'private-app' });
-    expect(readBenchRows(out).map(r => r.case)).toEqual(['demo', 'demo', 'demo']);
-    expect(readBenchRows(out, ['me/other'])).toEqual([]);
-    expect(readBenchRows(out, ['me/demo'])).toHaveLength(3);
-    expect(bench('report', out)).not.toContain('nope');
-    writeFileSync(join(out, 'demo/image.json'), JSON.stringify({ image: 'sha256:two' }));
-    bench('score', kase, out, '--repo', repo);
-    expect(score('base').image).toBe('sha256:two');
-    expect(score('human').image).toBe('sha256:two');
-    expect(JSON.parse(readFileSync(join(out, 'demo/valid.json'), 'utf8')).image).toBe('sha256:two');
-  });
-});
+    expect(row('v2').checkUsd).toBe(0.2);
+    expect(row('v2')).not.toHaveProperty('outcome');
+    expect(row('floor')).toMatchObject({ outcome: 'no-change', hidden: 0, vsHuman: {} });
+    expect(row('floor')).not.toHaveProperty('infra');
 
-describe('arm image propagation', () => {
-  it.each([
-    ['v2', undefined, 'graph:1'],
-    ['floor', 'case:1', 'case:1'],
-  ] as const)('injects the selected pin into %s before the engine runs', (arm, override, tag) => {
-    const root = tmp('arm-image');
-    dirs.push(root);
-    const repo = join(root, 'repo');
-    const engine = join(root, 'engine');
-    const graph = join(engine, 'external');
-    const kase = join(root, 'cases/demo');
-    const out = join(root, 'out');
-    mkdirSync(repo, { recursive: true });
-    git(repo, 'init', '-q', '-b', 'main');
-    writeFileSync(join(repo, 'a'), 'base');
-    git(repo, 'add', '.');
-    git(repo, 'commit', '-qm', 'base');
-    const base = git(repo, 'rev-parse', 'HEAD');
-    mkdirSync(join(engine, 'src'), { recursive: true });
-    const captured = join(root, 'captured.json');
-    writeFileSync(
-      join(engine, 'src/main.ts'),
-      `import { readFileSync, writeFileSync } from 'node:fs';
-export const start = async ({ graph }) => {
-  writeFileSync(${JSON.stringify(captured)}, JSON.stringify({ settings: readFileSync(graph + '/settings.yaml', 'utf8'), workflow: readFileSync(graph + '/workflows/issue.md', 'utf8') }));
-  return [{ status: 'waiting' }];
-};`
-    );
-    mkdirSync(join(graph, 'workflows'), { recursive: true });
-    mkdirSync(join(graph, 'agents'), { recursive: true });
-    writeFileSync(join(graph, 'settings.yaml'), 'repo: me/demo\nimage: graph:1\n');
-    writeFileSync(join(graph, 'workflows/issue.md'), 'external workflow');
-    git(engine, 'init', '-q');
-    git(engine, 'add', '.');
-    git(engine, 'commit', '-qm', 'engine');
-    mkdirSync(kase, { recursive: true });
-    writeFileSync(
-      join(kase, 'case.json'),
-      JSON.stringify({ repo: 'me/demo', base, merged: base, hasTests: false, image: override })
-    );
-    writeFileSync(join(kase, 'issue.md'), '# Demo');
-    writeFileSync(join(kase, 'merged.diff'), '');
-    mkdirSync(out);
-    writeFileSync(join(out, 'budget.json'), JSON.stringify({ now: 0, start: 0, at: Date.now() }));
-    const env = hostDocker();
-    const result = spawnSync(process.execPath, [cli, 'run', arm, kase, out, '--repo', repo], {
-      encoding: 'utf8',
-      env: {
-        ...env,
-        BENCH_ENGINE: engine,
-        BENCH_DIR: 'external',
-        AGENTGRAPH_STATE: join(root, 'state'),
-        AGENTGRAPH_MIN_FREE_GB: '0',
-        AGENTGRAPH_PROXY_URL: '',
-        AGENTGRAPH_PROXY_KEYS: 'implementor=fake',
-      },
+    writeFileSync(join(set, 'work/demo/image.json'), JSON.stringify({ image: 'sha256:two' }));
+    bench('score', 'v2', kase, set, '--repo', repo);
+    expect(results(v2)['bench/setup']!.value).toMatchObject({ image: 'sha256:two' });
+    expect(results({ case: 'demo', arm: 'human', repeat: 1 })['bench/setup']!.value).toMatchObject({
+      image: 'sha256:two',
     });
-    expect(result.status, result.stderr).toBe(0);
-    const seen = JSON.parse(readFileSync(captured, 'utf8'));
-    expect(seen.settings).toContain('image: sha256:one');
-    expect(readFileSync(join(env.PATH.split(delimiter)[0]!, 'calls'), 'utf8')).toContain(`{{.Id}} ${tag}`);
-    expect(seen.workflow.includes('external workflow')).toBe(arm === 'v2');
-    expect(JSON.parse(readFileSync(join(out, 'demo', arm, 'meta.json'), 'utf8')).image).toBe('sha256:one');
   });
-});
 
-describe('bin/bench.ts typecheck', () => {
   it('typechecks a case without hidden tests and calls it invalid when the human fails it', () => {
     const root = tmp('bench');
     dirs.push(root);
@@ -619,7 +521,8 @@ describe('bin/bench.ts typecheck', () => {
     writeFileSync(join(repo, 'a.js'), 'bad\n');
     git(repo, 'commit', '-q', '-am', 'change');
     const merged = git(repo, 'rev-parse', 'HEAD').trim();
-    const kase = join(root, 'cases', 'demo');
+    const set = join(root, 'set');
+    const kase = join(set, 'cases', 'demo');
     mkdirSync(kase, { recursive: true });
     const typecheck = 'grep -q ok a.js';
     writeFileSync(
@@ -628,35 +531,53 @@ describe('bin/bench.ts typecheck', () => {
     );
     writeFileSync(join(kase, 'issue.md'), '# Change a\n\nChange it.\n');
     writeFileSync(join(kase, 'merged.diff'), git(repo, 'diff', base, merged));
-    const out = join(root, 'out');
-    const r = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
+    const r = spawnSync(process.execPath, [cli, 'score', 'human', kase, set, '--repo', repo], {
       encoding: 'utf8',
       env: hostDocker(),
     });
     expect(r.status, r.stderr).toBe(0);
-    const score = (arm: string) => JSON.parse(readFileSync(join(out, 'demo', arm, 'score.json'), 'utf8'));
-    expect(score('base')).toMatchObject({ applied: true, typecheck: { ok: true } });
-    expect(score('base')).not.toHaveProperty('hidden');
-    expect(score('base').skipped).toBe('case disables hidden tests');
-    expect(score('human')).toMatchObject({ typecheck: { ok: false } });
-    expect(JSON.parse(readFileSync(join(out, 'demo', 'valid.json'), 'utf8'))).toEqual({
-      image: 'sha256:one',
-      invalid: 'the human fails the typecheck',
-      skipped: 'case disables hidden tests',
+    const results = (arm: string) =>
+      Object.fromEntries(
+        Object.entries(readSlotResults(set, { case: 'demo', arm, repeat: 1 })).map(([k, e]) => [k, e.check])
+      );
+    expect(results('base')).toMatchObject({
+      'bench/typecheck': { pass: true },
+      'bench/hidden': { na: true, findings: 'case disables hidden tests' },
+    });
+    expect(results('human')).toMatchObject({
+      'bench/typecheck': { pass: false },
+      'bench/valid': { pass: false, findings: 'the human fails the typecheck' },
     });
   });
 });
 
-const scored = (name: string) => {
-  const out = tmp(name);
-  dirs.push(out);
-  mkdirSync(join(out, 'c', 'human'), { recursive: true });
-  mkdirSync(join(out, 'c', 'v2'), { recursive: true });
-  writeFileSync(join(out, 'c', 'human', 'score.json'), '{}');
-  writeFileSync(join(out, 'c', 'v2', 'score.json'), '{}');
-  writeFileSync(join(out, 'c', 'case.json'), JSON.stringify({ repo: 'me/demo' }));
-  return out;
-};
+describe('arm graphs', () => {
+  it.each([
+    ['v2', 'workflows/issue.md'],
+    ['floor', 'workflows/issue.md'],
+  ] as const)('pins the case image into the %s graph', (arm, workflow) => {
+    const at = tmp('arm-graph');
+    dirs.push(at);
+    const c = {
+      id: 'demo',
+      dir: at,
+      repo: 'me/demo',
+      base: 'a',
+      merged: 'b',
+      title: '',
+      body: '',
+      image: 'sha256:one',
+    };
+    const graph = writeArmGraph(c, arm, at);
+    expect(readFileSync(join(graph, 'settings.yaml'), 'utf8')).toContain('image: sha256:one');
+    expect(readFileSync(join(graph, workflow), 'utf8')).toBe(
+      readFileSync(
+        join(import.meta.dirname, '..', arm === 'floor' ? 'bench/floor' : 'examples/bench', workflow),
+        'utf8'
+      ).replace(/^ {4}checks: \[tests\]\n/m, '')
+    );
+  });
+});
 
 describe('bench labels', () => {
   it('reads setup at the base commit without inspecting or changing the working tree', () => {
@@ -684,36 +605,6 @@ describe('bench labels', () => {
     git(repo, 'add', '.');
     git(repo, 'commit', '-qm', 'base');
     expect(readBenchSetupLabels(repo, 'HEAD')).toEqual({ 'agents-md': 'false', 'claude-md': 'false', skills: 'true' });
-  });
-
-  it('reads the setup of a case once per base, so a rescan spawns no git', () => {
-    const out = scored('setup');
-    const tree = join(out, 'c', 'tree');
-    mkdirSync(tree);
-    git(tree, 'init', '-q');
-    writeFileSync(join(tree, 'AGENTS.md'), 'rules');
-    git(tree, 'add', '.');
-    git(tree, 'commit', '-qm', 'base');
-    writeFileSync(
-      join(out, 'c', 'case.json'),
-      JSON.stringify({ repo: 'me/demo', base: git(tree, 'rev-parse', 'HEAD') })
-    );
-    expect(readBenchRows(out)[0]!.labels['agents-md']).toBe('true');
-    rmSync(tree, { recursive: true, force: true });
-    expect(readBenchRows(out)[0]!.labels['agents-md']).toBe('true');
-  });
-
-  it('takes the usage of a done arm from its usage.json, even with its records still there', () => {
-    const out = scored('saved');
-    mkdirSync(join(out, 'c', 'v2', 'data', 'run-1'), { recursive: true });
-    const trace = [
-      { key: 'k', event: { type: 'start', harness: 'pi', model: 'smart' } },
-      { key: 'k', event: { type: 'usage', input: 100, output: 7 } },
-    ];
-    writeFileSync(join(out, 'c', 'v2', 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
-    const tokens = { smart: { input: 1, cacheRead: 0, cacheWrite: 0, output: 1 } };
-    writeFileSync(join(out, 'c', 'v2', 'usage.json'), JSON.stringify({ tokens, attempts: [] }));
-    expect(readBenchRows(out).find(r => r.labels.arm === 'v2')!.tokens).toEqual(tokens);
   });
 });
 
@@ -766,147 +657,6 @@ describe('points', () => {
       AGENTGRAPH_PROXY_KEYS: 'reviewer=FAKE-canary-reviewer,scout=FAKE-canary-scout',
     });
     expect(JSON.stringify(process.env)).not.toContain('FAKE-canary');
-  });
-
-  it('keys an arm by point and repeat only when one is given', () => {
-    const cache = tmp('cache');
-    dirs.push(cache);
-    process.env.BENCH_CACHE = cache;
-    const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
-    const plain = armSlot(c, 'floor');
-    expect(armSlot(c, 'floor', { point: undefined, repeat: 1 })).toBe(plain);
-    const luna = armSlot(c, 'floor', { point: 'opencode:luna', repeat: 1 });
-    const again = armSlot(c, 'floor', { point: 'opencode:luna', repeat: 2 });
-    delete process.env.BENCH_CACHE;
-    expect(new Set([plain, luna, again]).size).toBe(3);
-    expect(armSlot(c, 'floor')).toBeUndefined();
-  });
-
-  it.each(['v2', 'floor'])('keys %s by the pinned image', arm => {
-    process.env.BENCH_CACHE = tmp('cache');
-    const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
-    const slots = [undefined, 'sha256:one', 'sha256:two'].map(image => armSlot({ ...c, ...(image && { image }) }, arm));
-    delete process.env.BENCH_CACHE;
-    expect(new Set(slots).size).toBe(3);
-  });
-
-  it('keys the floor by the engine tree too, and stamps where a reused arm came from', async () => {
-    const cache = tmp('cache');
-    dirs.push(cache);
-    process.env.BENCH_CACHE = cache;
-    const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
-    const [a, b] = ['a', 'b'].map(tree => armSlot(c, 'floor', { point: undefined, repeat: 1, tree }));
-    delete process.env.BENCH_CACHE;
-    expect(a).not.toBe(b);
-    mkdirSync(a!, { recursive: true });
-    writeFileSync(join(a!, 'meta.json'), JSON.stringify({ ms: 5 }));
-    const at = join(cache, 'out', 'floor');
-    await reuse(a!, at, {});
-    expect(JSON.parse(readFileSync(join(at, 'meta.json'), 'utf8'))).toEqual({ ms: 5, reusedFrom: a });
-  });
-
-  it('labels a cached arm reused in another set with only the new labels, and leaves the cache as it was', async () => {
-    const cache = tmp('cache');
-    dirs.push(cache);
-    const kept = join(cache, 'slot');
-    mkdirSync(join(kept, 'data', 'run-1'), { recursive: true });
-    writeFileSync(join(kept, 'data', 'run-1', 'run.json'), '{}');
-    await Effect.runPromise(writeRunLabels(join(kept, 'data'), 'run-1', { arm: 'v2', set: 'old', experiment: 'old' }));
-    const at = join(cache, 'new-set', 'v2');
-    await reuse(kept, at, { arm: 'v2', set: 'new' });
-    expect([readRunLabels(join(at, 'data'), 'run-1'), readRunLabels(join(kept, 'data'), 'run-1')]).toEqual([
-      { arm: 'v2', set: 'new' },
-      { arm: 'v2', set: 'old', experiment: 'old' },
-    ]);
-  });
-
-  it('keys an arm by the BENCH_DIR content, so an unchanged graph hits the cache', () => {
-    const [cache, graph] = [tmp('cache'), tmp('graph')];
-    dirs.push(cache, graph);
-    writeFileSync(join(graph, 'settings.yaml'), 'repo: me/demo\n');
-    process.env.BENCH_CACHE = cache;
-    const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
-    const plain = armSlot(c, 'v2');
-    process.env.BENCH_DIR = graph;
-    const tuned = armSlot(c, 'v2');
-    const again = armSlot(c, 'v2');
-    writeFileSync(join(graph, 'settings.yaml'), 'repo: me/demo\nlimits: { minutes: 5 }\n');
-    const changed = armSlot(c, 'v2');
-    delete process.env.BENCH_DIR;
-    delete process.env.BENCH_CACHE;
-    expect(tuned).not.toBe(plain);
-    expect(again).toBe(tuned);
-    expect(changed).not.toBe(tuned);
-  });
-
-  it('writes the usage of an arm before caching it without its data', () => {
-    const root = tmp('keep');
-    dirs.push(root);
-    const at = join(root, 'v2');
-    mkdirSync(join(at, 'data', 'run-1'), { recursive: true });
-    const trace = [
-      { key: 'k', event: { type: 'start', harness: 'pi', model: 'smart' } },
-      { key: 'k', event: { type: 'usage', input: 100, cacheRead: 80, cacheWrite: 5, output: 7 } },
-      { key: 'k', session: { usd: 0.5 } },
-    ];
-    writeFileSync(join(at, 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
-    keep(at, join(root, 'kept'));
-    expect(existsSync(join(root, 'kept', 'data'))).toBe(false);
-    const tokens = { smart: { input: 15, cacheRead: 80, cacheWrite: 5, output: 7 } };
-    expect(JSON.parse(readFileSync(join(root, 'kept', 'usage.json'), 'utf8'))).toEqual({
-      sessions: 1,
-      usd: 0.5,
-      checkUsd: 0,
-      ms: 0,
-      tokens,
-      split: { agent: 0, tools: 0, setup: 0, checks: 0, infra: 0 },
-      attempts: [
-        {
-          dir: 'v2',
-          ms: 0,
-          sessions: 1,
-          usd: 0.5,
-          checkUsd: 0,
-          tokens,
-          split: { agent: 0, tools: 0, setup: 0, checks: 0 },
-        },
-      ],
-    });
-  });
-
-  it('sums usage and time over every attempt of an arm, set-aside ones included', () => {
-    const root = tmp('attempts');
-    dirs.push(root);
-    const attempt = (dir: string, usd: number, meta?: object) => {
-      mkdirSync(join(root, dir, 'data', 'run-1'), { recursive: true });
-      const trace = [
-        { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', harness: 'codex', model: 'luna' } },
-        { at: '2026-10-22T10:00:30.000Z', key: 'k', event: { type: 'usage', input: 10, output: 2 } },
-        { at: '2026-10-22T10:00:40.000Z', key: 'k', event: { type: 'tool', name: 'bash', ms: 2000 } },
-        { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd } },
-        { at: '2026-10-22T10:01:05.000Z', setup: { ms: 5000, exit: 0 } },
-      ];
-      const check = { at: '2026-10-22T10:01:06.000Z', step: 'end', version: 'v', usd: 0.1 };
-      writeFileSync(join(root, dir, 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
-      writeFileSync(
-        join(root, dir, 'data', 'run-1', 'checks.jsonl'),
-        JSON.stringify({ ...check, check: { check: 'test', pass: true, ms: 1000 } })
-      );
-      if (meta) writeFileSync(join(root, dir, 'meta.json'), JSON.stringify(meta));
-    };
-    attempt('v2', 0.5, { ms: 1000 });
-    attempt('.attic/v2-2026-10-22T09-00-00-000Z', 0.25, { ms: 2000, infra: 'SandboxError: no image' });
-    attempt('v2.1792493424355', 0.125);
-    attempt('.attic/floor-2026-10-22T09-00-00-000Z', 9, { ms: 9 });
-    const all = readArmUsageOverAttempts(join(root, 'v2'));
-    expect(all).toMatchObject({ sessions: 3, usd: 0.875, checkUsd: 0.3, ms: 68_000 });
-    expect(all.tokens).toEqual({ luna: { input: 30, cacheRead: 0, cacheWrite: 0, output: 6 } });
-    expect(all.split).toEqual({ agent: 180_000, tools: 6000, setup: 15_000, checks: 3000, infra: 2000 });
-    expect(all.attempts.map(a => [a.dir, a.ms, a.usd, a.infra])).toEqual([
-      ['v2.1792493424355', 65_000, 0.125, undefined],
-      ['.attic/v2-2026-10-22T09-00-00-000Z', 2000, 0.25, 'SandboxError: no image'],
-      ['v2', 1000, 0.5, undefined],
-    ]);
   });
 });
 

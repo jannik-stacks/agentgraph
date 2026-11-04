@@ -6,24 +6,22 @@ import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:chi
 import {
   appendFileSync,
   closeSync,
-  cpSync,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
   readSync,
   realpathSync,
-  renameSync,
   rmSync,
   statSync,
   writeSync,
 } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { type Disk, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
+import { type Disk, ensureFreeDisk } from '../src/disk.ts';
 import { parseModelUrls } from '../src/harnesses.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
-import { readRecordSync, writeFileAtomic } from '../src/store.ts';
+import { readRecordSync } from '../src/store.ts';
 
 /** Appends one JSON line, first ending a line a crash left open. */
 export const appendJsonl = (path: string, v: unknown) => {
@@ -58,34 +56,6 @@ export const parseJsonl = <T = Record<string, unknown>>(text: string): T[] => {
 };
 
 export const readJsonl = <T = Record<string, unknown>>(path: string) => parseJsonl<T>(readRecordSync(path));
-
-/**
- * Moves `path` into `.attic/` beside it, keeping its records; answers where it went. Its checkouts and scoring tree
- * are deleted first, since a rerun makes them again.
- */
-export const moveDirToAttic = (path: string) => {
-  if (!existsSync(path)) return undefined;
-  for (const copy of ['data/cache', 'tree']) rmSync(join(path, copy), { recursive: true, force: true });
-  const atticPath = join(
-    dirname(path),
-    '.attic',
-    `${basename(path)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
-  );
-  let to = atticPath;
-  for (let n = 2; existsSync(to); n++) to = `${atticPath}-${n}`;
-  mkdirSync(dirname(to), { recursive: true });
-  renameSync(path, to);
-  return to;
-};
-
-/** Copies `src` to `dst` through a temp dir and a rename, so `dst` is whole or absent. */
-export const copyDirIfAbsentAtomic = (src: string, dst: string, filter?: (path: string) => boolean) => {
-  const tmp = `${dst}.${process.pid}.tmp`;
-  rmSync(tmp, { recursive: true, force: true });
-  cpSync(src, tmp, { recursive: true, ...(filter && { filter }) });
-  if (existsSync(dst)) rmSync(tmp, { recursive: true, force: true });
-  else renameSync(tmp, dst);
-};
 
 const owner = (path: string) => Number(readFileOrEmpty(`${path}.lock`) || 0);
 
@@ -152,11 +122,6 @@ export const probeUrl = (proxy?: string) => {
   if (!url) return undefined;
   url.pathname = '/health/liveliness';
   return url.href;
-};
-
-export const removeUnheldScoreTrees = (out: string) => {
-  for (const tree of findBuildDirs(out))
-    if (basename(tree) === 'tree' && !isLockedByOtherProcess(tree)) rmSync(tree, { recursive: true, force: true });
 };
 
 /**
@@ -242,38 +207,4 @@ export const onStop = (stop: (signal: string) => void) => {
         process.exit(signal === 'SIGINT' ? 130 : 143);
       }
     });
-};
-
-/** The `BENCH_*` settings of this process that shape a run's results; `BENCH_FRESH` is a one-off and left out. */
-export const readBenchResultEnv = () =>
-  Object.fromEntries(
-    Object.entries(process.env).flatMap(([k, v]) =>
-      k.startsWith('BENCH_') && k !== 'BENCH_FRESH' && v ? [[k, v]] : []
-    )
-  );
-
-/**
- * The settings a run started with, kept in `file` so a restart needs none of them: a given value is recorded, a
- * missing one comes back from the record, `defaults` fill what neither has. A value that differs from the record, or
- * a recorded path that is gone, stops the run; edit `file` to change one on purpose.
- */
-export const ensureRunSettingsPinned = (
-  file: string,
-  given: Record<string, string | undefined>,
-  defaults: Record<string, string> = {}
-) => {
-  const was = JSON.parse(readFileOrEmpty(file) || '{}') as Record<string, string>;
-  const env = { ...defaults, ...was };
-  for (const [k, v] of Object.entries(given)) {
-    if (v === undefined) continue;
-    if (was[k] !== undefined && was[k] !== v)
-      throw new Error(`${k} is ${v}, but this run started with ${was[k]}: unset it to resume, or edit ${file}`);
-    env[k] = v;
-  }
-  const gone = Object.entries(env).flatMap(([k, v]) =>
-    v.startsWith('/') ? v.split(':').flatMap(p => (existsSync(p) ? [] : [`${k} ${p}`])) : []
-  );
-  if (gone.length) throw new Error(`cannot resume, recorded in ${file} but missing: ${gone.join(', ')}`);
-  writeFileAtomic(file, env);
-  return env;
 };

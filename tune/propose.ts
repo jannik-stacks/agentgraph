@@ -1,7 +1,7 @@
 /**
  * Proposers: turn a tune's failing fit cases or its mined history into one candidate graph.
  *
- *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--runs <dir>] [--iteration n]
+ *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--cand <id>] [--iteration n]
  */
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -17,7 +17,8 @@ import {
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
-import { failureClass, infra } from '../bin/bench.ts';
+import { failureClass } from '../bin/bench.ts';
+import { type BenchRow, readAttemptRun, readBenchRows, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
 import { parseJsonl, readFileOrEmpty, readJsonl } from '../bin/resume.ts';
 import { transcript } from '../src/context.ts';
 import { readConfiguredGraph } from '../src/harnesses.ts';
@@ -120,25 +121,20 @@ type Material = { id: string; text: string; files: Record<string, string> };
 const titleOf = (dir: string) =>
   (JSON.parse(readFileSync(join(dir, 'case.json'), 'utf8')) as { title?: string; pr?: number }).title ?? '';
 
-/** The newest run of each bot arm of a case whose change failed the hidden tests, infra failures left out. */
-const failing = (runs: string, id: string) => {
-  const dir = join(runs, id);
-  if (!existsSync(dir)) throw new Error(`${id}: no scored case at ${dir}`);
-  if ((JSON.parse(readFileSync(join(dir, 'valid.json'), 'utf8')) as { invalid?: string }).invalid) return [];
-  return readdirSync(dir)
-    .filter(arm => !['human', 'base', 'judge', 'tree', 'control'].includes(arm) && !arm.includes('.'))
-    .flatMap(arm => {
-      const s = JSON.parse(readFileSync(join(dir, arm, 'score.json'), 'utf8')) as
-        | (Parameters<typeof infra>[0] & { hidden?: { ok: boolean; tail: string; class?: string } })
-        | null;
-      if (!s || typeof s !== 'object') throw new Error(`${id}/${arm}: invalid score record`);
-      return s.hidden && !s.hidden.ok && !infra(s) ? [{ at: join(dir, arm), hidden: s.hidden }] : [];
-    })
-    .slice(0, 1);
+/** The first agent run of a case whose change failed the hidden tests, infra failures left out. */
+const failing = (rows: BenchRow[], id: string) => {
+  if (!rows.some(r => r.case === id)) throw new Error(`${id}: no scored run of the incumbent`);
+  return rows
+    .filter(r => r.case === id && !r.infra && r.hidden === 0)
+    .slice(0, 1)
+    .map(r => {
+      const hidden = readLatestRunChecks(r.data, r.run).get('bench/hidden')?.check;
+      const tail = hidden?.findings ?? '';
+      return { row: r, hidden: { tail, class: (hidden?.value as { class?: string } | undefined)?.class } };
+    });
 };
 
-const traces = (at: string, budget: number) => {
-  const data = join(at, 'data');
+const traces = (data: string, budget: number) => {
   const runs = (existsSync(data) ? readdirSync(data) : [])
     .filter(n => n.startsWith('issue-') && existsSync(join(data, n, 'run.json')))
     .sort()
@@ -150,17 +146,21 @@ const traces = (at: string, budget: number) => {
   return transcript(1, runs, budget);
 };
 
+export const readCandidateRows = (tune: string, cand: string) =>
+  readBenchRows([join(tune, 'runs')]).filter(r => r.labels.cand === cand);
+
 /** Failing fit cases with their diffs, hidden test output and run transcripts; `small` for the structure proposer. */
-const failures = (cases: string, runs: string, ids: string[], small: boolean): Material[] =>
+const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean): Material[] =>
   ids
-    .flatMap(id => failing(runs, id).map(f => ({ id, ...f })))
+    .flatMap(id => failing(rows, id).map(f => ({ id, ...f })))
     .slice(0, small ? 4 : 6)
-    .map(({ id, at, hidden }) => {
+    .map(({ id, row, hidden }) => {
       const issue = readFileSync(join(cases, id, 'issue.md'), 'utf8');
       const human = readFileSync(join(cases, id, 'merged.diff'), 'utf8');
-      const bot = readFileSync(join(at, 'diff.patch'), 'utf8');
+      const found = readAttemptRun(row.at);
+      const bot = found ? readRunChange(row.at, found.run) : '';
       const out = hidden.tail.replace(ansi, '').replace(noise, '');
-      const full = traces(at, 60_000);
+      const full = traces(row.data, 60_000);
       const text = [
         `### ${id}: ${titleOf(join(cases, id))}`,
         `Issue:\n\n${head(issue, small ? 800 : 2000)}`,
@@ -171,7 +171,7 @@ const failures = (cases: string, runs: string, ids: string[], small: boolean): M
               `Bot diff:\n\n${formatCodeFence(head(bot, 3000), 'diff')}`,
               `Human diff:\n\n${formatCodeFence(head(human, 3000), 'diff')}`,
             ]),
-        `Transcript:\n\n${traces(at, small ? 4000 : 10_000)}`,
+        `Transcript:\n\n${traces(row.data, small ? 4000 : 10_000)}`,
       ].join('\n\n');
       return {
         id,
@@ -193,9 +193,9 @@ const shuffle = <T>(xs: T[], seed: number) => {
 };
 
 /** How the graph did on cases the proposer never sees: counts per failure class, no ids or content. */
-const unseen = (runs: string, ids: string[]) => {
-  const ran = ids.filter(id => existsSync(join(runs, id)));
-  const classes = ids.flatMap(id => failing(runs, id).map(f => f.hidden.class ?? failureClass(f.hidden.tail)));
+const unseen = (rows: BenchRow[], ids: string[]) => {
+  const ran = ids.filter(id => rows.some(r => r.case === id));
+  const classes = ids.flatMap(id => failing(rows, id).map(f => f.hidden.class ?? failureClass(f.hidden.tail)));
   if (!ran.length) return '';
   const by = [...new Set(classes)].map(c => `${classes.filter(x => x === c).length} ${c}`).join(', ');
   return `${classes.length} of ${ran.length} fail the hidden tests${by ? `: ${by}` : ''}.`;
@@ -410,14 +410,14 @@ const diffOf = (cwd: string) =>
 
 /**
  * Runs one proposer on a tune dir and writes `cands/<id>/graph` (when valid), `proposal.md`, the prompt and the raw
- * stream. `from` is the incumbent graph, `runs` the incumbent's bench out dir with the fit cases' arm runs.
+ * stream. `from` is the incumbent graph, `cand` the incumbent whose bench runs on the fit cases it learns from.
  */
 export const propose = async (o: {
   tune: string;
   id: string;
   proposer: Proposer;
   from: string;
-  runs?: string;
+  cand?: string;
   iteration?: number;
   cases?: string;
   model?: string;
@@ -429,11 +429,12 @@ export const propose = async (o: {
   if (!cases) throw new Error(`no cases dir beside ${o.tune}`);
   const split = (s: string) => Object.keys(tune.cases).filter(id => tune.cases[id] === s);
   const iteration = o.iteration ?? 0;
-  if (o.proposer !== 'history' && !o.runs) throw new Error(`${o.proposer} needs the incumbent's runs dir`);
+  if (o.proposer !== 'history' && !o.cand) throw new Error(`${o.proposer} needs the incumbent candidate`);
+  const rows = o.cand ? readCandidateRows(o.tune, o.cand) : [];
   const material =
     o.proposer === 'history'
       ? history(cases, split('mine'), iteration)
-      : failures(cases, o.runs!, split('fit'), o.proposer === 'structure');
+      : failures(cases, rows, split('fit'), o.proposer === 'structure');
   const ids = material.map(m => m.id);
   const menu = await Effect.runPromise(readConfiguredGraph(o.from).pipe(Effect.map(fitting)));
   const turn = iteration % edits.length;
@@ -470,7 +471,7 @@ export const propose = async (o: {
     for (const [name, text] of Object.entries(m.files)) writeFileAtomic(join(input, 'cases', m.id, name), text);
   const instructions = readFileOrEmpty(here(`proposers/${o.proposer}.md`)).replace('{{edit}}', edit ?? '');
   const heading = o.proposer === 'history' ? 'Merged pull requests' : 'Failing cases';
-  const others = o.proposer === 'history' ? '' : unseen(o.runs!, split('validate'));
+  const others = o.proposer === 'history' ? '' : unseen(rows, split('validate'));
   const prompt = [
     instructions,
     readFileOrEmpty(here('proposers/patch.md')),
@@ -572,7 +573,7 @@ if (import.meta.main) {
     options: {
       id: { type: 'string' },
       from: { type: 'string' },
-      runs: { type: 'string' },
+      cand: { type: 'string' },
       iteration: { type: 'string', default: '0' },
       cases: { type: 'string' },
       model: { type: 'string' },
@@ -581,7 +582,7 @@ if (import.meta.main) {
   const [tune, proposer] = positionals;
   if (!tune || !['retro', 'history', 'structure'].includes(proposer ?? '') || !values.id || !values.from) {
     console.error(
-      'usage: node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--runs <dir>]'
+      'usage: node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--cand <id>]'
     );
     process.exit(2);
   }
@@ -591,7 +592,7 @@ if (import.meta.main) {
     proposer: proposer as Proposer,
     from: resolve(values.from),
     iteration: Number(values.iteration),
-    ...(values.runs && { runs: resolve(values.runs) }),
+    ...(values.cand && { cand: values.cand }),
     ...(values.cases && { cases: resolve(values.cases) }),
     ...(values.model && { model: values.model }),
   });

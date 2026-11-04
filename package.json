@@ -52,7 +52,7 @@
     "lint": "oxlint",
     "knip": "knip && knip --production --exports --files",
     "format": "oxfmt src harnesses agentgraph.config.ts tests bin bench studio tune",
-    "bench": "node bench/drive.ts",
+    "bench": "node bench/start-runs.ts",
     "hooks": "git config core.hooksPath \"$(git rev-parse --show-prefix)bin/hooks\""
   },
   "dependencies": {

@@ -18,7 +18,7 @@ import {
   type ResultSource,
   type RunResults,
 } from '../studio/src/results/result.ts';
-import { readBenchRows } from './bench.ts';
+import { readBenchRows } from '../bench/runs.ts';
 import { readFileOrEmpty, readJsonl } from './resume.ts';
 import { type Step, tunesOf } from './tune.ts';
 
@@ -154,7 +154,7 @@ export const readRunResults = (
       ? readRuns(dirs.data ?? '', graph)
       : from === 'tune'
         ? readTunes(dirs.tune)
-        : (dirs.bench ?? []).flatMap(out => readBenchRows(out)).map(row => readBenchRowResults(row));
+        : readBenchRows(dirs.bench ?? []).map(row => readBenchRowResults(row));
   const fixed = from === 'bench' ? benchFields : from === 'tune' ? tuneFields : [];
   const found = findCheckFields(runs, graph?.checks).filter(f => !fixed.some(x => x.check === f.check));
   return { fields: [...found, ...fixed], runs };

@@ -1,11 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Effect, Result } from 'effect';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadGraph } from '../src/folder.ts';
 import { claudeUsed, fitting, propose, type Proposer } from '../tune/propose.ts';
-import { tmp } from './kit.ts';
+import { git, tmp } from './kit.ts';
+import { getBenchSlot } from '../bench/runs.ts';
+import { writeImportedRun } from '../src/instance.ts';
+import { writeRunLabels } from '../src/labels.ts';
 import { harnesses } from './fixtures.ts';
 
 const root = join(import.meta.dirname, '..');
@@ -96,8 +99,53 @@ const trace = [
 
 let dir: string;
 let tune: string;
-beforeEach(() => {
+const runs: Record<string, string> = {};
+const setHidden = (id: string, pass: boolean, check = 'bench/hidden') =>
+  appendFileSync(
+    runs[id]!,
+    `${JSON.stringify({ at: new Date().toISOString(), step: 'bench', check: { check, pass: check === 'bench/arm' || pass, ms: 0, ...(!pass && { findings: `hidden of ${id}` }) }, version: 't', usd: 0, later: true })}\n`
+  );
+beforeEach(async () => {
   dir = tmp('propose');
+  const repo = join(dir, 'repo');
+  save(join(repo, 'src/x.ts'), 'base\n');
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'base');
+  const base = git(repo, 'rev-parse', 'HEAD').trim();
+  const addCaseRun = async (id: string) => {
+    git(repo, 'checkout', '-q', base);
+    save(join(repo, 'src/x.ts'), `bot ${id}\n`);
+    git(repo, 'commit', '-qam', id);
+    const input = { case: id, arm: 'v2', repeat: 1 };
+    const at = join(getBenchSlot(tune, input), '1');
+    git(dir, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
+    const data = join(at, 'data');
+    const run = await writeImportedRun(
+      { repo, tracker: join(at, 'tracker'), data },
+      git(repo, 'rev-parse', 'HEAD').trim(),
+      {
+        version: 't',
+        from: base,
+        input,
+      }
+    );
+    await Effect.runPromise(writeRunLabels(data, run, { cand: 'inc' }));
+    save(
+      join(data, 'issue-1-1', 'run.json'),
+      JSON.stringify({
+        id: 'issue-1-1',
+        workflow: 'issue',
+        status: 'waiting',
+        usd: 0.1,
+        started: '2000-01-01T00:00:00.000Z',
+      })
+    );
+    save(join(data, 'issue-1-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
+    runs[id] = join(data, run, 'checks.jsonl');
+    setHidden(id, id === 'a-3', 'bench/arm');
+    setHidden(id, id === 'a-3');
+  };
   tune = join(dir, 'tune', 'r', 't1');
   const cases = {
     'a-1': 'fit',
@@ -118,16 +166,7 @@ beforeEach(() => {
       join(c, 'reviews.md'),
       id.startsWith('m-') ? `### src/a.ts:1 (rev)\n\nplease add a changelog entry for ${id}, ${'x'.repeat(80)}\n` : ''
     );
-    const arm = join(tune, 'runs', 'inc', id, 'v2');
-    save(join(tune, 'runs', 'inc', id, 'valid.json'), '{}');
-    save(join(tune, 'runs', 'inc', id, 'human', 'score.json'), '{}');
-    save(join(arm, 'score.json'), JSON.stringify({ files: 1, hidden: { ok: id === 'a-3', tail: `hidden of ${id}` } }));
-    save(join(arm, 'diff.patch'), `diff --git a/src/x.ts b/src/x.ts\n+bot ${id}\n`);
-    save(
-      join(arm, 'data', 'issue-1-1', 'run.json'),
-      JSON.stringify({ id: 'issue-1-1', workflow: 'issue', status: 'waiting', usd: 0.1 })
-    );
-    save(join(arm, 'data', 'issue-1-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
+    if (!id.startsWith('m-')) await addCaseRun(id);
   }
   cpSync(join(root, 'examples', 'bench'), join(dir, 'graph'), { recursive: true });
   save(join(dir, 'claude'), stub);
@@ -142,13 +181,13 @@ afterEach(() => {
 });
 
 const run = (proposer: Proposer, id = `i1-${proposer}`) =>
-  propose({ tune, id, proposer, from: join(dir, 'graph'), runs: join(tune, 'runs', 'inc'), iteration: 2 });
+  propose({ tune, id, proposer, from: join(dir, 'graph'), cand: 'inc', iteration: 2 });
 const graphOk = (graph: string) => Effect.runPromise(Effect.result(loadGraph(graph, harnesses))).then(Result.isSuccess);
 
 describe('propose', () => {
   it('rejects missing case results instead of treating them as passing cases', async () => {
-    rmSync(join(tune, 'runs/inc/a-1'), { recursive: true });
-    await expect(run('retro')).rejects.toThrow('a-1: no scored case');
+    rmSync(dirname(dirname(dirname(dirname(runs['a-1']!)))), { recursive: true });
+    await expect(run('retro')).rejects.toThrow('a-1: no scored run');
   });
 
   it.each(['retro', 'history', 'structure'] as const)('%s writes a valid graph and a rationale', async proposer => {
@@ -194,7 +233,7 @@ describe('propose', () => {
   });
 
   it('lets retro learn from one failing case and shows held-out cases only as counts', async () => {
-    save(join(tune, 'runs', 'inc', 'a-2', 'v2', 'score.json'), JSON.stringify({ files: 1, hidden: { ok: true } }));
+    setHidden('a-2', true);
     process.env.STUB_ANSWER = 'one';
     const p = await run('retro');
     expect(p.problems).toEqual([]);
@@ -211,8 +250,7 @@ describe('propose', () => {
     const again = await run('retro', 'i1-b');
     expect([again.rationale, again.usd]).toEqual(['the same question was answered with nothing before', 0]);
     expect(existsSync(join(tune, 'cands', 'i1-b'))).toBe(false);
-    for (const id of ['a-1', 'a-2'])
-      save(join(tune, 'runs', 'inc', id, 'v2', 'score.json'), JSON.stringify({ files: 1, hidden: { ok: true } }));
+    for (const id of ['a-1', 'a-2']) setHidden(id, true);
     expect((await run('history', 'i1-c')).usd).toBe(0.25);
     expect((await run('structure', 'i1-d')).rationale).toBe('no cases to learn from');
   });

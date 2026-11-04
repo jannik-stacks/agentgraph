@@ -4,22 +4,16 @@ The bench replays merged pull requests from their parent commit and issue. Hidde
 
 ## Run a set
 
-A bench dir holds `set.json` and `cases/`. `bench/drive.ts` runs every case at each point and repeat with the engine at `<dir>/<sha>/engine` (or `ENGINE`): validity, both arms, scoring and judging (`JUDGES`, default `opus:1,sonnet:2`; `none` skips).
+A set dir holds `set.json` and `cases/`. Every bench result is a run: an arm's session is an engine run, and the `human` and `base` references are [imported runs](runs.md) of the merged change and of no change. Scorers and judges add `bench/*` results to a run's `checks.jsonl` as later entries whose version is the scorer's hash, and never touch a forge. `bench/start-runs.ts` starts the runs a plan names and skips the ones already on disk:
 
 ```sh
-git worktree add --detach <dir>/<sha>/engine <sha>
-ln -s "$PWD/node_modules" <dir>/<sha>/engine/node_modules
-SHA=<sha> POINTS=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> node bench/drive.ts <dir>
-node bench/drive.ts resume <dir>
+node bench/start-runs.ts <set> --points opencode:luna --repeats 3 --arms v2,floor --keys <keys file>
+node bench/start-runs.ts <set> --points opencode:luna --repeats 3 --dry
 ```
 
-Each run dir, `<dir>/<sha>/<harness>-<model>/r<k>`, gets `report.md` and `point.json`. Points take aliases such as `opencode:glm` ([OpenRouter](../infra/local/README.md#openrouter-models)). `BENCH_EXCLUDE=<repo>,<repo>` skips repos. Results are cached in `<dir>/.cache` (`BENCH_CACHE`) by case, arm, graph, engine `src` tree, point and repeat; `BENCH_FRESH=1` ignores it.
+A plan is every case of `set.json` times each arm, point and repeat, with `--cases`, `--graph <dir>` and any `--label k=v`. Each unit gates its case on the references, then runs, scores and judges its slot through `bin/bench.ts` (`--judges`, default `opus:1,sonnet:2`; `none` skips). Points take aliases such as `opencode:glm` ([OpenRouter](../infra/local/README.md#openrouter-models)). Before any unit starts it names every queued point that has no list price or that the model proxy refuses a one-line request with the key its agents get. Logs go to `<set>/logs/<case>-<arm>-<point>-r<k>.log`. <!-- code: bin/bench.ts#whyPointUnready bench/runs.ts#isBenchUnitDone -->
 
-Before any job starts, the driver stops if the engine is not at `SHA` or has uncommitted changes, and names every queued point that has no list price or that the model proxy refuses a one-line request with the key its agents get. Logs go to `<dir>/logs/<harness>-<model>-r<k>-<case>.log` and `report-<harness>-<model>-r<k>.log`. `bench run` puts [run labels](runs.md#run-labels) on every run it starts: `case`, `arm`, `harness`, `model`, `repeat`, `engine` (its commit) and any `--label k=v`; the driver adds `set`, its `SHA` as `engine` and `LABELS`. Labels only describe runs: a job is done when its case is invalid, or when each arm has a scored diff and the judges wrote `judge/panel.json` unless `JUDGES=none`. A reused cached arm gets this invocation's labels in place of the ones it was cached with. When it finishes, the driver removes the score trees no process holds. <!-- code: bin/bench.ts#whyPointUnready bin/resume.ts#removeUnheldScoreTrees bin/bench.ts#reuse -->
-
-`LABELS=experiment=skills,team=bench` adds free labels to `point.json`. Like the engine and model, `LABELS` is fixed on first start and restored on resume.
-
-<!-- code: bench/drive.ts#parseBenchLabels bench/drive.ts#configure -->
+A run's identity is its origin input: case, arm, repeat, point and the graph's tree hash. It picks the slot `<set>/runs/<case>-<arm>-r<k>-<hash>/`, where each attempt gets its own numbered dir with the graph, a tracker and the run data. References are one slot per case at repeat 1. A unit is done when its case is invalid, its arm failed for infra, or its slot has `bench/size` and, when judged, `bench/judge`. [Run labels](runs.md#run-labels) are free metadata on top: `bench run` adds `case`, `arm`, `harness`, `model`, `repeat`, `engine` (its commit) and any `--label k=v`. <!-- code: bench/runs.ts#getBenchSlot bin/bench.ts#runArm bin/bench.ts#writeReferenceRun -->
 
 ## Cases
 
@@ -37,9 +31,9 @@ A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden
 
 Case commands override repo recipes. A case that touches test files without a test command is invalid, including repos without a recipe. Cases without test files record a hidden-test skip. The gate prints its verdict, reason and test counts; reports count skips and list their reasons.
 
-A tested case is valid only if its hidden tests fail on base and pass on the human change, and the human change applies, sets up and passes the suite and typecheck. A coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json`. Repos whose tests start containers are left out.
+A tested case is valid only if its hidden tests fail on base and pass on the human change, and the human change applies, sets up and passes the suite and typecheck. A coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why as a failed `bench/valid` result on the human run. Repos whose tests start containers are left out.
 
-Image selection uses case `image`, then the selected graph's `image`, then the operator fallback and stock sandbox. `BENCH_DIR` selects an external graph; floor replacement keeps that graph's resolved image. Each case saves its Docker ID in `image.json` before validity checks or arm reuse. Resume uses that ID even if the tag moves; restore a missing ID by rebuilding or pulling the original image. A Docker daemon that does not answer is reported as unreachable, not as a missing image, and the arm waits for it. A new output dir selects a new image. Validity, scores and arm caches include the ID, and arm `meta.json` and score records expose it. Old records without image identity are recomputed. <!-- code: bin/bench.ts#readCaseImage bin/bench.ts#armSlot src/docker.ts#readImage -->
+Image selection uses case `image`, then the selected graph's `image`, then the operator fallback and stock sandbox. `--graph` selects an external graph; floor replacement keeps that graph's resolved image. Each case saves its Docker ID in `<set>/work/<case>/image.json` before validity checks. Resume uses that ID even if the tag moves; restore a missing ID by rebuilding or pulling the original image. A Docker daemon that does not answer is reported as unreachable, not as a missing image, and the arm waits for it. A new set dir selects a new image. Scorer versions include the ID, and the `bench/setup` result records it. <!-- code: bin/bench.ts#readCaseImage src/docker.ts#readImage -->
 
 Bench cleanup only considers labelled environment tags recorded in that case's `.envs/refs.jsonl`. It preserves live holds, pins and lower volumes still used by retained environments. Low disk blocks when scoped cleanup cannot free enough. <!-- code: src/disk.ts#collect src/disk.ts#ensureFreeDisk -->
 
@@ -56,16 +50,15 @@ Each arm starts from the base with the fix hidden. A scripted maintainer answers
 ## Commands
 
 ```sh
-node bin/bench.ts run v2 <case> <out> --repo <clone>
-node bin/bench.ts score <case> <out> --repo <clone>
-node bin/bench.ts judge <case> <out>
-node bin/bench.ts report <out>
-node bin/bench.ts status <out>
+node bin/bench.ts import human <case> <set> --repo <clone>
+node bin/bench.ts run v2 <case> <set> --repo <clone> --point opencode:luna --repeat 1
+node bin/bench.ts score v2 <case> <set> --repo <clone> --point opencode:luna --repeat 1
+node bin/bench.ts judge v2 <case> <set> --point opencode:luna --repeat 1
 ```
 
-`run` writes `diff.patch`, `meta.json` and `usage.json`, and refuses a model without a list price. `score` runs the suite, typecheck and hidden tests, offline except setup, and counts lines, overlap, tests, sessions, cost and answers; `--drop-env` removes its environments. `judge` compares pairs blind through `claude -p` and the `smart` alias; `--judges opus:1,sonnet:2` sets the panel and diff orders, and a judge from the contestant's maker is swapped. `bench/judge.md` puts correctness first, then scope. `report` writes rates, win rates with bootstrap intervals, means, judge agreement and label sections, with cost at list price; an unpriced model is listed, never $0.
+`import` keeps a reference as an imported run. `run` starts a new attempt in the slot, refuses a model without a list price, and ends with a `bench/arm` result. `score` imports and gates the references first, then writes `bench/setup`, `bench/size`, `bench/suite`, `bench/typecheck` and `bench/hidden`, offline except setup; `--drop-env` removes its environments. `judge` compares the run with the human run blind through `claude -p` and the `smart` alias and writes `bench/judge`; `--judges opus:1,sonnet:2` sets the panel and diff orders, and a judge from the contestant's maker is swapped. `bench/judge.md` puts correctness first, then scope. <!-- code: bin/bench.ts#score bin/bench.ts#judge -->
 
-Keys come from `--keys` (`infra/local/.keys.env`). Paid steps stop past `--max-codex` weekly Codex points (30) or `--max-claude-calls` judge calls (60).
+Keys come from `--keys` (`infra/local/.keys.env`). Paid steps stop past `--max-codex` weekly Codex percent (90) or `--max-claude-calls` judge calls (60).
 
 ## Cost against quality
 
@@ -73,15 +66,15 @@ Keys come from `--keys` (`infra/local/.keys.env`). Paid steps stop past `--max-c
 cd studio && npm run dev -- --bench <runs dir> <runs dir>
 ```
 
-Bench is a built-in [studio page plugin](plugins.md#studio-pages) at `/bench`. It is registered only when the studio starts with bench dirs, as above, so without them there is no Bench tab. Its reader serves every row of the bench out dirs under those dirs, each with its arm's run ids, and where each driven bench dir stands; it watches those dirs. <!-- code: studio/plugins.ts#makeStudioPagesPlugin studio/src/bench/read.ts#readBench -->
+Bench is a built-in [studio page plugin](plugins.md#studio-pages) at `/bench`. It is registered only when the studio starts with bench dirs, as above, so without them there is no Bench tab. Its reader turns every bench run under those dirs into a row, one per slot from its newest attempt, and watches those dirs. <!-- code: studio/plugins.ts#makeStudioPagesPlugin studio/src/bench/read.ts#readBench bench/runs.ts#readBenchRows -->
 
-The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests, judge preference (doubled, capped at 1) and suite scores, weighted by sliders, minus penalties. Cases without hidden tests form a `judge-only` point. Checking cost stays out of an arm's cost. Crosses show 95% intervals from 10 cases on. The staircase joins the points no cheaper point beats, and shows only when one case set is in view, since points on different sets do not compare. The names buttons choose which labels name the points; labels that cannot fit without overlap are hidden. Below the plot, one row per point, grouped by set, shows its label values, each case's mean over its repeats behind the point's mean, a band over the middle half of the cases with their median marked, and a hairline over every run with the run median marked (the tooltip names the case and run figures apart), cases, the share of runs passing hidden tests, cost per run as mean ± spread, and time. A picked row lists its runs, each linked to its trace at `/runs/<id>?data=<arm data dir>`. The trace keeps `data` for its full logs, results and links, and the studio serves it only when the real path, after symlinks, is inside a bench dir. Check fields are summed per point below the rows.
+The Bench tab plots each point. Quality is 0 for nothing useful and 1 for matching the human: hidden tests, judge preference (doubled, capped at 1) and suite scores, weighted by sliders, minus penalties. Cases without hidden tests form a `judge-only` point. Checking cost stays out of an arm's cost. Crosses show 95% intervals from 10 cases on. The staircase joins the points no cheaper point beats, and shows only when one case set is in view, since points on different sets do not compare. The names buttons choose which labels name the points; labels that cannot fit without overlap are hidden. Below the plot, one row per point, grouped by set, shows its label values, each case's mean over its repeats behind the point's mean, a band over the middle half of the cases with their median marked, and a hairline over every run with the run median marked (the tooltip names the case and run figures apart), cases, the share of runs passing hidden tests, cost per run as mean ± spread, and time. A picked row lists its runs, each linked to its trace at `/runs/<id>?data=<run data dir>`. The trace keeps `data` for its full logs, results and links, and the studio serves it only when the real path, after symlinks, is inside a bench dir. Check fields are summed per point below the rows.
 
 Each row has one `labels` map containing case attributes, explicit case labels, free run labels, and the harness, model, arm, engine, graph and set. Case attributes override free labels. Generated run attributes override both. `node bin/results.ts bench` exports the rows as a result sheet with every label as an axis; its point axis is a display grouping when no explicit point label exists.
 
-`agents-md`, `claude-md` and `skills` are `true` or `false` from read-only `git ls-tree` at the case base commit. Skills include `.claude/skills`, `.agents/skills`, `.cursor/rules` and `.github/skills`. New scores save them in the result's case record. Old runs derive them from their case tree clone or the standard repo clone when the base is available; otherwise those labels are absent. Old JSON needs no migration, including graph trees recorded as `"hubs"`.
+`agents-md`, `claude-md` and `skills` are `true` or `false` from read-only `git ls-tree` at the case base commit. Skills include `.claude/skills`, `.agents/skills`, `.cursor/rules` and `.github/skills`. Scores save them in the `bench/setup` result.
 
-<!-- code: bin/bench.ts#readBenchRows bin/bench.ts#readBenchSetupLabels studio/src/results/result.ts#readBenchRowResults -->
+<!-- code: bench/runs.ts#readBenchRows bin/bench.ts#readBenchSetupLabels studio/src/results/result.ts#readBenchRowResults -->
 
 The Bench controls discover every label key. URL `where` is a JSON object of label keys to allowed value arrays, `by` is a comma-separated list of grouping keys, and `color` is a label key (empty means no colour). Values within a filter are alternatives; all filtered keys must match. Colour also splits points. For example, `/bench?where=%7B%22repo%22%3A%5B%22stx-labs%2Fexplorer%22%5D%7D&by=model,graph&color=skills` compares model and graph on explorer, coloured by skill presence. Judge-only cases and different sets always stay separate. Omitting `by` groups by harness, model, arm, engine, graph and set; an empty `by` combines them within each set.
 
@@ -89,6 +82,6 @@ The Bench controls discover every label key. URL `where` is a JSON object of lab
 
 ## Long runs
 
-Rerun the same command after an interruption; `resume <dir>` rebuilds the queue from disk. `diff.patch` marks an arm done, live `<arm>.lock` holders are skipped, and abandoned work moves to `<case>/.attic/`. The first start pins its settings in `drive.json` and `env.json`; only budgets (`MAX_CODEX`, and `CAP` and `PER` for OpenRouter dollars) may change later. Low disk [holds work](sandbox.md#disk). `touch <dir>/PAUSE` takes no new job, the `parallel` file sets workers live, and Ctrl-C or `kill <pid in drive.lock>` stops. One driver runs per dir, and it exits 1 while jobs are left.
+Rerun the same command after an interruption: units whose slot is done are skipped, and a unit whose run ended without a result starts a new attempt beside the old one. Low disk [holds work](sandbox.md#disk). Ctrl-C or `kill <pid in start-runs.lock>` stops. One `start-runs` works per set, and it exits 1 while units are left.
 
 `sh bin/overnight.sh <queue>` runs a file of commands, each up to three times; `sh bin/overnight.sh status <queue>` shows progress. Keep queues out of `/tmp`. Tunes live under `AGENTGRAPH_TUNE` (`~/.agentgraph/tune`); `node bin/tune.ts status <tune dir>` shows one.

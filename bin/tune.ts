@@ -17,17 +17,16 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { presets, quality, random } from '../studio/src/bench/score.ts';
 import { getMean, getRounded, sum } from '../src/stats.ts';
-import { propose as proposeWith } from '../tune/propose.ts';
-import { codexUsed, pickBenchTestCommands, progress, readBenchRows, statusText } from './bench.ts';
+import { propose as proposeWith, readCandidateRows } from '../tune/propose.ts';
+import { codexUsed, getBenchGraphHash, pickBenchTestCommands } from './bench.ts';
+import { type BenchRow, getBenchSlot, isBenchUnitDone } from '../bench/runs.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import {
   agentgraphDir,
   appendJsonl,
-  readBenchResultEnv,
   claim,
   readJsonl,
   onStop,
-  ensureRunSettingsPinned,
   release,
   readFileOrEmpty,
   startChildProcess,
@@ -52,7 +51,7 @@ type Eval = Step['evals'][number];
 export type Flip = NonNullable<Eval['flips']>[string];
 type Proposer = Step['proposer'];
 type Candidate = Pick<Step, 'id' | 'iteration' | 'parent' | 'proposer' | 'graph' | 'rationale' | 'diff'>;
-type Row = ReturnType<typeof readBenchRows>[number];
+type Row = BenchRow;
 /** The latest reading of a usage window in percent, and the points used since the first, across window resets. */
 type Reading = { now: number; used: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
@@ -144,14 +143,13 @@ const ids = (t: Tune, ...splits: Split[]) =>
 
 const scores = (rows: Row[], preset: Tune['preset']) => {
   const w = preset === 'hidden' ? { ...presets['hidden tests only']!, suite: 0.15 } : presets.composite!;
-  const human = new Map(rows.filter(r => r.labels.arm === 'human').map(r => [r.case, r]));
   const out = new Map<
     string,
     { qs: number[]; paid: number[]; took: number[]; runs: number; usd: number; min: number }
   >();
   for (const r of rows.filter(r => r.labels.arm === 'v2')) {
     const s = out.get(r.case) ?? { qs: [], paid: [], took: [], runs: 0, usd: 0, min: 0 };
-    const q = r.infra ? undefined : quality(r, w, undefined, human.get(r.case));
+    const q = r.infra ? undefined : quality(r, w);
     if (q !== undefined) {
       s.qs.push(q);
       s.paid.push(r.usd ?? 0);
@@ -218,55 +216,56 @@ const evalOf = (
 };
 
 type Job = { id: string; case: string; repeat?: number };
-const outOf = (j: Job) => (j.repeat && j.repeat > 1 ? `${j.id}@${j.repeat}` : j.id);
-const unitOf = (dir: string, j: Job) => ({ out: join(dir, 'runs', outOf(j)), case: j.case, arm: 'v2' });
-/** A job is done once its v2 run is scored or its case is invalid. */
-const finished = (dir: string, j: Job) => {
-  const at = join(dir, 'runs', outOf(j), j.case);
-  return (
-    existsSync(join(at, 'v2', 'score.json')) ||
-    Boolean(JSON.parse(readFileOrEmpty(join(at, 'valid.json')) || '{}').invalid)
-  );
-};
+const makeJobInput = (dir: string, t: Tune, j: Job) => ({
+  case: j.case,
+  arm: 'v2',
+  repeat: j.repeat ?? 1,
+  point: t.point,
+  graph: getBenchGraphHash(join(dir, 'cands', j.id, 'graph')),
+});
 const tuneLog = (dir: string) => (e: object) =>
   appendJsonl(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
 
-/** The bench as the tune drives it: one v2 run and score per job, judged on request, `parallel` at a time. */
+/**
+ * The bench as the tune drives it: one v2 run and score per job, judged on request, `parallel` at a time. The tune dir
+ * is the bench set; each candidate is a graph variant, labelled with the tune and the candidate.
+ */
 const bench = {
   run: async (dir: string, t: Tune, jobs: Job[], o: { parallel: number; judged?: boolean; keys?: string }) => {
-    const engine = engineAt(t);
-    const call = (args: string[], id: string, repeat = 1) =>
+    engineAt(t);
+    const call = (command: string, j: Job) =>
       new Promise<number>(done => {
         const child = startChildProcess(
           process.execPath,
           [
             join(agentgraphDir, 'bin/bench.ts'),
-            ...args,
+            command,
+            'v2',
+            join(dir, 'cases', j.case),
+            dir,
+            '--repo',
+            t.clone,
+            '--graph',
+            join(dir, 'cands', j.id, 'graph'),
+            '--point',
+            t.point,
+            '--repeat',
+            String(j.repeat ?? 1),
+            ...(command === 'run' ? ['--label', `tune=${basename(dir)}`, '--label', `cand=${j.id}`] : []),
             ...(o.keys ? ['--keys', o.keys] : []),
-            ...(repeat > 1 ? ['--repeat', String(repeat)] : []),
           ],
-          {
-            stdio: ['ignore', 'inherit', 'inherit'],
-            env: {
-              ...process.env,
-              BENCH_DIR: join(dir, 'cands', id, 'graph'),
-              BENCH_CACHE: join(tuneRoot(), '.cache'),
-              BENCH_ENGINE: engine,
-              BENCH_POINT: t.point,
-              NODE_OPTIONS: '',
-            },
-          }
+          { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, NODE_OPTIONS: '' } }
         );
         child.on('close', code => done(code ?? 1));
       });
+    const finished = (j: Job) => isBenchUnitDone(dir, makeJobInput(dir, t, j), Boolean(o.judged));
     let queue: Job[] = [];
     const next = async () => {
       for (let j = queue.shift(); j; j = queue.shift()) {
-        const [caseDir, out] = [join(dir, 'cases', j.case), join(dir, 'runs', outOf(j))];
-        mkdirSync(out, { recursive: true });
-        await call(['run', 'v2', caseDir, out, '--repo', t.clone], j.id, j.repeat);
-        await call(['score', caseDir, out, '--repo', t.clone], j.id, j.repeat);
-        if (o.judged) await call(['judge', caseDir, out, '--pairs', 'human'], j.id, j.repeat);
+        await call('score', j);
+        await call('run', j);
+        await call('score', j);
+        if (o.judged) await call('judge', j);
       }
     };
     writeFileAtomic(join(dir, 'phase.json'), { at: new Date().toISOString(), parallel: o.parallel, jobs });
@@ -274,20 +273,17 @@ const bench = {
     for (let round = 0, left = jobs; ;) {
       queue = [...left];
       await Promise.all(Array.from({ length: o.parallel }, next));
-      left = jobs.filter(j => !finished(dir, j));
+      left = jobs.filter(j => !finished(j));
       if (!left.length) return;
-      const held = left.some(j => isLockedByOtherProcess(join(dir, 'runs', outOf(j), j.case, 'v2')));
+      const held = left.some(j => isLockedByOtherProcess(getBenchSlot(dir, makeJobInput(dir, t, j))));
       log({ event: 'unfinished', jobs: left.length, held, round });
       if (!held && ++round >= 3) throw new Error(`${left.length} runs unfinished after 3 rounds; rerun to resume`);
       await waitWhileServicesDown(log);
       await sleep(held ? 30_000 : 60_000);
     }
   },
-  /** Rows of every run of a candidate, its repeats in `runs/<id>@<k>` included. */
-  rows: (dir: string, id: string) =>
-    subdirs(join(dir, 'runs'))
-      .filter(n => n === id || n.startsWith(`${id}@`))
-      .flatMap(n => readBenchRows(join(dir, 'runs', n))),
+  /** Rows of every run of a candidate, its repeats included. */
+  rows: readCandidateRows,
   codex: () => codexUsed(),
   propose: (o: Parameters<typeof proposeWith>[0]) => proposeWith(o),
 };
@@ -295,7 +291,7 @@ type Io = typeof bench;
 
 /** The engine dir to run, after checking its `src` tree is the pinned engine's. */
 const engineAt = (t: Tune) => {
-  const dir = process.env.BENCH_ENGINE ?? agentgraphDir;
+  const dir = agentgraphDir;
   const tree = (rev: string) => {
     const result = spawnSync('git', ['-C', dir, 'rev-parse', `${rev}:./src`], { encoding: 'utf8' });
     if (result.status !== 0) throw new Error(`engine tree ${rev}: ${result.error?.message ?? result.stderr}`);
@@ -470,7 +466,7 @@ export const init = async (
     for (const id of gated) if (splits[id] === 'validate' || splits[id] === 'test') cases[id] = splits[id];
     for (const id of Object.keys(cases)) cpSync(join(o.cases, id), join(dir, 'cases', id), { recursive: true });
     const engine = (...args: string[]) =>
-      spawnSync('git', ['-C', process.env.BENCH_ENGINE ?? agentgraphDir, ...args], { encoding: 'utf8' }).stdout.trim();
+      spawnSync('git', ['-C', agentgraphDir, ...args], { encoding: 'utf8' }).stdout.trim();
     const t: Tune = {
       repo: String(meta(gated[0] ?? '').repo ?? repo),
       engine:
@@ -603,14 +599,13 @@ export const step = async (
     if (queued.length >= (o.k ?? 3)) break;
     const id = freeId(dir, iteration, proposer);
     const before = guard(dir, io, limits);
-    const runs = join(dir, 'runs', inc.id);
     const made = await io
       .propose({
         tune: dir,
         id,
         proposer,
         from: join(dir, 'cands', inc.id, 'graph'),
-        runs,
+        cand: inc.id,
         iteration,
         ...(o.model && { model: o.model }),
       })
@@ -824,12 +819,9 @@ export const status = (dir: string, limits = limitsDefault) => {
       .filter(existsSync)
       .map(f => statSync(f).mtimeMs)
   );
-  const ofPhase = (p: { parallel: number; jobs: Job[] }) => {
-    const { eta, ...rest } = progress(
-      p.jobs.map(j => unitOf(dir, j)),
-      p.parallel
-    );
-    return live && eta !== undefined ? { ...rest, eta } : rest;
+  const ofPhase = (p: { jobs: Job[] }) => {
+    const done = p.jobs.filter(j => isBenchUnitDone(dir, makeJobInput(dir, t, j), false)).length;
+    return `  ${done} of ${p.jobs.length} runs done`;
   };
   return [
     `${t.repo} on ${t.point}: ${steps.length} steps over ${nextIteration(steps) - 1} iterations, incumbent ${inc?.id ?? 'none yet'}`,
@@ -840,7 +832,7 @@ export const status = (dir: string, limits = limitsDefault) => {
     live ? `running as pid ${pid}` : 'no live lock',
     written ? `last log write ${Math.round((Date.now() - written) / 60_000)} min ago` : 'no log yet',
     ...(last ? [`last event: ${JSON.stringify(last)}`] : []),
-    ...(phase ? [`phase since ${phase.at}:`, statusText(ofPhase(phase))] : []),
+    ...(phase ? [`phase since ${phase.at}:`, ofPhase(phase)] : []),
   ].join('\n');
 };
 
@@ -898,12 +890,6 @@ if (import.meta.main) {
       process.exit(1);
     }
     process.on('exit', () => release(join(dir, 'tune')));
-    const env = ensureRunSettingsPinned(join(dir, 'env.json'), {
-      ...readBenchResultEnv(),
-      ...(o.keys && { keys: o.keys }),
-    });
-    for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
-    if (env.keys) Object.assign(o, { keys: env.keys });
     onStop(signal => {
       tuneLog(dir)({ event: 'paused', signal });
       release(join(dir, 'tune'));

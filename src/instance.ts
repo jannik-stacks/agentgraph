@@ -398,7 +398,7 @@ const sendPack = async (i: Instance, list: string) => {
   return join(packs, `pack-${id}.keep`);
 };
 
-const commitPatch = async (i: Instance, base: string, patch: string) => {
+const commitPatch = async (i: Pick<Instance, 'tracker'>, base: string, patch: string) => {
   const index = { GIT_DIR: origin(i), GIT_INDEX_FILE: join(tmpdir(), `agentgraph-import-${randomUUID()}.index`) };
   try {
     await git(index, ['read-tree', base]);
@@ -411,7 +411,7 @@ const commitPatch = async (i: Instance, base: string, patch: string) => {
 };
 
 export const writeImportedRun = async (
-  i: Instance,
+  i: Pick<Instance, 'repo' | 'tracker' | 'data'>,
   change: string,
   o: { version: string; from?: string; issue?: string; input?: JsonValue }
 ) => {

@@ -46,11 +46,11 @@ That gives one case per merged pull request with a linked issue, a clone in `R/r
 oldest 60% train, 20% validate, newest 20% test. Gate each case with tests, no model calls:
 
 ```sh
-node bin/bench.ts score R/cases/<id> R/gate --repo R/repos/<repo>
+node bin/bench.ts score human R/cases/<id> R/gate --repo R/repos/<repo>
 ```
 
-Keep a case only when `valid.json` says the hidden tests fail on the base and pass on the human; write those
-to `R/splits.gated.json`. With fewer than about 12 fit plus validate and 5 test cases, say the numbers will
+Keep a case only when the gate line it prints says valid: the hidden tests fail on the base and pass on the
+human. Write those to `R/splits.gated.json`. With fewer than about 12 fit plus validate and 5 test cases, say the numbers will
 be noisy and ask whether to go on.
 
 ## 3. Start from a minimal graph
@@ -66,8 +66,8 @@ the starting score from `node bin/tune.ts status T`.
 ## 4. One round
 
 Read the incumbent at `T/cands/<id>/graph` (the last `kept` line of `T/iterations.jsonl`), the traces and
-diffs of its fit cases below 1 under `T/runs/<id>/`, and the mine cases' merged diffs and `reviews.md`. Then
-launch 3 to 5 subagents (opus) in one message, each with its own direction:
+diffs of its fit cases below 1 (the runs under `T/runs/` labelled `cand=<id>`), and the mine cases' merged
+diffs and `reviews.md`. Then launch 3 to 5 subagents (opus) in one message, each with its own direction:
 
 - **Structure**: add or drop a step, `tries` 2 to 3, a scout before implement, a check from `block` to
   `warn`. A removal that does not lose is a win.
@@ -136,8 +136,8 @@ folder. Nothing outside it is readable, and there is no shell. The folder holds:
 
 - `graph/`: the incumbent graph. Leave it as it is.
 - `cases.json` and `cases/<id>/`: the fit and mine cases, with `issue.md`, `merged.diff` and `reviews.md`.
-- `runs/<id>/`: the incumbent's runs on the fit cases: `v2/score.json` (`hidden.ok`, `hidden.tail`),
-  `v2/diff.patch`, and the run trace under `v2/data/`.
+- `runs/<id>/r<k>/`: the incumbent's runs on the fit cases: `hidden.txt` (the hidden test tail, empty when
+  they pass), `change.diff`, and the run trace under `data/`.
 - `tried.md`: every earlier candidate of this tune with its verdict, why and diff.
 - `out/d1/graph` up to `out/d<k>/graph`: copies of the incumbent, one slot per proposal.
 

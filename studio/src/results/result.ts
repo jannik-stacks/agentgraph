@@ -1,4 +1,4 @@
-import type { readBenchRows } from '../../../bin/bench.ts';
+import type { BenchRow } from '../../../bench/runs.ts';
 import type { ResultSheet } from '../../../src/results.ts';
 import { formatNumber } from '../runs/trace.ts';
 
@@ -99,8 +99,6 @@ export const getFieldSummary = (runs: RunResults[], field: CheckField, trend = '
   };
 };
 
-type BenchRow = ReturnType<typeof readBenchRows>[number];
-
 export const benchFields: CheckField[] = [
   {
     check: 'bench',
@@ -114,11 +112,12 @@ export const benchFields: CheckField[] = [
   { check: 'bench', field: 'minutes', type: 'number', unit: 'minutes', description: 'wall time of the arm' },
 ];
 
-export const readBenchRowResults = (row: BenchRow, at = ''): RunResults => {
+export const readBenchRowResults = (row: BenchRow): RunResults => {
   const hidden = row.hiddenShare ?? row.hidden;
+  const at = Object.values(row.results)[0]?.at ?? '';
   return {
-    key: JSON.stringify([Object.entries(row.labels).toSorted(([a], [b]) => a.localeCompare(b)), row.case, row.repeat]),
-    at: Object.values(row.checks ?? {})[0]?.at ?? at,
+    key: row.run,
+    at,
     ...(row.infra && { dead: row.infra }),
     axes: {
       point: ['harness', 'model', 'arm', 'engine', 'graph', 'set'].map(k => `${k}=${row.labels[k] ?? ''}`).join(', '),
@@ -127,7 +126,7 @@ export const readBenchRowResults = (row: BenchRow, at = ''): RunResults => {
       ...row.labels,
     },
     results: {
-      ...row.checks,
+      ...row.results,
       bench: {
         at,
         pass: !row.infra && hidden === 1 && row.suite !== 0 && row.typecheck !== 0,

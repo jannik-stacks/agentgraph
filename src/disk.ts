@@ -127,6 +127,8 @@ const skipped = new Set(['data', 'tracker', 'graph', 'engine', 'cases', 'done', 
  * Score trees beside a `case.json` and `target-shared` dirs holding `CACHEDIR.TAG`, at most `depth` levels under
  * `root`. Records, run data, hidden dirs (attic, result cache, git) and a bench's engine, cases and logs are never
  * entered.
+ *
+ * @internal
  */
 export const findBuildDirs = (root: string, depth = 5): string[] => {
   let entries;

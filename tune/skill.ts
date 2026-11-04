@@ -27,7 +27,17 @@ import {
 import { agentgraphDir, parseJsonl, readFileOrEmpty } from '../bin/resume.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { getRounded } from '../src/stats.ts';
-import { claudeUsed, type ClaudeStreamEvent, formatCodeFence, graphProblems, type Usage } from './propose.ts';
+import {
+  claudeUsed,
+  type ClaudeStreamEvent,
+  formatCodeFence,
+  graphProblems,
+  readCandidateRows,
+  type Usage,
+} from './propose.ts';
+import { readAttemptRun, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
+import { writeRunLabels } from '../src/labels.ts';
+import { Effect } from 'effect';
 
 type Io = Parameters<typeof step>[2];
 type Limits = { codex: number; claude5h: number; claudeWeek: number };
@@ -73,11 +83,14 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
   if (!existsSync(join(dir, 'tune.json'))) {
     cpSync(join(like, 'cases'), join(dir, 'cases'), { recursive: true });
     cpSync(join(like, 'cands', first.id, 'graph'), join(dir, 'cands/i000-init/graph'), { recursive: true });
-    for (const id of idsOf(t.cases, 'fit', 'validate').filter(id => existsSync(join(like, 'runs', first.id, id))))
-      cpSync(join(like, 'runs', first.id, id), join(dir, 'runs/i000-init', id), {
-        recursive: true,
-        filter: src => !skipped.has(basename(src)),
-      });
+    const reused = idsOf(t.cases, 'fit', 'validate');
+    for (const row of (io?.rows ?? readCandidateRows)(like, first.id).filter(r => reused.includes(r.case))) {
+      const slot = join(dir, 'runs', basename(dirname(row.at)));
+      cpSync(dirname(row.at), slot, { recursive: true });
+      await Effect.runPromise(
+        writeRunLabels(join(slot, basename(row.at), 'data'), row.run, { cand: 'i000-init', tune: name })
+      );
+    }
     spawnSync('git', ['init', '-q', '--bare', join(dir, 'graph.git')]);
     writeFileAtomic(join(dir, 'tune.json'), t);
   }
@@ -102,7 +115,7 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
 const skipped = new Set(['tree', 'tracker', 'homes', 'mirror.git', 'work', 'index', '.locks', 'news', 'logs']);
 
 /** The round's workspace: the incumbent graph, fit and mine cases, the incumbent's fit runs, the history and `k` slots. */
-const workspace = (dir: string, w: string, k: number) => {
+const workspace = (dir: string, w: string, k: number, io?: Io) => {
   const { tune: t, steps } = tuneRows(dir);
   const inc = steps.filter(s => s.verdict === 'kept').at(-1)!;
   const seen = idsOf(t.cases, 'mine', 'fit');
@@ -111,10 +124,16 @@ const workspace = (dir: string, w: string, k: number) => {
   cpSync(join(dir, 'cands', inc.id, 'graph'), join(w, 'graph'), { recursive: true });
   for (const id of seen) cpSync(join(dir, 'cases', id), join(w, 'cases', id), { recursive: true });
   writeFileAtomic(join(w, 'cases.json'), Object.fromEntries(seen.map(id => [id, t.cases[id]])));
-  for (const id of idsOf(t.cases, 'fit')) {
-    const from = join(dir, 'runs', inc.id, id);
-    if (existsSync(from))
-      cpSync(from, join(w, 'runs', id), { recursive: true, filter: src => !skipped.has(basename(src)) });
+  const fit = idsOf(t.cases, 'fit');
+  for (const row of (io?.rows ?? readCandidateRows)(dir, inc.id).filter(r => fit.includes(r.case))) {
+    const to = join(w, 'runs', row.case, `r${row.repeat}`);
+    cpSync(row.data, join(to, 'data'), { recursive: true, filter: src => !skipped.has(basename(src)) });
+    const found = readAttemptRun(row.at);
+    writeFileAtomic(join(to, 'change.diff'), found ? readRunChange(row.at, found.run) : '');
+    writeFileAtomic(
+      join(to, 'hidden.txt'),
+      readLatestRunChecks(row.data, row.run).get('bench/hidden')?.check.findings ?? ''
+    );
   }
   const tried = steps
     .filter(s => s.iteration > 0)
@@ -253,7 +272,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
   if (pre) throw new Error(pre);
   const w = join(dir, 'skill', `r${pad(iteration)}`);
   if (existsSync(w)) renameSync(w, `${w}.${Date.now()}`);
-  workspace(dir, w, o.k);
+  workspace(dir, w, o.k, io);
   const hidden = idsOf(tuneRows(dir).tune.cases, 'validate', 'test');
   const live: Live = {};
   const r: Round = {

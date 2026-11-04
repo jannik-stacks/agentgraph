@@ -1,5 +1,5 @@
 import { getMean } from '../../../src/stats.ts';
-import { getQuantile, readBenchRowResults } from '../results/result.ts';
+import { getQuantile } from '../results/result.ts';
 import type { BenchRow as Row } from './data.ts';
 
 export const roughBelow = 10;
@@ -21,7 +21,9 @@ export const presets: Record<string, typeof defaultBenchScoreWeights> = {
 
 export const cost = (row: Row, cacheOff = false) => (cacheOff ? row.usdUncached : row.usd);
 
-export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[], human?: Row) => {
+const countBad = (f?: Row['findings']) => (f ? f.critical + f.high : 0);
+
+export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[]) => {
   if (row.outcome === 'no-change') return 0;
   const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
   const parts: [number, number][] = [
@@ -34,8 +36,7 @@ export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: s
   const weight = parts.reduce((a, [wt]) => a + wt, 0);
   if (!weight) return undefined;
   const base = parts.reduce((a, [wt, v]) => a + wt * v, 0) / weight;
-  const bad = (r?: Row) => (r ? r.findings.critical + r.findings.high : 0);
-  const crit = Math.min(1, Math.max(0, bad(row) - bad(human)) / 3);
+  const crit = Math.min(1, Math.max(0, countBad(row.findings) - countBad(row.against)) / 3);
   return base - w.crit * crit - w.help * Math.min(1, row.answers);
 };
 
@@ -49,7 +50,7 @@ export const random = (seed: number) => {
   };
 };
 
-export const getRowKey = (row: Row) => JSON.stringify([row.data ?? '', readBenchRowResults(row).key]);
+export const getRowKey = (row: Row) => row.run;
 
 const getSpread = (xs: number[]) => ({
   median: getQuantile(xs, 0.5),
@@ -91,27 +92,18 @@ export const summarise = (
     color?: string;
   }
 ) => {
-  const baseline = (r: Row) =>
-    JSON.stringify([
-      r.case,
-      r.repeat,
-      Object.entries(r.labels)
-        .filter(([k]) => k !== 'arm' && k !== 'graph')
-        .toSorted(([a], [b]) => a.localeCompare(b)),
-    ]);
-  const humans = new Map(rows.filter(r => r.labels.arm === 'human').map(r => [baseline(r), r]));
   const keys = [...new Set([...(o.by ?? defaultBenchBy), ...(o.color ? [o.color] : []), 'set', 'tests'])];
   const byPoint = Map.groupBy(
     rows.filter(
       r =>
-        r.labels.arm !== 'human' &&
+        !['human', 'base'].includes(r.labels.arm ?? '') &&
         Object.entries(o.where ?? {}).every(([k, vs]) => !vs.length || vs.includes(r.labels[k]!))
     ),
     r => JSON.stringify(keys.map(k => [k, r.labels[k] ?? null]))
   );
   return [...byPoint].map(([key, all]) => {
     const scored = all.flatMap(r => {
-      const y = r.infra ? (o.infraZero ? 0 : undefined) : quality(r, o.w, o.judges, humans.get(baseline(r)));
+      const y = r.infra ? (o.infraZero ? 0 : undefined) : quality(r, o.w, o.judges);
       return y === undefined ? [] : [{ row: r, y, x: o.x(r) }];
     });
     const kept = scored.map(s => s.row);

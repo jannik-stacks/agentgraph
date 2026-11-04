@@ -1,7 +1,6 @@
 import { useAtom } from 'jotai';
 import { Schema } from 'effect';
 import { type ReactNode, useMemo } from 'react';
-import type { DriveState } from '../../../bench/drive.ts';
 import { getMean } from '../../../src/stats.ts';
 import { queryParam } from '../state.ts';
 import { usePluginData } from '../plugins.ts';
@@ -89,32 +88,6 @@ const unpricedModels = (rs: Row[]) => {
   return missing.length ? `no list price for ${missing.join(', ')}, counted as $0` : '';
 };
 
-const statusTones: Record<DriveState['status'], string> = {
-  running: 'text-sky-600 dark:text-sky-400',
-  paused: 'text-amber-600 dark:text-amber-400',
-  stopped: 'text-zinc-600 dark:text-zinc-400',
-  crashed: 'text-rose-600 dark:text-rose-400',
-  finished: 'text-emerald-600 dark:text-emerald-400',
-};
-
-const Progress = ({ drives }: { drives: readonly DriveState[] }) =>
-  drives.length ? (
-    <p className="flex flex-wrap gap-x-4 text-xs text-zinc-500">
-      <span className="font-medium">Progress</span>
-      {drives.map(d => (
-        <Tooltip
-          key={d.dir}
-          tip={[d.dir, d.reason, d.at && `since ${d.at.slice(0, 16).replace('T', ' ')}`].filter(Boolean).join('\n')}
-        >
-          <span>
-            <span className="font-mono">{d.dir.split('/').pop()}</span>{' '}
-            <span className={statusTones[d.status]}>{d.status}</span> {d.done}/{d.total}
-          </span>
-        </Tooltip>
-      ))}
-    </p>
-  ) : null;
-
 const Control = ({ label, tip, children }: { label: string; tip?: string; children: ReactNode }) => (
   <div className="space-y-1">
     <Tooltip tip={tip} focusable={!!tip}>
@@ -193,13 +166,7 @@ const Bench = ({ value }: { value: BenchData }) => {
   }, [value, where, groupKeys, color, weights, minutes, cache, judges, dropped, infra]);
 
   if (!value.rows.length)
-    return value.drives.length ? (
-      <div className="p-4">
-        <Progress drives={value.drives} />
-      </div>
-    ) : (
-      <Muted>No bench rows. Start the studio with --bench and one or more bench out dirs.</Muted>
-    );
+    return <Muted>No bench runs. Start the studio with --bench and one or more bench set dirs.</Muted>;
 
   const oneSet = new Set(points.map(p => p.labels.set)).size === 1;
   const front = oneSet ? frontier(points) : [];
@@ -350,7 +317,6 @@ const Bench = ({ value }: { value: BenchData }) => {
         </Control>
       </aside>
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
-        <Progress drives={value.drives} />
         <section className="max-w-3xl">
           <div className="mb-2 flex flex-wrap items-center gap-1 text-xs text-zinc-500">
             <Tooltip tip="Which labels name the points on the chart. Each point is the runs that share the labels picked under By.">

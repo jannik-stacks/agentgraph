@@ -2,18 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { harnessError, progress, runnerError, statusText } from '../bin/bench.ts';
-import {
-  appendJsonl,
-  moveDirToAttic,
-  claim,
-  readJsonl,
-  ensureRunSettingsPinned,
-  probeUrl,
-  copyDirIfAbsentAtomic,
-  release,
-  waitWhileServicesDown,
-} from '../bin/resume.ts';
+import { harnessError, runnerError } from '../bin/bench.ts';
+import { appendJsonl, claim, readJsonl, probeUrl, release, waitWhileServicesDown } from '../bin/resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { tuneRows } from '../bin/tune.ts';
@@ -64,41 +54,6 @@ describe('crash-safe files', () => {
     writeFileSync(join(dir, 'tune.json'), '{"repo":"me/demo"}');
     writeFileSync(join(dir, 'iterations.jsonl'), '{"id":"i000-init","verdict":"kept"}\n{"id":"i001');
     expect(tuneRows(dir).steps.map(s => s.id)).toEqual(['i000-init']);
-  });
-
-  it('moves a partial unit into the attic and never deletes it', () => {
-    const dir = root();
-    mkdirSync(join(dir, 'case/v2/data'), { recursive: true });
-    writeFileSync(join(dir, 'case/v2/data/trace.jsonl'), 'x');
-    const first = moveDirToAttic(join(dir, 'case/v2'))!;
-    mkdirSync(join(dir, 'case/v2'));
-    const second = moveDirToAttic(join(dir, 'case/v2'))!;
-    expect(existsSync(join(dir, 'case/v2'))).toBe(false);
-    expect(readFileSync(join(first, 'data/trace.jsonl'), 'utf8')).toBe('x');
-    expect(second).not.toBe(first);
-    expect(readdirSync(join(dir, 'case/.attic'))).toHaveLength(2);
-    expect(moveDirToAttic(join(dir, 'case/v2'))).toBeUndefined();
-  });
-
-  it('drops checkouts from a unit it moves aside and keeps the records', () => {
-    const dir = root();
-    mkdirSync(join(dir, 'case/v2/data/cache/work/abc/node_modules'), { recursive: true });
-    writeFileSync(join(dir, 'case/v2/data/trace.jsonl'), 'x');
-    const to = moveDirToAttic(join(dir, 'case/v2'))!;
-    expect(existsSync(join(to, 'data/cache'))).toBe(false);
-    expect(readFileSync(join(to, 'data/trace.jsonl'), 'utf8')).toBe('x');
-  });
-
-  it('publishes a copy whole, with the filter, and keeps a published one', () => {
-    const dir = root();
-    mkdirSync(join(dir, 'at/data'), { recursive: true });
-    writeFileSync(join(dir, 'at/diff.patch'), 'd');
-    copyDirIfAbsentAtomic(join(dir, 'at'), join(dir, 'kept'), p => !p.endsWith('/data'));
-    expect(readdirSync(join(dir, 'kept'))).toEqual(['diff.patch']);
-    writeFileSync(join(dir, 'at/diff.patch'), 'other');
-    copyDirIfAbsentAtomic(join(dir, 'at'), join(dir, 'kept'));
-    expect(readFileSync(join(dir, 'kept/diff.patch'), 'utf8')).toBe('d');
-    expect(readdirSync(dir).sort()).toEqual(['at', 'kept']);
   });
 });
 
@@ -164,62 +119,5 @@ describe('environment', () => {
     expect(runnerError('SessionStop: provider down')).toBeTruthy();
     expect(runnerError('Which file should the fix go in?')).toBeUndefined();
     expect(runnerError()).toBeUndefined();
-  });
-});
-
-describe('progress', () => {
-  it('counts done, infra, invalid, running and left units, retries, a wait and the time left', () => {
-    const out = root();
-    const unit = (id: string, arm = 'v2') => ({ out, case: id, arm });
-    const put = (path: string, text: string) => {
-      mkdirSync(join(out, path, '..'), { recursive: true });
-      writeFileSync(join(out, path), text);
-    };
-    put('a/v2/diff.patch', 'd');
-    put('a/v2/meta.json', '{"ms":600000}');
-    put('b/v2/diff.patch', '');
-    put('b/v2/meta.json', '{"infra":"empty diff"}');
-    put('c/valid.json', '{"invalid":"setup fails"}');
-    put('d/v2.lock', String(process.ppid));
-    put('e/v2/data/x', 'partial');
-    put(
-      'log.jsonl',
-      [
-        { at: '1', event: 'infra', why: 'docker unreachable' },
-        { at: '2', event: 'start' },
-        { at: '3', event: 'wait', why: 'model proxy unreachable' },
-      ]
-        .map(l => JSON.stringify(l))
-        .join('\n')
-    );
-    const p = progress(
-      ['a', 'b', 'c', 'd', 'e'].map(id => unit(id)),
-      2
-    );
-    expect(p).toEqual({
-      total: 5,
-      done: 1,
-      infra: 1,
-      invalid: 1,
-      left: 1,
-      running: ['d/v2'],
-      retries: 1,
-      waiting: 'model proxy unreachable since 3',
-      eta: 10,
-    });
-    expect(statusText(p)).toContain('1/5 done, 1 infra, 1 invalid, 1 running, 1 left');
-  });
-
-  it('pins the env a run started with and refuses a restart that cannot match it', () => {
-    const dir = root();
-    const file = join(dir, 'env.json');
-    expect(ensureRunSettingsPinned(file, { BENCH_PATH: dir, keys: undefined }, { BENCH_ENGINE: dir })).toEqual({
-      BENCH_ENGINE: dir,
-      BENCH_PATH: dir,
-    });
-    expect(ensureRunSettingsPinned(file, {})).toEqual({ BENCH_ENGINE: dir, BENCH_PATH: dir });
-    expect(() => ensureRunSettingsPinned(file, { BENCH_PATH: '/elsewhere' })).toThrow(/started with/);
-    writeFileAtomic(file, { BENCH_PATH: `${dir}:${join(dir, 'gone')}` });
-    expect(() => ensureRunSettingsPinned(file, {})).toThrow(/missing: BENCH_PATH .*gone/);
   });
 });

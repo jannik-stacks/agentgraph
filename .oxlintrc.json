@@ -238,14 +238,14 @@
       }
     },
     {
-      "files": ["bench/drive.ts"],
+      "files": ["bench/start-runs.ts", "bench/migrate.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
-                "group": ["../bin/**", "!../bin/resume.ts", "../studio/**"],
+                "group": ["../bin/**", "!../bin/bench.ts", "!../bin/resume.ts", "../studio/**"],
                 "message": "bench and tune import src only"
               }
             ]

@@ -17,7 +17,11 @@ afterEach(() => {
 /** A bench stand-in: a case passes when the candidate's implementor prompt says `Mind <case>.` */
 const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) =>
   ({
-    run: async (_dir: string, _t: unknown, jobs: typeof ran) => void ran.push(...jobs),
+    run: async (dir: string, _t: unknown, jobs: typeof ran) => {
+      ran.push(...jobs);
+      for (const j of jobs)
+        mkdirSync(join(dir, 'runs', `${j.case}-v2-r${j.repeat ?? 1}-${j.id}`, '1', 'data'), { recursive: true });
+    },
     rows: (dir: string, id: string): ReturnType<NonNullable<Parameters<typeof step>[2]>['rows']> =>
       ran
         .filter(j => j.id === id)
@@ -25,6 +29,11 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) =>
           labels: { harness: 'opencode', model: 'luna', arm: 'v2', engine: 'e', graph: 'h', set: 's' },
           case: j.case,
           repeat: j.repeat ?? 1,
+          run: 'imp',
+          at: join(dir, 'runs', `${j.case}-v2-r${j.repeat ?? 1}-${id}`, '1'),
+          data: join(dir, 'runs', `${j.case}-v2-r${j.repeat ?? 1}-${id}`, '1', 'data'),
+          split: { agent: 0, tools: 0, setup: 0, checks: 0, infra: 0 },
+          results: {},
           hidden: +readFileSync(join(dir, 'cands', id, 'graph/agents/implementor.md'), 'utf8').includes(
             `Mind ${j.case}.`
           ) as 0 | 1,
@@ -106,8 +115,8 @@ describe('skill benchmark', () => {
     const io = fakeBench(ran);
     const like = await init('demo', s, io);
     for (const id of ['f1', 'v1']) {
-      mkdirSync(join(like, 'runs/i000-init', id, 'v2/data/issue-1'), { recursive: true });
-      writeFileSync(join(like, 'runs/i000-init', id, 'v2/data/issue-1/trace.jsonl'), '{}\n');
+      mkdirSync(join(like, 'runs', `${id}-v2-r1-i000-init`, '1/data/issue-1'), { recursive: true });
+      writeFileSync(join(like, 'runs', `${id}-v2-r1-i000-init`, '1/data/issue-1/trace.jsonl'), '{}\n');
     }
     const dir = await skill(like, options(1), io);
 
@@ -115,7 +124,8 @@ describe('skill benchmark', () => {
     expect(tuneRows(dir).tune).toEqual(tuneRows(like).tune);
     const w = join(dir, 'skill', 'r001');
     expect(readdirSync(join(w, 'cases')).sort()).toEqual(['f1', 'f2', 'f3', 'f4', 'm1', 'm2', 'm3', 'm4']);
-    expect(existsSync(join(w, 'runs/f1/v2/data/issue-1/trace.jsonl'))).toBe(true);
+    expect(existsSync(join(w, 'runs/f1/r1/data/issue-1/trace.jsonl'))).toBe(true);
+    expect(existsSync(join(dir, 'runs/f1-v2-r1-i000-init/1/data/imp/labels.jsonl'))).toBe(true);
     expect(existsSync(join(w, 'runs/v1'))).toBe(false);
     expect(Object.keys(JSON.parse(readFileSync(join(w, 'cases.json'), 'utf8')))).not.toContain('v1');
     const calls = readFileSync(s.root + '/calls.jsonl', 'utf8')

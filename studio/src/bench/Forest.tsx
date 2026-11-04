@@ -226,15 +226,13 @@ const Runs = ({ point }: { point: Point }) => (
               .join(', '),
             usd(row.usd),
             formatMinutes(row.minutes),
-            row.runs?.map((id, i) => (
-              <Link
-                key={id}
-                href={atLink(id, undefined, row.data)}
-                className="mr-2 underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
-              >
-                {row.runs!.length > 1 ? `run ${i + 1}` : 'run'}
-              </Link>
-            )),
+            <Link
+              key={row.run}
+              href={atLink(row.run, undefined, row.data)}
+              className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
+            >
+              run
+            </Link>,
           ];
           return (
             <tr key={getRowKey(row)} className="text-zinc-600 dark:text-zinc-400">

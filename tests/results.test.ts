@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
@@ -14,7 +14,9 @@ import {
   splitRunsByAxis,
   getFieldSummary,
 } from '../studio/src/results/result.ts';
-import { tmp } from './kit.ts';
+import { git, tmp } from './kit.ts';
+import { getBenchSlot } from '../bench/runs.ts';
+import { writeImportedRun } from '../src/instance.ts';
 
 const run = (key: string, at: string, usd: number, pass = true, dead?: string): RunResults => ({
   key,
@@ -260,17 +262,40 @@ describe('result exports', () => {
     expect(readFileSync(output, 'utf8')).not.toContain('prompt');
   });
 
-  it('exports every benchmark arm, including artifact baselines', () => {
+  it('exports every benchmark arm, including the human reference', async () => {
     const root = tmp('export-bench');
+    const repo = join(root, 'repo');
+    mkdirSync(repo);
+    writeFileSync(join(repo, 'x.ts'), 'base\n');
+    git(repo, 'init', '-q', '-b', 'main');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'base');
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    writeFileSync(join(repo, 'x.ts'), 'fixed\n');
+    git(repo, 'commit', '-qam', 'fix');
+    const head = git(repo, 'rev-parse', 'HEAD').trim();
     for (const arm of ['human', 'v2', 'floor']) {
-      const dir = join(root, 'sample', arm);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'score.json'), JSON.stringify({ files: 1, ms: 1000, usd: 0.5, suite: { ok: true } }));
+      const input = { case: 'sample', arm, repeat: 1 };
+      const at = join(getBenchSlot(root, input), '1');
+      git(root, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
+      const data = join(at, 'data');
+      const id = await writeImportedRun({ repo, tracker: join(at, 'tracker'), data }, head, {
+        version: 't',
+        from: base,
+        input,
+      });
+      const add = (check: string, pass: boolean, extra = {}) =>
+        appendFileSync(
+          join(data, id, 'checks.jsonl'),
+          `${JSON.stringify({ at: 'now', step: 'bench', check: { check, pass, ms: 0, ...extra }, version: 't', usd: 0, later: true })}\n`
+        );
+      add('bench/suite', true);
+      add('bench/hidden', false, { na: true, findings: 'no recorded hidden test result' });
     }
     const output = join(root, 'output.json');
     execFileSync(process.execPath, ['bin/results.ts', 'bench', root, output]);
     const rows = readResultSheet(output).runs;
-    expect(rows.map(row => row.axes.arm)).toEqual(['human', 'v2', 'floor']);
+    expect(rows.map(row => row.axes.arm).toSorted()).toEqual(['floor', 'human', 'v2']);
     expect(rows.map(row => row.results['bench/score'])).toEqual(
       Array.from({ length: 3 }, () => expect.objectContaining({ pass: false, empty: true }))
     );

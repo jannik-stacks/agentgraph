@@ -1,4 +1,4 @@
-import { mkdirSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Effect } from 'effect';
 import { fileStore, Store } from '../src/store.ts';
 import type { Trace } from '../src/trace.ts';
@@ -13,6 +13,7 @@ import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
 import { getQuantile, readBenchRowResults } from '../studio/src/results/result.ts';
 import { studioDir, studioModule } from './studio.ts';
 import { tmp } from './kit.ts';
+import { getBenchSlot } from '../bench/runs.ts';
 import {
   bootstrap,
   cost,
@@ -37,9 +38,14 @@ const row = (over: Partial<Row>): Row => ({
   answers: 0,
   minutes: 1,
   tokens: {},
+  split: { agent: 0, tools: 0, setup: 0, checks: 0, infra: 0 },
   usd: 0,
   usdUncached: 0,
   checkUsd: 0,
+  run: 'run-1',
+  data: '',
+  at: '',
+  results: {},
   ...over,
 });
 
@@ -67,14 +73,13 @@ describe('bench score', () => {
     ).toBe(0);
   });
 
-  it('weights the parts a case has, drops judges and charges findings above the human', () => {
+  it('weights the parts a case has, drops judges and charges findings beyond the human change', () => {
     const judged = row({ vsHuman: { opus: 1, sol: 0 } });
     expect(quality(judged, defaultBenchScoreWeights)).toBeCloseTo(1);
     expect(quality(judged, defaultBenchScoreWeights, ['sol'])).toBe(0);
     expect(quality(row({ hidden: 1, vsHuman: { opus: 0 } }), presets['hidden tests only']!)).toBe(1);
-    const found = row({ hidden: 1, suite: 1, findings: { critical: 1, high: 2 } });
-    const human = row({ findings: { critical: 0, high: 1 } });
-    expect(quality(found, defaultBenchScoreWeights, undefined, human)).toBeCloseTo(1 - 0.1 * (2 / 3));
+    const found = row({ hidden: 1, suite: 1, findings: { critical: 1, high: 2 }, against: { critical: 0, high: 1 } });
+    expect(quality(found, defaultBenchScoreWeights)).toBeCloseTo(1 - 0.1 * (2 / 3));
     expect(quality(row({ hidden: 1, answers: 3 }), defaultBenchScoreWeights)).toBeCloseTo(0.9);
   });
 
@@ -149,11 +154,12 @@ describe('bench score', () => {
     expect(s.map(p => p.judgeOnly)).toEqual([false, true]);
     expect(frontier([...s.map(p => ({ ...p, x: 2 })), { key: 'cheap', x: 1, y: 0.5 }])).toEqual(['cheap', s[0]!.key]);
   });
-  it('filters any label, groups and colours independently, and retains the matching human baseline', () => {
+  it('filters any label and groups and colours independently, leaving the references out', () => {
     const labels = { ...row({}).labels, size: 'S', skills: 'true' };
     const rows = [
-      row({ labels: { ...labels, arm: 'human', graph: '' }, findings: { critical: 3, high: 0 } }),
-      row({ labels, hidden: 1, findings: { critical: 3, high: 0 } }),
+      row({ labels: { ...labels, arm: 'human', graph: '' }, hidden: 1 }),
+      row({ labels: { ...labels, arm: 'base', graph: '' }, hidden: 0 }),
+      row({ labels, hidden: 1, findings: { critical: 3, high: 0 }, against: { critical: 3, high: 0 } }),
       row({ labels: { ...labels, repo: 'me/b', skills: 'false' }, case: 'b', hidden: 0 }),
       row({ labels: { ...labels, size: 'L' }, case: 'c', hidden: 0 }),
     ];
@@ -169,12 +175,10 @@ describe('bench score', () => {
     ]);
   });
 
-  it('matches human findings within each repeat and avoids delimiter collisions', () => {
+  it('groups points by label values without delimiter collisions', () => {
     const labels = row({}).labels;
     const rows = [
-      row({ labels: { ...labels, arm: 'human' }, findings: { critical: 0, high: 0 } }),
-      row({ labels: { ...labels, arm: 'human' }, repeat: 2, findings: { critical: 3, high: 0 } }),
-      row({ repeat: 2, hidden: 1, findings: { critical: 3, high: 0 } }),
+      row({ repeat: 2, hidden: 1, findings: { critical: 3, high: 0 }, against: { critical: 3, high: 0 } }),
       row({ labels: { ...labels, repo: 'a,b', size: 'c' }, case: 'b', hidden: 1 }),
       row({ labels: { ...labels, repo: 'a', size: 'b,c' }, case: 'c', hidden: 0 }),
     ];
@@ -184,23 +188,21 @@ describe('bench score', () => {
   it('preserves every free label in Results, with distinct identities for combined setups', () => {
     const labels = { ...row({}).labels, point: 'experiment', case: 'category', hiddenTests: 'custom' };
     const result = readBenchRowResults(row({ labels, skipped: 'no hidden tests' }));
-    const other = readBenchRowResults(row({ labels: { ...labels, model: 'other' } }));
+    const other = readBenchRowResults(row({ labels: { ...labels, model: 'other' }, run: 'run-2' }));
     expect(result.axes).toMatchObject(labels);
     expect(other.key).not.toBe(result.key);
   });
 });
 
 describe('the bench page data', () => {
-  it('rejects a failed scan, keeps rows until a log changes and links each arm to its runs', async () => {
+  it('rejects a failed scan and lists each ended run of a slot once, linked to its run', async () => {
     const out = tmp('bench-api');
-    const at = (...path: string[]) => join(out, 'c', ...path);
-    mkdirSync(at('human'), { recursive: true });
-    mkdirSync(at('v2', 'data', 'issue-1'), { recursive: true });
-    mkdirSync(at('v2', 'data', 'logs'));
-    writeFileSync(at('v2', 'data', 'issue-1', 'run.json'), '{}');
-    writeFileSync(join(out, 'log.jsonl'), '');
-    writeFileSync(at('case.json'), JSON.stringify({ repo: 'me/demo' }));
-    writeFileSync(at('human', 'score.json'), '{');
+    const input = { case: 'c', arm: 'v2', repeat: 1 };
+    const data = join(getBenchSlot(out, input), '1', 'data');
+    mkdirSync(join(data, 'issue-1'), { recursive: true });
+    const origin = { plugin: 'bench', version: 'v', job: 'set', input };
+    const run = { id: 'issue-1', started: at, workflow: 'issue', meta: { engine: { origin } } };
+    writeFileSync(join(data, 'issue-1', 'run.json'), '{');
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
     vi.stubEnv('AGI_STUDIO_BENCH', out);
     const routes: Record<string, (req: unknown, res: unknown) => void> = {};
@@ -221,15 +223,15 @@ describe('the bench page data', () => {
       });
     try {
       expect((await ask()).status).toBe(500);
-      writeFileSync(at('human', 'score.json'), '{}');
-      expect((await ask()).body.rows).toHaveLength(1);
-      writeFileSync(at('v2', 'score.json'), '{}');
-      expect((await ask()).body.rows).toHaveLength(1);
-      utimesSync(join(out, 'log.jsonl'), new Date(), new Date(Date.now() + 1000));
-      const { rows, drives } = (await ask()).body;
-      expect(rows.map(r => r.runs)).toEqual([undefined, ['issue-1']]);
-      expect(rows[1]!.data).toBe(at('v2', 'data'));
-      expect(drives).toEqual([]);
+      writeFileSync(join(data, 'issue-1', 'run.json'), JSON.stringify(run));
+      expect((await ask()).body.rows).toEqual([]);
+      const armed = { check: 'bench/arm', pass: true, ms: 0, value: { answers: 0, ms: 60_000 } };
+      writeFileSync(
+        join(data, 'issue-1', 'checks.jsonl'),
+        `${JSON.stringify({ at, step: 'bench', check: armed, version: 'v', usd: 0, later: true })}\n`
+      );
+      const { rows } = (await ask()).body;
+      expect(rows.map(r => [r.run, r.data, r.labels.arm, r.minutes])).toEqual([['issue-1', data, 'v2', 1]]);
     } finally {
       vi.unstubAllEnvs();
       rmSync(out, { recursive: true, force: true });
@@ -263,7 +265,7 @@ describe('bench spread', () => {
     vi.stubGlobal('location', new URL('http://studio/bench'));
     const { Forest } = await studioModule<{ Forest: unknown }>('bench/Forest.tsx');
     const rows = ['floor', 'v2'].map(arm =>
-      row({ hidden: 1, labels: { ...row({}).labels, arm }, data: `/b/a/${arm}/data`, runs: [`run-${arm}`] })
+      row({ hidden: 1, labels: { ...row({}).labels, arm }, data: `/b/a/${arm}/data`, run: `run-${arm}` })
     );
     const [p] = summarise(rows, { ...lens, by: [] });
     expect(new Set(p!.perCase.map(s => getRowKey(s.row))).size).toBe(2);
