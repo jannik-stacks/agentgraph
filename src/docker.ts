@@ -26,7 +26,7 @@ import {
   unlogged,
   written,
 } from './env.ts';
-import { ensureFreeDisk, readEnvRefs, writeEnvRef } from './disk.ts';
+import { ensureFreeDisk, readEnvRefs, writeEnvRefs } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { commitCheckout, commitCheckoutOnce, hostGit, makeHostEnv, readGit } from './git.ts';
@@ -733,7 +733,7 @@ export const dockerSandbox = (o: {
         );
         return Effect.forEach(
           [o.local ? 'HEAD' : 'refs/remotes/origin/HEAD', ...bases.map(b => `refs/heads/${b}`)],
-          ref => inMirror(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).pipe(Effect.orElseSucceed(() => ''))
+          verify
         );
       };
       const readHead = (ref: string) =>
@@ -796,8 +796,9 @@ export const dockerSandbox = (o: {
                   catch: e => infra((e as Error).message),
                 })
               : { cache: '', env: undefined };
-          if (repoCache) yield* Effect.sync(() => writeEnvRef(o.data, repoCache));
-          if (env) yield* Effect.sync(() => writeEnvRef(o.data, env.image));
+          yield* Effect.sync(() =>
+            writeEnvRefs(o.data, [...(repoCache ? [repoCache] : []), ...(env ? [env.image] : [])])
+          );
           const match = env
             ? yield* Effect.promise(() =>
                 readSetupInputKey(mirror, rev, env.mode).then(

@@ -12,7 +12,7 @@ import {
   findBuildDirs,
   unpin,
   readEnvRefs,
-  writeEnvRef,
+  writeEnvRefs,
 } from '../src/disk.ts';
 import { startHeartbeat } from '../src/owner.ts';
 import { envVersion } from '../src/env.ts';
@@ -364,17 +364,16 @@ describe('environment ownership ledger', () => {
 
   it('records cache volumes of any name docker accepts, and refuses others before writing', () => {
     const dir = tmp('data');
-    writeEnvRef(dir, 'TeamCache-project-0123456789abcdef01234567');
-    writeEnvRef(dir, 'agentgraph-env/r:k1');
+    writeEnvRefs(dir, ['TeamCache-project-0123456789abcdef01234567', 'agentgraph-env/r:k1']);
     expect(readEnvRefs(dir)).toEqual(['TeamCache-project-0123456789abcdef01234567', 'agentgraph-env/r:k1']);
-    expect(() => writeEnvRef(dir, 'x,dst=/etc')).toThrow('invalid environment ref');
+    expect(() => writeEnvRefs(dir, ['agentgraph-env/r:k2', 'x,dst=/etc'])).toThrow('invalid environment ref');
     expect(readEnvRefs(dir)).toHaveLength(2);
   });
 
   it('records refs in a directory without confusing the run store', async () => {
     const dir = tmp('data');
-    writeEnvRef(dir, 'agentgraph-env/r:k1');
-    writeEnvRef(dir, 'agentgraph-env/r:k2');
+    writeEnvRefs(dir, ['agentgraph-env/r:k1']);
+    writeEnvRefs(dir, ['agentgraph-env/r:k1', 'agentgraph-env/r:k2']);
     expect(readEnvRefs(dir)).toEqual(['agentgraph-env/r:k1', 'agentgraph-env/r:k2']);
     const { Effect } = await import('effect');
     const { fileStore, Store } = await import('../src/store.ts');

@@ -19,7 +19,7 @@ import { Effect } from 'effect';
 import { dockerArgs, readImage, type CheckoutContainerSpec } from '../src/docker.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import { dependencyDirs, discard, readSandboxSetup, createSharedMounts, manifest, written } from '../src/env.ts';
-import { collect, ensureFreeDisk, readEnvRefs, writeEnvRef } from '../src/disk.ts';
+import { collect, ensureFreeDisk, readEnvRefs, writeEnvRefs } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
 import type { CheckResult } from '../src/workflow.ts';
 import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
@@ -889,8 +889,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
         ...(c.toolchain && { toolchain: c.toolchain }),
       })
     : { cache: '', env: undefined };
-  if (repoCache) writeEnvRef(dirname(tree), repoCache);
-  if (env) writeEnvRef(dirname(tree), env.image);
+  writeEnvRefs(dirname(tree), [...(repoCache ? [repoCache] : []), ...(env ? [env.image] : [])]);
   const sharedMounts = repoCache
     ? await createSharedMounts(
         env ?? { image: start, outputs: [] },

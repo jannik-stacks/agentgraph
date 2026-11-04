@@ -1,7 +1,6 @@
 import { getSha } from './hash.ts';
 import { readDirOrEmpty } from './read.ts';
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -100,9 +99,7 @@ export const readDependencySkeleton = async (dir: string, rev: string): Promise<
         );
       return Boolean(m && crates.has(m[1]!));
     });
-  const digest = createHash('sha256')
-    .update(JSON.stringify([paths.map(e => `${e.meta} ${e.path}`), targets]))
-    .digest('hex');
+  const digest = getSha(JSON.stringify([paths.map(e => `${e.meta} ${e.path}`), targets]));
   return { paths: paths.map(e => e.path), targets, digest };
 };
 
@@ -235,6 +232,10 @@ const labels = async (tag: string) => {
 
 export const makeSetupVolumeName = (key: string) => `agentgraph-lower-${key}`;
 
+export const makeLayerVolumeName = (key: string) => `${makeSetupVolumeName(key)}-c`;
+
+export const parseSetupVolumeKey = (name: string) => name.slice(makeSetupVolumeName('').length).replace(/-c$/, '');
+
 export const isVolumeName = (name: string) => /^\w[\w.-]*$/.test(name);
 
 const envOfLabels = (tag: string, l: Record<string, string>): SandboxSetup => ({
@@ -271,7 +272,6 @@ export const readSandboxSetup = async (
     runDockerCli(['image', 'inspect', '--format', '{{.Id}}', spec.image]),
     readDependencySkeleton(spec.git, spec.base),
   ]);
-  const untrusted = !(await isReachable(spec.git, spec.base, spec.trusted));
   const lines = [...makeToolchainSetupCommands(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join(
     '\n'
   );
@@ -281,6 +281,7 @@ export const readSandboxSetup = async (
   await createCacheVolume(cache);
   touch(cache);
   if (!lines && !spec.setup) return { cache };
+  const untrusted = !(await isReachable(spec.git, spec.base, spec.trusted));
   const family = hash([envVersion, cache, spec.setup ?? '', ...(untrusted ? [spec.base] : [])]);
   const wide = join(readStateDir(), 'tree-only', family);
   const one = async (mode: SandboxSetup['mode']) => {
@@ -327,7 +328,7 @@ const createSandboxSetup = async (
   const lower = makeSetupVolumeName(key);
   if (
     env &&
-    (await runDockerCli(['volume', 'inspect', lower, ...(env.layered ? [`${lower}-c`] : [])]).then(
+    (await runDockerCli(['volume', 'inspect', lower, ...(env.layered ? [makeLayerVolumeName(key)] : [])]).then(
       () => true,
       ifMissing(false)
     ))
@@ -336,7 +337,7 @@ const createSandboxSetup = async (
   if (await isOverlaid(key)) throw new Error(`environment ${key} is incomplete while a live checkout reads it`);
   if (env) await runDockerCli(['rmi', '-f', tag]).catch(() => '');
   const name = `agentgraph-envbuild-${key}`;
-  const clear = () => runDockerCli(['volume', 'rm', '-f', lower, `${lower}-c`]).catch(() => '');
+  const clear = () => runDockerCli(['volume', 'rm', '-f', lower, makeLayerVolumeName(key)]).catch(() => '');
   await runDockerCli(['rm', '-f', name]).catch(() => '');
   await clear();
   await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, lower]);
@@ -500,7 +501,7 @@ const runAsRoot = (image: string, mounts: string[], script: string, timeout?: nu
 
 const createBuildLayer = async (image: string, cache: string, key: string) => {
   if (!(await overlays(image))) throw new Error('an untrusted environment build needs docker overlay volumes');
-  const own = `${makeSetupVolumeName(key)}-c`;
+  const own = makeLayerVolumeName(key);
   const [uid, gid] = user();
   await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, own]);
   await runAsRoot(image, [`type=volume,src=${own},dst=/c`], `mkdir /c/upper /c/work && chown ${uid}:${gid} /c/upper`);
@@ -595,12 +596,13 @@ const overlays = (image: string) =>
  * delete and remake them.
  */
 export const createSharedMounts = async (
-  from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower' | 'layered'> & Partial<Pick<SandboxSetup, 'key'>>,
+  from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower' | 'layered'>,
   owner: string,
   dir: string,
   more: string[] = [],
   cache = ''
 ): Promise<SharedMount[]> => {
+  const key = from.lower && parseSetupVolumeKey(from.lower);
   const made = from.lower ? from.outputs.filter(o => deps.test(o)) : [];
   const paths = [...new Set([...made, ...more])];
   const rest = from.outputs.filter(o => !deps.test(o));
@@ -657,7 +659,7 @@ export const createSharedMounts = async (
           'create',
           ...label,
           '--label',
-          `agentgraph.lower=${from.lower!.replace('agentgraph-lower-', '')}`,
+          `agentgraph.lower=${key}`,
           ...makeOverlayOpts(`${lower}/.agentgraph-env/data/${i}`, upper),
           name,
         ]);
@@ -665,7 +667,11 @@ export const createSharedMounts = async (
       }
     }
     if (shared) {
-      const [lower, upper, layer] = await mountpoints(cache, shared, ...(from.layered ? [`${from.lower}-c`] : []));
+      const [lower, upper, layer] = await mountpoints(
+        cache,
+        shared,
+        ...(from.layered && key ? [makeLayerVolumeName(key)] : [])
+      );
       const release = await waitForLock(`cache-${cache}`);
       await runDockerCli([
         'volume',
@@ -673,7 +679,7 @@ export const createSharedMounts = async (
         ...label,
         '--label',
         `agentgraph.lower=${cache}`,
-        ...(layer && from.key ? ['--label', `agentgraph.env=${from.key}`] : []),
+        ...(layer && key ? ['--label', `agentgraph.env=${key}`] : []),
         ...makeOverlayOpts(layer ? `${layer}/upper:${lower}` : lower!, upper!),
         `${shared}-o`,
       ]).finally(release);

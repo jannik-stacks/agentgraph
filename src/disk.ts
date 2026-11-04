@@ -20,7 +20,9 @@ import {
   held,
   isLiveOverlay,
   isVolumeName,
+  makeLayerVolumeName,
   makeSetupVolumeName,
+  parseSetupVolumeKey,
   parseDockerLabels,
   unlogged,
   used,
@@ -70,11 +72,15 @@ export const readEnvRefs = (dir: string): string[] => {
   return [...new Set(refs)];
 };
 
-export const writeEnvRef = (dir: string, tag: string) => {
-  if (!isEnvRef(tag)) throw new Error(`invalid environment ref ${tag}`);
-  if (readEnvRefs(dir).includes(tag)) return;
+export const writeEnvRefs = (dir: string, names: string[]) => {
+  const bad = names.find(name => !isEnvRef(name));
+  if (bad !== undefined) throw new Error(`invalid environment ref ${bad}`);
+  if (!names.length) return;
+  const known = new Set(readEnvRefs(dir));
+  const fresh = [...new Set(names)].filter(name => !known.has(name));
+  if (!fresh.length) return;
   mkdirSync(join(dir, '.envs'), { recursive: true });
-  appendFileSync(join(dir, '.envs', 'refs.jsonl'), `${JSON.stringify(tag)}\n`);
+  appendFileSync(join(dir, '.envs', 'refs.jsonl'), fresh.map(name => `${JSON.stringify(name)}\n`).join(''));
 };
 
 const cap = () => parseByteSize(process.env.AGENTGRAPH_ENV_CAP || '60g');
@@ -202,7 +208,13 @@ export const inventory = async (
     })
     .filter(v => !isData(v.labels));
   const overlaid = (key: string) => vols.some(v => isLiveOverlay(v.labels, key));
-  const listEnvVolumes = (key: string) => [makeSetupVolumeName(key), `${makeSetupVolumeName(key)}-c`];
+  const listEnvVolumes = (key: string) => [makeSetupVolumeName(key), makeLayerVolumeName(key)];
+  const readUsedMs = (name: string) => {
+    const stamp = join(used(), name);
+    return existsSync(stamp) ? statSync(stamp).mtimeMs : undefined;
+  };
+  const whyHeld = (name: string, key: string) =>
+    held(key) ? 'recent use' : mounted.has(name) ? 'container' : overlaid(key) ? 'live checkout' : undefined;
   const names = new Set(
     vols.filter(v => listEnvVolumes(v.labels['agentgraph.lower'] ?? '').includes(v.name)).map(v => v.name)
   );
@@ -237,15 +249,12 @@ export const inventory = async (
     }
     const why = gone(labels, JSON.parse(layers) as string[]);
     const unique = df.images.get(id) ?? 0;
-    const lastUsedMs = existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
     items.push({
       kind: 'env',
       refs: [...tags, ...listEnvVolumes(key).filter(v => names.has(v))],
       bytes:
-        unique +
-        (Number(labels['agentgraph.lowerkb']) || 0) * 1024 +
-        (df.volumes.get(`${makeSetupVolumeName(key)}-c`) ?? 0),
-      used: lastUsedMs,
+        unique + (Number(labels['agentgraph.lowerkb']) || 0) * 1024 + (df.volumes.get(makeLayerVolumeName(key)) ?? 0),
+      used: readUsedMs(key) ?? (Date.parse(created) || 0),
       ...(why && { always: true, gone: why }),
       ...(tags.length !== allTags.length && { held: 'retained image tag' }),
       ...((tags.some(t => runImages.has(t)) || runImages.has(id)) && { held: 'container' }),
@@ -260,27 +269,25 @@ export const inventory = async (
     if (!names.has(v.name) || keys.has(key)) continue;
     if (o.eligible !== undefined && !o.eligible.some(t => t.startsWith('agentgraph-env/') && t.endsWith(`:${key}`)))
       continue;
+    const why = whyHeld(v.name, key);
     items.push({
       kind: 'lower',
       refs: [v.name],
       bytes: measured.get(v.name) ?? 0,
       used: 0,
       always: true,
-      ...(mounted.has(v.name) ? { held: 'container' } : overlaid(key) && { held: 'live checkout' }),
-      ...(held(key) && { held: 'recent use' }),
+      ...(why && { held: why }),
     });
   }
   for (const v of vols) {
     if (v.labels['agentgraph.cache'] !== v.name || (o.eligible !== undefined && !o.eligible.includes(v.name))) continue;
-    const stamp = join(used(), v.name);
+    const why = whyHeld(v.name, v.name) ?? (needed.has(v.name) ? 'environment' : undefined);
     items.push({
       kind: 'cache',
       refs: [v.name],
       bytes: df.volumes.get(v.name) ?? 0,
-      used: existsSync(stamp) ? statSync(stamp).mtimeMs : 0,
-      ...(needed.has(v.name) && { held: 'environment' }),
-      ...(mounted.has(v.name) ? { held: 'container' } : overlaid(v.name) && { held: 'live checkout' }),
-      ...(held(v.name) && { held: 'recent use' }),
+      used: readUsedMs(v.name) ?? 0,
+      ...(why && { held: why }),
     });
   }
   for (const path of (o.roots ?? []).flatMap(root => findBuildDirs(root))) {
@@ -337,7 +344,7 @@ const remove = async (i: DiskCacheEntry) => {
   const tags = i.refs.filter(r => r.includes(':'));
   if (tags.length && !(await ok(['rmi', ...tags]))) return false;
   for (const v of i.refs.filter(r => !r.includes(':'))) {
-    const key = v.slice('agentgraph-lower-'.length).replace(/-c$/, '');
+    const key = parseSetupVolumeKey(v);
     const retained = await runDockerCli([
       'image',
       'ls',
