@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Effect, Schema } from 'effect';
 import { parse, stringify } from 'yaml';
 import { InstanceFile } from './settings.ts';
-import { readOrUndefined } from './read.ts';
+import { readDirOrEmpty, readOrUndefined } from './read.ts';
 import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
 import {
@@ -105,19 +105,17 @@ export const writeInstanceProvider = (i: Instance, provider: string) => {
   writeInstance({ ...(readInstance(dirname(i.dir), basename(i.dir)) ?? i), provider });
 };
 
-const readInstanceOrWarn = (root: string, name: string) => {
-  try {
-    return readInstance(root, name);
-  } catch (e) {
-    console.error(`skipping ${join(root, name, 'instance.yaml')}: ${String(e).split('\n')[0]}`);
-    return undefined;
-  }
-};
-
 export const findInstances = (root: string) =>
-  (existsSync(root) ? readdirSync(root) : []).flatMap(name =>
-    existsSync(join(root, name, 'instance.yaml')) ? (readInstanceOrWarn(root, name) ?? []) : []
-  );
+  readDirOrEmpty(root).flatMap(name => {
+    const file = join(root, name, 'instance.yaml');
+    if (!existsSync(file)) return [];
+    try {
+      return readInstance(root, name) ?? [];
+    } catch (e) {
+      console.error(`skipping ${file}: ${String(e).split('\n')[0]}`);
+      return [];
+    }
+  });
 
 const isInside = (dir: string, path: string) => {
   const inside = relative(dir, path);
@@ -151,9 +149,9 @@ export const ensureInstance = async (
   assertOutside(root);
   const name = picked ?? basename(checkout);
   const found = readInstance(root, name);
-  const others = found || picked || !existsSync(root) ? [] : readdirSync(root).filter(n => n !== name);
-  const unknown = others.filter(
-    n => statSync(join(root, n), { throwIfNoEntry: false })?.isDirectory() && !isOtherInstance(root, n, real)
+  const unknown = (found || picked ? [] : readDirOrEmpty(root)).filter(
+    n =>
+      n !== name && statSync(join(root, n), { throwIfNoEntry: false })?.isDirectory() && !isOtherInstance(root, n, real)
   );
   if (unknown.length)
     throw new Error(
