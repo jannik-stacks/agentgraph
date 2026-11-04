@@ -24,10 +24,7 @@ const quit = (e: Error) => {
 };
 const { data: root, config } = await readHostSettings(values).catch(quit);
 const repo = values.repo === undefined ? undefined : await findRepo(resolve(values.repo));
-if (values.repo && !repo) {
-  console.error(`${values.repo} is not in a git repo`);
-  process.exit(2);
-}
+if (values.repo && !repo) quit(new Error(`${values.repo} is not in a git repo`));
 const instance = repo === undefined ? undefined : await ensureInstance(root, repo).catch(quit);
 const moved = instance && (await ensureBase(instance).catch(quit));
 if (moved) console.error(`${moved}\nThe studio shows the graph of agentgraph's base.`);

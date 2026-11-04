@@ -10,7 +10,7 @@ export const makeRunTrail = (trace: (Trace | CheckEntry)[]): Trail => {
     if (!('outcome' in line)) return [];
     const at = { ...before, step: line.step };
     before = line.run;
-    return [{ at, outcome: makeTrailOutcome(line.outcome) }];
+    return [{ at, outcome: makeTrailOutcome(line.outcome, line.run) }];
   });
 };
 
@@ -58,7 +58,7 @@ export function makeWorkflowRunVisits(
     if (!open) enter(step);
     const o = entry.outcome;
     if (o.kind === 'failed') here?.failed.push(o.failed);
-    else if (o.kind === 'back' && (trail[i + 1]?.at ?? run).reason !== undefined) {
+    else if (o.kind === 'back' && 'outOfRounds' in o) {
       if (here) here.outOfRounds = true;
     } else if (o.kind === 'pass' || o.kind === 'back' || o.kind === 'stop') {
       open = false;

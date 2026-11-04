@@ -792,9 +792,14 @@ describe('an instance', () => {
     const ran = [
       [runTs, 'show', '--data', root],
       [studio, '--repo', w.seed, '--data', root],
-    ].map(args => spawnSync(process.execPath, args, { cwd: w.seed, encoding: 'utf8', env }));
+    ].map(args =>
+      spawnSync(process.execPath, args, { cwd: w.seed, encoding: 'utf8', env, timeout: 20_000, killSignal: 'SIGKILL' })
+    );
     expect(ran.map(r => [r.status, r.stderr.trim()])).toEqual(
-      ran.map(() => [2, `the tracker folder ${i.tracker} is missing; restore it, or move ${i.dir} aside to start anew`])
+      ran.map(() => [
+        2,
+        `the tracker folder ${i.tracker} has no origin.git; restore it, or move ${i.dir} aside to start anew`,
+      ])
     );
   });
 

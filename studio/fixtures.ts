@@ -92,11 +92,8 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraph()): Plugin => {
         const served = await reader.read();
         const data = process.env.AGI_STUDIO_DATA;
         const query = new URL(req.url ?? '/', 'http://studio').searchParams;
-        const [fixture, step, check] = ['fixture', 'step', 'check'].map(k => query.get(k) ?? '') as [
-          string,
-          string,
-          string,
-        ];
+        const [fixture, step, check] = [query.get('fixture'), query.get('step'), query.get('check')];
+        if (!fixture || !step || !check) return json(res, { error: 'verdicts take fixture, step and check' }, 400);
         if (!data || !served) return json(res, []);
         const { Effect } = await import('effect');
         const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
@@ -105,11 +102,11 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraph()): Plugin => {
             const store = yield* Store;
             const records = (yield* store.listRecords()).filter(run => `${served.name}/${run.workflow}` === fixture);
             return yield* Effect.forEach(records, run =>
-              Effect.map(store.readChecks(run.id), checks => ({ fixture, run, checks }))
+              Effect.map(store.readChecks(run.id), checks => ({ run, checks }))
             );
           }).pipe(Effect.provide(fileStore(data)))
         );
-        json(res, findCheckVerdicts(runs, fixture, step, check));
+        json(res, findCheckVerdicts(runs, step, check));
       });
       use('/api/runs', async (req, res) => {
         const served = await reader.read();
@@ -126,7 +123,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraph()): Plugin => {
         const answer = await Effect.runPromise(
           Effect.gen(function* () {
             const store = yield* Store;
-            const entry = (run: WorkflowModule.RunRecord, all: boolean, body = true) =>
+            const entry = (run: WorkflowModule.RunRecord, all: boolean, body = false) =>
               Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
                 const lines = mergeCheckEntries(trace, checks);
                 const summary = makeRunSummary(run, lines);

@@ -12,8 +12,7 @@ export const splitSelection = (selected: string | null) => {
 };
 
 export const findCheckVerdicts = (
-  runs: { fixture: string; run: Pick<RunRecord, 'id' | 'issue'>; checks: CheckEntry[] }[],
-  fixture: string,
+  runs: { run: Pick<RunRecord, 'id' | 'issue'>; checks: CheckEntry[] }[],
   step: string,
   check: string
 ) => {
@@ -30,8 +29,7 @@ export const findCheckVerdicts = (
       failed: number;
     }
   >();
-  for (const { fixture: from, run, checks } of runs) {
-    if (from !== fixture) continue;
+  for (const { run, checks } of runs) {
     for (const line of checks) {
       if (line.step !== step || line.check.check !== check) continue;
       const key = `${run.id}@${line.at}`;

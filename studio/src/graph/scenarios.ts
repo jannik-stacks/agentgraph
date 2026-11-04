@@ -3,14 +3,16 @@ import type { Doc, Outcome, Run, Step, Workflow } from '../../../src/workflow.ts
 import type * as WorkflowModule from '../../../src/workflow.ts';
 import type { Trace } from '../../../src/trace.ts';
 
-export const makeTrailOutcome = (o: Outcome) =>
+export const makeTrailOutcome = (o: Outcome, after: Pick<Run, 'reason'>) =>
   o.kind === 'failed'
     ? { kind: o.kind, failed: o.checks.length + o.proposals.length + o.problems.length }
-    : { kind: o.kind };
+    : o.kind === 'back' && after.reason !== undefined
+      ? { kind: o.kind, outOfRounds: true as const }
+      : { kind: o.kind };
 
 /** One outcome a run met, with the run as it stood before it. */
 export type Trail = {
-  at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason'>;
+  at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'>;
   outcome: ReturnType<typeof makeTrailOutcome>;
 }[];
 
@@ -135,8 +137,8 @@ export const simulate = (
     );
     if (!outcome) break;
     const { step, status, tries, rounds } = run;
-    trail.push({ at: { step, status, tries, rounds }, outcome: makeTrailOutcome(outcome) });
     run = engine.transition(w, run, outcome);
+    trail.push({ at: { step, status, tries, rounds }, outcome: makeTrailOutcome(outcome, run) });
     trace.push({
       at: '',
       step,

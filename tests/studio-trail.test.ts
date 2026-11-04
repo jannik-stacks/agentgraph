@@ -14,7 +14,7 @@ type Verdict = {
 type Uses = { steps: { name: string; path: string }[]; checks: { name: string; path?: string }[] };
 const { splitSelection, findCheckVerdicts, findAgentUses } = await studioModule<{
   splitSelection: (selected: string | null) => { workflow?: string; step?: string; trail: Opened[] };
-  findCheckVerdicts: (runs: unknown[], fixture: string, step: string, check: string) => Verdict[];
+  findCheckVerdicts: (runs: unknown[], step: string, check: string) => Verdict[];
   findAgentUses: (fixtures: unknown[], agent: string) => Uses;
 }>('graph/trail.ts');
 
@@ -33,6 +33,8 @@ describe('splitSelection', () => {
   });
 });
 
+const run = (id: string, checks: unknown[]) => ({ run: { id, issue: 7 }, checks });
+
 describe('findCheckVerdicts', () => {
   const line = (at: string, check: string, pass: boolean, item?: string) => ({
     at,
@@ -40,34 +42,33 @@ describe('findCheckVerdicts', () => {
     check: { check, pass, ms: 1, ...(item ? {} : { findings: `${check} at ${at}` }) },
     ...(item && { item }),
   });
-  const run = (id: string, fixture: string, checks: unknown[]) => ({ fixture, run: { id, issue: 7 }, checks });
 
   it('preserves an empty check and its reason for the skip count', () => {
     const empty = {
       ...line('1', 'review', true),
       check: { check: 'review', pass: true, empty: true, findings: 'no files', ms: 0 },
     };
-    expect(findCheckVerdicts([run('a', 'graph/issue', [empty])], 'graph/issue', 'implement', 'review')).toEqual([
+    expect(findCheckVerdicts([run('a', [empty])], 'implement', 'review')).toEqual([
       expect.objectContaining({ empty: true, findings: 'no files' }),
     ]);
   });
 
-  it('folds item lines into one verdict per time it ran, newest first, in the one fixture', () => {
+  it('folds item lines into one verdict per time it ran, newest first, across runs', () => {
     const verdicts = findCheckVerdicts(
       [
-        run('a', 'graph/issue', [
+        run('a', [
           line('1', 'review', true),
           line('2', 'review', false, 'x'),
           line('2', 'review', true, 'y'),
           line('2', 'other', false),
         ]),
-        run('b', 'graph/plan', [line('3', 'review', false)]),
+        run('b', [line('3', 'review', false)]),
       ],
-      'graph/issue',
       'implement',
       'review'
     );
     expect(verdicts.map(v => [v.at, v.pass, v.items, v.failed])).toEqual([
+      ['3', false, 0, 0],
       ['2', false, 2, 1],
       ['1', true, 0, 0],
     ]);
@@ -152,6 +153,20 @@ describe('a live run trail', async () => {
     );
     const visits = makeWorkflowRunVisits(graph, makeRunTrail(unmoved), run).visits;
     expect(visits.flatMap(v => (v.outOfRounds ? [v.node.step] : []))).toEqual([]);
+  });
+
+  const marks = (outcomes: object[], reason: string | undefined) => {
+    const queue = [...outcomes];
+    const { trace, run } = simulate(workflow, () => queue.shift(), engine) as { trace: unknown[]; run: object };
+    const now = { ...run, reason };
+    return makeWorkflowRunVisits(graph, makeRunTrail(trace), now).visits.flatMap(v =>
+      v.outOfRounds ? [v.node.step] : []
+    );
+  };
+
+  it('reads the last way back from its own line, not from a reason the run was given later', () => {
+    expect(marks([pass, pass, back], 'rebase conflict')).toEqual([]);
+    expect(marks([...twice, back], undefined)).toEqual(['review']);
   });
 
   it('keeps a run whose steps left the graph, naming them in its story', () => {

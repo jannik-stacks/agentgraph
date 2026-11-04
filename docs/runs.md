@@ -22,7 +22,7 @@ Locally, each repo gets an instance under the data root. As a runner (`--tracker
       cache/                          rebuilt on demand: graphs/, work/, index/, news/, scratch/, sync/
 ```
 
-A data folder inside the repo is refused. A moved repo is a new instance. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
+A data folder inside the repo is refused, and so is an instance whose `tracker/origin.git` is missing. A moved repo is a new instance. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
 
 Each pass of `loop` compresses `trace.jsonl` and `checks.jsonl` of a run that ended and was not written for `AGENTGRAPH_COMPRESS_DAYS` days (14) to `trace.jsonl.zst` and `checks.jsonl.zst`. Readers open either; a new line unpacks the file first. Check logs are gzipped from the start. <!-- code: src/store.ts#writeIdleRunsCompressed src/store.ts#readRecord -->
 

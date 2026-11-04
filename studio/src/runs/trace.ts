@@ -86,7 +86,7 @@ const listedFields = [
   'ended',
 ] as const;
 
-export const pickListedRun = (run: RunRecord, body = true) =>
+export const pickListedRun = (run: RunRecord, body: boolean) =>
   Object.fromEntries(
     listedFields.flatMap(k => (run[k] === undefined || (k === 'body' && !body) ? [] : [[k, run[k]]]))
   ) as Pick<RunRecord, (typeof listedFields)[number]>;

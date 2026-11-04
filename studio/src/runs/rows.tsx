@@ -471,13 +471,16 @@ const Issue = ({ r }: { r: ServedRun }) =>
     <>#{r.run.issue}</>
   );
 
+const FetchedRaw = ({ r }: { r: ServedRun }) => (
+  <Live state={useAtomValue(runAtom(r.run.id, r.data))}>{value => value && <Raw value={value.run} />}</Live>
+);
+
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
 const RunInfo = ({ r }: { r: ServedRun }) => {
   const { run, data } = r;
   const [raw, setRaw] = useState(false);
   const { value } = useAtomValue(runResultsAtom(data));
   const results = value?.runs.find(x => x.key === run.id);
-  const { value: opened } = useAtomValue(runAtom(run.id, data));
   return (
     <>
       <p className="flex gap-x-2 text-zinc-500">
@@ -486,7 +489,7 @@ const RunInfo = ({ r }: { r: ServedRun }) => {
           raw
         </button>
       </p>
-      {raw && opened && <Raw value={opened.run} />}
+      {raw && (r.trace ? <Raw value={run} /> : <FetchedRaw r={r} />)}
       {value && results && <RunResultLines run={results} fields={value.fields} />}
       {run.reason && (
         <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">

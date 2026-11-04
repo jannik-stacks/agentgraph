@@ -216,3 +216,55 @@ it('shows an empty failure as a failure', async () => {
   expect(show({ failure: '', retry: () => {} })).toContain('Retry');
   expect(show({ value: 'old', failure: '' })).toContain('Could not refresh, showing earlier data.');
 });
+
+it('keeps a check panel verdicts shown under a refresh note when a refresh fails', async () => {
+  vi.stubGlobal('location', new URL('http://studio/graph'));
+  const verdict = { run: 'r1', issue: 7, at: '2026-11-01T10:00:00Z', pass: false, empty: false, items: 0, failed: 0 };
+  const answers = [Response.json([verdict]), Response.json({ error: 'checks unreadable' }, { status: 500 })];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => answers.shift()!)
+  );
+  const { createElement } = await dependency<{
+    createElement: (type: unknown, props: object | null, ...children: unknown[]) => unknown;
+  }>('react');
+  const { renderToStaticMarkup } = await dependency<{ renderToStaticMarkup: (value: unknown) => string }>(
+    'react-dom/server'
+  );
+  const { createStore, Provider } = await dependency<{
+    createStore: () => { get: (atom: object) => unknown; sub: (atom: object, listener: () => void) => () => void };
+    Provider: unknown;
+  }>('jotai');
+  const { getVerdictsAtom, readChanged } = await studioModule<{
+    getVerdictsAtom: (fixture: string, step: string, check: string) => object;
+    readChanged: (topics?: string[]) => void;
+  }>('state.ts');
+  const { CheckDetails } = await studioModule<{ CheckDetails: unknown }>('graph/OpenedDetails.tsx');
+  const store = createStore();
+  const verdicts = getVerdictsAtom('kit/issue', 'implement', 'review');
+  const stop = store.sub(verdicts, () => {});
+  const show = () =>
+    renderToStaticMarkup(
+      createElement(
+        Provider,
+        { store },
+        createElement(CheckDetails, {
+          fixture: { id: 'kit/issue', checks: { review: { mode: 'block' } }, agents: {} },
+          path: 'issue/implement',
+          name: 'review',
+        })
+      )
+    );
+  try {
+    await vi.waitFor(() => expect(store.get(verdicts)).toEqual({ value: [verdict] }));
+    expect(show()).toContain('Ran 1 time, failed 1, skipped 0.');
+    readChanged(['data']);
+    await vi.waitFor(() => expect(store.get(verdicts)).toMatchObject({ failure: 'checks unreadable' }));
+    const stale = show();
+    expect(stale).toContain('Could not refresh, showing earlier data. checks unreadable');
+    expect(stale).toContain('Ran 1 time, failed 1, skipped 0.');
+  } finally {
+    stop();
+    vi.unstubAllGlobals();
+  }
+});
