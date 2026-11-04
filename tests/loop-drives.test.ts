@@ -12,7 +12,7 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { issuePath, writeIssueAt } from './kit.ts';
 import type { Graph } from '../src/folder.ts';
-import { comment, readChecks, readTrace, say, world } from './world.ts';
+import { comment, fresh, readChecks, readTrace, say, world } from './world.ts';
 
 const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 const flow = {
@@ -81,7 +81,19 @@ const setup = (parallel: number, holdSweep = false) => {
           : t.apply(...args),
     }))
   ).pipe(Layer.provide(folderTracker(where.tracker)));
-  const layer = Layer.mergeAll(tracker, fileStore(where.data), hostSandbox(where.origin), session);
+  let reads = 0;
+  const store = Layer.effect(
+    Store,
+    Effect.map(Store, s => ({
+      ...s,
+      list: (...args) =>
+        Effect.suspend(() => {
+          reads++;
+          return s.list(...args);
+        }),
+    }))
+  ).pipe(Layer.provide(fileStore(where.data)));
+  const layer = Layer.mergeAll(tracker, store, hostSandbox(where.origin), session);
   const drives = startLoopDrives();
   const pass = (g: Graph = graph) =>
     Effect.runPromise(
@@ -123,6 +135,7 @@ const setup = (parallel: number, holdSweep = false) => {
     cursors,
     releaseSweep,
     listings: () => listings,
+    reads: () => reads,
     isHolding: () => holding,
   };
 };
@@ -175,14 +188,26 @@ describe('loop drives', () => {
     }
   );
 
-  it('does no issue reads for quiet or untrusted polls', async () => {
+  it('reads only since the cursor for quiet or untrusted polls, even with old ended runs', async () => {
     const loop = setup(2);
     try {
+      await Effect.runPromise(
+        Effect.flatMap(Store, s => s.put({ ...fresh(), started: '2020-01-01T00:00:00.000Z', status: 'done' })).pipe(
+          Effect.provide(fileStore(loop.where.data))
+        )
+      );
       await loop.poll();
       say(loop.where, comment(7, 'stranger', false, '/agent', '2026-10-16T00:01:00.000Z'));
       const cursor = await loop.poll();
       await loop.poll();
-      expect([loop.looked, loop.listings(), loop.opened, cursor]).toEqual([[], 0, [], '2026-10-16T00:01:00.000Z']);
+      expect([loop.looked, loop.listings(), loop.reads(), loop.opened, cursor, loop.cursors]).toEqual([
+        [],
+        0,
+        0,
+        [],
+        '2026-10-16T00:01:00.000Z',
+        ['2026-10-16T00:00:00.000Z', '2026-10-16T00:00:00.000Z', '2026-10-16T00:01:00.000Z'],
+      ]);
     } finally {
       await loop.drives.stop();
     }
@@ -210,7 +235,7 @@ describe('loop drives', () => {
         finished = true;
         return cursor;
       });
-      await vi.waitFor(() => expect(loop.looked).toContain(7));
+      await vi.waitFor(() => expect(loop.listings()).toBe(2));
       expect([finished, ticks]).toEqual([false, []]);
       loop.releaseSweep();
       await Promise.all([sweep, poll]);
@@ -223,7 +248,7 @@ describe('loop drives', () => {
     }
   });
 
-  it('reads one event window and no open listing for an event on a known run issue', async () => {
+  it('reads run history only after new trusted events arrive', async () => {
     const loop = setup(2);
     try {
       await loop.pass();
@@ -232,11 +257,9 @@ describe('loop drives', () => {
       const before = loop.cursors.length;
       loop.where.human('/agent', '2026-10-16T00:01:00.000Z');
       await loop.poll();
-      loop.where.human('/agent', new Date(Date.now() + 1000).toISOString());
-      await loop.poll();
       expect([loop.listings(), loop.cursors.slice(before)]).toEqual([
-        listings,
-        ['2026-10-16T00:00:00.000Z', '2026-10-16T00:00:00.000Z'],
+        listings + 1,
+        ['2026-10-16T00:00:00.000Z', '2026-10-16T00:00:00.000Z', ''],
       ]);
     } finally {
       loop.release();
