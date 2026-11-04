@@ -520,15 +520,17 @@ describe('hostSandbox', () => {
 });
 
 describe('seeded', () => {
-  it('points a copied origin at its own seed, not the template', () => {
+  it('copies a seed with a clean index and an origin that names no other folder', () => {
     const files = { 'README.md': 'hi\n' };
-    const first = seeded('remote', files, 'origin.git');
-    const second = seeded('remote', files, 'origin.git');
+    const first = seeded('copy', files, 'origin.git');
+    const second = seeded('copy', files, 'origin.git');
     dirs.push(first.root, second.root);
     const origin = join(second.root, 'origin.git');
-    expect(git(origin, 'config', 'remote.origin.url')).toBe(second.seed);
+    expect(git(origin, 'rev-parse', 'main')).toBe(git(second.seed, 'rev-parse', 'HEAD'));
+    expect(git(second.seed, 'diff-index', 'HEAD')).toBe('');
+    expect(git(origin, 'config', '--list', '--local')).not.toContain('remote.');
     const ahead = commit(second.seed, { 'more.txt': 'more\n' });
-    git(origin, 'fetch', '-q', 'origin', 'main:main');
+    git(second.seed, 'push', '-q', origin, 'main');
     expect(git(origin, 'rev-parse', 'main')).toBe(ahead);
     expect(git(join(first.root, 'origin.git'), 'rev-parse', 'main')).not.toBe(ahead);
   });

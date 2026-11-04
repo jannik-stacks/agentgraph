@@ -150,7 +150,7 @@ const templates = new Map<string, string>();
 
 /**
  * A temp root holding `seed`, a repo with `files` committed on main, and the path of a `data` dir; with `origin`, a
- * bare clone of `seed` at that path under the root. Each call copies one template, so its commits match across calls.
+ * bare repo holding `seed`'s main at that path under the root. Each call copies one template, so its commits match across calls.
  */
 export const seeded = (name: string, files: Record<string, string>, origin?: string) => {
   const key = JSON.stringify([files, origin]);
@@ -160,15 +160,15 @@ export const seeded = (name: string, files: Record<string, string>, origin?: str
     const seed = join(template, 'seed');
     git(template, 'init', '-q', '-b', 'main', seed);
     commit(seed, files);
-    if (origin) git(template, 'clone', '-q', '--bare', seed, join(template, origin));
+    if (origin) {
+      git(template, 'init', '-q', '--bare', '-b', 'main', join(template, origin));
+      git(seed, 'push', '-q', join(template, origin), 'main');
+    }
     templates.set(key, template);
   }
   const root = tmp(name);
   cpSync(template, root, { recursive: true });
-  if (origin) {
-    const config = join(root, origin, 'config');
-    writeFileSync(config, readFileSync(config, 'utf8').replaceAll(join(template, 'seed'), join(root, 'seed')));
-  }
+  git(join(root, 'seed'), 'update-index', '-q', '--refresh');
   return { root, seed: join(root, 'seed'), data: join(root, 'data') };
 };
 

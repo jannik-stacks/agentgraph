@@ -22,3 +22,10 @@ export const createStudioServer = async () => {
     logLevel: 'silent',
   });
 };
+
+export const startStudioServer = async () => {
+  const server = await createStudioServer();
+  await server.listen();
+  const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
+  return { server, base };
+};

@@ -290,7 +290,7 @@ describe('tick', () => {
       [start('a'), wrote('bye.txt', 'bye\n'), reply(push, pull)],
     ]);
     const kept = 'refs/agentgraph/runs/run-7';
-    const [asked, done, saved] = await run(
+    const [asked, , saved] = await run(
       Effect.gen(function* () {
         const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
         const saved = git(where.origin, 'show', `${kept}:hello.txt`);
@@ -302,7 +302,6 @@ describe('tick', () => {
       })
     );
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Hello or hi?' });
-    console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))));
     expect(saved).toBe('hello');
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
     expect(git(where.origin, 'show', 'agentgraph/7:bye.txt')).toBe('bye');

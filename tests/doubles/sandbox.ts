@@ -80,7 +80,6 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         );
         const base = remoteBase || localBase;
         if (!base) throw new Error(`no commit ${ref}`);
-        if (kept && !keptParent) throw new Error(`no parent of ${kept}`);
         const from = remote || (kept ? keptParent : base);
         const fork = from === base ? base : await run('merge-base', from, base).catch(() => from);
         await run('checkout', '-q', ...(branch ? ['-B', branch] : ['--detach']), from);

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, it, vi } from 'vitest';
-import { createStudioServer, studioDir } from './studio.ts';
+import { createStudioServer, startStudioServer, studioDir } from './studio.ts';
 
 it('encodes page data, hides reader failures and sends change topics per watch root', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-pages-'));
@@ -50,10 +50,8 @@ export default function Page() { const { value } = usePluginData('count', Schema
   vi.stubEnv('AGI_STUDIO_DIR', graph);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
   vi.stubEnv('AGI_STUDIO_BENCH', external);
-  const server = await createStudioServer();
+  const { server, base } = await startStudioServer();
   try {
-    await server.listen();
-    const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('7');
     expect(await (await fetch(`${base}/src/runs/InboxPage.tsx`)).text()).not.toContain('FAKE-private-plugin-value');
     const snapshot = await (await fetch(`${base}/api/plugins/results/data`)).json();
@@ -124,10 +122,8 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
   vi.stubEnv('AGI_STUDIO_DATA', data);
   vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  const server = await createStudioServer();
+  const { server, base } = await startStudioServer();
   try {
-    await server.listen();
-    const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
     const response = await fetch(`${base}/api/plugins/results/data`);
     const text = await response.text();
     expect(response.status).toBe(200);
@@ -164,10 +160,8 @@ it('reloads the served graph and its problems when a graph file changes', async 
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
   vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  const server = await createStudioServer();
+  const { server, base } = await startStudioServer();
   try {
-    await server.listen();
-    const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
     const served = async () => (await fetch(`${base}/@id/__x00__virtual:served`)).text();
     expect(await served()).toContain('unknown');
     const sent = vi.spyOn(server.ws, 'send');
@@ -208,10 +202,8 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
   vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  const server = await createStudioServer();
+  const { server, base } = await startStudioServer();
   try {
-    await server.listen();
-    const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
     const described = async () => {
       const page = await (await fetch(`${base}/api/plugins/results/data`)).json();
       const runs = await (await fetch(`${base}/api/results?from=runs`)).json();
