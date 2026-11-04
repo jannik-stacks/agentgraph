@@ -148,16 +148,11 @@ export const readWorktreeAdmin = (mirror: string, dir: string) => {
   return admin;
 };
 
-export const readBranches = (git: string, checkedOut = false) =>
+export const readBranches = (git: string, format = '%(refname:strip=2)') =>
   Effect.suspend(() =>
     existsSync(git)
-      ? Effect.map(
-          readGit({ GIT_DIR: git }, [
-            'branch',
-            '--list',
-            `--format=${checkedOut ? '%(if)%(worktreepath)%(then)%(refname:strip=2)%(end)' : '%(refname:strip=2)'}`,
-          ]),
-          out => out.split('\n').filter(Boolean)
+      ? Effect.map(readGit({ GIT_DIR: git }, ['branch', '--list', `--format=${format}`]), out =>
+          out.split('\n').filter(Boolean)
         )
       : Effect.succeed([])
   );

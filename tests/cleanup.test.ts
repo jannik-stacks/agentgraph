@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, rmSync, renameSync } 
 import { join } from 'node:path';
 import { Effect, Logger, Semaphore } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
+import { dockerSandbox } from '../src/docker.ts';
 import { removeBranch } from '../src/disk.ts';
 import { getCheckoutPaths } from '../src/env.ts';
 import * as host from '../src/git.ts';
@@ -49,7 +50,7 @@ const cleanOldRun = async (exact: boolean) => {
 };
 
 describe('landed checkout cleanup', () => {
-  it.each([7, 9])('keeps a branch reused by issue #%s after the cleanup snapshot', async issue => {
+  it.each([7, 9])('keeps a branch reused by issue #%s after branch discovery', async issue => {
     const run = setup();
     git(run.origin, 'update-ref', 'refs/heads/main', run.head, git(run.origin, 'rev-parse', 'main'));
     writeIssueAt(issuePath(run.tracker, 7), '---\ntitle: Done\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
@@ -541,11 +542,40 @@ describe('landed checkout cleanup', () => {
     fetch();
     const path = getCheckoutPaths(run.data, 'mirrored').dir;
     git(mirror, 'worktree', 'add', '-q', path, 'agentgraph/7');
-    const listed = () => Effect.runPromise(host.readBranches(mirror, true));
+    const listed = () =>
+      Effect.runPromise(host.readBranches(mirror, '%(if)%(worktreepath)%(then)%(refname:strip=2)%(end)'));
     expect(await listed()).toContain('agentgraph/7');
-    await Effect.runPromise(removeBranch(mirror, 'agentgraph/7', 'main', run.head, run.data));
+    writeIssueAt(issuePath(run.tracker, 7), '---\ntitle: Done\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
+    writeIssueAt(issuePath(run.tracker, 8), '---\ntitle: Landed\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+    write(run.tracker, { '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: run.head }) });
+    const engine = services(run, []);
+    await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), checkout: run.checkout, status: 'done' })));
+    const looked: string[] = [];
+    const removed: string[] = [];
+    const pass = Effect.updateService(
+      Effect.updateService(scanIssuesAndRunningRuns(graph), Tracker, tracker => ({
+        ...tracker,
+        issues: filter => {
+          if (filter?.branch) looked.push(filter.branch);
+          return tracker.issues(filter);
+        },
+      })),
+      Sandbox,
+      sandbox => ({
+        ...sandbox,
+        removeBranch: (...args) => {
+          removed.push(args[0]);
+          return sandbox.removeBranch(...args);
+        },
+      })
+    ).pipe(Effect.provide(dockerSandbox({ data: run.data, origin: run.origin, cache: '' })));
+    await engine.run(pass);
+    expect([looked, removed, existsSync(path)]).toEqual([['agentgraph/7'], ['agentgraph/7'], false]);
     fetch();
-    expect(existsSync(path)).toBe(false);
+    looked.length = 0;
+    removed.length = 0;
+    await engine.run(pass);
+    expect([looked, removed, existsSync(path)]).toEqual([[], [], false]);
     expect(git(mirror, 'rev-parse', 'agentgraph/7')).toBe(run.head);
     expect(await listed()).not.toContain('agentgraph/7');
   });
