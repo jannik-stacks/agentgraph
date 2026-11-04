@@ -15,7 +15,8 @@ import { ConfigProvider, Effect, Layer } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { stringify } from 'yaml';
 import type { InstanceFile } from '../src/settings.ts';
-import { ensureInstance, readInstance } from '../src/instance.ts';
+import { ensureInstance, formatGraphName, readInstance } from '../src/instance.ts';
+import { getCachePath } from '../src/env.ts';
 import { readInstanceEnv, start, createLoopLock } from '../src/main.ts';
 import { settings, makeTrackerSetup, whyModelHostsMissing } from '../src/services.ts';
 import { makeServedGraph } from '../studio/served.ts';
@@ -573,6 +574,17 @@ it('prints the startup banner for an origin-less instance with a committed graph
   rmSync(w.instance.tracker, { recursive: true });
   const result = w.run('loop', '--once');
   expect(result.stdout).toMatch(/\.agentgraph\/ at main [0-9a-f]{7}, /);
+});
+
+it('prints the banner without a revision when the graph source cannot be read', async () => {
+  const w = await makeInstance('unread');
+  rmSync(w.instance.tracker, { recursive: true });
+  const graph = getCachePath(w.instance.data, 'graphs', 'tree');
+  const names = await Promise.all([
+    formatGraphName({ ...w.instance, base: 'absent' }, graph),
+    formatGraphName({ ...w.instance, checkout: w.root }, graph),
+  ]);
+  expect(names).toEqual(['.agentgraph/ at absent', '.agentgraph/ at main']);
 });
 
 it('starts the hosted entrypoint from a non-repo image with its named instance', async () => {
