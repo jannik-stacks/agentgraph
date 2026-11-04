@@ -65,7 +65,7 @@ const presetHelp: Record<string, string> = {
   'judges only': 'Only judges count.',
 };
 const BenchResults = ({ runs }: { runs: RunResults[] }) => {
-  const fields = findCheckFields(runs).filter(f => f.check !== 'bench');
+  const fields = findCheckFields(runs);
   if (!fields.length) return null;
   return (
     <section>

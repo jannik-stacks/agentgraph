@@ -37,14 +37,9 @@ const optionHints: Record<string, string> = {
   repo: 'The repo the case comes from.',
   candidate: 'One candidate graph a proposer wrote.',
   proposer: 'What wrote the candidate graph.',
-  point: 'Harness, model, arm and graph together: one bench setup.',
   harness: 'The agent CLI that ran the model.',
   model: 'The model the agents used.',
-  arm: 'Which side ran the case, such as the agentgraph graph or the bare floor agent.',
-  engine: 'The engine version that ran the graph.',
   graph: 'The graph version that ran.',
-  set: 'The list of cases the bench ran.',
-  case: 'One merged pull request replayed as a task.',
 };
 
 const makeHintedOption = (value: string, label = value) => ({ value, label, title: optionHints[value || 'none'] });

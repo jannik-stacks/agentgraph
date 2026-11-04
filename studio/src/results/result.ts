@@ -100,7 +100,6 @@ export const getFieldSummary = (runs: RunResults[], field: CheckField, trend = '
 };
 
 export const readBenchRowResults = (row: BenchRow): RunResults => {
-  const hidden = row.hiddenShare ?? row.hidden;
   const at = Object.values(row.results)[0]?.at ?? '';
   return {
     key: row.run,
@@ -112,19 +111,6 @@ export const readBenchRowResults = (row: BenchRow): RunResults => {
       ...(row.skipped && { hiddenTests: `skipped: ${row.skipped}` }),
       ...row.labels,
     },
-    results: {
-      ...row.results,
-      bench: {
-        at,
-        pass: !row.infra && hidden === 1 && row.suite !== 0 && row.typecheck !== 0,
-        ...(row.skipped && { empty: true }),
-        value: {
-          ...(hidden !== undefined && { hidden }),
-          ...(row.usd !== undefined && { usd: row.usd }),
-          ...(row.checkUsd !== undefined && { checkUsd: row.checkUsd }),
-          minutes: row.minutes,
-        },
-      },
-    },
+    results: row.results,
   };
 };
