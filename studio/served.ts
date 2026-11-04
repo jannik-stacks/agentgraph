@@ -1,4 +1,5 @@
-import { basename, sep } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, join, resolve, sep } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { readRealPath } from '../src/instance.ts';
 import type * as HarnessesModule from '../src/harnesses.ts';
@@ -21,6 +22,33 @@ const readServedGraph = async () => {
   return Result.isSuccess(loaded)
     ? { name: basename(dir), graph: loaded.success, problems: [] }
     : { name: basename(dir), graph: undefined, problems: loaded.failure.problems };
+};
+
+const unserved =
+  /^(homes|cache|work|tree|engine|logs|target|node_modules|\.attic|\.cache|\.locks|\.envs|.+\.git)$|\.lock$|^[jt]sconfig.*\.json$/;
+
+const isServed = (path: string, { root, depth }: { root: string; depth: number }) => {
+  const names = path.slice(root.length + 1).split(sep);
+  return names.length <= depth && !names.some(name => unserved.test(name));
+};
+
+export const readDataRoots = () => [
+  ...(process.env.AGI_STUDIO_DATA ? [{ root: process.env.AGI_STUDIO_DATA, depth: 4 }] : []),
+  ...(process.env.AGI_STUDIO_BENCH ?? '')
+    .split(':')
+    .filter(Boolean)
+    .map(root => ({ root, depth: Infinity })),
+  ...(process.env.AGI_STUDIO_TUNE ? [{ root: process.env.AGI_STUDIO_TUNE, depth: 4 }] : []),
+];
+
+export const makeUnservedFilter = (roots: { root: string; depth: number }[]) => {
+  const all = roots.flatMap(({ root, depth }) =>
+    [...new Set([resolve(root), readRealPath(root)])].map(root => ({ root, depth }))
+  );
+  return (path: string) => {
+    const under = all.filter(({ root }) => path.startsWith(root + sep));
+    return !!under.length && (!under.some(root => isServed(path, root)) || existsSync(join(path, '.git')));
+  };
 };
 
 export const servedIds = ['virtual:fixtures', 'virtual:served'];

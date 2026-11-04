@@ -1,12 +1,11 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { existsSync, realpathSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { makeStudioDevApiPlugin } from './fixtures.ts';
 import { makeStudioPagesPlugin } from './plugins.ts';
-import { makeServedGraph } from './served.ts';
+import { makeServedGraph, makeUnservedFilter, readDataRoots } from './served.ts';
 
 const builtins = new Set(builtinModules);
 
@@ -26,11 +25,6 @@ const noNodeInBrowser = (): Plugin => ({
 const served = makeServedGraph();
 const server = { host: '127.0.0.1', port: Number(process.env.AGI_PORT) || 5182, strictPort: true };
 const allow = ['./', '../src/', '../node_modules/'].map(dir => fileURLToPath(new URL(dir, import.meta.url)));
-const ignored = (process.env.AGI_STUDIO_BENCH ?? '')
-  .split(':')
-  .filter(dir => existsSync(dir))
-  .map(dir => realpathSync(dir))
-  .flatMap(dir => [`${dir}/**/{homes,work,tracker,tree,graph,.attic,engine,.cache,logs}/**`, `${dir}/**/*.lock`]);
 const deny = ['.env', '.env.*', '*.env', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**'];
 
 export default defineConfig({
@@ -41,6 +35,11 @@ export default defineConfig({
   plugins: [noNodeInBrowser(), makeStudioPagesPlugin(served), makeStudioDevApiPlugin(served), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
   optimizeDeps: { entries: ['index.html', 'src/**/*.tsx'], include: ['agentation', 'fumadocs-core/highlight'] },
-  server: { ...server, fs: { allow, deny }, watch: { ignored }, warmup: { clientFiles: ['./src/main.tsx'] } },
+  server: {
+    ...server,
+    fs: { allow, deny },
+    watch: { ignored: [makeUnservedFilter(readDataRoots())] },
+    warmup: { clientFiles: ['./src/main.tsx'] },
+  },
   preview: server,
 });
