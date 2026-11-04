@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -76,9 +77,9 @@ describe('docker with a stand-in docker client', () => {
         'case "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; esac',
         `[ "$1" = network ] && { echo "$*" >> ${log}.network; case "$*" in *tools-fail.internal*) exit 4;; *IPAM.Config*) echo '[{"Gateway":"172.30.0.1","Subnet":"172.30.0.0/16"}]'; exit 0;; esac; echo true; exit 0; }`,
         `[ "$1" = rm ] && { sleep 0.2; : > ${log}.held; echo "$*" >> ${log}.rm; exit 0; }`,
-        `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
+        `[ "$1" = image ] && case "$*" in *Labels*) [ -e ${log}.imgfail ] && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }; echo "Error: No such image" >&2; exit 1;; *) echo sha256:base; exit 0;; esac`,
         `[ "$1 $2" = "volume inspect" ] && for a; do case $a in agentgraph-*) echo /m/$a;; esac; done`,
-        `[ "$1 $2" = "volume ls" ] && { case "$*" in *label=agentgraph.lower=*) rm ${log}.lsfail 2>/dev/null && exit 1;; esac; for a; do case $a in label=agentgraph.lower=*) f=\${a#label=};; esac; done; [ -s ${log}.live ] && echo "$f,$(cat ${log}.live)"; exit 0; }`,
+        `[ "$1 $2" = "volume ls" ] && { case "$*" in *label=agentgraph.lower=*) rm ${log}.lsfail 2>/dev/null && exit 1;; esac; for a; do case $a in label=agentgraph.*) f=\${a#label=};; esac; done; [ -f ${log}.live ] && while read -r p o; do case "$f" in "$p"*) echo "$f,$o";; esac; done < ${log}.live; exit 0; }`,
         `[ "$1 $2" = "volume rm" ] && for a; do grep -qx -- "$a" ${log}.held 2>/dev/null && { echo "volume $a is in use" >&2; exit 1; }; done`,
         `case "$*" in *agentgraph.envbuild=1*) for a; do case $a in type=volume,src=*) v=\${a#type=volume,src=}; echo "\${v%%,*}" >> ${log}.held;; esac; done;; esac`,
         `case "$1" in commit|volume) echo "$*" >> ${log}.all; exit 0;; esac`,
@@ -528,7 +529,7 @@ describe('docker with a stand-in docker client', () => {
   ])('keeps the build writes of %s out of the cache volume', async (_, ref, live) => {
     const all = `${log}.all`;
     writeFileSync(all, '');
-    writeFileSync(`${log}.live`, live && `agentgraph.layer=${startHeartbeat()}`);
+    writeFileSync(`${log}.live`, live && `agentgraph.lower=agentgraph-cache- agentgraph.layer=${startHeartbeat()}\n`);
     const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
       s.checkout(ref, undefined, undefined, { repo: 'acme/trust', toolchain: 'true' })
     );
@@ -580,6 +581,54 @@ describe('docker with a stand-in docker client', () => {
     expect(main?.layered).toBe(false);
     expect(feature?.key).toBe(main?.key);
     expect(untrusted?.key).not.toBe(main?.key);
+  });
+
+  it.each([
+    ['a branch named origin/HEAD', ['branch', 'origin/HEAD', 'feature'], {}],
+    ['a tag named origin/HEAD', ['tag', 'origin/HEAD', 'feature'], {}],
+    [
+      'a branch named like a workflow base template',
+      ['branch', 'agentgraph/{parent}', 'feature'],
+      { w: { base: 'agentgraph/{parent}' } },
+    ],
+    ['a workflow base on a bot branch', ['branch', 'agentgraph/next', 'feature'], { w: { base: 'agentgraph/next' } }],
+    [
+      'a workflow base another workflow writes',
+      ['branch', 'fix-1', 'feature'],
+      { w: { base: 'fix-1' }, v: { branch: 'fix-{number}' } },
+    ],
+  ])('keeps an unmerged base untrusted beside %s', async (_, made, workflows) => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    const repo = origin();
+    git(repo, ...made);
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: repo }), s =>
+      s.checkout('feature', undefined, undefined, {
+        repo: 'acme/anchor',
+        toolchain: 'true',
+        workflows: workflows as never,
+      })
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(readFileSync(all, 'utf8')).toMatch(/src=agentgraph-envbuild-\w+-c,dst=\/cache /);
+  });
+
+  it.each([
+    ['the image lookup fails for another reason', 'imgfail', '', 'Cannot connect to the Docker daemon'],
+    ['a live checkout reads it', 'live', 'agentgraph.env= agentgraph.layer=', 'while a live checkout reads it'],
+  ])('keeps an environment that looks missing while %s', async (_, file, line, error) => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    writeFileSync(`${log}.${file}`, line && `${line}${startHeartbeat()}\n`);
+    try {
+      const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
+        s.checkout('main', undefined, undefined, { repo: 'acme/kept', toolchain: 'true' })
+      );
+      expect(JSON.stringify(exit)).toContain(error);
+      expect(readFileSync(all, 'utf8')).not.toContain('volume rm -f agentgraph-lower-');
+    } finally {
+      rmSync(`${log}.${file}`, { force: true });
+    }
   });
 
   it('trusts a base on a workflow base branch', async () => {
@@ -816,7 +865,7 @@ describe('docker images and sandbox setups shared by concurrent callers', () => 
         `case "$1" in rm|volume) exit 0;; commit) touch $s/committed-$t; exit 0;; esac`,
         `[ "$1" = build ] && { echo x >> $s/builds; sleep 0.3; touch $s/sandbox; exit 0; }`,
         `[ "$1" = image ] && case "$*" in`,
-        `  *Labels*) [ -e $s/committed-$t ] || exit 1; echo '{"agentgraph.env":"k","agentgraph.mode":"deps","agentgraph.complete":"true"}'; exit 0;;`,
+        `  *Labels*) [ -e $s/committed-$t ] || { echo "No such image" >&2; exit 1; }; echo '{"agentgraph.env":"k","agentgraph.mode":"deps","agentgraph.complete":"true"}'; exit 0;;`,
         `  *agentgraph-sandbox:local*) [ -e $s/sandbox ] || { echo "No such image" >&2; exit 1; }; echo sha256:base; exit 0;;`,
         `  *sha256*|*ghcr.io*) echo "No such image" >&2; exit 1;;`,
         `  *) echo sha256:base; exit 0;;`,

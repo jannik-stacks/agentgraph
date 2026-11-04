@@ -7,7 +7,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Cache, Cause, Duration, Effect, Layer, Queue, Redacted, Schema, Semaphore, Stream } from 'effect';
 import { isIP } from 'node:net';
-import type { TrackerError } from './tracker.ts';
+import { isAgentBranch, type TrackerError } from './tracker.ts';
 import type { Graph } from './folder.ts';
 import {
   dependencyDirs,
@@ -713,6 +713,29 @@ export const dockerSandbox = (o: {
           '--quiet',
           `${o.local && name === 'origin/HEAD' ? 'HEAD' : name}^{commit}`,
         ]).pipe(Effect.orElseSucceed(() => ''));
+      const readTrustedCommits = (workflows: Graph['workflows'] = {}) => {
+        const written = Object.values(workflows).flatMap(w =>
+          w.branch
+            ? [
+                new RegExp(
+                  `^${w.branch
+                    .split(/\{[^}]*\}/)
+                    .map(p => p.replace(/[.*+?^$()|[\]\\]/g, '\\$&'))
+                    .join('.+')}$`
+                ),
+              ]
+            : []
+        );
+        const bases = Object.values(workflows).flatMap(w =>
+          w.base && !/[{}]/.test(w.base) && !isAgentBranch(w.base) && !written.some(r => r.test(w.base!))
+            ? [w.base]
+            : []
+        );
+        return Effect.forEach(
+          [o.local ? 'HEAD' : 'refs/remotes/origin/HEAD', ...bases.map(b => `refs/heads/${b}`)],
+          ref => inMirror(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).pipe(Effect.orElseSucceed(() => ''))
+        );
+      };
       const readHead = (ref: string) =>
         Effect.gen(function* () {
           yield* fetch;
@@ -754,16 +777,7 @@ export const dockerSandbox = (o: {
           const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
           yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
-          const trusted =
-            graph && cache
-              ? yield* Effect.forEach(
-                  [
-                    'origin/HEAD',
-                    ...Object.values(graph.workflows ?? {}).flatMap(w => (w.base ? [`refs/heads/${w.base}`] : [])),
-                  ],
-                  verify
-                )
-              : [];
+          const trusted = graph && cache ? yield* readTrustedCommits(graph.workflows) : [];
           const { cache: repoCache, env } =
             graph && cache
               ? yield* Effect.tryPromise({

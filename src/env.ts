@@ -222,8 +222,13 @@ const makeRepoSlug = (repo: string) =>
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^[^a-z0-9]+/, '') || 'repo';
 
+const ifMissing =
+  <T>(value: T) =>
+  (e: unknown) =>
+    /no such (image|volume)/i.test(String((e as { output?: string }).output ?? e)) ? value : Promise.reject(e);
+
 const labels = async (tag: string) => {
-  const out = await runDockerCli(['image', 'inspect', '--format', '{{json .Config.Labels}}', tag]).catch(() => '');
+  const out = await runDockerCli(['image', 'inspect', '--format', '{{json .Config.Labels}}', tag]).catch(ifMissing(''));
   const l = out ? (JSON.parse(out) as Record<string, string> | null) : null;
   return l?.['agentgraph.env'] ? l : undefined;
 };
@@ -324,23 +329,22 @@ const createSandboxSetup = async (
     env &&
     (await runDockerCli(['volume', 'inspect', lower, ...(env.layered ? [`${lower}-c`] : [])]).then(
       () => true,
-      () => false
+      ifMissing(false)
     ))
   )
     return (touch(key), env);
+  if (await isOverlaid(key)) throw new Error(`environment ${key} is incomplete while a live checkout reads it`);
   if (env) await runDockerCli(['rmi', '-f', tag]).catch(() => '');
   const name = `agentgraph-envbuild-${key}`;
-  const clear = async () => {
-    await runDockerCli(['rm', '-f', name]).catch(() => '');
-    await runDockerCli(['volume', 'rm', '-f', lower, `${lower}-c`]).catch(() => '');
-  };
+  const clear = () => runDockerCli(['volume', 'rm', '-f', lower, `${lower}-c`]).catch(() => '');
+  await runDockerCli(['rm', '-f', name]).catch(() => '');
   await clear();
   await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, lower]);
   let release: (() => void) | undefined = await waitForLock(`cache-${b.cache}`);
   let layer = '';
   let failed = true;
   try {
-    if (b.untrusted || (await isCacheOverlaid(b.cache))) {
+    if (b.untrusted || (await isOverlaid(b.cache))) {
       layer = await createBuildLayer(spec.image, b.cache, key);
       release();
       release = undefined;
@@ -455,10 +459,17 @@ export const isLiveOverlay = (labels: Record<string, string>, lower: string) =>
   Boolean(labels['agentgraph.layer']) &&
   isOwnerRunning(labels['agentgraph.layer']!);
 
-const isCacheOverlaid = async (cache: string) =>
-  (await runDockerCli(['volume', 'ls', '--filter', `label=agentgraph.lower=${cache}`, '--format', '{{.Labels}}']))
+const isOverlaid = async (lower: string) =>
+  (
+    await Promise.all(
+      ['lower', 'env'].map(label =>
+        runDockerCli(['volume', 'ls', '--filter', `label=agentgraph.${label}=${lower}`, '--format', '{{.Labels}}'])
+      )
+    )
+  )
+    .join('\n')
     .split('\n')
-    .some(l => isLiveOverlay(parseDockerLabels(l), cache));
+    .some(l => isLiveOverlay(parseDockerLabels(l), lower));
 
 const runAsRoot = (image: string, mounts: string[], script: string, timeout?: number) =>
   runDockerCli(
@@ -503,6 +514,8 @@ const createBuildLayer = async (image: string, cache: string, key: string) => {
     `agentgraph.layer=${startHeartbeat()}`,
     '--label',
     `agentgraph.lower=${cache}`,
+    '--label',
+    `agentgraph.env=${key}`,
     ...makeOverlayOpts(c!, o!),
     name,
   ]);

@@ -389,6 +389,18 @@ describe('environment ownership ledger', () => {
 });
 
 describe('scoped collection', () => {
+  it("counts an environment's cache layer toward the cap", async () => {
+    const vols = `${box['volume ls --format']}agentgraph-lower-k1-c\tagentgraph.lower=k1\\n`;
+    const df = JSON.stringify({
+      ...JSON.parse(box['system df']),
+      Volumes: [{ Name: 'agentgraph-lower-k1-c', Size: '70GB' }],
+    });
+    await faked({ ...box, 'volume ls --format': vols, 'system df': df }, async log => {
+      await collect({ eligible: ['agentgraph-env/r:k1'], limit: 60 * GB });
+      expect(log()).toContain('rmi agentgraph-env/r:k1');
+    });
+  });
+
   it("removes an environment's cache layer with it, and a left one alone", async () => {
     const vols = `${box['volume ls --format']}agentgraph-lower-k1-c\tagentgraph.lower=k1\\nagentgraph-lower-gone-c\tagentgraph.lower=gone\\n`;
     await faked({ ...box, 'volume ls --format': vols }, async log => {

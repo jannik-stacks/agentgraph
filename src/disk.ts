@@ -241,7 +241,10 @@ export const inventory = async (
     items.push({
       kind: 'env',
       refs: [...tags, ...listEnvVolumes(key).filter(v => names.has(v))],
-      bytes: unique + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
+      bytes:
+        unique +
+        (Number(labels['agentgraph.lowerkb']) || 0) * 1024 +
+        (df.volumes.get(`${makeSetupVolumeName(key)}-c`) ?? 0),
       used: lastUsedMs,
       ...(why && { always: true, gone: why }),
       ...(tags.length !== allTags.length && { held: 'retained image tag' }),
