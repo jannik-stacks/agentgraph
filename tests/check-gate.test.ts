@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Deferred, Effect, Layer, Stream } from 'effect';
 import { expect, it } from 'vitest';
-import { drive, runStepChecks } from '../src/engine.ts';
+import { drive } from '../src/engine.ts';
 import type { Graph } from '../src/folder.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -10,6 +10,7 @@ import { fileStore } from '../src/store.ts';
 import { makeTestGraph, reply, result, start, stop } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
 import { fresh, readChecks, removeAfter, services, world } from './world.ts';
+import { runStepChecks } from '../src/run/check.ts';
 
 const measureChecks = async (sessions: number, judged = false) => {
   const root = tmp('check-gate');

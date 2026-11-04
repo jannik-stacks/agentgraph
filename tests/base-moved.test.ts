@@ -3,18 +3,19 @@ import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { drive, runStepChecks, tick } from '../src/engine.ts';
+import { drive, tick } from '../src/engine.ts';
 import { Tracker } from '../src/tracker.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent, SessionSpec, Trace } from '../src/trace.ts';
 import type { Graph } from '../src/folder.ts';
-import { type Step } from '../src/workflow.ts';
+import type { Step } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { graph, w, world, push, pull, judged, services, readChecks, readTrace, fresh, say, comment } from './world.ts';
+import { runStepChecks } from '../src/run/check.ts';
 
 const readJudgeSessions = (data: string) =>
   readChecks(data, 'run-7').flatMap(e =>

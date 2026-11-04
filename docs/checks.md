@@ -1,6 +1,6 @@
 # Checks and results
 
-A check looks at a try, or at an ended run, and records a result. After a session, the step's checks run in parallel and their findings come back together as feedback. <!-- code: src/engine.ts#runStepChecks -->
+A check looks at a try, or at an ended run, and records a result. After a session, the step's checks run in parallel and their findings come back together as feedback. <!-- code: src/run/check.ts#runStepChecks -->
 
 A check has a `run` script, an `agent` judge, or both; [the graph folder](reference.md#checks) lists the fields.
 
@@ -28,7 +28,7 @@ Without `returns`, a script's exit 0 passes and its output is the findings. With
 
 A check with its own `returns` keeps the result as its `value`, such as `{calls: 12}`; one with `each` keeps the `share` of items that passed.
 
-A result that cannot be read or does not match `returns` fails the check, except in `info` mode. A `block` check therefore blocks the step. Such results, and unanswered items, are marked `empty` so they stay out of score averages. `empty` does not make a failed check pass. <!-- code: src/engine.ts#runOneCheck src/engine.ts#runStepChecks -->
+A result that cannot be read or does not match `returns` fails the check, except in `info` mode. A `block` check therefore blocks the step. Such results, and unanswered items, are marked `empty` so they stay out of score averages. `empty` does not make a failed check pass. <!-- code: src/run/check.ts#runOneCheck src/run/check.ts#runStepChecks -->
 
 ## Judges
 
@@ -40,7 +40,7 @@ Judges start fresh. Within a run, a passed item is reused while the diff and pro
 
 ## Script variables
 
-Scripts run in the checkout, without network, with these variables: <!-- code: src/engine.ts#runOneCheck -->
+Scripts run in the checkout, without network, with these variables: <!-- code: src/run/check.ts#runOneCheck -->
 
 | Variable | Contents | Given to |
 | --- | --- | --- |

@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { Effect, Layer, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
-import { drive, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
+import { drive, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -32,6 +32,7 @@ import {
   check,
   pullRequest,
 } from './world.ts';
+import { runStepChecks } from '../src/run/check.ts';
 
 describe('stacks', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });

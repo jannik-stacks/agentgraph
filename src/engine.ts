@@ -29,12 +29,10 @@ import {
   readGit,
   writeCheckoutTree,
 } from './git.ts';
-import type { Session } from './session.ts';
 import { readPlugins, type StatusChange } from './plugin.ts';
-import { defaultPass, defaultReturns, findMismatch, readScriptResult, type Result as ResultValue } from './result.ts';
 import { LockHeldError } from './owner.ts';
 import { Store, type StoreError } from './store.ts';
-import { type Trace, SessionStop, pickUsed } from './trace.ts';
+import { SessionStop, pickUsed } from './trace.ts';
 import {
   begin,
   formatFailedTryFeedback,
@@ -56,8 +54,8 @@ import {
   isRunDone,
   parseAgentRequest,
 } from './workflow.ts';
-import { type Services, runShell, runJudge, runSession, formatFailure } from './run/execute.ts';
-import { EachFailed, findFanOutItems, readCheckoutDiff, most, runSetup } from './run/checkout.ts';
+import { type Services, runShell, runSession, formatFailure } from './run/execute.ts';
+import { findFanOutItems, readCheckoutDiff, most, runSetup } from './run/checkout.ts';
 import {
   findPullNumber,
   isInScope,
@@ -73,15 +71,13 @@ import {
 } from './run/hear.ts';
 import {
   type Left,
-  passes,
   makeScriptEnv,
-  getCheckFiles,
-  type Item,
-  formatAnswers,
   formatTracesPrompt,
   writeTraces,
   getTraceFiles,
   writeCheckFiles,
+  runStepChecks,
+  runOneCheck,
 } from './run/check.ts';
 
 const decodeProposal = Schema.decodeUnknownResult(Said, {
@@ -613,226 +609,6 @@ const refresh = (run: Run, work: Checkout, seen: Seen, t: IssueWithPull) =>
     Effect.catch(e => Effect.logWarning(`news for run ${run.id}`, e))
   );
 
-/**
- * One check over what a try left: its items, the command per item, then the agent that judges. Each item gives a
- * result `returns` describes, from the judge when there is one, else from the script; it passes when it matches
- * `pass` and its script exited 0. With `each` the check carries the share of items that passed, else the result
- * itself when it has its own `returns`. The result and each item's go to the run's check record, each with what its
- * judging cost and the judge's transcript as its log.
- */
-const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, graph: Graph, later?: true) =>
-  Effect.gen(function* () {
-    const store = yield* Store;
-    const passed = passes.get(store) ?? new Set<string>();
-    passes.set(store, passed);
-    const run = work.run;
-    const returns = check.returns ?? defaultReturns;
-    const info = check.mode === 'info';
-    const started = Date.now();
-    const minutes = graph.limits.minutes;
-    const base = { ...makeScriptEnv(work, work.issue), ...getCheckFiles(work) };
-    const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
-      ? findFanOutItems(check.each, graph, work, minutes, base)
-      : Effect.succeed([undefined]);
-    const listed = yield* all.pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
-    const items: (string | undefined)[] = listed instanceof EachFailed ? [] : listed;
-    const diff = check.agent && !check.reads ? yield* readCheckoutDiff(work) : '';
-    const settle = (
-      item: string | undefined,
-      value: ResultValue | undefined,
-      exit?: number,
-      output?: string,
-      usd = 0
-    ): Item => {
-      const exited = exit === undefined ? {} : { exit };
-      const unread = value === undefined ? 'its last line is no JSON object' : findMismatch(returns, value);
-      if (unread || !value)
-        return {
-          item,
-          pass: info,
-          findings: `unreadable: ${unread}`,
-          ...exited,
-          unread: true,
-          ...(output && { output }),
-          usd,
-        };
-      const why = typeof value.why === 'string' ? value.why : '';
-      const failed = info ? undefined : exit ? `exit ${exit}` : findMismatch(check.pass ?? defaultPass, value);
-      const { why: _why, ...rest } = value;
-      return {
-        item,
-        pass: !failed,
-        ...(check.returns && { value: rest }),
-        findings: check.pass && failed ? [failed, why].filter(Boolean).join('\n') : why || failed || '',
-        ...exited,
-        output: output ?? why,
-        usd,
-      };
-    };
-    const one = (item: string | undefined) =>
-      Effect.gen(function* () {
-        const env = {
-          ...base,
-          ...(item !== undefined && { AGENTGRAPH_ITEM: item }),
-        };
-        const out = check.run ? yield* runShell(check.run, graph, work.dir, env, minutes) : undefined;
-        if (out?.code === 127) {
-          const command = check.run?.match(/^[\t ]*([A-Za-z0-9_./][A-Za-z0-9_./-]*)(?:\s|$)/)?.[1];
-          if (command && (yield* runShell(`command -v '${command}'`, graph, work.dir, env, minutes)).code !== 0)
-            return yield* new SandboxError({
-              reason: 'infra',
-              detail: `${check.name}: command not found: ${formatSqueezed(out.output, 400)}`,
-            });
-        }
-        if (!check.agent) {
-          const output = out?.output ?? '';
-          const value = check.returns ? readScriptResult(output) : { pass: (out?.code ?? 0) === 0, why: output };
-          return { ...settle(item, value, out?.code, output), ...pickUsed(out) };
-        }
-        const agent = graph.agents[check.agent]!;
-        const reads = agent.reads ?? check.reads;
-        const prompt = [
-          check.body,
-          out?.output ?? item ?? formatSqueezed(diff, 200_000),
-          formatAnswers(work.answers),
-          reads && formatTracesPrompt(work),
-          'Call the result tool once you have decided.',
-        ]
-          .filter(Boolean)
-          .join('\n\n');
-        const key = getSha(
-          [run, check.name, check.agent, agent.model, agent.harness, agent.body, agent.tools, prompt, diff].join('\0')
-        );
-        if (!reads && !check.returns && passed.has(key)) return settle(item, { pass: true });
-        const lines: Trace[] = [];
-        const transcript = () => lines.map(line => JSON.stringify(line) + '\n').join('');
-        const cost = () => lines.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0);
-        const judged = yield* runJudge(
-          graph,
-          lines,
-          step,
-          {
-            harness: agent.harness,
-            agent: check.agent,
-            check: check.name,
-            returns,
-            minutes: graph.limits.minutes,
-            ...(agent.model !== undefined && { model: agent.model }),
-            system: agent.body,
-            prompt,
-            dir: work.dir,
-            base: work.base,
-            tools: agent.tools,
-            ...(reads && { read: [dirname(work.news)] }),
-          },
-          item
-        ).pipe(
-          Effect.catchTag('SessionStop', e =>
-            (check.mode === 'warn' || info) && e.reason !== 'human' ? Effect.succeed(e) : Effect.fail(e)
-          ),
-          Effect.tapError(e =>
-            Effect.flatMap(store.log(transcript(), false), log =>
-              store.addChecks(run, {
-                at: new Date().toISOString(),
-                step,
-                version: check.version,
-                check: {
-                  check: check.name,
-                  pass: false,
-                  empty: true,
-                  findings: formatSqueezed(e instanceof SessionStop ? (e.detail ?? e.reason) : String(e)),
-                  ms: 0,
-                },
-                usd: cost(),
-                ...(item !== undefined && { item }),
-                ...(log && { log }),
-                ...(later && { later }),
-              })
-            )
-          )
-        );
-        if (judged instanceof SessionStop)
-          return {
-            item,
-            pass: info,
-            findings: judged.detail ?? judged.reason,
-            unread: true as const,
-            output: transcript(),
-            usd: cost(),
-          };
-        const { usd: _usd, ...value } = judged;
-        const settled = settle(item, value, undefined, transcript(), cost());
-        if (settled.pass && !check.returns) passed.add(key);
-        return settled;
-      });
-    const max = check.max ?? most;
-    const over = items.length > max;
-    const results: Item[] =
-      listed instanceof EachFailed
-        ? [{ item: undefined, pass: info, findings: `each failed: ${listed.detail}`, unread: true, usd: 0 }]
-        : over
-          ? [{ item: undefined, pass: info, findings: `${items.length} items, more than ${max}`, unread: true, usd: 0 }]
-          : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
-    const usd = results.reduce((sum, r) => sum + r.usd, 0);
-    const noted = results.filter(r => !r.pass || r.unread);
-    const none = check.each !== undefined && items.length === 0 && !(listed instanceof EachFailed);
-    const unread = results.some(r => r.unread);
-    const share =
-      check.each !== undefined && !info && !unread && items.length > 0
-        ? results.filter(r => r.pass).length / results.length
-        : undefined;
-    const value = check.each === undefined ? results[0]?.value : undefined;
-    const result: CheckResult = {
-      check: check.name,
-      pass: results.every(r => r.pass),
-      ...(value && { value }),
-      ...(share !== undefined && { share }),
-      ...((none || unread) && { empty: true as const }),
-      ...(none && { findings: 'Judged nothing: each found no items.' }),
-      ...(noted.length > 0 && {
-        findings: formatSqueezed(
-          noted.map(r => (r.item ? `${r.item.split('\n')[0]}\n${r.findings}` : r.findings)).join('\n')
-        ),
-      }),
-      ms: Date.now() - started,
-    };
-    const logs = yield* Effect.forEach(results, r =>
-      r.output === undefined ? Effect.succeed(undefined) : store.log(r.output, r.pass)
-    );
-    const at = new Date().toISOString();
-    const entry = { at, step, version: check.version, ...(later && { later }) };
-    yield* store.addChecks(
-      run,
-      ...results
-        .flatMap((r, i) => (r.item === undefined ? [] : [{ ...r, log: logs[i] }]))
-        .map(r => ({
-          ...entry,
-          check: {
-            check: check.name,
-            pass: r.pass,
-            ...(r.value && { value: r.value }),
-            ...(r.unread && { empty: true as const }),
-            ...((!r.pass || r.unread) && { findings: formatSqueezed(r.findings) }),
-            ms: 0,
-          },
-          usd: r.usd,
-          item: r.item!,
-          ...(r.exit !== undefined && { exit: r.exit }),
-          ...pickUsed(r),
-          ...(r.log && { log: r.log }),
-        })),
-      {
-        ...entry,
-        check: result,
-        usd: check.each ? 0 : usd,
-        ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }),
-        ...(!check.each && pickUsed(results[0])),
-        ...(!check.each && logs[0] && { log: logs[0] }),
-      }
-    );
-    return result;
-  });
-
 const findUngranted = (step: Step, graph: Graph, proposals: readonly Said[], back = step.back !== undefined) => {
   const granted = new Set<string>([
     ...getStepReturns(step, graph.agents),
@@ -1252,55 +1028,6 @@ const runAttempt = (
             },
       tried
     );
-  });
-
-/**
- * The step's checks over what a try left behind, all at once, so every finding of a try comes back together.
- * @internal
- */
-export const runStepChecks = (
-  step: Step,
-  left: Left,
-  graph: Graph
-): Effect.Effect<{ outcome: Outcome }, SandboxError | SessionStop | StoreError, Sandbox | Session | Store> =>
-  Effect.gen(function* () {
-    const checks = step.checks.map(name => ({ ...graph.checks[name]!, name }));
-    yield* writeCheckFiles(graph, left, checks.length > 0);
-    const settled = yield* Effect.forEach(checks, c => Effect.result(runOneCheck(step.name, c, left, graph)), {
-      concurrency: 'unbounded',
-    });
-    const all = settled.flatMap(r => (Result.isSuccess(r) ? [r.success] : []));
-    const failed = (mode: Check['mode']) =>
-      all.filter(v => !v.pass && checks.find(c => c.name === v.check)?.mode === mode);
-
-    const stops = failed('stop');
-    if (stops.length > 0)
-      return {
-        outcome: {
-          kind: 'stop',
-          why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n'),
-        },
-      };
-    const error = settled.find(Result.isFailure);
-    if (error) return yield* error.failure;
-    const returns = getStepReturns(step, graph.agents);
-    const marks = new Set(Object.values(graph.workflows).flatMap(w => w.on.issues?.label ?? []));
-    const refusal = (p: Proposal) =>
-      !returns.some(k => k === p.kind)
-        ? `${step.name} may not propose ${p.kind}`
-        : p.kind === 'label' && p.add?.some(l => marks.has(l))
-          ? `only a human adds ${p.add.filter(l => marks.has(l)).join(', ')}`
-          : undefined;
-    const proposals: Applied[] = left.proposals.flatMap(p => {
-      const reason = refusal(p);
-      return reason === undefined ? [] : [{ proposal: p, ok: false, reason }];
-    });
-    const blocking = failed('block');
-    const outcome: Outcome =
-      blocking.length > 0 || proposals.length > 0
-        ? { kind: 'failed', checks: blocking, proposals, problems: [] }
-        : { kind: 'pass' };
-    return { outcome };
   });
 
 const rejected = 'the model provider rejected the key or login. Fix it, then start a new run.';

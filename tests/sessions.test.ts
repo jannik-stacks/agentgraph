@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Duration, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runStepChecks } from '../src/engine.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { makeTestGraph, result, stop } from './fixtures.ts';
 import { git } from './kit.ts';
+import { runStepChecks } from '../src/run/check.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
