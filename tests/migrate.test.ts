@@ -65,6 +65,8 @@ const makeOldBench = async () => {
       from: base,
       input: { case: 'demo', arm: 'v2', repeat: 1 },
     });
+    const record = join(dir, 'data', id, 'run.json');
+    if (o.tracker === 'tracker') save(record, { ...JSON.parse(readFileSync(record, 'utf8')), meta: {} });
     save(
       join(dir, 'data', id, 'trace.jsonl'),
       [
@@ -110,7 +112,7 @@ describe('bench/migrate.ts', () => {
     expect(readFileSync(join(v2.data, v2.run, 'checks.jsonl'), 'utf8')).toBe(checks);
   });
 
-  it('keeps a point per engine and graph, and the tracker layout of later runs', async () => {
+  it('keeps a point per engine and graph, and the tracker layout and origin-less runs of later engines', async () => {
     const { root, old, out, addArm } = await makeOldBench();
     const other = join(old, 'ef567890', 'codex-sol', 'r1');
     save(join(other, 'point.json'), {

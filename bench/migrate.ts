@@ -17,7 +17,6 @@ import {
 } from '../bin/bench.ts';
 import { readFileOrEmpty } from '../bin/resume.ts';
 import { writeImportedRun } from '../src/instance.ts';
-import { getRunOrigin } from '../src/meta.ts';
 import { getRounded } from '../src/stats.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { writeRunLabels } from '../src/labels.ts';
@@ -224,7 +223,7 @@ const migrateArm = async (
           ...run.meta,
           engine: {
             ...(run.meta?.engine as object | undefined),
-            origin: { ...(getRunOrigin(run.meta) as object | undefined), plugin: 'bench', input },
+            origin: { plugin: 'bench', version, job: p.set, input },
           },
         },
       });
