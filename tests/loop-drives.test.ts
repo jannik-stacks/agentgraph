@@ -12,7 +12,7 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { issuePath, write, writeIssueAt } from './kit.ts';
 import type { Graph } from '../src/folder.ts';
-import { comment, fresh, readChecks, readTrace, say, world } from './world.ts';
+import { comment, fresh, readChecks, readTrace, say, services, world } from './world.ts';
 
 const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 const flow = {
@@ -269,7 +269,7 @@ describe('loop drives', () => {
         loop.looked.filter(n => n === 8).length,
         loop.drives.gates.has(7),
         (await loop.read(run.id))?.seen,
-      ]).toEqual([1, true, '2026-10-16T00:01:00.000Z']);
+      ]).toEqual([3, true, '2026-10-16T00:01:00.000Z']);
     } finally {
       loop.release();
       await loop.drives.stop();
@@ -350,6 +350,23 @@ describe('loop drives', () => {
       loop.release();
       await loop.drives.stop();
     }
+  });
+
+  it('hears a stop posted during a foreground scan before applying the session reply', async () => {
+    const where = world();
+    const engine = services(
+      where,
+      [[start('foreground'), reply({ kind: 'ask', question: 'Late question' })]],
+      undefined,
+      () => where.human('/agent:stop', '2026-10-16T00:02:00.000Z')
+    );
+    const [run] = await engine.run(scanIssuesAndRunningRuns({ ...small, workflows: { issue: flow } }));
+    expect(run?.status).toBe('stopped');
+    expect(
+      readTrace(where.data, run!.id).filter(
+        t => 'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.body === 'Late question'
+      )
+    ).toEqual([]);
   });
 
   it('lets a driven run hear a stop said while a pass skipped it', async () => {
