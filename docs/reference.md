@@ -83,7 +83,7 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 | `project` | `owner/number` | The one board `column` reads; any board of the repo owner when unset |
 | `branches` | list of names | Accepted, starts nothing yet |
 
-`dispatch` and `feedback` take no fields: `on: { issues: { label: triage }, dispatch }`. `dispatch` lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/engine.ts#feedback -->
+`dispatch` and `feedback` take no fields: `on: { issues: { label: triage }, dispatch }`. `dispatch` lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/run/trigger.ts#feedback -->
 
 ## Steps
 

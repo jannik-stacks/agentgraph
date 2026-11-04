@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync, symlinkS
 import { join } from 'node:path';
 import { Deferred, Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { tick } from '../src/engine.ts';
+import { tick } from '../src/run/trigger.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';

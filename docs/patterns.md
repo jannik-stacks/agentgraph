@@ -51,7 +51,7 @@ The engine reaches the outside only through four services, each with a test stan
 | Proposal validation and application | Whether `until` holds |
 | Push safety, triggers and trust | Questions for people |
 
-A malformed reply fails the try. `transition` maps a workflow, a run and an outcome to the next run, with no clock or I/O; `runWorkflow` does the reads and writes around it. Proposals are the only write path. <!-- code: src/workflow.ts#transition src/run/settle.ts#writeProposals src/engine.ts#tick src/run/drive.ts#runWorkflow -->
+A malformed reply fails the try. `transition` maps a workflow, a run and an outcome to the next run, with no clock or I/O; `runWorkflow` does the reads and writes around it. Proposals are the only write path. <!-- code: src/workflow.ts#transition src/run/settle.ts#writeProposals src/run/trigger.ts#tick src/run/drive.ts#runWorkflow -->
 
 Graph files decode strictly: a bad reference or unknown key fails `check` with its path before anything runs. <!-- code: src/folder.ts#loadGraph -->
 

@@ -35,7 +35,7 @@ agi resume --parked --tracker github --dir <graph> --data <runs>
 agi resume <run-id> --tracker github --dir <graph> --data <runs>
 ```
 
-<!-- code: src/engine.ts#instruct -->
+<!-- code: src/run/trigger.ts#instruct -->
 
 Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-drives).
 

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { stoppedByRunner } from '../src/context.ts';
-import { instruct, tick } from '../src/engine.ts';
+import { instruct, tick } from '../src/run/trigger.ts';
 import { Tracker } from '../src/tracker.ts';
 import { isOnIssue } from '../src/graph.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';

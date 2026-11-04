@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
 import { ConfigProvider, Effect, Exit, Layer, Scope } from 'effect';
-import { instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick, type Instruction } from './engine.ts';
+import { instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick, type Instruction } from './run/trigger.ts';
 import { writeIssueFile } from './tracker.ts';
 import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { readRealPath } from './instance.ts';

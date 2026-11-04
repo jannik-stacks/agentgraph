@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
-import { tick } from '../src/engine.ts';
+import { tick } from '../src/run/trigger.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Sandbox, SandboxError, type Checkout, type Command } from '../src/sandbox.ts';

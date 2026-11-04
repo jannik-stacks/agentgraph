@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from '
 import { join } from 'node:path';
 import { Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
+import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { stoppedByRunner } from '../src/context.ts';
 import type { Event } from '../src/event.ts';

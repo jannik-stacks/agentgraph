@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { tick } from '../src/engine.ts';
+import { tick } from '../src/run/trigger.ts';
 import { Tracker } from '../src/tracker.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';

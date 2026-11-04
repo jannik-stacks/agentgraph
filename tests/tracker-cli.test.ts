@@ -31,7 +31,7 @@ import {
   writeInstanceProvider,
 } from '../src/instance.ts';
 import { formatIssueList, formatIssueTimeline } from '../src/status.ts';
-import { scanIssuesAndRunningRuns, tick, type Instruction } from '../src/engine.ts';
+import { scanIssuesAndRunningRuns, tick, type Instruction } from '../src/run/trigger.ts';
 import { stoppedByRunner } from '../src/context.ts';
 import { begin } from '../src/workflow.ts';
 import { loadGraph } from '../src/folder.ts';

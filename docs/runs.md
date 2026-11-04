@@ -124,7 +124,7 @@ Programmatic `start({ graph, issue, data, meta })` tags new runs before their fi
 `instruct(graph, instruction, meta)` also accepts metadata. A spoken trace keeps it while an input
 waits; only an accepted input updates the run's latest continuation. Origin stays unchanged.
 Ordinary polls and rejected inputs add no continuation. Bench replays use this same start path.
-<!-- code: src/main.ts#start src/engine.ts#instruct src/engine.ts#tick src/meta.ts#makeContinuedMeta -->
+<!-- code: src/main.ts#start src/run/trigger.ts#instruct src/run/trigger.ts#tick src/meta.ts#makeContinuedMeta -->
 
 ## Run labels
 

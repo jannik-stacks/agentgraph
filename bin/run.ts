@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { ConfigProvider, Effect, Redacted, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
-import type { Instruction } from '../src/engine.ts';
+import type { Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';

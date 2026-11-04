@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Result } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { instruct, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
+import { instruct, scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import type { Check, Graph } from '../src/folder.ts';
 import { Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';

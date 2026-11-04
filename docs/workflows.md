@@ -55,11 +55,11 @@ The GitHub tracker uses these built-in triggers: <!-- code: src/workflow.ts#isIs
 - `issues` with a `label`: a trusted person adds that label to an open issue.
 - `issues` with a `column`: the open issue's card is in that column of a GitHub project board, the option of its Status field, spelled exactly. See [Project boards](#project-boards).
 
-To start a run by hand, use `agi dispatch 12 --workflow issue`. Runs can also start from an agent's [dispatch](#dispatch), a [retro](#retros), or a [conflict](#when-the-base-or-the-graph-moves). <!-- code: src/engine.ts#instruct -->
+To start a run by hand, use `agi dispatch 12 --workflow issue`. Runs can also start from an agent's [dispatch](#dispatch), a [retro](#retros), or a [conflict](#when-the-base-or-the-graph-moves). <!-- code: src/run/trigger.ts#instruct -->
 
 More triggers are planned through [plugins](extending.md#plugins-in-progress); `pull_request` and `branches` are accepted but do not trigger runs yet. <!-- code: src/workflow.ts#Front -->
 
-With several comment workflows, `/agent` starts the first, or the one its first word names (`/agent plan`). Comments without the marker are context. Comments on the issue's pull request count for the issue; bot comments never do. `/agent restart` starts the workflow again with its human answers, and `/agent restart implement` starts at that step. An eyes reaction marks the comment or issue until the engine replies. <!-- code: src/engine.ts#tick -->
+With several comment workflows, `/agent` starts the first, or the one its first word names (`/agent plan`). Comments without the marker are context. Comments on the issue's pull request count for the issue; bot comments never do. `/agent restart` starts the workflow again with its human answers, and `/agent restart implement` starts at that step. An eyes reaction marks the comment or issue until the engine replies. <!-- code: src/run/trigger.ts#tick -->
 
 A comment that asks for no work can end the run after one session that only comments. That works without a branch, with an open pull request, or after a finished run of that workflow. Otherwise a first session that may push fails when it changed nothing.
 
@@ -67,7 +67,7 @@ A workflow can take both triggers: `on: { issue_comment: {}, issues: { label: ag
 
 ## Project boards
 
-GitHub sends no event when a card moves, so the engine reads the board on each pass, in one GraphQL query per 100 open issues. A card that entered the column after the newest run began starts a run, once per issue like a label. <!-- code: src/github.ts#githubTracker src/engine.ts#tick -->
+GitHub sends no event when a card moves, so the engine reads the board on each pass, in one GraphQL query per 100 open issues. A card that entered the column after the newest run began starts a run, once per issue like a label. <!-- code: src/github.ts#githubTracker src/run/trigger.ts#tick -->
 
 ```yaml
 on: { issues: { column: Agent Ready } } # any board the repo owner owns
@@ -77,7 +77,7 @@ on: { issues: { label: agent:ready, column: Agent Ready } } # the column adds th
 
 GitHub does not say who moved a card, so the board is what is trusted: a board the repo owner owns, or the one `project` names. A card on anyone else's board starts nothing, since anyone can add a public issue to a board of their own.
 
-With both `label` and `column`, either starts the run, and a run started from the column puts the label on the issue. The label stays the one visible sign of agent work, and removing it stops the run as before. Moving the card out of the column does not stop a run. `examples/board` and `examples/board-label` show both. <!-- code: src/engine.ts#tick -->
+With both `label` and `column`, either starts the run, and a run started from the column puts the label on the issue. The label stays the one visible sign of agent work, and removing it stops the run as before. Moving the card out of the column does not stop a run. `examples/board` and `examples/board-label` show both. <!-- code: src/run/trigger.ts#tick -->
 
 A GitHub App cannot read the boards of a personal account, so the board is read with a user token that has the `read:project` scope: `AGENTGRAPH_PROJECT_TOKEN`, or else `gh auth token`. Without one, each pass logs once which scope is missing and how to get it, and column triggers start nothing. Labels and comments still go through the App. <!-- code: src/github.ts#readProjectToken -->
 
@@ -104,7 +104,7 @@ A human can start any workflow of the graph on an open issue in scope that no li
 agi dispatch 12 "what is left on this issue?" --workflow router
 ```
 
-The run's trace records the text as `spoken`, and the run replies where a comment-started run would. <!-- code: src/engine.ts#instruct src/context.ts#formatRequest -->
+The run's trace records the text as `spoken`, and the run replies where a comment-started run would. <!-- code: src/run/trigger.ts#instruct src/context.ts#formatRequest -->
 
 An agent that may return `run` can start a workflow with `on: dispatch`:
 
@@ -112,7 +112,7 @@ An agent that may return `run` can start a workflow with `on: dispatch`:
 { "kind": "run", "workflow": "triage", "issue": 12, "step": "implement" }
 ```
 
-`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/run/start.ts#findUndispatchable src/run/start.ts#startProposedRun src/engine.ts#settled -->
+`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/run/start.ts#findUndispatchable src/run/start.ts#startProposedRun src/run/trigger.ts#settled -->
 
 ### Routing
 
@@ -122,7 +122,7 @@ An `issue_comment` workflow whose agent may `tell` is a router and runs beside o
 { "kind": "tell", "issue": 12, "text": "stop" }
 ```
 
-The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/run/start.ts#findRecipient src/run/hear.ts#readRunEvents src/engine.ts#tick -->
+The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/run/start.ts#findRecipient src/run/hear.ts#readRunEvents src/run/trigger.ts#tick -->
 
 ## The session
 
@@ -132,7 +132,7 @@ Every minute the engine writes new issue activity to a news file, which agents w
 
 ## Tries and going back
 
-Set `carry: true` on a step to pass its successful reply text, without proposal blocks, to the next step under `## What the <step> step reported`. Steps omit replies by default; carried text stays in the run record, outside the checkout. <!-- code: src/engine.ts#tick src/workflow.ts#transition -->
+Set `carry: true` on a step to pass its successful reply text, without proposal blocks, to the next step under `## What the <step> step reported`. Steps omit replies by default; carried text stays in the run record, outside the checkout. <!-- code: src/run/trigger.ts#tick src/workflow.ts#transition -->
 
 Failed checks or proposals retry in the same session with the findings as feedback, answered in code, not in a comment. When `tries` run out, the run waits and says why. <!-- code: src/workflow.ts#transition -->
 
@@ -156,11 +156,11 @@ A trusted `/agent` comment reaches a working run by the workflow's `concurrency`
 - `queue`: the try and its checks finish, then the comment applies as an answer.
 - `cancel`: the session stops and the step resumes with the comment as feedback; the cut try does not count.
 
-`/agent cancel` parks the step and asks how to go on. `/agent stop` ends the run. Comments in a row become one answer, and the first `stop` or `cancel` wins. The engine waits for 30 seconds of quiet before it starts or wakes a run. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#fold src/engine.ts#issueDebounceMs src/run/hear.ts#readHeardOutcome -->
+`/agent cancel` parks the step and asks how to go on. `/agent stop` ends the run. Comments in a row become one answer, and the first `stop` or `cancel` wins. The engine waits for 30 seconds of quiet before it starts or wakes a run. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#fold src/run/trigger.ts#issueDebounceMs src/run/hear.ts#readHeardOutcome -->
 
 ## When the base or the graph moves
 
-A catch-up error is recorded once in the run trace. The run stays waiting and retries when the base head, branch head or graph changes. <!-- code: src/engine.ts#tick -->
+A catch-up error is recorded once in the run trace. The run stays waiting and retries when the base head, branch head or graph changes. <!-- code: src/run/trigger.ts#tick -->
 
 Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp -->
 
@@ -198,12 +198,12 @@ With several runs on one issue, a waiting run wins over a working one. After eac
 
 ## Order and limits
 
-`limits.parallel` caps issues driven at once and `limits.sessions` caps sessions and scripts across the process, judges included. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/engine.ts#tick src/run/execute.ts#getGate -->
+`limits.parallel` caps issues driven at once and `limits.sessions` caps sessions and scripts across the process, judges included. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/run/trigger.ts#tick src/run/execute.ts#getGate -->
 
 Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The sticky says “paused on an agentgraph problem, not this change; reply `/agent` to retry”. No separate runner error comment is posted, including for quiet runs. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs, and clears the pause in the sticky. <!-- code: src/run/drive.ts#runWorkflow -->
 
 ## Retros
 
-`on: feedback` starts a retro on trusted comments, change requests, approvals with a comment, and commits people push where a run worked, also after merge. A bare `/agent stop`, `cancel` or `restart` is not feedback. Feedback is batched after 30 seconds of quiet. <!-- code: src/engine.ts#feedback -->
+`on: feedback` starts a retro on trusted comments, change requests, approvals with a comment, and commits people push where a run worked, also after merge. A bare `/agent stop`, `cancel` or `restart` is not feedback. Feedback is batched after 30 seconds of quiet. <!-- code: src/run/trigger.ts#feedback -->
 
 A retro never holds an issue, shares its sticky status without changing labels, skips setup, and stops where another workflow would wait. Its problems remain visible in the sticky and `show`. It ends with nothing, a [graph change](proposals.md#filing-issues) for a recurring miss, or a follow-up issue. <!-- code: src/workflow.ts#transition -->

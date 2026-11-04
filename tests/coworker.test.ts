@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { Effect, Layer, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
-import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
+import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';

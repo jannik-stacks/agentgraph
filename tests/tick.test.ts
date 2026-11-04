@@ -13,7 +13,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
+import { instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';

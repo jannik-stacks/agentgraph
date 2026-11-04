@@ -2,7 +2,7 @@ import { appendFileSync, readdirSync, readFileSync, rmSync, writeFileSync } from
 import { dirname, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { tick } from '../src/engine.ts';
+import { tick } from '../src/run/trigger.ts';
 import type { Event } from '../src/event.ts';
 import { loadGraph, type Agent } from '../src/folder.ts';
 import { folderTracker } from '../src/tracker.ts';

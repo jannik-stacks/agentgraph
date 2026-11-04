@@ -1,13 +1,13 @@
 import { Duration, Effect, Result, Option, Schema, Stream } from 'effect';
-import { formatEventLine, stoppedByRunner } from './context.ts';
-import { Tracker, TrackerError } from './tracker.ts';
-import type { Comment, Event, Issue } from './event.ts';
-import type { Proposal } from './proposal.ts';
-import { PluginMetadata } from './meta.ts';
-import type { Graph } from './folder.ts';
-import { Sandbox } from './sandbox.ts';
-import { Store, type StoreError } from './store.ts';
-import { SessionStop } from './trace.ts';
+import { formatEventLine, stoppedByRunner } from '../context.ts';
+import { Tracker, TrackerError } from '../tracker.ts';
+import type { Comment, Event, Issue } from '../event.ts';
+import type { Proposal } from '../proposal.ts';
+import { PluginMetadata } from '../meta.ts';
+import type { Graph } from '../folder.ts';
+import { Sandbox } from '../sandbox.ts';
+import { Store, type StoreError } from '../store.ts';
+import { SessionStop } from '../trace.ts';
 import {
   begin,
   fold,
@@ -23,8 +23,8 @@ import {
   isQuiet,
   isRunDone,
   parseAgentRequest,
-} from './workflow.ts';
-import { type Services, formatFailure } from './run/execute.ts';
+} from '../workflow.ts';
+import { type Services, formatFailure } from './execute.ts';
 import {
   findPullNumber,
   isInScope,
@@ -35,12 +35,12 @@ import {
   readContinuedRun,
   readRunEvents,
   getHeardEvent,
-} from './run/hear.ts';
-import { runLaterChecks } from './run/evaluate.ts';
-import { isParked, writeMovedStatus, writeStatus, runEndChecks } from './run/settle.ts';
-import { findUndispatchable, startProposedRun, formatWaitingOn, startRun } from './run/start.ts';
-import { runAside, runFollow, runCatchUp } from './run/follow.ts';
-import { runWorkflow } from './run/drive.ts';
+} from './hear.ts';
+import { runLaterChecks } from './evaluate.ts';
+import { isParked, writeMovedStatus, writeStatus, runEndChecks } from './settle.ts';
+import { findUndispatchable, startProposedRun, formatWaitingOn, startRun } from './start.ts';
+import { runAside, runFollow, runCatchUp } from './follow.ts';
+import { runWorkflow } from './drive.ts';
 
 /** What a run still waits for: a "Stacks on" issue without a pull request, or a "Depends on" issue not yet closed. */
 const pending = (w: Workflow, issue: number, open: Issue[]) =>
