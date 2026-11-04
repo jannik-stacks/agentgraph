@@ -21,15 +21,12 @@ const unserved = makeUnservedFilter([
 const PATHS = [
   ['data/run-1/run.json', false],
   ['link/run-1/trace.jsonl', false],
-  ['link/plugins/cache/job/results.json', false],
-  ['link/plugins/work/job/results.json', false],
   ['tune/repo/work/tune.json', false],
   ['tune/repo/work/iterations.jsonl', false],
   ['link/stacks-kit/data/run-1/run.json', true],
   ['data/run-1/tsconfig.json', true],
   ['link/homes/uuid', true],
   ['link/cache/work', true],
-  ['link/plugins/a/b/c/results.json', true],
   ['tune/repo/target-shared/debug/deps', true],
   ['bench/set/hash/arm/case/r1/data/run-1/run.json', false],
   ['bench/set/hash/arm/case/checkout', true],
@@ -37,7 +34,7 @@ const PATHS = [
   ['elsewhere/tsconfig.json', false],
 ] as const;
 
-const SERVED = ['run.json', 'trace.jsonl', 'checks.jsonl', 'labels.jsonl', 'results.json', 'set.json', 'log.jsonl'];
+const SERVED = ['run.json', 'trace.jsonl', 'checks.jsonl', 'labels.jsonl', 'set.json', 'log.jsonl'];
 const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'];
 
 it.each(PATHS)('%s is unwatched: %s', (path, skipped) => {
@@ -52,9 +49,9 @@ it.each(LOCKFILES)('skips the lockfile %s', name => {
   expect(unserved(join(dir, 'bench/set/case/graph', name))).toBe(true);
 });
 
-it('sends a change for a served export under a cache folder but not for a run checkout', async () => {
+it('sends a change for a run record but not for a run checkout', async () => {
   const data = join(dir, 'live');
-  mkdirSync(join(data, 'plugins/cache/job'), { recursive: true });
+  mkdirSync(join(data, 'run-1'), { recursive: true });
   mkdirSync(join(data, 'cache/work/abc/.git'), { recursive: true });
   vi.stubEnv('AGI_STUDIO_DIR', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
@@ -78,7 +75,7 @@ it('sends a change for a served export under a cache folder but not for a run ch
     await vi.waitFor(
       () => {
         writeFileSync(join(data, 'cache/work/abc/tsconfig.json'), '{}');
-        writeFileSync(join(data, 'plugins/cache/job/results.json'), '{}');
+        writeFileSync(join(data, 'run-1/run.json'), '{}');
         expect(sent).toContainEqual(['agi:changed', { topics: ['data', 'results'] }]);
       },
       { timeout: 4000, interval: 200 }

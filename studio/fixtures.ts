@@ -55,7 +55,6 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraph()): Plugin => {
         if (!dir) return outside(res);
         const dirs = {
           ...(dir.data && { data: dir.data }),
-          bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
           ...(process.env.AGI_STUDIO_TUNE && { tune: process.env.AGI_STUDIO_TUNE }),
         };
         const [{ readRunResults }, served] = await Promise.all([

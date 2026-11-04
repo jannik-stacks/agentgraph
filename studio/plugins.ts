@@ -34,7 +34,7 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
       title: 'Results',
       page: new URL('./src/results/ResultsPage.tsx', import.meta.url),
       dataSchema: ResultsData,
-      watch: () => [...(data ? [data] : []), ...bench, ...(tune ? [tune] : [])],
+      watch: () => [...(data ? [data] : []), ...(tune ? [tune] : [])],
       read: () =>
         Effect.gen(function* () {
           const { readRunResults }: typeof ResultsModule = yield* Effect.promise(
@@ -51,7 +51,6 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
                         from,
                         {
                           ...(data && { data }),
-                          bench,
                           ...(tune && { tune }),
                         },
                         current

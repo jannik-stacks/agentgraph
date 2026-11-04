@@ -17,13 +17,11 @@ const params = Object.fromEntries(
 const defaults: Record<ResultSource, { x: string; color: string }> = {
   runs: { x: 'time', color: 'workflow' },
   tune: { x: 'iteration', color: 'tune' },
-  exports: { x: 'order', color: 'export' },
 };
 
 const sourceLabels: Record<ResultSource, string> = {
   runs: 'Runs',
   tune: 'Tunes',
-  exports: 'Exports',
 };
 
 const optionHints: Record<string, string> = {

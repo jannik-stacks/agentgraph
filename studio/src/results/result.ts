@@ -2,7 +2,7 @@ import type { BenchRow } from '../../../bench/runs.ts';
 import type { ResultSheet } from '../../../src/results.ts';
 import { formatNumber } from '../runs/trace.ts';
 
-export const resultSources = ['runs', 'tune', 'exports'] as const;
+export const resultSources = ['runs', 'tune'] as const;
 export type ResultSource = (typeof resultSources)[number];
 
 export type CheckField = (typeof ResultSheet.Type.fields)[number];
@@ -98,19 +98,6 @@ export const getFieldSummary = (runs: RunResults[], field: CheckField, trend = '
     trend: steps,
   };
 };
-
-export const benchFields: CheckField[] = [
-  {
-    check: 'bench',
-    field: 'hidden',
-    type: 'number',
-    unit: 'share',
-    description: 'share of the hidden tests that pass',
-  },
-  { check: 'bench', field: 'usd', type: 'number', unit: 'usd', description: 'list price of the arm’s sessions' },
-  { check: 'bench', field: 'checkUsd', type: 'number', unit: 'usd', description: 'list price of judging its checks' },
-  { check: 'bench', field: 'minutes', type: 'number', unit: 'minutes', description: 'wall time of the arm' },
-];
 
 export const readBenchRowResults = (row: BenchRow): RunResults => {
   const hidden = row.hiddenShare ?? row.hidden;

@@ -183,6 +183,6 @@ Results and Bench are built-in plugins using this same descriptor, data endpoint
 taken when the studio starts with bench dirs (`npm run dev -- --bench <dirs>`), and the Bench page is
 only registered then ([Bench](bench.md#cost-against-quality)). Its snapshot keeps each
 source's sheet and candidate details separate. Failed sources show an error while other sources stay
-readable. It watches the selected data, bench and tune roots; bench roots only feed Exports.
+readable. Results watches the selected data and tune roots; Bench watches the bench roots.
 It remains available when the graph cannot load; the Graph page still shows configuration problems.
 <!-- code: studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage studio/src/bench/data.ts#BenchData -->

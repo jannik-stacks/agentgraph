@@ -87,7 +87,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
     writeFileSync(join(external, 'value'), '8');
     await vi.waitFor(() => expect(sent).toHaveBeenCalledOnce());
     expect(sent.mock.calls[0]![0]).toBe('agi:changed');
-    expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'count', 'results']);
+    expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'count']);
     writeFileSync(join(dir, 'data', 'new'), '');
     await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(2));
     expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['data', 'results']);
@@ -134,13 +134,6 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
     });
     expect(text).not.toContain(dir);
     expect(text).not.toContain('FAKE-private-results-value');
-    const broken = join(data, 'plugins/broken/job');
-    mkdirSync(broken, { recursive: true });
-    writeFileSync(join(broken, 'results.json'), '{');
-    const partial = await (await fetch(`${base}/api/plugins/results/data`)).json();
-    expect(partial.runs.kind).toBe('ready');
-    expect(partial.runs.sheet.runs[0].key).toBe('r1');
-    expect(partial.exports).toEqual({ kind: 'failed', why: 'Could not read this result source' });
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     expect(manifest).toContain('href:"/results"');
     expect(manifest).not.toContain('bench');

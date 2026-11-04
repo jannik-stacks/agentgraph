@@ -34,16 +34,9 @@ const Row = Schema.Struct({
 });
 
 export const ResultSheet = Schema.Struct({
-  fields: Schema.mutable(Schema.Array(Field).check(Schema.isMaxLength(1000))),
-  runs: Schema.mutable(Schema.Array(Row).check(Schema.isMaxLength(10000))),
-}).check(
-  Schema.makeFilter(sheet =>
-    new Set(sheet.runs.map(row => row.key)).size === sheet.runs.length &&
-    new Set(sheet.fields.map(field => JSON.stringify([field.check, field.field]))).size === sheet.fields.length
-      ? true
-      : 'result row and field keys must be unique'
-  )
-);
+  fields: Schema.mutable(Schema.Array(Field)),
+  runs: Schema.mutable(Schema.Array(Row)),
+});
 
 type CheckField = typeof Field.Type;
 type RunResults = typeof Row.Type;

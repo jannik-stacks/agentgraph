@@ -29,8 +29,7 @@ const benchInfra = /^(homes|work|tree|engine|logs|target|node_modules|\.attic|\.
 const neverServed = /\.lockb?$|^(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|[jt]sconfig.*\.json)$/;
 
 export const layouts = {
-  data: (names: string[]) =>
-    !dataInfra.test(names[0]!) && (names.length <= 2 || (names[0] === 'plugins' && names.length <= 4)),
+  data: (names: string[]) => !dataInfra.test(names[0]!) && names.length <= 2,
   bench: (names: string[]) => !names.some(name => benchInfra.test(name)),
   tune: (names: string[]) => names.length <= 3,
   any: () => true,
