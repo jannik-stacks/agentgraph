@@ -955,6 +955,39 @@ describe('tick', () => {
     expect(runs.map(r => r.workflow)).toEqual(started);
   });
 
+  it('holds a new run until its 👀 is saved, so a worker racing the reaction cannot stop it', async () => {
+    const where = world();
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    const stopped: string[] = [];
+    const racing = Effect.map(Effect.all([Tracker, Store]), ([f, store]) => ({
+      ...f,
+      apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
+        Effect.andThen(
+          p.kind === 'react' && p.remove === undefined
+            ? Effect.flatMap(store.list({ issue: 7 }), rs =>
+                Effect.forEach(rs, r =>
+                  Effect.gen(function* () {
+                    yield* store.lock(r.id);
+                    stopped.push(r.id);
+                    yield* store.put({ ...r, status: 'stopped' });
+                  }).pipe(Effect.scoped, Effect.ignore)
+                )
+              ).pipe(Effect.orDie)
+            : Effect.void,
+          f.apply(n, p, work)
+        ),
+    }));
+    const [asked] = await run(tick(small, 7).pipe(Effect.provideServiceEffect(Tracker, racing)));
+    expect([stopped, asked!.status, reactions(where.data, asked!.id)]).toEqual([
+      [],
+      'waiting',
+      [
+        [true, undefined],
+        [true, '2026-10-16T00:00:00.000Z'],
+      ],
+    ]);
+  });
+
   it('puts the label on an issue a column started, and starts once', async () => {
     const where = world();
     const issue = { ...small.workflows.issue!, on: { issues: { label: 'agent:ready', column: 'Agent Ready' } } };

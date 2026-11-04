@@ -121,8 +121,8 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
         ].join(' ');
         const seed = { onto: { sha: onto, ...(merge && { merge: true as const }) }, feedback: why };
         if (!resolver) return { run: { ...current, onto: seed.onto }, outcome: { kind: 'back', why } as const };
-        yield* startProposedRun(graph, run, { kind: 'run', workflow: resolver.name, issue: run.issue }, seed);
-        return { run: current };
+        if (yield* startProposedRun(graph, run, { kind: 'run', workflow: resolver.name, issue: run.issue }, seed))
+          return { run: current };
       }
       if (!applied.ok) {
         const body = `${branch} no longer ${verb} ${pull.base}: ${applied.reason}. Update it by hand.`;

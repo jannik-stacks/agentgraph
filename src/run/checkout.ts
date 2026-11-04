@@ -35,13 +35,13 @@ export const runSetup = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'st
       });
   });
 
-/** What the checkout changed since its base. */
-const changes = (work: Checkout, ...args: string[]) =>
-  Effect.flatMap(writeCheckoutTree(work), tree =>
-    readGit(work.git, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args, work.base, tree])
+/** What the checkout, or `tree` written from it, changed since its base. */
+const changes = (work: Checkout, args: string[], tree?: string) =>
+  Effect.flatMap(tree === undefined ? writeCheckoutTree(work) : Effect.succeed(tree), to =>
+    readGit(work.git, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args, work.base, to])
   );
 
-export const readCheckoutDiff = (work: Checkout) => changes(work, '--text');
+export const readCheckoutDiff = (work: Checkout, tree?: string) => changes(work, ['--text'], tree);
 
 /** The most items a fan-out takes when its check sets no `max`; a step fans out over at most this many. */
 export const most = 20;
@@ -68,7 +68,7 @@ export const findFanOutItems = (
           return hunks.map(hunk => `${head}${hunk}`.trimEnd());
         })
     );
-  if (each === 'files') return Effect.map(changes(work, '--name-only'), lines);
+  if (each === 'files') return Effect.map(changes(work, ['--name-only']), lines);
   const script = typeof each === 'string' ? each : each.run;
   return Effect.flatMap(runShell(script, graph, work.dir, env, minutes), out =>
     out.code === 0 ? Effect.succeed(lines(out.output)) : Effect.fail(new EachFailed({ detail: out.output.trim() }))

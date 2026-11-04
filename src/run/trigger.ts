@@ -133,6 +133,10 @@ export const instruct = (
         ...(text && { said: [{ issue: p.issue }] }),
         ...(supplied && { meta: supplied }),
       });
+      if (!child)
+        return yield* new TrackerError({
+          message: `could not start ${p.workflow} on #${p.issue}: its run id was taken`,
+        });
       if (text)
         yield* Effect.flatMap(Store, s =>
           s.trace(child.id, {
@@ -513,13 +517,13 @@ export const tick = (
           ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
-        const first = yield* startRun(begun, run =>
-          run.status === 'running' ? Effect.succeed(run) : writeStatus(w, run, graph)
+        const run = yield* startRun(begun, run =>
+          Effect.flatMap(run.status === 'running' ? Effect.succeed(run) : writeStatus(w, run, graph), r =>
+            m ? eyes(r, m) : Effect.succeed(r)
+          )
         );
-        if (!first) return;
+        if (!run) return;
         busy.add(`${w.name}#${issue}`);
-        const run = m ? yield* eyes(first, m) : first;
-        if (run !== first) yield* store.put(run);
         const mark = w.on.issues?.label;
         if (mark !== undefined && m && m.kind !== 'label' && isIssueTriggered(w, m))
           yield* tracker.apply(issue, { kind: 'label', add: [mark] }).pipe(
@@ -527,7 +531,7 @@ export const tick = (
             Effect.catchTag('TrackerError', e => Effect.logWarning(`label for run ${run.id}`, e))
           );
         touched.push(run);
-      }).pipe(Effect.scoped);
+      });
     for (const m of events) {
       const words = parseAgentRequest(m)?.split(/\s+/) ?? [];
       const named = triggered.find(w => w.name === words[0]);

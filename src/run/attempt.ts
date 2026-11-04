@@ -162,13 +162,12 @@ export const pickTryOutcome = (o: {
   step: Step;
   graph: Graph;
   run: Pick<Run, 'onto' | 'base'>;
-  branch: string | undefined;
   own: string | undefined;
   proposals: Said[];
   problems: string[];
   asked: boolean;
   held: boolean;
-  open: boolean;
+  needsPull: boolean;
   merges: Record<number, string | undefined>;
   diff: string;
   untouched: boolean;
@@ -214,8 +213,7 @@ export const pickTryOutcome = (o: {
     !back &&
     !answered &&
     returns.includes('pull_request') &&
-    o.branch !== undefined &&
-    !o.open &&
+    o.needsPull &&
     !proposals.some(p => p.kind === 'pull_request' || (p.kind === 'issue' && isPart(p)))
   )
     problems.push('a pass needs a pull request or an ask');
@@ -445,34 +443,35 @@ export const runAttempt = (
 
     const parsed = replies.map(reply => parseProposals(reply, !('run' in step.does)));
     const proposals = parsed.flatMap(p => p.proposals);
-    const merges = own
-      ? yield* Effect.forEach(
-          proposals.flatMap(p => (p.kind === 'merge' ? [p.number] : [])),
-          n =>
-            Effect.flatMap(Tracker, f => f.issue(n)).pipe(
-              Effect.catchIf(
-                e => e.status === 404,
-                () => Effect.succeed(undefined)
-              ),
-              Effect.map(target => [n, target?.pull?.branch] as const)
-            )
-        )
-      : [];
-    const diff = yield* readCheckoutDiff(work);
+    const merging = own ? proposals.flatMap(p => (p.kind === 'merge' ? [p.number] : [])) : [];
+    const merges = yield* Effect.all(
+      Object.fromEntries(
+        merging.map(n => [
+          n,
+          Effect.flatMap(Tracker, f => f.issue(n)).pipe(
+            Effect.catchIf(
+              e => e.status === 404,
+              () => Effect.succeed(undefined)
+            ),
+            Effect.map(target => target?.pull?.branch)
+          ),
+        ])
+      )
+    );
     const tree = yield* writeCheckoutTree(work);
+    const diff = yield* readCheckoutDiff(work, tree);
     const published = yield* readGit(work.git, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]);
     const verdict = pickTryOutcome({
       step,
       graph,
       run,
-      branch: w.branch,
       own,
       proposals,
       problems: parsed.flatMap(p => p.problems),
       asked,
       held,
-      open: t.issue.pull !== undefined || t.pull !== undefined,
-      merges: Object.fromEntries(merges),
+      needsPull: w.branch !== undefined && t.issue.pull === undefined && t.pull === undefined,
+      merges,
       diff,
       untouched: tree === before,
       dirty: tree !== published,
@@ -561,18 +560,20 @@ export const runAttempt = (
         },
         tried
       );
-    const failed = landed.success.filter(a => !a.ok);
     if (landed.success.some(a => a.ok)) tried = removeThreads(tried);
     if (tried.onto && landed.success.some(a => a.ok && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;
       tried = rest;
     }
-    const child = runs[0] && !failed.length ? yield* startProposedRun(graph, tried, runs[0]) : undefined;
-    const applied = [
-      ...landed.success,
-      ...delivered,
-      ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : []),
-    ];
+    const proposed = runs[0] && landed.success.every(a => a.ok) ? runs[0] : undefined;
+    const child = proposed && (yield* startProposedRun(graph, tried, proposed));
+    const dispatched: Applied[] = !proposed
+      ? []
+      : child
+        ? [{ proposal: proposed, ok: true, id: child.id }]
+        : [{ proposal: proposed, ok: false, reason: 'its run id was taken' }];
+    const applied = [...landed.success, ...delivered, ...dispatched];
+    const failed = [...landed.success, ...dispatched].filter(a => !a.ok);
     yield* store.trace(
       run.id,
       ...applied.filter(a => !a.operation).map(a => ({ at: new Date().toISOString(), step: step.name, applied: a }))

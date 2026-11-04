@@ -14,13 +14,12 @@ const facts = {
   step,
   graph,
   run: {},
-  branch: undefined,
   own: 'agent/1',
   proposals: [push],
   problems: [],
   asked: false,
   held: true,
-  open: true,
+  needsPull: false,
   merges: {},
   diff: 'diff --git a/x b/x\n+++ b/x\n+x',
   untouched: false,
@@ -58,7 +57,7 @@ describe('pickTryOutcome', () => {
   it.each([
     [
       'asks for a pull request when the branch has none',
-      { branch: 'agent/{issue}', open: false },
+      { needsPull: true },
       ['a pass needs a pull request or an ask'],
     ],
     [

@@ -1,26 +1,35 @@
-import { Effect, Result } from 'effect';
+import { Effect } from 'effect';
 import type { Said, Proposal } from '../proposal.ts';
 import { TrackerError, Tracker, withheld } from '../tracker.ts';
 import { type Workflow, type Run, type RunRecord, begin, isRunDone } from '../workflow.ts';
 import type { Applied } from '../event.ts';
 import { Store } from '../store.ts';
+import { LockHeldError } from '../owner.ts';
 import type { Graph } from '../folder.ts';
 import { findAppliedBefore, getOperationKey, writeOnce, useRunLink } from './settle.ts';
 import { isInScope, isRetro } from './hear.ts';
 
 export type Child = Extract<Said, { kind: 'issue' }>;
 
-/** Saves a new run once, under its id's lock and only when no run has that id; `ready` finishes it before it is saved. */
+/** Saves a new run once, under its id's lock and only when no run has that id, then lets `ready` finish it under that lock. */
 export const startRun = <A extends RunRecord, E = never, R = never>(
   run: A,
   ready: (run: A) => Effect.Effect<A, E, R> = Effect.succeed
 ) =>
   Effect.gen(function* () {
     const store = yield* Store;
-    if (Result.isFailure(yield* Effect.result(store.lock(run.id)))) return;
+    const locked = yield* store.lock(run.id).pipe(
+      Effect.as(true),
+      Effect.catchIf(
+        e => e.cause instanceof LockHeldError,
+        () => Effect.succeed(false)
+      )
+    );
+    if (!locked) return;
     if (yield* store.getRecord(run.id)) return;
+    yield* store.put(run);
     const first = yield* ready(run);
-    yield* store.put(first);
+    if (first !== run) yield* store.put(first);
     return first;
   }).pipe(Effect.scoped);
 
@@ -175,7 +184,7 @@ export const findUndispatchable = (
     return reason === undefined ? [] : asked.map((proposal): Applied => ({ proposal, ok: false, reason }));
   });
 
-/** Begins the workflow a `run` proposal names, as a run `by` the run that proposed it, seeded with `seed`. */
+/** Begins the workflow a `run` proposal names, as a run `by` the run that proposed it, seeded with `seed`. A taken id gets a fresh one, a few times, then nothing starts. */
 export const startProposedRun = (
   graph: Graph,
   run: Pick<Run, 'id'>,
@@ -183,18 +192,23 @@ export const startProposedRun = (
   seed?: Pick<Run, 'onto' | 'feedback' | 'said' | 'meta'>
 ) =>
   Effect.gen(function* () {
-    const at = new Date().toISOString();
     const w = graph.workflows[p.workflow]!;
-    const child: Run = {
-      ...begin(
-        w,
-        { id: `${w.name}-${p.issue}-${at.replace(/\D/g, '')}`, issue: p.issue, started: at },
-        w.steps.find(s => s.name === p.step)
-      ),
-      by: run.id,
-      ...seed,
-    };
-    return (yield* startRun(child)) ?? child;
+    for (let tries = 0; tries < 3; tries++) {
+      const at = new Date().toISOString();
+      const child: Run = {
+        ...begin(
+          w,
+          { id: `${w.name}-${p.issue}-${at.replace(/\D/g, '')}`, issue: p.issue, started: at },
+          w.steps.find(s => s.name === p.step)
+        ),
+        by: run.id,
+        ...seed,
+      };
+      const started = yield* startRun(child);
+      if (started) return started;
+      yield* Effect.sleep('1 millis');
+    }
+    return undefined;
   });
 
 export const findRecipient = (graph: Graph, issue: number, by: string) =>
