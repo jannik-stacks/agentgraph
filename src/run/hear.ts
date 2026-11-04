@@ -15,6 +15,8 @@ export const formatTemplate = (template: string, t: Pick<Issue, 'number' | 'pare
 export const isInScope = (graph: Graph, issue?: Issue) =>
   graph.milestone === undefined || issue?.milestone === graph.milestone;
 
+export const isBoardGraph = (graph: Graph) => Object.values(graph.workflows).some(w => w.on.issues?.column);
+
 /** The open pull request on the branch a run of `w` on `issue` works on. */
 export const findPullNumber = (w: Workflow, issue: number, open: Issue[]) =>
   w.branch === undefined

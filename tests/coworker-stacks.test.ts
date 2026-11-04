@@ -213,6 +213,26 @@ describe('stacks', () => {
     expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(9)))).join('\n')).not.toContain('could not follow');
   });
 
+  it.each([true, false])('retries a refused follow when the tip moves (known head: %s)', async known => {
+    const where = world();
+    const { move } = parent(where);
+    const { run } = services(where, [child('hello and bye\n', 'hello.txt')]);
+    await run(runWorkflow(flow, run9(), merging));
+    const moved = move('hello.txt', 'hi\n');
+    const pull = pr10(where).pull;
+    if (!known) writeIssueAt(issuePath(where.tracker, 10, 'pull.json'), JSON.stringify({ ...pull, head: undefined }));
+    await run(tick(merging, 9));
+    expect(saved(where).base?.tip).toBe(known ? pull.head : undefined);
+    const tip = git(where.origin, 'commit-tree', `${pull.head}^{tree}`, '-p', pull.head, '-m', 'Move branch tip');
+    git(where.origin, 'update-ref', 'refs/heads/agentgraph/9', tip, pull.head);
+    writeIssueAt(issuePath(where.tracker, 10, 'pull.json'), JSON.stringify({ ...pull, head: known ? tip : undefined }));
+    await run(tick(merging, 9));
+    expect(
+      readTrace(where.data, 'run-9').filter(t => 'applied' in t && t.applied.proposal.kind === 'rebase')
+    ).toHaveLength(2);
+    expect(saved(where).base?.sha).toBe(moved);
+  });
+
   it('says on the issue when the branch does not rebase cleanly and leaves it where it was', async () => {
     const where = world();
     const { move } = parent(where);

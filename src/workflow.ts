@@ -105,10 +105,7 @@ export type Run = {
   said?: { issue: number; under?: string }[];
   /** The 👀 the run gave where it was woken, as the proposal that takes it back once the run has replied. */
   eyes?: { issue: number; undo: Extract<Proposal, { kind: 'react' }> };
-  /**
-   * The open pull request the run stacks on; from keeps the successful base while a follow is pending, and tip is the
-   * branch head whose follow onto sha failed, so it is tried again only when either moves.
-   */
+  /** The parent pull request and the last attempted follow. */
   base?: { pull: number; branch: string; sha: string; from?: string; tip?: string };
   /**
    * The base head the next push lands on, when following it conflicted: the work tree starts there with the change

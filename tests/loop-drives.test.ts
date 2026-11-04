@@ -12,7 +12,7 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { issuePath, write, writeIssueAt } from './kit.ts';
 import type { Graph } from '../src/folder.ts';
-import { comment, fresh, readChecks, readTrace, say, world } from './world.ts';
+import { comment, fresh, readChecks, readTrace, say, services, world } from './world.ts';
 
 const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 const flow = {
@@ -48,7 +48,7 @@ const setup = (parallel: number, holdSweep = false) => {
   const looked: number[] = [];
   let listings = 0;
   const cursors: string[] = [];
-  let holding = false;
+  const { promise: holding, resolve: hold } = Promise.withResolvers<void>();
   const tracker = Layer.effect(
     Tracker,
     Effect.map(Tracker, t => ({
@@ -68,17 +68,13 @@ const setup = (parallel: number, holdSweep = false) => {
           return t.issue(n);
         }),
       apply: (...args) =>
-        args[0] === 7 && holdSweep && args[1].kind === 'react'
-          ? Effect.andThen(
-              Effect.sync(() => {
-                holding = true;
-              }),
-              Effect.andThen(
-                Effect.promise(() => sweepHeld),
-                t.apply(...args)
-              )
-            )
-          : t.apply(...args),
+        Effect.gen(function* () {
+          if (args[0] === 7 && holdSweep && args[1].kind === 'react') {
+            hold();
+            yield* Effect.promise(() => sweepHeld);
+          }
+          return yield* t.apply(...args);
+        }),
     }))
   ).pipe(Layer.provide(folderTracker(where.tracker)));
   let reads = 0;
@@ -97,12 +93,12 @@ const setup = (parallel: number, holdSweep = false) => {
   const drives = startLoopDrives();
   const pass = (g: Graph = graph) =>
     Effect.runPromise(
-      runPass(drives, fork => scanIssuesAndRunningRuns(g, 0, undefined, fork, drives.ticks)).pipe(Effect.provide(layer))
+      runPass(drives, fork => scanIssuesAndRunningRuns(g, 0, undefined, fork, drives.gates)).pipe(Effect.provide(layer))
     );
   let cursor = '2026-10-16T00:00:00.000Z';
   const poll = async () => {
     cursor = await Effect.runPromise(
-      runPass(drives, fork => scanTrackerEvents(graph, cursor, fork, drives.ticks, drives.due)).pipe(
+      runPass(drives, fork => scanTrackerEvents(graph, cursor, fork, drives.gates, drives.due)).pipe(
         Effect.provide(layer)
       )
     );
@@ -138,7 +134,9 @@ const setup = (parallel: number, holdSweep = false) => {
     releaseSweep,
     listings: () => listings,
     reads: () => reads,
-    isHolding: () => holding,
+    holding,
+    withStore: <A, E>(f: (s: Store['Service']) => Effect.Effect<A, E>) =>
+      Effect.runPromise(Effect.flatMap(Store, f).pipe(Effect.provide(fileStore(where.data)))),
   };
 };
 
@@ -156,7 +154,7 @@ describe('loop drives', () => {
         return runs;
       });
       try {
-        await vi.waitFor(() => expect(loop.isHolding()).toBe(true));
+        await loop.holding;
         loop.ask(kind);
         const cursor = await loop.poll();
         await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
@@ -172,9 +170,7 @@ describe('loop drives', () => {
         loop.releaseSweep();
         await sweep;
         await loop.pass();
-        const second = await Effect.runPromise(
-          Effect.flatMap(Store, s => s.list({ issue: 9 })).pipe(Effect.provide(fileStore(loop.where.data)))
-        );
+        const second = await loop.withStore(s => s.list({ issue: 9 }));
         expect(second).toHaveLength(1);
         expect(
           readTrace(loop.where.data, second[0]!.id).filter(
@@ -193,11 +189,7 @@ describe('loop drives', () => {
   it('reads only since the cursor for quiet or untrusted polls, even with old ended runs', async () => {
     const loop = setup(2);
     try {
-      await Effect.runPromise(
-        Effect.flatMap(Store, s => s.put({ ...fresh(), started: '2020-01-01T00:00:00.000Z', status: 'done' })).pipe(
-          Effect.provide(fileStore(loop.where.data))
-        )
-      );
+      await loop.withStore(s => s.put({ ...fresh(), started: '2020-01-01T00:00:00.000Z', status: 'done' }));
       await loop.poll();
       say(loop.where, comment(7, 'stranger', false, '/agent', '2026-10-16T00:01:00.000Z'));
       const cursor = await loop.poll();
@@ -220,8 +212,8 @@ describe('loop drives', () => {
     const sweep = loop.pass();
     const ticks: number[] = [];
     try {
-      await vi.waitFor(() => expect(loop.isHolding()).toBe(true));
-      const lock = loop.drives.ticks.get(7)!;
+      await loop.holding;
+      const lock = loop.drives.gates.get(7)!;
       const withPermitsIfAvailable = lock.withPermitsIfAvailable.bind(lock);
       lock.withPermitsIfAvailable = permits => effect =>
         withPermitsIfAvailable(permits)(
@@ -232,18 +224,21 @@ describe('loop drives', () => {
         );
       loop.where.human('/agent', '2026-10-16T00:01:00.000Z');
       expect(await loop.poll()).toBe('2026-10-16T00:01:00.000Z');
-      expect([[...loop.drives.due], ticks]).toEqual([[7], []]);
+      expect([[...loop.drives.due.keys()], ticks]).toEqual([[7], []]);
+      const counts = [loop.listings(), loop.reads()];
+      await loop.poll();
+      expect([loop.listings(), loop.reads()]).toEqual(counts);
       loop.ask();
       say(loop.where, comment(9, 'morgan', true, '/agent', '2026-10-16T00:02:00.000Z'));
       const before = loop.cursors.length;
       await loop.poll();
       await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
-      expect([loop.cursors[before], [...loop.drives.due], ticks]).toEqual(['2026-10-16T00:01:00.000Z', [7], []]);
+      expect([loop.cursors[before], [...loop.drives.due.keys()], ticks]).toEqual(['2026-10-16T00:01:00.000Z', [7], []]);
       loop.releaseSweep();
       await sweep;
       await loop.poll();
       await loop.poll();
-      expect([[...loop.drives.due], ticks]).toEqual([[], [7]]);
+      expect([[...loop.drives.due.keys()], ticks]).toEqual([[], [7]]);
     } finally {
       loop.releaseSweep();
       loop.release();
@@ -260,7 +255,7 @@ describe('loop drives', () => {
     };
     const run = { ...fresh(), step: 'merge', status: 'waiting' as const };
     try {
-      await Effect.runPromise(Effect.flatMap(Store, s => s.put(run)).pipe(Effect.provide(fileStore(loop.where.data))));
+      await loop.withStore(s => s.put(run));
       writeIssueAt(
         issuePath(loop.where.tracker, 8),
         '---\ntitle: Landed\nstate: merged\nauthor: morgan\nlabels: []\n---\n'
@@ -270,12 +265,30 @@ describe('loop drives', () => {
       });
       say(loop.where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' });
       await loop.poll();
-      expect([loop.looked.includes(8), loop.drives.ticks.has(7), (await loop.read(run.id))?.seen]).toEqual([
-        true,
-        true,
-        '2026-10-16T00:01:00.000Z',
-      ]);
+      expect([
+        loop.looked.filter(n => n === 8).length,
+        loop.drives.gates.has(7),
+        (await loop.read(run.id))?.seen,
+      ]).toEqual([3, true, '2026-10-16T00:01:00.000Z']);
     } finally {
+      loop.release();
+      await loop.drives.stop();
+    }
+  });
+
+  it('waits for quiet before handling a polled event and retains it for the next poll', async () => {
+    const loop = setup(2);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-16T00:01:10.000Z'));
+    try {
+      loop.ask();
+      await loop.poll();
+      expect([loop.opened.length, [...loop.drives.due.keys()]]).toEqual([0, [9]]);
+      now.mockReturnValue(Date.parse('2026-10-16T00:01:31.000Z'));
+      await loop.poll();
+      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+      expect([[...loop.drives.due.keys()], loop.cursors.includes('')]).toEqual([[], false]);
+    } finally {
+      now.mockRestore();
       loop.release();
       await loop.drives.stop();
     }
@@ -290,10 +303,7 @@ describe('loop drives', () => {
       const before = loop.cursors.length;
       loop.where.human('/agent', '2026-10-16T00:01:00.000Z');
       await loop.poll();
-      expect([loop.listings(), loop.cursors.slice(before)]).toEqual([
-        listings + 1,
-        ['2026-10-16T00:00:00.000Z', '2026-10-16T00:00:00.000Z', ''],
-      ]);
+      expect([loop.listings(), loop.cursors.slice(before)]).toEqual([listings + 1, ['2026-10-16T00:00:00.000Z']]);
     } finally {
       loop.release();
       await loop.drives.stop();
@@ -340,6 +350,23 @@ describe('loop drives', () => {
       loop.release();
       await loop.drives.stop();
     }
+  });
+
+  it('hears a stop posted during a foreground scan before applying the session reply', async () => {
+    const where = world();
+    const engine = services(
+      where,
+      [[start('foreground'), reply({ kind: 'ask', question: 'Late question' })]],
+      undefined,
+      () => where.human('/agent:stop', '2026-10-16T00:02:00.000Z')
+    );
+    const [run] = await engine.run(scanIssuesAndRunningRuns({ ...small, workflows: { issue: flow } }));
+    expect(run?.status).toBe('stopped');
+    expect(
+      readTrace(where.data, run!.id).filter(
+        t => 'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.body === 'Late question'
+      )
+    ).toEqual([]);
   });
 
   it('lets a driven run hear a stop said while a pass skipped it', async () => {

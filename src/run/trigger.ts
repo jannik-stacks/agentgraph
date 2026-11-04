@@ -31,6 +31,7 @@ import { type Services, formatFailure } from './execute.ts';
 import {
   findPullNumber,
   isInScope,
+  isBoardGraph,
   isRetro,
   findRouter,
   pickNewest,
@@ -241,7 +242,8 @@ export const tick = (
     id: string,
     parallel: number,
     effect: Effect.Effect<Run | undefined, never, Services>
-  ) => Effect.Effect<void, never, Services>
+  ) => Effect.Effect<void, never, Services>,
+  defer: ((issue: number) => void) | undefined = undefined
 ): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
     const supplied = yield* decodeRunMeta(meta);
@@ -254,7 +256,7 @@ export const tick = (
     const started = pickNewest(...runs.map(r => r.started));
     const cursor = started === undefined ? '' : [started, ...waiting.map(p => p.at)].sort()[0]!;
     const issues = yield* tracker.issues({ state: 'open' });
-    const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
+    const boards = isBoardGraph(graph);
     const latest = yield* Stream.runCollect(tracker.since(cursor, boards));
     const merged = (yield* Effect.forEach(
       latest.filter(m => m.kind === 'merged' && !issues.some(t => t.number === m.issue)),
@@ -330,6 +332,7 @@ export const tick = (
       latest.some(
         m => (m.issue === issue || onRun(m).issue === issue) && m.trusted && Date.now() - Date.parse(m.at) < debounce
       );
+    if (only !== undefined && young(only)) defer?.(only);
     const events = latest.map(onRun).filter(mine);
     const used = new Set<Event>();
     const touched: Run[] = [];
@@ -654,8 +657,8 @@ export const tick = (
     for (const r of runs.map(current).filter(r => !isRunDone(r))) {
       const w = graph.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
-      const tip = w && issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull?.head;
-      if (!r.base || !head || !tip || (head === r.base.sha && (!r.base.from || r.base.tip === tip))) continue;
+      if (!r.base || !head || !w) continue;
+      const tip = issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull?.head;
       yield* runFollow(w, r, r.base, head, tip, graph).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
@@ -752,12 +755,17 @@ export const tick = (
     return [...moved.filter(r => !ended.some(e => e.id === r.id)), ...ended];
   });
 
-const makeIssueScan = (
+const getGate = (gates: Map<number, Semaphore.Semaphore>, n: number) => {
+  const gate = gates.get(n) ?? Semaphore.makeUnsafe(1);
+  gates.set(n, gate);
+  return gate;
+};
+
+const readIssueScan = (
   graph: Graph,
-  debounce = 0,
-  meta?: Run['meta'],
+  debounce: number,
   fork?: Parameters<typeof tick>[5],
-  locks = new Map<number, Semaphore.Semaphore>()
+  poll: { cursor: string; latest: Effect.Effect<Event[], TrackerError> } | undefined = undefined
 ) =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
@@ -767,32 +775,38 @@ const makeIssueScan = (
     );
     const listed = yield* listing;
     const fetched = [...listed];
+    const prefetched = new Map<number, Effect.Success<ReturnType<Tracker['Service']['issue']>>>();
     const all = yield* Effect.flatMap(Store, s => s.list());
-    const runs = all.filter(r => !isRunDone(r) || r.owed);
-    const from = pickNewest(...all.map(r => r.started));
-    const cursor = from
-      ? new Date(Date.parse(all.flatMap(r => [r.started, r.seen ?? r.started]).toSorted()[0]!) - debounce).toISOString()
-      : '';
-    const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
-    const latest = yield* Effect.cached(Stream.runCollect(tracker.since(cursor, boards)));
-    const history = cursor ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards))) : latest;
-    const gate = (n: number) => {
-      const lock = locks.get(n) ?? Semaphore.makeUnsafe(1);
-      locks.set(n, lock);
-      return lock;
-    };
-    const look = (n: number) =>
+    const cursor =
+      poll?.cursor ??
+      (all.length
+        ? new Date(
+            Date.parse(all.flatMap(r => [r.started, r.seen ?? r.started]).toSorted()[0]!) - debounce
+          ).toISOString()
+        : '');
+    const boards = isBoardGraph(graph);
+    const latest = yield* Effect.cached(poll?.latest ?? Stream.runCollect(tracker.since(cursor, boards)));
+    const history = cursor && !poll ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards))) : latest;
+    const deferred = new Set<number>();
+    const look = (n: number, meta?: Run['meta']) =>
       tick(
         graph,
         n,
         true,
         debounce,
         meta,
-        fork && ((id, parallel, effect) => fork(id, parallel, Effect.provideService(effect, Tracker, tracker)))
+        fork && ((id, parallel, effect) => fork(id, parallel, Effect.provideService(effect, Tracker, tracker))),
+        n => deferred.add(n)
       ).pipe(
         Effect.provideService(Tracker, {
           ...tracker,
-          issue: n => tracker.issue(n).pipe(Effect.tap(t => Effect.sync(() => fetched.push(t)))),
+          issue: n => {
+            const found = prefetched.get(n);
+            prefetched.delete(n);
+            return found
+              ? Effect.succeed(found)
+              : tracker.issue(n).pipe(Effect.tap(t => Effect.sync(() => fetched.push(t))));
+          },
           issues: filter =>
             filter?.state === 'open' &&
             !filter.labels?.length &&
@@ -814,7 +828,7 @@ const makeIssueScan = (
         }),
         Effect.catchTag('TrackerError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
       );
-    return { all, runs, from, listed, latest, fetched, gate, look };
+    return { all, listed, latest, fetched, look, deferred, prefetched };
   });
 
 /**
@@ -828,22 +842,18 @@ export const scanIssuesAndRunningRuns = (
   debounce = 0,
   meta?: Run['meta'],
   fork?: Parameters<typeof tick>[5],
-  locks?: Map<number, Semaphore.Semaphore>
+  gates = new Map<number, Semaphore.Semaphore>()
 ): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
-    const { runs, from, listed, latest, fetched, gate, look } = yield* makeIssueScan(
-      graph,
-      debounce,
-      meta,
-      fork,
-      locks
-    );
+    const { all, listed, latest, fetched, look } = yield* readIssueScan(graph, debounce, fork);
+    const runs = all.filter(r => !isRunDone(r) || r.owed);
+    const from = pickNewest(...all.map(r => r.started));
     const open = listed.filter(t => !t.pull && isInScope(graph, t));
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
     const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
-    const changed = (yield* Effect.forEach(issues, n => gate(n).withPermits(1)(look(n)), {
+    const changed = (yield* Effect.forEach(issues, n => getGate(gates, n).withPermits(1)(look(n, meta)), {
       concurrency: graph.limits.parallel,
     })).flat();
     const kept = yield* Effect.flatMap(Store, s => s.list());
@@ -859,31 +869,35 @@ export const scanIssuesAndRunningRuns = (
         (!!template && matchesGlob(branch, template.replaceAll('{issue}', String(r.issue)).replaceAll('{parent}', '*')))
       );
     };
+    const cleanBranch = (branch: string, using: Run[]) =>
+      Effect.gen(function* () {
+        const current = yield* Effect.flatMap(Store, s => s.list());
+        if (current.filter(uses(branch)).some(r => !isRunDone(r) || r.owed)) return;
+        const isLanded = (t: Issue) => t.state === 'merged' && t.pull?.branch === branch;
+        const pull = (
+          fetched.find(isLanded) ??
+          (yield* tracker
+            .issues({ branch })
+            .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), [])))).find(
+            isLanded
+          )
+        )?.pull;
+        yield* sandbox
+          .removeBranch(
+            branch,
+            using.some(r => !r.checkout)
+              ? undefined
+              : (pull?.base ?? using.reduce((a, b) => (a.started > b.started ? a : b)).checkout!.base),
+            pull?.head
+          )
+          .pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup ${branch}`, e)));
+      });
     for (const branch of branches.filter(isAgentBranch)) {
       const using = kept.filter(uses(branch));
-      if (!using.length || using.some(r => !isRunDone(r) || r.owed)) continue;
+      if (!using.length) continue;
       yield* [...new Set(using.map(r => r.issue))].reduce(
-        (effect, n) => gate(n).withPermits(1)(effect),
-        Effect.gen(function* () {
-          const current = yield* Effect.flatMap(Store, s => s.list());
-          if (current.filter(uses(branch)).some(r => !isRunDone(r) || r.owed)) return;
-          const pull =
-            fetched.find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull ??
-            (yield* tracker
-              .issues({ branch })
-              .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), [])))).find(
-              t => t.state === 'merged' && t.pull?.branch === branch
-            )?.pull;
-          yield* sandbox
-            .removeBranch(
-              branch,
-              using.some(r => !r.checkout)
-                ? undefined
-                : (pull?.base ?? using.reduce((a, b) => (a.started > b.started ? a : b)).checkout!.base),
-              pull?.head
-            )
-            .pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup ${branch}`, e)));
-        })
+        (effect, n) => getGate(gates, n).withPermits(1)(effect),
+        cleanBranch(branch, using)
       );
     }
     return changed;
@@ -893,38 +907,56 @@ export const scanTrackerEvents = (
   graph: Graph,
   cursor: string,
   fork: Parameters<typeof tick>[5],
-  locks: NonNullable<Parameters<typeof scanIssuesAndRunningRuns>[4]>,
-  due: Set<number>
+  gates: NonNullable<Parameters<typeof scanIssuesAndRunningRuns>[4]>,
+  due: Map<number, string>
 ) =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
-    const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
-    const events = yield* Stream.runCollect(tracker.since(cursor, boards));
+    const events = yield* Stream.runCollect(tracker.since(cursor, isBoardGraph(graph)));
     const trusted = events.filter(m => m.trusted);
-    if (trusted.length || due.size)
-      yield* Effect.gen(function* () {
-        const { all, listed, gate, look } = yield* makeIssueScan(graph, 0, undefined, fork, locks);
-        const numbers = new Set(trusted.map(m => m.issue));
+    yield* Effect.gen(function* () {
+      const lower = [cursor, ...due.values()].toSorted()[0]!;
+      const latest =
+        lower === cursor ? Effect.succeed(events) : Stream.runCollect(tracker.since(lower, isBoardGraph(graph)));
+      const scan = yield* Effect.cached(readIssueScan(graph, issueDebounceMs, fork, { cursor: lower, latest }));
+      const issues = new Set([...trusted.map(m => m.issue), ...due.keys()]);
+      if (trusted.length) {
+        const { all, listed, fetched, prefetched } = yield* scan;
         const missing = yield* Effect.forEach(
-          [...numbers].filter(n => !listed.some(t => t.number === n)),
-          n => tracker.issue(n)
-        );
-        const issues = new Set([...numbers, ...due]);
-        for (const r of all) {
-          const w = graph.workflows[r.workflow];
-          const pull = w && findPullNumber(w, r.issue, [...listed, ...missing]);
-          if (pull !== undefined && numbers.has(pull)) issues.add(r.issue);
-        }
-        yield* Effect.forEach(
-          issues,
-          n =>
-            gate(n)
-              .withPermitsIfAvailable(1)(look(n))
-              .pipe(Effect.tap(result => Effect.sync(() => (Option.isSome(result) ? due.delete(n) : due.add(n))))),
+          [...issues].filter(n => !listed.some(t => t.number === n)),
+          n => tracker.issue(n),
           { concurrency: graph.limits.parallel }
         );
-      }).pipe(Effect.catchTag('TrackerError', e => Effect.logError(e)));
-
+        fetched.push(...missing);
+        for (const t of missing) prefetched.set(t.number, t);
+        for (const r of all) {
+          const w = graph.workflows[r.workflow];
+          const pull = w && findPullNumber(w, r.issue, fetched);
+          if (pull !== undefined && issues.has(pull)) issues.add(r.issue);
+        }
+      }
+      yield* Effect.forEach(
+        issues,
+        n =>
+          getGate(gates, n)
+            .withPermitsIfAvailable(1)(
+              Effect.gen(function* () {
+                const { look, deferred } = yield* scan;
+                yield* look(n);
+                return deferred.has(n);
+              })
+            )
+            .pipe(
+              Effect.tap(result =>
+                Effect.sync(() => {
+                  if (Option.isSome(result) && !result.value) due.delete(n);
+                  else due.set(n, due.get(n) ?? cursor);
+                })
+              )
+            ),
+        { concurrency: graph.limits.parallel }
+      );
+    }).pipe(Effect.catchTag('TrackerError', e => Effect.logError(e)));
     return pickNewest(cursor, ...events.map(m => m.at)) ?? cursor;
   });
 
@@ -933,8 +965,8 @@ export const startLoopDrives = () => {
   return {
     passes: Effect.runSync(Scope.provide(FiberSet.make(), scope)),
     driving: new Set<string>(),
-    ticks: new Map<number, Semaphore.Semaphore>(),
-    due: new Set<number>(),
+    gates: new Map<number, Semaphore.Semaphore>(),
+    due: new Map<number, string>(),
     permits: Semaphore.makeUnsafe(1),
     settled: [] as Run[],
     stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),

@@ -37,16 +37,13 @@ export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =
     return work;
   });
 
-/**
- * Rebases a stacked run's branch, now at `tip`, onto `head`, the new head of the pull request it stacks on; a conflict is
- * said on the issue and not tried again until `head` or `tip` moves.
- */
+/** Rebases a stacked branch onto its parent's head. */
 export const runFollow = (
   w: Workflow,
   given: Run,
   known: NonNullable<Run['base']>,
   head: string,
-  tip: string,
+  tip: string | undefined,
   graph: Graph
 ) =>
   Effect.gen(function* () {
@@ -56,7 +53,7 @@ export const runFollow = (
     const run = (yield* store.get(given.id)) ?? given;
     if (isRunDone(run)) return;
     const base = run.base ?? known;
-    if (base.sha === head && (!base.from || base.tip === tip)) return;
+    if (base.sha === head && (!base.from || (tip !== undefined && base.tip === tip))) return;
     const from = base.from ?? base.sha;
     const branch = formatTemplate(w.branch!, yield* tracker.issue(run.issue));
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
@@ -71,7 +68,11 @@ export const runFollow = (
         {
           ...kept,
           ...(!applied.ok ? { reason: body } : reason && !base.from ? { reason } : {}),
-          base: { ...rest, sha: head, ...(!applied.ok && { from, ...(!applied.moved && { tip }) }) },
+          base: {
+            ...rest,
+            sha: head,
+            ...(!applied.ok && { from, ...(!applied.moved && tip !== undefined && { tip }) }),
+          },
         },
         graph
       )

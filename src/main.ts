@@ -186,7 +186,7 @@ export const start = (
         const compress = Effect.tryPromise(() => writeIdleRunsCompressed(s.data, s.compress)).pipe(
           Effect.catch(e => Effect.logWarning(`compressing idle runs failed: ${e.cause}`))
         );
-        let cursor = new Date().toISOString();
+        let cursor = new Date(Date.now() - 300_000).toISOString();
         const look = <A, E>(scan: (graph: Graph, fork: Parameters<typeof tick>[5]) => Effect.Effect<A, E, Services>) =>
           Effect.flatMap(read, env =>
             runPass(drives, fork =>
@@ -195,14 +195,14 @@ export const start = (
               )
             ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(env)))
           );
-        const poll = look((graph, fork) => scanTrackerEvents(graph, cursor, fork, drives.ticks, drives.due)).pipe(
+        const poll = look((graph, fork) => scanTrackerEvents(graph, cursor, fork, drives.gates, drives.due)).pipe(
           Effect.map(next => (cursor = next)),
           Effect.catch(e => Effect.logError(e))
         );
         const pass = Effect.tryPromise(refresh).pipe(
           Effect.catch(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
           Effect.andThen(
-            look((graph, fork) => scanIssuesAndRunningRuns(graph, issueDebounceMs, undefined, fork, drives.ticks))
+            look((graph, fork) => scanIssuesAndRunningRuns(graph, issueDebounceMs, undefined, fork, drives.gates))
           ),
           Effect.tap(() => Effect.sync(() => drives.settled.splice(0))),
           Effect.catch(e => Effect.logError(e))
