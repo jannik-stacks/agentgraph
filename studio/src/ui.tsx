@@ -237,7 +237,7 @@ export const TipBubble = ({
       id={id}
       role="tooltip"
       popover="manual"
-      className="agi-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug text-pretty whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
+      className="agi-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug text-pretty whitespace-pre-line text-zinc-50 normal-case shadow-md dark:bg-zinc-100 dark:text-zinc-900"
     >
       {info && tip}
       {action && (
@@ -367,13 +367,15 @@ export const Select = ({
   value,
   options,
   onChange,
+  className,
 }: {
   label: string;
+  className?: string;
   value: string;
   options: { value: string; label: string; title?: string | undefined }[];
   onChange: (value: string) => void;
 }) => (
-  <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+  <label className={cx('items-center text-xs text-zinc-500', className ?? 'flex gap-1.5')}>
     {label}
     <span className="relative flex items-center">
       <select

@@ -270,6 +270,7 @@ const Bench = ({ value }: { value: BenchData }) => {
           <MultiSelect label="Labels" values={labelKeys} selected={groupKeys} onChange={vs => setBy(vs.join(','))} />
           <Select
             label="color"
+            className="grid grid-cols-2 gap-2 [&_select]:min-w-0 [&_select]:w-full"
             value={color}
             options={[{ value: '', label: 'no colour' }, ...labelKeys.map(k => ({ value: k, label: k }))]}
             onChange={setColor}

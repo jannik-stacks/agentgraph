@@ -258,7 +258,13 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
         'Choose a preset or adjust how much each score and penalty counts.'
       )
     );
-    expect(await browser.evaluate(() => getComputedStyle(document.activeElement!).textDecorationStyle)).toBe('dotted');
+    expect(
+      await browser.evaluate(() => ({
+        decoration: getComputedStyle(document.activeElement!).textDecorationStyle,
+        heading: getComputedStyle(document.querySelector('aside h3')!).textTransform,
+        tooltip: getComputedStyle(document.querySelector('[role="tooltip"]:popover-open')!).textTransform,
+      }))
+    ).toEqual({ decoration: 'dotted', heading: 'uppercase', tooltip: 'none' });
     await browser.evaluate(() => document.querySelector<HTMLElement>('label[for="w-test"]')!.focus());
     await vi.waitFor(async () =>
       expect(
@@ -300,6 +306,28 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
     await click('Select only smart for model');
     await escape();
     expect(await browser.evaluate(() => document.activeElement?.querySelector('span')?.textContent)).toBe('smart');
+  });
+
+  it('aligns the color label and control with the Group by labels row', async () => {
+    expect(
+      await browser.evaluate(() => {
+        const button = [...document.querySelectorAll<HTMLButtonElement>('aside button[popovertarget]')].find(
+          button =>
+            document.getElementById(button.getAttribute('aria-labelledby')!.split(' ')[0]!)?.textContent === 'Labels'
+        )!;
+        const label = document.getElementById(button.getAttribute('aria-labelledby')!.split(' ')[0]!)!;
+        const select = [...document.querySelectorAll<HTMLSelectElement>('aside select')].find(select =>
+          select.closest('label')?.textContent?.startsWith('color')
+        )!;
+        const range = document.createRange();
+        range.selectNodeContents(select.closest('label')!.firstChild!);
+        return {
+          isLabelAligned: Math.abs(range.getBoundingClientRect().left - label.getBoundingClientRect().left) < 1,
+          isControlAligned: Math.abs(select.getBoundingClientRect().left - button.getBoundingClientRect().left) < 1,
+          isWidthAligned: Math.abs(select.getBoundingClientRect().width - button.getBoundingClientRect().width) < 1,
+        };
+      })
+    ).toEqual({ isLabelAligned: true, isControlAligned: true, isWidthAligned: true });
   });
 
   it('keeps the sidebar scroll fade when compact controls overflow', async () => {
