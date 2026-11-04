@@ -97,7 +97,7 @@ A plugin can declare `on.status` instead of, or next to, tools. The engine calls
 The context holds `repo`, the plugin's `settings`, `tracker.searchIssues` and, on GitHub, `tracker.moveToColumn(issue,
 { project, name })`, which puts the issue's card in that column of a project board. It uses the project token, which
 needs the `project` scope: `gh auth refresh -s project`. Hooks run in filename order. A hook that throws is logged and the run goes on.
-<!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/engine.ts#announce src/tracker.ts#Tracker -->
+<!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/run/settle.ts#announce src/tracker.ts#Tracker -->
 
 ```ts
 export default makePlugin({
@@ -119,7 +119,7 @@ the graph `--dir` names count; a graph read from the repo cannot pick its own tr
 when the selection names nothing, names a plugin without a tracker, or needs a graph read from the repo. A tracker's
 optional `status(n, to, names)` shows an issue's status; the built-ins swap labels named by the graph's `status`
 setting. A status the tracker refuses is shown again on the next pass.
-<!-- code: src/plugin.ts#TrackerHost src/services.ts#readHostSettings src/services.ts#pickTracker src/tracker.ts#folder src/github.ts#github src/engine.ts#writeStatus -->
+<!-- code: src/plugin.ts#TrackerHost src/services.ts#readHostSettings src/services.ts#pickTracker src/tracker.ts#folder src/github.ts#github src/run/settle.ts#writeStatus -->
 
 ## Studio pages
 
