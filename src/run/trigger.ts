@@ -509,9 +509,15 @@ export const tick = (
           .sort((a, b) => a.started.localeCompare(b.started))
           .at(-1);
         const step = w.steps.find(s => s.name === restart);
+        const restarts = events.filter(n => {
+          const t = n.issue === issue && pickCommandTarget(graph, runs, n);
+          return restart !== undefined && !!t && !('why' in t) && t.verb === 'restart';
+        });
+        const seen = pickNewest(...restarts.map(n => n.at));
         const begun = {
           ...begin(w, { id: makeRunId(w, issue, at), issue, started: at }, step),
           ...supplied,
+          ...(seen && seen > at && { seen }),
           ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
