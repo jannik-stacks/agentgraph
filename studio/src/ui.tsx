@@ -495,18 +495,28 @@ export const MultiSelect = ({
         </div>
         <div ref={fade} className="max-h-[min(15rem,40dvh)] overflow-y-auto">
           {shown.map(v => (
-            <label
+            <div
               key={v}
-              className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 break-all hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="group flex items-start gap-2 rounded px-1 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              <input
-                type="checkbox"
-                className="mt-0.5 shrink-0"
-                checked={selected.includes(v)}
-                onChange={e => onChange(e.target.checked ? [...selected, v] : selected.filter(s => s !== v))}
-              />
-              {v || '(empty)'}
-            </label>
+              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 break-all">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 shrink-0"
+                  checked={selected.includes(v)}
+                  onChange={e => onChange(e.target.checked ? [...selected, v] : selected.filter(s => s !== v))}
+                />
+                {v || '(empty)'}
+              </label>
+              <button
+                type="button"
+                aria-label={`Select only ${v || '(empty)'} for ${label}`}
+                onClick={() => onChange([v])}
+                className="shrink-0 rounded px-1 text-[11px] text-zinc-400 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200"
+              >
+                only
+              </button>
+            </div>
           ))}
           {!shown.length && <p className="p-1 text-zinc-500">No matches.</p>}
         </div>

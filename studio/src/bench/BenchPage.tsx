@@ -103,7 +103,7 @@ const unpricedModels = (rs: Row[]) => {
 };
 
 const Control = ({ label, tip, children }: { label: string; tip: string; children: ReactNode }) => (
-  <div className="space-y-1">
+  <div className="space-y-1 py-4">
     <div className="flex items-center gap-1.5">
       <h3 className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">{label}</h3>
       <Help tip={tip} />
@@ -188,7 +188,7 @@ const Bench = ({ value }: { value: BenchData }) => {
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       <aside
         ref={fade}
-        className="shrink-0 space-y-4 overflow-y-auto border-b border-zinc-200 p-4 text-xs md:w-64 md:border-r md:border-b-0 dark:border-zinc-800"
+        className="shrink-0 divide-y divide-zinc-200 overflow-y-auto border-b border-zinc-200 px-4 text-xs md:w-64 md:border-r md:border-b-0 dark:divide-zinc-800 dark:border-zinc-800"
       >
         <Control label="Weights" tip="Choose a preset or adjust how much each score and penalty counts.">
           <div className="flex flex-wrap gap-1">
