@@ -20,7 +20,8 @@ import { writeImportedRun } from '../src/instance.ts';
 import { getRounded } from '../src/stats.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
-import { type BenchInput, getBenchSlot, readAttemptRun, readBenchAttempts } from './runs.ts';
+import { type BenchInput, getBenchSlot, readAttemptRun, readBenchAttempts, type readDataUsage } from './runs.ts';
+import type { TokenCounts } from '../src/prices.ts';
 
 const version = 'migrated';
 const leftOut = new Set(['work', 'homes', 'scratch']);
@@ -75,6 +76,33 @@ const findEarlierAttempts = (final: string) => {
     ),
     ...findNamesWithin(join(dirname(final), '.attic'), new RegExp(`^${basename(final)}-\\d{4}-`)).toSorted(),
   ];
+};
+
+type SavedUsage = Partial<ReturnType<typeof readDataUsage>> & { dir?: string; infra?: string };
+
+const sumSavedUsage = (entries: SavedUsage[]) => {
+  const sum = (get: (e: SavedUsage) => number | undefined) =>
+    getRounded(entries.reduce((n, e) => n + (get(e) ?? 0), 0));
+  const tokens: Record<string, TokenCounts> = {};
+  for (const e of entries)
+    for (const [model, t] of Object.entries(e.tokens ?? {})) {
+      const total = (tokens[model] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
+      for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) total[k] += t[k];
+    }
+  return {
+    sessions: sum(e => e.sessions),
+    usd: sum(e => e.usd),
+    checkUsd: sum(e => e.checkUsd),
+    ms: sum(e => e.ms),
+    tokens,
+    split: {
+      agent: sum(e => e.split?.agent),
+      tools: sum(e => e.split?.tools),
+      setup: sum(e => e.split?.setup),
+      checks: sum(e => e.split?.checks),
+      infra: sum(e => (e.infra ? e.ms : 0)),
+    },
+  };
 };
 
 const whyInfra = (meta: { infra?: string; status?: string }) =>
@@ -162,14 +190,18 @@ const writeSlot = async (
   build: (draft: string) => Promise<void>
 ) => {
   const slot = getBenchSlot(set, input);
+  const staging = join(set, 'runs', '.migrating');
+  const draft = getBenchSlot(staging, input);
+  const replaced = `${draft}.replaced`;
+  if (!existsSync(slot) && existsSync(replaced)) renameSync(replaced, slot);
+  rmSync(replaced, { recursive: true, force: true });
   if (done(slot)) return;
-  const draft = getBenchSlot(join(set, 'runs', '.migrating'), input);
   rmSync(draft, { recursive: true, force: true });
-  await build(join(set, 'runs', '.migrating'));
-  if (!existsSync(slot)) return renameSync(draft, slot);
-  const before = readBenchAttempts(slot).length;
-  for (const at of readBenchAttempts(draft)) renameSync(at, join(slot, String(before + Number(basename(at)))));
-  rmSync(draft, { recursive: true });
+  if (existsSync(slot)) cpSync(slot, draft, clone);
+  await build(staging);
+  if (existsSync(slot)) renameSync(slot, replaced);
+  renameSync(draft, slot);
+  rmSync(replaced, { recursive: true, force: true });
 };
 
 const hasEngine = (engine: string | undefined) => (slot: string) =>
@@ -224,11 +256,17 @@ const migrateArm = async (
     point: `${p.harness}:${p.model}`,
     ...(p.graphs[arm] && { graph: p.graphs[arm] }),
   };
-  const saved = readJson<{ attempts?: { dir: string; ms?: number }[] }>(join(final, 'usage.json'));
+  const saved = readJson<{ attempts?: SavedUsage[] }>(join(final, 'usage.json'));
+  const froms = [...findEarlierAttempts(final), final];
+  const findSavedUsage = (from: string) =>
+    saved?.attempts?.filter(
+      a => a.dir === relative(root, from) || (from === final && !froms.some(f => a.dir === relative(root, f)))
+    ) ?? [];
   await writeSlot(set, input, hasEngine(p.engine), async draft => {
     const slot = getBenchSlot(draft, input);
-    for (const [n, from] of [...findEarlierAttempts(final), final].entries()) {
-      const at = join(slot, String(n + 1));
+    const first = readBenchAttempts(slot).length;
+    for (const [n, from] of froms.entries()) {
+      const at = join(slot, String(first + n + 1));
       const imported = await copyAttempt(from, at, c, repo);
       const { run, data } = readAttemptRun(at)!;
       writeFileAtomic(join(data, run.id, 'run.json'), {
@@ -256,11 +294,9 @@ const migrateArm = async (
       );
       const m = from === final ? meta : (readJson<typeof meta>(join(from, 'meta.json')) ?? {});
       const why = whyInfra(m);
+      const entries = findSavedUsage(from);
       const usage =
-        (imported &&
-          (saved?.attempts?.find(a => a.dir === relative(root, from)) ??
-            readJson<{ ms?: number }>(join(from, 'usage.json')))) ||
-        {};
+        (imported && (entries.length ? sumSavedUsage(entries) : readJson<SavedUsage>(join(from, 'usage.json')))) || {};
       const ms = usage.ms ?? m.ms;
       await appendBenchResults(
         readSlotRun(slot)!,

@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { copyOldBenchRuns } from '../bench/migrate.ts';
 import { makeBenchInput } from '../bin/bench.ts';
@@ -17,6 +17,8 @@ const makeScore = (hidden: boolean) => ({
   suite: { ok: true, ms: 1, tail: '' },
   hidden: { ok: hidden, ms: 1, tail: hidden ? '' : 'FAIL sum' },
 });
+
+const makeTokens = (input: number) => ({ smart: { input, cacheRead: 0, cacheWrite: 0, output: 1 } });
 
 const makeOldBench = async () => {
   const root = tmp('migrate');
@@ -138,6 +140,40 @@ describe('bench/migrate.ts', () => {
     expect(readRunChange(merged.at, readAttemptRun(merged.at)!.run)).toContain('a + b');
   });
 
+  it('publishes a later engine into an occupied slot whole, so an interrupted merge resumes it once', async () => {
+    const { root, old, out, addArm } = await makeOldBench();
+    const point = JSON.parse(readFileSync(join(out, 'point.json'), 'utf8'));
+    save(join(out, 'point.json'), { ...point, at: '2026-10-01T00:00:00.000Z' });
+    await copyOldBenchRuns(old, old, join(root, 'repos'));
+    const later = join(old, 'ef567890', 'codex-sol', 'r1');
+    save(join(later, 'point.json'), { ...point, engine: 'ef567890', at: '2026-10-02T00:00:00.000Z' });
+    save(join(later, 'demo', 'human', 'score.json'), makeScore(true));
+    await addArm(join(later, 'demo', 'v2.1792604940434'), { meta: { ms: 30_000, infra: 'docker unreachable' } });
+    await addArm(join(later, 'demo', 'v2'), { score: makeScore(false) });
+    save(join(later, 'demo', 'v2', 'score.json'), '{');
+    await expect(copyOldBenchRuns(old, old, join(root, 'repos'))).rejects.toThrow();
+    const rows = () =>
+      readBenchRows([join(old, 'runs')])
+        .filter(r => r.labels.arm === 'v2')
+        .map(r => [r.labels.engine, r.hidden, r.minutes, r.usd])
+        .toSorted();
+    expect(rows()).toEqual([['abcd1234', 1, 1, 0.5]]);
+    save(join(later, 'demo', 'v2', 'score.json'), makeScore(false));
+    await copyOldBenchRuns(old, old, join(root, 'repos'));
+    const both = [
+      ['abcd1234', 1, 1, 0.5],
+      ['ef567890', 0, 1.5, 1],
+    ];
+    expect(rows()).toEqual(both);
+    const slot = join(readBenchRows([join(old, 'runs')]).find(r => r.labels.arm === 'v2')!.at, '..');
+    expect(readdirSync(slot)).toEqual(['1', '2', '3']);
+    renameSync(slot, `${join(old, 'runs', '.migrating', 'runs', basename(slot))}.replaced`);
+    await copyOldBenchRuns(old, old, join(root, 'repos'));
+    expect(rows()).toEqual(both);
+    expect(readdirSync(slot)).toEqual(['1', '2', '3']);
+    expect(readdirSync(join(old, 'runs', '.migrating', 'runs'))).toEqual([]);
+  });
+
   it('keys a migrated run on the tree id the old drive recorded, so planning the same graph finds it done', async () => {
     const { root, old, out } = await makeOldBench();
     const graphs = join(root, 'engine');
@@ -194,6 +230,50 @@ describe('bench/migrate.ts', () => {
       split: { agent: 160_000, tools: 20_000, setup: 30_000, checks: 10_000, infra: 60_000 },
     });
     expect(readRunChange(floor.at, readAttemptRun(floor.at)!.run)).toContain('a + b');
+  });
+
+  it('keeps the saved retries of an arm whose retry dirs are gone, counted once', async () => {
+    const { root, old, at, addArm } = await makeOldBench();
+    await addArm(join(at, 'floor'), {
+      usage: {
+        sessions: 2,
+        usd: 1.5,
+        checkUsd: 0.3,
+        ms: 180_000,
+        tokens: { smart: { input: 30, cacheRead: 0, cacheWrite: 0, output: 2 } },
+        split: { agent: 160_000, tools: 20_000, setup: 30_000, checks: 10_000, infra: 60_000 },
+        attempts: [
+          {
+            dir: 'floor.1792604940434',
+            sessions: 1,
+            usd: 0.5,
+            checkUsd: 0.1,
+            ms: 60_000,
+            infra: 'docker unreachable',
+            tokens: makeTokens(10),
+            split: { agent: 60_000, tools: 0, setup: 0, checks: 0 },
+          },
+          {
+            dir: 'floor',
+            sessions: 1,
+            usd: 1,
+            checkUsd: 0.2,
+            ms: 120_000,
+            tokens: makeTokens(20),
+            split: { agent: 100_000, tools: 20_000, setup: 30_000, checks: 10_000 },
+          },
+        ],
+      },
+    });
+    await copyOldBenchRuns(old, old, join(root, 'repos'));
+    const floor = readBenchRows([join(old, 'runs')]).find(r => r.labels.arm === 'floor')!;
+    expect(readdirSync(join(floor.at, '..'))).toEqual(['1']);
+    expect(floor).toMatchObject({
+      checkUsd: 0.3,
+      minutes: 3,
+      tokens: { smart: { input: 30, cacheRead: 0, cacheWrite: 0, output: 2 } },
+      split: { agent: 160_000, tools: 20_000, setup: 30_000, checks: 10_000, infra: 60_000 },
+    });
   });
 
   it('reads infra as the old bench did: an empty diff is a result, a failed setup is not', async () => {
