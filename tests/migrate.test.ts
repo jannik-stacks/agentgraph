@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { copyOldBenchRuns } from '../bench/migrate.ts';
@@ -25,8 +25,8 @@ const SAVED_RETRIES = [
   { retry: 'there without data', attempts: ['1', '2'] },
 ];
 
-const makeOldBench = async () => {
-  const root = tmp('migrate');
+const buildTemplate = async () => {
+  const root = tmp('migrate-template');
   const repo = join(root, 'repos', 'demo');
   save(join(repo, 'sum.js'), 'module.exports = (a, b) => a - b;\n');
   git(repo, 'init', '-q', '-b', 'main');
@@ -43,8 +43,7 @@ const makeOldBench = async () => {
   save(join(kase, 'issue.md'), '# Fix sum\n\nsum subtracts.\n');
   save(join(kase, 'merged.diff'), `${diff}\n`);
   save(join(old, 'set.json'), { cases: [{ id: 'demo', repo: 'me/demo' }] });
-  const out = join(old, 'abcd1234', 'codex-sol', 'r1');
-  save(join(out, 'point.json'), {
+  save(join(old, 'abcd1234', 'codex-sol', 'r1', 'point.json'), {
     harness: 'codex',
     model: 'sol',
     repeat: 1,
@@ -52,40 +51,11 @@ const makeOldBench = async () => {
     set: 'bench',
     graphs: { v2: 'tree1' },
   });
-  const at = join(out, 'demo');
+  const at = join(old, 'abcd1234', 'codex-sol', 'r1', 'demo');
   save(join(at, 'base', 'score.json'), makeScore(false));
   save(join(at, 'human', 'score.json'), makeScore(true));
   save(join(at, 'human', 'diff.patch'), `${diff}\n`);
   save(join(at, 'valid.json'), { image: 'x' });
-  const addArm = async (
-    dir: string,
-    o: { score?: object; meta?: object; tracker?: 'forge' | 'tracker'; usage?: object; patch?: string } = {}
-  ) => {
-    save(join(dir, 'score.json'), o.score ?? { ...makeScore(true), answers: 1 });
-    save(join(dir, 'diff.patch'), o.patch ?? `${diff}\n`);
-    save(join(dir, 'meta.json'), o.meta ?? { answers: 1, ms: 60_000 });
-    if (o.usage) return save(join(dir, 'usage.json'), o.usage);
-    save(join(dir, 'graph', 'settings.yaml'), 'limits: {}\n');
-    const tracker = join(dir, o.tracker ?? 'forge');
-    git(root, 'init', '-q', '--bare', join(tracker, 'origin.git'));
-    const id = await writeImportedRun({ repo, tracker, data: join(dir, 'data') }, merged, {
-      version: 'old',
-      from: base,
-      input: { case: 'demo', arm: 'v2', repeat: 1 },
-    });
-    const record = join(dir, 'data', id, 'run.json');
-    if (o.tracker === 'tracker') save(record, { ...JSON.parse(readFileSync(record, 'utf8')), meta: {} });
-    save(
-      join(dir, 'data', id, 'trace.jsonl'),
-      [
-        { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', model: 'smart' } },
-        { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd: 0.5 } },
-      ]
-        .map(t => JSON.stringify(t))
-        .join('\n')
-    );
-  };
-  await addArm(join(at, 'v2'));
   save(join(at, 'judge', 'human-v2', 'opus.json'), {
     judge: 'opus',
     order: ['human', 'v2'],
@@ -93,7 +63,49 @@ const makeOldBench = async () => {
     A: { findings: [{ severity: 'high' }] },
     B: { findings: [] },
   });
-  return { root, old, out, at, repo, addArm };
+  const arm = join(root, 'arm');
+  save(join(arm, 'graph', 'settings.yaml'), 'limits: {}\n');
+  git(root, 'init', '-q', '--bare', join(arm, 'forge', 'origin.git'));
+  const id = await writeImportedRun({ repo, tracker: join(arm, 'forge'), data: join(arm, 'data') }, merged, {
+    version: 'old',
+    from: base,
+    input: { case: 'demo', arm: 'v2', repeat: 1 },
+  });
+  save(
+    join(arm, 'data', id, 'trace.jsonl'),
+    [
+      { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', model: 'smart' } },
+      { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd: 0.5 } },
+    ]
+      .map(t => JSON.stringify(t))
+      .join('\n')
+  );
+  return { root, diff, record: join('data', id, 'run.json') };
+};
+let template: ReturnType<typeof buildTemplate> | undefined;
+
+const makeOldBench = async () => {
+  const t = await (template ??= buildTemplate());
+  const root = tmp('migrate');
+  cpSync(t.root, root, { recursive: true });
+  const old = join(root, 'bench');
+  const out = join(old, 'abcd1234', 'codex-sol', 'r1');
+  const at = join(out, 'demo');
+  const addArm = (
+    dir: string,
+    o: { score?: object; meta?: object; tracker?: 'forge' | 'tracker'; usage?: object; patch?: string } = {}
+  ) => {
+    if (!o.usage) cpSync(join(root, 'arm'), dir, { recursive: true });
+    save(join(dir, 'score.json'), o.score ?? { ...makeScore(true), answers: 1 });
+    save(join(dir, 'diff.patch'), o.patch ?? `${t.diff}\n`);
+    save(join(dir, 'meta.json'), o.meta ?? { answers: 1, ms: 60_000 });
+    if (o.usage) return save(join(dir, 'usage.json'), o.usage);
+    if (o.tracker !== 'tracker') return;
+    renameSync(join(dir, 'forge'), join(dir, 'tracker'));
+    save(join(dir, t.record), { ...JSON.parse(readFileSync(join(dir, t.record), 'utf8')), meta: {} });
+  };
+  addArm(join(at, 'v2'));
+  return { root, old, out, at, repo: join(root, 'repos', 'demo'), addArm };
 };
 
 describe('bench/migrate.ts', () => {
