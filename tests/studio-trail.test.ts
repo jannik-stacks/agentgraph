@@ -141,6 +141,19 @@ describe('a live run trail', async () => {
     expect(marked).toEqual(['review']);
   });
 
+  it('takes a way back as out of rounds only when its own trace line says the run then asked', () => {
+    const queue = [pass, pass, back, pass];
+    const { trace, run } = simulate(workflow, () => queue.shift(), engine) as {
+      trace: { outcome: { kind: string }; run: { rounds: Record<string, number> } }[];
+      run: object;
+    };
+    const unmoved = trace.map(line =>
+      line.outcome.kind === 'back' ? { ...line, run: { ...line.run, rounds: {} } } : line
+    );
+    const visits = makeWorkflowRunVisits(graph, makeRunTrail(unmoved), run).visits;
+    expect(visits.flatMap(v => (v.outOfRounds ? [v.node.step] : []))).toEqual([]);
+  });
+
   it('keeps a run whose steps left the graph, naming them in its story', () => {
     const queue = [pass, pass, back];
     const { trace, run } = simulate(workflow, () => queue.shift(), engine) as {

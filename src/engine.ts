@@ -2076,6 +2076,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
             status: next.status,
             tries: next.tries,
             rounds: next.rounds,
+            ...(next.reason !== undefined && { reason: next.reason }),
           },
         });
         const child = (yield* store.list()).some(r => r.by === next.id && next.reason === waitingOn(r));
@@ -2600,6 +2601,7 @@ export const tick = (
             status: next.status,
             tries: next.tries,
             rounds: next.rounds,
+            ...(next.reason !== undefined && { reason: next.reason }),
           },
         });
         yield* store.put(next);

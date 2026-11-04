@@ -93,7 +93,11 @@ export type Trace = { at: string; step: string } & (
   | { cache: { files: number } }
   | { env: NonNullable<Checkout['env']> }
   | { applied: Applied }
-  | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'>; failure?: SessionStop['reason'] }
+  | {
+      outcome: Outcome;
+      run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason'>;
+      failure?: SessionStop['reason'];
+    }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
   | ({ spoken: Event } & Pick<Run, 'meta'>)
   | { told: { text: string; by: string } }

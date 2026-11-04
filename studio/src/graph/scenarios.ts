@@ -10,7 +10,7 @@ export const makeTrailOutcome = (o: Outcome) =>
 
 /** One outcome a run met, with the run as it stood before it. */
 export type Trail = {
-  at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'>;
+  at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason'>;
   outcome: ReturnType<typeof makeTrailOutcome>;
 }[];
 
@@ -136,7 +136,13 @@ export const simulate = (
       at: '',
       step,
       outcome,
-      run: { step: run.step, status: run.status, tries: run.tries, rounds: run.rounds },
+      run: {
+        step: run.step,
+        status: run.status,
+        tries: run.tries,
+        rounds: run.rounds,
+        ...(run.reason !== undefined && { reason: run.reason }),
+      },
     });
   }
   return { trace, run };
