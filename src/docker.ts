@@ -80,10 +80,14 @@ const user = () => {
   return `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
 };
 
-/** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its graph and sandbox setup. */
+/**
+ * What the host recorded for a checkout: its git mounts, its dependency volumes, its repo's cache volume and the
+ * container settings of its graph and sandbox setup.
+ */
 export type CheckoutContainerSpec = {
   mounts: Mount[];
   sharedMounts?: SharedMount[];
+  cache?: string;
   direct?: string[];
 } & Pick<Graph, 'image' | 'network'>;
 
@@ -118,8 +122,7 @@ export const dockerArgs = (
   c: Command,
   image: string,
   name: string,
-  { mounts, sharedMounts = [], network = 'egress', direct = [] }: CheckoutContainerSpec,
-  cache = '',
+  { mounts, sharedMounts = [], cache = '', network = 'egress', direct = [] }: CheckoutContainerSpec,
   size = limits
 ) => [
   'run',
@@ -430,10 +433,10 @@ const timeout = (c: Command) => () =>
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`, or of
  * `origin` itself when it is a `local` tracker's bare repo. With
- * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
- * the volume `cache`, `agentgraph-cache` by default. A checkout for a graph starts from the graph's sandbox setup at its base, built once
- * with the toolchain and setup, and holds its dependency directories in volumes, never in the checkout. An empty cache
- * name turns the volume and sandbox setups off.
+ * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. A checkout for a graph
+ * mounts its repo's cache volume, named from the prefix `cache` (`agentgraph-cache` by default), the repo and its setup
+ * hash. It starts from the graph's sandbox setup at its base, built once with the toolchain and setup, and holds its
+ * dependency directories in volumes, never in the checkout. An empty `cache` turns the cache volumes and sandbox setups off.
  */
 export const dockerSandbox = (o: {
   data: string;
@@ -549,7 +552,7 @@ export const dockerSandbox = (o: {
           }
           const name = `agentgraph-${randomBytes(6).toString('hex')}`;
           const args = yield* Effect.try({
-            try: () => dockerArgs(c, box.image ?? image, name, { ...box, direct: o.direct ?? [] }, cache),
+            try: () => dockerArgs(c, box.image ?? image, name, { ...box, direct: o.direct ?? [] }),
             catch: e => e as SandboxError,
           });
           yield* Effect.tryPromise({
@@ -750,7 +753,7 @@ export const dockerSandbox = (o: {
           const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
           yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
-          const env =
+          const { cache: repoCache, env } =
             graph && cache
               ? yield* Effect.tryPromise({
                   try: () =>
@@ -765,7 +768,7 @@ export const dockerSandbox = (o: {
                     }),
                   catch: e => infra((e as Error).message),
                 })
-              : undefined;
+              : { cache: '', env: undefined };
           if (env) yield* Effect.sync(() => writeEnvRef(o.data, env.image));
           const match = env
             ? yield* Effect.promise(() =>
@@ -821,7 +824,7 @@ export const dockerSandbox = (o: {
               catch: e => infra((e as Error).message),
             });
             if (saved) yield* hostGit(work.git, ['read-tree', '-u', '--reset', saved]);
-            if (graph && cache)
+            if (repoCache)
               sharedMounts = yield* Effect.tryPromise({
                 try: async () =>
                   createSharedMounts(
@@ -829,14 +832,15 @@ export const dockerSandbox = (o: {
                     id,
                     dir,
                     await dependencyDirs(mirror, rev),
-                    cache
+                    repoCache
                   ),
                 catch: e => infra((e as Error).message),
               });
-            const own = env?.image ?? box;
-            work.written = () => written(sharedMounts, own);
+            const from = env?.image ?? box;
+            work.written = () => written(sharedMounts, from);
             made.set(dir, {
-              image: own,
+              image: from,
+              ...(repoCache && { cache: repoCache }),
               ...(graph?.network !== undefined && { network: graph.network }),
               sharedMounts,
               mounts: [

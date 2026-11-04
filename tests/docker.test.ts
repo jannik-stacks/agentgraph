@@ -287,9 +287,10 @@ describe('docker with a stand-in docker client', () => {
         { name: 'deps', dst: '/work/node_modules' },
         { name: 'own-c', dst: '/cache' },
       ],
+      cache: 'agentgraph-cache-repo-k',
     };
     const args = (readonly: boolean) =>
-      dockerArgs(command('/w', { home: '/h', readonly }), 'img', 'n', box, 'agentgraph-cache').filter(a =>
+      dockerArgs(command('/w', { home: '/h', readonly }), 'img', 'n', box).filter(a =>
         /^type=|^npm_config_cache=/.test(a)
       );
     expect(args(true)).toEqual([
@@ -455,16 +456,36 @@ describe('docker with a stand-in docker client', () => {
     expect(Exit.isSuccess(exit) && exit.value).toContain('sha256:base');
   });
 
-  it('mounts the cache volume read-only in every container, and none with an empty name', async () => {
+  it('mounts no cache volume in a container outside a checkout', async () => {
     await use(layer, s => s.exec(command(tmp('work'))));
-    expect(logged()).toContain('type=volume,src=agentgraph-cache,dst=/cache,readonly');
-    expect(logged()).toContain('npm_config_cache=/tmp/npm');
-    await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere', cache: '' }), s => s.exec(command(tmp('work'))));
     expect(logged().join('\n')).not.toContain('type=volume');
-    const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere', cache: '--x' }), s =>
-      s.exec(command(tmp('work')))
+    expect(logged().join('\n')).not.toContain('npm_config_cache');
+  });
+
+  it('keeps one cache volume per repo and setup, reused by every checkout of them', async () => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
+      Effect.gen(function* () {
+        for (const repo of ['acme/one', 'acme/one', 'acme/two']) {
+          const work = yield* s.checkout('main', undefined, undefined, { repo, toolchain: 'true' });
+          yield* s.exec(command(work.dir));
+        }
+      })
     );
-    expect(JSON.stringify(exit)).toContain('volume name not allowed');
+    expect(Exit.isSuccess(exit)).toBe(true);
+    const caches = [...readFileSync(all, 'utf8').matchAll(/volume create --label agentgraph\.cache=(\S+) (\S+)/g)];
+    expect(caches.every(([, label, name]) => label === name)).toBe(true);
+    const names = [...new Set(caches.map(([, name]) => name!))];
+    expect(names).toEqual([
+      expect.stringMatching(/^agentgraph-cache-acme-one-[0-9a-f]{24}$/),
+      expect.stringMatching(/^agentgraph-cache-acme-two-[0-9a-f]{24}$/),
+    ]);
+    const builds = readFileSync(all, 'utf8')
+      .split('\n')
+      .filter(l => l.includes('agentgraph.envbuild'));
+    expect(builds.map(l => /src=(\S+),dst=\/cache /.exec(l)?.[1])).toEqual(names);
+    expect(readFileSync(all, 'utf8')).not.toMatch(/src=agentgraph-cache,|agentgraph-cache /);
   });
 
   it.each([false, true])('creates missing mountpoints for a read-only command (streamed: %s)', async streamed => {
@@ -696,8 +717,9 @@ describe('docker images and sandbox setups shared by concurrent callers', () => 
       cache: 'c',
       toolchain: 'true',
     };
-    const envs = await Promise.all(['one', 'two'].map(name => readSandboxSetup({ ...spec, repo: name })));
-    expect(envs.map(e => e?.mode)).toEqual(['deps', 'deps']);
+    const envs = await Promise.all([1, 2].map(() => readSandboxSetup({ ...spec, repo: 'one' })));
+    expect(envs.map(e => e.env?.mode)).toEqual(['deps', 'deps']);
+    expect(envs[0]!.cache).toBe(envs[1]!.cache);
     expect(count(join(state, 'envbuilds'))).toBe(1);
   });
 });
@@ -1044,7 +1066,11 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
         spawnSync('docker', ['rmi', '-f', `agentgraph-env/agentgraph-disk-test:${key}`]);
         spawnSync('docker', ['volume', 'rm', `agentgraph-lower-${key}`]);
       }
-      spawnSync('docker', ['volume', 'rm', 'agentgraph-disk-test-cache']);
+      const caches = execFileSync('docker', ['volume', 'ls', '-q', '--filter', 'label=agentgraph.cache'], {
+        encoding: 'utf8',
+      });
+      for (const name of caches.split('\n').filter(n => n.startsWith('agentgraph-disk-test-cache-')))
+        spawnSync('docker', ['volume', 'rm', name]);
     }
   }, 900_000);
 });
@@ -1213,13 +1239,11 @@ describe('disk lifecycle', () => {
         { name: 'agentgraph-layer-own-c-o', dst: '/cache', upper: 'agentgraph-layer-own-c' },
       ]);
       expect(log()).toContain('o=lowerdir=/m/a,upperdir=/m/b/upper,workdir=/m/b/work agentgraph-layer-own-c-o');
-      const args = dockerArgs(
-        { cmd: 'true', args: [], dir: '/w', env: {}, network: 'none', minutes: 1 },
-        'img',
-        'n',
-        { mounts: [], sharedMounts },
-        'agentgraph-cache'
-      );
+      const args = dockerArgs({ cmd: 'true', args: [], dir: '/w', env: {}, network: 'none', minutes: 1 }, 'img', 'n', {
+        mounts: [],
+        sharedMounts,
+        cache: 'agentgraph-cache',
+      });
       expect(args).toContain('type=volume,src=agentgraph-layer-own-c-o,dst=/cache,volume-nocopy');
       expect(args.join(' ')).not.toContain('src=agentgraph-cache');
       expect(args).toContain('npm_config_cache=/cache/npm');

@@ -13,7 +13,7 @@ A container has a read-only root, your non-root uid, no capabilities, `no-new-pr
 | `/tmp` | Small memory-backed temporary files; 1 GiB, charged to the memory limit | writable |
 | `/home/agent` | The session home | writable |
 | `/graph` | The graph, `AGENTGRAPH_DIR`; scripts and setup only | read only |
-| `/cache` | The shared toolchain cache | overlay |
+| `/cache` | The repo's toolchain cache | overlay |
 | the mirror | The repo's git objects | read only |
 
 Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerSandbox -->
@@ -41,7 +41,7 @@ Graph `setup` installs dependencies, such as `npm ci --no-audit --no-fund`. With
 
 An environment caches a repo's dependencies. A container takes the lockfiles and manifests from the base commit, installs [toolchains](#toolchains), runs `setup`, and keeps the ignored dependency folders such as `node_modules` and `target` in the volume `agentgraph-lower-<key>`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton -->
 
-Bases that differ only in source share one. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox -->
+Bases of one repo that differ only in source share one; other repos never do. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox -->
 
 `AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. A Docker daemon that does not answer fails as unreachable, not as a missing image. <!-- code: src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
 
@@ -53,13 +53,13 @@ Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `u
 
 ### Toolchains
 
-The image has toolchain managers and a C compiler. The `agentgraph-cache` volume at `/cache` shares rustup, cargo, npm, pnpm and yarn downloads; only environment builds write it, and the trace counts other writes (`cache`). A `rust-toolchain` file pins Rust, and `Cargo.toml` alone selects stable. Graph `toolchain` adds the rest:
+The image has toolchain managers and a C compiler. Each repo has its own cache volume at `/cache`, named `agentgraph-cache-<repo>-<hash>` from the repo name and a hash of the image, toolchain and `setup`. It keeps rustup, cargo, npm, pnpm and yarn downloads, so later runs of the same repo reuse them and other repos never see them. Only environment builds write it, and the trace counts other writes (`cache`). Commands outside a checkout get none. A `rust-toolchain` file pins Rust, and `Cargo.toml` alone selects stable. Graph `toolchain` adds the rest:
 
 ```yaml
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
 ```
 
-A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` names another volume; empty turns off the cache and environments. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#written -->
+A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` sets another name prefix; empty turns off the caches and environments. Changing the image, `toolchain` or `setup` starts a new cache volume; `bin/env.ts` does not collect old ones yet. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#readSandboxSetup src/env.ts#written -->
 
 ## A graph's own image
 

@@ -106,7 +106,7 @@ The runner reads these. The CLI sets `AGENTGRAPH_DIR`, `AGENTGRAPH_DATA`, `AGENT
 | `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json.gz` |
 | `AGENTGRAPH_CONFIG` | The [harness plugins](sandbox.md#harnesses) file, `config.ts` in the data root, else `agentgraph.config.ts` |
 | `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`, as `--logs` |
-| `AGENTGRAPH_CACHE_VOLUME` | [Toolchain cache](sandbox.md#toolchains) volume, `agentgraph-cache` |
+| `AGENTGRAPH_CACHE_VOLUME` | Name prefix of the per-repo [toolchain cache](sandbox.md#toolchains) volumes, `agentgraph-cache` |
 | `AGENTGRAPH_IMAGE` | Sandbox image when the graph sets none, `agentgraph-sandbox:local` |
 | `AGENTGRAPH_SANDBOX_URL` | A box server that runs commands instead of docker; see [Hosting](hosting.md) |
 | `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links) |

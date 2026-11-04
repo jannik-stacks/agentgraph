@@ -809,7 +809,7 @@ const exec = (
   const started = Date.now();
   const name = `agentgraph-score-${randomBytes(6).toString('hex')}`;
   const c = { cmd: 'sh', args: ['-c', cmd], dir: tree, env: { NODE_OPTIONS: '' }, network, minutes: 60 };
-  const r = spawnSync('docker', dockerArgs(c, from, name, box, cache, scoreSize), {
+  const r = spawnSync('docker', dockerArgs(c, from, name, box, scoreSize), {
     encoding: 'utf8',
     timeout: 3_600_000,
     maxBuffer: 1 << 28,
@@ -877,7 +877,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
   if (cache)
     await ensureFreeDisk({ dir: dirname(tree), image: start, volume: cache, eligible: readEnvRefs(dirname(tree)) });
-  const env = cache
+  const { cache: repoCache, env } = cache
     ? await readSandboxSetup({
         repo: c.repo,
         image: start,
@@ -887,18 +887,18 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
         ...(c.setup && { setup: c.setup }),
         ...(c.toolchain && { toolchain: c.toolchain }),
       })
-    : undefined;
+    : { cache: '', env: undefined };
   if (env) writeEnvRef(dirname(tree), env.image);
-  const sharedMounts = cache
+  const sharedMounts = repoCache
     ? await createSharedMounts(
         env ?? { image: start, outputs: [] },
         randomBytes(6).toString('hex'),
         tree,
         await dependencyDirs(git, c.base),
-        cache
+        repoCache
       )
     : [];
-  const box = { mounts: [{ src: git, dst: git, readonly: true }], sharedMounts };
+  const box = { mounts: [{ src: git, dst: git, readonly: true }], sharedMounts, cache: repoCache };
   const from = env?.image ?? start;
   const scored = () => {
     const again = !env?.complete || splitUnifiedDiffByFile(diff).some(f => manifest.test(f.path));

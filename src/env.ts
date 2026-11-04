@@ -26,7 +26,10 @@ type SandboxSetup = {
   inputs: string;
 };
 
-/** What a sandbox setup is built from: `git` is a repo dir holding `base`, `image` the image it starts from. */
+/**
+ * What a sandbox setup is built from: `git` is a repo dir holding `base`, `image` the image it starts from, and `cache`
+ * the prefix of the repo's cache volume.
+ */
 type SandboxSetupSpec = {
   repo: string;
   image: string;
@@ -103,8 +106,8 @@ export const readSetupInputKey = async (dir: string, rev: string, mode: SandboxS
   mode === 'deps' ? (await readDependencySkeleton(dir, rev)).digest : git(dir, 'rev-parse', `${rev}^{tree}`);
 
 /**
- * Where npm, pnpm and yarn keep what they download, shared by every container and sandbox setup build through the cache volume
- * at `/cache`. npm and pnpm lock their own writes; yarn 1 does not, and without this its cache fills the small `/tmp`.
+ * Where npm, pnpm and yarn keep what they download, shared by a repo's containers and sandbox setup builds through its cache
+ * volume at `/cache`. npm and pnpm lock their own writes; yarn 1 does not, and without this its cache fills the small `/tmp`.
  */
 export const packageManagerCacheEnv = {
   npm_config_cache: '/cache/npm',
@@ -214,13 +217,13 @@ export const held = (key: string) => {
   );
 };
 
-const makeImageTag = (repo: string, key: string) =>
-  `agentgraph-env/${
-    repo
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, '-')
-      .replace(/^[^a-z0-9]+/, '') || 'repo'
-  }:${key}`;
+const makeRepoSlug = (repo: string) =>
+  repo
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[^a-z0-9]+/, '') || 'repo';
+
+const makeImageTag = (repo: string, key: string) => `agentgraph-env/${makeRepoSlug(repo)}:${key}`;
 
 const labels = async (tag: string) => {
   const out = await runDockerCli(['image', 'inspect', '--format', '{{json .Config.Labels}}', tag]).catch(() => '');
@@ -243,17 +246,18 @@ const envOfLabels = (tag: string, l: Record<string, string>): SandboxSetup => ({
 const building = new Map<string, Promise<SandboxSetup | 'setup' | undefined>>();
 
 /** The sandbox setup build format; a sandbox setup of another version is never reused. */
-export const envVersion = 6;
+export const envVersion = 7;
 
 const hash = (value: unknown) => getSha(JSON.stringify(value), 24);
 
 /**
- * The sandbox setup for `spec`: the tagged image when one exists, else one container with open network, committed. Setup first
- * sees only the skeleton; when the toolchain or setup fails there, the build runs again on every file, and later bases
- * of the same toolchain and setup go there first. Throws when the toolchain fails on every file; undefined when setup
- * fails on every file, so setup runs in each checkout as before.
+ * The repo's cache volume for `spec` and its sandbox setup: the tagged image when one exists, else one container with
+ * open network, committed. The cache volume holds toolchains and package downloads, one per repo and setup hash, so
+ * repos never share one. Setup first sees only the skeleton; when the toolchain or setup fails there, the build runs
+ * again on every file, and later bases of the same toolchain and setup go there first. Throws when the toolchain fails
+ * on every file; no `env` when setup fails on every file, so setup runs in each checkout as before.
  */
-export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxSetup | undefined> => {
+export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<{ cache: string; env?: SandboxSetup }> => {
   const [tree, files, from, skeleton] = await Promise.all([
     git(spec.git, 'rev-parse', `${spec.base}^{tree}`),
     git(spec.git, 'ls-tree', '--name-only', spec.base),
@@ -263,8 +267,10 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxS
   const lines = [...makeToolchainSetupCommands(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join(
     '\n'
   );
-  if (!lines && !spec.setup) return undefined;
-  const family = hash([envVersion, from, lines, spec.setup ?? '']);
+  const slug = makeRepoSlug(spec.repo);
+  const family = hash([envVersion, from, lines, spec.setup ?? '', spec.cache, slug]);
+  const cache = `${spec.cache}-${slug}-${family}`;
+  if (!lines && !spec.setup) return { cache };
   const wide = join(readStateDir(), 'tree-only', family);
   const one = async (mode: SandboxSetup['mode']) => {
     const inputs = mode === 'deps' ? skeleton.digest : tree;
@@ -273,7 +279,7 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxS
     const pending = building.get(tag);
     if (pending) return pending;
     const made = waitForLock(`env-${key}`).then(release =>
-      createSandboxSetup(spec, { key, tag, mode, inputs, lines, skeleton }).finally(release)
+      createSandboxSetup(spec, { key, tag, mode, inputs, lines, skeleton, cache }).finally(release)
     );
     building.set(tag, made);
     made.catch(() => building.delete(tag));
@@ -281,16 +287,27 @@ export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxS
   };
   if (!existsSync(wide)) {
     const env = await one('deps');
-    if (env && env !== 'setup') return env;
+    if (env && env !== 'setup') return { cache, env };
     writeTimestampFile(wide);
   }
   const env = await one('tree');
-  return env === 'setup' ? undefined : env;
+  return env === 'setup' ? { cache } : { cache, ...(env && { env }) };
 };
+
+const createCacheVolume = (name: string) =>
+  runDockerCli(['volume', 'create', '--label', `agentgraph.cache=${name}`, name]);
 
 const createSandboxSetup = async (
   spec: SandboxSetupSpec,
-  b: { key: string; tag: string; mode: SandboxSetup['mode']; inputs: string; lines: string; skeleton: Skeleton }
+  b: {
+    key: string;
+    tag: string;
+    mode: SandboxSetup['mode'];
+    inputs: string;
+    lines: string;
+    skeleton: Skeleton;
+    cache: string;
+  }
 ): Promise<SandboxSetup | 'setup' | undefined> => {
   const { key, tag, mode } = b;
   for (;;) {
@@ -307,6 +324,7 @@ const createSandboxSetup = async (
     if (env) await runDockerCli(['rmi', '-f', tag]).catch(() => '');
     const name = `agentgraph-envbuild-${key}`;
     await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, makeSetupVolumeName(key)]);
+    await createCacheVolume(b.cache);
     const started = Date.now();
     const args = [
       'run',
@@ -334,13 +352,9 @@ const createSandboxSetup = async (
       '8g',
       '--mount',
       `type=bind,src=${spec.git},dst=${spec.git},readonly`,
-      ...(spec.cache
-        ? [
-            '--mount',
-            `type=volume,src=${spec.cache},dst=/cache`,
-            ...Object.entries(packageManagerCacheEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
-          ]
-        : []),
+      '--mount',
+      `type=volume,src=${b.cache},dst=/cache`,
+      ...Object.entries(packageManagerCacheEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
       '--mount',
       `type=volume,src=${makeSetupVolumeName(key)},dst=/work`,
       spec.image,
@@ -488,7 +502,7 @@ const overlays = (image: string) =>
  * Volumes for the checkout at `dir` at every dependency directory, so setup never writes one into the checkout. Where
  * the sandbox setup made one, the volume is an overlay over the sandbox setup's `lower` copy that holds only this checkout's writes, or a
  * copy of it where docker cannot mount overlays; elsewhere it starts empty. `more` names directories beyond the sandbox setup's
- * outputs. With `cache`, one more overlay at `/cache` over that shared volume holds the checkout's own writes, so run
+ * outputs. With `cache`, the repo's cache volume, one more overlay at `/cache` over it holds the checkout's own writes, so run
  * code never changes what later runs read; without overlays there is none. Every volume carries this process as its
  * owner, so a sweep finds the ones a dead runner left. The sandbox setup's other outputs are copied into `dir`, where a build may
  * delete and remake them.
@@ -578,7 +592,7 @@ export const createSharedMounts = async (
       }
     }
     if (shared) {
-      await runDockerCli(['volume', 'create', cache]);
+      await createCacheVolume(cache);
       const [lower, upper] = await mountpoints(cache, shared);
       await runDockerCli(['volume', 'create', ...label, ...makeOverlayOpts(lower!, upper!), `${shared}-o`]);
       sharedMounts.push({ name: `${shared}-o`, dst: '/cache', upper: shared });

@@ -34,7 +34,7 @@ export type Settings = {
   proxy: { url: string; keys: Redacted.Redacted; models: string };
   passed: Record<string, Redacted.Redacted>;
   prices: string;
-  /** The docker volume toolchains and package caches live in; empty for none. */
+  /** The name prefix of each repo's docker volume for toolchains and package caches; empty for none. */
   cache: string;
   /** The image commands start in when a graph names none. */
   image: string;
