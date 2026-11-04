@@ -1,9 +1,15 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Effect } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { init, type step, tuneRows } from '../bin/tune.ts';
+import { appendBenchResults, readSlotRun } from '../bin/bench.ts';
+import { init, makeJobInput, type step, tuneRows } from '../bin/tune.ts';
+import { getBenchSlot, isBenchRunDone } from '../bench/runs.ts';
+import { writeImportedRun } from '../src/instance.ts';
+import { writeRunLabels } from '../src/labels.ts';
+import { readCandidateRows } from '../tune/propose.ts';
 import { skill } from '../tune/skill.ts';
-import { tmp } from './kit.ts';
+import { git, tmp } from './kit.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -75,6 +81,8 @@ process.stdin.on('end', () => {
 });
 `;
 
+const job = (c: string) => ({ id: 'i000-init', case: c, repeat: 1 });
+
 const setup = () => {
   const root = tmp('skill');
   dirs.push(root);
@@ -86,6 +94,7 @@ const setup = () => {
     const meta = { repo: 'me/demo', base: 'b', merged: 'm', mergedAt: `2026-01-${10 + day}`, tests: ['a.test.ts'] };
     writeFileSync(join(cases, id, 'case.json'), JSON.stringify(meta));
     writeFileSync(join(cases, id, 'issue.md'), `# ${id}\n`);
+    writeFileSync(join(cases, id, 'merged.diff'), '');
     splits[id] = split;
   };
   for (const [i, id] of ['m1', 'm2', 'm3', 'm4', 'f1', 'f2', 'f3', 'f4'].entries()) add(id, 'train', i);
@@ -125,7 +134,6 @@ describe('skill benchmark', () => {
     const w = join(dir, 'skill', 'r001');
     expect(readdirSync(join(w, 'cases')).sort()).toEqual(['f1', 'f2', 'f3', 'f4', 'm1', 'm2', 'm3', 'm4']);
     expect(existsSync(join(w, 'runs/f1/r1/data/issue-1/trace.jsonl'))).toBe(true);
-    expect(existsSync(join(dir, 'runs/f1-v2-r1-i000-init/1/data/imp/labels.jsonl'))).toBe(true);
     expect(existsSync(join(w, 'runs/v1'))).toBe(false);
     expect(Object.keys(JSON.parse(readFileSync(join(w, 'cases.json'), 'utf8')))).not.toContain('v1');
     const calls = readFileSync(s.root + '/calls.jsonl', 'utf8')
@@ -186,5 +194,45 @@ describe('skill benchmark', () => {
     await skill(like, options(1), io);
     expect(tuneRows(dir).steps.map(x => x.id)).toEqual(['i000-init', 'i001-skill', 'i001-skill-2']);
     expect(readdirSync(join(dir, 'skill')).filter(n => n.startsWith('r001.'))).toHaveLength(1);
+  });
+
+  it('reuses the loop tune baseline runs under the same slot, so they are neither rerun nor counted twice', async () => {
+    const s = setup();
+    const io = fakeBench([]);
+    const like = await init('demo', s, io);
+    const repo = join(s.root, 'repo');
+    mkdirSync(repo);
+    git(repo, 'init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'a.txt'), 'a\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'base');
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    const t = tuneRows(like).tune;
+    for (const c of ['f1', 'v1']) {
+      const input = makeJobInput(like, t, job(c));
+      const at = join(getBenchSlot(like, input), '1');
+      git(repo, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
+      const id = await writeImportedRun({ repo, tracker: join(at, 'tracker'), data: join(at, 'data') }, base, {
+        version: 't',
+        from: base,
+        input,
+      });
+      const run = readSlotRun(getBenchSlot(like, input))!;
+      await Effect.runPromise(writeRunLabels(join(at, 'data'), id, { case: c, cand: 'i000-init' }));
+      await appendBenchResults(run, [{ check: 'bench/arm', pass: true } as never], 't');
+      await appendBenchResults(run, [{ check: 'bench/hidden', pass: true } as never], 't');
+    }
+    const fake = io!;
+    const rows = fake.rows;
+    fake.rows = (d, id) => (d === like ? readCandidateRows(d, id) : rows(d, id));
+
+    const dir = await skill(like, options(1), io);
+
+    expect(['f1', 'v1'].map(c => isBenchRunDone(dir, makeJobInput(dir, t, job(c)), false))).toEqual([true, true]);
+    const reused = readCandidateRows(dir, 'i000-init');
+    expect(reused.map(r => [r.case, r.repeat]).toSorted()).toEqual([
+      ['f1', 1],
+      ['v1', 1],
+    ]);
   });
 });

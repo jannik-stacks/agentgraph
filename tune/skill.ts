@@ -36,8 +36,6 @@ import {
   type Usage,
 } from './propose.ts';
 import { readAttemptRun, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
-import { writeRunLabels } from '../src/labels.ts';
-import { Effect } from 'effect';
 
 type Io = Parameters<typeof step>[2];
 type Limits = { codex: number; claude5h: number; claudeWeek: number };
@@ -85,11 +83,7 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
     cpSync(join(like, 'cands', first.id, 'graph'), join(dir, 'cands/i000-init/graph'), { recursive: true });
     const reused = idsOf(t.cases, 'fit', 'validate');
     for (const row of (io?.rows ?? readCandidateRows)(like, first.id).filter(r => reused.includes(r.case))) {
-      const slot = join(dir, 'runs', basename(dirname(row.at)));
-      cpSync(dirname(row.at), slot, { recursive: true });
-      await Effect.runPromise(
-        writeRunLabels(join(slot, basename(row.at), 'data'), row.run, { cand: 'i000-init', tune: name })
-      );
+      cpSync(dirname(row.at), join(dir, 'runs', basename(dirname(row.at))), { recursive: true });
     }
     spawnSync('git', ['init', '-q', '--bare', join(dir, 'graph.git')]);
     writeFileAtomic(join(dir, 'tune.json'), t);

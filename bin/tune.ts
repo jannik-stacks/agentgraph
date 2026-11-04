@@ -216,18 +216,18 @@ const evalOf = (
 };
 
 type Job = { id: string; case: string; repeat?: number };
-const makeJobInput = (dir: string, t: Tune, j: Job) =>
+export const makeJobInput = (dir: string, t: Tune, j: Job) =>
   makeBenchInput(readBenchCase(join(dir, 'cases', j.case)), 'v2', j.repeat ?? 1, {
     point: t.point,
     graph: join(dir, 'cands', j.id, 'graph'),
-    labels: { tune: basename(dir), cand: j.id },
+    labels: { cand: j.id },
   });
 const tuneLog = (dir: string) => (e: object) =>
   appendJsonl(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
 
 /**
  * The bench as the tune drives it: one v2 run and score per job, judged on request, `parallel` at a time. The tune dir
- * is the bench set; each candidate is a graph variant, labelled with the tune and the candidate.
+ * is the bench set; each candidate is a graph variant, labelled with the candidate.
  */
 const bench = {
   run: async (dir: string, t: Tune, jobs: Job[], o: { parallel: number; judged?: boolean; keys?: string }) => {
@@ -250,8 +250,6 @@ const bench = {
             t.point,
             '--repeat',
             String(j.repeat ?? 1),
-            '--label',
-            `tune=${basename(dir)}`,
             '--label',
             `cand=${j.id}`,
             ...(o.keys ? ['--keys', o.keys] : []),
