@@ -433,6 +433,48 @@ describe('getEventOutcome', () => {
     ).toEqual(expected);
   });
 
+  it('reads a command as its whole token, so dotted names and shared prefixes stay apart and a bad suffix is refused', () => {
+    const issue = kit.workflows.issue!;
+    const dotted = {
+      ...kit,
+      workflows: {
+        ...kit.workflows,
+        issue: { ...issue, steps: [...issue.steps, { ...issue.steps[1]!, name: 'implement.more' }] },
+        'plan.more': { ...kit.workflows.plan!, name: 'plan.more' },
+      },
+    };
+    const pick = (body: string) => {
+      const target = pickCommandTarget(dotted, [at('implement')], comment(body));
+      return target && ('why' in target ? target.why : [target.verb, target.step, target.workflow?.name, target.text]);
+    };
+    const valid =
+      '`/agent:stop`, `/agent:cancel`, `/agent:restart`, `/agent:restart:<step>`, `/agent:issue`, `/agent:plan`, `/agent:plan.more`';
+    expect(
+      [
+        '/agent:restart:implement.more please',
+        '/agent:restart:implement please',
+        '/agent:plan.more go',
+        '/agent:plan go',
+        '/agent:stop:!',
+        '/agent:stop, now',
+        '/agent:restart:',
+        '/agent: fix it',
+      ].map(pick)
+    ).toEqual([
+      ['restart', 'implement.more', 'issue', 'please'],
+      ['restart', 'implement', 'issue', 'please'],
+      [undefined, undefined, 'plan.more', 'go'],
+      [undefined, undefined, 'plan', 'go'],
+      `\`/agent:stop:!\` is not a command. Use ${valid}.`,
+      `\`/agent:stop,\` is not a command. Use ${valid}.`,
+      `\`/agent:restart:\` is not a command. Use ${valid}.`,
+      undefined,
+    ]);
+    expect(comment('/agent:restart:implement.more please').comment?.agentRequest).toBe(
+      ':restart:implement.more please'
+    );
+  });
+
   it('gates commands the CLI or a router tells like any other', () => {
     const cli = { ...comment('/agent:restart'), source: 'cli' as const };
     const told = { ...comment('/agent:stop'), actor: 'router-1' };

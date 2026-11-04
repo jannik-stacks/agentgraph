@@ -502,24 +502,25 @@ export function pickCommandTarget(
   to?: Run
 ) {
   const said = parseAgentRequest(m) ?? '';
-  const found = /^:[\w-]+(?::[\w-]+)*/.exec(said);
-  if (!found) return undefined;
+  if (!said.startsWith(':')) return undefined;
+  const [token = ''] = said.split(/\s/, 1);
   const picks = Object.values(graph.workflows).filter(w => w.on.issue_comment);
-  const words = found[0].slice(1).split(':');
+  const words = token.slice(1).split(':');
   const picked = picks.find(w => w.name === words[0]);
   const [verb, step, ...extra] = picked ? words.slice(1) : words;
   if (
     (verb !== undefined && !commandVerbs.includes(verb)) ||
     (step !== undefined && verb !== 'restart') ||
+    step === '' ||
     extra.length
   )
     return {
-      why: `\`/agent${found[0]}\` is not a command. Use ${[...commandVerbs, 'restart:<step>', ...picks.map(w => w.name)]
+      why: `\`/agent${token}\` is not a command. Use ${[...commandVerbs, 'restart:<step>', ...picks.map(w => w.name)]
         .map(c => `\`/agent:${c}\``)
         .join(', ')}.`,
     };
   if (to && picked && to.workflow !== picked.name)
-    return { why: `\`/agent${found[0]}\` names ${picked.name}, but the run it goes to is ${to.workflow}.` };
+    return { why: `\`/agent${token}\` names ${picked.name}, but the run it goes to is ${to.workflow}.` };
   const worked = runs
     .filter(
       r =>
@@ -534,7 +535,7 @@ export function pickCommandTarget(
   const workflow = picked ?? graph.workflows[(run ?? worked.at(-1))?.workflow ?? ''] ?? picks[0];
   if (step !== undefined && !workflow?.steps.some(s => s.name === step))
     return {
-      why: `\`/agent${found[0]}\`: ${workflow?.name ?? 'the issue'} has no step ${step}. Its steps are ${
+      why: `\`/agent${token}\`: ${workflow?.name ?? 'the issue'} has no step ${step}. Its steps are ${
         workflow?.steps.map(s => s.name).join(', ') ?? 'none'
       }.`,
     };
@@ -544,7 +545,7 @@ export function pickCommandTarget(
     if (allowed !== true && !allowed.includes(m.actor)) return `Only ${allowed.join(', ')} may use \`/agent:${name}\`.`;
   };
   const why = [picked?.name, verb].map(name => name && whyNot(name)).find(Boolean);
-  return why ? { why } : { verb, step, text: said.slice(found[0].length).trim(), run, workflow };
+  return why ? { why } : { verb, step, text: said.slice(token.length).trim(), run, workflow };
 }
 
 /**

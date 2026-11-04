@@ -137,7 +137,7 @@ export const makeCommentWithAgentRequest = (c: Comment): Comment => {
     const found = /(?<![\w./-])[/@]agent(?![\w/-])/i.exec(line);
     if (!found) continue;
     const after = c.body.slice(start + found.index + found[0].length);
-    const command = /^:[\w-]+(?::[\w-]+)*/.exec(after)?.[0] ?? '';
+    const command = /^:\S+/.exec(after)?.[0] ?? '';
     const text =
       `${c.body.slice(0, start + found.index).trimEnd()} ${after.slice(command.length).replace(/^[\s,:]+/, '')}`
         .trim()
