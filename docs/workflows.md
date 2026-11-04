@@ -142,7 +142,7 @@ At a `wait: human` step with `back`, a review requesting changes goes back with 
 
 ## Waiting
 
-A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The question is its own comment; answer with `/agent` to resume the step. Out of rounds, the next review or `/agent` comment grants one more. Answers stay paired with their questions for every later step and check. `/agent stop` or closing the issue ends the run. <!-- code: src/engine.ts#heard src/context.ts#answerWith -->
+A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The question is its own comment; answer with `/agent` to resume the step. Out of rounds, the next review or `/agent` comment grants one more. Answers stay paired with their questions for every later step and check. `/agent stop` or closing the issue ends the run. <!-- code: src/run/check.ts#formatAnswers src/context.ts#answerWith -->
 
 ## Asides
 

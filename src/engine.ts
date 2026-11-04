@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { Duration, Effect, Result, Option, Schedule, Schema, Stream } from 'effect';
 import { getSha } from './hash.ts';
 import {
@@ -10,7 +10,6 @@ import {
   news,
   proposeStatusUpdates,
   stoppedByRunner,
-  transcript,
   type IssueWithPull,
   formatSqueezed,
 } from './context.ts';
@@ -20,7 +19,7 @@ import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { getStepReturns } from './graph.ts';
-import { formatCause, Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
+import { formatCause, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import {
   commitCheckout,
   ensureGraphRef,
@@ -72,6 +71,18 @@ import {
   readRunEvents,
   getHeardEvent,
 } from './run/hear.ts';
+import {
+  type Left,
+  passes,
+  makeScriptEnv,
+  getCheckFiles,
+  type Item,
+  formatAnswers,
+  formatTracesPrompt,
+  writeTraces,
+  getTraceFiles,
+  writeCheckFiles,
+} from './run/check.ts';
 
 const decodeProposal = Schema.decodeUnknownResult(Said, {
   onExcessProperty: 'error',
@@ -602,91 +613,6 @@ const refresh = (run: Run, work: Checkout, seen: Seen, t: IssueWithPull) =>
     Effect.catch(e => Effect.logWarning(`news for run ${run.id}`, e))
   );
 
-const getTraceFiles = (work: Checkout) => ({
-  AGENTGRAPH_TRACES: join(dirname(work.news), 'traces.md'),
-  AGENTGRAPH_RUN_TRACE: join(dirname(work.news), 'trace.jsonl'),
-});
-
-/**
- * What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it,
- * the reply, the traces of the runs on the issue and this run's raw trace.
- */
-const checkFiles = (work: Checkout) => ({
-  AGENTGRAPH_PROPOSALS: join(dirname(work.news), 'proposals.json'),
-  AGENTGRAPH_CONTEXT: join(dirname(work.news), 'context.md'),
-  AGENTGRAPH_REPLY: join(dirname(work.news), 'reply.md'),
-  ...getTraceFiles(work),
-});
-
-const makeScriptEnv = (work: Pick<Checkout, 'base'>, issue: number | undefined) => ({
-  AGENTGRAPH_BASE: work.base,
-  ...(issue !== undefined && { AGENTGRAPH_ISSUE: String(issue) }),
-});
-
-/** Writes the traces of the runs on `issue` that are not retros, oldest first, and the raw trace of `run` beside the news file. */
-const writeTraces = (graph: Graph, issue: number, run: string, work: Checkout) =>
-  Effect.gen(function* () {
-    const store = yield* Store;
-    const runs = (yield* store.list({ issue }))
-      .filter(r => !isRetro(graph, r))
-      .sort((a, b) => a.started.localeCompare(b.started));
-    const read = yield* Effect.forEach(runs, run =>
-      Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (lines, checks) => ({
-        run,
-        lines,
-        checks,
-      }))
-    );
-    const own = yield* Stream.runCollect(store.read(run));
-    const files = getTraceFiles(work);
-    yield* Effect.promise(() =>
-      Promise.all([
-        writeFile(files.AGENTGRAPH_TRACES, transcript(issue, read)),
-        writeFile(files.AGENTGRAPH_RUN_TRACE, own.map(line => JSON.stringify(line) + '\n').join('')),
-      ])
-    );
-  });
-
-/** The prompt line that points an agent that reads traces at them. */
-const formatTracesPrompt = (work: Checkout) =>
-  `The traces of the runs on this issue are in \`${getTraceFiles(work).AGENTGRAPH_TRACES}\`, an absolute path outside the checkout: open it exactly as written. Per session they hold the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
-
-/** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
-type Left = Checkout & {
-  run: string;
-  issue?: number;
-  context: string;
-  reply: string;
-  proposals: Proposal[];
-  answers?: Run['answers'];
-};
-
-/** The human answers of a run as a section every check reads, so a judge does not raise again what an answer settled. */
-const heard = (answers: Run['answers'] = []) =>
-  answers.length === 0
-    ? ''
-    : [
-        '## What a human answered during this run',
-        'A point an answer settles is not a finding.',
-        ...answers.map(a =>
-          a.asked ? `Asked: ${formatSqueezed(a.asked, 600)}\n\nAnswered: ${a.said}` : `Said: ${a.said}`
-        ),
-      ].join('\n\n');
-
-type Item = Pick<Exit, 'used'> & {
-  item: string | undefined;
-  pass: boolean;
-  value?: ResultValue;
-  findings: string;
-  exit?: number;
-  output?: string;
-  unread?: true;
-  usd: number;
-};
-
-/** The judge prompts that passed per data dir, run, check, judge and diff; the same judge, prompt and diff is not judged again. */
-const passes = new WeakMap<object, Set<string>>();
-
 /**
  * One check over what a try left: its items, the command per item, then the agent that judges. Each item gives a
  * result `returns` describes, from the judge when there is one, else from the script; it passes when it matches
@@ -704,7 +630,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
     const info = check.mode === 'info';
     const started = Date.now();
     const minutes = graph.limits.minutes;
-    const base = { ...makeScriptEnv(work, work.issue), ...checkFiles(work) };
+    const base = { ...makeScriptEnv(work, work.issue), ...getCheckFiles(work) };
     const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
       ? findFanOutItems(check.each, graph, work, minutes, base)
       : Effect.succeed([undefined]);
@@ -768,7 +694,7 @@ const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, g
         const prompt = [
           check.body,
           out?.output ?? item ?? formatSqueezed(diff, 200_000),
-          heard(work.answers),
+          formatAnswers(work.answers),
           reads && formatTracesPrompt(work),
           'Call the result tool once you have decided.',
         ]
@@ -1326,19 +1252,6 @@ const runAttempt = (
             },
       tried
     );
-  });
-
-const writeCheckFiles = (graph: Graph, left: Left, traces: boolean) =>
-  Effect.gen(function* () {
-    const files = checkFiles(left);
-    yield* Effect.promise(() =>
-      Promise.all([
-        writeFile(files.AGENTGRAPH_PROPOSALS, JSON.stringify(left.proposals)),
-        writeFile(files.AGENTGRAPH_CONTEXT, [left.context, heard(left.answers)].filter(Boolean).join('\n\n')),
-        writeFile(files.AGENTGRAPH_REPLY, left.reply),
-      ])
-    );
-    if (traces && left.issue !== undefined) yield* writeTraces(graph, left.issue, left.run, left);
   });
 
 /**

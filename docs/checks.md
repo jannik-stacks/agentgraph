@@ -36,7 +36,7 @@ A judge reads the diff, the item or the script's output, and calls the `result` 
 
 With `each`, a judge answers every item on its own, and any failed item fails the check. No items passes; more than `max` fail as one finding; a failing slicer command fails with its output.
 
-Judges start fresh. Within a run, a passed item is reused while the diff and prompt stay the same; failed items, changed checks, new answers and restarts judge again. Judges that read traces or have their own `returns` are never reused. <!-- code: src/engine.ts#passes src/graph.ts#makeWorkflowGraph -->
+Judges start fresh. Within a run, a passed item is reused while the diff and prompt stay the same; failed items, changed checks, new answers and restarts judge again. Judges that read traces or have their own `returns` are never reused. <!-- code: src/run/check.ts#passes src/graph.ts#makeWorkflowGraph -->
 
 ## Script variables
 
@@ -106,7 +106,7 @@ the watched data root refresh through the existing SSE stream; external roots re
 
 `reads: traces` gives an agent a read-only `traces.md` with the issue's other runs, oldest first, retros left out: prompts, thinking, tool calls and results, replies, checks, proposals and outcomes, with trace line numbers to cite. Long text is cut in the middle, secrets are redacted, and past about 60,000 characters the oldest runs keep only endings and outcomes. <!-- code: src/context.ts#transcript -->
 
-Scripts get the same file as `AGENTGRAPH_TRACES`, so a script can check, for example, that tests ran after the last edit. <!-- code: src/engine.ts#writeTraces -->
+Scripts get the same file as `AGENTGRAPH_TRACES`, so a script can check, for example, that tests ran after the last edit. <!-- code: src/run/check.ts#writeTraces -->
 
 A judge that reads traces checks how the work was done:
 
