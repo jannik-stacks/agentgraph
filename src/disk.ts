@@ -15,6 +15,7 @@ import {
   statfsSync,
   statSync,
   writeFileSync,
+  unlinkSync,
 } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import {
@@ -180,27 +181,29 @@ export const removeBranch = (git: string, branch: string, base: string, head?: s
         return { path: fields[0]!.slice('worktree '.length), sha: fields.find(f => f.startsWith('HEAD '))!.slice(5) };
       });
     for (const { path, sha } of trees) {
-      const admin = yield* Effect.try(() => {
-        if (!existsSync(path)) return '';
-        const file = join(path, '.git');
-        if (realpathSync(path) !== path || !lstatSync(file).isFile()) throw new Error('unsafe checkout metadata');
-        const pointer = readFileSync(file, 'utf8');
-        const admin = resolve(path, pointer.slice('gitdir: '.length).trim());
-        const expected = join(realpathSync(git), 'worktrees', basename(admin));
-        if (
-          !pointer.startsWith('gitdir: ') ||
-          admin !== expected ||
-          realpathSync(admin) !== expected ||
-          existsSync(join(admin, 'config.worktree')) ||
-          resolve(admin, readFileSync(join(admin, 'commondir'), 'utf8').trim()) !== realpathSync(git) ||
-          !lstatSync(join(admin, 'gitdir')).isFile() ||
-          resolve(admin, readFileSync(join(admin, 'gitdir'), 'utf8').trim()) !== file
-        )
-          throw new Error('redirected checkout metadata');
-        return admin;
-      }).pipe(
-        Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped cleanup ${path} ${branch}: metadata`, e), undefined))
-      );
+      const inspect = () =>
+        Effect.try(() => {
+          if (!existsSync(path)) return '';
+          const file = join(path, '.git');
+          if (realpathSync(path) !== path || !lstatSync(file).isFile()) throw new Error('unsafe checkout metadata');
+          const pointer = readFileSync(file, 'utf8');
+          const admin = resolve(path, pointer.slice('gitdir: '.length).trim());
+          const expected = join(realpathSync(git), 'worktrees', basename(admin));
+          if (
+            !pointer.startsWith('gitdir: ') ||
+            admin !== expected ||
+            realpathSync(admin) !== expected ||
+            existsSync(join(admin, 'config.worktree')) ||
+            resolve(admin, readFileSync(join(admin, 'commondir'), 'utf8').trim()) !== realpathSync(git) ||
+            !lstatSync(join(admin, 'gitdir')).isFile() ||
+            resolve(admin, readFileSync(join(admin, 'gitdir'), 'utf8').trim()) !== file
+          )
+            throw new Error('redirected checkout metadata');
+          return admin;
+        }).pipe(
+          Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped cleanup ${path} ${branch}: metadata`, e), undefined))
+        );
+      const admin = yield* inspect();
       if (admin === undefined) return;
       if (!admin) {
         yield* Effect.logWarning(`1 skipped checkout ${path}: missing`);
@@ -212,7 +215,10 @@ export const removeBranch = (git: string, branch: string, base: string, head?: s
         GIT_WORK_TREE: path,
         GIT_INDEX_FILE: join(admin, 'index'),
       };
-      if ((yield* readGit(trusted, ['ls-files', '--stage', '-z'])).split('\0').some(f => f.startsWith('160000 ')))
+      const files = (yield* readGit(trusted, ['ls-files', '--stage', '-v', '-z'])).split('\0');
+      if (files.some(f => /^[a-zS]/.test(f)))
+        return yield* Effect.logWarning(`1 skipped checkout ${path}: hidden index flags`);
+      if (files.some(f => f.slice(2).startsWith('160000 ')))
         return yield* Effect.logWarning(`1 skipped checkout ${path}: submodules`);
       const args = (yield* readGit(
         trusted,
@@ -222,13 +228,33 @@ export const removeBranch = (git: string, branch: string, base: string, head?: s
         .split('\0')
         .filter(Boolean)
         .flatMap(key => ['-c', `${key}=${key.endsWith('.required') ? 'false' : ''}`]);
-      args.push('-c', 'core.fsmonitor=');
-      const dirty = yield* readGit(trusted, [...args, 'status', '--porcelain', '-uall', '--no-renames']);
-      if (dirty || !(yield* isLanded(sha)))
+      args.push('-c', 'core.fsmonitor=', '-c', 'extensions.worktreeConfig=false');
+      const dirty = (yield* readGit(trusted, [...args, 'status', '--porcelain', '-uall', '-z', '--no-renames']))
+        .split('\0')
+        .filter(Boolean);
+      const links = yield* Effect.try(() =>
+        dirty.filter(
+          f =>
+            f.startsWith('?? ') &&
+            basename(f.slice(3)) === 'node_modules' &&
+            lstatSync(join(path, f.slice(3))).isSymbolicLink()
+        )
+      ).pipe(Effect.orElseSucceed(() => []));
+      if (dirty.length !== links.length || !(yield* isLanded(sha)))
         return yield* Effect.logWarning(`1 skipped cleanup ${path} ${branch}: dirty or unlanded`);
-    }
-    for (const { path } of trees) {
-      if (existsSync(path)) yield* hostGit(env, ['worktree', 'remove', '--force', path]);
+      if ((yield* inspect()) !== admin) return yield* Effect.logWarning(`1 skipped removal ${path}: metadata changed`);
+      const removed = yield* Effect.try(() => {
+        for (const link of links) {
+          const file = join(path, link.slice(3));
+          if (!lstatSync(file).isSymbolicLink()) throw new Error('dependency symlink changed');
+          unlinkSync(file);
+        }
+      }).pipe(
+        Effect.andThen(hostGit(trusted, [...args, 'worktree', 'remove', path])),
+        Effect.as(true),
+        Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped removal ${path} ${branch}`, e), false))
+      );
+      if (!removed) return;
       yield* Effect.logInfo(`removed checkout ${path} branch ${branch}`);
     }
     yield* hostGit(env, ['worktree', 'prune']);

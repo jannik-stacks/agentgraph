@@ -203,6 +203,29 @@ describe('githubTracker', () => {
     ]);
   });
 
+  it('finds merged pull requests by their local branch in one lookup', async () => {
+    const f = fake({
+      'GET /repos/o/r/pulls': [
+        {
+          ...issue(8, { state: 'closed' }),
+          ...pull(8, {
+            head: { ref: 'agentgraph/7', sha: 'landed', repo: { full_name: 'o/r' } },
+            merged_at: '2026-10-16T00:01:00Z',
+          }),
+        },
+      ],
+    });
+    const found = await run(
+      f,
+      Effect.flatMap(Tracker, tracker => tracker.issues({ branch: 'agentgraph/7' }))
+    );
+    const calls = f.calls.filter(c => c.path.startsWith('/repos/o/r/pulls'));
+    expect(calls).toHaveLength(1);
+    expect(new URL(calls[0]!.path, 'https://api.github.com').searchParams.get('head')).toBe('o:agentgraph/7');
+    expect(new URL(calls[0]!.path, 'https://api.github.com').searchParams.get('state')).toBe('all');
+    expect(found.map(t => [t.state, t.pull?.branch, t.pull?.head])).toEqual([['merged', 'agentgraph/7', 'landed']]);
+  });
+
   it('searches all states without adding a state qualifier', async () => {
     const f = fake({ 'GET /search/issues': { items: [] } });
     await run(

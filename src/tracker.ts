@@ -64,7 +64,9 @@ export class Tracker extends Context.Service<
   Tracker,
   {
     base: Effect.Effect<string, TrackerError>;
-    issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], TrackerError>;
+    issues: (
+      filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>> & Partial<Pick<NonNullable<Issue['pull']>, 'branch'>>
+    ) => Effect.Effect<Issue[], TrackerError>;
     searchIssues: (
       ...args: Parameters<ToolContext['tracker']['searchIssues']>
     ) => Effect.Effect<Awaited<ReturnType<ToolContext['tracker']['searchIssues']>>, TrackerError>;
@@ -151,10 +153,11 @@ export const formatAgentComment = (text: string) => (text.startsWith(':') ? `/ag
 
 /** Whether an issue passes the `issues` filter. */
 export const matches =
-  (filter: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>> = {}) =>
+  (filter: NonNullable<Parameters<Tracker['Service']['issues']>[0]> = {}) =>
   (t: Issue) =>
     (filter.state === undefined || t.state === filter.state) &&
     (filter.parent === undefined || t.parent === filter.parent) &&
+    (filter.branch === undefined || t.pull?.branch === filter.branch) &&
     (filter.labels ?? []).every(l => t.labels.includes(l));
 
 /** The text shown in place of a comment, or another `what`, from someone who is not a collaborator. */

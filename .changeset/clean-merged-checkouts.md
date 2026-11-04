@@ -2,4 +2,5 @@
 '@jannik-stacks/agi': patch
 ---
 
-Remove landed runs' local branches and remaining linked checkouts during tracker passes. Keep dirty or unpublished work, run records, attempt refs and shared caches.
+Clean up landed runs' local checkouts and branches, looking up PR state only for remaining agent branches.
+Keep run data, attempt refs, shared caches, dirty work and dependency symlink targets; validate git metadata and let Git refuse unsafe removals.
