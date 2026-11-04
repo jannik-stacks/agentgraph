@@ -441,8 +441,8 @@ export const MultiSelect = ({
     };
   }, [open]);
   return (
-    <div className="min-w-0 space-y-0.5 text-xs">
-      <span id={`${id}-label`} className="block text-zinc-500">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 text-xs">
+      <span id={`${id}-label`} className="truncate text-zinc-500" title={label}>
         {label}
       </span>
       <Button
@@ -450,12 +450,14 @@ export const MultiSelect = ({
         popoverTarget={id}
         aria-labelledby={`${id}-label ${id}-summary`}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 text-left"
+        className="flex min-w-0 items-center justify-between gap-2 text-left transition-[border-color] active:scale-100"
       >
         <span id={`${id}-summary`} className="truncate">
           {summary}
         </span>
-        <span aria-hidden="true">▾</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="size-3 shrink-0 text-zinc-400">
+          <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
       </Button>
       <div
         ref={panel}
@@ -475,7 +477,7 @@ export const MultiSelect = ({
           if (!next) setSearch('');
           if (next && button.current) place(e.currentTarget, button.current.getBoundingClientRect());
         }}
-        className="fixed inset-auto m-0 w-72 max-w-[calc(100vw-1rem)] rounded-md border border-zinc-300 bg-white p-2 text-xs text-zinc-900 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        className="agi-menu fixed inset-auto m-0 w-72 max-w-[calc(100vw-1rem)] rounded-md border border-zinc-300 bg-white p-2 text-xs text-zinc-900 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
       >
         <input
           ref={input => input?.setAttribute('autofocus', '')}

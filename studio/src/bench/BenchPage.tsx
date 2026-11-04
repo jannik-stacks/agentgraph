@@ -5,19 +5,7 @@ import { getMean } from '../../../src/stats.ts';
 import { queryParam } from '../state.ts';
 import { usePluginData } from '../plugins.ts';
 import { BenchData, type BenchRow as Row } from './data.ts';
-import {
-  Button,
-  cx,
-  Disclosure,
-  Help,
-  Live,
-  Link,
-  MultiSelect,
-  Muted,
-  Select,
-  Tooltip,
-  useScrollFade,
-} from '../ui.tsx';
+import { Button, cx, Disclosure, Live, Link, MultiSelect, Muted, Select, Tooltip, useScrollFade } from '../ui.tsx';
 import {
   cost,
   defaultBenchBy,
@@ -104,10 +92,13 @@ const unpricedModels = (rs: Row[]) => {
 
 const Control = ({ label, tip, children }: { label: string; tip: string; children: ReactNode }) => (
   <div className="space-y-1 py-4">
-    <div className="flex items-center gap-1.5">
-      <h3 className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">{label}</h3>
-      <Help tip={tip} />
-    </div>
+    <h3 className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
+      <Tooltip tip={tip} focusable>
+        <span className="cursor-help underline decoration-zinc-200 decoration-dotted underline-offset-3 hover:decoration-zinc-400 dark:decoration-zinc-700">
+          {label}
+        </span>
+      </Tooltip>
+    </h3>
     {children}
   </div>
 );
@@ -207,12 +198,16 @@ const Bench = ({ value }: { value: BenchData }) => {
           {names.map(k => (
             <div
               key={k}
-              className="grid w-full grid-cols-[6rem_0.875rem_1fr_2rem] items-center gap-x-1.5 font-mono text-zinc-600 dark:text-zinc-400"
+              className="grid w-full grid-cols-[6rem_1fr_2rem] items-center gap-x-1.5 font-mono text-zinc-600 dark:text-zinc-400"
             >
-              <label htmlFor={`w-${k}`} className="whitespace-nowrap">
-                {labels[k]}
-              </label>
-              <Help tip={help[k]} />
+              <Tooltip tip={help[k]} focusable>
+                <label
+                  htmlFor={`w-${k}`}
+                  className="cursor-help whitespace-nowrap underline decoration-zinc-200 decoration-dotted underline-offset-3 hover:decoration-zinc-400 dark:decoration-zinc-700"
+                >
+                  {labels[k]}
+                </label>
+              </Tooltip>
               <input
                 id={`w-${k}`}
                 type="range"
@@ -269,7 +264,7 @@ const Bench = ({ value }: { value: BenchData }) => {
           </div>
         </Control>
         <Control
-          label="Group points by"
+          label="Group by"
           tip="Each point merges runs sharing the ticked labels, averaged over repeats within a case, then over cases; fewer labels merge more runs. Colour and case set also split points, and judge-only cases stay separate."
         >
           <MultiSelect label="Labels" values={labelKeys} selected={groupKeys} onChange={vs => setBy(vs.join(','))} />
@@ -340,7 +335,7 @@ const Bench = ({ value }: { value: BenchData }) => {
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
         <section className="max-w-3xl">
           <div className="mb-2 flex flex-wrap items-center gap-1 text-xs text-zinc-500">
-            <Tooltip tip="Which labels name the points on the chart. Each point is the runs that share the labels picked under Group points by.">
+            <Tooltip tip="Which labels name the points on the chart. Each point is the runs that share the labels picked under Group by.">
               <span className="mr-1">names</span>
             </Tooltip>
             {varying.map(k => (

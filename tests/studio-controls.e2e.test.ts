@@ -142,6 +142,7 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
     await server.listen();
     base = server.resolvedUrls.local[0].replace(/\/$/, '');
     browser = await startBrowser();
+    await browser.send('Emulation.setFocusEmulationEnabled', { enabled: true });
     await browser.send('Emulation.setDeviceMetricsOverride', {
       width: 1400,
       height: 1000,
@@ -213,7 +214,10 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
   const load = async (query = '') => {
     await browser.send('Page.navigate', { url: `${base}/bench${query}` });
     await vi.waitFor(
-      async () => expect(await browser.evaluate(() => document.querySelector('aside h3')?.textContent)).toBe('Weights'),
+      async () =>
+        expect(await browser.evaluate(() => document.querySelector('aside h3 [aria-describedby]')?.textContent)).toBe(
+          'Weights'
+        ),
       { timeout: 15_000 }
     );
   };
@@ -238,6 +242,94 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
     rows = initialRows;
     await load();
   }, 30_000);
+
+  it('uses dotted labels with keyboard-accessible help and a Group by heading', async () => {
+    expect(
+      await browser.evaluate(() => ({
+        headings: [...document.querySelectorAll('aside h3')].map(
+          heading => heading.querySelector('[aria-describedby]')?.textContent
+        ),
+        isHelpIconShown: [...document.querySelectorAll('aside span')].some(span => span.textContent?.trim() === '?'),
+      }))
+    ).toEqual({ headings: ['Weights', 'Axis', 'Filter', 'Group by', 'Infra', 'Judges'], isHelpIconShown: false });
+    await browser.evaluate(() => document.querySelector<HTMLElement>('aside h3 [tabindex="0"]')!.focus());
+    await vi.waitFor(async () =>
+      expect(await browser.evaluate(() => document.querySelector('[role="tooltip"]:popover-open')?.textContent)).toBe(
+        'Choose a preset or adjust how much each score and penalty counts.'
+      )
+    );
+    expect(await browser.evaluate(() => getComputedStyle(document.activeElement!).textDecorationStyle)).toBe('dotted');
+    await browser.evaluate(() => document.querySelector<HTMLElement>('label[for="w-test"]')!.focus());
+    await vi.waitFor(async () =>
+      expect(
+        await browser.evaluate(() => document.querySelector('[role="tooltip"]:popover-open')?.textContent)
+      ).toContain('Test files added by the merged pull request')
+    );
+  });
+
+  it('keeps filters on one row with short summaries and an unscaled dropdown', async () => {
+    expect(
+      await browser.evaluate(() =>
+        [...document.querySelectorAll<HTMLButtonElement>('aside button[popovertarget]')].map(button => {
+          const label = document.getElementById(button.getAttribute('aria-labelledby')!.split(' ')[0]!)!;
+          const text = document.getElementById(button.getAttribute('aria-labelledby')!.split(' ')[1]!)!;
+          const a = label.getBoundingClientRect();
+          const b = button.getBoundingClientRect();
+          return {
+            label: label.textContent,
+            summary: text.textContent,
+            isSameRow: a.top < b.bottom && b.top < a.bottom && a.right <= b.left,
+            chevron: button.querySelector('svg path')?.getAttribute('d'),
+          };
+        })
+      )
+    ).toEqual([
+      { label: 'arm', summary: 'human, v2', isSameRow: true, chevron: 'm6 9 6 6 6-6' },
+      { label: 'harness', summary: 'codex, opencode', isSameRow: true, chevron: 'm6 9 6 6 6-6' },
+      { label: 'model', summary: 'small, smart', isSameRow: true, chevron: 'm6 9 6 6 6-6' },
+      { label: 'Labels', summary: 'arm, harness, model, set', isSameRow: true, chevron: 'm6 9 6 6 6-6' },
+    ]);
+    await open('model');
+    expect(
+      await browser.evaluate(() => {
+        const panel = document.querySelector('[role="dialog"]:popover-open')!;
+        const style = getComputedStyle(panel);
+        return { transform: style.transform, scale: style.scale, transition: style.transitionProperty };
+      })
+    ).toEqual({ transform: 'none', scale: 'none', transition: 'opacity, overlay, display' });
+    await click('Select only smart for model');
+    await escape();
+    expect(await browser.evaluate(() => document.activeElement?.querySelector('span')?.textContent)).toBe('smart');
+  });
+
+  it('keeps the sidebar scroll fade when compact controls overflow', async () => {
+    await browser.send('Emulation.setDeviceMetricsOverride', {
+      width: 1400,
+      height: 500,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    try {
+      await vi.waitFor(async () =>
+        expect(
+          await browser.evaluate(() => {
+            const aside = document.querySelector('aside')!;
+            return {
+              isOverflowing: aside.scrollHeight > aside.clientHeight,
+              isFaded: getComputedStyle(aside).maskImage !== 'none',
+            };
+          })
+        ).toEqual({ isOverflowing: true, isFaded: true })
+      );
+    } finally {
+      await browser.send('Emulation.setDeviceMetricsOverride', {
+        width: 1400,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+    }
+  });
 
   it('still searches choices and reports no matches', async () => {
     await open('model');
@@ -284,7 +376,7 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
     expect(await pointCount()).toBe(1);
   });
 
-  it('still wires Group points by checkboxes, all/none and only, including an empty grouping', async () => {
+  it('still wires Group by checkboxes, all/none and only, including an empty grouping', async () => {
     await browser.evaluate(() => {
       const select = [...document.querySelectorAll<HTMLSelectElement>('aside select')].find(select =>
         select.parentElement?.parentElement?.textContent?.startsWith('color')
