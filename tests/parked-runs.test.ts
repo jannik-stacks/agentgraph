@@ -12,6 +12,7 @@ import { begin, type Run } from '../src/workflow.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { bodies, services, world } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { findStatus, issuePath } from './kit.ts';
 
 const small = makeTestGraph('graph');
 const { branch: _branch, ...unbranched } = small.workflows.issue!;
@@ -58,7 +59,7 @@ describe('resume', () => {
         expect.stringContaining('| retro / implement | done |'),
       ]);
       expect(comments.join('\n')).not.toContain('paused');
-      expect(readFileSync(join(where.tracker, '7.md'), 'utf8')).toContain('labels: []');
+      expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).toContain('labels: []');
     },
     60_000
   );
@@ -86,7 +87,7 @@ describe('resume', () => {
         expect.stringContaining('paused on an agentgraph problem, not this change; reply `/agent` to retry'),
       ]);
       expect(sticky.id).toBe(parent.comment);
-      expect(before.labels).toEqual(['agentgraph:done']);
+      expect(findStatus(where.tracker, 7)).toBe('done');
       expect(sticky.body).toContain('| issue / implement | done |');
       expect(sticky.body).toContain('| retro / implement | paused');
       expect(sticky.body).not.toMatch(/SessionStop|retro-7|runner error/);

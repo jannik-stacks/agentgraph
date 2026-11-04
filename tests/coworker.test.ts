@@ -15,7 +15,7 @@ import { begin, cancelled, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
-import { git } from './kit.ts';
+import { git, findStatus, issuePath } from './kit.ts';
 import {
   replyHint,
   world,
@@ -74,27 +74,26 @@ describe('stacks', () => {
       git(clone, 'push', '-q', 'origin', 'agentgraph/7');
       const head = git(clone, 'rev-parse', 'HEAD');
       writeFileSync(
-        join(where.tracker, '8', 'pull.json'),
+        issuePath(where.tracker, 8, 'pull.json'),
         JSON.stringify({ branch: 'agentgraph/7', base: 'main', head })
       );
       return head;
     };
     writeFileSync(
-      join(where.tracker, '8.md'),
+      issuePath(where.tracker, 8),
       '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
-    mkdirSync(join(where.tracker, '8'), { recursive: true });
     const head = move('hello.txt', 'hello\n');
     writeFileSync(
-      join(where.tracker, '9.md'),
+      issuePath(where.tracker, 9),
       '---\ntitle: Say bye\nstate: open\nauthor: morgan\n---\n\nAdd bye.txt.\n\nStacks on #7\n'
     );
     return { head, move };
   };
   const pr10 = (where: ReturnType<typeof world>) => ({
-    pull: JSON.parse(readFileSync(join(where.tracker, '10', 'pull.json'), 'utf8')),
-    body: readFileSync(join(where.tracker, '10.md'), 'utf8'),
-    diff: readFileSync(join(where.tracker, '10', 'diff.patch'), 'utf8'),
+    pull: JSON.parse(readFileSync(issuePath(where.tracker, 10, 'pull.json'), 'utf8')),
+    body: readFileSync(issuePath(where.tracker, 10), 'utf8'),
+    diff: readFileSync(issuePath(where.tracker, 10, 'diff.patch'), 'utf8'),
   });
   const saved = (where: ReturnType<typeof world>) =>
     JSON.parse(readFileSync(join(where.data, 'run-9', 'run.json'), 'utf8')) as Run;
@@ -239,7 +238,7 @@ describe('stacks', () => {
     const moved = move('hello.txt', 'hi\n');
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
-    expect(readFileSync(join(where.tracker, '9.jsonl'), 'utf8')).toContain(
+    expect(readFileSync(issuePath(where.tracker, 9, 'events.jsonl'), 'utf8')).toContain(
       '#8 moved and agentgraph/9 could not follow'
     );
     expect(saved(where).base?.sha).toBe(moved);
@@ -341,10 +340,10 @@ describe('coworker', () => {
             seen.push(news(spec.dir));
             say(where, comment(7, 'ana', true, 'also say bye', later(1)));
             yield* minute(spec.dir, text => text.includes('also say bye'));
-            renameSync(join(where.tracker, '7.md'), join(where.tracker, '7.away'));
+            renameSync(issuePath(where.tracker, 7), join(where.tracker, '7.away'));
             say(where, comment(7, 'ana', true, 'never seen', later(2)));
             yield* minute(spec.dir, () => false);
-            renameSync(join(where.tracker, '7.away'), join(where.tracker, '7.md'));
+            renameSync(join(where.tracker, '7.away'), issuePath(where.tracker, 7));
             writeFileSync(join(spec.dir, 'hello.txt'), 'hello\n');
             rmSync(join(spec.dir, '.agentgraph'), { recursive: true });
             rmSync(join(spec.dir, 'news'));
@@ -475,12 +474,12 @@ describe('coworker', () => {
     say(where, labelled('morgan', true, 'unlabel', later(2)));
     const [stopped] = await run(tick(assigned));
     expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the agentgraph label was removed' });
-    expect(readFileSync(join(where.tracker, '7.reactions'), 'utf8')).toBe('');
+    expect(readFileSync(issuePath(where.tracker, 7, 'reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, asked!.id)).toEqual([
       [true, undefined],
       [true, '#7'],
     ]);
-    expect((await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels).toEqual(['agentgraph:stopped']);
+    expect(findStatus(where.tracker, 7)).toBe('stopped');
   });
 
   it('begins on one issue only where the latest agentgraph label came from a maintainer', async () => {
@@ -509,7 +508,7 @@ describe('coworker', () => {
 
   it("starts a mention workflow on a maintainer's agent:ready, never on a bot's or an outsider's, and once per issue", async () => {
     const where = world();
-    writeFileSync(join(where.tracker, '7.jsonl'), '');
+    writeFileSync(issuePath(where.tracker, 7, 'events.jsonl'), '');
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(await run(scanIssuesAndRunningRuns(ready))).toEqual([]);
     say(where, marked('stx-agentgraph[bot]', false, '2026-10-16T00:00:01.000Z'));
@@ -534,7 +533,7 @@ describe('coworker', () => {
 
   it('looks past a merged pull request GitHub refuses to show', async () => {
     const where = world();
-    writeFileSync(join(where.tracker, '8.md'), '---\ntitle: Merged\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+    writeFileSync(issuePath(where.tracker, 8), '---\ntitle: Merged\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
     say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:00:01.000Z' });
     const tracker = Layer.effect(
       Tracker,
@@ -560,7 +559,7 @@ describe('coworker', () => {
     const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
     const status = issue.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))?.comment?.id;
     expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: status });
-    expect(issue.labels).toEqual(['agentgraph:needs-answer']);
+    expect(findStatus(where.tracker, 7)).toBe('needs-answer');
     expect(bodies(issue)).toEqual(['/agent', expect.stringContaining('waiting for your answer below'), 'Hello or hi?']);
     const edits = readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit
@@ -828,7 +827,7 @@ describe('compound engineering', () => {
     expect(sticky).toHaveLength(1);
     expect(sticky[0]).toContain('| issue / implement | done |');
     expect(sticky[0]).toContain('| retro / implement | done |');
-    expect(readFileSync(join(where.tracker, '7.md'), 'utf8')).toContain('labels: []');
+    expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).toContain('labels: []');
     expect(await run(tick(looking))).toEqual([]);
     say(where, pushed(7, '2026-10-16T00:00:08.000Z'));
     const again = await run(tick(looking));
@@ -876,7 +875,7 @@ describe('compound engineering', () => {
 
   it('looks up no open issue a run never worked on', async () => {
     const where = world();
-    writeFileSync(join(where.tracker, '12.md'), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');
+    writeFileSync(issuePath(where.tracker, 12), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');
     say(where, comment(12, 'morgan', true, 'Unrelated.', '2026-10-16T00:00:05.000Z'));
     const asked: number[] = [];
     const counted = Layer.effect(
@@ -894,12 +893,11 @@ describe('compound engineering', () => {
   it('takes what is said on a merged pull request as feedback on the issue its branch worked on', async () => {
     const where = world();
     writeFileSync(
-      join(where.tracker, '8.md'),
+      issuePath(where.tracker, 8),
       '---\ntitle: Add hello\nstate: merged\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
-    mkdirSync(join(where.tracker, '8'), { recursive: true });
     writeFileSync(
-      join(where.tracker, '8', 'pull.json'),
+      issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'x', baseSha: 'b1' })
     );
     say(where, comment(8, 'morgan', true, 'Next time reuse the helper.', '2026-10-16T00:00:05.000Z'));

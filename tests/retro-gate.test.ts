@@ -11,6 +11,7 @@ import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
+import { issuePath } from './kit.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'retro-gate'), harnesses));
 
@@ -24,7 +25,7 @@ const world = () => {
   dirs.push(root);
   const tracker = join(root, 'tracker');
   writeFileSync(
-    join(tracker, '1.md'),
+    issuePath(tracker, 1),
     '---\ntitle: Issue 1\nstate: open\nauthor: morgan\nlabels: []\n---\n\nSay hello.\n'
   );
   const label: Event = {
@@ -35,7 +36,7 @@ const world = () => {
     trusted: true,
     at: '2026-10-16T00:00:01.000Z',
   };
-  appendFileSync(join(tracker, '1.jsonl'), `${JSON.stringify(label)}\n`);
+  appendFileSync(issuePath(tracker, 1, 'events.jsonl'), `${JSON.stringify(label)}\n`);
   return { origin: join(tracker, 'origin.git'), tracker, data };
 };
 

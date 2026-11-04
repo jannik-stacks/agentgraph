@@ -63,9 +63,20 @@ Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
 
 ## The tracker folder
 
-A tracker folder stands in for GitHub: `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, it refuses a whole push that touches `.github/`. `--tracker <dir>` runs the CLI on one directly. <!-- code: src/tracker.ts#folderTracker -->
+A tracker folder stands in for GitHub. Each issue is a folder `<n>/` with `issue.md`, its `events.jsonl` timeline and its `reactions`; `pull.json` and `diff.patch` make it a pull request. A bare `origin.git` holds the branches. Unlike GitHub, it refuses a whole push that touches `.github/`. `--tracker <dir>` runs the CLI on one directly. <!-- code: src/tracker.ts#folderTracker -->
 
-Any `<n>.md` you write under an unused number is an issue. Frontmatter with a trusted `author` and a workflow's label starts that workflow on the next look; `agi start` writes such a file. <!-- code: src/tracker.ts#writeIssueFile -->
+```
+tracker/
+  origin.git/
+  12/issue.md, events.jsonl      no status yet
+  working/14/...
+  needs-review/15/...            with pull.json and diff.patch for a pull request
+  done/9/...
+```
+
+An issue's status is the folder it sits in, so `ls needs-review/` shows what needs you. The engine moves the whole folder with one rename; the graph's [`status`](workflows.md#status-on-the-issue) setting names the folders, a status missing from it leaves the issue at the top, and `status: false` keeps every issue there. Open, closed and merged stay in `issue.md`'s `state`. Every write, the loop's and `agi say`, `review`, `close` and `merge`, takes the folder's `.tracker.lock`, so a move never loses an event. <!-- code: src/tracker.ts#findIssueDir src/tracker.ts#runLocked -->
+
+Any `<n>/issue.md` you write under an unused number is an issue. Frontmatter with a trusted `author` and a workflow's label starts that workflow on the next look; `agi start` writes such a file. <!-- code: src/tracker.ts#writeIssueFile -->
 
 ```md
 ---

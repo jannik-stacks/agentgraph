@@ -1,8 +1,9 @@
 import { readOrUndefined } from './read.ts';
 import { makePlugin, type ToolContext } from './plugin.ts';
-import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync } from 'node:fs';
+import { appendFile, link, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Context, Data, Effect, Layer, Stream, Semaphore } from 'effect';
 import { parse, stringify } from 'yaml';
 import {
@@ -210,12 +211,42 @@ export const runLocked = async <A>(dir: string, f: () => Promise<A>) => {
 
 type IssueFront = Pick<Issue, 'title' | 'author' | 'labels'> & Partial<Omit<Issue, 'number' | 'body' | 'url' | 'pull'>>;
 
+const isIssueFolder = (name: string) => /^\d+$/.test(name);
+
+const readFolders = (dir: string) => {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).flatMap(f => (f.isDirectory() ? [f.name] : []));
+  } catch (e) {
+    return readOrUndefined(e) ?? [];
+  }
+};
+
+const readStatusFolders = (dir: string) =>
+  readFolders(dir).filter(f => !isIssueFolder(f) && !f.startsWith('.') && f !== 'origin.git');
+
+export const findIssueNumbers = (dir: string) =>
+  [
+    ...new Set(
+      [...readFolders(dir), ...readStatusFolders(dir).flatMap(s => readFolders(join(dir, s)))]
+        .filter(isIssueFolder)
+        .map(Number)
+    ),
+  ].toSorted((a, b) => a - b);
+
+export const findIssueDir = (dir: string, n: number) =>
+  [join(dir, String(n)), ...readStatusFolders(dir).map(s => join(dir, s, String(n)))].find(existsSync) ??
+  join(dir, String(n));
+
 const fileIssue = async (dir: string, front: IssueFront, body: string): Promise<number> => {
   await mkdir(dir, { recursive: true });
-  const taken = (await readdir(dir)).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
-  const number = Math.max(0, ...taken) + 1;
-  const written = await publish(join(dir, `${number}.md`), formatIssueFile({ state: 'open', ...front }, body));
-  return written ? number : fileIssue(dir, front, body);
+  const number = Math.max(0, ...findIssueNumbers(dir)) + 1;
+  const made = await mkdir(join(dir, String(number))).then(
+    () => true,
+    (e: NodeJS.ErrnoException) => (e.code === 'EEXIST' ? false : Promise.reject(e))
+  );
+  if (!made) return fileIssue(dir, front, body);
+  await writeFile(join(dir, String(number), 'issue.md'), formatIssueFile({ state: 'open', ...front }, body));
+  return number;
 };
 
 export const writeIssueFile = (dir: string, front: IssueFront, body: string) =>
@@ -223,7 +254,16 @@ export const writeIssueFile = (dir: string, front: IssueFront, body: string) =>
 
 const me = 'agentgraph[bot]';
 
-const timelinePath = (dir: string, n: number) => join(dir, `${n}.jsonl`);
+const timelinePath = (dir: string, n: number) => join(findIssueDir(dir, n), 'events.jsonl');
+
+const replaceFile = async (path: string, text: string) => {
+  const draft = `${path}.${randomUUID()}`;
+  await writeFile(draft, text);
+  await rename(draft, path);
+};
+
+const isStatusFolder = (name: string) =>
+  !isIssueFolder(name) && !/[/\\]/.test(name) && !['', '.', '..', 'origin.git'].includes(name) && !name.startsWith('.');
 
 export const writeTimelineEvent = async (
   dir: string,
@@ -237,9 +277,10 @@ export const writeTimelineEvent = async (
 };
 
 /**
- * A tracker in a folder, for tests and local runs. `<n>.md` is an issue (frontmatter title, state, author, labels,
- * parent; then the body), `<n>.jsonl` its timeline of events, `<n>.reactions` the 👀 given, and a folder `<n>/` makes
- * it a pull request (`pull.json`, `diff.patch`). Branches live in the git remote of the worktree a push comes from.
+ * A tracker in a folder, for tests and local runs. Each issue is a folder `<n>/`, or `<status>/<n>/` once it has a
+ * status: `issue.md` (frontmatter title, state, author, labels, parent; then the body), `events.jsonl` its timeline,
+ * `reactions` the 👀 given, and `pull.json` with `diff.patch` make it a pull request. Branches live in the git remote of
+ * the worktree a push comes from.
  * Authors ending in `[bot]` are not trusted, and their issues' text is withheld. It acts as the bot, or as the
  * trusted person `as`.
  */
@@ -247,8 +288,12 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
   Layer.effect(
     Tracker,
     Effect.map(Semaphore.make(1), lock => {
-      const md = (n: number) => join(dir, `${n}.md`);
-      const pullFile = (n: number) => join(dir, String(n), 'pull.json');
+      const md = (n: number) => join(findIssueDir(dir, n), 'issue.md');
+      const readIssueFile = async (n: number, name: string): Promise<string | undefined> => {
+        const at = findIssueDir(dir, n);
+        const text = await readFile(join(at, name), 'utf8').catch(readOrUndefined);
+        return text === undefined && findIssueDir(dir, n) !== at ? readIssueFile(n, name) : text;
+      };
       const who = as ?? me;
       const git = (work: Checkout, ...args: string[]) =>
         Effect.runPromise(
@@ -281,14 +326,13 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       const pushed = new Map<string, string>();
       const held = new Map<string, Set<string>>();
 
-      const numbers = async () =>
-        ((await readdir(dir).catch(readOrUndefined)) ?? []).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
+      const numbers = async () => findIssueNumbers(dir);
       const read = async (n: number): Promise<Issue | undefined> => {
-        const text = await readFile(md(n), 'utf8').catch(readOrUndefined);
+        const text = await readIssueFile(n, 'issue.md');
         if (text === undefined) return undefined;
         const { front, body } = parseIssueFile(text);
         const [, first = '', rest = ''] = /^#*\s*(.*)\n?([\s\S]*)$/.exec(body.trim()) ?? [];
-        const pull = await readFile(pullFile(n), 'utf8').catch(readOrUndefined);
+        const pull = await readIssueFile(n, 'pull.json');
         return {
           number: n,
           state: 'open',
@@ -307,13 +351,10 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           ? { ...t, body: removeRunLink(t.body) }
           : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text') };
       const writePull = async (number: number, pull?: Issue['pull']) => {
-        if (!pull) return;
-        await mkdir(join(dir, String(number)), { recursive: true });
-        await writeFile(pullFile(number), `${JSON.stringify(pull, null, 2)}\n`);
+        if (pull) await replaceFile(join(findIssueDir(dir, number), 'pull.json'), `${JSON.stringify(pull, null, 2)}\n`);
       };
       const write = async ({ number, body, url: _url, pull, ...front }: Issue) => {
-        await mkdir(dir, { recursive: true });
-        await writeFile(md(number), formatIssueFile(front, body));
+        await replaceFile(md(number), formatIssueFile(front, body));
         await writePull(number, pull);
       };
       const adopt = async (n: number) => {
@@ -327,7 +368,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       };
       const readTimeline = async (n: number) => {
         await adopt(n);
-        return ((await readFile(timelinePath(dir, n), 'utf8').catch(readOrUndefined)) ?? '')
+        return ((await readIssueFile(n, 'events.jsonl')) ?? '')
           .split('\n')
           .filter(Boolean)
           .map(line => JSON.parse(line) as Event);
@@ -376,7 +417,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           if (pr?.pull?.branch !== branch || pr.state !== 'open') continue;
           await write({ ...pr, pull: { ...pr.pull, head } });
           await writeFile(
-            join(dir, String(k), 'diff.patch'),
+            join(findIssueDir(dir, k), 'diff.patch'),
             await git(work, 'diff', `${await tip(work, pr.pull.base)}...${head}`)
           );
         }
@@ -402,7 +443,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
                 ...all[at]!,
                 comment: { ...all[at]!.comment!, body: p.body, edited: new Date().toISOString() },
               };
-              await writeFile(timelinePath(dir, n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
+              await replaceFile(timelinePath(dir, n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
               return { proposal: p, ok: true, id: p.edit, url: `${md(n)}#${p.edit}` };
             }
             const parent = p.under === undefined ? undefined : all.find(m => m.comment?.id === p.under)?.comment;
@@ -524,7 +565,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             const k = await open({ title: p.title, body, pull: { branch: p.branch, base: p.base, head } });
             if (work)
               await writeFile(
-                join(dir, String(k), 'diff.patch'),
+                join(findIssueDir(dir, k), 'diff.patch'),
                 await git(work, 'diff', `${await tip(work, p.base)}...${head}`)
               );
             return { proposal: p, ok: true, url: md(k) };
@@ -547,17 +588,17 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             return { proposal: p, ok: true, url: md(k), id: String(k) };
           }
           case 'react': {
-            const file = join(dir, `${n}.reactions`);
+            const file = join(findIssueDir(dir, n), 'reactions');
             const id = p.comment ?? `#${n}`;
             if (p.remove === undefined) {
               await appendFile(file, `eyes ${id}\n`);
               return { proposal: p, ok: true, id };
             }
-            const lines = ((await readFile(file, 'utf8').catch(readOrUndefined)) ?? '').split('\n').filter(Boolean);
+            const lines = ((await readIssueFile(n, 'reactions')) ?? '').split('\n').filter(Boolean);
             const at = lines.indexOf(`eyes ${p.remove}`);
             if (at < 0) return no(`no reaction ${p.remove} of ours on #${n}`);
             lines.splice(at, 1);
-            await writeFile(file, lines.map(l => `${l}\n`).join(''));
+            await replaceFile(file, lines.map(l => `${l}\n`).join(''));
             return { proposal: p, ok: true };
           }
           case 'ask':
@@ -628,7 +669,18 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           Effect.flatMap(makePostableProposal(p), ({ posted }) => locked(() => apply(n, posted, work))).pipe(
             Effect.map(a => ({ ...a, proposal: p }))
           ),
-        status: (n, to, names) => Effect.asVoid(locked(() => apply(n, makeStatusLabel(to, names)))),
+        status: (n, to, names) =>
+          locked(async () => {
+            const folder = names ? names[to] : to;
+            if (folder !== undefined && !isStatusFolder(folder))
+              throw new TrackerError({ message: `status ${to} cannot be the folder name "${folder}"` });
+            const from = findIssueDir(dir, n);
+            const into = folder === undefined ? join(dir, String(n)) : join(dir, folder, String(n));
+            if (!existsSync(join(from, 'issue.md'))) throw new TrackerError({ status: 404, message: `no issue #${n}` });
+            if (from === into) return;
+            await mkdir(dirname(into), { recursive: true });
+            await rename(from, into);
+          }),
         findPost: (n, p, operation) =>
           io(async (): Promise<Applied | undefined> => {
             if (p.kind === 'comment' && p.edit === undefined) {

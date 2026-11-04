@@ -28,7 +28,7 @@ import { begin, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { git } from './kit.ts';
+import { git, issuePath } from './kit.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import {
   graph,
@@ -205,7 +205,7 @@ describe('tick', () => {
     expect(second.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs).toHaveLength(2);
     expect(specs[1]!.prompt).toContain('@morgan: /agent once more');
-    expect(readFileSync(join(where.tracker, '7.reactions'), 'utf8')).toBe('');
+    expect(readFileSync(issuePath(where.tracker, 7, 'reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, first[0]!.id)).toEqual([
       [true, undefined],
       [true, '2026-10-16T00:00:00.000Z'],
@@ -499,7 +499,7 @@ describe('tick', () => {
       Effect.gen(function* () {
         yield* waiting(where);
         writeFileSync(
-          join(where.tracker, '8', 'pull.json'),
+          issuePath(where.tracker, 8, 'pull.json'),
           JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
         );
         yield* tick(kit, 7);
@@ -666,15 +666,15 @@ describe('tick', () => {
     expect(specs[1]!.prompt).toMatch(
       /^the merge step sent this back: undo the greeting\n\n## New since you last looked/
     );
-    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).toContain('Will undo.');
-    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).toContain('Undone.');
-    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Undone.');
+    expect(readFileSync(issuePath(where.tracker, 8, 'events.jsonl'), 'utf8')).toContain('Will undo.');
+    expect(readFileSync(issuePath(where.tracker, 8, 'events.jsonl'), 'utf8')).toContain('Undone.');
+    expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).not.toContain('Undone.');
     const marks = readTrace(where.data, 'run-7').filter(t => t.step === 'merge');
     expect(marks.flatMap(t => ('prompt' in t && t.aside ? [t.aside] : []))).toEqual([
       { issue: 8, comment: '2026-10-16T00:00:05.000Z' },
     ]);
     expect(marks.flatMap(t => ('session' in t ? [!!t.session.aside] : []))).toEqual([true]);
-    expect(readFileSync(join(where.tracker, '8.reactions'), 'utf8')).toBe('');
+    expect(readFileSync(issuePath(where.tracker, 8, 'reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, 'run-7')).toEqual([
       [true, undefined],
       [true, '2026-10-16T00:00:05.000Z'],
@@ -693,8 +693,8 @@ describe('tick', () => {
     ]);
     await run(Effect.andThen(waiting(where), tick(merging, 7)));
     expect(specs).toHaveLength(2);
-    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).toContain('Will drop it.');
-    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Will drop it.');
+    expect(readFileSync(issuePath(where.tracker, 8, 'events.jsonl'), 'utf8')).toContain('Will drop it.');
+    expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).not.toContain('Will drop it.');
   });
 
   it.each([[{ kind: 'comment', body: 'Dropped it.' }], []] as Proposal[][])(
@@ -776,7 +776,7 @@ describe('tick', () => {
     );
     await run(waiting(where));
     writeFileSync(
-      join(where.tracker, '8', 'pull.json'),
+      issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
     );
     await run(tick(merging, 7));
@@ -815,7 +815,7 @@ describe('tick', () => {
         : merging.workflows.issue;
       const kit = { ...merging, workflows: { issue: flow } };
       if (kind === 'no-pull') {
-        rmSync(join(where.tracker, '8.md'));
+        rmSync(issuePath(where.tracker, 8));
         rmSync(join(where.tracker, '8'), { recursive: true });
       }
       say(where, comment(kind === 'no-pull' ? 7 : 8, 'morgan', true, '/agent why?', at));
@@ -823,7 +823,7 @@ describe('tick', () => {
       expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.seen).not.toBe(at);
       await run(tick(kit, 7));
       expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.reason).toBe('Stopped by a runner error.');
-      expect(readFileSync(join(where.tracker, `${kind === 'no-pull' ? 7 : 8}.jsonl`), 'utf8')).not.toContain(
+      expect(readFileSync(issuePath(where.tracker, kind === 'no-pull' ? 7 : 8, 'events.jsonl'), 'utf8')).not.toContain(
         'Could not answer'
       );
     }
@@ -834,7 +834,7 @@ describe('tick', () => {
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     await services(where, []).run(waiting(where));
     writeFileSync(
-      join(where.tracker, '8', 'pull.json'),
+      issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
     );
     say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
@@ -868,7 +868,7 @@ describe('tick', () => {
     const first = await stored();
     expect(first).toMatchObject({ step: 'merge', status: 'waiting', retried: true });
     expect(first.seen).not.toBe('2026-10-16T00:00:05.000Z');
-    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
+    expect(readFileSync(issuePath(where.tracker, 8, 'events.jsonl'), 'utf8')).not.toContain('Could not answer');
     await run(tick(merging, 7));
     const second = await stored();
     expect(second).toMatchObject({
@@ -881,7 +881,7 @@ describe('tick', () => {
     expect(specs).toHaveLength(2);
     await run(tick(merging, 7));
     expect(specs).toHaveLength(2);
-    expect(readFileSync(join(where.tracker, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
+    expect(readFileSync(issuePath(where.tracker, 8, 'events.jsonl'), 'utf8')).not.toContain('Could not answer');
     const resumed = services(where, [[start('f'), reply({ kind: 'comment', body: 'For the example.' })]]);
     await resumed.run(instruct(merging, { kind: 'resume', parked: true }));
     await resumed.run(tick(merging, 7));
@@ -1135,7 +1135,7 @@ describe('tick', () => {
   it('replies to a plain comment on a thread with a finished run, not to one for someone else or on another thread', async () => {
     const where = world();
     writeFileSync(
-      join(where.tracker, '9.md'),
+      issuePath(where.tracker, 9),
       '---\ntitle: Other\nstate: open\nauthor: morgan\nlabels: []\n---\n\nOther.\n'
     );
     say(where, comment(9, 'morgan', true, 'where is the PR?', '2026-10-16T00:00:02.000Z'));
@@ -1155,7 +1155,7 @@ describe('tick', () => {
     expect(specs).toHaveLength(1);
     expect(specs[0]!.prompt).toContain('@morgan: /agent where is the PR?');
     expect(specs[0]!.prompt).toContain('When it does not ask for work, answer it with comment proposals only');
-    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).toContain('No PR yet.');
+    expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).toContain('No PR yet.');
   });
 
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
@@ -1208,7 +1208,7 @@ describe('tick', () => {
     await run(waiting(where));
     const at = '2026-10-16T00:00:05.000Z';
     for (const n of [7, 8]) {
-      const file = join(where.tracker, `${n}.md`);
+      const file = issuePath(where.tracker, n);
       writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${n === 7 ? 'closed' : 'merged'}`));
     }
     say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });
@@ -1256,7 +1256,7 @@ describe('start with one issue', () => {
       meta: { bench: { case: 'greeting' } },
       labels: { case: 'greeting', arm: 'v2' },
     };
-    writeFileSync(join(where.tracker, '7.jsonl'), '');
+    writeFileSync(issuePath(where.tracker, 7, 'events.jsonl'), '');
     say(where, {
       issue: 7,
       kind: 'label',
@@ -1441,7 +1441,7 @@ describe('scanIssuesAndRunningRuns', () => {
     const where = world();
     for (let n = 8; n < 47; n++)
       writeFileSync(
-        join(where.tracker, `${n}.md`),
+        issuePath(where.tracker, n),
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\nBody.\n`
       );
     let listings = 0;
@@ -1482,7 +1482,7 @@ describe('scanIssuesAndRunningRuns', () => {
     const where = world();
     for (const n of [8, 9, 10])
       writeFileSync(
-        join(where.tracker, `${n}.md`),
+        issuePath(where.tracker, n),
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody ${n}.\n`
       );
     const at = '2026-10-16T00:00:00.000Z';
@@ -1519,7 +1519,7 @@ describe('scanIssuesAndRunningRuns', () => {
   it('resumes a finished run on a comment that the repo-wide look has already passed', async () => {
     const where = world();
     writeFileSync(
-      join(where.tracker, '9.md'),
+      issuePath(where.tracker, 9),
       '---\ntitle: Issue 9\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody 9.\n'
     );
     const done = (issue: number, started: string): Run => ({
@@ -1537,13 +1537,13 @@ describe('scanIssuesAndRunningRuns', () => {
     const touched = await run(scanIssuesAndRunningRuns(small));
     expect(touched.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs[0]!.prompt).toContain('use gh-pages');
-    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).toContain('gh-pages it is.');
+    expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).toContain('gh-pages it is.');
   });
 
   it('looks at issues side by side, up to limits.parallel', async () => {
     const where = world();
     writeFileSync(
-      join(where.tracker, '8.md'),
+      issuePath(where.tracker, 8),
       '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody.\n'
     );
     say(where, comment(8, 'morgan', true, '/agent', '2026-10-16T00:00:00.000Z'));
@@ -1572,7 +1572,7 @@ describe('scanIssuesAndRunningRuns', () => {
   it('parks a run whose session dies with a runner error and drives the others on', async () => {
     const where = world();
     writeFileSync(
-      join(where.tracker, '8.md'),
+      issuePath(where.tracker, 8),
       '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nDies.\n'
     );
     say(where, comment(8, 'morgan', true, '/agent', '2026-10-16T00:00:00.000Z'));

@@ -11,6 +11,7 @@ import { transition, type Run } from '../src/workflow.ts';
 import { result, start } from './fixtures.ts';
 import { fresh, graph, pullRequest, say, services, readChecks, w, world } from './world.ts';
 import { runStepChecks } from '../src/run/check.ts';
+import { issuePath } from './kit.ts';
 
 const ending = (checks: Record<string, Partial<Check>>): Graph => ({
   ...graph,
@@ -352,7 +353,7 @@ describe('end checks', () => {
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), step: 'merge', status: 'waiting', startCommit })));
     const at = '2026-10-16T00:10:00.000Z';
     for (const n of [7, 8]) {
-      const file = join(where.tracker, `${n}.md`);
+      const file = issuePath(where.tracker, n);
       writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${n === 7 ? 'closed' : 'merged'}`));
     }
     say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });

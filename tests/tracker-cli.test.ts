@@ -14,7 +14,7 @@ import {
 import { delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { folderTracker, Tracker, runLocked, writeIssueFile } from '../src/tracker.ts';
+import { findIssueNumbers, folderTracker, Tracker, runLocked, writeIssueFile } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import {
   ensureGraph,
@@ -43,8 +43,8 @@ import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
-import { git, tmp } from './kit.ts';
 import type { Services } from '../src/run/execute.ts';
+import { git, tmp, issuePath } from './kit.ts';
 
 const runTs = join(import.meta.dirname, '..', 'bin', 'run.ts');
 const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');
@@ -113,7 +113,7 @@ const world = () => {
       case 'show': {
         const f = await Effect.runPromise(issues);
         if (!args[0]) return formatIssueList(await Effect.runPromise(f.issues()));
-        const diff = join(dir, String(n), 'diff.patch');
+        const diff = issuePath(dir, n, 'diff.patch');
         return formatIssueTimeline(
           await Effect.runPromise(f.issue(n)),
           existsSync(diff) ? readFileSync(diff, 'utf8') : ''
@@ -183,9 +183,9 @@ describe('the human verbs on a tracker folder', () => {
     ]);
     expect(w.seen[0]!.tracker).toBe(w.dir);
     expect(first.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
-    expect(readFileSync(join(w.dir, '2', 'diff.patch'), 'utf8')).toContain('+hello');
+    expect(readFileSync(issuePath(w.dir, 2, 'diff.patch'), 'utf8')).toContain('+hello');
     expect(await w.tracker('show')).toBe(
-      '#1 open Add a greeting [agent:ready, agentgraph:needs-review]\n#2 open Add hello (agentgraph/1 into main)'
+      '#1 open Add a greeting [agent:ready]\n#2 open Add hello (agentgraph/1 into main)'
     );
 
     await w.tracker('comment', '2', '/agent say hello world');
@@ -202,21 +202,21 @@ describe('the human verbs on a tracker folder', () => {
     expect(await w.tracker('merge', '2')).toMatch(/^main at [0-9a-f]{40}$/);
     expect(git(w.origin, 'show', 'main:hello.txt')).toBe('hello world');
     expect(await w.tracker('show')).toBe(
-      '#1 closed Add a greeting [agent:ready, agentgraph:needs-review]\n#2 merged Add hello (agentgraph/1 into main)'
+      '#1 closed Add a greeting [agent:ready]\n#2 merged Add hello (agentgraph/1 into main)'
     );
     const last = await w.run([]);
     expect(last.map(r => [r.issue, r.step, r.status])).toEqual([[1, 'merge', 'done']]);
     expect(await w.tracker('show')).toBe(
-      '#1 closed Add a greeting [agent:ready, agentgraph:done]\n#2 merged Add hello (agentgraph/1 into main)'
+      '#1 closed Add a greeting [agent:ready]\n#2 merged Add hello (agentgraph/1 into main)'
     );
   });
 
   it('starts a run on a dropped issue file once, and reads one without frontmatter', async () => {
     const w = world();
     await w.tracker('init', w.seed);
-    writeFileSync(join(w.dir, '1.md'), '# Fix the typo\n\nIn the readme.\n');
+    writeFileSync(issuePath(w.dir, 1), '# Fix the typo\n\nIn the readme.\n');
     writeFileSync(
-      join(w.dir, '2.md'),
+      issuePath(w.dir, 2),
       '---\ntitle: Add a greeting\nauthor: morgan\nlabels: [agent:ready]\n---\n\nAdd hello.txt.\n'
     );
     expect(await w.tracker('show')).toBe('#1 open Fix the typo\n#2 open Add a greeting [agent:ready]');
@@ -347,7 +347,7 @@ describe('the human verbs on a tracker folder', () => {
     expect(await w.tracker('show')).toContain('#4 open Add bye.txt (agentgraph/2 into main)');
     await w.tracker('merge', '4');
     expect(git(w.origin, 'show', 'main:bye.txt')).toBe('bye.txt');
-    expect(existsSync(join(w.dir, '2.md'))).toBe(true);
+    expect(existsSync(issuePath(w.dir, 2))).toBe(true);
   });
 
   it('starts the router on a bare mention, stops a waiting run on a mention with stop, and ignores stop with no run', async () => {
@@ -383,7 +383,7 @@ describe('the human verbs on a tracker folder', () => {
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     await w.tracker('comment', '2', 'This line?', '--line', 'hello.txt:1');
-    const event = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
+    const event = readFileSync(issuePath(w.dir, 2, 'events.jsonl'), 'utf8')
       .trim()
       .split('\n')
       .map(l => JSON.parse(l))
@@ -418,7 +418,7 @@ describe('the human verbs on a tracker folder', () => {
         .map(l => JSON.parse(l))
         .some(t => t.prompt?.prompt.includes('Please explain this line'))
     ).toBe(true);
-    const timeline = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
+    const timeline = readFileSync(issuePath(w.dir, 2, 'events.jsonl'), 'utf8')
       .trim()
       .split('\n')
       .map(l => JSON.parse(l));
@@ -471,6 +471,7 @@ describe('the human verbs on a tracker folder', () => {
     const dir = tmp('tracker-race');
     dirs.push(dir);
     const trackerTs = join(import.meta.dirname, '..', 'src', 'tracker.ts');
+    await writeIssueFile(dir, { title: 'Race', author: 'a', labels: [] }, '');
     const writer = `import { writeTimelineEvent } from ${JSON.stringify(trackerTs)};
 const comment = i => ({ issue: 1, kind: 'comment', actor: 'a', trusted: true, comment: { body: String(i) } });
 await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(process.argv[1], comment(i))));`;
@@ -479,7 +480,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
         spawn('node', ['--input-type=module', '-e', writer, dir], { stdio: 'inherit' }).on('close', done)
       );
     expect(await Promise.all([write(), write()])).toEqual([0, 0]);
-    const ids = readFileSync(join(dir, '1.jsonl'), 'utf8')
+    const ids = readFileSync(issuePath(dir, 1, 'events.jsonl'), 'utf8')
       .split('\n')
       .filter(Boolean)
       .map(line => (JSON.parse(line) as { comment: { id: string } }).comment.id);
@@ -490,7 +491,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     const dir = tmp('tracker-lock');
     dirs.push(dir);
     const n = await writeIssueFile(dir, { title: 'Lock', author: 'morgan', labels: [] }, '');
-    const state = () => readFileSync(join(dir, `${n}.md`), 'utf8').match(/state: (\w+)/)?.[1];
+    const state = () => readFileSync(issuePath(dir, n), 'utf8').match(/state: (\w+)/)?.[1];
     let closing: Promise<void> | undefined;
     await runLocked(dir, async () => {
       closing = writeClosed(dir, 'morgan', n);
@@ -786,7 +787,7 @@ describe('an instance', () => {
     expect(refused.map(r => [r.status, r.stderr])).toEqual(refused.map(() => [1, guidance]));
     expect(message).toMatch(/^no graph found\. Copy an example into this folder first:\n  cp -R /);
     const i = await ensureInstance(root, w.seed);
-    expect(readdirSync(i.tracker).filter(name => name.endsWith('.md'))).toEqual([]);
+    expect(findIssueNumbers(i.tracker)).toEqual([]);
     expect(existsSync(join(w.seed, '.agentgraph'))).toBe(false);
     expect(cli('show').status).toBe(0);
     const copied = spawnSync('sh', ['-c', message.split('\n')[1]!.trim()], { cwd: w.seed, encoding: 'utf8' });
@@ -863,7 +864,7 @@ describe('an instance', () => {
     expect(shownGraph).toContain(`graph ${sandboxGraph}`);
     expect(shownGraph).toContain('agents/reviewer.md');
     await writeLabels(i.tracker, i.owner, 1, ['urgent']);
-    expect(readFileSync(join(i.tracker, '1.md'), 'utf8')).toContain('urgent');
+    expect(readFileSync(issuePath(i.tracker, 1), 'utf8')).toContain('urgent');
 
     Object.assign(process.env, { AGENTGRAPH_TRACKER: i.tracker, AGENTGRAPH_TRUST: i.owner });
     const run = (turns: SessionEvent[][], issue: number | 'all' = 1) =>

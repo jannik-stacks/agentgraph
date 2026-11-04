@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -16,7 +16,7 @@ import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start } from './fixtures.ts';
-import { git } from './kit.ts';
+import { git, findStatus, issuePath } from './kit.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));
 
@@ -36,12 +36,12 @@ const world = (issues: [number, string, number?][] = [[1, 'morgan']]) => {
   const tracker = join(root, 'tracker');
   for (const [n, author, parent] of issues)
     writeFileSync(
-      join(tracker, `${n}.md`),
+      issuePath(tracker, n),
       `---\ntitle: Issue ${n}\nstate: open\nauthor: ${author}\nlabels: []\n${parent ? `parent: ${parent}\n` : ''}---\n\nMake the package do ${n} things.\n`
     );
   const label = (issue: number) =>
     appendFileSync(
-      join(tracker, `${issue}.jsonl`),
+      issuePath(tracker, issue, 'events.jsonl'),
       `${JSON.stringify({ issue, kind: 'label', label: 'triage', actor: 'morgan', trusted: true, at: at(issue) } satisfies Event)}\n`
     );
   return { origin: join(tracker, 'origin.git'), tracker, data, label };
@@ -101,7 +101,8 @@ describe('triage', () => {
     where.label(1);
     const { value } = await run(where, [turn({ kind: 'label', add: ['size/S'] })], tick(graph));
     expect(value.map(r => [r.workflow, r.issue, r.status])).toEqual([['triage', 1, 'done']]);
-    expect((await issues(where)).map(t => [t.number, t.labels])).toEqual([[1, ['size/S', 'agentgraph:done']]]);
+    expect((await issues(where)).map(t => [t.number, t.labels])).toEqual([[1, ['size/S']]]);
+    expect(findStatus(where.tracker, 1)).toBe('done');
   });
 
   it('does not end done on a comment alone', async () => {
@@ -129,7 +130,7 @@ describe('triage', () => {
       [1, 'morgan'],
       [2, 'morgan'],
     ]);
-    const file = join(where.tracker, '1.md');
+    const file = issuePath(where.tracker, 1);
     writeFileSync(file, readFileSync(file, 'utf8').replace('labels: []', 'labels: []\nmilestone: v1'));
     where.label(1);
     where.label(2);
@@ -148,7 +149,7 @@ describe('triage', () => {
       [2, 'morgan'],
     ]);
     writeFileSync(
-      join(where.tracker, '2.md'),
+      issuePath(where.tracker, 2),
       '---\ntitle: the docs\nstate: open\nauthor: morgan\nlabels: []\n---\n\nDocs.\n'
     );
     where.label(1);
@@ -260,7 +261,7 @@ describe('triage', () => {
       [2, 'morgan'],
     ]);
     where.label(1);
-    const two = join(where.tracker, '2.md');
+    const two = issuePath(where.tracker, 2);
     writeFileSync(two, readFileSync(two, 'utf8').replace('labels: []', 'labels: [graph]'));
     const again = { ...follow('Issue 2'), relation: 'graph' };
     await run(where, [turn({ kind: 'label', add: ['size/S'] }, again)], tick(unbounded));
@@ -298,7 +299,7 @@ describe('triage', () => {
     where.label(3);
     await run(where, [turn(part('a big part', 'XL'))], tick(unbounded, 3));
     expect((await issues(where)).filter(t => t.parent === 3).map(t => [t.number, t.labels])).toEqual([
-      [4, ['agentgraph:needs-answer']],
+      [4, []],
       [5, ['size/XL']],
     ]);
     expect((await runs(where)).some(r => r.issue === 5)).toBe(false);
@@ -327,7 +328,7 @@ describe('ordering', () => {
       [1, 'morgan'],
       [2, 'morgan'],
     ]);
-    appendFileSync(join(where.tracker, '2.md'), '\nStacks on #1\n');
+    appendFileSync(issuePath(where.tracker, 2), '\nStacks on #1\n');
     const implement = graph.workflows.issue!;
     const waiting = begin(implement, { id: 'issue-2', issue: 2, started: at(5) });
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
@@ -337,7 +338,7 @@ describe('ordering', () => {
       ['issue-2', 'implement', 'running', 0],
     ]);
 
-    writeFileSync(join(where.tracker, '1.md'), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
+    writeFileSync(issuePath(where.tracker, 1), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
     const question = 'The dependency is closed; which implementation should I use?';
     const after = await run(where, [turn({ kind: 'ask', question })], tick(graph, 2, true));
     expect(after.value.map(r => [r.id, r.step, r.status, r.reason, r.tries])).toEqual([
@@ -351,14 +352,13 @@ describe('ordering', () => {
       [1, 'morgan'],
       [2, 'morgan'],
     ]);
-    appendFileSync(join(where.tracker, '2.md'), '\nDepends on #1\n');
+    appendFileSync(issuePath(where.tracker, 2), '\nDepends on #1\n');
     writeFileSync(
-      join(where.tracker, '3.md'),
+      issuePath(where.tracker, 3),
       '---\ntitle: Fix 1\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #1\n'
     );
-    mkdirSync(join(where.tracker, '3'), { recursive: true });
     writeFileSync(
-      join(where.tracker, '3', 'pull.json'),
+      issuePath(where.tracker, 3, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/1', base: 'main', head: 'abc' })
     );
     const implement = graph.workflows.issue!;
@@ -373,7 +373,7 @@ describe('dispatch', () => {
   /** A trusted comment on #1. */
   const mention = (where: ReturnType<typeof world>, body: string) =>
     appendFileSync(
-      join(where.tracker, '1.jsonl'),
+      issuePath(where.tracker, 1, 'events.jsonl'),
       `${JSON.stringify({ issue: 1, kind: 'comment', actor: 'morgan', trusted: true, at: at(1), comment: { id: 'c1', author: 'morgan', body, at: at(1) } } satisfies Event)}\n`
     );
 
@@ -448,22 +448,18 @@ describe('dispatch', () => {
 const putRun = (where: ReturnType<typeof world>, r: Run) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.put(r)).pipe(Effect.provide(fileStore(where.data))));
 const shut = (where: ReturnType<typeof world>, n: number, state: 'closed' | 'merged') => {
-  const file = join(where.tracker, `${n}.md`);
+  const file = issuePath(where.tracker, n);
   writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${state}`));
 };
 const openPull = (where: ReturnType<typeof world>, n: number, branch: string) => {
+  writeFileSync(issuePath(where.tracker, n), `---\ntitle: Pull ${n}\nstate: open\nauthor: morgan\n---\n\nCloses #1\n`);
   writeFileSync(
-    join(where.tracker, `${n}.md`),
-    `---\ntitle: Pull ${n}\nstate: open\nauthor: morgan\n---\n\nCloses #1\n`
-  );
-  mkdirSync(join(where.tracker, String(n)), { recursive: true });
-  writeFileSync(
-    join(where.tracker, String(n), 'pull.json'),
+    issuePath(where.tracker, n, 'pull.json'),
     JSON.stringify({ branch, base: 'main', head: 'x', baseSha: 'b1' })
   );
 };
 const sayOn = (where: ReturnType<typeof world>, m: Event) =>
-  appendFileSync(join(where.tracker, `${m.issue}.jsonl`), `${JSON.stringify(m)}\n`);
+  appendFileSync(issuePath(where.tracker, m.issue, 'events.jsonl'), `${JSON.stringify(m)}\n`);
 const command = (issue: number, body: string, s: number): Event => ({
   issue,
   kind: 'comment',

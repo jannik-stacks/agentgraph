@@ -1,9 +1,8 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { folderTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
-import { tmp } from './kit.ts';
+import { tmp, issuePath } from './kit.ts';
 
 describe('folder tracker issue search', () => {
   it('matches title and body keywords, filters states, excludes pulls and limits results', async () => {
@@ -13,9 +12,8 @@ describe('folder tracker issue search', () => {
     await writeIssueFile(dir, { title: 'Cache', author: 'alice', labels: [] }, 'failure retry');
     await writeIssueFile(dir, { title: 'Other issue', author: 'alice', labels: [] }, 'retry');
     await writeIssueFile(dir, { title: 'Cache failure', author: 'alice', labels: [] }, 'retry');
-    await mkdir(join(dir, '5'));
     await writeFile(
-      join(dir, '5', 'pull.json'),
+      issuePath(dir, 5, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/5', base: 'main', head: 'head' })
     );
     const found = await Effect.runPromise(

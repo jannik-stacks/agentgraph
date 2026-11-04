@@ -20,7 +20,7 @@ import { begin } from '../src/workflow.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { fixture, plant, seeded } from './fixtures.ts';
-import { commit, git } from './kit.ts';
+import { commit, findStatus, git, issuePath } from './kit.ts';
 
 const dirs: string[] = [];
 const temp = () => {
@@ -238,7 +238,7 @@ describe('fileStore', () => {
 describe('folderTracker', () => {
   it('reads issues, filters by label and parent, labels, opens issues and refuses a merge whose head moved', async () => {
     const dir = temp();
-    writeFileSync(join(dir, '1.md'), '---\ntitle: One\nstate: open\nauthor: a\nlabels: [ready]\n---\n\nFirst.\n');
+    writeFileSync(issuePath(dir, 1), '---\ntitle: One\nstate: open\nauthor: a\nlabels: [ready]\n---\n\nFirst.\n');
     const out = await Effect.runPromise(
       Effect.gen(function* () {
         const tracker = yield* Tracker;
@@ -270,10 +270,42 @@ describe('folderTracker', () => {
   });
 });
 
+const comment = (body: string) => ({ kind: 'comment', body }) as const;
+
 describe('folderTracker files', () => {
+  it('moves an issue into the folder of its status, keeping every event, and back out when the status has no name', async () => {
+    const dir = temp();
+    const n = await writeIssueFile(dir, { title: 'Moved', author: 'a', labels: [] }, '');
+    const seen = await Effect.runPromise(
+      Effect.gen(function* () {
+        const tracker = yield* Tracker;
+        yield* tracker.apply(n, comment('before'));
+        yield* Effect.all(
+          [
+            tracker.status!(n, 'working'),
+            tracker.apply(n, comment('during')),
+            tracker.status!(n, 'needs-review', { 'needs-review': 'review me' }),
+          ],
+          { concurrency: 'unbounded' }
+        );
+        const moved = findStatus(dir, n);
+        yield* tracker.status!(n, 'done', { stopped: 'halted' });
+        const refused = yield* Effect.flip(tracker.status!(n, 'done', { done: '../out' }));
+        const events = yield* Stream.runCollect(tracker.since(''));
+        return { moved, refused: refused.message, bodies: events.map(m => m.comment?.body) };
+      }).pipe(Effect.provide(folderTracker(dir)))
+    );
+    expect(seen).toEqual({
+      moved: 'review me',
+      refused: 'status done cannot be the folder name "../out"',
+      bodies: ['before', 'during'],
+    });
+    expect(findStatus(dir, n)).toBe('');
+  });
+
   it('gives issues filed at once their own numbers, and adopts a dropped file once', async () => {
     const dir = temp();
-    writeFileSync(join(dir, '1.md'), '---\ntitle: One\nauthor: a\nlabels: [ready]\n---\n');
+    writeFileSync(issuePath(dir, 1), '---\ntitle: One\nauthor: a\nlabels: [ready]\n---\n');
     const numbers = await Effect.runPromise(
       Effect.gen(function* () {
         const tracker = yield* Tracker;
@@ -294,7 +326,7 @@ describe('folderTracker files', () => {
     );
     expect(numbers.events).toEqual([1, 1, 1]);
     expect(numbers.all.toSorted((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(readdirSync(dir).filter(f => !/^\d+\.(md|jsonl)$/.test(f))).toEqual([]);
+    expect(readdirSync(dir).filter(f => !/^\d+$/.test(f))).toEqual([]);
   });
 });
 
@@ -310,7 +342,7 @@ describe('folderTracker push', () => {
     git(join(dir, 'seed'), 'push', '-q', 'origin', 'HEAD:main');
     git(dir, 'clone', '-q', '--mirror', origin, mirror);
     git(dir, '--git-dir', mirror, 'worktree', 'add', '-q', '--detach', work, 'main');
-    writeFileSync(join(dir, '1.md'), '---\ntitle: One\nstate: open\nauthor: a\n---\n\nFirst.\n');
+    writeFileSync(issuePath(dir, 1), '---\ntitle: One\nstate: open\nauthor: a\n---\n\nFirst.\n');
     writeFileSync(join(work, 'hello.txt'), 'hello\n');
     const checkout = {
       dir: work,
@@ -423,7 +455,7 @@ describe('folderTracker push', () => {
 describe('folderTracker issue', () => {
   it('reads back reviews, review comments, commits and checks, and withholds an outsider', async () => {
     const dir = temp();
-    writeFileSync(join(dir, '8.md'), '---\ntitle: Fix\nstate: open\nauthor: a\n---\n\nCloses #7\n');
+    writeFileSync(issuePath(dir, 8), '---\ntitle: Fix\nstate: open\nauthor: a\n---\n\nCloses #7\n');
     const said = (actor: string, trusted: boolean, body: string, more: object = {}) => ({
       issue: 8,
       actor,
@@ -445,7 +477,7 @@ describe('folderTracker issue', () => {
         check: { name: 'test', conclusion: 'failure' },
       },
     ];
-    writeFileSync(join(dir, '8.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
+    writeFileSync(issuePath(dir, 8, 'events.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
     const t = await Effect.runPromise(
       Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(folderTracker(dir)))
     );

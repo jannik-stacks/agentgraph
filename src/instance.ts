@@ -11,7 +11,15 @@ import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
 import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
-import { folderTracker, Tracker, formatIssueFile, parseIssueFile, runLocked, writeTimelineEvent } from './tracker.ts';
+import {
+  findIssueDir,
+  folderTracker,
+  Tracker,
+  formatIssueFile,
+  parseIssueFile,
+  runLocked,
+  writeTimelineEvent,
+} from './tracker.ts';
 import { gitIdentity, hostGit, makeHostEnv, readGit } from './git.ts';
 import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
@@ -286,7 +294,7 @@ export const writeLabels = (dir: string, as: string, n: number, add: string[]) =
 
 export const writeClosed = (dir: string, as: string, n: number) =>
   runLocked(dir, async () => {
-    const md = join(dir, `${n}.md`);
+    const md = join(findIssueDir(dir, n), 'issue.md');
     if (!existsSync(md)) throw new Error(`no issue #${n}`);
     const { front, body } = parseIssueFile(readFileSync(md, 'utf8'));
     writeFileAtomic(md, formatIssueFile({ ...front, state: 'closed' }, body.trim()));
@@ -305,7 +313,7 @@ export const mergePull = async (i: Pick<Instance, 'tracker' | 'owner'>, n: numbe
   await runLocked(i.tracker, async () => {
     for (const t of await readIssues(i.tracker))
       if (t.state === 'open' && t.pull?.base === branch)
-        writeFileAtomic(join(i.tracker, String(t.number), 'pull.json'), { ...t.pull, base });
+        writeFileAtomic(join(findIssueDir(i.tracker, t.number), 'pull.json'), { ...t.pull, base });
   });
   const issue = Number(/(\d+)$/.exec(branch)?.[1]);
   const named = (await readIssues(i.tracker)).find(t => t.number === issue);

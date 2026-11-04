@@ -1,9 +1,18 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
+import { findIssueDir } from '../src/tracker.ts';
 
 export const tmp = (name: string) => mkdtempSync(join(tmpdir(), `agentgraph-${name}-`));
+
+export const issuePath = (dir: string, n: number, name = 'issue.md') => {
+  const at = findIssueDir(dir, n);
+  mkdirSync(at, { recursive: true });
+  return join(at, name);
+};
+
+export const findStatus = (dir: string, n: number) => relative(dir, dirname(findIssueDir(dir, n)));
 
 /** Runs git in `cwd` with a fixed identity and no signing. */
 export const git = (cwd: string, ...args: string[]) =>

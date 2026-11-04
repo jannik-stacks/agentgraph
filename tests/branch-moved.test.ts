@@ -12,7 +12,7 @@ import { begin, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { git } from './kit.ts';
+import { git, issuePath } from './kit.ts';
 import { world, push, pull, services, readTrace, bodies, driveStored, fresh, pullRequest } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 
@@ -206,7 +206,7 @@ describe('a run branch that moved', () => {
     const where = world();
     pullRequest(where);
     writeFileSync(
-      join(where.tracker, '8', 'pull.json'),
+      issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/8', base: 'main', head: 'foreign' })
     );
     const { run } = services(where, [
@@ -223,7 +223,7 @@ describe('a run branch that moved', () => {
   it.each(['agentgraph/7', 'bothub/7'])('accepts a merge proposal for its own branch: %s', async branch => {
     const where = world();
     pullRequest(where);
-    writeFileSync(join(where.tracker, '8', 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
+    writeFileSync(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
     const { run } = services(where, [[start('a'), reply({ kind: 'merge', number: 8, head: 'own' })]]);
     await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('merged');
@@ -573,7 +573,9 @@ describe('a run branch that moved', () => {
       expect(done.status).toBe('waiting');
       expect(specs[1]!.prompt).toContain('.github/workflows/socket.yml');
       expect(specs[1]!.prompt).toContain(only ? 'Nothing pushed' : 'Not pushed');
-      expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Added .github/workflows/socket.yml');
+      expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).not.toContain(
+        'Added .github/workflows/socket.yml'
+      );
       const applied = readTrace(where.data, 'run-7').flatMap(t =>
         'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied] : []
       );
@@ -643,6 +645,6 @@ describe('a run branch that moved', () => {
       'outcome' in t && t.outcome.kind === 'failed' ? [t.outcome] : []
     );
     expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped.slice(0, 3), pull, skipped[3]]);
-    expect(readFileSync(join(where.tracker, '7.jsonl'), 'utf8')).not.toContain('Changes landed');
+    expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).not.toContain('Changes landed');
   });
 });

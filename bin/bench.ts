@@ -24,7 +24,7 @@ import { getMean, getRounded } from '../src/stats.ts';
 import type { CheckResult } from '../src/workflow.ts';
 import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
-import { writeIssueFile } from '../src/tracker.ts';
+import { findIssueDir, findIssueNumbers, writeIssueFile } from '../src/tracker.ts';
 import { writeComment } from '../src/instance.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
@@ -552,8 +552,8 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     answers++;
   }
   const origin = join(dir, 'origin.git');
-  const pull = readdirSync(dir)
-    .map(n => join(dir, n, 'pull.json'))
+  const pull = findIssueNumbers(dir)
+    .map(n => join(findIssueDir(dir, n), 'pull.json'))
     .find(existsSync);
   const branch = ['--git-dir', origin, 'rev-parse', '-q', '--verify', 'refs/heads/agentgraph/1'];
   const head = pull

@@ -10,7 +10,7 @@ import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { folderTracker, Tracker } from '../src/tracker.ts';
+import { findIssueDir, folderTracker, Tracker } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
@@ -676,7 +676,7 @@ async function loop(i: Instance) {
       const signal = AbortSignal.any([stopping.signal, woken.signal]);
       await Promise.race([
         sleep(host.every * 60_000, undefined, { signal }),
-        watch(i.tracker, { signal }).next(),
+        watch(i.tracker, { signal, recursive: true }).next(),
       ]).catch(() => {});
       woken.abort();
       await applySettings(connection.provider)().catch((e: Error) =>
@@ -704,7 +704,7 @@ async function showIssue(tracker: Tracker['Service'], issue: number, i: Instance
   const pull = await findPull(i.tracker, issue);
   for (const k of new Set([issue, pull?.number ?? issue])) {
     const t = await Effect.runPromise(tracker.issue(k)).catch((e: Error) => fail(e.message, 1));
-    const diff = join(i.tracker, String(k), 'diff.patch');
+    const diff = join(findIssueDir(i.tracker, k), 'diff.patch');
     console.log(formatIssueTimeline(t, existsSync(diff) ? readFileSync(diff, 'utf8') : ''));
   }
   for (const line of await formatRunnerErrors(i.data, await listRuns(i.data, { issue }))) console.log(line);

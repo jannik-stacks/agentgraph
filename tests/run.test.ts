@@ -16,7 +16,7 @@ import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { fakeDocker, harnesses, makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { git } from './kit.ts';
+import { git, findStatus, issuePath } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
   graph,
@@ -310,12 +310,12 @@ describe('drive', () => {
       'Brief: add hello.txt',
       'still not right',
     ]);
-    expect(tracker.labels).toEqual(['agentgraph:needs-answer']);
+    expect(findStatus(where.tracker, 7)).toBe('needs-answer');
     const pr = await run(Effect.flatMap(Tracker, f => f.issue(8)));
     expect(pr.pull).toMatchObject({ branch: 'agentgraph/7', base: 'main' });
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello world');
     expect(pr.pull?.head).toBe(git(where.origin, 'rev-parse', 'agentgraph/7'));
-    expect(existsSync(join(where.tracker, '8', 'diff.patch'))).toBe(true);
+    expect(existsSync(issuePath(where.tracker, 8, 'diff.patch'))).toBe(true);
 
     const tried = git(where.origin, 'for-each-ref', '--format=%(refname)', 'refs/agentgraph/attempts/run-7/');
     expect(tried.split('\n')).toHaveLength(8);
@@ -511,7 +511,7 @@ describe('drive', () => {
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'agentgraph/7')).toThrow();
     const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
     expect(bodies(issue)[1]).toContain(`| issue / implement | stopped: ${stopped.reason} | $0.25 |`);
-    expect(issue.labels).toEqual(['agentgraph:stopped']);
+    expect(findStatus(where.tracker, 7)).toBe('stopped');
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   });
@@ -531,18 +531,17 @@ describe('drive', () => {
       to => to === 'stopped' && refusals-- > 0
     );
     const stopped = await run(runWorkflow(w, fresh(), graph));
-    const labels = async () => (await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels;
-    expect(await labels()).toEqual(['agentgraph:working']);
+    expect(findStatus(where.tracker, 7)).toBe('working');
     expect((await run(Effect.flatMap(Store, s => s.get(stopped.id))))?.unshown).toBe(true);
     await run(tick(graph));
-    expect(await labels()).toEqual(['agentgraph:stopped']);
+    expect(findStatus(where.tracker, 7)).toBe('stopped');
     expect((await run(Effect.flatMap(Store, s => s.get(stopped.id))))?.unshown).toBeUndefined();
   });
 
   it.each([
-    [{ stopped: 'halted', done: 'shipped' }, ['halted']],
-    [false, []],
-  ] as const)('shows the status by the names in status: %j', async (status, labels) => {
+    [{ stopped: 'halted', done: 'shipped' }, 'halted'],
+    [false, ''],
+  ] as const)('shows the status by the names in status: %j', async (status, folder) => {
     const where = world();
     const { run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
@@ -550,7 +549,7 @@ describe('drive', () => {
       judged,
     ]);
     await run(runWorkflow(w, fresh(), { ...graph, status }));
-    expect((await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels).toEqual(labels);
+    expect(findStatus(where.tracker, 7)).toBe(folder);
   });
 
   it('traces a ref to the full output of every check it ran, which the store resolves', async () => {
@@ -586,13 +585,12 @@ describe('drive', () => {
     git(clone, 'add', '-A');
     git(clone, 'commit', '-q', '-m', 'Touch CHAT.md');
     git(clone, 'push', '-q', 'origin', 'agentgraph/8');
-    mkdirSync(join(where.tracker, '8'), { recursive: true });
     writeFileSync(
-      join(where.tracker, '8.md'),
+      issuePath(where.tracker, 8),
       '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
     writeFileSync(
-      join(where.tracker, '8', 'pull.json'),
+      issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/8', base: 'main', head: git(clone, 'rev-parse', 'HEAD') })
     );
     const { run } = services(where, [

@@ -117,8 +117,8 @@ layer that provides the `Tracker`, and `origin`, the git remote sandboxes mirror
 other value is the path of a folder for the built-in `folder` tracker, relative to the working directory. Plugins of
 the graph `--dir` names count; a graph read from the repo cannot pick its own tracker. `agi check --dir <graph>` says
 when the selection names nothing, names a plugin without a tracker, or needs a graph read from the repo. A tracker's
-optional `status(n, to, names)` shows an issue's status; the built-ins swap labels named by the graph's `status`
-setting. A status the tracker refuses is shown again on the next pass.
+optional `status(n, to, names)` shows an issue's status by the names in the graph's `status` setting: `github` swaps
+labels, `folder` moves the issue's folder. A status the tracker refuses is shown again on the next pass.
 <!-- code: src/plugin.ts#TrackerHost src/services.ts#readHostSettings src/services.ts#pickTracker src/tracker.ts#folder src/github.ts#github src/run/settle.ts#writeStatus -->
 
 ## Studio pages
