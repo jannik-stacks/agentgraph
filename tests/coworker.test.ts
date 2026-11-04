@@ -691,6 +691,30 @@ describe('coworker', () => {
     ]);
   });
 
+  it('replies on the pull request that holds the thread when the run has no branch', async () => {
+    const where = world();
+    pullRequest(where);
+    const at = '2026-10-16T00:00:03.000Z';
+    const line = {
+      id: 'r1',
+      author: 'morgan',
+      body: '/agent question only why hello?',
+      at,
+      path: 'hello.txt',
+      line: 1,
+    };
+    say(where, { ...comment(8, 'morgan', true, line.body, at), comment: line });
+    const { branch: _branch, ...unbranched } = flow;
+    const { run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Asked for.', under: 'r1' })]]);
+    const said = [{ issue: 8, under: 'r1' }];
+    const done = await run(
+      runWorkflow(unbranched, { ...begun(), said }, { ...small, workflows: { issue: unbranched } })
+    );
+    const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    expect(done.status).toBe('done');
+    expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under])).toEqual([['Asked for.', 'r1']]);
+  });
+
   it('replies where the human answered: on the pull request, and under a review comment in its issue', async () => {
     const where = world();
     pullRequest(where);

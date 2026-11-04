@@ -226,7 +226,7 @@ export const writeProposals = (
           p.kind !== 'comment'
             ? [[run.issue, p]]
             : p.under !== undefined
-              ? [[to ?? run.issue, p]]
+              ? [[run.said?.find(s => s.under === p.under)?.issue ?? to ?? run.issue, p]]
               : p.edit !== undefined
                 ? [[places[0]!.issue, p]]
                 : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]

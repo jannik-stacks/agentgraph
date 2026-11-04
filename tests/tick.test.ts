@@ -559,7 +559,7 @@ describe('tick', () => {
     expect(specs).toHaveLength(0);
   });
 
-  it('applies the push, then asks with the error when a reply fails on the tracker', async () => {
+  it('applies the push, then retries and parks as a runner error when a reply fails on the tracker', async () => {
     const where = world();
     const failing = Layer.effect(
       Tracker,
@@ -576,14 +576,20 @@ describe('tick', () => {
       failing,
       fileStore(where.data),
       hostSandbox(where.origin),
-      replaySession([[start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push, pull)]])
+      replaySession([
+        [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push, pull)],
+        [start('a'), reply({ kind: 'comment', body: 'boom' }, push, pull)],
+      ])
     );
-    const asked = await Effect.runPromise(
+    const parked = await Effect.runPromise(
       runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(
         Effect.provide(layer)
       )
     );
-    expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'GitHub failed: forbidden' });
+    const issue = await Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(7)).pipe(Effect.provide(layer)));
+    expect(parked).toMatchObject({ step: 'implement', status: 'waiting', retried: true });
+    expect(parked.reason).toMatch(/^Stopped by a runner error/);
+    expect(bodies(issue).filter(b => b.includes('forbidden'))).toEqual([]);
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
   });
 

@@ -547,40 +547,29 @@ export const runAttempt = (
     );
     const children = world.filter((p): p is Child => p.kind === 'issue');
     const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run' && p.kind !== 'tell');
-    const landed = yield* Effect.result(
-      Effect.gen(function* () {
-        const applied = yield* writeProposals(tried, rest, work, to);
-        if (applied.some(a => !a.ok && a.proposal.kind === 'push'))
-          return [
-            ...applied,
-            ...children.map((proposal): Applied => ({ proposal, ok: false, reason: 'push failed; not applied' })),
-          ];
-        return [...applied, ...(yield* createIssues(w, tried, children))];
-      }).pipe(useRunLink(tried, spoke))
-    );
-    if (Result.isFailure(landed) && landed.failure._tag === 'StoreError') return yield* landed.failure;
-    if (Result.isFailure(landed))
-      return done(
-        {
-          kind: 'ask',
-          question: `GitHub failed: ${formatSqueezed(landed.failure.message, 200)}`,
-        },
-        tried
-      );
-    if (landed.success.some(a => a.ok)) tried = removeThreads(tried);
-    if (tried.onto && landed.success.some(a => a.ok && a.proposal.kind === 'push')) {
+    const landed = yield* Effect.gen(function* () {
+      const applied = yield* writeProposals(tried, rest, work, to);
+      if (applied.some(a => !a.ok && a.proposal.kind === 'push'))
+        return [
+          ...applied,
+          ...children.map((proposal): Applied => ({ proposal, ok: false, reason: 'push failed; not applied' })),
+        ];
+      return [...applied, ...(yield* createIssues(w, tried, children))];
+    }).pipe(useRunLink(tried, spoke));
+    if (landed.some(a => a.ok)) tried = removeThreads(tried);
+    if (tried.onto && landed.some(a => a.ok && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;
       tried = rest;
     }
-    const proposed = runs[0] && landed.success.every(a => a.ok) ? runs[0] : undefined;
+    const proposed = runs[0] && landed.every(a => a.ok) ? runs[0] : undefined;
     const child = proposed && (yield* startProposedRun(graph, tried, proposed));
     const dispatched: Applied[] = !proposed
       ? []
       : child
         ? [{ proposal: proposed, ok: true, id: child.id }]
         : [{ proposal: proposed, ok: false, reason: 'its run id was taken' }];
-    const applied = [...landed.success, ...delivered, ...dispatched];
-    const failed = [...landed.success, ...dispatched].filter(a => !a.ok);
+    const applied = [...landed, ...delivered, ...dispatched];
+    const failed = [...landed, ...dispatched].filter(a => !a.ok);
     yield* writeAppliedTrace(run.id, step.name, applied);
     return done(
       failed.length
