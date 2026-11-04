@@ -216,13 +216,12 @@ export const ensureBase = async (i: Instance): Promise<string | undefined> => {
   ].join('\n');
 };
 
+const readGraphSource = async (i: Instance) => ({
+  GIT_DIR: existsSync(origin(i)) ? origin(i) : await inRepo(i.checkout, ['rev-parse', '--absolute-git-dir']),
+});
+
 export const ensureGraph = async (i: Instance, flag = i.graph) => {
-  const source = flag
-    ? undefined
-    : existsSync(origin(i))
-      ? origin(i)
-      : await inRepo(i.checkout, ['rev-parse', '--absolute-git-dir']);
-  const env = source ? { GIT_DIR: source } : {};
+  const env = flag ? {} : await readGraphSource(i);
   if (!flag && !existsSync(origin(i))) await git(env, ['rev-parse', '--verify', `refs/heads/${i.base}`]);
   const tree = flag
     ? undefined
@@ -299,7 +298,10 @@ export const formatGraphName = async (i: Instance, graph: string) => {
   if (graph === join(i.checkout, '.agentgraph') && !(await inRepo(i.checkout, ['ls-files', '--', '.agentgraph'])))
     return 'graph .agentgraph/ (not in git)';
   if (!isCommittedGraph(i, graph)) return `graph ${graph}`;
-  return `.agentgraph/ at ${i.base} ${await inTracker(i, ['rev-parse', '--short', `refs/heads/${i.base}`])}`;
+  const at = await readGraphSource(i)
+    .then(env => git(env, ['rev-parse', '--short', `refs/heads/${i.base}`]))
+    .catch(() => '');
+  return `.agentgraph/ at ${i.base} ${at}`.trim();
 };
 
 const readIssues = (dir: string) =>

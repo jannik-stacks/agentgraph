@@ -410,6 +410,7 @@ async function runOnInstance(
       await synced();
       return openStudio(i);
     case 'start': {
+      if (!setup.origin.local) fail("open the issue on the tracker; the App's own issues do not start runs");
       const text = rest.join(' ').trim();
       if (!text) fail(`start takes the issue text\n${usage}`);
       const graph = await synced();
@@ -430,14 +431,13 @@ async function runOnInstance(
       return drive(i, issue, graph, provider);
     }
     case 'say': {
+      if (!setup.origin.local) fail("comment on the tracker; the App's own comments do not reach runs");
       if (!said()) fail(`say takes text\n${usage}`);
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
-      if (values.line) {
-        if (!setup.origin.local) fail('--line applies to a local tracker');
-        await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
-      } else {
+      if (values.line) await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
+      else {
         const posted = await Effect.runPromise(
           (await getTracker()).apply(n, { kind: 'comment', body: formatAgentComment(said()) })
         );

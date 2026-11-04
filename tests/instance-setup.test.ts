@@ -15,7 +15,8 @@ import { ConfigProvider, Effect, Layer } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { stringify } from 'yaml';
 import type { InstanceFile } from '../src/settings.ts';
-import { ensureInstance, readInstance } from '../src/instance.ts';
+import { ensureInstance, formatGraphName, readInstance } from '../src/instance.ts';
+import { getCachePath } from '../src/env.ts';
 import { readInstanceEnv, start, createLoopLock } from '../src/main.ts';
 import { settings, makeTrackerSetup, whyModelHostsMissing } from '../src/services.ts';
 import { makeServedGraph } from '../studio/served.ts';
@@ -129,6 +130,22 @@ it('constructs a GitHub instance offline without a local origin or shell credent
   expect(setup.origin).toMatchObject({ origin: 'https://github.com/owner/repository.git' });
   const checked = w.run('check');
   expect([checked.status, checked.stdout.trim(), checked.stderr]).toEqual([0, 'ok', '']);
+});
+
+it('refuses start and say on a hosted tracker, where the App posts as an untrusted bot', async () => {
+  const w = await makeInstance('hosted');
+  const env = join(w.root, 'app.env');
+  writeFileSync(env, 'ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY=offline-key\n');
+  w.save({ tracker: 'github', env, provider: 'anthropic' });
+  rmSync(w.instance.tracker, { recursive: true });
+  const refused = [
+    ['start', 'Fix it'],
+    ['say', '1', 'hi'],
+  ].map(args => w.run(...args));
+  expect(refused.map(r => [r.status, r.stdout, r.stderr])).toEqual([
+    [2, '', expect.stringContaining('open the issue on the tracker')],
+    [2, '', expect.stringContaining('comment on the tracker')],
+  ]);
 });
 
 it('authenticates a provider using credentials only in the instance env', async () => {
@@ -542,6 +559,32 @@ writeFileSync(${JSON.stringify(marker)}, 'imported'); throw new Error('unreviewe
   w.save({ graph: undefined, tracker: 'github', env, base: 'absent' });
   expect(w.run('check').status).toBe(1);
   expect(existsSync(marker)).toBe(false);
+});
+
+it('prints the startup banner for an origin-less instance with a committed graph', async () => {
+  const w = await makeInstance('banner');
+  const graph = join(w.seed, '.agentgraph');
+  mkdirSync(graph);
+  writeFileSync(join(graph, 'settings.yaml'), '{}');
+  git(w.seed, 'add', '.agentgraph');
+  git(w.seed, 'commit', '-qm', 'graph');
+  const env = join(w.root, 'model.env');
+  writeFileSync(env, 'ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY=offline-key\n');
+  w.save({ graph: undefined, tracker: 'github', env, provider: 'anthropic' });
+  rmSync(w.instance.tracker, { recursive: true });
+  const result = w.run('loop', '--once');
+  expect(result.stdout).toMatch(/\.agentgraph\/ at main [0-9a-f]{7}, /);
+});
+
+it('prints the banner without a revision when the graph source cannot be read', async () => {
+  const w = await makeInstance('unread');
+  rmSync(w.instance.tracker, { recursive: true });
+  const graph = getCachePath(w.instance.data, 'graphs', 'tree');
+  const names = await Promise.all([
+    formatGraphName({ ...w.instance, base: 'absent' }, graph),
+    formatGraphName({ ...w.instance, checkout: w.root }, graph),
+  ]);
+  expect(names).toEqual(['.agentgraph/ at absent', '.agentgraph/ at main']);
 });
 
 it('starts the hosted entrypoint from a non-repo image with its named instance', async () => {

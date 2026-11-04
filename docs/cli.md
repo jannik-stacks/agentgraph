@@ -37,7 +37,7 @@ agi resume <run-id> --tracker github --dir <graph> --data <runs>
 
 <!-- code: src/run/trigger.ts#instruct -->
 
-Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-drives).
+Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-drives). On a hosted tracker, `start` and `say` refuse, since issues and comments the App posts start no run; open the issue or comment on the tracker instead. <!-- code: bin/run.ts#runOnInstance -->
 
 ## Flags
 
