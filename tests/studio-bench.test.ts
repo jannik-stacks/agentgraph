@@ -305,7 +305,7 @@ describe('the bench page data', () => {
     const plugin = makeStudioPagesPlugin().configureServer as (server: unknown) => Promise<void>;
     await plugin({
       watcher: { add: () => {}, on: () => {}, off: () => {} },
-      config: { logger: { error: () => {} } },
+      config: { logger: { error: () => {} }, server: { fs: { allow: [] } } },
       middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) },
     });
     const ask = () =>

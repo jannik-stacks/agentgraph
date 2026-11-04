@@ -5,7 +5,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { ConfigProvider, Effect, Redacted, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Redacted, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
@@ -13,7 +13,7 @@ import type { Graph } from '../src/folder.ts';
 import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
 import { readConfiguredGraph, readHarnessSettings, splitNames, type Provider } from '../src/harnesses.ts';
 import {
-  ensureGraph,
+  ensureInstanceGraph,
   ensureInstance,
   writePullToRepo,
   findInstances,
@@ -56,11 +56,12 @@ import {
   makeTrackerSetup,
   pickTracker,
   readHostSettings,
+  hostSettings,
   settings,
   type Settings,
   whyModelHostsMissing,
 } from '../src/services.ts';
-import { fileStore, pruneLogs, Store } from '../src/store.ts';
+import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
 import type { Run, RunRecord } from '../src/workflow.ts';
 
@@ -160,7 +161,7 @@ const pickProvider = async (i: Instance, after: string): Promise<{ provider: Pro
   const found: { provider: Provider; ready: boolean }[] = [];
   for (const provider of providers) {
     const ready = await provider.ready({ ...host, env: scope.env });
-    if (ready || provider.detect?.({ ...host, env: scope.env })) found.push({ provider, ready });
+    if (ready || (await provider.detect?.({ ...host, env: scope.env }))) found.push({ provider, ready });
   }
   if (found.length === 0)
     fail(['No model to use.', ...providers.flatMap(p => (p.setup ? [`  ${p.setup}`] : [])), after].join('\n'), 1);
@@ -181,7 +182,7 @@ const pickProvider = async (i: Instance, after: string): Promise<{ provider: Pro
 
 const applySettings = async (provider: Provider) => {
   Object.assign(scope.env, await provider.settings?.({ ...host, env: scope.env }));
-  Object.assign(scope.env, await readEngineEnv(scope.env));
+  Object.assign(scope.env, await readEngineEnv(scope.env), commandEnv);
 };
 
 const findUnserved = (provider: Provider, graph: Graph) =>
@@ -193,10 +194,9 @@ const findUnserved = (provider: Provider, graph: Graph) =>
     }));
 
 const connect = async (i: Instance, graph: string, after: string) => {
-  const root = !host.sandbox && whyRoot();
-  if (root) fail(`${root}\n${after}`, 1);
   const { provider, ready } = await pickProvider(i, after);
-  scope = await readInstanceEnv(i, makeHarnessChoice(provider.name), defaults, values.tracker);
+  scope = await readInstanceEnv(i, makeHarnessChoice(provider.name), defaults, commandEnv);
+  scope.env.AGENTGRAPH_DIR = graph;
   if (values.save && values.provider) writeInstanceProvider(i, provider.name);
   const harness = values.harness ?? provider.harnesses[0]!;
   if (!provider.harnesses.includes(harness)) fail(`${formatUnserved(provider, harness)}\n${after}`);
@@ -210,12 +210,24 @@ const connect = async (i: Instance, graph: string, after: string) => {
       (() => Promise.reject(new Error([`${provider.name} is not ready`, provider.setup].filter(Boolean).join('\n'))))
     )({ ...host, env: scope.env }).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   await applySettings(provider).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
-  if (!host.sandbox) {
-    const missing = await Effect.runPromise(whyModelHostsMissing).catch((e: Error) => fail(e.message, 1));
+  scope.env.AGENTGRAPH_DIR = graph;
+  const resolved = await Effect.runPromise(
+    Effect.all({ host: Config.all(hostSettings), graph: readConfiguredGraph(graph, i, overrides) }).pipe(
+      Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
+    )
+  ).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+  if (!resolved.host.sandbox) {
+    const root = whyRoot();
+    if (root) fail(`${root}\n${after}`, 1);
+    const missing = await Effect.runPromise(
+      whyModelHostsMissing.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+    ).catch((e: Error) => fail(e.message, 1));
     if (missing) fail(`${missing}\n${after}`, 1);
-    const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`), host.image)).catch(
-      (e: Error) => fail(`${e.message}\n${after}`, 1)
-    );
+    const docker = await Effect.runPromise(
+      ensureDocker(line => console.log(`sandbox  ${line}`), resolved.graph.image ?? resolved.host.image).pipe(
+        Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
+      )
+    ).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
     console.log(`sandbox  docker ${docker}`);
   }
   const aliases = new Map(
@@ -267,7 +279,7 @@ let trackerSetup: Awaited<ReturnType<typeof makeTrackerSetup>>;
 
 const instruction =
   (verb === 'check' && values.runs) || verb === 'resume' || verb === 'dispatch' ? instructed() : undefined;
-const host = await readHostSettings({ data: values.data }).catch((e: Error) => fail(e.message));
+let host = await readHostSettings({ data: values.data }).catch((e: Error) => fail(e.message));
 const root = host.data;
 const saved = values.instance !== undefined ? readInstance(root, values.instance) : undefined;
 const checkout = saved && !values.repo ? saved.checkout : await findRepo(resolve(values.repo ?? '.'));
@@ -283,25 +295,64 @@ const i = isGraphCheck
 if (values.instance && !i) fail(`no instance ${values.instance} under ${root}; pass --repo <dir> to create it`);
 const defaults = {
   ...(host.config && { AGENTGRAPH_CONFIG: host.config }),
-  ...(values.logs && { AGENTGRAPH_CHECK_LOGS: values.logs }),
 };
-let scope = await readInstanceEnv(i, makeHarnessChoice(values.provider), defaults, values.tracker);
+const commandEnv = {
+  ...(values.logs !== undefined && { AGENTGRAPH_CHECK_LOGS: values.logs }),
+  ...(values.tracker !== undefined && { AGENTGRAPH_TRACKER: values.tracker }),
+};
+let scope = await readInstanceEnv(i, makeHarnessChoice(values.provider), defaults, commandEnv);
+host = {
+  ...host,
+  ...(await Effect.runPromise(
+    Config.all(hostSettings).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+  )),
+};
 const graphDir = values.dir ?? scope.env.AGENTGRAPH_DIR;
 const selected = i ? formatInstanceFlags(i.checkout, root, basename(i.dir)) : '';
-const selection = scope.env.AGENTGRAPH_TRACKER;
+const selection = scope.env.AGENTGRAPH_TRACKER!;
 if (isGraphCheck) await checkGraph(resolve(values.dir!), i);
 if (!i) {
   if (verb === 'show') await showInstances(root);
   else fail(`${verb} runs inside a git repo, or pass --repo <dir>\n${usage}`);
 } else {
-  scope.env.AGENTGRAPH_DIR = graphDir ? resolve(graphDir) : (i.graph ?? join(i.checkout, '.agentgraph'));
+  if (verb === 'prune-logs') {
+    await prune(i.data);
+    process.exit(0);
+  }
+  if (verb === 'label') {
+    await relabel(i.data);
+    process.exit(0);
+  }
+  if (
+    verb === 'show' &&
+    rest[0] !== 'graph' &&
+    !['folder', 'github'].includes(selection) &&
+    !existsSync(join(resolve(selection), 'origin.git'))
+  ) {
+    const runs = await listRuns(i.data, rest[0] ? { issue: numbered() } : {});
+    printRuns(runs);
+    for (const line of findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, undefined, selected)))
+      console.log(line);
+    process.exit(0);
+  }
+  const graph =
+    ((verb === 'show' && rest[0] !== 'graph') || ['export', 'close', 'import'].includes(verb)) &&
+    ['folder', 'github'].includes(selection)
+      ? ''
+      : await ensureInstanceGraph(i, graphDir).catch((e: Error) => fail(e.message, 1));
+  scope.env.AGENTGRAPH_DIR = graph;
+  if (verb === 'show' && rest[0] === 'graph') {
+    console.log(`graph ${graph}`);
+    for (const file of readdirSync(graph, { recursive: true, encoding: 'utf8' }).toSorted()) console.log(`  ${file}`);
+    process.exit(0);
+  }
   const current = await Effect.runPromise(
     settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
   );
   const setup = await makeTrackerSetup(current).catch((e: Error) => fail(e.message, 1));
   if (setup.origin.local && !existsSync(setup.origin.origin))
     fail(`the tracker folder ${i.tracker} has no origin.git; restore it, or move ${i.dir} aside to start anew`);
-  await runOnInstance(values.base === undefined ? i : { ...i, base: values.base }, setup, current.trust);
+  await runOnInstance(values.base === undefined ? i : { ...i, base: values.base }, setup, current.trust, graph);
 }
 
 function instructed(): Instruction {
@@ -339,7 +390,8 @@ async function prune(data: string) {
 async function runOnInstance(
   instance: Instance,
   setup: Awaited<ReturnType<typeof makeTrackerSetup>>,
-  trust: Settings['trust']
+  trust: Settings['trust'],
+  graph: string
 ) {
   trackerSetup = setup;
   const i = setup.origin.local ? { ...instance, tracker: dirname(setup.origin.origin) } : instance;
@@ -347,10 +399,6 @@ async function runOnInstance(
   const synced = async () => {
     const why = setup.origin.local && (await ensureBase(i));
     if (why) fail(why, 1);
-    const graph = await ensureGraph(
-      i,
-      graphDir ?? (!setup.origin.local ? (i.graph ?? join(i.checkout, '.agentgraph')) : undefined)
-    ).catch((e: Error) => fail(e.message, 1));
     const uncommitted = await whyGraphUncommitted(i, graph);
     if (uncommitted) console.error(uncommitted);
     return graph;
@@ -445,13 +493,6 @@ async function runOnInstance(
       return;
     }
     case 'show':
-      if (rest[0] === 'graph') {
-        const graph = await synced();
-        console.log(`graph ${graph}`);
-        for (const file of readdirSync(graph, { recursive: true, encoding: 'utf8' }).toSorted())
-          console.log(`  ${file}`);
-        return;
-      }
       return rest[0] ? showIssue(await getTracker(), numbered(), i) : showAll(i, await getTracker());
     case 'check':
     case 'resume':
@@ -471,11 +512,7 @@ async function runOnInstance(
       );
     }
     case 'loop':
-      return loop(i);
-    case 'prune-logs':
-      return prune(i.data);
-    case 'label':
-      return relabel(i.data);
+      return loop(i, graph);
     case 'import': {
       if (rest.length < 1 || rest.length > 2)
         fail(`import takes a commit or patch file, then an optional issue file\n${usage}`);
@@ -566,8 +603,9 @@ function openStudio(i: Instance) {
   const flags = [
     '--instance',
     basename(i.dir),
-    ...(values.data ? ['--data', root] : []),
-    ...(graphDir ? ['--dir', resolve(graphDir)] : []),
+    '--data',
+    root,
+    ...(values.dir ? ['--dir', resolve(values.dir)] : []),
     ...(values.tracker ? ['--tracker', values.tracker] : []),
   ];
   const { status } = spawnSync(process.execPath, [join(dir, 'watch.ts'), '--repo', i.checkout, ...flags], {
@@ -631,33 +669,29 @@ async function report(
   if (steps.length) console.log(`Next:\n${steps.join('\n')}`);
 }
 
-async function loop(i: Instance) {
+async function loop(i: Instance, first: string) {
   const moved = trackerSetup.origin.local && (await ensureBase(i));
   if (moved) fail(moved, 1);
-  const first = await ensureGraph(
-    i,
-    graphDir ?? (!trackerSetup.origin.local ? (i.graph ?? join(i.checkout, '.agentgraph')) : undefined)
-  ).catch((e: Error) => fail(e.message, 1));
   const uncommitted = await whyGraphUncommitted(i, first);
   if (uncommitted) console.error(uncommitted);
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(failLoopLock);
   const drives = values.once ? undefined : startLoopDrives();
   trapInterrupt(release);
+  let why = '';
   try {
     while (!stopping.signal.aborted) {
-      let graph = '';
-      const why =
-        (trackerSetup.origin.local && (await ensureBase(i))) ||
-        (await ensureGraph(
-          i,
-          graphDir ?? (!trackerSetup.origin.local ? (i.graph ?? join(i.checkout, '.agentgraph')) : undefined)
-        )
-          .then(dir => loadServedGraph(connection, (graph = dir), i))
-          .then(
-            () => '',
-            (e: Error) => e.message
-          ));
+      const graph = scope.env.AGENTGRAPH_DIR!;
+      const current = await Effect.runPromise(
+        settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+      );
+      await writeIdleRunsCompressed(i.data, current.compress).catch((e: Error) =>
+        console.error(`compressing idle runs failed: ${e.message}`)
+      );
+      why ||= await loadServedGraph(connection, graph, i).then(
+        () => '',
+        (e: Error) => e.message
+      );
       if (why) console.error(why);
       else {
         const decided: RunRecord[] = await start(
@@ -695,16 +729,23 @@ async function loop(i: Instance) {
         ...(trackerSetup.origin.local ? [waitForTrackerEdit(i.tracker, signal)] : []),
       ]).catch(() => {});
       woken.abort();
-      scope = await readInstanceEnv(i, makeHarnessChoice(connection.provider.name), defaults, values.tracker);
+      scope = await readInstanceEnv(i, makeHarnessChoice(connection.provider.name), defaults, commandEnv);
       await applySettings(connection.provider).catch((e: Error) =>
         console.error(
           `${connection.provider.name} settings did not refresh, the next pass keeps the last: ${e.message}`
         )
       );
-      scope.env.AGENTGRAPH_DIR = graphDir ? resolve(graphDir) : (i.graph ?? join(i.checkout, '.agentgraph'));
-      trackerSetup = await makeTrackerSetup(
-        await Effect.runPromise(settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config)))
-      );
+      try {
+        const moved = trackerSetup.origin.local && (await ensureBase(i));
+        if (moved) throw new Error(moved);
+        scope.env.AGENTGRAPH_DIR = await ensureInstanceGraph(i, values.dir ?? scope.env.AGENTGRAPH_DIR);
+        trackerSetup = await makeTrackerSetup(
+          await Effect.runPromise(settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config)))
+        );
+        why = '';
+      } catch (e) {
+        why = (e as Error).message;
+      }
     }
   } finally {
     await drives?.stop();

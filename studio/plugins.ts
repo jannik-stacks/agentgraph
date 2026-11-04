@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { Effect, Schema } from 'effect';
@@ -16,7 +16,6 @@ const manifest = 'virtual:agentgraph-pages';
 const entry = 'virtual:agentgraph-page/';
 
 const readStudioDirs = () => ({
-  dir: process.env.AGI_STUDIO_DIR,
   data: process.env.AGI_STUDIO_DATA,
   bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
   tune: process.env.AGI_STUDIO_TUNE,
@@ -89,15 +88,23 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
     }));
 };
 
-const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>): WatchRoot[] => {
-  const { dir, data, bench, tune } = readStudioDirs();
+const readWatchRoots = (
+  pages: Awaited<ReturnType<typeof readStudioPages>>,
+  served: Awaited<ReturnType<ReturnType<typeof makeServedGraph>['read']>>
+): WatchRoot[] => {
+  const { data, bench, tune } = readStudioDirs();
   const rootLayouts = new Map([
     ...(data ? [[data, layouts.data] as const] : []),
     ...bench.map(root => [root, layouts.bench] as const),
     ...(tune ? [[tune, layouts.tune] as const] : []),
   ]);
   return [
-    ...(dir ? [{ root: dir, topic: 'graph', layout: layouts.any }] : []),
+    ...(served
+      ? [
+          { root: served.dir, topic: 'graph', layout: layouts.any },
+          ...served.files.map(root => ({ root, topic: 'graph', layout: () => false })),
+        ]
+      : []),
     ...(data ? [{ root: data, topic: 'data', layout: layouts.data }] : []),
     ...pages.flatMap(page =>
       page.watch.map(root => ({ root, topic: page.name, layout: rootLayouts.get(root) ?? layouts.any }))
@@ -106,13 +113,17 @@ const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>): Wat
 };
 
 export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
-  const pages = readStudioPages(served);
-  let dispose: (() => void) | undefined;
+  let pages = readStudioPages(served);
+  let roots: WatchRoot[] = [];
+  let unserved = makeUnservedFilter(roots);
+  let dispose: (() => Promise<void>) | undefined;
   return {
     name: 'agentgraph:pages',
     enforce: 'pre',
     async config() {
       const loaded = await pages;
+      roots = readWatchRoots(loaded, await served.read());
+      unserved = makeUnservedFilter(roots);
       return {
         resolve: {
           alias: { '@jannik-stacks/agi/studio': fileURLToPath(new URL('./src/plugins.ts', import.meta.url)) },
@@ -120,7 +131,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
         },
         server: {
           fs: { allow: loaded.map(page => dirname(fileURLToPath(page.page))) },
-          watch: { ignored: [makeUnservedFilter(readWatchRoots(loaded))] },
+          watch: { ignored: [(path: string) => unserved(path)] },
         },
       };
     },
@@ -146,30 +157,38 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
         code + (await pages).map(page => `\n@source ${JSON.stringify(dirname(fileURLToPath(page.page)))};`).join('')
       );
     },
-    closeBundle() {
-      dispose?.();
+    async closeBundle() {
+      await dispose?.();
     },
     async configureServer(server) {
-      const loaded = await pages;
-      const reference = JSON.parse(process.env.AGI_STUDIO_INSTANCE ?? 'null');
-      const { readInstance } = await import(new URL('../src/instance.ts', import.meta.url).href);
-      const instance = reference ? readInstance(reference.root, reference.name) : undefined;
-      const files = reference
-        ? [join(reference.root, reference.name, 'instance.yaml'), ...(instance?.env ? [instance.env] : [])]
-        : [];
-      dispose = startWatch(
-        server,
-        [...readWatchRoots(loaded), ...files.map(root => ({ root, topic: 'graph', layout: () => false }))],
-        topics => {
+      let loaded = await pages;
+      const initial = new Set(loaded.map(page => dirname(fileURLToPath(page.page))));
+      const allowed = server.config.server.fs.allow.filter(root => !initial.has(root));
+      const watch = async () => {
+        await dispose?.();
+        dispose = startWatch(server, roots, topics => {
           if (!topics.includes('graph')) return server.ws.send('agi:changed', { topics });
           served.forget();
-          for (const id of servedIds) {
-            const module = server.moduleGraph.getModuleById(`\0${id}`);
-            if (module) server.moduleGraph.invalidateModule(module);
-          }
-          server.ws.send({ type: 'full-reload' });
-        }
-      );
+          pages = readStudioPages(served);
+          void pages
+            .then(async current => {
+              loaded = current;
+              roots = readWatchRoots(loaded, await served.read());
+              unserved = makeUnservedFilter(roots);
+              server.config.server.fs.allow = [
+                ...new Set([...allowed, ...loaded.map(page => dirname(fileURLToPath(page.page)))]),
+              ];
+              await watch();
+              for (const id of [...servedIds, manifest]) {
+                const module = server.moduleGraph.getModuleById(`\0${id}`);
+                if (module) server.moduleGraph.invalidateModule(module);
+              }
+              server.ws.send({ type: 'full-reload' });
+            })
+            .catch((e: Error) => server.config.logger.error(e.message));
+        });
+      };
+      await watch();
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];

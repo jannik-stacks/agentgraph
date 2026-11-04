@@ -541,7 +541,7 @@ describe('an instance', () => {
     );
   });
 
-  it('shows issues through the tracker instance.yaml names, and keeps the name when the provider is saved', async () => {
+  it('shows stored data without discovering the saved tracker and preserves its name when saving the provider', async () => {
     const w = world();
     const root = join(w.root, 'agentgraph-data');
     const i = await ensureInstance(root, 'seed', w.seed);
@@ -565,8 +565,8 @@ export default { name: 'mine', tracker: host => (writeFileSync(host.dir + '.pick
       encoding: 'utf8',
       env: { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_TRACKER: '', AGENTGRAPH_DIR: '', AGENTGRAPH_APP_ENV: '' },
     });
-    expect(shown.stdout, shown.stderr).toContain('#1 open Mine');
-    expect(existsSync(`${i.tracker}.picked`)).toBe(true);
+    expect([shown.status, shown.stderr]).toEqual([0, '']);
+    expect(existsSync(`${i.tracker}.picked`)).toBe(false);
   });
 
   it('refuses an instance tracker that keeps its issues outside the instance folder', async () => {
@@ -590,7 +590,11 @@ export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: 
       AGENTGRAPH_DIR: '',
       AGENTGRAPH_APP_ENV: '',
     };
-    const runs = [['show'], ['start', 'Fix it'], ['close', '1']].map(args =>
+    const runs = [
+      ['loop', '--once'],
+      ['start', 'Fix it'],
+      ['close', '1'],
+    ].map(args =>
       spawnSync(process.execPath, [runTs, ...args, '--data', root], { cwd: w.seed, encoding: 'utf8', env })
     );
     const why = `tracker moved keeps its issues outside ${i.tracker}`;

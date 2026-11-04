@@ -216,6 +216,14 @@ export const ensureGraph = async (i: Instance, flag = i.graph) => {
   return dir;
 };
 
+export const ensureInstanceGraph = async (i: Instance, flag?: string) => {
+  if (!flag && !i.graph && existsSync(origin(i))) {
+    const why = await ensureBase(i);
+    if (why) throw new Error(why);
+  }
+  return ensureGraph(i, flag);
+};
+
 const isCommittedGraph = (i: Instance, graph: string) => graph.startsWith(getCachePath(i.data, 'graphs'));
 
 export const whyGraphUncommitted = async (i: Instance, graph: string) => {

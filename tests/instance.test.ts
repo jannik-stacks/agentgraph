@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { expect, it } from 'vitest';
-import { ensureGraph, ensureInstance, findInstances } from '../src/instance.ts';
+import { ensureGraph, ensureInstanceGraph, ensureInstance, findInstances } from '../src/instance.ts';
+import { commit } from './kit.ts';
 import { seeded } from './fixtures.ts';
 
 it('names two independent instances of one checkout within an explicit root', async () => {
@@ -47,4 +48,14 @@ it('reads every instance field strictly and resolves paths against its folder', 
   writeFileSync(file, stringify({ ...record, unknown: true }));
   expect(() => findInstances(join(root, 'instances'))).toThrow('unknown');
   await expect(ensureGraph(read!)).resolves.toBe(seed);
+});
+
+it('selects the updated committed graph before callers discover plugins', async () => {
+  const w = seeded('instance-snapshot', { '.agentgraph/settings.yaml': 'image: sandbox:old\n' });
+  const i = await ensureInstance(join(w.root, 'instances'), 'live', w.seed);
+  commit(w.seed, { '.agentgraph/settings.yaml': 'image: sandbox:reviewed\n' });
+  writeFileSync(join(w.seed, '.agentgraph/settings.yaml'), 'image: sandbox:unreviewed\n');
+  const graph = await ensureInstanceGraph(i);
+  expect(readFileSync(join(graph, 'settings.yaml'), 'utf8')).toBe('image: sandbox:reviewed\n');
+  expect(await ensureInstanceGraph(i)).toBe(graph);
 });

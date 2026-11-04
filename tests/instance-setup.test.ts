@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ConfigProvider, Effect, Layer } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { stringify } from 'yaml';
+import type { InstanceFile } from '../src/settings.ts';
 import { ensureInstance, readInstance } from '../src/instance.ts';
 import { readInstanceEnv, start } from '../src/main.ts';
 import { settings, makeTrackerSetup, whyModelHostsMissing } from '../src/services.ts';
@@ -14,6 +15,10 @@ import { makeTestGraph, seeded } from './fixtures.ts';
 import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
+import { git } from './kit.ts';
+import { makeStudioPagesPlugin } from '../studio/plugins.ts';
+import { studioDir } from './studio.ts';
+import { pathToFileURL } from 'node:url';
 import { removeAfter } from './world.ts';
 
 const cli = join(import.meta.dirname, '../bin/run.ts');
@@ -25,7 +30,9 @@ const makeInstance = async (name: string) => {
   const graph = join(world.root, 'graph');
   mkdirSync(graph);
   writeFileSync(join(graph, 'settings.yaml'), '{}');
-  const save = (record: Partial<typeof instance>) =>
+  const save = (
+    record: Partial<{ [Key in keyof typeof InstanceFile.Type]: (typeof InstanceFile.Type)[Key] | undefined }>
+  ) =>
     writeFileSync(
       join(instance.dir, 'instance.yaml'),
       stringify({
@@ -40,7 +47,7 @@ const makeInstance = async (name: string) => {
       })
     );
   save({});
-  const run = (...args: string[]) =>
+  const runWithEnv = (env: Record<string, string | undefined>, ...args: string[]) =>
     spawnSync(process.execPath, [cli, ...args, '--instance', name, '--data', root], {
       cwd: world.root,
       encoding: 'utf8',
@@ -49,9 +56,10 @@ const makeInstance = async (name: string) => {
         NODE_OPTIONS: '',
         AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
         AGENTGRAPH_SANDBOX_URL: 'http://unused',
+        ...env,
       },
     });
-  return { ...world, root, instance, graph, save, run };
+  return { ...world, root, instance, graph, save, run: (...args: string[]) => runWithEnv({}, ...args), runWithEnv };
 };
 
 it('keeps named instance data and trust under tracker and App overrides', async () => {
@@ -258,3 +266,214 @@ it('checks model readiness using the instance env file', async () => {
     else process.env.PATH = path;
   }
 });
+
+it('selects the committed graph before discovering tracker and execution plugins', async () => {
+  const w = await makeInstance('snapshot');
+  const graph = join(w.seed, '.agentgraph');
+  cpSync(w.graph, graph, { recursive: true });
+  mkdirSync(join(graph, 'plugins'));
+  const selected = join(w.root, 'selected');
+  const driven = join(w.root, 'driven');
+  writeFileSync(
+    join(graph, 'plugins/selected.ts'),
+    `
+import { writeFileSync } from 'node:fs';
+import { folder } from ${JSON.stringify(new URL('../src/tracker.ts', import.meta.url).href)};
+export default { name: 'selected', tracker: host => {
+  writeFileSync(${JSON.stringify(selected)}, import.meta.dirname);
+  return folder.tracker(host);
+} };`
+  );
+  const config = join(w.root, 'config.ts');
+  writeFileSync(
+    config,
+    `import { writeFileSync } from 'node:fs';
+import { opencode } from ${JSON.stringify(new URL('../harnesses/opencode.ts', import.meta.url).href)};
+export default { harnesses: [opencode()], providers: [{ name: 'scoped', harnesses: ['opencode'], ready: () => true,
+  settings: ({ env }) => { writeFileSync(${JSON.stringify(driven)}, env.AGENTGRAPH_DIR); return {}; } }] };`
+  );
+  git(w.seed, 'add', '.agentgraph');
+  git(w.seed, 'commit', '-qm', 'graph');
+  const leaked = join(w.root, 'leaked');
+  writeFileSync(
+    join(graph, 'plugins/uncommitted.ts'),
+    `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(leaked)}, 'leaked'); throw new Error('uncommitted plugin');`
+  );
+  w.save({ graph: undefined, tracker: 'selected', provider: 'scoped' });
+  const result = w.runWithEnv({ AGENTGRAPH_CONFIG: config }, 'loop', '--once');
+  expect([result.status, result.stderr]).toEqual([0, expect.not.stringContaining('Error')]);
+  expect(existsSync(leaked)).toBe(false);
+  expect(readFileSync(selected, 'utf8')).toBe(realpathSync(join(readFileSync(driven, 'utf8'), 'plugins')));
+  expect(readFileSync(driven, 'utf8')).not.toBe(graph);
+});
+
+it('does not discover graph plugins for stored-data commands', async () => {
+  const w = await makeInstance('stored');
+  w.save({ tracker: 'unreviewed' });
+  const marker = join(w.root, 'imported');
+  mkdirSync(join(w.graph, 'plugins'));
+  writeFileSync(
+    join(w.graph, 'plugins/unreviewed.ts'),
+    `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'imported'); throw new Error('unexpected import');`
+  );
+  const shown = w.run('show');
+  const pruned = w.run('prune-logs');
+  expect([shown.status, pruned.status]).toEqual([0, 0]);
+  expect(existsSync(marker)).toBe(false);
+});
+
+const PREFLIGHT = ['local', 'remote'] as const;
+it.each(PREFLIGHT)('uses scoped provider and %s sandbox settings in CLI preflight', async sandbox => {
+  const w = await makeInstance('preflight');
+  const file = join(w.root, 'keys.env');
+  writeFileSync(
+    file,
+    `ANTHROPIC_API_KEY=only-in-file\n${sandbox === 'remote' ? 'AGENTGRAPH_SANDBOX_URL=http://unused\n' : ''}`
+  );
+  w.save({ env: file, provider: 'anthropic' });
+  writeFileSync(join(w.graph, 'settings.yaml'), 'image: sandbox:scoped\n');
+  const bin = join(w.root, 'bin');
+  const calls = join(w.root, 'docker-calls');
+  mkdirSync(bin);
+  writeFileSync(
+    join(bin, 'docker'),
+    `#!/bin/sh
+printf '%s\\n' "$*" >> '${calls}'
+printf egress
+`,
+    { mode: 0o755 }
+  );
+  const result = w.runWithEnv(
+    { PATH: `${bin}:${process.env.PATH}`, AGENTGRAPH_SANDBOX_URL: undefined },
+    'loop',
+    '--once'
+  );
+  expect([result.status, result.stderr]).toEqual([0, expect.not.stringContaining('Error')]);
+  const invoked = existsSync(calls) ? readFileSync(calls, 'utf8') : '';
+  expect(invoked.includes('ps -q')).toBe(false);
+  expect(invoked.includes('agentgraph-sandbox:local')).toBe(false);
+  expect(invoked.includes('version --format')).toBe(sandbox === 'local');
+});
+
+const LOG_OVERRIDES = [
+  ['off', 'all'],
+  ['all', 'off'],
+] as const;
+it.each(LOG_OVERRIDES)('--logs %s overrides environment value %s through execution', async (flag, env) => {
+  const w = await makeInstance('logs');
+  const file = join(w.root, 'keys.env');
+  writeFileSync(file, `ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_CHECK_LOGS=${env}\n`);
+  w.save({ env: file, provider: 'anthropic' });
+  const saved = join(w.root, 'log-choice');
+  mkdirSync(join(w.graph, 'plugins'));
+  writeFileSync(
+    join(w.graph, 'plugins/logs.ts'),
+    `
+import { writeFileSync } from 'node:fs';
+import { Effect, Layer } from ${JSON.stringify(import.meta.resolve('effect'))};
+import { settings } from ${JSON.stringify(new URL('../src/services.ts', import.meta.url).href)};
+import { folder } from ${JSON.stringify(new URL('../src/tracker.ts', import.meta.url).href)};
+export default { name: 'logs', tracker: host => { const setup = folder.tracker(host); return { ...setup,
+layer: (trust, as) => Layer.unwrap(Effect.map(settings, s => {
+  writeFileSync(${JSON.stringify(saved)}, s.checkLogs); return setup.layer(trust, as);
+})) }; } };`
+  );
+  const result = w.runWithEnv({ AGENTGRAPH_CHECK_LOGS: env }, 'loop', '--once', '--tracker', 'logs', '--logs', flag);
+  expect([result.status, result.stderr]).toEqual([0, expect.not.stringContaining('Error')]);
+  expect(readFileSync(saved, 'utf8')).toBe(flag);
+});
+
+it('compresses idle ended runs during a CLI loop pass', async () => {
+  const w = await makeInstance('compress');
+  const file = join(w.root, 'keys.env');
+  writeFileSync(file, 'ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_COMPRESS_DAYS=1\n');
+  w.save({ env: file, provider: 'anthropic' });
+  const old = new Date(Date.now() - 30 * 86_400_000);
+  const run = {
+    ...begin(makeTestGraph('kit').workflows.issue!, {
+      id: 'ended',
+      issue: 1,
+      started: old.toISOString(),
+    }),
+    status: 'done' as const,
+    ended: old.toISOString(),
+  };
+  await Effect.runPromise(Effect.flatMap(Store, s => s.put(run)).pipe(Effect.provide(fileStore(w.instance.data))));
+  const trace = join(w.instance.data, run.id, 'trace.jsonl');
+  writeFileSync(trace, '{}\n');
+  utimesSync(trace, old, old);
+  writeFileSync(join(w.seed, 'README.md'), 'updated base\n');
+  git(w.seed, 'add', 'README.md');
+  git(w.seed, 'commit', '-qm', 'advance base');
+  const result = w.run('loop', '--once');
+  expect([result.status, result.stderr]).toEqual([0, expect.not.stringContaining('Error')]);
+  expect([existsSync(trace), existsSync(`${trace}.zst`)]).toEqual([false, true]);
+  expect(git(w.seed, '--git-dir', join(w.instance.tracker, 'origin.git'), 'rev-parse', 'main')).toBe(
+    git(w.seed, 'rev-parse', 'main')
+  );
+});
+
+const STUDIO_PATHS = ['record', 'env', 'explicit'] as const;
+it.each(STUDIO_PATHS)(
+  'refreshes studio graph and watch roots after a %s path change',
+  async from => {
+    const w = await makeInstance('studio-path');
+    const other = join(w.root, 'other-graph');
+    mkdirSync(other);
+    writeFileSync(join(other, 'settings.yaml'), 'image: sandbox:other\n');
+    const env = join(w.root, 'studio.env');
+    writeFileSync(env, '');
+    w.save({ env });
+    vi.stubEnv('AGI_STUDIO_DIR', w.graph);
+    vi.stubEnv('AGI_STUDIO_INSTANCE', JSON.stringify({ root: w.root, name: 'studio-path' }));
+    vi.stubEnv('AGI_STUDIO_GRAPH', from === 'explicit' ? w.graph : undefined);
+    vi.stubEnv('AGI_STUDIO_DATA', w.instance.data);
+    vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+    vi.stubEnv('AGI_STUDIO_TUNE', undefined);
+    const served = makeServedGraph();
+    const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
+    const server = await createServer({
+      configFile: false,
+      root: w.instance.data,
+      cacheDir: join(w.root, 'vite'),
+      plugins: [makeStudioPagesPlugin(served)],
+      server: { middlewareMode: true },
+      optimizeDeps: { noDiscovery: true },
+      logLevel: 'silent',
+    });
+    const sent: unknown[] = [];
+    server.ws.send = (...args: unknown[]) => void sent.push(args);
+    try {
+      expect((await served.read())?.dir).toBe(w.graph);
+      await vi.waitFor(() => {
+        expect(Object.values(server.watcher.getWatched()).flat()).toContain('instance.yaml');
+      });
+      await vi.waitFor(
+        async () => {
+          if (from === 'env') writeFileSync(env, `AGENTGRAPH_DIR=${other}\n`);
+          else w.save({ graph: other, env });
+          expect(sent).toContainEqual([{ type: 'full-reload' }]);
+          expect((await served.read())?.dir).toBe(from === 'explicit' ? w.graph : other);
+        },
+        { timeout: 5000, interval: 350 }
+      );
+      sent.length = 0;
+      const watched = from === 'explicit' ? w.graph : other;
+      await vi.waitFor(
+        async () => {
+          writeFileSync(join(watched, 'settings.yaml'), 'image: sandbox:changed\n');
+          expect((await served.read())?.graph?.image).toBe('sandbox:changed');
+          expect(sent).toContainEqual([{ type: 'full-reload' }]);
+        },
+        { timeout: 5000, interval: 250 }
+      );
+      expect(server.config.server.fs.allow).not.toContain(env);
+    } finally {
+      await server.close();
+      vi.unstubAllEnvs();
+    }
+  },
+  15_000
+);

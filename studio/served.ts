@@ -6,26 +6,32 @@ import type * as MainModule from '../src/main.ts';
 import type * as HarnessesModule from '../src/harnesses.ts';
 
 const readServedGraph = async () => {
-  const dir = process.env.AGI_STUDIO_DIR;
-  if (!dir) return;
+  const startup = process.env.AGI_STUDIO_DIR;
+  if (!startup) return;
   const { ConfigProvider, Effect, Result } = await import('effect');
   const { readConfiguredGraph }: typeof HarnessesModule = await import(
     new URL('../src/harnesses.ts', import.meta.url).href
   );
   const { readInstanceEnv }: typeof MainModule = await import(new URL('../src/main.ts', import.meta.url).href);
-  const { readInstance } = await import(new URL('../src/instance.ts', import.meta.url).href);
+  const { readInstance, ensureInstanceGraph } = await import(new URL('../src/instance.ts', import.meta.url).href);
   const reference = JSON.parse(process.env.AGI_STUDIO_INSTANCE ?? 'null');
   const instance = reference ? readInstance(reference.root, reference.name) : undefined;
   const scope = await readInstanceEnv(instance, JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}'));
 
+  const dir = instance
+    ? await ensureInstanceGraph(instance, process.env.AGI_STUDIO_GRAPH ?? scope.env.AGENTGRAPH_DIR)
+    : (process.env.AGI_STUDIO_GRAPH ?? scope.env.AGENTGRAPH_DIR ?? startup);
+  const files = reference
+    ? [join(reference.root, reference.name, 'instance.yaml'), ...(instance?.env ? [instance.env] : [])]
+    : [];
   const loaded = await Effect.runPromise(
     Effect.result(
       readConfiguredGraph(dir, instance).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
     )
   );
   return Result.isSuccess(loaded)
-    ? { name: basename(dir), graph: loaded.success, problems: [] }
-    : { name: basename(dir), graph: undefined, problems: loaded.failure.problems };
+    ? { dir, files, name: basename(dir), graph: loaded.success, problems: [] }
+    : { dir, files, name: basename(dir), graph: undefined, problems: loaded.failure.problems };
 };
 
 const dataInfra = /^(cache|homes|logs|\.attic|\.locks|\.envs|.+\.git)$/;
@@ -85,10 +91,13 @@ export const startWatch = (server: ViteDevServer, roots: WatchRoot[], send: (top
   };
   server.watcher.add([...new Set(real.map(({ root }) => root))]);
   server.watcher.on('all', changed);
-  const stop = () => {
+  const stop = async () => {
     clearTimeout(timer);
     server.watcher.off('all', changed);
+    server.httpServer?.off('close', close);
+    await server.watcher.unwatch(real.map(({ root }) => root));
   };
-  server.httpServer?.once('close', stop);
+  const close = () => void stop();
+  server.httpServer?.once('close', close);
   return stop;
 };

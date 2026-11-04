@@ -66,13 +66,14 @@ export const readInstanceEnv = async (
   instance?: Partial<Instance>,
   choice: Parameters<typeof makeHarnessConfigProvider>[0] = {},
   defaults: Record<string, string> = {},
-  tracker?: string
+  flags: Record<string, string> = {}
 ) => {
   const file = instance?.dir && join(dirname(instance.dir), 'config.ts');
   const env = await readEngineEnv(
     { ...(file && existsSync(file) && { AGENTGRAPH_CONFIG: file }), ...defaults },
     instance?.env
   );
+  Object.assign(env, flags);
   if (instance) {
     const overrides = await Effect.runPromise(
       readOverrides.pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider(env)))
@@ -89,7 +90,7 @@ export const readInstanceEnv = async (
   const named = await Effect.runPromise(
     readTrackerName.pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider(env)))
   );
-  env.AGENTGRAPH_TRACKER = tracker ?? (named || instance?.trackerName || (instance ? 'folder' : ''));
+  env.AGENTGRAPH_TRACKER = named || instance?.trackerName || (instance ? 'folder' : '');
   return {
     env,
     config: makeHarnessConfigProvider(

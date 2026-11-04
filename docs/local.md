@@ -93,7 +93,7 @@ The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),
 against the instance folder. Omitted `graph` means the checkout's `.agentgraph/`.
 Edit the record to change saved defaults; flags apply to one command. `loop` records intent
 for a later engine scheduler; F1 still starts loops explicitly. Unknown fields fail.
-<!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph -->
+<!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph src/instance.ts#ensureInstanceGraph -->
 
 Highest priority comes first in this single precedence table.
 <!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#readInstanceEnv src/services.ts#readTrackerName -->
@@ -119,7 +119,8 @@ the App env-file override. `AGENTGRAPH_DATA` still selects the root. There is no
 secret variables keep their existing meanings.
 
 The instance `env` file supplies scoped values before the process environment and App env
-file; explicit command flags win. It never changes `process.env`.
+file; explicit command flags win. It never changes `process.env`. Explicit `--logs` overrides
+both env files and the process environment.
 <!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/main.ts#start -->
 
 ### Migrating an existing instance
@@ -143,3 +144,9 @@ instance; every command keeps its data directory and trust. GitHub instances use
 `env` file for App credentials. Local origin confinement and branch export apply to local
 trackers. Provider callbacks, validation and studio reloads read the same scoped environment.
 <!-- code: src/main.ts#readInstanceEnv src/services.ts#makeTrackerSetup src/status.ts#formatInstanceFlags studio/served.ts#readServedGraph -->
+
+Studio reloads resolve the instance graph and env file again and refresh their watch roots.
+An explicit `--dir` keeps selecting that graph until the studio exits. CLI tracker setup and execution
+use the same selected graph snapshot; stored-data commands do not discover graph plugins.
+CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
+<!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readServedGraph studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#loop -->

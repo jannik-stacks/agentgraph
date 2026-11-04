@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import { ConfigProvider, Effect, Result } from 'effect';
 import { createServer } from 'vite';
 import { readConfiguredGraph } from '../src/harnesses.ts';
-import { ensureBase, ensureGraph, ensureInstance, readInstance, findRepo } from '../src/instance.ts';
+import { ensureInstanceGraph, ensureInstance, readInstance, findRepo } from '../src/instance.ts';
 import { readHostSettings, makeTrackerSetup, settings } from '../src/services.ts';
 
 const { values, positionals } = parseArgs({
@@ -31,31 +31,27 @@ if (values.repo && !repo) quit(new Error(`${values.repo} is not in a git repo`))
 const instance =
   repo === undefined ? undefined : await ensureInstance(root, values.instance ?? basename(repo), repo).catch(quit);
 const choice = JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}');
-const scope = await readInstanceEnv(instance, choice, config ? { AGENTGRAPH_CONFIG: config } : {}, values.tracker);
-const graph = values.dir ?? scope.env.AGENTGRAPH_DIR;
-const candidate =
-  graph ??
-  instance?.graph ??
-  (instance ? join(instance.checkout, '.agentgraph') : join(import.meta.dirname, '..', 'examples', 'sandbox'));
-scope.env.AGENTGRAPH_DIR = resolve(candidate);
+const scope = await readInstanceEnv(
+  instance,
+  choice,
+  config ? { AGENTGRAPH_CONFIG: config } : {},
+  values.tracker === undefined ? {} : { AGENTGRAPH_TRACKER: values.tracker }
+);
+const whyTracker =
+  instance &&
+  `the tracker folder ${instance.tracker} has no origin.git; restore it, or move ${instance.dir} aside to start anew`;
+if (instance && scope.env.AGENTGRAPH_TRACKER === 'folder' && !existsSync(join(instance.tracker, 'origin.git')))
+  quit(new Error(whyTracker!));
+const graphDir = instance
+  ? await ensureInstanceGraph(instance, values.dir ?? scope.env.AGENTGRAPH_DIR).catch(quit)
+  : resolve(values.dir ?? scope.env.AGENTGRAPH_DIR ?? join(import.meta.dirname, '..', 'examples', 'sandbox'));
+scope.env.AGENTGRAPH_DIR = graphDir;
 const setup =
   instance &&
   (await makeTrackerSetup(
     await Effect.runPromise(settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config)))
   ).catch(quit));
-if (instance && setup?.origin.local && !existsSync(setup.origin.origin))
-  quit(
-    new Error(
-      `the tracker folder ${instance.tracker} has no origin.git; restore it, or move ${instance.dir} aside to start anew`
-    )
-  );
-const moved = instance && setup?.origin.local && (await ensureBase(instance).catch(quit));
-if (moved) console.error(`${moved}\nThe studio shows the graph of agentgraph's base.`);
-const graphDir = resolve(
-  instance
-    ? await ensureGraph(instance, graph ?? (!setup?.origin.local ? candidate : undefined)).catch(quit)
-    : candidate
-);
+if (instance && setup?.origin.local && !existsSync(setup.origin.origin)) quit(new Error(whyTracker!));
 if (instance) process.env.AGI_STUDIO_INSTANCE = JSON.stringify({ root, name: basename(instance.dir) });
 const dataDir = resolve(instance?.data ?? root);
 const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;
@@ -69,6 +65,7 @@ if (Result.isFailure(loaded))
   console.error(`the graph does not load, so the studio shows no workflow:\n${loaded.failure.message}`);
 
 process.env.AGI_STUDIO_DIR = graphDir;
+if (values.dir !== undefined) process.env.AGI_STUDIO_GRAPH = resolve(values.dir);
 process.env.AGI_STUDIO_DATA = dataDir;
 process.env.AGI_STUDIO_HARNESS_CHOICE = JSON.stringify(choice);
 const tracker = setup?.origin.local ? dirname(setup.origin.origin) : instance ? undefined : values.tracker;
