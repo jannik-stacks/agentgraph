@@ -4,6 +4,7 @@ import type { Graph } from './folder.ts';
 
 /** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given and, with `readonly`, writable alongside scratch. */
 export type Command = {
+  limits?: Pick<Graph['limits'], 'memory' | 'cpus'>;
   tools?: { url: string; host: string };
   cmd: string;
   args: string[];

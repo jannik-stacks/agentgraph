@@ -23,6 +23,7 @@ export const makeAgentSessionSpec = (
     harness: agent.harness,
     agent: name,
     minutes: graph.limits.minutes,
+    limits: graph.limits,
     ...(agent.model !== undefined && { model: agent.model }),
     system: agent.body,
     dir: work.dir,
@@ -42,6 +43,7 @@ export const runShell = (
   Effect.flatMap(Sandbox, s =>
     Effect.scoped(
       s.exec({
+        limits: graph.limits,
         cmd: 'sh',
         args: ['-c', script],
         dir,

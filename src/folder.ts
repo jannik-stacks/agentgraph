@@ -11,6 +11,7 @@ import { formatRetiredAdvice, retiredWords } from './retired.ts';
 import { CheckMode, defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
 import {
   CommandSettings,
+  CommandLimits,
   commandVerbs,
   compileWorkflow,
   formatIssues,
@@ -32,6 +33,7 @@ export type Agent = typeof Agent.Type;
 
 /** The limits block of settings.yaml. */
 const Limits = Schema.Struct({
+  ...CommandLimits.fields,
   minutes: Schema.Number.pipe(Schema.withDecodingDefaultType(Effect.succeed(30))),
   usdPerRun: Schema.Number.pipe(Schema.withDecodingDefaultType(Effect.succeed(10))),
   parallel: Schema.Int.pipe(Schema.withDecodingDefaultType(Effect.succeed(2))),

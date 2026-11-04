@@ -236,7 +236,7 @@ export const pickTryOutcome = (o: {
 export const runAttempt = (
   w: Workflow & Required<Pick<Workflow, 'base'>>,
   run: Run,
-  graph: Graph,
+  given: Graph,
   work: Checkout,
   own?: string
 ): Effect.Effect<
@@ -247,6 +247,7 @@ export const runAttempt = (
   Effect.gen(function* () {
     const store = yield* Store;
     const step = w.steps.find(s => s.name === run.step)!;
+    const graph = step.limits ? { ...given, limits: { ...given.limits, ...step.limits } } : given;
     const minutes = graph.limits.minutes;
     let tree: string | undefined;
     const done = (outcome: Outcome, next = run) => ({ outcome, run: next, ...(tree !== undefined && { tree }) });

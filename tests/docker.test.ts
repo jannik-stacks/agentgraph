@@ -101,6 +101,27 @@ describe('docker with a stand-in docker client', () => {
   const layer = dockerSandbox({ data: tmp('data'), origin: '/nowhere', direct: ['gateway'] });
   const logged = () => readFileSync(log, 'utf8').split('\n');
 
+  it('still keeps default Docker resources and tmpfs', () => {
+    const args = dockerArgs(command('/work'), 'image', 'name', { mounts: [] });
+    expect(args[args.indexOf('--memory') + 1]).toBe('4g');
+    expect(args[args.indexOf('--memory-swap') + 1]).toBe('4g');
+    expect(args[args.indexOf('--cpus') + 1]).toBe('1.5');
+    expect(args[args.indexOf('--tmpfs') + 1]).toBe('/tmp:rw,exec,nosuid,nodev,size=1g');
+  });
+
+  it.each([
+    [{ memory: '8g' }, '8g', '1.5'],
+    [{ cpus: 4 }, '4g', '4'],
+    [{ memory: '16g', cpus: 8 }, '16g', '8'],
+  ] as const)('passes command limits %j to Docker without growing tmpfs', (limits, memory, cpus) => {
+    const args = dockerArgs(command('/work', { ...(limits && { limits }) }), 'image', 'name', { mounts: [] });
+    expect(args[args.indexOf('--memory') + 1]).toBe(memory);
+    expect(args[args.indexOf('--memory-swap') + 1]).toBe(memory);
+    expect(args[args.indexOf('--cpus') + 1]).toBe(cpus);
+    expect(args[args.indexOf('--tmpfs') + 1]).toBe('/tmp:rw,exec,nosuid,nodev,size=1g');
+    expect(args[args.indexOf('--pids-limit') + 1]).toBe('512');
+  });
+
   it('routes custom tools to their relay hostname without proxying the bearer secret', () => {
     const args = dockerArgs(
       command('/work', {

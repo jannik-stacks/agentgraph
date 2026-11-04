@@ -57,6 +57,7 @@ export type Step = {
     | { agent: string; skill?: string }
     | { run: string; returns: NonNullable<(typeof StepFile.Type)['returns']>; reads?: 'traces' }
     | { wait: 'human' };
+  limits?: typeof CommandLimits.Type;
   checks: string[];
   follow?: 'merge' | 'rebase' | 'none';
   tries: number;
@@ -140,6 +141,19 @@ const Trigger = Schema.NullOr(
 );
 const EventName = Schema.Literals(['issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback', 'conflict']);
 
+export const CommandLimits = Schema.Struct({
+  memory: Schema.optionalKey(
+    Schema.String.check(
+      Schema.makeFilter(value => {
+        const match = /^(\d+)([bkmg]?)$/i.exec(value);
+        const bytes = match ? Number(match[1]) * 1024 ** 'bkmg'.indexOf((match[2] || 'b').toLowerCase()) : 0;
+        return (bytes >= 6 * 1024 ** 2 && bytes <= 64 * 1024 ** 3) || 'expected a Docker size from 6m to 64g';
+      })
+    )
+  ),
+  cpus: Schema.optionalKey(Schema.Finite.check(Schema.isBetween({ minimum: 0.01, maximum: 64 }))),
+});
+
 const StepFile = Schema.Struct({
   agent: Schema.optionalKey(Schema.String),
   run: Schema.optionalKey(Schema.String),
@@ -155,6 +169,7 @@ const StepFile = Schema.Struct({
   until: Schema.optionalKey(Schema.String),
   rounds: Schema.optionalKey(Count),
   each: Schema.optionalKey(Schema.Union([Schema.Literals(['files', 'hunks']), Schema.Struct({ run: Schema.String })])),
+  limits: Schema.optionalKey(CommandLimits),
 });
 
 const Front = Schema.Struct({
@@ -273,6 +288,7 @@ export function compileWorkflow(
     const rounds = s.rounds ?? (s.wait ? undefined : 3);
     return {
       name: stepName,
+      ...(s.limits !== undefined && { limits: s.limits }),
       does,
       checks,
       tries: s.tries ?? (checks.length > 0 && s.wait === undefined ? 3 : 1),

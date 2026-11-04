@@ -54,10 +54,14 @@ A committed graph with symlinks or submodules is refused. On GitHub, the runner 
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
+| `memory` | Docker size string | `4g` | Memory per Docker command, from `6m` to `64g` |
+| `cpus` | number | 1.5 | CPUs per Docker command, from 0.01 to 64 |
 | `minutes` | number | 30 | Deadline per session, script or setup |
 | `usd-per-run` | number | 10 | Spend cap per run |
 | `parallel` | integer | 2 | Concurrent runs |
 | `sessions` | integer | 4 | Concurrent sessions and scripts across the process, judges included <!-- code: src/run/execute.ts#getGate --> |
+
+Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). Remote boxes reject resource overrides. Step `limits` override only the named fields; other steps keep the graph limits.
 
 Sessions, script checks, fan-out commands and setup share permits. Each releases its permit before checks or judges start. If graphs set different limits, the process keeps the smallest limit it has seen. Check findings still return together after every check settles. <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#getGate src/run/check.ts#runStepChecks -->
 
@@ -98,6 +102,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `wait` | `human` | none | The step waits for a person |
 | `skill` | skill name | the skill named like the step | Agent instructions |
 | `checks` | list of check names | none; at `wait`, its `back` step's script checks | Checks after each try; at `wait`, after a base update |
+| `limits` | map of `memory` and `cpus` | graph limits | Resource overrides for the step and its checks |
 | `tries` | positive integer | 1 at `wait`, else 3 with checks, else 1 | Attempts, the first included |
 | `back` | step name | none | This or an earlier step the run may return to |
 | `until` | sentence | required on an agent step with `back` | When the step is done |

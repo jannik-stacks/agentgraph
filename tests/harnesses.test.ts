@@ -123,6 +123,11 @@ const READ_ONLY_SESSIONS = [
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 const input = (c: Command) => readFileSync(join(c.home!, '.agentgraph', 'input'), 'utf8');
 
+it('passes session resources to the sandbox command', async () => {
+  const { command } = await session({ ...spec, limits: { memory: '8g', cpus: 4 } }, []);
+  expect(command.limits).toEqual({ memory: '8g', cpus: 4 });
+});
+
 describe('model URL pairs', () => {
   it.each(['sol=http://localhost bad', 'sol=http://localhost broken'])('rejects malformed input %s', text => {
     expect(() => parseModelUrls(text)).toThrow('invalid name=value pair');

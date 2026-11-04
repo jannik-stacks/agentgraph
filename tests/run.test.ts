@@ -458,6 +458,39 @@ describe('drive', () => {
     ]);
   });
 
+  it('inherits graph resources and isolates step overrides across sessions, scripts and checks', async () => {
+    const where = world();
+    const flow = {
+      ...w,
+      steps: [
+        { name: 'screenshots', does: { agent: 'reviewer' }, checks: ['types'], tries: 1, limits: { memory: '8g' } },
+        { name: 'script', does: { run: 'true', returns: ['run' as const] }, checks: [], tries: 1, limits: { cpus: 4 } },
+        { name: 'describe', does: { agent: 'reviewer' }, checks: [], tries: 1 },
+        w.steps.at(-1)!,
+      ],
+    };
+    const configured = {
+      ...graph,
+      limits: { ...graph.limits, memory: '6g', cpus: 2 },
+      checks: { ...graph.checks, types: { ...graph.checks.types!, run: 'true' } },
+    };
+    const { specs, commands, run } = services(where, [
+      [start('s1'), reply()],
+      [start('d1'), reply()],
+    ]);
+    const done = await run(runWorkflow(flow, begin(flow, fresh()), configured));
+    expect(done).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(specs.map(s => s.limits)).toEqual([
+      expect.objectContaining({ memory: '8g', cpus: 2 }),
+      expect.objectContaining({ memory: '6g', cpus: 2 }),
+    ]);
+    expect(commands.map(c => c.limits)).toEqual([
+      expect.objectContaining({ memory: '8g', cpus: 2 }),
+      expect.objectContaining({ memory: '6g', cpus: 4 }),
+    ]);
+    expect(configured.limits).toMatchObject({ memory: '6g', cpus: 2 });
+  });
+
   it.each([undefined, true])('carries a framed screenshot reply only when enabled: %s', async carry => {
     const where = world();
     const screenshots = { name: 'screenshots', does: { agent: 'reviewer' }, checks: [], tries: 1, carry };

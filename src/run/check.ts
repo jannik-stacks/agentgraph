@@ -335,9 +335,10 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
 export const runStepChecks = (
   step: Step,
   left: Left,
-  graph: Graph
+  given: Graph
 ): Effect.Effect<{ outcome: Outcome }, SandboxError | SessionStop | StoreError, Sandbox | Session | Store> =>
   Effect.gen(function* () {
+    const graph = step.limits ? { ...given, limits: { ...given.limits, ...step.limits } } : given;
     const checks = step.checks.map(name => ({ ...graph.checks[name]!, name }));
     yield* writeCheckFiles(graph, left, checks.length > 0);
     const settled = yield* Effect.forEach(checks, c => Effect.result(runOneCheck(step.name, c, left, graph)), {

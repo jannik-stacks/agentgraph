@@ -4,7 +4,17 @@
 
 Sessions, `run` steps, checks and checkout setup run in throwaway Docker containers. Without Docker or the internal network, the run hits a [runner error](workflows.md#order-and-limits). Images are never pulled.
 
-A container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory, 1.5 CPUs, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets its model credentials and, when configured, its own tool bearer. <!-- code: src/docker.ts#dockerArgs -->
+A container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory and 1.5 CPUs by default, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets its model credentials and, when configured, its own tool bearer. <!-- code: src/docker.ts#dockerArgs -->
+
+Set graph-wide resource limits in `settings.yaml`:
+
+```yaml
+limits:
+  memory: 8g
+  cpus: 4
+```
+
+A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. Remote boxes reject resource overrides. <!-- code: src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#remoteSandbox -->
 
 | Path          | What                                                                       | Access                                                                   |
 | ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |

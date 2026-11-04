@@ -320,6 +320,7 @@ export const harnessSession = (
                 ...(spec.mcp && { tools: { url: spec.mcp.url, host: spec.mcp.host } }),
                 network: 'proxy',
                 minutes: spec.minutes,
+                ...(spec.limits && { limits: spec.limits }),
               })
               .pipe(Stream.mapError(makeSessionStop), Stream.map(step), Stream.flattenIterable);
           })

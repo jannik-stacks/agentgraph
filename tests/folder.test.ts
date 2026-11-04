@@ -107,6 +107,65 @@ describe('loadGraph', () => {
     expect((await Effect.runPromise(loadGraph(dir, harnesses))).sha).toBe(graph.sha);
   });
 
+  it('loads graph resource limits and a step override', async () => {
+    const graph = await Effect.runPromise(
+      loadGraph(
+        graphDir({
+          'settings.yaml': 'limits: { memory: 6g, cpus: 2 }',
+          'workflows/w.md': "---\non: issues\nsteps:\n  x: { run: 'true', limits: { memory: 8g } }\n---\n",
+        }),
+        harnesses
+      )
+    );
+    expect(graph.limits).toMatchObject({ memory: '6g', cpus: 2 });
+    expect(graph.workflows.w!.steps[0]!.limits).toEqual({ memory: '8g' });
+  });
+
+  it.each(['6m', '8192M', '64g', '6291456b', '67108864k', '68719476736'])(
+    'accepts Docker memory size %s',
+    async memory => {
+      const graph = await Effect.runPromise(
+        loadGraph(
+          graphDir({
+            'settings.yaml': `limits: { memory: '${memory}', cpus: 64 }`,
+          }),
+          harnesses
+        )
+      );
+      expect(graph.limits).toMatchObject({ memory, cpus: 64 });
+    }
+  );
+
+  it.each(['0', '5m', '65g', '1t', '8gb', '8.5g', '-8g', '8g --privileged', '8', 'null'])(
+    'rejects invalid memory %s at graph and step scope',
+    async value => {
+      const found = await problems(
+        graphDir({
+          'settings.yaml': `limits: { memory: ${value} }`,
+          'workflows/w.md': `---\non: issues\nsteps:\n  x: { run: 'true', limits: { memory: ${value} } }\n---\n`,
+        })
+      );
+      expect(found.join('\n')).not.toContain('is unexpected');
+      expect(found).toContainEqual(expect.stringMatching(/^settings.yaml: limits.memory:/));
+      expect(found).toContainEqual(expect.stringMatching(/^workflows\/w.md: steps.x.limits.memory:/));
+    }
+  );
+
+  it.each(['0', '0.001', '-1', '65', '.inf', '.nan', 'many', 'null'])(
+    'rejects invalid cpus %s at graph and step scope',
+    async value => {
+      const found = await problems(
+        graphDir({
+          'settings.yaml': `limits: { cpus: ${value} }`,
+          'workflows/w.md': `---\non: issues\nsteps:\n  x: { run: 'true', limits: { cpus: ${value} } }\n---\n`,
+        })
+      );
+      expect(found.join('\n')).not.toContain('is unexpected');
+      expect(found).toContainEqual(expect.stringMatching(/^settings.yaml: limits.cpus:/));
+      expect(found).toContainEqual(expect.stringMatching(/^workflows\/w.md: steps.x.limits.cpus:/));
+    }
+  );
+
   it('reports wrong values, unknown keys, unknown agents and checks without a command or agent', async () => {
     const dir = graphDir({
       'settings.yaml': 'limits: { parallel: many }\n',
@@ -131,7 +190,7 @@ describe('loadGraph', () => {
       })
     );
     expect(found).toContain(
-      'settings.yaml: limits.usdPerRun: is unexpected, expected: "minutes" | "usd-per-run" | "parallel" | "sessions"'
+      'settings.yaml: limits.usdPerRun: is unexpected, expected: "memory" | "cpus" | "minutes" | "usd-per-run" | "parallel" | "sessions"'
     );
     expect(found).toContainEqual(
       expect.stringMatching(/^workflows\/w\.md: steps\.x\.bogus: is unexpected, expected: "agent" \| "run" \|/)

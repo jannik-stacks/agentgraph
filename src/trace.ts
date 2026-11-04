@@ -23,7 +23,7 @@ export type SessionSpec = {
   resume?: Run['sessions'][string];
   /** Opens a copy of `resume` in a new home, leaving the resumed session as it was. */
   fork?: true;
-};
+} & Pick<Command, 'limits'>;
 
 /** What a session does, as the harness reports it. `end` comes once the harness exits; with `ended: 'error'` and no reply, `final` holds the harness's error. */
 export type SessionEvent =

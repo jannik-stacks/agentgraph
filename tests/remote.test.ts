@@ -77,6 +77,13 @@ describe('remote sandbox', () => {
     expect(JSON.stringify(exit)).toContain('cannot keep the work tree read-only');
   });
 
+  it.each([{ memory: '8g' }, { cpus: 4 }])('refuses command resource limits %j', async limits => {
+    const exit = await use(layer(), s =>
+      Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true', { limits })))
+    );
+    expect(JSON.stringify(exit)).toContain('remote sandboxes do not support command resource limits');
+  });
+
   it('seeds a box again after it restarted, from the files the host has', async () => {
     const exit = await use(layer(), s =>
       Effect.gen(function* () {
