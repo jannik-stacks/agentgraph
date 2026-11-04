@@ -16,14 +16,13 @@ export type Services = Tracker | Store | Session | Sandbox;
 export const makeAgentSessionSpec = (
   graph: Graph,
   name: string,
-  work: Pick<Checkout, 'dir'> & Partial<Pick<Checkout, 'base'>>,
-  minutes = graph.limits.minutes
+  work: Pick<Checkout, 'dir'> & Partial<Pick<Checkout, 'base'>>
 ) => {
   const agent = graph.agents[name]!;
   return {
     harness: agent.harness,
     agent: name,
-    minutes,
+    minutes: graph.limits.minutes,
     ...(agent.model !== undefined && { model: agent.model }),
     system: agent.body,
     dir: work.dir,

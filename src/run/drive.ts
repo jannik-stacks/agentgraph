@@ -67,12 +67,15 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         graph
       );
       yield* store.put(current);
-      const open = yield* Effect.cached(tracker.issues({ state: 'open' }));
-      const stacked = graph.stacks && !current.base && findStackBase(w, issue, yield* open);
+      const stacked =
+        graph.stacks && !current.base && findStackBase(w, issue, yield* tracker.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const named = w.branch && formatTemplate(w.branch, issue);
       const old = named && named.replace(/^agentgraph\//, 'bothub/');
-      const own = old && old !== named && (yield* open).some(t => t.pull?.branch === old) ? old : named;
+      const own =
+        old && old !== named && (yield* tracker.issues({ state: 'open' })).some(t => t.pull?.branch === old)
+          ? old
+          : named;
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
         ((issue.state === 'open' ? issue.pull?.branch : undefined) ??

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { watch } from 'node:fs/promises';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -10,7 +9,7 @@ import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { findIssueDir, Tracker } from '../src/tracker.ts';
+import { findIssueDir, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
@@ -695,10 +694,7 @@ async function loop(i: Instance) {
       const signal = AbortSignal.any([stopping.signal, woken.signal]);
       await Promise.race([
         sleep(host.every * 60_000, undefined, { signal }),
-        (async () => {
-          for await (const { filename } of watch(i.tracker, { signal, recursive: true }))
-            if (!filename?.startsWith('.tracker.lock')) return;
-        })(),
+        waitForTrackerEdit(i.tracker, signal),
       ]).catch(() => {});
       woken.abort();
       await applySettings(connection.provider)().catch((e: Error) =>

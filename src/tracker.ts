@@ -1,10 +1,10 @@
 import { readDirEntriesOrEmpty, readOrUndefined } from './read.ts';
 import { makePlugin, type ToolContext } from './plugin.ts';
 import { existsSync } from 'node:fs';
-import { appendFile, link, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, link, mkdir, readFile, rename, stat, unlink, watch, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { Context, Data, Effect, Layer, Stream, Semaphore } from 'effect';
 import { parse, stringify } from 'yaml';
 import {
@@ -217,6 +217,11 @@ export const runLocked = async <A>(dir: string, f: () => Promise<A>): Promise<A>
   }
 };
 
+export const waitForTrackerEdit = async (dir: string, signal: AbortSignal) => {
+  for await (const { filename } of watch(dir, { signal, recursive: true }))
+    if (filename !== basename(dir) && !filename?.startsWith('.tracker.lock')) return;
+};
+
 type IssueFront = Pick<Issue, 'title' | 'author' | 'labels'> & Partial<Omit<Issue, 'number' | 'body' | 'url' | 'pull'>>;
 
 const isIssueFolder = (name: string) => /^\d+$/.test(name);
@@ -334,10 +339,11 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       const held = new Map<string, Set<string>>();
 
       const read = async (n: number): Promise<Issue | undefined> => {
-        const [text, pull] = await Promise.all([readIssueFile(n, 'issue.md'), readIssueFile(n, 'pull.json')]);
+        const text = await readIssueFile(n, 'issue.md');
         if (text === undefined) return undefined;
         const { front, body } = parseIssueFile(text);
         const [, first = '', rest = ''] = /^#*\s*(.*)\n?([\s\S]*)$/.exec(body.trim()) ?? [];
+        const pull = await readIssueFile(n, 'pull.json');
         return {
           number: n,
           state: 'open',
