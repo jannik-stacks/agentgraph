@@ -7,6 +7,16 @@ const text = (flag: Flag.Flag<string>) =>
     Flag.atLeast(0),
     Flag.map(values => values.at(-1))
   );
+const many = (flag: Flag.Flag<string>) =>
+  flag.pipe(
+    Flag.atLeast(0),
+    Flag.map(values => (values.length ? [...values] : undefined))
+  );
+const presence = new Set<string>();
+const flag = (name: string) => {
+  presence.add(`--${name}`);
+  return Flag.Boolean(name).pipe(Flag.withoutNegation, Flag.withDefault(false));
+};
 const shared = {
   data: text(Flag.String('data')),
   repo: text(Flag.String('repo')),
@@ -14,9 +24,9 @@ const shared = {
   dir: text(Flag.String('dir')),
   tracker: text(Flag.String('tracker').pipe(Flag.withDescription('<name>|<dir>'))),
   logs: text(Flag.String('logs').pipe(Flag.withDescription('all|failed|off'))),
-  'read-only': Flag.Boolean('read-only').pipe(Flag.withDefault(false)),
+  'read-only': flag('read-only'),
   provider: text(Flag.String('provider')),
-  save: Flag.Boolean('save').pipe(Flag.withDefault(false)),
+  save: flag('save'),
   harness: text(Flag.String('harness')),
   model: text(Flag.String('model')),
 };
@@ -29,19 +39,12 @@ const own = {
   patch: text(Flag.String('patch').pipe(Flag.withDescription('<file>'))),
   from: text(Flag.String('from').pipe(Flag.withDescription('<commit>'))),
   meta: text(Flag.String('meta').pipe(Flag.withDescription('<json file>'))),
-  once: Flag.Boolean('once').pipe(Flag.withDefault(false)),
-  apply: Flag.Boolean('apply').pipe(Flag.withDefault(false)),
-  runs: Flag.Boolean('runs').pipe(Flag.withDefault(false)),
-  parked: Flag.Boolean('parked').pipe(Flag.withDefault(false)),
-  label: Flag.String('label').pipe(
-    Flag.atLeast(0),
-    Flag.map(labels => (labels.length ? [...labels] : undefined))
-  ),
-  'run-label': Flag.String('run-label').pipe(
-    Flag.withDescription('<key>=<value>'),
-    Flag.atLeast(0),
-    Flag.map(labels => (labels.length ? [...labels] : undefined))
-  ),
+  once: flag('once'),
+  apply: flag('apply'),
+  runs: flag('runs'),
+  parked: flag('parked'),
+  label: many(Flag.String('label')),
+  'run-label': many(Flag.String('run-label').pipe(Flag.withDescription('<key>=<value>'))),
 };
 const table: [verb: string, args: string | undefined, flags: (keyof typeof own)[], what: string][] = [
   ['start', 'text', ['workflow', 'label', 'run-label'], 'files an issue and drives it until it waits or ends'],
@@ -68,7 +71,10 @@ type Values = {
 };
 const cli = Layer.mergeAll(
   CliConfig.layer({ builtIns: [GlobalFlag.Help, GlobalFlag.Version] }),
-  CliOutput.layer({ ...CliOutput.defaultFormatter(), formatVersion: (_name, version) => version }),
+  CliOutput.layer({
+    ...CliOutput.defaultFormatter(),
+    formatVersion: (_name, version) => version,
+  }),
   FileSystem.layerNoop({}),
   Path.layer,
   Stdio.layerTest({}),
@@ -88,7 +94,22 @@ const cli = Layer.mergeAll(
   )
 );
 
+const asPresence = (argv: string[]) => {
+  const end = argv.includes('--') ? argv.indexOf('--') : argv.length;
+  const valued = argv
+    .slice(0, end)
+    .map(arg => arg.replace(/=.*/s, ''))
+    .find((name, i) => name !== argv[i] && presence.has(name));
+  if (valued) return `${valued} takes no value`;
+  return argv.map((arg, i) => (i < end && presence.has(arg) ? `${arg}=true` : arg));
+};
+
 export const readArgs = async (argv: string[], version: string) => {
+  const args = asPresence(argv);
+  if (typeof args === 'string') {
+    console.error(args);
+    return 2;
+  }
   let parsed: { verb: string; values: Values; rest: string[] } | undefined;
   const agi = Command.make('agi').pipe(
     Command.withSharedFlags(shared),
@@ -103,13 +124,21 @@ export const readArgs = async (argv: string[], version: string) => {
       },
       input =>
         Effect.map(agi, top => {
-          const { rest = [], ...values } = input as Values & { rest?: string[] };
-          parsed = { verb: name, values: { ...top, ...values }, rest: [...rest] };
+          const { rest = [], ...values } = input as Values & {
+            rest?: string[];
+          };
+          parsed = {
+            verb: name,
+            values: { ...top, ...values },
+            rest: [...rest],
+          };
         })
     ).pipe(Command.withDescription(what))
   );
-  const run = Command.runWith(agi.pipe(Command.withSubcommands(commands)), { version });
-  return Effect.runPromise(run(argv.length ? argv : ['--help']).pipe(Effect.provide(cli))).then(
+  const run = Command.runWith(agi.pipe(Command.withSubcommands(commands)), {
+    version,
+  });
+  return Effect.runPromise(run(args.length ? args : ['--help']).pipe(Effect.provide(cli))).then(
     () => parsed ?? 0,
     (e: unknown) => {
       if (!(e instanceof CliError.ShowHelp)) console.error(e instanceof Error ? e.message : e);

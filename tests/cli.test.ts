@@ -22,21 +22,33 @@ describe('agi arguments', () => {
     [['merge', '3', '--data', '/d', '--read-only'], { verb: 'merge', values: { data: '/d', 'read-only': true } }],
     [
       ['--dir', 'g', 'check', 'tests', '--runs', '--issue', '4'],
-      { verb: 'check', rest: ['tests'], values: { dir: 'g', runs: true, issue: '4' } },
+      {
+        verb: 'check',
+        rest: ['tests'],
+        values: { dir: 'g', runs: true, issue: '4' },
+      },
     ],
     [['loop', '--once', '--logs', 'off'], { verb: 'loop', values: { once: true, logs: 'off' } }],
     [['loop'], { verb: 'loop', values: { once: false } }],
     [['export', '3', '--as', 'mine', '--patch', 'p.diff'], { verb: 'export', values: { as: 'mine', patch: 'p.diff' } }],
     [
       ['dispatch', '3', 'go', '--workflow', 'w', '--step', 's'],
-      { verb: 'dispatch', rest: ['3', 'go'], values: { workflow: 'w', step: 's' } },
+      {
+        verb: 'dispatch',
+        rest: ['3', 'go'],
+        values: { workflow: 'w', step: 's' },
+      },
     ],
     [['resume', '--parked'], { verb: 'resume', rest: [], values: { parked: true } }],
     [['prune-logs', '--apply'], { verb: 'prune-logs', values: { apply: true } }],
     [['say', '3', 'hi', '--line', 'a.ts:1', '--label', 'x'], { verb: 'say', values: { line: 'a.ts:1', label: ['x'] } }],
     [
       ['start', 'Fix it', '--label', 'a', '--label', 'b', '--workflow', 'w'],
-      { verb: 'start', rest: ['Fix it'], values: { label: ['a', 'b'], workflow: 'w' } },
+      {
+        verb: 'start',
+        rest: ['Fix it'],
+        values: { label: ['a', 'b'], workflow: 'w' },
+      },
     ],
     [['start', 'Fix it'], { verb: 'start', values: { label: undefined } }],
     [
@@ -58,21 +70,44 @@ describe('agi arguments', () => {
       ],
       {
         verb: 'show',
-        values: { provider: 'p', harness: 'h', model: 'm', save: true, base: 'main', repo: 'r', tracker: 'f' },
+        values: {
+          provider: 'p',
+          harness: 'h',
+          model: 'm',
+          save: true,
+          base: 'main',
+          repo: 'r',
+          tracker: 'f',
+        },
       },
     ],
     [
       ['start', 'Fix it', '--run-label', 'arm=v2', '--run-label', 'old-'],
-      { verb: 'start', rest: ['Fix it'], values: { 'run-label': ['arm=v2', 'old-'] } },
+      {
+        verb: 'start',
+        rest: ['Fix it'],
+        values: { 'run-label': ['arm=v2', 'old-'] },
+      },
     ],
     [['start', 'Fix it'], { verb: 'start', values: { 'run-label': undefined } }],
     [['label', 'run-1', 'arm=v2', 'old-'], { verb: 'label', rest: ['run-1', 'arm=v2', 'old-'] }],
     [['label', 'run-1'], { verb: 'label', rest: ['run-1'] }],
     [
       ['import', 'HEAD', 'issue.md', '--from', 'HEAD~1', '--meta', 'm.json'],
-      { verb: 'import', rest: ['HEAD', 'issue.md'], values: { from: 'HEAD~1', meta: 'm.json' } },
+      {
+        verb: 'import',
+        rest: ['HEAD', 'issue.md'],
+        values: { from: 'HEAD~1', meta: 'm.json' },
+      },
     ],
-    [['import', 'p.diff'], { verb: 'import', rest: ['p.diff'], values: { from: undefined, meta: undefined } }],
+    [
+      ['import', 'p.diff'],
+      {
+        verb: 'import',
+        rest: ['p.diff'],
+        values: { from: undefined, meta: undefined },
+      },
+    ],
     [['--tracker', 'github', 'loop', '--tracker', '/local'], { verb: 'loop', values: { tracker: '/local' } }],
     [['loop', '--tracker', 'a', '--tracker', 'b'], { verb: 'loop', values: { tracker: 'b' } }],
     [
@@ -96,12 +131,34 @@ describe('agi arguments', () => {
         '--run-label',
         'j=2',
       ],
-      { verb: 'start', values: { workflow: 'b', label: ['l1', 'l2'], 'run-label': ['k=1', 'j=2'] } },
+      {
+        verb: 'start',
+        values: {
+          workflow: 'b',
+          label: ['l1', 'l2'],
+          'run-label': ['k=1', 'j=2'],
+        },
+      },
     ],
     [
       ['import', 'HEAD', '--from', 'a', '--meta', 'm1', '--from', 'b', '--meta', 'm2'],
       { verb: 'import', values: { from: 'b', meta: 'm2' } },
     ],
+    [['say', '1', '--read-only', 'yes'], { verb: 'say', rest: ['1', 'yes'], values: { 'read-only': true } }],
+    [['say', '2', '--read-only', 'no'], { verb: 'say', rest: ['2', 'no'], values: { 'read-only': true } }],
+    [
+      ['start', '--read-only', 'false', 'Fix it'],
+      {
+        verb: 'start',
+        rest: ['false', 'Fix it'],
+        values: { 'read-only': true },
+      },
+    ],
+    [['show', '--read-only', '1'], { verb: 'show', rest: ['1'], values: { 'read-only': true } }],
+    [['check', '--runs', '1'], { verb: 'check', rest: ['1'], values: { runs: true } }],
+    [['export', '--save', '0'], { verb: 'export', rest: ['0'], values: { save: true } }],
+    [['loop', '--once', '--once'], { verb: 'loop', values: { once: true } }],
+    [['say', '1', '--', '--once'], { verb: 'say', rest: ['1', '--once'], values: { 'read-only': false } }],
   ])('reads %j', async (argv, expected) => {
     expect(await quietly(argv)).toMatchObject(expected);
   });
@@ -118,6 +175,11 @@ describe('agi arguments', () => {
     [['label', 'run-1', '--run-label', 'arm=v2']],
     [['label', 'run-1', '--from', 'x']],
     [['import', 'HEAD', '--label', 'x']],
+    [['loop', '--once=false']],
+    [['loop', '--once=true']],
+    [['loop', '--no-once']],
+    [['show', '--read-only=no']],
+    [['--no-read-only', 'show']],
     [['check', '--meta', 'm.json']],
     [['show', '--forge', 'f']],
   ])('refuses %j with exit 2', async argv => {
@@ -141,7 +203,13 @@ describe('the agi command', () => {
     const ran = spawnSync(process.execPath, [runTs, ...args], {
       cwd: repo,
       encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_DATA: data, AGENTGRAPH_TRACKER: '', AGENTGRAPH_DIR: '' },
+      env: {
+        ...process.env,
+        NODE_OPTIONS: '',
+        AGENTGRAPH_DATA: data,
+        AGENTGRAPH_TRACKER: '',
+        AGENTGRAPH_DIR: '',
+      },
     });
     return { ...ran, data, tracker, repo };
   };
