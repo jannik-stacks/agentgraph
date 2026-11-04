@@ -1,6 +1,8 @@
+import { getSha } from './hash.ts';
+import { readDirOrEmpty, readOrUndefined } from './read.ts';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { makeHostEnv } from './git.ts';
@@ -203,18 +205,13 @@ const touch = (key: string) => {
 };
 const holdHours = () => Number(process.env.AGENTGRAPH_ENV_HOLD_HOURS || 2);
 
-/** Whether another running runner used the sandbox setup `key` within the hold window; with `prune`, stopped runners' holds are dropped. */
-export const held = (key: string, prune = true) => {
+/** Whether another running runner used the sandbox setup `key` within the hold window. */
+export const held = (key: string) => {
   const dir = join(holds(), key);
-  let owners: string[] = [];
-  try {
-    owners = readdirSync(dir);
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-  }
-  const running = owners.filter(o => isOwnerRunning(`0:${o}`));
-  if (prune) for (const owner of owners.filter(o => !running.includes(o))) rmSync(join(dir, owner), { force: true });
-  return running.some(o => o !== ownerId && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000);
+  return readDirOrEmpty(dir).some(
+    o =>
+      o !== ownerId && isOwnerRunning(`0:${o}`) && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000
+  );
 };
 
 const makeImageTag = (repo: string, key: string) =>
@@ -248,7 +245,7 @@ const building = new Map<string, Promise<SandboxSetup | 'setup' | undefined>>();
 /** The sandbox setup build format; a sandbox setup of another version is never reused. */
 export const envVersion = 6;
 
-const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
+const hash = (value: unknown) => getSha(JSON.stringify(value), 24);
 
 /**
  * The sandbox setup for `spec`: the tagged image when one exists, else one container with open network, committed. Setup first
@@ -662,20 +659,14 @@ export const getCheckoutPaths = (data: string, id: string) => {
 
 export const findDeadCheckouts = (data: string) => {
   const work = getCachePath(data, 'work');
-  let ids: string[] = [];
-  try {
-    ids = readdirSync(work).filter(n => !n.endsWith('.owner') && !n.endsWith('.failed'));
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-  }
+  const ids = readDirOrEmpty(work).filter(n => !n.endsWith('.owner') && !n.endsWith('.failed'));
   return ids.filter(id => {
     if (existsSync(join(work, `${id}.failed`))) return false;
     const owner = join(work, `${id}.owner`);
     try {
       return !isOwnerRunning(readFileSync(owner, 'utf8').trim(), statSync(owner).mtimeMs);
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return true;
-      throw e;
+      return readOrUndefined(e) ?? true;
     }
   });
 };

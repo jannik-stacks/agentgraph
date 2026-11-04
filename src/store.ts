@@ -1,4 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { getSha } from './hash.ts';
+import { readOrUndefined } from './read.ts';
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -97,8 +99,7 @@ export const readResultSheets = (roots: readonly string[]) => {
     try {
       entries = readdirSync(dir, { withFileTypes: true });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-      throw error;
+      return readOrUndefined(error);
     }
     for (const entry of entries.toSorted((a, b) => a.name.localeCompare(b.name))) {
       const path = join(dir, entry.name);
@@ -178,9 +179,7 @@ const current = (value: unknown, key = ''): unknown => {
   return Object.fromEntries(Object.entries(value).map(([k, v]) => [renamed[k] ?? k, current(v, k)]));
 };
 
-const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
-
-const absent = (e: unknown) => missing(e) || (e as NodeJS.ErrnoException).code === 'ENOTDIR';
+const absent = (e: unknown) => ['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code!);
 
 export const readRecordSync = (path: string) => {
   if (existsSync(path)) return readFileSync(path, 'utf8');
@@ -202,7 +201,7 @@ const readRecord = (path: string): Promise<string> =>
 export const writeIdleRunsCompressed = async (dir: string, days: number) => {
   if (!days) return;
   const before = Date.now() - days * 86_400_000;
-  for (const id of await readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e)))) {
+  for (const id of await readdir(dir).catch(e => readOrUndefined(e) ?? [])) {
     const idle: string[] = [];
     for (const path of ['trace.jsonl', 'checks.jsonl'].map(file => join(dir, id, file))) {
       const modified = await stat(path).then(
@@ -308,13 +307,10 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     io(path, async () => parseJsonlRows(path, await readRecord(path)).map(row => current(row) as A));
   const readRun = (id: string) =>
     io(runFile(id), () =>
-      readFile(runFile(id), 'utf8').then(
-        text => current(JSON.parse(text)) as RunRecord,
-        e => (missing(e) ? undefined : Promise.reject(e))
-      )
+      readFile(runFile(id), 'utf8').then(text => current(JSON.parse(text)) as RunRecord, readOrUndefined)
     );
   const listRecords = (filter: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>> = {}) =>
-    io(dir, () => readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e)))).pipe(
+    io(dir, () => readdir(dir).catch(e => readOrUndefined(e) ?? [])).pipe(
       Effect.flatMap(ids => Effect.forEach(ids, readRun)),
       Effect.map(runs =>
         runs.filter(
@@ -328,11 +324,10 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
   const logFile = (hash: string) => join(dir, 'logs', `${hash}.gz`);
   const log = (output: string, pass: boolean) => {
     if (!output || logs === 'off' || (logs === 'failed' && pass)) return Effect.succeed(undefined);
-    const hash = createHash('sha256').update(output).digest('hex');
+    const hash = getSha(output);
     const path = logFile(hash);
     return io(path, async () => {
-      if (!(await stat(path).catch(e => (missing(e) ? undefined : Promise.reject(e)))))
-        writeFileAtomic(path, await promisify(gzip)(output));
+      if (!(await stat(path).catch(readOrUndefined))) writeFileAtomic(path, await promisify(gzip)(output));
       return { hash, bytes: Buffer.byteLength(output) };
     });
   };
@@ -342,7 +337,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       io(join(dir, 'files'), async () => {
         signal.throwIfAborted();
         const bytes = new Uint8Array(input);
-        const hash = createHash('sha256').update(bytes).digest('hex');
+        const hash = getSha(bytes);
         const folder = join(dir, 'files');
         const path = join(folder, hash);
         const temporary = `${path}.${randomUUID()}.tmp`;
@@ -368,7 +363,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       io(join(dir, 'files', hash), async () => {
         if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('invalid file hash');
         const bytes = await readFile(join(dir, 'files', hash));
-        if (createHash('sha256').update(bytes).digest('hex') !== hash) throw new Error('file hash mismatch');
+        if (getSha(bytes) !== hash) throw new Error('file hash mismatch');
         return bytes;
       }),
     getRecord: readRun,
@@ -411,10 +406,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     readLog: hash =>
       /^[0-9a-f]{64}$/.test(hash)
         ? io(logFile(hash), () =>
-            readFile(logFile(hash)).then(
-              async gz => (await promisify(gunzip)(gz)).toString('utf8'),
-              e => (missing(e) ? undefined : Promise.reject(e))
-            )
+            readFile(logFile(hash)).then(async gz => (await promisify(gunzip)(gz)).toString('utf8'), readOrUndefined)
           )
         : Effect.succeed(undefined),
   });
@@ -454,11 +446,11 @@ export const locate = (input: unknown) =>
 /** The check logs in `<dir>/logs` that no run's trace or check record names; they are deleted only when `apply` is set. */
 export const pruneLogs = async (dir: string, apply = false) => {
   const named = new Set<string>();
-  for (const id of await readdir(dir).catch(e => (missing(e) ? [] : Promise.reject(e))))
+  for (const id of await readdir(dir).catch(e => readOrUndefined(e) ?? []))
     for (const file of ['trace.jsonl', 'checks.jsonl'])
       for (const [hash] of (await readRecord(join(dir, id, file))).matchAll(/[0-9a-f]{64}/g)) named.add(hash);
   const unused = { files: 0, bytes: 0 };
-  for (const name of await readdir(join(dir, 'logs')).catch(e => (missing(e) ? [] : Promise.reject(e)))) {
+  for (const name of await readdir(join(dir, 'logs')).catch(e => readOrUndefined(e) ?? [])) {
     const hash = /^([0-9a-f]{64})\.gz$/.exec(name)?.[1];
     if (!hash || named.has(hash)) continue;
     const path = join(dir, 'logs', name);

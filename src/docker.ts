@@ -1,5 +1,6 @@
+import { getSha } from './hash.ts';
 import { execFile, spawn } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -237,10 +238,11 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
               : `The image ${tag} is missing on the runner host. Run \`docker pull ${tag}\` there.`,
           });
     const source = fileURLToPath(new URL(`../infra/local/${dir}`, import.meta.url));
-    const hash = createHash('sha256');
-    for (const f of readdirSync(source, { withFileTypes: true }).filter(f => f.isFile()))
-      hash.update(f.name).update(readFileSync(join(source, f.name)));
-    const digest = hash.digest('hex').slice(0, 12);
+    const files = readdirSync(source, { withFileTypes: true }).filter(f => f.isFile());
+    const digest = getSha(
+      Buffer.concat(files.flatMap(f => [Buffer.from(f.name), readFileSync(join(source, f.name))])),
+      12
+    );
     if (fresh ? built === digest : built) return false;
     say(`building ${tag}`);
     yield* run('docker', ['build', '-q', '--label', `agentgraph.source=${digest}`, '-t', tag, source]).pipe(

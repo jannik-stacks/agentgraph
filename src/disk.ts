@@ -1,4 +1,4 @@
-import { readOrUndefined } from './read.ts';
+import { readDirOrEmpty, readOrUndefined } from './read.ts';
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { makeHostEnv } from './git.ts';
@@ -77,12 +77,7 @@ export const pin = (name: string, match: string[], days: number) => {
 export const unpin = (name: string) => rmSync(join(pins(), `${name}.json`), { force: true });
 
 const unexpired = () => {
-  let files: string[] = [];
-  try {
-    files = readdirSync(pins()).filter(f => f.endsWith('.json'));
-  } catch (e) {
-    readOrUndefined(e);
-  }
+  const files = readDirOrEmpty(pins()).filter(f => f.endsWith('.json'));
   return files.flatMap(f => {
     try {
       const p = JSON.parse(readFileSync(join(pins(), f), 'utf8')) as { match: string[]; until: string };
@@ -249,7 +244,7 @@ export const inventory = async (
       ...((tags.some(t => runImages.has(t)) || runImages.has(id)) && { held: 'container' }),
       ...(mounted.has(makeSetupVolumeName(key)) && { held: 'container' }),
       ...(overlaid(key) && { held: 'live checkout' }),
-      ...(held(key, false) && { held: 'recent use' }),
+      ...(held(key) && { held: 'recent use' }),
     });
   }
   const measured = o.measure ? df.volumes : new Map<string, number>();
@@ -265,7 +260,7 @@ export const inventory = async (
       used: 0,
       always: true,
       ...(mounted.has(v.name) ? { held: 'container' } : overlaid(key) && { held: 'live checkout' }),
-      ...(held(key, false) && { held: 'recent use' }),
+      ...(held(key) && { held: 'recent use' }),
     });
   }
   for (const path of (o.roots ?? []).flatMap(root => findBuildDirs(root))) {
