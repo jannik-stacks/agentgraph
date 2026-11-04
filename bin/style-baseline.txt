@@ -1,6 +1,6 @@
 no-comment bench/drive.ts 15
 no-comment bin/bench.ts 58
-no-comment bin/commands.mjs 5
+no-comment bin/commands.mjs 3
 no-comment bin/commit-msg.mjs 1
 no-comment bin/diagrams.mjs 8
 no-comment bin/env.ts 1

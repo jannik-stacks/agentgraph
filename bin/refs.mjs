@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Proposal, Said } from '../src/proposal.ts';
+import { readUsage } from './usage.mjs';
 
 const root = join(import.meta.dirname, '..');
 const read = path => readFileSync(join(root, path), 'utf8');
@@ -203,17 +204,13 @@ const userFacing = () => {
     'src/context.ts',
     strings(balanced(context, context.indexOf('{', context.indexOf('const statuses'))))
   );
-  const cli = read('bin/run.ts');
+  const cli = readUsage(root, 'src/cli.ts');
   add(
     'CLI flag',
-    'bin/run.ts',
-    [...balanced(cli, cli.indexOf('{', cli.indexOf('options:'))).matchAll(/(\w+): \{/g)].map(m => `--${m[1]}`)
+    'src/cli.ts',
+    [...cli.flags].map(flag => `--${flag}`)
   );
-  add(
-    'CLI command',
-    'bin/run.ts',
-    [...cli.matchAll(/(?:case|verb ===) '([\w-]+)'/g)].map(m => m[1])
-  );
+  add('CLI command', 'src/cli.ts', [...cli.words]);
   for (const file of [...readdirSync(join(root, 'src')).map(f => `src/${f}`), 'bin/run.ts'])
     add(
       'env var',

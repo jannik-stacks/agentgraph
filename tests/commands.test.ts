@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, readFileSync } from 'node:fs';
+import { cpSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { tmp, write } from './kit.ts';
@@ -9,7 +9,14 @@ const root = resolve(import.meta.dirname, '..');
 describe('commands', () => {
   it('fails a missing bin file, command, flag and npm script, one line each', () => {
     const dir = tmp('commands');
-    for (const path of ['bin/commands.mjs', 'bin/run.ts', 'src/cli.ts', 'package.json', 'studio/package.json'])
+    for (const path of [
+      'bin/commands.mjs',
+      'bin/usage.mjs',
+      'bin/run.ts',
+      'src/cli.ts',
+      'package.json',
+      'studio/package.json',
+    ])
       cpSync(join(root, path), join(dir, path));
     write(dir, {
       'README.md':
@@ -31,6 +38,23 @@ describe('commands', () => {
       'docs/local.md:1: there is no npm script retro',
       'docs/local.md:2: bin/run.ts has no --watch option',
       'docs/local.md:2: no bin file reads --nope',
+    ]);
+  });
+});
+
+describe('refs coverage', () => {
+  it('reports an agi flag no docs page names', () => {
+    const dir = tmp('refs');
+    for (const path of ['bin', 'src', 'docs']) cpSync(join(root, path), join(dir, path), { recursive: true });
+    symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'));
+    for (const page of readdirSync(join(dir, 'docs')).filter(f => f.endsWith('.md'))) {
+      const path = join(dir, 'docs', page);
+      writeFileSync(path, readFileSync(path, 'utf8').replaceAll('--parked', ''));
+    }
+    const { status, stdout } = spawnSync('node', [join(dir, 'bin/refs.mjs'), '--coverage'], { encoding: 'utf8' });
+    expect([status, stdout.split('\n').filter(line => line.startsWith('uncited CLI'))]).toEqual([
+      1,
+      ['uncited CLI flag: --parked (src/cli.ts)'],
     ]);
   });
 });
