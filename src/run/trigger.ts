@@ -754,20 +754,6 @@ export const tick = (
           r => r !== undefined
         );
     const moved = [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
-    const kept = yield* store.list();
-    const getBranch = (r: Run) => {
-      const w = graph.workflows[r.workflow];
-      return w?.branch && formatTemplate(w.branch, issues.find(t => t.number === r.issue) ?? { number: r.issue });
-    };
-    const busyBranches = new Set(kept.filter(r => !isRunDone(r)).map(getBranch));
-    for (const run of kept.filter(r => mine(r) && isRunDone(r) && !r.owed)) {
-      const branch = getBranch(run);
-      if (!branch || !isAgentBranch(branch) || busyBranches.has(branch)) continue;
-      const pull = merged.find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull;
-      yield* Effect.flatMap(Sandbox, s =>
-        s.removeBranch(branch, pull?.base ?? graph.workflows[run.workflow]!.base ?? 'origin/HEAD', pull?.head)
-      ).pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup run ${run.id}`, e)));
-    }
     return [...moved.filter(r => !ended.some(e => e.id === r.id)), ...ended];
   });
 
@@ -789,21 +775,15 @@ export const scanIssuesAndRunningRuns = (
       tracker.issues({ state: 'open' }),
       Duration.infinity
     );
-    const readIssue = yield* Cache.make({ capacity: Infinity, lookup: tracker.issue });
     const listed = yield* listing;
+    const fetched = [...listed];
+    const readIssue = yield* Cache.make({
+      capacity: Infinity,
+      lookup: (n: number) => tracker.issue(n).pipe(Effect.tap(t => Effect.sync(() => fetched.push(t)))),
+    });
     const open = listed.filter(t => !t.pull && isInScope(graph, t));
     const all = yield* Effect.flatMap(Store, s => s.list());
-    const branches = new Set(
-      yield* Effect.flatMap(Sandbox, s => s.readBranches()).pipe(
-        Effect.catch(e => Effect.as(Effect.logWarning('local branches', e), []))
-      )
-    );
-    const runs = all.filter(r => {
-      if (!isRunDone(r) || r.owed) return true;
-      const branch = graph.workflows[r.workflow]?.branch;
-      const own = branch && formatTemplate(branch, listed.find(t => t.number === r.issue) ?? { number: r.issue });
-      return own && isAgentBranch(own) && branches.has(own);
-    });
+    const runs = all.filter(r => !isRunDone(r) || r.owed);
     const from = pickNewest(...all.map(r => r.started));
     const cursor = from
       ? new Date(Date.parse(all.flatMap(r => [r.started, r.seen ?? r.started]).toSorted()[0]!) - debounce).toISOString()
@@ -844,7 +824,24 @@ export const scanIssuesAndRunningRuns = (
         }),
         Effect.catchTag('TrackerError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
       );
-    return (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();
+    const changed = (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();
+    const kept = yield* Effect.flatMap(Store, s => s.list());
+    if (kept.some(r => (!isRunDone(r) || r.owed) && !r.checkout)) return changed;
+    const sandbox = yield* Sandbox;
+    const branches = yield* sandbox
+      .readBranches()
+      .pipe(Effect.catch(e => Effect.as(Effect.logWarning('local branches', e), [])));
+    for (const branch of branches.filter(isAgentBranch)) {
+      const using = kept
+        .filter(r => r.checkout?.branch === branch)
+        .toSorted((a, b) => a.started.localeCompare(b.started));
+      if (!using.length || using.some(r => !isRunDone(r) || r.owed)) continue;
+      const pull = fetched.find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull;
+      yield* sandbox
+        .removeBranch(branch, pull?.base ?? using.at(-1)!.checkout!.base, pull?.head)
+        .pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup ${branch}`, e)));
+    }
+    return changed;
   });
 
 export const startLoopDrives = () => {
