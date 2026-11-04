@@ -2,14 +2,14 @@ import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
-import { Config, Data, Effect, Result, Schema, SchemaIssue } from 'effect';
+import { Config, Data, Effect, Result, Schema } from 'effect';
 import { parse } from 'yaml';
 import { issueStatuses, type IssueStatus } from './event.ts';
 import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
 import { CheckMode, defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
-import { compileWorkflow, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
+import { compileWorkflow, formatIssues, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
@@ -154,12 +154,7 @@ const decode = <S extends Schema.ConstraintDecoder<unknown>>(
 ): S['Type'] | undefined => {
   const decoded = Schema.decodeUnknownResult(schema, { onExcessProperty: 'error', errors: 'all' })(data);
   if (Result.isSuccess(decoded)) return decoded.success;
-  const seen = new Set<string>();
-  for (const issue of SchemaIssue.makeFormatterStandardSchemaV1()(decoded.failure.issue).issues) {
-    const key = issue.path?.join('.') || 'frontmatter';
-    if (!seen.has(key)) say(`${key}: ${issue.message}`);
-    seen.add(key);
-  }
+  for (const { key, message } of formatIssues(decoded.failure.issue)) say(`${key}: ${message}`);
 };
 
 type File = { path: string; text: string };

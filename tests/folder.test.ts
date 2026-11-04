@@ -123,6 +123,21 @@ describe('loadGraph', () => {
     expect(found).toContain('workflows/w.md: steps.x.checks: unknown check nope');
   });
 
+  it('names the keys it expects next to an unexpected one', async () => {
+    const found = await problems(
+      graphDir({
+        'settings.yaml': 'limits: { usdPerRun: 5 }\n',
+        'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a, bogus: 1 }\n---\n',
+      })
+    );
+    expect(found).toContain(
+      'settings.yaml: limits.usdPerRun: is unexpected, expected: "minutes" | "usd-per-run" | "parallel" | "sessions"'
+    );
+    expect(found).toContainEqual(
+      expect.stringMatching(/^workflows\/w\.md: steps\.x\.bogus: is unexpected, expected: "agent" \| "run" \|/)
+    );
+  });
+
   it('checks each agent harness against the config and asks the harness about its tools', async () => {
     const found = await problems(
       graphDir({

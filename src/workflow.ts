@@ -185,6 +185,18 @@ export const splitFrontmatter = (text: string): { data: unknown; body: string } 
   return m ? { data: parse(m[1] ?? '') ?? {}, body: (m[2] ?? '').trim() } : { data: {}, body: text.trim() };
 };
 
+const formatLeaf: SchemaIssue.LeafHook = issue =>
+  issue._tag === 'UnexpectedKey' && issue.ast._tag === 'Objects'
+    ? `is unexpected, expected: ${issue.ast.propertySignatures.map(p => `"${String(p.name)}"`).join(' | ')}`
+    : SchemaIssue.defaultLeafHook(issue);
+
+export const formatIssues = (issue: SchemaIssue.Issue) => {
+  const seen = new Set<string>();
+  return SchemaIssue.makeFormatterStandardSchemaV1({ leafHook: formatLeaf })(issue)
+    .issues.map(({ path, message }) => ({ key: path?.join('.') || 'frontmatter', message }))
+    .filter(({ key }) => !seen.has(key) && seen.add(key));
+};
+
 /** Parses a workflow file and fills its defaults. Problems are data; the workflow is set only when there are none. */
 export function compileWorkflow(
   path: string,
@@ -201,12 +213,7 @@ export function compileWorkflow(
   }
   const decoded = decode(file.data);
   if (decoded._tag === 'Failure') {
-    const seen = new Set<string>();
-    for (const issue of SchemaIssue.makeFormatterStandardSchemaV1()(decoded.failure.issue).issues) {
-      const key = issue.path?.join('.') || 'frontmatter';
-      if (!seen.has(key)) say(key, issue.message);
-      seen.add(key);
-    }
+    for (const { key, message } of formatIssues(decoded.failure.issue)) say(key, message);
     return { problems };
   }
   const front = decoded.success;
