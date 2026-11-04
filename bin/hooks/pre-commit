@@ -3,4 +3,4 @@
 engine=$(dirname "$0")/../..
 git diff --cached --quiet -- "$engine" && exit 0
 unset $(git rev-parse --local-env-vars)
-cd "$engine" && NODE_OPTIONS= exec npm run -s check:fast
+cd "$engine" && NODE_OPTIONS= exec npm run -s check:static

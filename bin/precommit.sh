@@ -1,7 +1,7 @@
 #!/bin/sh
 # The part of `npm run check` that looks at this repository's uncommitted change, against HEAD or $AGENTGRAPH_BASE:
 # docs name coverage, the agentgraph example's fast script checks, and warnings for the other side of every staged docs or
-# source change that a docs ref pairs. Safety is left out: its bounds are for bots, not maintainers. Prints every
+# source change that a docs ref pairs. Safety and size are left out: their bounds are for bots, not maintainers. Prints every
 # finding and fails when a check in block mode has one. Arguments run only those graph checks.
 #
 #   sh bin/precommit.sh            AGENTGRAPH_BASE=main sh bin/precommit.sh            sh bin/precommit.sh rules size
@@ -13,6 +13,6 @@ if [ $# -eq 0 ]; then
   rechecks=$(node bin/refs.mjs --diff HEAD --staged)
   [ -z "$rechecks" ] || printf 'docs refs, re-check the other side:\n%s\n' "$rechecks"
   node bin/diagrams.mjs || echo 'diagrams: misaligned (warning only for now)'
-  set -- $(node --input-type=module -e "import { fast } from './examples/agentgraph/scripts/fast.mjs'; console.log(fast.filter(c => c !== 'safety').join(' '))")
+  set -- $(node --input-type=module -e "import { fast } from './examples/agentgraph/scripts/fast.mjs'; console.log(fast.filter(c => c !== 'safety' && c !== 'size').join(' '))")
 fi
 exec node examples/agentgraph/scripts/fast.mjs "$@"

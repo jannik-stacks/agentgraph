@@ -1,8 +1,8 @@
 # agentgraph
 
 Read [STYLE.md](STYLE.md) and [docs/patterns.md](docs/patterns.md) before writing code.
-`npm run check:fast` must pass before a commit, and the commit hook runs it. `npm run check` must pass once per branch before
-merge.
+`npm run check:static` must pass before a commit, and the commit hook runs it. Run the tests your change touches while you
+work. `npm run check` must pass once per branch before merge.
 
 ## Code style
 
