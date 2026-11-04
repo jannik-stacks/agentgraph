@@ -56,6 +56,7 @@ const measureChecks = async (sessions: number, judged = false) => {
   );
   const sandbox = Layer.succeed(Sandbox, {
     readHead: () => Effect.die('unexpected readHead'),
+    removeBranch: () => Effect.die('unexpected cleanup'),
     checkout: () => Effect.die('unexpected checkout'),
     lines: () => Stream.die('unexpected lines'),
     exec: command =>

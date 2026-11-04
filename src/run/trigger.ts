@@ -1,6 +1,6 @@
-import { Deferred, Duration, Effect, Exit, FiberSet, Option, Schema, Scope, Semaphore, Stream } from 'effect';
+import { Cache, Deferred, Duration, Effect, Exit, FiberSet, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine, stoppedByRunner } from '../context.ts';
-import { Tracker, TrackerError, currentRunLinkRef, formatAgentComment } from '../tracker.ts';
+import { Tracker, TrackerError, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
@@ -754,6 +754,20 @@ export const tick = (
           r => r !== undefined
         );
     const moved = [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
+    const kept = yield* store.list();
+    const getBranch = (r: Run) => {
+      const w = graph.workflows[r.workflow];
+      return w?.branch && formatTemplate(w.branch, issues.find(t => t.number === r.issue) ?? { number: r.issue });
+    };
+    const busyBranches = new Set(kept.filter(r => !isRunDone(r)).map(getBranch));
+    for (const run of kept.filter(r => mine(r) && isRunDone(r) && !r.owed)) {
+      const branch = getBranch(run);
+      if (!branch || !isAgentBranch(branch) || busyBranches.has(branch)) continue;
+      const pull = merged.find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull;
+      yield* Effect.flatMap(Sandbox, s =>
+        s.removeBranch(branch, pull?.base ?? graph.workflows[run.workflow]!.base ?? 'origin/HEAD', pull?.head)
+      ).pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup run ${run.id}`, e)));
+    }
     return [...moved.filter(r => !ended.some(e => e.id === r.id)), ...ended];
   });
 
@@ -775,10 +789,10 @@ export const scanIssuesAndRunningRuns = (
       tracker.issues({ state: 'open' }),
       Duration.infinity
     );
+    const readIssue = yield* Cache.make({ capacity: Infinity, lookup: tracker.issue });
     const listed = yield* listing;
     const open = listed.filter(t => !t.pull && isInScope(graph, t));
     const all = yield* Effect.flatMap(Store, s => s.list());
-    const runs = all.filter(r => !isRunDone(r) || r.owed);
     const from = pickNewest(...all.map(r => r.started));
     const cursor = from
       ? new Date(Date.parse(all.flatMap(r => [r.started, r.seen ?? r.started]).toSorted()[0]!) - debounce).toISOString()
@@ -788,7 +802,7 @@ export const scanIssuesAndRunningRuns = (
     const history = cursor ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards))) : latest;
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
-    const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
+    const issues = [...new Set([...all.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
     const look = (n: number) =>
       tick(
         graph,
@@ -800,6 +814,7 @@ export const scanIssuesAndRunningRuns = (
       ).pipe(
         Effect.provideService(Tracker, {
           ...tracker,
+          issue: n => Cache.get(readIssue, n),
           issues: filter =>
             filter?.state === 'open' && !filter.labels?.length && filter.parent === undefined
               ? listing
@@ -811,7 +826,7 @@ export const scanIssuesAndRunningRuns = (
               .pipe(
                 Effect.tap(a =>
                   a.ok && ['issue', 'pull_request', 'merge', 'label', 'push', 'rebase'].includes(a.proposal.kind)
-                    ? invalidate
+                    ? Effect.andThen(Cache.invalidateAll(readIssue), invalidate)
                     : Effect.void
                 )
               ),
