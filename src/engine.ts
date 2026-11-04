@@ -13,6 +13,7 @@ import {
   stoppedByRunner,
   transcript,
   type IssueWithPull,
+  formatSqueezed,
 } from './context.ts';
 import { Tracker, TrackerError, currentRunLinkRef, withheld } from './tracker.ts';
 import { type Applied, type Comment, type Event, type Issue } from './event.ts';
@@ -43,7 +44,7 @@ import {
 } from './result.ts';
 import { LockHeldError } from './owner.ts';
 import { Store, type StoreError } from './store.ts';
-import { type Aside, type Trace, SessionStop, type SessionSpec } from './trace.ts';
+import { type Aside, type Trace, SessionStop, type SessionSpec, pickUsed } from './trace.ts';
 import {
   begin,
   formatFailedTryFeedback,
@@ -65,7 +66,6 @@ import {
   isRunDone,
   parseAgentRequest,
 } from './workflow.ts';
-
 export type Services = Tracker | Store | Session | Sandbox;
 
 const decodeProposal = Schema.decodeUnknownResult(Said, {
@@ -142,10 +142,6 @@ const parseProposals = (reply: string, required: boolean): { proposals: Said[]; 
   );
   return { proposals, problems };
 };
-
-/** Keeps the first and last part of a long text. */
-const formatSqueezed = (text: string, max = 1500) =>
-  text.length <= max ? text.trim() : `${text.slice(0, max / 2).trim()}\n...\n${text.slice(-max / 2).trim()}`;
 
 const formatTemplate = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
@@ -1090,8 +1086,6 @@ type Item = Pick<Exit, 'used'> & {
   unread?: true;
   usd: number;
 };
-
-const pickUsed = (x?: Pick<Exit, 'used'>) => (x?.used ? { used: x.used } : {});
 
 /** The judge prompts that passed per data dir, run, check, judge and diff; the same judge, prompt and diff is not judged again. */
 const passes = new WeakMap<object, Set<string>>();

@@ -311,3 +311,7 @@ export function transcript(
     ? text
     : `${text.slice(0, budget / 4)}\n\n... cut to ${budget} characters, the newest kept\n\n${text.slice((-budget * 3) / 4)}`;
 }
+
+/** Keeps the first and last part of a long text. */
+export const formatSqueezed = (text: string, max = 1500) =>
+  text.length <= max ? text.trim() : `${text.slice(0, max / 2).trim()}\n...\n${text.slice(-max / 2).trim()}`;

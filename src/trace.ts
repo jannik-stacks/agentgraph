@@ -128,3 +128,5 @@ export const findLatestChecks = (entries: CheckEntry[], versions: Record<string,
   }
   return [...latest.values()].map(e => (current(e) ? e : { ...e, older: true as const }));
 };
+
+export const pickUsed = (x?: Pick<Exit, 'used'>) => (x?.used ? { used: x.used } : {});
