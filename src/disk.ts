@@ -160,17 +160,23 @@ const du = (path: string) =>
     )
   );
 
-export const removeBranch = (git: string, branch: string, base: string, head?: string) =>
+export const removeBranch = (git: string, branch: string, base: string | undefined, head?: string) =>
   Effect.gen(function* () {
     if (!existsSync(git)) return;
     const env = { GIT_DIR: git };
     const ref = `refs/heads/${branch}`;
+    if (yield* readGit(env, ['symbolic-ref', '--quiet', ref], { codes: [1] }))
+      return yield* Effect.logWarning(`1 skipped cleanup ${branch}: symbolic ref`);
     const tip = yield* readGit(env, ['rev-parse', '--verify', '--quiet', ref], { codes: [1] });
     if (!tip) return;
+    if (base === undefined && tip !== head)
+      return yield* Effect.logWarning(`1 skipped cleanup ${branch}: no exact merged head`);
     const isLanded = (sha: string) =>
       Effect.gen(function* () {
         if (head && (yield* Effect.isSuccess(hostGit(env, ['merge-base', '--is-ancestor', sha, head])))) return true;
-        return yield* Effect.isSuccess(hostGit(env, ['merge-base', '--is-ancestor', sha, base]));
+        return (
+          base !== undefined && (yield* Effect.isSuccess(hostGit(env, ['merge-base', '--is-ancestor', sha, base])))
+        );
       });
     if (!(yield* isLanded(tip))) return yield* Effect.logWarning(`1 skipped checkout cleanup ${branch}: unlanded`);
     const trees = (yield* readGit(env, ['worktree', 'list', '--porcelain', '-z']))
@@ -258,7 +264,7 @@ export const removeBranch = (git: string, branch: string, base: string, head?: s
       yield* Effect.logInfo(`removed checkout ${path} branch ${branch}`);
     }
     yield* hostGit(env, ['worktree', 'prune']);
-    yield* hostGit(env, ['update-ref', '-d', ref, tip]);
+    yield* hostGit(env, ['update-ref', '--no-deref', '-d', ref, tip]);
     yield* Effect.logInfo(`removed local branch ${branch}`);
   });
 
