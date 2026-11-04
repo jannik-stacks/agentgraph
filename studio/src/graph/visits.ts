@@ -19,16 +19,13 @@ type Node = WorkflowGraph['nodes'][number];
 
 const countRounds = ({ rounds }: Pick<Run, 'rounds'>, step: string) => rounds[step] ?? 0;
 
-/** One time a run is at a step: how it got there, the failed tries, and how it left. */
+/** One time a run is at a step: the failed tries, and how it left. */
 type Visit = {
   node: Node;
-  nth: number;
-  session?: 'fresh' | 'resumed';
-  via?: { from: string; round: number; of?: number; why: string };
   failed: number[];
-  answered: number;
   outOfRounds?: boolean;
   left?: 'pass' | 'back' | 'stop';
+  to?: string;
 };
 
 /** Where the run stands after its last visit. */
@@ -41,51 +38,39 @@ export type End =
 
 const isAgent = (n: Node) => getStepDoerKind(n.doer) === 'agent';
 
-/** Unrolls a run into the visits it made, in order. */
+/** Unrolls a run into the visits it made, in order, leaving out steps missing from the graph. */
 export function makeWorkflowRunVisits(
   graph: WorkflowGraph,
-  all: Trail,
+  trail: Trail,
   run: Run
 ): { visits: Visit[]; end: End; missing: string[] } {
-  const node = (step: string) => graph.nodes.find(n => n.step === step)!;
-  const isKnown = (step: string) => graph.nodes.some(n => n.step === step);
-  const trail = all.filter(entry => isKnown(entry.at.step));
-  const missing = [...new Set([...all.map(entry => entry.at.step), run.step].filter(step => !isKnown(step)))];
+  const find = (step: string) => graph.nodes.find(n => n.step === step);
+  const missing = [...new Set([...trail.map(entry => entry.at.step), run.step].filter(step => !find(step)))];
   const visits: Visit[] = [];
-  const enter = (step: string, previous?: Trail[number]) => {
-    const n = node(step);
-    const back = previous?.outcome.kind === 'back' ? previous : undefined;
-    const round = back ? (back.at.rounds[back.at.step] ?? 0) + 1 : 0;
-    const of = back && graph.edges.find(e => e.kind === 'back' && e.from === back.at.step)?.rounds;
-    visits.push({
-      node: n,
-      nth: visits.filter(v => v.node.step === step).length + 1,
-      ...(isAgent(n) && { session: back ? 'resumed' : 'fresh' }),
-      ...(back?.outcome.kind === 'back' && {
-        via: { from: back.at.step, round, ...(of !== undefined && { of }), why: back.outcome.why },
-      }),
-      failed: [],
-      answered: 0,
-    });
+  let here: Visit | undefined;
+  let open = false;
+  const enter = (step: string) => {
+    const node = find(step);
+    here = node && { node, failed: [] };
+    if (here) visits.push(here);
+    open = true;
   };
 
   trail.forEach((entry, i) => {
-    const last = visits.at(-1);
-    if (!last || last.left === 'pass' || last.left === 'back') enter(entry.at.step, trail[i - 1]);
-    const visit = visits.at(-1)!;
+    const step = entry.at.step;
+    if (!open) enter(step);
     const o = entry.outcome;
-    if (o.kind === 'failed') visit.failed.push(o.failed);
-    else if (o.kind === 'answer') visit.answered++;
-    else if (
-      o.kind === 'back' &&
-      countRounds(trail[i + 1]?.at ?? run, entry.at.step) === countRounds(entry.at, entry.at.step)
-    )
-      visit.outOfRounds = true;
-    else if (o.kind === 'pass' || o.kind === 'back' || o.kind === 'stop') visit.left = o.kind;
+    if (o.kind === 'failed') here?.failed.push(o.failed);
+    else if (o.kind === 'back' && countRounds(trail[i + 1]?.at ?? run, step) === countRounds(entry.at, step)) {
+      if (here) here.outOfRounds = true;
+    } else if (o.kind === 'pass' || o.kind === 'back' || o.kind === 'stop') {
+      open = false;
+      if (!here) return;
+      here.left = o.kind;
+      if (o.kind === 'back') here.to = trail[i + 1]?.at.step ?? run.step;
+    }
   });
-  const last = visits.at(-1);
-  if (run.status !== 'done' && run.status !== 'stopped' && (!last || last.left) && isKnown(run.step))
-    enter(run.step, trail.at(-1));
+  if (run.status !== 'done' && run.status !== 'stopped' && !open) enter(run.step);
 
   const end: End =
     run.status === 'done'
@@ -137,10 +122,9 @@ export function makeRunStory({ visits, end, missing = [] }: { visits: Visit[]; e
     const isLast = i === visits.length - 1;
     if (v.left === 'pass') return [...failed, failed.length ? 'then passed' : `${step} passed`];
     if (v.left === 'back') {
-      const to = visits[i + 1]?.node.step;
       return [
         ...failed,
-        `${isAgent(v.node) ? v.node.doer.split(' / ')[0] : step} sent it back${to ? ` to ${to}` : ''}`,
+        `${isAgent(v.node) ? v.node.doer.split(' / ')[0] : step} sent it back${v.to ? ` to ${v.to}` : ''}`,
       ];
     }
     if (v.left === 'stop' || !isLast) return failed;

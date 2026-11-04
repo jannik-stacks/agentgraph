@@ -152,4 +152,15 @@ describe('a live run trail', async () => {
     expect(visits.visits.map(v => v.node.step)).toEqual(['implement', 'review']);
     expect(makeRunStory(visits)).toMatch(/\. Steps retired, vanished are not in the current graph\.$/);
   });
+
+  it('names the step a run was sent back to even when the graph no longer has it', () => {
+    const queue = [pass, pass, back, pass, pass, pass];
+    const { trace, run } = simulate(workflow, () => queue.shift(), engine) as {
+      trace: { step: string }[];
+      run: object;
+    };
+    const renamed = trace.map(line => (line.step === 'implement' ? { ...line, step: 'retired' } : line));
+    const story = makeRunStory(makeWorkflowRunVisits(graph, makeRunTrail(renamed), run));
+    expect(story).toMatch(/sent it back to retired, review passed, merge passed, done\. Step retired is not/);
+  });
 });
