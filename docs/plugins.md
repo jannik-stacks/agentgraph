@@ -114,7 +114,9 @@ export default makePlugin({
 A plugin can provide `tracker` instead of tools. It receives `{ repo, studio, app, dir }` and returns `layer(trust)`, a
 layer that provides the `Tracker`, and `origin`, the git remote sandboxes mirror. `--tracker <value>`, else
 `AGENTGRAPH_TRACKER`, else `github` when the App env is set, picks one: a value that names a plugin selects it, and any
-other value is the path of a folder for the built-in `folder` tracker, relative to the working directory. Plugins of
+other value is the path of a folder for the built-in `folder` tracker, relative to the working directory. A plugin
+picked by name gets `AGENTGRAPH_TRACKER_DIR` as its `dir`, and a local instance picks the `tracker` its
+[instance.yaml](runs.md#instanceyaml) names, `folder` by default, with its `tracker/` as the folder. Plugins of
 the graph `--dir` names count; a graph read from the repo cannot pick its own tracker. `agi check --dir <graph>` says
 when the selection names nothing, names a plugin without a tracker, or needs a graph read from the repo. A tracker's
 optional `status(n, to, names)` shows an issue's status by the names in the graph's `status` setting: `github` swaps

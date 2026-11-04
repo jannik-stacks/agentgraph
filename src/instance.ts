@@ -34,6 +34,7 @@ export type Instance = {
   base: string;
   owner: string;
   tracker: string;
+  trackerName?: string;
   data: string;
   exported: Record<string, string>;
   provider?: string;
@@ -89,6 +90,7 @@ const writeInstance = (i: Instance) =>
       repo: i.repo,
       base: i.base,
       owner: i.owner,
+      ...(i.trackerName && { tracker: i.trackerName }),
       ...(i.provider && { provider: i.provider }),
       ...(i.readonly && { readonly: true }),
       exported: i.exported,
@@ -98,9 +100,19 @@ const writeInstance = (i: Instance) =>
 const readInstance = (dir: string): Instance | undefined => {
   const file = join(dir, 'instance.yaml');
   if (!existsSync(file)) return undefined;
-  const own = parse(readFileSync(file, 'utf8')) as Pick<Instance, 'repo' | 'base' | 'owner'> &
-    Partial<Pick<Instance, 'exported' | 'provider' | 'readonly'>>;
-  return { exported: {}, ...own, dir, tracker: join(dir, 'tracker'), data: join(dir, 'data') };
+  const { tracker: trackerName, ...own } = parse(readFileSync(file, 'utf8')) as Pick<
+    Instance,
+    'repo' | 'base' | 'owner'
+  > &
+    Partial<Pick<Instance, 'exported' | 'provider' | 'readonly' | 'tracker'>>;
+  return {
+    exported: {},
+    ...own,
+    ...(trackerName && { trackerName }),
+    dir,
+    tracker: join(dir, 'tracker'),
+    data: join(dir, 'data'),
+  };
 };
 
 export const writeInstanceProvider = (i: Instance, provider: string) => {

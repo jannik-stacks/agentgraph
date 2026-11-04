@@ -5,12 +5,12 @@ import { watch } from 'node:fs/promises';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { ConfigProvider, Effect, Redacted, Stream } from 'effect';
+import { ConfigProvider, Effect, Option, Redacted, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { findIssueDir, folderTracker, Tracker } from '../src/tracker.ts';
+import { findIssueDir, Tracker } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
@@ -120,9 +120,10 @@ const makeHarnessChoice = (provider: string | undefined) => ({
 });
 const formatUnserved = (provider: Provider, harness: string) =>
   `${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.`;
-const checkGraph = async (graph: string, i: Pick<Instance, 'provider'> | undefined) => {
+const checkGraph = async (graph: string, i: Pick<Instance, 'provider' | 'trackerName'> | undefined) => {
   const runner = process.env.AGENTGRAPH_DIR;
-  const picked = selection && (await pickTracker(selection, { dir: graph, fromRepo: !!runner && !isAbsolute(runner) }));
+  const named = selection ?? i?.trackerName;
+  const picked = named && (await pickTracker(named, { dir: graph, fromRepo: !!runner && !isAbsolute(runner) }));
   const problems = await Effect.runPromise(
     Effect.zip(readHarnessSettings, readConfiguredGraph(graph)).pipe(
       Effect.map(([{ providers = [], provider: named }, loaded]) => {
@@ -376,8 +377,18 @@ async function runOnInstance() {
           : `owner    ${i.owner}, from git config user.name, the one login this instance trusts`,
       ].join('\n')
     );
-  Object.assign(process.env, { AGENTGRAPH_TRACKER: i.tracker, AGENTGRAPH_TRUST: i.owner });
-  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, folderTracker(i.tracker)));
+  Object.assign(process.env, {
+    AGENTGRAPH_TRACKER: i.trackerName ?? 'folder',
+    AGENTGRAPH_TRACKER_DIR: i.tracker,
+    AGENTGRAPH_TRUST: i.owner,
+  });
+  const getTracker = async () => {
+    const graph = await ensureGraph(i, graphDir).catch(() => undefined);
+    const picked = await pickTracker(i.trackerName ?? 'folder', graph ? { dir: graph, fromRepo: false } : undefined);
+    if ('problem' in picked) return fail(picked.problem, 1);
+    const { layer } = picked.tracker({ repo: i.repo, studio: '', app: Option.none(), dir: picked.dir ?? i.tracker });
+    return Effect.runPromise(Effect.provide(Tracker, layer()));
+  };
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);

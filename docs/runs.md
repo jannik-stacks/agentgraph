@@ -57,6 +57,7 @@ Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
 | `repo` | the repo | The checkout the base syncs from and branches go to |
 | `base` | the branch checked out first | The branch agentgraph's base fast-forwards to |
 | `owner` | `git config user.name` at the first command, else your OS user | The author of every local verb and the only trusted login |
+| `tracker` | `folder` | The [tracker plugin](plugins.md#trackers) the instance works on, from the built-ins or its graph's `plugins/`; it keeps its files in the instance's `tracker/` |
 | `provider` | none | The saved [provider](cli.md#picking-a-provider) |
 | `exported` | none | Where agentgraph last wrote each ref into the repo |
 | `readonly` | off | `true` writes nothing to the repo; `--read-only` sets it |

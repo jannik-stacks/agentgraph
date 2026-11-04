@@ -45,6 +45,7 @@ export type Settings = {
   trust: string[];
   /** A tracker plugin's name, or the path of a tracker folder with its git remote in `origin.git`. */
   tracker: string;
+  trackerDir: string;
   app: TrackerHost['app'];
 };
 
@@ -131,6 +132,7 @@ export const settings = Config.all({
     Config.all({ id: Config.String('AGENTGRAPH_APP_ID'), key: Config.Redacted('AGENTGRAPH_APP_KEY') })
   ),
   tracker: trackerName,
+  trackerDir: Config.String('AGENTGRAPH_TRACKER_DIR').pipe(Config.withDefault('')),
 }).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
 
 /**
@@ -166,7 +168,8 @@ const where = async (s: Settings) => {
   const graph = isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
   const picked = await pickTracker(s.tracker, graph);
   if ('problem' in picked) throw new Error(picked.problem);
-  return picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(picked.dir && { dir: picked.dir }) });
+  const dir = picked.dir ?? s.trackerDir;
+  return picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(dir && { dir }) });
 };
 
 /**
@@ -207,6 +210,7 @@ export const makeProductionLayers = () => {
       s.studio,
       s.graph,
       s.tracker,
+      s.trackerDir,
       Option.getOrUndefined(Option.map(s.app, app => [app.id, Redacted.value(app.key)])),
     ]);
     if (key !== previous) {

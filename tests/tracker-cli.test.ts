@@ -820,6 +820,34 @@ describe('an instance', () => {
     );
   });
 
+  it('shows issues through the tracker instance.yaml names, and keeps the name when the provider is saved', async () => {
+    const w = world();
+    const root = join(w.root, 'agentgraph-data');
+    const i = await ensureInstance(root, w.seed);
+    const graph = join(w.seed, '.agentgraph');
+    cpSync(join(import.meta.dirname, '..', 'examples', 'starter'), graph, { recursive: true });
+    const trackerTs = JSON.stringify(join(import.meta.dirname, '..', 'src', 'tracker.ts'));
+    mkdirSync(join(graph, 'plugins'));
+    writeFileSync(
+      join(graph, 'plugins', 'mine.ts'),
+      `import { writeFileSync } from 'node:fs';
+import { folder } from ${trackerTs};
+export default { name: 'mine', tracker: host => (writeFileSync(host.dir + '.picked', ''), folder.tracker(host)) };`
+    );
+    const file = join(i.dir, 'instance.yaml');
+    writeFileSync(file, `${readFileSync(file, 'utf8')}tracker: mine\n`);
+    writeInstanceProvider(i, 'other');
+    expect(readFileSync(file, 'utf8')).toMatch(/^tracker: mine$/m);
+    await writeIssueFile(i.tracker, { title: 'Mine', author: 'morgan', labels: [] }, '');
+    const shown = spawnSync(process.execPath, [runTs, 'show', '--data', root], {
+      cwd: w.seed,
+      encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_TRACKER: '', AGENTGRAPH_DIR: '', AGENTGRAPH_APP_ENV: '' },
+    });
+    expect(shown.stdout, shown.stderr).toContain('#1 open Mine');
+    expect(existsSync(`${i.tracker}.picked`)).toBe(true);
+  });
+
   it.each([
     ['no package', undefined, 0],
     ['no test script', {}, 0],
