@@ -73,9 +73,9 @@ A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` sets another name 
 
 ## A graph's own image
 
-Graph `image` names a local image for every command and environment build, instead of `AGENTGRAPH_IMAGE` or `agentgraph-sandbox:local`. Build it yourself, with the harnesses, for example `FROM agentgraph-sandbox:local` plus an `npm ci` into `/node_modules` on the `PATH`. Those dependencies stay as built even when a pull request changes the lockfile. Pair it with `network: models`.
+Graph `image` supplies the default local image for every command and environment build. Instance and command overrides follow the [settings table](local.md#named-instances-and-settings). Build it yourself, with the harnesses, for example `FROM agentgraph-sandbox:local` plus an `npm ci` into `/node_modules` on the `PATH`. Those dependencies stay as built even when a pull request changes the lockfile. Pair it with `network: models`.
 
-The runner resolves the tag to its Docker ID once per checkout, including when caches are disabled. Bench uses the same resolver, with case `image` first, graph `image` second, then `AGENTGRAPH_IMAGE` and the stock sandbox. Custom images must run commands directly and include the harnesses and `agi`; missing custom tags fail without building stock contents. Remote boxes still reject graph image selection. <!-- code: src/docker.ts#readImage -->
+The runner resolves the tag to its Docker ID once per checkout, including when caches are disabled. Bench uses the same Docker image resolver after selecting its case image; command image overrides still apply. Custom images must run commands directly and include the harnesses and `agi`; missing custom tags fail without building stock contents. Remote boxes still reject graph image selection. <!-- code: src/docker.ts#readImage -->
 
 For a repo requiring Node 22, build the derived recipe, whose Node source is pinned by digest:
 

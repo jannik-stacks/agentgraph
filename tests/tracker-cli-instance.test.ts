@@ -10,7 +10,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { findIssueNumbers, folderTracker, Tracker, runLocked, writeIssueFile } from '../src/tracker.ts';
@@ -500,7 +500,7 @@ describe('an instance', () => {
     const guidance = expect.stringMatching(/no graph found[\s\S]*copy an example/i);
     expect(refused.map(r => [r.status, r.stderr])).toEqual(refused.map(() => [1, guidance]));
     expect(message).toMatch(/^no graph found\. Copy an example into this folder first:\n  cp -R /);
-    const i = await ensureInstance(root, w.seed);
+    const i = await ensureInstance(root, 'seed', w.seed);
     expect(findIssueNumbers(i.tracker)).toEqual([]);
     expect(existsSync(join(w.seed, '.agentgraph'))).toBe(false);
     expect(cli('show').status).toBe(0);
@@ -516,7 +516,7 @@ describe('an instance', () => {
   it('names a missing tracker folder in the CLI and the studio instead of crashing', async () => {
     const w = world();
     const root = join(w.root, 'agentgraph-data');
-    const i = await ensureInstance(root, w.seed);
+    const i = await ensureInstance(root, 'seed', w.seed);
     renameSync(i.tracker, join(i.dir, 'forge'));
     const env = { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_CONFIG: '', AGENTGRAPH_TRACKER: '', AGENTGRAPH_DIR: '' };
     const studio = join(import.meta.dirname, '..', 'studio', 'dev.ts');
@@ -537,7 +537,7 @@ describe('an instance', () => {
   it('shows issues through the tracker instance.yaml names, and keeps the name when the provider is saved', async () => {
     const w = world();
     const root = join(w.root, 'agentgraph-data');
-    const i = await ensureInstance(root, w.seed);
+    const i = await ensureInstance(root, 'seed', w.seed);
     const graph = join(w.seed, '.agentgraph');
     cpSync(join(import.meta.dirname, '..', 'examples', 'starter'), graph, { recursive: true });
     const trackerTs = JSON.stringify(join(import.meta.dirname, '..', 'src', 'tracker.ts'));
@@ -565,7 +565,7 @@ export default { name: 'mine', tracker: host => (writeFileSync(host.dir + '.pick
   it('refuses an instance tracker that keeps its issues outside the instance folder', async () => {
     const w = world();
     const root = join(w.root, 'agentgraph-data');
-    const i = await ensureInstance(root, w.seed);
+    const i = await ensureInstance(root, 'seed', w.seed);
     const graph = join(w.seed, '.agentgraph');
     cpSync(join(import.meta.dirname, '..', 'examples', 'starter'), graph, { recursive: true });
     mkdirSync(join(graph, 'plugins'));
@@ -621,10 +621,10 @@ export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: 
       });
       return { code: r.status, out: r.stdout.trim(), err: r.stderr.trim() };
     };
-    await expect(ensureInstance(join(w.seed, 'data'), w.seed)).rejects.toThrow('inside');
-    const i = await ensureInstance(root, w.seed);
+    await expect(ensureInstance(join(w.seed, 'data'), 'seed', w.seed)).rejects.toThrow('inside');
+    const i = await ensureInstance(root, 'seed', w.seed);
     expect(i).toMatchObject({ base: 'main', owner: 'morgan', made: true });
-    expect((await ensureInstance(root, w.seed)).made).toBe(false);
+    expect((await ensureInstance(root, 'seed', w.seed)).made).toBe(false);
     expect(await ensureBase(i)).toBeUndefined();
     expect(await ensureGraph(i, sandboxGraph)).toBe(sandboxGraph);
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
@@ -767,7 +767,7 @@ export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: 
   it('reads .agentgraph from git, else from disk, and holds one loop per data dir', async () => {
     const w = world();
     git(w.seed, 'config', 'user.name', 'morgan');
-    const i = await ensureInstance(join(w.root, 'agentgraph-data'), w.seed);
+    const i = await ensureInstance(join(w.root, 'agentgraph-data'), 'seed', w.seed);
     await ensureBase(i);
     await expect(ensureGraph(i)).rejects.toThrow('Copy an example into this folder first:');
     cpSync(sandboxGraph, join(w.seed, '.agentgraph'), { recursive: true });
@@ -830,7 +830,7 @@ describe('the CLI flags', () => {
   ] as const)('releases the %s loop lock before exiting on %s', async (kind, signal) => {
     const w = world();
     const root = join(w.root, 'loop-data');
-    const data = kind === 'tracker' ? root : (await ensureInstance(root, w.seed)).data;
+    const data = kind === 'tracker' ? root : (await ensureInstance(root, basename(w.seed), w.seed)).data;
     const child = spawn(
       process.execPath,
       [
@@ -889,7 +889,7 @@ describe('the CLI flags', () => {
   it.each(['tracker', 'instance'])('prints the remaining heartbeat wait when a %s loop restarts', async kind => {
     const w = world();
     const root = join(w.root, 'loop-data');
-    const data = kind === 'tracker' ? root : (await ensureInstance(root, w.seed)).data;
+    const data = kind === 'tracker' ? root : (await ensureInstance(root, basename(w.seed), w.seed)).data;
     const state = join(w.root, 'state');
     const heartbeat = join(state, 'owners', 'old-owner');
     mkdirSync(join(state, 'owners'), { recursive: true });

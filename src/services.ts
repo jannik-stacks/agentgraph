@@ -187,12 +187,12 @@ export const makeTrackerSetup = async (
  * The graph at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
  * default branch, so only a merged pull request changes it.
  */
-export const graphAt = (path: string) =>
+export const graphAt = (path: string, flags: Parameters<typeof readConfiguredGraph>[2] = {}) =>
   isAbsolute(path)
-    ? readConfiguredGraph(path)
+    ? readConfiguredGraph(path, undefined, flags)
     : Effect.flatMap(Sandbox, s => s.checkout('origin/HEAD')).pipe(
         Effect.mapError(e => new GraphError({ problems: [{ path, message: e.detail }] })),
-        Effect.flatMap(work => readConfiguredGraph(join(work.dir, path)))
+        Effect.flatMap(work => readConfiguredGraph(join(work.dir, path), undefined, flags))
       );
 
 const findLocalModelHosts = (url: string) =>
@@ -211,7 +211,6 @@ export const whyModelHostsMissing = Effect.gen(function* () {
   ].join('\n');
 });
 
-/** The production services. The graph is read once for its trust list. Tests build their own from the file and host layers. */
 export const makeProductionLayers = () => {
   let previous: string | undefined;
   let place: ReturnType<typeof makeTrackerSetup>;
@@ -241,12 +240,6 @@ export const makeProductionLayers = () => {
               direct: findLocalModelHosts(s.proxy.url),
               ...origin,
             });
-        const trust = s.trust.length
-          ? s.trust
-          : yield* Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
-              Effect.provide(sandbox),
-              Effect.catch(() => Effect.succeed<string[]>([]))
-            );
         const config = yield* readHarnessSettings.pipe(
           Effect.catch(e =>
             Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {
@@ -255,7 +248,7 @@ export const makeProductionLayers = () => {
           )
         );
         return Layer.mergeAll(
-          tracker(trust),
+          tracker(s.trust),
           fileStore(s.data, s.checkLogs),
           harnessSession({
             ...Struct.pick(s, ['data', 'proxy', 'passed', 'prices']),

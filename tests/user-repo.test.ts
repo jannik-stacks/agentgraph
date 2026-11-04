@@ -149,7 +149,7 @@ describe("the user's repo", () => {
     const objects = files(join(seed, '.git', 'objects'), /^$/);
     const data = join(root, 'agentgraph-data');
 
-    const i = await ensureInstance(data, seed, 'main');
+    const i = await ensureInstance(data, 'test', seed, 'main');
     git(join(i.tracker, 'origin.git'), 'config', 'remote.origin.pushurl', seed);
     expect(await ensureBase(i)).toBeUndefined();
     const graph = await ensureGraph(i);
@@ -216,12 +216,12 @@ describe("the user's repo", () => {
     const { root, seed, ran } = userRepo();
     const before = { ...look(seed), objects: files(join(seed, '.git', 'objects'), /^$/) };
     const data = join(root, 'agentgraph-data');
-    const i = await ensureInstance(data, seed, 'main', true);
+    const i = await ensureInstance(data, 'test', seed, 'main', true);
     const evil = join(root, 'evil');
     mkdirSync(evil);
     symlinkSync(join(seed, '.git'), join(evil, basename(i.dir)));
-    await expect(ensureInstance(evil, seed, 'main')).rejects.toThrow('inside');
-    expect((await ensureInstance(data, seed)).readonly).toBe(true);
+    await expect(ensureInstance(evil, 'test', seed, 'main')).rejects.toThrow('inside');
+    expect((await ensureInstance(data, 'test', seed)).readonly).toBe(true);
     expect(await ensureBase(i)).toBeUndefined();
     expect(await whyGraphUncommitted(i, await ensureGraph(i))).toBeUndefined();
     const loaded = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));

@@ -14,7 +14,7 @@ const readServedGraph = async () => {
   const choice = JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}');
   const loaded = await Effect.runPromise(
     Effect.result(
-      readConfiguredGraph(dir).pipe(
+      readConfiguredGraph(dir, JSON.parse(process.env.AGI_STUDIO_INSTANCE ?? '{}')).pipe(
         Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(choice))
       )
     )

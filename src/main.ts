@@ -15,7 +15,7 @@ import {
 } from './run/trigger.ts';
 import { writeIssueFile } from './tracker.ts';
 import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
-import { readRealPath } from './instance.ts';
+import { type Instance, readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
 import { graphAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import { writeIdleRunsCompressed, fileStore, Store, StoreError } from './store.ts';
@@ -30,9 +30,15 @@ const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()
 export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
   file ? (parseEnv(await readText(file)) as Record<string, string>) : {};
 
-export const readEngineEnv = async (defaults: Record<string, string> = {}): Promise<Record<string, string>> => {
-  const app = await readEnvFile(process.env.AGENTGRAPH_APP_ENV ?? defaults.AGENTGRAPH_APP_ENV);
-  const layers: Record<string, string | undefined>[] = [defaults, process.env, app];
+export const readEngineEnv = async (
+  defaults: Record<string, string> = {},
+  file?: string
+): Promise<Record<string, string>> => {
+  const instance = await readEnvFile(file);
+  const app = await readEnvFile(
+    process.env.AGENTGRAPH_APP_ENV ?? instance.AGENTGRAPH_APP_ENV ?? defaults.AGENTGRAPH_APP_ENV
+  );
+  const layers: Record<string, string | undefined>[] = [defaults, instance, process.env, app];
   const merged = Object.assign({}, ...layers);
   for (const name of [...secretSettings, ...splitNames(merged.AGENTGRAPH_SESSION_ENV ?? '')]) {
     const file = layers.findLast(vars => vars[name] ?? vars[`${name}_FILE`])?.[`${name}_FILE`];
@@ -122,34 +128,68 @@ export const start = (
     labels?: ReturnType<typeof parseLabels>;
     marked?: true;
     base?: string;
+    instance?: Instance;
+    flags?: Parameters<typeof readConfiguredGraph>[2];
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
     drives?: ReturnType<typeof startLoopDrives>;
   },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(),
   defaults: Record<string, string> = {},
   signal?: AbortSignal,
-  refresh: () => Promise<unknown> = async () => {}
+  refresh: () => Promise<unknown> = async () => {},
+  flags: Parameters<typeof readConfiguredGraph>[2] = {}
 ): Promise<RunRecord[]> => {
-  const provided = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    Effect.provide(effect, Layer.unwrap(Effect.map(settings, services)));
-  const read = Effect.tryPromise(() => readEngineEnv(defaults));
+  const provided = <A, E, R>(effect: Effect.Effect<A, E, R>, graph?: Graph) =>
+    Effect.provide(
+      effect,
+      Layer.unwrap(
+        Effect.map(settings, s =>
+          services(
+            graph
+              ? {
+                  ...s,
+                  repo: graph.repo,
+                  trust: graph.trust ?? s.trust,
+                  image: graph.image ?? s.image,
+                }
+              : s
+          )
+        )
+      )
+    );
+  const read = Effect.tryPromise(() => readEngineEnv(defaults, one?.instance?.env)).pipe(
+    Effect.map((env): Record<string, string> => ({
+      ...env,
+      ...(flags.repo !== undefined && { AGENTGRAPH_REPO: flags.repo }),
+      ...(flags.trust !== undefined && { AGENTGRAPH_TRUST: flags.trust.join(',') }),
+      ...(flags.image !== undefined && { AGENTGRAPH_IMAGE: flags.image }),
+    }))
+  );
   const program = one
     ? Effect.gen(function* () {
         const env = yield* read;
         const choose = (fallback: ConfigProvider.ConfigProvider) =>
-          Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(one.choice ?? {}, fallback));
-        const loaded = yield* readConfiguredGraph(one.graph).pipe(choose(configured(env)));
-        const base = one.base;
-        const graph = base
-          ? {
-              ...loaded,
-              workflows: Object.fromEntries(
-                Object.entries(loaded.workflows).map(([name, w]) => [name, { base, ...w }])
-              ),
-            }
-          : loaded;
+          Effect.provideService(
+            ConfigProvider.ConfigProvider,
+            makeHarnessConfigProvider(
+              {
+                ...(one.instance?.provider && { provider: env.AGENTGRAPH_PROVIDER ?? one.instance.provider }),
+                ...one.choice,
+              },
+              fallback
+            )
+          );
+        const graph = yield* readConfiguredGraph(one.graph, one.instance, {
+          ...flags,
+          ...one.flags,
+          ...(one.base !== undefined && { base: one.base }),
+        }).pipe(choose(configured(env)));
         const provider = configured(env, {
           AGENTGRAPH_REPO: graph.repo,
+          ...(one.instance && {
+            AGENTGRAPH_TRACKER: env.AGENTGRAPH_TRACKER || one.instance.trackerName || 'folder',
+            AGENTGRAPH_TRACKER_DIR: one.instance.tracker,
+          }),
           AGENTGRAPH_DIR: one.graph,
           AGENTGRAPH_DATA: one.data,
         });
@@ -173,7 +213,8 @@ export const start = (
                       ),
                       store.put(run)
                     ),
-                }))
+                })),
+            graph
           ).pipe(choose(provider));
         };
         return yield* one.drives ? runPass(one.drives, look) : look();
@@ -191,7 +232,9 @@ export const start = (
           Effect.flatMap(read, env =>
             runPass(drives, fork =>
               provided(
-                Effect.flatMap(settings, now => graphAt(now.graph)).pipe(Effect.flatMap(graph => scan(graph, fork)))
+                Effect.flatMap(settings, now => graphAt(now.graph, flags)).pipe(
+                  Effect.flatMap(graph => scan(graph, fork))
+                )
               )
             ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(env)))
           );

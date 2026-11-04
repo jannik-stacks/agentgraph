@@ -35,7 +35,7 @@ it('restores an instance from a copy of its folder without the cache', async () 
   git(w.seed, 'add', '-A');
   git(w.seed, 'commit', '-qm', 'graph');
   const root = join(w.root, 'old');
-  const i = await ensureInstance(root, w.seed);
+  const i = await ensureInstance(root, 'test', w.seed);
   await ensureBase(i);
   const dir = await ensureGraph(i);
   const graph = await Effect.runPromise(loadGraph(dir, harnesses));
@@ -83,10 +83,10 @@ it('restores an instance from a copy of its folder without the cache', async () 
   db.close();
   rmSync(root, { recursive: true });
 
-  const j = await ensureInstance(moved, w.seed);
+  const j = await ensureInstance(moved, 'test', w.seed);
   expect(j).toMatchObject({ made: false, dir: join(moved, basename(i.dir)) });
   const cli = (...args: string[]) =>
-    spawnSync(process.execPath, [runTs, ...args, '--data', moved], {
+    spawnSync(process.execPath, [runTs, ...args, '--instance', 'test', '--data', moved], {
       cwd: w.seed,
       encoding: 'utf8',
       env: { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_TRACKER: '', DOCKER_HOST: 'unix:///nonexistent' },

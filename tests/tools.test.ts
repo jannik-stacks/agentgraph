@@ -33,7 +33,7 @@ const startRegistered = async (
     )
     .join(',');
   write(dir, {
-    'settings.yaml': 'repo: owner/repo\n',
+    'settings.yaml': '{}',
     'agents/reader.md': `---\nharness: fixture\ntools: [read, ${Object.keys(definitions).join(', ')}]\n---\n`,
     'workflows/search.md': '---\non: issues\nagent: reader\n---\n',
     'plugins/tools.ts': `import { makePlugin, tool } from '${new URL('../src/plugin.ts', import.meta.url).href}'; import { Schema } from '${import.meta.resolve('effect')}'; export default makePlugin({ name: 'fixture', tools: { ${records} } });`,

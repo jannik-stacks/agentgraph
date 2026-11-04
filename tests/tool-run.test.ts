@@ -21,7 +21,7 @@ describe('custom tools in a run', () => {
     const where = world();
     const dir = join(where.root, 'graph');
     write(dir, {
-      'settings.yaml': 'repo: owner/repository\n',
+      'settings.yaml': '{}',
       'agents/triager.md': '---\nharness: test\ntools: [issues]\n---\nSearch before commenting.\n',
       'workflows/triage.md': '---\non: issues\nagent: triager\n---\nFind related issues.\n',
       'plugins/issues.ts': `import { makePlugin, tool } from '${new URL('../src/plugin.ts', import.meta.url).href}';
@@ -43,6 +43,7 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
     });
     const graph = await Effect.runPromise(
       loadGraph(dir, [{ name: 'test', classify: () => undefined }]).pipe(
+        Effect.map(graph => ({ ...graph, repo: 'owner/repository' })),
         Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: {} }))
       )
     );

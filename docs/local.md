@@ -63,7 +63,7 @@ For a repo agentgraph must not write to at all, pass `--read-only` on first use.
 
 ## The base
 
-The base is the branch checked out on first use, or `origin`'s default on a detached head, else `main`; `--base <branch>` changes it. Before each drive it fast-forwards to yours. If both moved, the drive stops: merge agentgraph's base into yours and retry. Workflows without a `base` start from it. <!-- code: src/instance.ts#ensureBase src/main.ts#start -->
+The base is the branch checked out on first use, or `origin`'s default on a detached head, else `main`; `--base <branch>` overrides it for one command. Before each drive it fast-forwards to yours. If both moved, the drive stops: merge agentgraph's base into yours and retry. Workflows without a `base` start from it. <!-- code: src/instance.ts#ensureBase src/main.ts#start -->
 
 ## The studio
 
@@ -77,3 +77,61 @@ npm run dev -- --repo ~/code/left-pad
 It serves on port 5182, or `AGI_PORT`, and restarts when engine code under `src` or `bin` changes. `--repo` reads that repo's instance; `--dir <dir> --data <dir>` pick the inputs instead, and `--tracker <dir>` makes the Inbox show local commands. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the [Results](checks.md#the-results-tab) tab's tunes.
 
 The Inbox lists runs that wait for a person, with the commands `agi show` prints. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->
+
+## Named instances and settings
+
+An instance binds one checkout to one graph in one data root. `--instance <name>` selects
+`<root>/<name>/instance.yaml`; the default name is the checkout basename, with no hash.
+An explicit name can select a saved checkout from outside its repo. Use two names for a live instance and a bench instance of the same checkout. Every lookup
+uses the selected `--data` root. Names are single path components; reusing one for another
+checkout fails. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
+
+The record holds `repo` (checkout path), `slug` (tracker repository, such as `owner/name`),
+`base`, `owner`, `exported`, and `loop` (boolean, initially false). Optional fields are
+`graph`, `tracker` (plugin name), `trust` (logins), `env` (secrets/env file), `provider`,
+`readonly`, `image`, and `limits.parallel`. Relative `repo`, `graph`, and `env` paths resolve
+against the instance folder. Omitted `graph` means the checkout's `.agentgraph/`.
+Edit the record to change saved defaults; flags apply to one command. `loop` records intent
+for a later engine scheduler; F1 still starts loops explicitly. Unknown fields fail.
+<!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph -->
+
+Highest priority comes first in this single precedence table.
+<!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph -->
+
+| Value | Precedence |
+| --- | --- |
+| Tracker repository | `--slug`, `AGENTGRAPH_REPO`, instance `slug`, empty |
+| Trust | `--trust`, `AGENTGRAPH_TRUST`, instance `trust`, instance `owner`, tracker collaborators |
+| Image | `--image`, `AGENTGRAPH_IMAGE`, instance `image`, graph `image`, stock sandbox image |
+| Parallel drives | `--parallel`, instance `limits.parallel`, graph `limits.parallel` |
+| Base | `--base`, workflow `base`, instance `base`, tracker default |
+
+An explicit empty trust list trusts nobody. The runtime graph carries these resolved values;
+graph `settings.yaml` rejects `repo` and `trust`. Image and parallel remain graph defaults.
+`AGENTGRAPH_PROVIDER`, `AGENTGRAPH_DIR`, and `AGENTGRAPH_TRACKER` remain command overrides
+of their instance fields, with their CLI flags taking priority. `AGENTGRAPH_APP_ENV` remains
+the App env-file override. `AGENTGRAPH_DATA` still selects the root. There is no engine
+`AGENTGRAPH_PARALLEL`; `AGENTGRAPH_BASE` remains a check-script input. Host resources and
+secret variables keep their existing meanings.
+
+The instance `env` file supplies scoped values before the process environment and App env
+file; explicit command flags win. It never changes `process.env`.
+<!-- code: src/main.ts#readEngineEnv src/main.ts#start -->
+
+### Migrating an existing instance
+
+Stop its loop before moving its folder. Choose a plain name, then run:
+
+```sh
+mv "$root/$old_name" "$root/$name"
+```
+
+For a graph with `repo:` and `image:`, delete only `repo: owner/name` from `settings.yaml`
+and add `slug: owner/name` to the renamed folder's `instance.yaml`. Keep `repo: <checkout>`
+in that record. Keep graph `image:` and `limits.parallel:` unchanged; they remain defaults.
+If graph `trust:` exists, delete it there and add the same list as `trust:` in the instance.
+Keep `base`, `owner`, `provider`, and `exported`; add `loop: false`. For an external graph,
+add `graph: <absolute graph path>` to the instance. Add `tracker: github` and
+`env: <App env file>` for a GitHub instance; local instances may omit `tracker`.
+Use `--instance <name>` on subsequent commands when the name differs from the checkout
+basename. The engine does not discover or migrate old hashed folder names.

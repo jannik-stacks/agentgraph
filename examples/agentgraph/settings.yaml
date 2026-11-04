@@ -1,2 +1,1 @@
-repo: acme/twin
 setup: npm ci --no-audit --no-fund --loglevel=error && npm --prefix studio ci --no-audit --no-fund --loglevel=error

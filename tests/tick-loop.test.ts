@@ -374,6 +374,7 @@ describe('start with one issue', () => {
     const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');
     const env = {
       AGENTGRAPH_APP_ENV: join(where.root, 'app.env'),
+      AGENTGRAPH_REPO: 'acme/sandbox',
       AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2',
       AGENTGRAPH_DIR: sandbox,
     };
@@ -569,6 +570,16 @@ describe('readEngineEnv', () => {
     expect(await withShell({}, () => readEngineEnv({ AGENTGRAPH_APP_ENV: env }))).toMatchObject({
       AGENTGRAPH_APP_ID: '42',
     });
+  });
+
+  it('reads a scoped instance env file without changing the process and lets the shell override it', async () => {
+    const { env } = file('AGENTGRAPH_REPO=instance/repository\nAGENTGRAPH_IMAGE=instance:image\n');
+    const before = process.env.AGENTGRAPH_IMAGE;
+    expect(await withShell({ AGENTGRAPH_REPO: 'command/repository' }, () => readEngineEnv({}, env))).toMatchObject({
+      AGENTGRAPH_REPO: 'command/repository',
+      AGENTGRAPH_IMAGE: 'instance:image',
+    });
+    expect(process.env.AGENTGRAPH_IMAGE).toBe(before);
   });
 
   it('leaves a missing required setting to fail by name', async () => {

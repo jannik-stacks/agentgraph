@@ -5,9 +5,9 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Effect } from 'effect';
+import { Effect, Schema } from 'effect';
 import { parse, stringify } from 'yaml';
-import { getSha } from './hash.ts';
+import { InstanceFile } from './settings.ts';
 import { readOrUndefined } from './read.ts';
 import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
@@ -28,17 +28,11 @@ import { fileStore, writeFileAtomic } from './store.ts';
 import type { RunRecord } from './workflow.ts';
 import { startRun } from './run/start.ts';
 
-export type Instance = {
+export type Instance = Omit<typeof InstanceFile.Type, 'tracker'> & {
   dir: string;
-  repo: string;
-  base: string;
-  owner: string;
   tracker: string;
   trackerName?: string;
   data: string;
-  exported: Record<string, string>;
-  provider?: string;
-  readonly?: boolean;
 };
 
 const git = (env: Record<string, string>, args: string[], codes: number[] = [], input?: Uint8Array) =>
@@ -83,31 +77,22 @@ const readBranch = async (repo: string) => {
   return remote.replace(/^origin\//, '') || 'main';
 };
 
-const writeInstance = (i: Instance) =>
-  writeFileAtomic(
-    join(i.dir, 'instance.yaml'),
-    stringify({
-      repo: i.repo,
-      base: i.base,
-      owner: i.owner,
-      ...(i.trackerName && { tracker: i.trackerName }),
-      ...(i.provider && { provider: i.provider }),
-      ...(i.readonly && { readonly: true }),
-      exported: i.exported,
-    })
-  );
+const writeInstance = ({ dir, data: _data, tracker: _tracker, trackerName, ...record }: Instance) =>
+  writeFileAtomic(join(dir, 'instance.yaml'), stringify({ ...record, ...(trackerName && { tracker: trackerName }) }));
 
-const readInstance = (dir: string): Instance | undefined => {
+export const readInstance = (root: string, name: string): Instance | undefined => {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) throw new Error('instance name must be one path component');
+  const dir = join(resolve(root), name);
   const file = join(dir, 'instance.yaml');
   if (!existsSync(file)) return undefined;
-  const { tracker: trackerName, ...own } = parse(readFileSync(file, 'utf8')) as Pick<
-    Instance,
-    'repo' | 'base' | 'owner'
-  > &
-    Partial<Pick<Instance, 'exported' | 'provider' | 'readonly' | 'tracker'>>;
+  const { tracker: trackerName, ...own } = Schema.decodeUnknownSync(InstanceFile, { onExcessProperty: 'error' })(
+    parse(readFileSync(file, 'utf8'))
+  );
   return {
-    exported: {},
     ...own,
+    repo: readRealPath(resolve(dir, own.repo)),
+    ...(own.graph !== undefined && { graph: resolve(dir, own.graph) }),
+    ...(own.env !== undefined && { env: resolve(dir, own.env) }),
     ...(trackerName && { trackerName }),
     dir,
     tracker: join(dir, 'tracker'),
@@ -117,18 +102,20 @@ const readInstance = (dir: string): Instance | undefined => {
 
 export const writeInstanceProvider = (i: Instance, provider: string) => {
   i.provider = provider;
-  writeInstance({ ...(readInstance(i.dir) ?? i), provider });
+  writeInstance({ ...(readInstance(dirname(i.dir), basename(i.dir)) ?? i), provider });
 };
 
 export const findInstances = (root: string) =>
-  (existsSync(root) ? readdirSync(root) : []).flatMap(name => readInstance(join(root, name)) ?? []);
+  (existsSync(root) ? readdirSync(root) : []).flatMap(name =>
+    existsSync(join(root, name, 'instance.yaml')) ? (readInstance(root, name) ?? []) : []
+  );
 
 const isInside = (dir: string, path: string) => {
   const inside = relative(dir, path);
   return inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
 };
 
-export const ensureInstance = async (root: string, repo: string, base?: string, readonly?: boolean) => {
+export const ensureInstance = async (root: string, name: string, repo: string, base?: string, readonly?: boolean) => {
   const real = realpathSync(repo);
   const common = readRealPath(await inRepo(real, ['rev-parse', '--path-format=absolute', '--git-common-dir']));
   const assertOutside = (path: string) => {
@@ -138,9 +125,9 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
       );
   };
   assertOutside(root);
-  const key = getSha(real, 6);
-  const dir = join(resolve(root), `${basename(real)}-${key}-local`);
-  const found = readInstance(dir);
+  const found = readInstance(root, name);
+  const dir = join(resolve(root), name);
+  if (found && found.repo !== real) throw new Error(`instance ${name} belongs to ${found.repo}, not ${real}`);
   if (found && !existsSync(origin(found)))
     throw new Error(
       `the tracker folder ${found.tracker} has no origin.git; restore it, or move ${dir} aside to start anew`
@@ -159,6 +146,7 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
         tracker: join(dir, 'tracker'),
         data: join(dir, 'data'),
         exported: {},
+        loop: false,
         ...(readonly && { readonly }),
       };
   await mkdir(i.data, { recursive: true });
@@ -185,7 +173,7 @@ export const ensureBase = async (i: Instance): Promise<string | undefined> => {
   ].join('\n');
 };
 
-export const ensureGraph = async (i: Instance, flag?: string) => {
+export const ensureGraph = async (i: Instance, flag = i.graph) => {
   const tree = flag
     ? undefined
     : await inTracker(i, ['rev-parse', '-q', '--verify', `refs/heads/${i.base}:.agentgraph`], [1, 128]);
@@ -347,7 +335,7 @@ export const writePullToRepo = async (
     await writeFile(resolve(to.patch), `${patch}\n`, { flag: 'wx' });
     return { ref: resolve(to.patch), base, stat };
   }
-  const saved = readInstance(i.dir) ?? i;
+  const saved = readInstance(dirname(i.dir), basename(i.dir)) ?? i;
   if (saved.readonly) return { why: `agentgraph does not write to ${i.repo}; pass --patch <file>` };
   const name = to.as ?? branch;
   const ref = `refs/heads/${name}`;
@@ -373,7 +361,7 @@ export const writePullToRepo = async (
   } finally {
     if (keep) await rm(keep, { force: true });
   }
-  const now = readInstance(i.dir) ?? i;
+  const now = readInstance(dirname(i.dir), basename(i.dir)) ?? i;
   i.exported = { ...now.exported, [ref]: head };
   writeInstance({ ...now, exported: i.exported });
   return { ref: name, base, stat };

@@ -67,8 +67,8 @@ From a checkout of agentgraph, prepare a data folder with the agents' model keys
 ```sh
 infra/local/e2e.sh ~/agentgraph-data examples/sandbox
 set -a; . ~/agentgraph-data/.env; set +a
-agi loop --tracker github --dir examples/sandbox --data ~/agentgraph-data
-agi show --tracker github --dir examples/sandbox --data ~/agentgraph-data
+agi loop --tracker github --slug owner/name --dir examples/sandbox --data ~/agentgraph-data
+agi show --tracker github --slug owner/name --dir examples/sandbox --data ~/agentgraph-data
 ```
 
 `e2e.sh` writes the keys from the [local stack](../infra/local/README.md) as `AGENTGRAPH_PROXY_KEYS` to `.env` in the data folder and prints the commands to run. The runner does not load that file, so source it first. `loop` without `--dir` uses the repo's [own graph](reference.md#which-graph-runs) and `AGENTGRAPH_REPO`. `show` needs App credentials and warns when the App reaches other repos.

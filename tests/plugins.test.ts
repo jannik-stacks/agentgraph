@@ -28,7 +28,7 @@ const makePluginDir = async (files: Record<string, string>) => {
 };
 
 const readCheckedPlugins = async (dir: string, settings: Record<string, unknown> = {}) => {
-  await writeFile(join(dir, 'settings.yaml'), `repo: o/r\nplugins: ${JSON.stringify(settings)}\n`);
+  await writeFile(join(dir, 'settings.yaml'), `plugins: ${JSON.stringify(settings)}\n`);
   const graph = await Effect.runPromise(loadGraph(dir, []));
   return readPlugins(graph.dir, graph.plugins);
 };

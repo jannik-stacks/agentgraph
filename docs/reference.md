@@ -4,7 +4,7 @@ A repo keeps its graph in `.agentgraph/`: Markdown files whose frontmatter the e
 
 ```
 .agentgraph/
-  settings.yaml          repo, setup and limits
+  settings.yaml          setup and limits
   agents/implementor.md  role, harness, model, tools, allowed proposals
   skills/implement.md    instructions handed to an agent
   checks/tests.md        a script or a judge
@@ -33,18 +33,16 @@ A committed graph with symlinks or submodules is refused. On GitHub, the runner 
 
 ## settings.yaml
 
-<!-- code: src/folder.ts#SettingsFile -->
+<!-- code: src/folder.ts#GraphSettings -->
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `repo` | `owner/name` | none | GitHub repo |
 | `setup` | shell script | none | Dependency install; see [Environments](sandbox.md#environments) |
 | `toolchain` | shell script | none | Extra tool installs; see [Toolchains](sandbox.md#toolchains) |
 | `image` | local image name | `agentgraph-sandbox:local` | Base image for run commands |
 | `network` | `egress` or `models` | `egress` | What sessions and setup reach; see [The network](sandbox.md#the-network) |
 | `stacks` | boolean | `false` | Stacked pull requests; see [Proposals](proposals.md#stacks-on-and-depends-on) |
 | `milestone` | milestone title | none, every open issue | Scope for new runs |
-| `trust` | list of logins | owners, members and collaborators | Who may steer the bot |
 | `commands` | map of command or comment workflow to `true`, `false` or logins | `true` for each | Who in `trust` may use each [`/agent:` command](workflows.md#commands) |
 | `status` | map of status to name, or `false` | `agentgraph:<status>` | How the tracker shows each [status](workflows.md#status-on-the-issue) |
 | `plugins` | map | none | Settings decoded by each [plugin's](plugins.md) `settingsSchema` |
@@ -73,7 +71,7 @@ Sessions, script checks, fan-out commands and setup share permits. Each releases
 | --- | --- | --- | --- |
 | `on` | event name, or map of triggers | required | `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback` or `conflict` |
 | `branch` | template | none, a detached checkout | Work branch; expands `{issue}` and `{parent}` |
-| `base` | template | repository default branch | Pull request base |
+| `base` | template | instance base, else repository default branch | Pull request base |
 | `concurrency` | `steer`, `queue` or `cancel` | `steer` | [Comments while it works](workflows.md#comments-while-it-works) |
 | `agent` | agent name | the graph's only agent | Agent when there are no `steps` |
 | `steps` | map of step name to step | one agent step named after the file | Steps in written order |

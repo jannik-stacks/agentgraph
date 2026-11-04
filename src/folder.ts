@@ -77,16 +77,14 @@ export class GraphError extends Data.TaggedError('GraphError')<{ problems: Probl
   }
 }
 
-const SettingsFile = Schema.Struct({
+export const GraphSettings = Schema.Struct({
   plugins: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-  repo: Schema.optionalKey(Schema.String),
   setup: Schema.optionalKey(Schema.String),
   toolchain: Schema.optionalKey(Schema.String),
   image: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-z0-9][\w./:@-]*$/))),
   network: Schema.optionalKey(Schema.Literals(['egress', 'models'])),
   stacks: Schema.optionalKey(Schema.Boolean),
   milestone: Schema.optionalKey(Schema.String),
-  trust: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
   commands: Schema.optionalKey(CommandSettings),
   status: Schema.optionalKey(
     Schema.Union([
@@ -104,7 +102,7 @@ export const parseGraphSettings = (text: string | undefined, say: (message: stri
   } catch (e) {
     say(`yaml: ${(e as Error).message}`);
   }
-  return decode(SettingsFile, data, say);
+  return decode(GraphSettings, data, say);
 };
 
 /**
@@ -429,7 +427,7 @@ export const loadGraph = (
     );
     return {
       dir: resolve(dir),
-      repo: settings.repo ?? '',
+      repo: '',
       sha: getSha(
         [
           { path: 'settings.yaml', text: read.settingsText ?? '' },
@@ -448,7 +446,6 @@ export const loadGraph = (
       ...(settings.network !== undefined && { network: settings.network }),
       ...(settings.stacks !== undefined && { stacks: settings.stacks }),
       ...(settings.milestone !== undefined && { milestone: settings.milestone }),
-      ...(settings.trust !== undefined && { trust: settings.trust }),
       ...(settings.commands !== undefined && { commands: settings.commands }),
       ...(settings.status !== undefined && { status: settings.status }),
       ...parts,

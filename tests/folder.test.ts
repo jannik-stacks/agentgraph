@@ -30,7 +30,7 @@ const fromFixture = (name: string) => {
     checks: Record<string, string | { mode: string; agent: string }>;
   };
   const dir = graphDir({
-    'settings.yaml': 'repo: o/r\nlimits: { minutes: 20 }\n',
+    'settings.yaml': 'limits: { minutes: 20 }\n',
     ...Object.fromEntries(names.agents.map(b => [`agents/${b}.md`, `---\nharness: opencode\n---\nYou are ${b}.\n`])),
     ...Object.fromEntries(
       names.skills.map((s, i) => [
@@ -90,7 +90,7 @@ describe('loadGraph', () => {
   it('fills the defaults and keeps each file as a doc', async () => {
     const { dir } = fromFixture('kit');
     const graph = await Effect.runPromise(loadGraph(dir, harnesses));
-    expect(graph.repo).toBe('o/r');
+    expect(graph.repo).toBe('');
     expect(graph.limits).toEqual({ minutes: 20, usdPerRun: 10, parallel: 2, sessions: 4 });
     expect(graph.agents.implementor).toEqual({
       harness: 'opencode',
@@ -353,21 +353,21 @@ describe('loadGraph', () => {
 
   it('reads the milestone, the trust list and status, unset by default', async () => {
     const set = await Effect.runPromise(
-      loadGraph(graphDir({ 'settings.yaml': 'milestone: v1\ntrust: [ana, bob]\nstatus: false\n' }), harnesses)
+      readConfiguredGraph(graphDir({ 'settings.yaml': 'milestone: v1\nstatus: false\n' }), { trust: ['ana', 'bob'] })
     );
     expect(set.status).toBe(false);
     expect(set.milestone).toBe('v1');
     expect(set.trust).toEqual(['ana', 'bob']);
-    const unset = await Effect.runPromise(loadGraph(graphDir({ 'settings.yaml': 'repo: o/r\n' }), harnesses));
+    const unset = await Effect.runPromise(loadGraph(graphDir({ 'settings.yaml': '{}' }), harnesses));
     expect([unset.milestone, unset.trust]).toEqual([undefined, undefined]);
   });
 
   it('reads who may use each command, and refuses a command workflow or an entry no command or comment workflow has', async () => {
     const { dir } = fromFixture('kit');
-    writeFileSync(join(dir, 'settings.yaml'), 'repo: o/r\ncommands: { restart: [ana], stop: false, plan: true }\n');
+    writeFileSync(join(dir, 'settings.yaml'), 'commands: { restart: [ana], stop: false, plan: true }\n');
     const graph = await Effect.runPromise(loadGraph(dir, harnesses));
     expect(graph.commands).toEqual({ restart: ['ana'], stop: false, plan: true });
-    writeFileSync(join(dir, 'settings.yaml'), 'repo: o/r\ncommands: { merge: true }\n');
+    writeFileSync(join(dir, 'settings.yaml'), 'commands: { merge: true }\n');
     cpSync(join(dir, 'workflows/plan.md'), join(dir, 'workflows/restart.md'));
     expect(await problems(dir)).toEqual([
       'workflows/restart.md: restart is the command /agent:restart; rename the workflow',
@@ -375,16 +375,19 @@ describe('loadGraph', () => {
     ]);
   });
 
-  it('takes AGENTGRAPH_REPO over the repo the graph file names', async () => {
-    const dir = graphDir({ 'settings.yaml': 'repo: o/r\n' });
+  it('takes AGENTGRAPH_REPO over the instance slug', async () => {
+    const dir = graphDir({ 'settings.yaml': '{}' });
     const read = (env: Record<string, string>) =>
       Effect.runPromise(
-        readConfiguredGraph(dir).pipe(
-          Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env }))
+        readConfiguredGraph(dir, { slug: 'o/r' }).pipe(
+          Effect.provideService(
+            ConfigProvider.ConfigProvider,
+            ConfigProvider.fromEnv({ env, preserveEmptyStrings: true })
+          )
         )
       );
     expect((await read({})).repo).toBe('o/r');
-    expect((await read({ AGENTGRAPH_REPO: '' })).repo).toBe('o/r');
+    expect((await read({ AGENTGRAPH_REPO: '' })).repo).toBe('');
     expect((await read({ AGENTGRAPH_REPO: 'o/live' })).repo).toBe('o/live');
   });
 
@@ -451,4 +454,10 @@ describe('graphAt', () => {
     edit('main');
     expect(await sha()).not.toBe(local);
   });
+});
+
+it.each(['repo: owner/repository', 'trust: [owner]'])('rejects instance-owned graph input %s', async setting => {
+  expect(await problems(graphDir({ 'settings.yaml': setting }))).toEqual([
+    expect.stringMatching(/^settings.yaml: (repo|trust):.*[Uu]nexpected/),
+  ]);
 });

@@ -69,7 +69,7 @@ no-comment src/run/settle.ts 4
 no-comment src/run/start.ts 8
 no-comment src/run/trigger.ts 17
 no-comment src/sandbox.ts 8
-no-comment src/services.ts 8
+no-comment src/services.ts 7
 no-comment src/session.ts 1
 no-comment src/store.ts 8
 no-comment src/trace.ts 10

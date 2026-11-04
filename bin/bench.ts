@@ -594,7 +594,7 @@ export const writeArmGraph = (c: Case & Commands, arm: string, at: string) => {
   }
   writeFileAtomic(
     join(graph, 'settings.yaml'),
-    stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image, repo: c.repo })
+    stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image })
   );
   if (options.point) repoint(graph, options.point);
   return graph;
@@ -616,7 +616,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     const [run] = await start(
       { graph, issue: 1, data: join(at, 'data'), meta: makeBenchMeta(set, input), labels: makeArmRunLabels(input) },
       undefined,
-      keys
+      { ...keys, AGENTGRAPH_REPO: c.repo }
     );
     status = run?.status;
     reason = run?.reason;
