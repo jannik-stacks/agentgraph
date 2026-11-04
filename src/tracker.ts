@@ -243,6 +243,7 @@ const findFolders = (entries: ReturnType<typeof readDirEntriesOrEmpty>) =>
 
 const readStatusFolders = (dir: string) => findFolders(readDirEntriesOrEmpty(dir)).filter(isStatusFolder);
 
+/** @internal */
 export const findIssueNumbers = (dir: string) => {
   const entries = readDirEntriesOrEmpty(dir);
   const old = entries.find(f => /^\d+\.(md|jsonl)$/.test(f.name))?.name;

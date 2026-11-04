@@ -63,7 +63,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
     expect(manifest).toContain('/@id/__x00__virtual:agentgraph-page/count');
     expect(manifest).toContain('href:"/results"');
     expect(manifest).toContain('href:"/bench"');
-    expect(await (await fetch(`${base}/api/plugins/bench/data`)).json()).toEqual({ rows: [], drives: [] });
+    expect(await (await fetch(`${base}/api/plugins/bench/data`)).json()).toEqual({ rows: [] });
     expect(manifest).not.toContain(external);
     expect(manifest).not.toContain(graph);
     expect((await fetch(`${base}/@fs${realpathSync(join(graph, 'plugins/pages/Page.tsx'))}`)).status).toBe(200);
