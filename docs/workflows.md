@@ -189,6 +189,8 @@ A trusted `/agent` comment reaches a working run by the workflow's `concurrency`
 
 A catch-up error is recorded once in the run trace. The run stays waiting and retries when the base head, branch head or graph changes. <!-- code: src/run/trigger.ts#tick -->
 
+A stacked run records its parent pull request in `base`. After a refused follow, `from` keeps the last successful base and `tip` records the branch head that failed. It retries when either head moves. An unknown tip is not recorded and does not block a retry. <!-- code: src/run/follow.ts#runFollow src/workflow.ts#Run -->
+
 Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp -->
 
 If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts.

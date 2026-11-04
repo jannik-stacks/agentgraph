@@ -654,8 +654,8 @@ export const tick = (
     for (const r of runs.map(current).filter(r => !isRunDone(r))) {
       const w = graph.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
-      const tip = w && issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull?.head;
-      if (!r.base || !head || !tip || (head === r.base.sha && (!r.base.from || r.base.tip === tip))) continue;
+      if (!r.base || !head || !w) continue;
+      const tip = issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull?.head;
       yield* runFollow(w, r, r.base, head, tip, graph).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
