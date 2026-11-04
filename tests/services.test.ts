@@ -135,6 +135,9 @@ it.each([
   ['trusted logins are trimmed', { AGENTGRAPH_TRUST: 'alice, bob ,carol' }, { trust: ['alice', 'bob', 'carol'] }],
   ['an empty cache volume disables the cache', { AGENTGRAPH_CACHE_VOLUME: '' }, { cache: '' }],
   ['unset settings take their defaults', {}, { trust: [], cache: 'agentgraph-cache', checkLogs: 'all' }],
+  ['numbers are trimmed', { AGENTGRAPH_EVERY: ' 3 ', AGENTGRAPH_COMPRESS_DAYS: ' 7' }, { every: 3, compress: 7 }],
+  ['an empty compress setting is 0, never', { AGENTGRAPH_COMPRESS_DAYS: '' }, { compress: 0 }],
+  ['no tracker and no App env read as no tracker name', { AGENTGRAPH_TRACKER: '' }, { tracker: '' }],
 ])('%s', async (_name, env, expected) => {
   expect(Result.getOrThrow(await readWith(env))).toMatchObject(expected);
 });
@@ -155,5 +158,14 @@ it('reads host settings from the environment, keeping empty values and naming a 
   vi.stubEnv('AGENTGRAPH_COMPRESS_DAYS', 'NaN');
   await expect(readHostSettings({ data: '/data' })).rejects.toThrow('AGENTGRAPH_COMPRESS_DAYS');
   vi.stubEnv('AGENTGRAPH_COMPRESS_DAYS', '');
-  await expect(readHostSettings({ data: '/data' })).rejects.toThrow('AGENTGRAPH_COMPRESS_DAYS');
+  expect(await readHostSettings({ data: '/data' })).toMatchObject({ compress: 0 });
+});
+
+it('reads an unset tracker as no tracker name, which pickTracker refuses', async () => {
+  const result = await Effect.runPromise(
+    Effect.result(settings).pipe(
+      Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider({ AGENTGRAPH_REPO: 'owner/repository' }))
+    )
+  );
+  expect(Result.getOrThrow(result).tracker).toBe('');
 });

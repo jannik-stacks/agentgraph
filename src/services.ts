@@ -78,11 +78,11 @@ const passed = Effect.flatMap(
 export const hostSettings = {
   data: Config.String('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
   every: Config.schema(
-    Schema.Number.check(Schema.makeFilter(n => n > 0 || 'Expected minutes above 0')),
+    Schema.NumberFromString.check(Schema.makeFilter(n => n > 0 || 'Expected minutes above 0')),
     'AGENTGRAPH_EVERY'
   ).pipe(Config.withDefault(5)),
   compress: Config.schema(
-    Schema.Number.check(Schema.makeFilter(n => !Number.isNaN(n) || 'Expected a number')),
+    Schema.NumberFromString.check(Schema.makeFilter(n => !Number.isNaN(n) || 'Expected a number')),
     'AGENTGRAPH_COMPRESS_DAYS'
   ).pipe(Config.withDefault(14)),
   image: Config.String('AGENTGRAPH_IMAGE').pipe(Config.withDefault(sandboxImage)),
@@ -93,21 +93,17 @@ const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'A
 
 const trackerName = Config.all(
   ['AGENTGRAPH_TRACKER', ...app].map(name => Config.String(name).pipe(Config.withDefault('')))
-).pipe(
-  Config.flatMap(([tracker, ...apps]) =>
-    tracker || apps.some(Boolean) ? Config.succeed(tracker || 'github') : Config.String('AGENTGRAPH_TRACKER')
-  )
-);
+).pipe(Config.map(([tracker, ...apps]) => tracker || (apps.some(Boolean) ? 'github' : '')));
 
 export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker', string | undefined>>) => {
   const s = await Effect.runPromise(
     Config.all({
       ...hostSettings,
       config: Config.option(Config.String('AGENTGRAPH_CONFIG')),
-      tracker: Config.option(trackerName),
+      tracker: trackerName,
     }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider()))
   );
-  const tracker = flags.tracker || Option.getOrUndefined(s.tracker) || undefined;
+  const tracker = flags.tracker || s.tracker || undefined;
   const data = resolve(flags.data ?? s.data);
   const file = join(data, 'config.ts');
   const config = Option.getOrElse(s.config, () => (!tracker && existsSync(file) ? file : undefined));
