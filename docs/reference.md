@@ -29,7 +29,7 @@ Without a graph, the engine stops and tells you how to copy an example. See [Fir
 
 To keep a private graph out of a team repo, add `.agentgraph/` to `.git/info/exclude`. Git then ignores it without a change to `.gitignore`, and every command reads it from disk. <!-- code: src/instance.ts#formatGraphName -->
 
-A committed graph with symlinks or submodules is refused. On GitHub, the runner reads `.agentgraph/` (or `AGENTGRAPH_DIR`, which may be an absolute path) from the default branch's head on every poll, so a pull request's graph changes apply after merge. Inside the sandbox `AGENTGRAPH_DIR` names the read-only copy of the graph. <!-- code: src/services.ts#graphAt src/main.ts#start -->
+A committed graph with symlinks or submodules is refused. The loop reads `.agentgraph/` from the instance base branch on every pass, so a pull request's graph changes apply once they reach that branch in the instance checkout. Inside the sandbox `AGENTGRAPH_DIR` names the read-only copy of the graph. <!-- code: src/instance.ts#ensureGraph bin/run.ts#loop -->
 
 ## settings.yaml
 

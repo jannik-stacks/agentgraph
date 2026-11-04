@@ -10,7 +10,7 @@ import {
   runPass,
   scanIssuesAndRunningRuns,
   scanTrackerEvents,
-  startLoopDrives,
+  type startLoopDrives,
   tick,
   type Instruction,
 } from './run/trigger.ts';
@@ -25,15 +25,8 @@ import {
 import { type Instance, readRealPath } from './instance.ts';
 import { GraphSettings, type Graph } from './folder.ts';
 import { getSettings } from './settings.ts';
-import {
-  graphAt,
-  makeProductionLayers,
-  type makeTrackerSetup,
-  readTrackerName,
-  settings,
-  type Settings,
-} from './services.ts';
-import { writeIdleRunsCompressed, fileStore, Store, StoreError } from './store.ts';
+import { makeProductionLayers, type makeTrackerSetup, readTrackerName, settings, type Settings } from './services.ts';
+import { fileStore, Store, StoreError } from './store.ts';
 import { LockHeldError } from './owner.ts';
 import { parseLabels, writeRunLabels } from './labels.ts';
 import type { Run, RunRecord } from './workflow.ts';
@@ -172,7 +165,7 @@ export const isLoopHeld = (data: string) =>
   );
 
 export const start = (
-  one?: {
+  one: {
     graph: string;
     issue: number | 'all';
     data: string;
@@ -189,10 +182,9 @@ export const start = (
     drives?: ReturnType<typeof startLoopDrives>;
     poll?: true;
   },
-  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(one?.setup?.tracker),
+  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(one.setup?.tracker),
   defaults: Record<string, string> = {},
-  signal?: AbortSignal,
-  refresh: () => Promise<unknown> = async () => {}
+  signal?: AbortSignal
 ): Promise<RunRecord[]> => {
   const provided = <A, E, R>(effect: Effect.Effect<A, E, R>, graph?: Graph) =>
     Effect.provide(
@@ -212,88 +204,52 @@ export const start = (
         )
       )
     );
-  const read = Effect.tryPromise(() => readInstanceEnv(one?.instance, one?.choice, defaults));
-  const program = one
-    ? Effect.gen(function* () {
-        const scope = one.setup ?? (yield* read);
-        const graph = yield* readConfiguredGraph(one.graph, one.instance, {
-          ...(one.base !== undefined && { base: one.base }),
-        }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config));
-        const config = makeEnvProvider({
-          AGENTGRAPH_REPO: graph.repo,
-          AGENTGRAPH_DIR: one.graph,
-          AGENTGRAPH_DATA: one.data,
-        }).pipe(ConfigProvider.orElse(scope.config));
-        yield* warnTemporary(one.data);
-        const labels = parseLabels(one.labels ?? {});
-        const look = (fork?: Parameters<typeof tick>[5]) => {
-          const { drives } = one;
-          const driven = one.instruction
-            ? instruct(graph, one.instruction, one.meta)
-            : one.poll && drives
-              ? scanTrackerEvents(graph, drives.cursor, fork, drives.gates, drives.due).pipe(
-                  Effect.map(next => ((drives.cursor = next), []))
-                )
-              : one.issue === 'all'
-                ? scanIssuesAndRunningRuns(
-                    graph,
-                    drives && one.setup?.tracker.origin.local === false ? issueDebounceMs : 0,
-                    one.meta,
-                    fork,
-                    drives?.gates
-                  )
-                : tick(graph, one.issue, one.marked, 0, one.meta, fork);
-          return provided(
-            !Object.keys(labels).length
-              ? driven
-              : Effect.updateService(driven, Store, store => ({
-                  ...store,
-                  put: run =>
-                    Effect.andThen(
-                      Effect.flatMap(store.get(run.id), was =>
-                        was ? Effect.void : writeRunLabels(one.data, run.id, labels)
-                      ),
-                      store.put(run)
-                    ),
-                })),
-            graph
-          ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, config));
-        };
-        return yield* one.drives ? runPass(one.drives, look) : look();
-      })
-    : Effect.gen(function* () {
-        const s = yield* settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, (yield* read).config));
-        yield* Effect.flatMap(Store, store => store.lock('loop')).pipe(Effect.provide(fileStore(s.data)));
-        const drives = yield* Effect.acquireRelease(Effect.sync(startLoopDrives), d => Effect.promise(d.stop));
-        yield* warnTemporary(s.data);
-        const compress = Effect.tryPromise(() => writeIdleRunsCompressed(s.data, s.compress)).pipe(
-          Effect.catch(e => Effect.logWarning(`compressing idle runs failed: ${e.cause}`))
-        );
-        let cursor = new Date(Date.now() - 300_000).toISOString();
-        const look = <A, E>(scan: (graph: Graph, fork: Parameters<typeof tick>[5]) => Effect.Effect<A, E, Services>) =>
-          Effect.flatMap(read, scope =>
-            runPass(drives, fork =>
-              provided(
-                Effect.flatMap(settings, now => graphAt(now.graph)).pipe(Effect.flatMap(graph => scan(graph, fork)))
+  const program = Effect.gen(function* () {
+    const scope = one.setup ?? (yield* Effect.tryPromise(() => readInstanceEnv(one.instance, one.choice, defaults)));
+    const graph = yield* readConfiguredGraph(one.graph, one.instance, {
+      ...(one.base !== undefined && { base: one.base }),
+    }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config));
+    const config = makeEnvProvider({
+      AGENTGRAPH_REPO: graph.repo,
+      AGENTGRAPH_DIR: one.graph,
+      AGENTGRAPH_DATA: one.data,
+    }).pipe(ConfigProvider.orElse(scope.config));
+    yield* warnTemporary(one.data);
+    const labels = parseLabels(one.labels ?? {});
+    const look = (fork?: Parameters<typeof tick>[5]) => {
+      const { drives } = one;
+      const driven = one.instruction
+        ? instruct(graph, one.instruction, one.meta)
+        : one.poll && drives
+          ? scanTrackerEvents(graph, drives.cursor, fork, drives.gates, drives.due).pipe(
+              Effect.map(next => ((drives.cursor = next), []))
+            )
+          : one.issue === 'all'
+            ? scanIssuesAndRunningRuns(
+                graph,
+                drives && one.setup?.tracker.origin.local === false ? issueDebounceMs : 0,
+                one.meta,
+                fork,
+                drives?.gates
               )
-            ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
-          );
-        const poll = look((graph, fork) => scanTrackerEvents(graph, cursor, fork, drives.gates, drives.due)).pipe(
-          Effect.map(next => (cursor = next)),
-          Effect.catch(e => Effect.logError(e))
-        );
-        const pass = Effect.tryPromise(refresh).pipe(
-          Effect.catch(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
-          Effect.andThen(
-            look((graph, fork) => scanIssuesAndRunningRuns(graph, issueDebounceMs, undefined, fork, drives.gates))
-          ),
-          Effect.tap(() => Effect.sync(() => drives.settled.splice(0))),
-          Effect.catch(e => Effect.logError(e))
-        );
-        yield* Effect.forkScoped(Effect.forever(Effect.andThen(Effect.sleep(`${s.every} minutes`), poll)));
-        return yield* Effect.forever(
-          Effect.andThen(Effect.andThen(compress, pass), Effect.sleep(`${s.every} minutes`))
-        );
-      }).pipe(Effect.scoped);
+            : tick(graph, one.issue, one.marked, 0, one.meta, fork);
+      return provided(
+        !Object.keys(labels).length
+          ? driven
+          : Effect.updateService(driven, Store, store => ({
+              ...store,
+              put: run =>
+                Effect.andThen(
+                  Effect.flatMap(store.get(run.id), was =>
+                    was ? Effect.void : writeRunLabels(one.data, run.id, labels)
+                  ),
+                  store.put(run)
+                ),
+            })),
+        graph
+      ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, config));
+    };
+    return yield* one.drives ? runPass(one.drives, look) : look();
+  });
   return Effect.runPromise(program, { signal }).catch(failLoopLock);
 };

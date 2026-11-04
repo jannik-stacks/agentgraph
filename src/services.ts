@@ -12,16 +12,14 @@ import {
   makeEnvProvider,
   parseModelUrls,
   splitNames,
-  readConfiguredGraph,
   readOverrides,
   readHarnessSettings,
 } from './harnesses.ts';
-import { GraphError, parseGraphSettings } from './folder.ts';
+import { parseGraphSettings } from './folder.ts';
 import { readPlugins, type TrackerHost } from './plugin.ts';
 import { readOrUndefined } from './read.ts';
 import { remoteSandbox } from './remote.ts';
 import { priceTable } from './prices.ts';
-import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
 
@@ -174,18 +172,6 @@ export const makeTrackerSetup = async (
     );
   return setup;
 };
-
-/**
- * The graph at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
- * default branch, so only a merged pull request changes it.
- */
-export const graphAt = (path: string, flags: Parameters<typeof readConfiguredGraph>[2] = {}) =>
-  isAbsolute(path)
-    ? readConfiguredGraph(path, undefined, flags)
-    : Effect.flatMap(Sandbox, s => s.checkout('origin/HEAD')).pipe(
-        Effect.mapError(e => new GraphError({ problems: [{ path, message: e.detail }] })),
-        Effect.flatMap(work => readConfiguredGraph(join(work.dir, path), undefined, flags))
-      );
 
 const findLocalModelHosts = (url: string) =>
   Object.values(parseModelUrls(url))

@@ -488,45 +488,6 @@ describe('the loop', () => {
       await drives.stop();
     }
   });
-
-  it('reads the settings again each pass and keeps the last ones when the refresh fails', async () => {
-    const where = world();
-    const defaults = {
-      AGENTGRAPH_TRACKER: where.tracker,
-      AGENTGRAPH_DATA: where.data,
-      AGENTGRAPH_REPO: 'acme/sandbox',
-      AGENTGRAPH_DIR: join(import.meta.dirname, '..', 'examples', 'sandbox'),
-      AGENTGRAPH_EVERY: '0.0001',
-      AGENTGRAPH_SESSION_ENV: 'ANTHROPIC_API_KEY',
-    };
-    const previous = process.env.ANTHROPIC_API_KEY;
-    process.env.ANTHROPIC_API_KEY = 'login-0';
-    const seen: string[] = [];
-    const doubles = (s: Settings) => {
-      seen.push(Redacted.value(s.passed.ANTHROPIC_API_KEY!));
-      return Layer.mergeAll(
-        folderTracker(where.tracker),
-        fileStore(s.data),
-        hostSandbox(where.origin),
-        replaySession([])
-      );
-    };
-    const stop = new AbortController();
-    let passes = 0;
-    const refresh = async () => {
-      if (++passes === 4) stop.abort();
-      if (passes === 2) throw new Error('login server down');
-      process.env.ANTHROPIC_API_KEY = `login-${passes}`;
-    };
-    try {
-      await expect(main(undefined, doubles, defaults, stop.signal, refresh)).rejects.toThrow();
-      expect(seen.filter((key, i) => i === 0 || key !== seen[i - 1])).toEqual(['login-1', 'login-3']);
-      expect(passes).toBe(4);
-    } finally {
-      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
-      else process.env.ANTHROPIC_API_KEY = previous;
-    }
-  });
 });
 
 describe('temporary', () => {

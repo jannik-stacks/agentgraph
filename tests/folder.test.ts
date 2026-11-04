@@ -6,9 +6,6 @@ import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { readConfiguredGraph } from '../src/harnesses.ts';
 import { loadGraph } from '../src/folder.ts';
-import { graphAt } from '../src/services.ts';
-import { hostSandbox } from './doubles/sandbox.ts';
-import { git } from './kit.ts';
 import { harnesses } from './fixtures.ts';
 
 /** A graph directory with `files` written into it. */
@@ -417,42 +414,6 @@ describe('loadGraph', () => {
     const found = await problems(dir);
     expect(found[0]).toMatch(/^agents\/a\.md: frontmatter: /);
     expect(found).toContain('skills/s/SKILL.md: s is defined twice');
-  });
-});
-
-describe('graphAt', () => {
-  it('reads a relative graph from the head of the default branch, never from another branch', async () => {
-    const example = join(import.meta.dirname, '..', 'examples', 'sandbox');
-    const root = mkdtempSync(join(tmpdir(), 'agentgraph-graphat-'));
-    const seed = join(root, 'seed');
-    mkdirSync(seed);
-    git(seed, 'init', '-q', '-b', 'main');
-    cpSync(example, join(seed, '.agentgraph'), { recursive: true });
-    git(seed, 'add', '-A');
-    git(seed, 'commit', '-q', '-m', 'graph');
-    git(root, 'clone', '-q', '--bare', seed, 'origin.git');
-    git(seed, 'remote', 'add', 'origin', join(root, 'origin.git'));
-    const edit = (branch: string) => {
-      git(seed, 'checkout', '-q', '-B', branch, 'main');
-      writeFileSync(
-        join(seed, '.agentgraph', 'settings.yaml'),
-        `${readFileSync(join(example, 'settings.yaml'), 'utf8')}\n# ${branch}\n`
-      );
-      git(seed, 'commit', '-q', '-am', branch);
-      git(seed, 'push', '-q', 'origin', branch);
-    };
-    const sha = () =>
-      Effect.runPromise(
-        Effect.scoped(Effect.map(graphAt('.agentgraph'), h => h.sha)).pipe(
-          Effect.provide(hostSandbox(join(root, 'origin.git')))
-        )
-      );
-    const local = (await Effect.runPromise(loadGraph(example, harnesses))).sha;
-    expect(await sha()).toBe(local);
-    edit('agentgraph/1');
-    expect(await sha()).toBe(local);
-    edit('main');
-    expect(await sha()).not.toBe(local);
   });
 });
 
