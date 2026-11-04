@@ -47,7 +47,6 @@ export const writeGraphSizeLabels = async (roots: string[], gitDir?: string) => 
     let size;
     if (existsSync(graph)) {
       size = await readGraphSize(graph);
-      if (run.graphTree) cache.set(run.graphTree, size);
     } else {
       if (!run.graphTree) {
         console.log(`skip ${run.id}: missing graphTree and graph copy`);

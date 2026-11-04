@@ -102,6 +102,36 @@ it('labels a graph copy without graphTree and prefers copies over cached trees',
   }
 });
 
+it('keeps edited graph copy counts local when another run recovers the same tree', async () => {
+  const dir = tmp('graph-size-copy-tree');
+  const first = join(dir, 'first');
+  const second = join(dir, 'second');
+  const graph = join(first, 'graph');
+  try {
+    write(graph, { 'agents/a.md': 'Read this.\n' });
+    git(graph, 'init', '-q');
+    git(graph, 'add', '.');
+    const tree = git(graph, 'write-tree');
+    write(graph, { 'agents/a.md': 'Edited.\n', 'checks/a.md': 'Check this.\n', 'scripts/a.sh': 'echo edited\n' });
+    [first, second].forEach((root, i) => {
+      write(join(root, 'data', `run-${i}`), {
+        'run.json': JSON.stringify({ id: `run-${i}`, workflow: 'issue', started: '', graphTree: tree }),
+      });
+    });
+    expect(await writeGraphSizeLabels([first, second], join(graph, '.git'))).toEqual({
+      written: 2,
+      unchanged: 0,
+      skipped: 0,
+    });
+    expect([first, second].map((root, i) => readRunLabels(join(root, 'data'), `run-${i}`))).toEqual([
+      { 'graph-words': '3', 'graph-checks': '1', 'graph-script-lines': '1' },
+      { 'graph-words': '2', 'graph-checks': '0', 'graph-script-lines': '0' },
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 it.each(['tree', 'blob'])('skips a missing promised %s without starting a transport', async missing => {
   const dir = tmp('graph-size-promised');
   const repository = join(dir, 'repository');

@@ -80,7 +80,7 @@ The Bench controls discover every label key. URL `where` is a JSON object of lab
 
 <!-- code: studio/src/bench/score.ts#summarise studio/src/bench/BenchPage.tsx#BenchPage studio/src/bench/Forest.tsx#Forest -->
 
-The x axis also lists row fields and labels whose values are finite numbers on every filtered row. Blank or missing values exclude a field. If the selected field becomes unavailable, the plot falls back to cost and an inline note names the field; the controls stay usable. Numeric axes are linear, named after the field, and averaged over repeats within each case, then over cases, like minutes. For example, `x=graph-words` plots a numeric run label; filtering, grouping and colouring still use its string value. <!-- code: studio/src/bench/score.ts#getBenchNumbers studio/src/bench/score.ts#findBenchNumericFields -->
+The x axis also lists row fields and labels whose values are finite numbers on every row contributing a score under the current filters, weights, judges and infra setting. Blank or missing values on those rows exclude a field. If the selected field becomes unavailable, the plot falls back to cost and an inline note names the field; the controls stay usable. Numeric axes are linear, named after the field, and averaged over repeats within each case, then over cases, like minutes. For example, `x=graph-words` plots a numeric run label; filtering, grouping and colouring still use its string value. <!-- code: studio/src/bench/score.ts#getBenchNumbers studio/src/bench/score.ts#findBenchNumericFields -->
 
 For graph-size experiments, run the optional script from a clone:
 

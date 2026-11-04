@@ -31,8 +31,8 @@ export const getBenchNumbers = (row: Row): Record<string, number> =>
     )
   );
 
-export const findBenchNumericFields = (rows: readonly Row[]) => {
-  const numbers = rows.map(getBenchNumbers);
+export const findBenchNumericFields = (rows: readonly Row[], o: Parameters<typeof getBenchScore>[1]) => {
+  const numbers = rows.filter(row => getBenchScore(row, o) !== undefined).map(getBenchNumbers);
   return Object.keys(numbers[0] ?? {}).filter(key => numbers.every(row => Object.hasOwn(row, key)));
 };
 
@@ -102,6 +102,14 @@ export const isBenchMatch = (row: Row, where: Record<string, string[]>) =>
   !['human', 'base'].includes(row.labels.arm ?? '') &&
   Object.entries(where).every(([key, values]) => values.includes(row.labels[key]!));
 
+const getBenchScore = (
+  row: Row,
+  o: Pick<Parameters<typeof summarise>[1], 'w' | 'judges' | 'infraZero' | 'where'>
+): number | undefined => {
+  if (!isBenchMatch(row, o.where ?? {})) return undefined;
+  return row.infra ? (o.infraZero ? 0 : undefined) : quality(row, o.w, o.judges);
+};
+
 export const summarise = (
   rows: readonly Row[],
   o: {
@@ -121,7 +129,7 @@ export const summarise = (
   );
   return [...byPoint].map(([key, all]) => {
     const scored = all.flatMap(r => {
-      const y = r.infra ? (o.infraZero ? 0 : undefined) : quality(r, o.w, o.judges);
+      const y = getBenchScore(r, o);
       return y === undefined ? [] : [{ row: r, y, x: o.x(r) }];
     });
     const kept = scored.map(s => s.row);

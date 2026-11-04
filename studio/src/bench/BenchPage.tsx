@@ -145,21 +145,22 @@ const Bench = ({ value }: { value: BenchData }) => {
   }));
   const infraRows = rows.filter(r => r.infra && isBenchMatch(r, {}));
   const matchingInfraRows = infraRows.filter(r => isBenchMatch(r, where));
-  const numericFields = findBenchNumericFields(rows.filter(r => isBenchMatch(r, where)));
+  const scoring = useMemo(
+    () => ({ where, w: weights, judges: judges.filter(j => !dropped.includes(j)), infraZero: infra === 'zero' }),
+    [where, weights, judges, dropped, infra]
+  );
+  const numericFields = findBenchNumericFields(rows, scoring);
   const xAxis = getBenchAxis(selectedAxis, numericFields);
   const minutes = xAxis === 'minutes';
   const isCost = xAxis === null || xAxis === 'usd';
   const points = useMemo(() => {
     return summarise(value.rows, {
-      where,
+      ...scoring,
       by: groupKeys,
       color,
-      w: weights,
       x: r => (isCost ? cost(r, cache === 'off') : getBenchNumbers(r)[xAxis]!),
-      judges: judges.filter(j => !dropped.includes(j)),
-      infraZero: infra === 'zero',
     }).filter(p => p.n > 0);
-  }, [value, where, groupKeys, color, weights, isCost, xAxis, cache, judges, dropped, infra]);
+  }, [value, scoring, groupKeys, color, isCost, xAxis, cache]);
 
   if (!value.rows.length)
     return <Muted>No bench runs. Start the studio with --bench and one or more bench set dirs.</Muted>;

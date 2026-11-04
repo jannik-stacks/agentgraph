@@ -101,11 +101,11 @@ describe('bench score', () => {
       row({ case: 'a', hidden: 1, labels: { words: '4', blank: '', bad: 'NaN', mixed: 'oops' } }),
       row({ case: 'b', hidden: 1, labels: { words: '-8', blank: '', bad: 'Infinity', mixed: '2' } }),
     ];
-    const fields = findBenchNumericFields(rows);
+    const fields = findBenchNumericFields(rows, { w: defaultBenchScoreWeights });
     expect(fields).toContain('words');
     expect(fields).toContain('minutes');
     expect(fields.filter(key => ['blank', 'bad', 'mixed', 'missing'].includes(key))).toEqual([]);
-    expect(findBenchNumericFields([])).toEqual([]);
+    expect(findBenchNumericFields([], { w: defaultBenchScoreWeights })).toEqual([]);
     const [point] = summarise(rows, { w: defaultBenchScoreWeights, x: r => getBenchNumbers(r).words!, by: [] });
     expect(point!.x).toBe(-3);
     expect(
@@ -122,9 +122,9 @@ describe('bench score', () => {
     const labelled = row({ hidden: 1, usd: 2, labels: { ...row({}).labels, 'graph-words': '12' } });
     const unlabelled = row({ case: 'b', hidden: 1, usd: 4 });
     const selected = 'graph-words';
-    expect(getBenchAxis(selected, findBenchNumericFields([labelled]))).toBe(selected);
+    expect(getBenchAxis(selected, findBenchNumericFields([labelled], { w: defaultBenchScoreWeights }))).toBe(selected);
     const rows = [labelled, unlabelled];
-    const fields = findBenchNumericFields(rows);
+    const fields = findBenchNumericFields(rows, { w: defaultBenchScoreWeights });
     const axis = getBenchAxis(selected, fields);
     expect(axis).toBeNull();
     expect(axis).not.toBe(selected);
@@ -136,7 +136,40 @@ describe('bench score', () => {
       }).map(p => p.x)
     ).toEqual([3]);
     expect(getBenchAxis('minutes', fields)).toBe('minutes');
-    expect(getBenchAxis(selected, findBenchNumericFields([labelled]))).toBe(selected);
+    expect(getBenchAxis(selected, findBenchNumericFields([labelled], { w: defaultBenchScoreWeights }))).toBe(selected);
+  });
+
+  it.each([
+    { why: 'infra failure', excluded: { infra: 'setup failed', hidden: 1 as const }, settings: {} },
+    { why: 'no scores', excluded: {}, settings: {} },
+    { why: 'dropped judge', excluded: { vsHuman: { sol: 1 } }, settings: { judges: ['opus'] } },
+    { why: 'zero weight', excluded: { vsHuman: { sol: 1 } }, settings: { w: presets['hidden tests only']! } },
+    {
+      why: 'label filter',
+      excluded: { hidden: 1 as const, labels: { arm: 'other' } },
+      settings: { where: { arm: ['v2'] } },
+    },
+  ])('keeps a numeric axis when an unlabelled row is excluded by $why', ({ excluded, settings }) => {
+    const labelled = row({ hidden: 1, labels: { ...row({}).labels, 'graph-words': '12' } });
+    const rows = [labelled, row(excluded)];
+    const lens = { w: defaultBenchScoreWeights, ...settings };
+    const axis = getBenchAxis('graph-words', findBenchNumericFields(rows, lens));
+    expect(axis).toBe('graph-words');
+    expect(
+      summarise(rows, { ...lens, by: [], x: r => (axis === null ? cost(r) : getBenchNumbers(r)[axis]!) })
+        .filter(p => p.n > 0)
+        .map(p => [p.x, p.repeats])
+    ).toEqual([[12, 1]]);
+  });
+
+  it('requires numeric labels on infra rows when they count as zero', () => {
+    const rows = [
+      row({ hidden: 1, labels: { ...row({}).labels, 'graph-words': '12' } }),
+      row({ infra: 'setup failed' }),
+    ];
+    const lens = { w: defaultBenchScoreWeights, infraZero: true };
+    expect(findBenchNumericFields(rows, lens)).not.toContain('graph-words');
+    expect(summarise(rows, { ...lens, by: [], x: r => r.minutes })[0]!.repeats).toBe(2);
   });
 
   it('costs a row at list price, with or without its cache reads', () => {
