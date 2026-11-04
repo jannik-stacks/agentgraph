@@ -6,7 +6,8 @@ import { startTime } from './global.ts';
 
 /**
  * Appends the pid of every process a test worker spawns to the file in AGENTGRAPH_TEST_PROCESSES, and after each test
- * file the start time of those still running.
+ * file the start time of those still running. Every spawned process keeps AGENTGRAPH_TEST_PROCESSES in its
+ * environment, which is what lets the teardown kill it.
  */
 const childProcess = createRequire(import.meta.url)('node:child_process') as typeof ChildProcessModule;
 const log = process.env.AGENTGRAPH_TEST_PROCESSES;
@@ -18,6 +19,9 @@ if (log && !(marker in childProcess.spawn)) {
   for (const name of ['spawn', 'fork'] as const) {
     const original = childProcess[name] as (...args: unknown[]) => ChildProcessModule.ChildProcess;
     const recorded = (...args: unknown[]) => {
+      const at = args.findIndex((a, i) => i > 0 && a && typeof a === 'object' && !Array.isArray(a));
+      const options = args[at] as { env?: NodeJS.ProcessEnv } | undefined;
+      if (options?.env) args[at] = { ...options, env: { ...options.env, AGENTGRAPH_TEST_PROCESSES: log } };
       const child = original(...args);
       if (child.pid) {
         appendFileSync(log, `${child.pid} -\n`);

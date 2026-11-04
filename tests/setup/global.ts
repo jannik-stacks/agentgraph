@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 type Proc = { pid: number; pgid: number; started: string; command: string };
 
-const ps = (args: string[]) =>
-  execFileSync('ps', ['-o', 'pid=,pgid=,stat=,lstart=,command=', ...args], {
+const ps = (args: string[], columns = 'pid=,pgid=,stat=,lstart=,command=') =>
+  execFileSync('ps', ['-ww', '-o', columns, ...args], {
     encoding: 'utf8',
     env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
     stdio: ['ignore', 'pipe', 'ignore'],
@@ -28,12 +28,38 @@ export const startTime = (pid: number): string | undefined => {
   }
 };
 
-/** Running processes the tests spawned (same pid and start time), or in a process group one of them led. */
-export const leftovers = (spawned: Map<number, string>, running: Proc[] = parse(ps(['-A']))) => {
+export const marked = (pid: number, log: string): boolean | undefined => {
+  let env: string;
+  try {
+    if (process.platform === 'linux') env = readFileSync(`/proc/${pid}/environ`, 'utf8');
+    else {
+      env = ps(['-E', '-p', String(pid)], 'command=');
+      if (env === ps(['-p', String(pid)], 'command=')) return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return env.split(/[\s\0]/).includes(`AGENTGRAPH_TEST_PROCESSES=${log}`);
+};
+
+/**
+ * Recorded processes still running, or in a group one of them led, unless `ours` says they are not (false); `owned` when
+ * it says they are (true) rather than cannot tell (undefined).
+ */
+export const leftovers = (
+  spawned: Map<number, string>,
+  ours: (pid: number) => boolean | undefined,
+  running: Proc[] = parse(ps(['-A']))
+) => {
   const byPid = new Map(running.map(p => [p.pid, p]));
-  const ours = (pid: number) => spawned.has(pid) && byPid.get(pid)?.started === spawned.get(pid);
-  const ourGroup = (pgid: number) => spawned.has(pgid) && (!byPid.has(pgid) || ours(pgid));
-  return running.filter(p => p.pid !== process.pid && (ours(p.pid) || ourGroup(p.pgid)));
+  const recorded = (pid: number) => spawned.has(pid) && byPid.get(pid)?.started === spawned.get(pid);
+  const group = (pgid: number) => spawned.has(pgid) && (!byPid.has(pgid) || recorded(pgid));
+  return running
+    .filter(p => p.pid !== process.pid && (recorded(p.pid) || group(p.pgid)))
+    .flatMap(p => {
+      const owned = ours(p.pid);
+      return owned === false ? [] : [{ ...p, owned: owned === true }];
+    });
 };
 
 /**
@@ -58,19 +84,22 @@ export default () => {
           return m ? [[Number(m[1]), m[2]!] as const] : [];
         })
     );
-    let left = leftovers(spawned);
+    const ours = (pid: number) => marked(pid, log);
+    let left = leftovers(spawned, ours);
     for (let i = 0; i < 40 && left.length; i++) {
       await new Promise(resolve => setTimeout(resolve, 50));
-      left = leftovers(spawned);
+      left = leftovers(spawned, ours);
     }
-    for (const p of left)
+    for (const p of left.filter(p => p.owned))
       try {
         process.kill(p.pid, 'SIGKILL');
       } catch {}
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     if (!left.length) return;
     throw new Error(
-      `tests left ${left.length} process(es) running (now killed):\n${left.map(p => `  ${p.pid} ${p.command}`).join('\n')}`
+      `tests left ${left.length} process(es) running:\n${left
+        .map(p => `  ${p.pid} ${p.command}${p.owned ? ' (killed)' : ' (environment unreadable, not killed)'}`)
+        .join('\n')}`
     );
   };
 };
