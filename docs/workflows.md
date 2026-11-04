@@ -63,7 +63,7 @@ With several comment workflows, `/agent` starts the first. Comments without the 
 
 ### Commands
 
-`/agent <text>` is always text: a start, an answer or feedback, whatever its first word. A command joins its words to `/agent` with colons and no spaces: <!-- code: src/workflow.ts#getCommand src/tracker.ts#makeCommentWithAgentRequest -->
+`/agent <text>` is always text: a start, an answer or feedback, whatever its first word. A command joins its words to `/agent` with colons and no spaces: <!-- code: src/workflow.ts#pickCommandTarget src/tracker.ts#makeCommentWithAgentRequest -->
 
 | Comment | What it does |
 | --- | --- |
@@ -74,7 +74,7 @@ With several comment workflows, `/agent` starts the first. Comments without the 
 | `/agent:<workflow> [text]` | Starts that comment workflow, or answers its live run |
 | `/agent:<workflow>:restart[:<step>]` | Starts that comment workflow again |
 
-`commands` in `settings.yaml` says who may use each command; a workflow pick counts under the workflow's name. `true` or no entry lets everyone in `trust` use it, `false` turns it off, and a list of logins keeps it to those trusted logins. A command the router passes on with `tell` counts as said by the router run, so a list of logins keeps it from the router. <!-- code: src/folder.ts#Graph -->
+`commands` in `settings.yaml` says who may use each command; a workflow pick counts under the workflow's name. `true` or no entry lets everyone in `trust` use it, `false` turns it off, and a list of logins keeps it to those trusted logins. The gate holds for every command, from a comment, `agi say` or a router `tell`. A command the router passes on counts as said by the router run, so a list of logins keeps it from the router. <!-- code: src/folder.ts#Graph -->
 
 ```yaml
 commands:
@@ -82,7 +82,9 @@ commands:
   stop: true
 ```
 
-A command that is unknown, names an unknown step, or is turned off or kept from its author does nothing. The engine answers it once on the issue with why, and with the valid commands for an unknown one. `agi check` fails a workflow named `stop`, `cancel` or `restart`, and a `commands` entry that names neither a command nor a comment workflow. <!-- code: src/run/trigger.ts#tick src/workflow.ts#compileWorkflow -->
+A command goes to one run, even beside a router: the newest run that was live when it was said, or the live run of the workflow it names. A restart starts that run's workflow again once no run of it is live, or the issue's newest workflow when none was live.
+
+A command that is unknown, names an unknown step, or is turned off or kept from its author does nothing and is not feedback. The engine answers it once on the issue with why, and with the valid commands for an unknown one. A refused `tell` fails the router's proposal with the same reason. `agi check` fails a workflow named `stop`, `cancel` or `restart`, and a `commands` entry that names neither a command nor a comment workflow. <!-- code: src/run/trigger.ts#tick src/workflow.ts#compileWorkflow -->
 
 A comment that asks for no work can end the run after one session that only comments. That works without a branch, with an open pull request, or after a finished run of that workflow. Otherwise a first session that may push fails when it changed nothing.
 
@@ -212,7 +214,7 @@ status:
 ```
 
 | Label                     | When                                                                               |
-| ------------------------- | ---------------------------------------------------------------------------------- |
+| --- | --- |
 | `agentgraph:working`      | A step runs, or a run waits on a run it started                                    |
 | `agentgraph:needs-review` | A run waits at a `wait: human` step, usually a pull request to review and merge    |
 | `agentgraph:needs-answer` | A run asked a question, or paused on a runner error until someone replies `/agent` |

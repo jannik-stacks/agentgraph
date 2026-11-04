@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { makeCommentWithAgentRequest } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
+import type { Graph } from '../src/folder.ts';
 import {
   begin,
   cancelled,
   fold,
-  getCommand,
+  pickCommandTarget,
   getEventOutcome,
   makeRunWithFreshRound,
   transition,
@@ -299,6 +300,9 @@ describe('getEventOutcome', () => {
     });
   const waiting = at('merge', { status: 'waiting' });
   const asked = at('implement', { status: 'waiting', reason: 'which API?' });
+  const kit = fixture('kit');
+  const heard = (run: Run, m: Event, commands: Graph['commands'] = {}, runs = [run]) =>
+    getEventOutcome(w, run, m, [], pickCommandTarget({ ...kit, commands }, runs, m));
 
   it('changes requested carries the review body and its line comments', () => {
     const line = (path: string, line: number, body: string) =>
@@ -334,7 +338,7 @@ describe('getEventOutcome', () => {
       kind: 'answer',
       text: 'stop wrong issue',
     });
-    expect(getEventOutcome(w, asked, comment('/agent:stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
+    expect(heard(asked, comment('/agent:stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
   });
 
   it('ignores comments without the command, untrusted authors, other issues and finished runs', () => {
@@ -347,14 +351,15 @@ describe('getEventOutcome', () => {
   it('running: a comment is an answer, cancel parks the run, stop, restart and closing end it', () => {
     const running = at('implement');
     expect(getEventOutcome(w, running, comment('/agent use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
-    expect(getEventOutcome(w, running, comment('/agent:cancel'))).toEqual({ kind: 'ask', question: cancelled });
-    expect(getEventOutcome(w, running, comment('/agent:stop'))).toEqual({ kind: 'stop', why: 'a human said stop' });
+    expect(heard(running, comment('/agent:cancel'))).toEqual({ kind: 'ask', question: cancelled });
+    expect(heard(running, comment('/agent:stop'))).toEqual({ kind: 'stop', why: 'a human said stop' });
     expect(getEventOutcome(w, running, said('closed'))).toEqual({ kind: 'stop', why: 'closed' });
-    expect(getEventOutcome(w, running, comment('/agent:restart'))).toEqual({
+    expect(heard(running, comment('/agent:restart'))).toEqual({
       kind: 'stop',
       why: 'a human restarted it',
     });
-    expect(getEventOutcome(w, asked, comment('/agent:cancel'))).toBeUndefined();
+    expect(heard(asked, comment('/agent:cancel'))).toBeUndefined();
+    expect(getEventOutcome(w, running, comment('/agent:stop'))).toBeUndefined();
   });
 
   it.each([
@@ -382,7 +387,7 @@ describe('getEventOutcome', () => {
     ['/agent:bogus', 'implement', undefined],
     ['/agent:stop:now', 'implement', undefined],
   ])('a colon command on a working run: %s', (body, step, outcome) => {
-    expect(getEventOutcome(w, at(step), comment(body))).toEqual(outcome);
+    expect(heard(at(step), comment(body))).toEqual(outcome);
   });
 
   it.each([
@@ -394,19 +399,23 @@ describe('getEventOutcome', () => {
     ['the login, untrusted', { stop: ['morgan'] }, 'morgan', false, undefined],
   ])('a stop %s', (_, commands, actor, trusted, outcome) => {
     const m = { ...comment('/agent:stop'), actor, trusted };
-    expect(getEventOutcome(w, at('implement'), m, [], commands)).toEqual(outcome);
+    expect(heard(at('implement'), m, commands)).toEqual(outcome);
   });
 
   it.each([
     ['/agent fix it', {}, undefined],
-    ['/agent:stop', { restart: false }, { verb: 'stop', text: '' }],
-    ['/agent:restart:review again', {}, { verb: 'restart', step: 'review', text: 'again' }],
-    ['/agent:issue fix it', {}, { workflow: 'issue', text: 'fix it' }],
-    ['/agent:issue:restart', {}, { workflow: 'issue', verb: 'restart', text: '' }],
+    ['/agent:stop', { restart: false }, { verb: 'stop', text: '', run: 'r1', workflow: 'issue' }],
+    [
+      '/agent:restart:review again',
+      {},
+      { verb: 'restart', step: 'review', text: 'again', run: 'r1', workflow: 'issue' },
+    ],
+    ['/agent:plan fix it', {}, { text: 'fix it', workflow: 'plan' }],
+    ['/agent:issue:restart', {}, { verb: 'restart', text: '', run: 'r1', workflow: 'issue' }],
     [
       '/agent:bogus',
       {},
-      '`/agent:bogus` is not a command. Use `/agent:stop`, `/agent:cancel`, `/agent:restart`, `/agent:restart:<step>`, `/agent:issue`.',
+      '`/agent:bogus` is not a command. Use `/agent:stop`, `/agent:cancel`, `/agent:restart`, `/agent:restart:<step>`, `/agent:issue`, `/agent:plan`.',
     ],
     [
       '/agent:restart:nope',
@@ -415,18 +424,42 @@ describe('getEventOutcome', () => {
     ],
     ['/agent:restart', { restart: false }, '`/agent:restart` is turned off here.'],
     ['/agent:restart', { restart: ['ana', 'bob'] }, 'Only ana, bob may use `/agent:restart`.'],
-    ['/agent:issue fix it', { issue: false }, '`/agent:issue` is turned off here.'],
+    ['/agent:plan fix it', { plan: false }, '`/agent:plan` is turned off here.'],
     ['/agent:issue:restart', { restart: false }, '`/agent:restart` is turned off here.'],
-  ])('reads %s with %j', (body, commands, expected) => {
-    const command = getCommand(comment(body), [w], w, commands);
-    expect(command && ('why' in command ? command.why : { ...command, workflow: command.workflow?.name })).toEqual(
-      expected
-    );
+  ])('picks what %s with %j asks, and of which run', (body, commands, expected) => {
+    const target = pickCommandTarget({ ...kit, commands }, [at('implement')], comment(body));
+    expect(
+      target && ('why' in target ? target.why : { ...target, run: target.run?.id, workflow: target.workflow?.name })
+    ).toEqual(expected);
   });
 
-  it('lets the CLI use a command that is turned off', () => {
-    const m = { ...comment('/agent:restart'), source: 'cli' as const };
-    expect(getCommand(m, [w], w, { restart: false })).toMatchObject({ verb: 'restart' });
+  it('gates commands the CLI or a router tells like any other', () => {
+    const cli = { ...comment('/agent:restart'), source: 'cli' as const };
+    const told = { ...comment('/agent:stop'), actor: 'router-1' };
+    const commands = { restart: false, stop: ['morgan'] };
+    expect(pickCommandTarget({ ...kit, commands }, [at('implement')], cli)).toEqual({
+      why: '`/agent:restart` is turned off here.',
+    });
+    expect(pickCommandTarget({ ...kit, commands }, [at('implement')], told, at('implement'))).toEqual({
+      why: 'Only morgan may use `/agent:stop`.',
+    });
+  });
+
+  it('restarts the live run a restart picks, validated against that run, and leaves the newer finished run alone', () => {
+    const live = at('implement', { status: 'waiting', reason: 'which API?' });
+    const finished = begin(kit.workflows.plan!, { id: 'p1', issue: 7, started: '2026-10-16T00:30:00Z' });
+    const done = { ...finished, status: 'done' as const };
+    const m = comment('/agent:restart:triage');
+    expect(pickCommandTarget(kit, [live, done], m)).toMatchObject({ run: { id: 'r1' }, workflow: { name: 'issue' } });
+    expect(heard(live, m, {}, [live, done])).toEqual({ kind: 'stop', why: 'a human restarted it' });
+  });
+
+  it('gives a command to the newest live run only', () => {
+    const older = at('implement', { status: 'waiting', reason: 'which API?' });
+    const newer = { ...at('implement'), id: 'r2', started: '2026-10-16T00:30:00Z' };
+    const m = comment('/agent:stop');
+    expect(heard(older, m, {}, [older, newer])).toBeUndefined();
+    expect(heard(newer, m, {}, [older, newer])).toEqual({ kind: 'stop', why: 'a human said stop' });
   });
 
   it('folds a burst into one outcome: the first that is not an answer, else every answer', () => {

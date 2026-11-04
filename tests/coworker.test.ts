@@ -873,6 +873,17 @@ describe('compound engineering', () => {
     expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan: /agent:stop you rewrote the whole module\n');
   });
 
+  it('starts no retro from a refused or unknown command, even with text after it', async () => {
+    const where = world();
+    say(where, comment(7, 'morgan', true, '/agent:stop bad change', '2026-10-16T00:00:04.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:restart wrong file', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:bogus try again', '2026-10-16T00:00:06.000Z'));
+    const { specs, run } = services(where, [[start('r'), reply()]]);
+    await run(done());
+    const touched = await run(tick({ ...looking, commands: { stop: false, restart: ['ana'] } }));
+    expect([touched.map(r => r.workflow), specs]).toEqual([[], []]);
+  });
+
   it('looks up no open issue a run never worked on', async () => {
     const where = world();
     writeIssueAt(issuePath(where.tracker, 12), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');

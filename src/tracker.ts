@@ -39,7 +39,7 @@ const formatBodyWithRunLink = (body: string, mark: RunLink, at: string, studio =
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}=${v.replace(/[^\w.:-]/g, '')}`);
   const { text, content } = splitFooter(body);
-  return `${removeRunLink(text)}\n\n${formatFooter(removeRunLink(content), studio ? makeStudioRunUrlAt(studio, mark.run, at) : undefined)}\n<!-- agentgraph ${fields.join(' ')} -->`;
+  return `${removeRunLink(text)}\n\n${formatFooter(removeRunLink(content), studio && mark.run ? makeStudioRunUrlAt(studio, mark.run, at) : undefined)}\n<!-- agentgraph ${fields.join(' ')} -->`;
 };
 
 /** The proposal as posted: its body stamped with `provenance`, and when, if the fiber writes for a run; else unstamped. */

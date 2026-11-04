@@ -11,6 +11,7 @@ import {
   unchanged,
   type Workflow,
   type CheckResult,
+  pickCommandTarget,
 } from '../workflow.ts';
 import { type Checkout, SandboxError, Sandbox } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
@@ -25,6 +26,7 @@ import {
   readIssueWithPull,
   formatTemplate,
   readHeardOutcome,
+  makeToldEvent,
   readContinuedRun,
   findPullNumber,
 } from './hear.ts';
@@ -526,9 +528,11 @@ export const runAttempt = (
     );
     const refused = [
       ...(yield* findUndispatchable(graph, run, runs)),
-      ...tells.flatMap(({ p, to }): Applied[] =>
-        to ? [] : [{ proposal: p, ok: false, reason: `no live run on #${p.issue} to tell` }]
-      ),
+      ...tells.flatMap(({ p, to }): Applied[] => {
+        if (!to) return [{ proposal: p, ok: false, reason: `no live run on #${p.issue} to tell` }];
+        const target = pickCommandTarget(graph, [], makeToldEvent(p.issue, { text: p.text, by: run.id }, ''), to);
+        return target && 'why' in target ? [{ proposal: p, ok: false, reason: target.why }] : [];
+      }),
     ];
     if (refused.length > 0) return done({ kind: 'failed', checks: [], proposals: refused, problems: [] }, tried);
     const delivered = yield* Effect.forEach(tells, ({ p, key }) =>

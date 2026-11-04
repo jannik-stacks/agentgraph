@@ -7,7 +7,7 @@ import { folderTracker, Tracker } from '../src/tracker.ts';
 import { stoppedByRunner } from '../src/context.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { loadGraph } from '../src/folder.ts';
+import { type Graph, loadGraph } from '../src/folder.ts';
 import type { Sandbox } from '../src/sandbox.ts';
 import type { Session } from '../src/session.ts';
 import type { SessionEvent } from '../src/trace.ts';
@@ -411,7 +411,7 @@ describe('dispatch', () => {
       reason: 'Which size?',
     };
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(triage)).pipe(Effect.provide(fileStore(where.data))));
-    mention(where, '/agent:stop the triage, it is not needed');
+    mention(where, '/agent stop the triage, it is not needed');
     const first = await run(where, [turn({ kind: 'tell', issue: 1, text: ':stop not needed' })], tick(graph));
     expect(first.value.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
     const trace = await Effect.runPromise(
@@ -429,6 +429,54 @@ describe('dispatch', () => {
     mention(where, '/agent tell the triage to stop');
     const { value } = await run(where, Array(3).fill(turn({ kind: 'tell', issue: 1, text: ':stop' })), tick(graph));
     expect(value[0]!.reason).toContain('no live run on #1 to tell');
+  });
+
+  it('restarts the live triage beside a waiting router once, and leaves the router waiting', async () => {
+    const where = world();
+    const put = (r: Run) =>
+      Effect.runPromise(Effect.flatMap(Store, s => s.put(r)).pipe(Effect.provide(fileStore(where.data))));
+    await put({
+      ...begin(graph.workflows.router!, { id: 'router-1', issue: 1, started: at(0) }),
+      status: 'waiting',
+      reason: 'Which size?',
+    });
+    await put({
+      ...begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: at(1) }),
+      status: 'waiting',
+      reason: 'Which size?',
+    });
+    sayOn(where, command(1, '/agent:restart', 2));
+    await run(where, [turn({ kind: 'label', add: ['size/S'] })], tick(graph));
+    await run(where, [turn({ kind: 'label', add: ['size/S'] })], tick(graph));
+    const after = (await runs(where)).toSorted((a, b) => a.started.localeCompare(b.started));
+    expect(after.map(r => [r.id === 'router-1' || r.id === 'triage-1' ? r.id : r.workflow, r.status])).toEqual([
+      ['router-1', 'waiting'],
+      ['triage-1', 'stopped'],
+      ['triage', 'done'],
+    ]);
+  });
+
+  const tell = async (commands: NonNullable<Graph['commands']>, status: 'waiting' | 'running') => {
+    const where = world();
+    const triage = {
+      ...begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: at(0) }),
+      status,
+      reason: 'Which size?',
+    };
+    await Effect.runPromise(Effect.flatMap(Store, s => s.put(triage)).pipe(Effect.provide(fileStore(where.data))));
+    mention(where, '/agent stop the triage');
+    const driven = status === 'running' ? [turn({ kind: 'ask', question: 'Which size?' })] : [];
+    const told = Array(3).fill(turn({ kind: 'tell', issue: 1, text: ':stop' }));
+    await run(where, [...driven, ...told], tick({ ...graph, commands }));
+    const after = await runs(where);
+    return [after.find(r => r.workflow === 'router')!.reason, after.find(r => r.id === 'triage-1')!.status];
+  };
+
+  it('refuses a tell the commands turn off or keep to logins, to a waiting run and to one driven in the same tick', async () => {
+    expect([await tell({ stop: false }, 'waiting'), await tell({ stop: ['morgan'] }, 'running')]).toEqual([
+      ['tell failed: `/agent:stop` is turned off here.', 'waiting'],
+      ['tell failed: Only morgan may use `/agent:stop`.', 'waiting'],
+    ]);
   });
 
   it('refuses a run of a workflow without on: dispatch, and a run from an agent that does not return run', async () => {

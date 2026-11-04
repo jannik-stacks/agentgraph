@@ -98,7 +98,10 @@ export const services = (
       ...(slug && { slug: Effect.succeed(slug) }),
       apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
         Effect.andThen(
-          Effect.map(currentRunLinkRef, mark => marks.push([p.kind, mark])),
+          Effect.andThen(
+            Effect.yieldNow,
+            Effect.map(currentRunLinkRef, mark => marks.push([p.kind, mark]))
+          ),
           f.apply(n, p, work)
         ),
       status: (...args: Parameters<NonNullable<typeof f.status>>) =>

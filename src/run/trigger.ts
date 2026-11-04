@@ -1,17 +1,17 @@
 import { Duration, Effect, Option, Schema, Stream } from 'effect';
 import { formatEventLine, stoppedByRunner } from '../context.ts';
-import { Tracker, TrackerError, formatAgentComment } from '../tracker.ts';
+import { Tracker, TrackerError, currentRunLinkRef, formatAgentComment } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
 import type { Graph } from '../folder.ts';
 import { Sandbox } from '../sandbox.ts';
 import { Store, type StoreError } from '../store.ts';
+import { getSha } from '../hash.ts';
 import { SessionStop, makeOutcomeLine } from '../trace.ts';
 import {
   begin,
   fold,
-  getCommand,
   getEventOutcome,
   makeRunWithFreshRound,
   transition,
@@ -24,6 +24,7 @@ import {
   isQuiet,
   isRunDone,
   parseAgentRequest,
+  pickCommandTarget,
 } from '../workflow.ts';
 import { type Services, formatFailure } from './execute.ts';
 import {
@@ -371,7 +372,7 @@ export const tick = (
               run,
               tells.includes(m) || (isParked(run) && isQuiet(w)) ? m : getHeardEvent(graph, w, m),
               lined,
-              graph.commands
+              pickCommandTarget(graph, runs, m, tells.includes(m) ? run : undefined)
             );
           return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
         };
@@ -522,46 +523,42 @@ export const tick = (
           );
         touched.push(run);
       });
-    for (const m of events) {
-      const newest = runs
-        .filter(r => r.issue === m.issue && graph.workflows[r.workflow])
-        .toSorted((a, b) => a.started.localeCompare(b.started))
-        .at(-1);
-      const target = (newest && graph.workflows[newest.workflow]) ?? triggered[0];
-      const command = getCommand(m, triggered, target, graph.commands);
-      if (command && 'why' in command) {
-        const { why } = command;
+    const refuse = (m: Event, why: string) =>
+      Effect.gen(function* () {
         const issue = origin.get(m) ?? m.issue;
-        const answered = latest.some(
-          n => n.issue === issue && n.at >= m.at && n.actor.endsWith('[bot]') && n.comment?.body.includes(why)
-        );
-        if (m.trusted && !answered)
-          yield* tracker
-            .apply(issue, { kind: 'comment', body: why })
-            .pipe(Effect.catchTag('TrackerError', e => Effect.logWarning(`reply on #${issue}`, e)));
+        const key = getSha(JSON.stringify(['refuse', issue, m.comment?.id, m.at, m.comment?.body]));
+        if (!(yield* Effect.isSuccess(store.lock(`refuse-${key}`)))) return;
+        const reply = { kind: 'comment', body: why } as const;
+        if (yield* tracker.findPost(issue, reply, key)) return;
+        yield* Effect.updateService(tracker.apply(issue, reply), currentRunLinkRef, () => ({
+          run: '',
+          step: '',
+          operation: key,
+        }));
+      }).pipe(
+        Effect.scoped,
+        Effect.catchTag('TrackerError', e => Effect.logWarning(`reply on #${m.issue}`, e))
+      );
+    for (const m of events) {
+      const target = pickCommandTarget(graph, runs, m);
+      if (target && 'why' in target) {
+        if (m.trusted) yield* refuse(m, target.why);
         continue;
       }
+      if (target && (target.verb === 'stop' || target.verb === 'cancel' || (!target.verb && target.run))) continue;
       const relabelled = events.some(
         n => n.issue === m.issue && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
       );
       const sourced = Object.values(graph.workflows).find(w => isIssueTriggered(w, m));
-      const restart = command?.verb === 'restart' ? (command.step ?? '') : undefined;
+      const restart = target?.verb === 'restart' ? (target.step ?? '') : undefined;
       const w =
         m.kind === 'label' && relabelled
           ? undefined
-          : (sourced ??
-            (parseAgentRequest(m) !== undefined
-              ? (command?.workflow ?? (restart === undefined ? triggered[0] : target))
-              : undefined));
+          : (sourced ?? (parseAgentRequest(m) !== undefined ? (target?.workflow ?? triggered[0]) : undefined));
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !isInScope(graph, yield* tracker.issue(m.issue)))) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
       const concerns = (name: string) => m.kind !== 'comment' || !routed || !!graph.workflows[name]?.on.issue_comment;
-      if (
-        (command?.verb === 'stop' || command?.verb === 'cancel') &&
-        !runs.some(r => r.issue === m.issue && !isRunDone(r) && !concerns(r.workflow))
-      )
-        continue;
       const old =
         restart === undefined &&
         runs.some(
@@ -570,7 +567,10 @@ export const tick = (
             concerns(r.workflow) &&
             (m.at <= (r.seen ?? r.started) || (sourced && r.workflow === w.name && r.status === 'done'))
         );
-      const held = [...busy].some(k => k.endsWith(`#${m.issue}`) && concerns(k.slice(0, k.lastIndexOf('#'))));
+      const held =
+        restart === undefined
+          ? [...busy].some(k => k.endsWith(`#${m.issue}`) && concerns(k.slice(0, k.lastIndexOf('#'))))
+          : runs.some(r => r.issue === m.issue && r.workflow === w.name && !isRunDone(current(r)));
       if (!held && !old) yield* start(w, m.issue, m.at, m, restart);
     }
     if (
@@ -610,7 +610,9 @@ export const tick = (
       });
     for (const w of Object.values(graph.workflows).filter(w => w.on.feedback)) {
       const heardOn = new Map<number, Event[]>();
-      for (const m of latest.map(onRun).filter(feedback)) {
+      for (const m of latest
+        .map(onRun)
+        .filter(m => feedback(m) && !('why' in (pickCommandTarget(graph, runs, m) ?? {})))) {
         const issue = yield* workedOn(m);
         if (issue !== undefined && mine({ issue })) heardOn.set(issue, [...(heardOn.get(issue) ?? []), m]);
       }

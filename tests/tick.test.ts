@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
-import type { Event } from '../src/event.ts';
+import { removeRunLink, type Event } from '../src/event.ts';
 import type { Agent } from '../src/folder.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
@@ -1202,7 +1202,7 @@ describe('tick', () => {
     expect(stored.find(r => r.id !== 'run-7')!.answers).toEqual(answers);
   });
 
-  it('answers a refused or unknown command once on the issue and changes nothing', async () => {
+  it('answers a refused or unknown command once on the issue, also from ticks at once, and changes nothing', async () => {
     const where = world();
     const { specs, run } = services(where, []);
     const asked = { ...fresh(), step: 'implement', status: 'waiting' as const, reason: 'Hello or hi?' };
@@ -1213,7 +1213,7 @@ describe('tick', () => {
     say(where, comment(7, 'morgan', true, '/agent:bogus', '2026-10-16T00:01:02.000Z'));
     say(where, comment(7, 'morgan', true, '/agent:restart:nope', '2026-10-16T00:01:03.000Z'));
     say(where, comment(7, 'mallory', false, '/agent:restart', '2026-10-16T00:01:04.000Z'));
-    await run(tick(kept));
+    await run(Effect.all([tick(kept), tick(kept)], { concurrency: 'unbounded' }));
     await run(tick(kept));
     const stored = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored.map(r => [r.id, r.status, r.reason])).toEqual([['run-7', 'waiting', 'Hello or hi?']]);
@@ -1221,7 +1221,7 @@ describe('tick', () => {
     const replies = readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')
       .split('\n')
       .filter(line => line.includes('agentgraph[bot]') && line.includes('"kind":"comment"'))
-      .map(line => (JSON.parse(line) as Event).comment!.body);
+      .map(line => removeRunLink((JSON.parse(line) as Event).comment!.body));
     expect(replies).toEqual([
       'Only ana may use `/agent:restart`.',
       '`/agent:stop` is turned off here.',

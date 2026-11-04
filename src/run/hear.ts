@@ -1,7 +1,7 @@
 import { Effect, Stream } from 'effect';
 import type { Issue, Event } from '../event.ts';
 import type { Graph } from '../folder.ts';
-import { type Workflow, type Run, isRunDone, isQuiet, getEventOutcome, fold } from '../workflow.ts';
+import { type Workflow, type Run, isRunDone, isQuiet, getEventOutcome, fold, pickCommandTarget } from '../workflow.ts';
 import type { IssueWithPull } from '../context.ts';
 import { type TrackerError, Tracker } from '../tracker.ts';
 import { type StoreError, Store } from '../store.ts';
@@ -56,25 +56,19 @@ export const pickNewest = (...times: (string | undefined)[]) =>
     .toSorted()
     .at(-1);
 
+export const makeToldEvent = (issue: number, told: { text: string; by: string }, at: string): Event => ({
+  issue,
+  kind: 'comment',
+  actor: told.by,
+  trusted: true,
+  at,
+  comment: { id: '', author: told.by, body: told.text, at, agentRequest: told.text },
+});
+
 /** What the comment workflow told `run`, each as a trusted comment that speaks to it. */
 export const readRunEvents = (run: Run) =>
   Effect.flatMap(Store, store => Stream.runCollect(store.read(run.id))).pipe(
-    Effect.map(lines =>
-      lines.flatMap((t): Event[] =>
-        'told' in t
-          ? [
-              {
-                issue: run.issue,
-                kind: 'comment',
-                actor: t.told.by,
-                trusted: true,
-                at: t.at,
-                comment: { id: '', author: t.told.by, body: t.told.text, at: t.at, agentRequest: t.told.text },
-              },
-            ]
-          : []
-      )
-    )
+    Effect.map(lines => lines.flatMap((t): Event[] => ('told' in t ? [makeToldEvent(run.issue, t.told, t.at)] : [])))
   );
 
 export const readContinuedRun = (run: Run, events: Event[]) =>
@@ -108,22 +102,40 @@ export const findRouter = (graph: Graph) =>
     w => w.on.issue_comment && w.steps.some(s => getStepReturns(s, graph.agents).includes('tell'))
   );
 
-/** The event as a run of `w` hears it: with a router, only the router hears `/agent` from people, the others hear what it tells them. */
+/**
+ * The event as a run of `w` hears it: with a router, only the router hears `/agent` text from people, the others hear
+ * what it tells them. Every run hears `/agent:` commands, which reach only the run they pick.
+ */
 export const getHeardEvent = (graph: Graph, w: Workflow, m: Event): Event => {
-  if (!findRouter(graph) || w.on.issue_comment || m.comment?.agentRequest === undefined) return m;
+  if (
+    !findRouter(graph) ||
+    w.on.issue_comment ||
+    m.comment?.agentRequest === undefined ||
+    m.comment.agentRequest.startsWith(':')
+  )
+    return m;
   const { agentRequest: _agentRequest, ...comment } = m.comment;
   return { ...m, comment };
 };
 
 /** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
 export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWithPull) =>
-  Effect.map(readRunEvents(run), tells => {
+  Effect.gen(function* () {
     if (isQuiet(w)) return undefined;
+    const tells = yield* readRunEvents(run);
+    const runs = yield* Effect.flatMap(Store, s => s.list({ issue: run.issue }));
     const since = run.seen ?? run.started;
     const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => getHeardEvent(graph, w, m)), ...tells]
       .filter(m => m.at > since)
       .flatMap(m => {
-        const o = getEventOutcome(w, run, { ...m, issue: run.issue }, [], graph.commands);
+        const heard = { ...m, issue: run.issue };
+        const o = getEventOutcome(
+          w,
+          run,
+          heard,
+          [],
+          pickCommandTarget(graph, runs, heard, tells.includes(m) ? run : undefined)
+        );
         return o ? [{ o, at: m.at, event: m }] : [];
       });
     const outcome = fold(said.map(s => s.o));
