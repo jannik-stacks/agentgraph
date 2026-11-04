@@ -507,16 +507,24 @@ export const readSlotRun = (slot: string) => {
 type SlotRun = NonNullable<ReturnType<typeof readSlotRun>>;
 
 /** Appends a later bench result to a run, as `agi check --runs` appends one. */
-export const appendBenchResult = (
+export const appendBenchResults = (
   found: SlotRun,
-  check: Omit<CheckResult, 'ms'> & Partial<Pick<CheckResult, 'ms'>>,
+  checks: (Omit<CheckResult, 'ms'> & Partial<Pick<CheckResult, 'ms'>>)[],
   version: string,
   usd = 0
 ) =>
   Effect.runPromise(
-    appendJsonlRows(join(found.data, found.run.id, 'checks.jsonl'), [
-      { at: new Date().toISOString(), step: 'bench', check: { ms: 0, ...check }, version, usd, later: true },
-    ] satisfies CheckEntry[])
+    appendJsonlRows(
+      join(found.data, found.run.id, 'checks.jsonl'),
+      checks.map((check, i) => ({
+        at: new Date().toISOString(),
+        step: 'bench',
+        check: { ms: 0, ...check },
+        version,
+        usd: i ? 0 : usd,
+        later: true as const,
+      })) satisfies CheckEntry[]
+    )
   );
 
 const setLimit = (yaml: string, key: string, value: number) =>
@@ -710,18 +718,20 @@ const runArm = async (arm: string, caseDir: string, set: string, repo: string) =
       if (!env && nothing && ++empty < 2) continue;
       if (found?.at !== at) throw new Error(`${basename(slot)}: attempt ${basename(at)} left no run: ${env ?? broke}`);
       const why = env ?? nothing;
-      return await appendBenchResult(
+      return await appendBenchResults(
         found,
-        {
-          check: 'bench/arm',
-          pass: !why,
-          ...(why && { findings: why }),
-          value: {
-            answers: ran?.answers ?? 0,
-            ms: Date.now() - started - time.missed(),
-            ...(time.missed() && { slept: time.missed() }),
+        [
+          {
+            check: 'bench/arm',
+            pass: !why,
+            ...(why && { findings: why }),
+            value: {
+              answers: ran?.answers ?? 0,
+              ms: Date.now() - started - time.missed(),
+              ...(time.missed() && { slept: time.missed() }),
+            },
           },
-        },
+        ],
         hash(readFileSync(new URL(import.meta.url), 'utf8'))
       );
     }
@@ -1238,7 +1248,7 @@ const scoreRuns = async (c: Case & Commands, set: string, repo: string, slots: s
         labels,
         input.arm === 'base' || !base ? undefined : readTests(base)
       );
-      for (const result of results) await appendBenchResult(found, result, version);
+      await appendBenchResults(found, results, version);
     }
   } finally {
     rmSync(tree, { recursive: true, force: true });
@@ -1262,14 +1272,16 @@ const writeCaseValid = async (c: Case & Commands, set: string, repo: string) => 
     const why =
       (c.hasTests !== false && c.why) ||
       (coupled.length ? 'coupled' : invalid(readTests(base), readTests(human), c.hasTests !== false));
-    await appendBenchResult(
+    await appendBenchResults(
       human,
-      {
-        check: 'bench/valid',
-        pass: !why,
-        ...(why && { findings: why }),
-        ...(coupled.length && { value: { coupled } }),
-      },
+      [
+        {
+          check: 'bench/valid',
+          pass: !why,
+          ...(why && { findings: why }),
+          ...(coupled.length && { value: { coupled } }),
+        },
+      ],
       version
     );
   }
@@ -1542,7 +1554,15 @@ const judge = async (arm: string, caseDir: string, set: string) => {
   if (found.run.workflow !== 'import' && !armed?.check.pass) return;
   const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
   const changes = { human: readRunChange(human.at, human.run), [arm]: readRunChange(found.at, found.run) };
-  if (!changes[arm]!.trim()) return;
+  if (!changes[arm]!.trim()) {
+    if (!isCurrent(found, ['bench/judge'], 'no-change'))
+      await appendBenchResults(
+        found,
+        [{ check: 'bench/judge', pass: false, na: true, findings: 'no change to judge' }],
+        'no-change'
+      );
+    return;
+  }
   const block = (label: string, side: string) =>
     `## Candidate ${label}\n\n\`\`\`diff\n${scrub(changes[side]!, names)}\n\`\`\``;
   const issue = scrub(`# ${c.title}\n\n${c.body}`, names);
@@ -1577,9 +1597,9 @@ const judge = async (arm: string, caseDir: string, set: string) => {
       throw new Error(`${c.id}/${arm}/${name}: no valid judge verdict after 3 attempts`);
     })
   );
-  await appendBenchResult(
+  await appendBenchResults(
     found,
-    makeBenchJudgeResult(verdicts, arm, human.run.id),
+    [makeBenchJudgeResult(verdicts, arm, human.run.id)],
     version,
     getRounded(verdicts.reduce((n, v) => n + v.usd, 0))
   );

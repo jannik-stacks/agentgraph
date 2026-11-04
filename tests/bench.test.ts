@@ -30,6 +30,7 @@ import {
   type BenchInput,
   getBenchSlot,
   getBenchUsageCost,
+  isBenchUnitDone,
   readAttemptRun,
   readBenchRows,
   readLatestRunChecks,
@@ -452,6 +453,8 @@ describe('bin/bench.ts score and judge', () => {
       readFileSync(join(set, 'log.jsonl'), 'utf8')
         .split('\n')
         .filter(l => l.includes('"event":"end"'));
+    const scores = Object.entries(readSlotResults(set, v2)).filter(([k]) => k !== 'bench/arm');
+    expect(new Set(scores.map(([, e]) => e.at)).size).toBe(1);
     const scored = ends().length;
     bench('score', 'v2', kase, set, '--repo', repo);
     expect(ends()).toHaveLength(scored);
@@ -467,6 +470,12 @@ describe('bin/bench.ts score and judge', () => {
     writeFileSync(join(set, 'budget.json'), JSON.stringify({ now: 0, at: Date.now() }));
     bench('judge', 'v2', kase, set, '--judges', 'opus:2');
     bench('judge', 'v2', kase, set, '--judges', 'opus:2');
+    bench('judge', 'floor', kase, set, '--judges', 'opus:2');
+    expect(readSlotResults(set, floor)['bench/judge']!.check).toMatchObject({
+      na: true,
+      findings: 'no change to judge',
+    });
+    expect(isBenchUnitDone(set, floor, true)).toBe(true);
     const judged = readSlotResults(set, v2)['bench/judge']!;
     expect(judged).toMatchObject({ usd: 0.2, later: true });
     expect(judged.check.value).toMatchObject({

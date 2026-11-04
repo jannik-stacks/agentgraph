@@ -3,7 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import {
-  appendBenchResult,
+  appendBenchResults,
   writeReferenceRun,
   readBenchCase,
   readBenchSetupLabels,
@@ -76,14 +76,11 @@ const writeScores = async (
   labels: Record<string, string>,
   base?: Score | null
 ) => {
-  for (const check of makeBenchResults(
-    { ...c, ...(s.image && { image: s.image }) },
-    s,
-    diff,
-    labels,
-    base ?? undefined
-  ))
-    await appendBenchResult(found, check, version);
+  await appendBenchResults(
+    found,
+    makeBenchResults({ ...c, ...(s.image && { image: s.image }) }, s, diff, labels, base ?? undefined),
+    version
+  );
 };
 
 const findJudgeFiles = (root: string, arm: string, pattern: RegExp) =>
@@ -107,7 +104,7 @@ const writeJudge = async (
     (n, f) => n + (readJson<{ usd?: number }>(f)?.usd ?? 0),
     0
   );
-  await appendBenchResult(found, makeBenchJudgeResult(verdicts, arm, human), version, getRounded(usd));
+  await appendBenchResults(found, [makeBenchJudgeResult(verdicts, arm, human)], version, getRounded(usd));
 };
 
 const migrateReferences = async (root: string, caseDir: string, set: string, repo: string) => {
@@ -130,9 +127,9 @@ const migrateReferences = async (root: string, caseDir: string, set: string, rep
     );
     const valid = arm === 'human' && readJson<{ invalid?: string; skipped?: string }>(join(root, 'valid.json'));
     if (valid)
-      await appendBenchResult(
+      await appendBenchResults(
         found,
-        { check: 'bench/valid', pass: !valid.invalid, ...(valid.invalid && { findings: valid.invalid }) },
+        [{ check: 'bench/valid', pass: !valid.invalid, ...(valid.invalid && { findings: valid.invalid }) }],
         version
       );
   }
@@ -181,14 +178,16 @@ const migrateArm = async (root: string, caseDir: string, set: string, repo: stri
       })
     );
     found = { ...readAttemptRun(at)!, at };
-    await appendBenchResult(
+    await appendBenchResults(
       found,
-      {
-        check: 'bench/arm',
-        pass: !t.infra,
-        ...(t.infra && { findings: t.infra }),
-        value: { ms: t.ms, ...(t.dir === arm && { answers: meta.answers ?? s?.answers ?? 0 }) },
-      },
+      [
+        {
+          check: 'bench/arm',
+          pass: !t.infra,
+          ...(t.infra && { findings: t.infra }),
+          value: { ms: t.ms, ...(t.dir === arm && { answers: meta.answers ?? s?.answers ?? 0 }) },
+        },
+      ],
       version
     );
   }
