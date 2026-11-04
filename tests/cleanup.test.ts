@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { removeBranch } from '../src/disk.ts';
 import { Store } from '../src/store.ts';
 import { Tracker } from '../src/tracker.ts';
-import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
+import { runWorkflow } from '../src/run/drive.ts';
+import { scanIssuesAndRunningRuns } from '../src/run/trigger.ts';
 import { commit, git, issuePath, write, writeIssueAt } from './kit.ts';
 import { fresh, graph, say, services, world } from './world.ts';
 
@@ -19,7 +20,7 @@ const setup = () => {
   git(where.origin, 'update-ref', 'refs/agentgraph/runs/run-7', head, '');
   const clean = (merged = true) =>
     Effect.runPromise(removeBranch(where.origin, 'agentgraph/7', 'main', merged ? head : undefined));
-  return { ...where, path, head, clean };
+  return { ...where, path, head, clean, checkout: { branch: 'agentgraph/7', base: 'main' } };
 };
 
 describe('landed checkout cleanup', () => {
@@ -30,7 +31,7 @@ describe('landed checkout cleanup', () => {
       readFileSync(issuePath(run.tracker, 7), 'utf8').replace('state: open', 'state: closed')
     );
     const engine = services(run, []);
-    await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done' })));
+    await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), checkout: run.checkout, status: 'done' })));
     write(run.data, { 'run-7/result.json': 'result', 'run-7/events.jsonl': 'events', 'run-7/logs/output': 'log' });
     const record = readFileSync(join(run.data, 'run-7/run.json'), 'utf8');
     const trace = readFileSync(join(run.data, 'run-7/trace.jsonl'), 'utf8');
@@ -45,6 +46,7 @@ describe('landed checkout cleanup', () => {
     );
     write(run.tracker, { '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: run.head }) });
     say(run, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' });
+    writeIssueAt(issuePath(run.tracker, 9), '---\ntitle: Other\nstate: open\nauthor: morgan\nlabels: []\n---\n');
     await engine.run(scanIssuesAndRunningRuns(graph));
     expect(existsSync(run.path)).toBe(false);
     expect(git(run.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
@@ -70,7 +72,7 @@ describe('landed checkout cleanup', () => {
     write(run.tracker, { '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: run.head }) });
     say(run, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' });
     const engine = services(run, []);
-    await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done' })));
+    await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), checkout: run.checkout, status: 'done' })));
     const fetched: number[] = [];
     await engine.run(
       Effect.updateService(scanIssuesAndRunningRuns(graph), Tracker, tracker => ({
@@ -110,29 +112,155 @@ describe('landed checkout cleanup', () => {
 
   it('keeps a landed branch another live workflow uses', async () => {
     const run = setup();
+    git(run.path, 'branch', '-m', 'agentgraph/42');
+    run.checkout.branch = 'agentgraph/42';
+    writeIssueAt(
+      issuePath(run.tracker, 7),
+      '---\ntitle: Parent work\nstate: closed\nauthor: morgan\nlabels: []\nparent: 42\n---\n'
+    );
+    writeIssueAt(
+      issuePath(run.tracker, 9),
+      '---\ntitle: More parent work\nstate: closed\nauthor: morgan\nlabels: []\nparent: 42\n---\n'
+    );
     const engine = services(run, []);
     await engine.run(
       Effect.flatMap(Store, s =>
         Effect.andThen(
-          s.put({ ...fresh(), status: 'done' }),
-          s.put({ ...fresh(), id: 'other-9', issue: 9, workflow: 'other', status: 'waiting' })
+          s.put({ ...fresh(), checkout: run.checkout, status: 'done' }),
+          s.put({ ...fresh(), checkout: run.checkout, id: 'other-9', issue: 9, workflow: 'other', status: 'waiting' })
         )
       )
     );
     git(run.origin, 'update-ref', 'refs/heads/main', run.head, git(run.origin, 'rev-parse', 'main'));
     const shared = {
       ...graph,
-      workflows: { ...graph.workflows, other: { ...graph.workflows.issue!, name: 'other', branch: 'agentgraph/7' } },
+      workflows: {
+        ...graph.workflows,
+        other: { ...graph.workflows.issue!, name: 'other', branch: 'agentgraph/{parent}' },
+      },
     };
-    await engine.run(tick(shared, 7, true));
+    await engine.run(scanIssuesAndRunningRuns(shared));
+    expect(existsSync(run.path)).toBe(true);
+    expect(git(run.origin, 'rev-parse', 'agentgraph/42')).toBe(run.head);
+    await engine.run(
+      Effect.flatMap(Store, s =>
+        s.put({ ...fresh(), checkout: run.checkout, id: 'other-9', issue: 9, workflow: 'other', status: 'done' })
+      )
+    );
+    await engine.run(scanIssuesAndRunningRuns(shared));
+    expect(existsSync(run.path)).toBe(false);
+    expect(git(run.origin, 'branch', '--list', 'agentgraph/42')).toBe('');
+  });
+
+  it.each([
+    { branch: 'agentgraph/{parent}/{issue}', base: 'main', resolvedBranch: 'agentgraph/42/7', resolvedBase: 'main' },
+    {
+      branch: 'agentgraph/{issue}',
+      base: 'release/{issue}',
+      resolvedBranch: 'agentgraph/7',
+      resolvedBase: 'release/7',
+    },
+  ])('cleans a closed run using recorded $branch and $base', async ({ branch, base, resolvedBranch, resolvedBase }) => {
+    const run = world();
+    git(run.origin, 'branch', 'release/7', 'main');
+    writeIssueAt(
+      issuePath(run.tracker, 7),
+      '---\ntitle: Parent work\nstate: open\nauthor: morgan\nlabels: []\nparent: 42\n---\n'
+    );
+    const flow = {
+      ...graph.workflows.issue!,
+      branch,
+      base,
+      checks: [],
+      steps: [{ name: 'work', does: { run: 'true', returns: [] }, checks: [], tries: 1 }],
+    };
+    const selected = { ...graph, workflows: { issue: flow } };
+    const engine = services(run, []);
+    const begun = { ...fresh(), step: 'work' };
+    await engine.run(Effect.flatMap(Store, s => s.put(begun)));
+    const ended = await engine.run(runWorkflow(flow, begun, selected));
+    expect(ended.status).toBe('done');
+    expect(ended.checkout).toEqual({ branch: resolvedBranch, base: resolvedBase });
+    const path = join(run.root, 'checkout');
+    git(run.origin, 'worktree', 'add', '-b', resolvedBranch, path, resolvedBase);
+    writeIssueAt(
+      issuePath(run.tracker, 7),
+      readFileSync(issuePath(run.tracker, 7), 'utf8').replace('state: open', 'state: closed')
+    );
+    await engine.run(scanIssuesAndRunningRuns(selected));
+    expect(existsSync(path)).toBe(false);
+    expect(git(run.origin, 'branch', '--list', resolvedBranch)).toBe('');
+  });
+
+  it('skips redirected checkout metadata without running an attacker filter', async () => {
+    const run = setup();
+    const attacker = join(run.path, 'attacker');
+    const marker = join(run.root, 'filter-ran');
+    git(run.origin, 'clone', '--no-checkout', run.origin, attacker);
+    git(attacker, 'read-tree', run.head);
+    git(attacker, 'config', 'filter.planted.clean', `touch ${marker}; cat`);
+    write(run.path, {
+      '.gitattributes': '*.txt filter=planted\n',
+      'landed.txt': 'dirty',
+      '.git': `gitdir: ${join(attacker, '.git')}\n`,
+    });
+    await run.clean();
+    expect(existsSync(marker)).toBe(false);
+    expect(readFileSync(join(run.path, 'landed.txt'), 'utf8')).toBe('dirty');
+    expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
+  });
+
+  it('disables trusted repository clean filters while checking dirty files', async () => {
+    const run = setup();
+    const head = commit(run.path, { '.gitattributes': '*.txt filter=planted\n' });
+    const marker = join(run.root, 'filter-ran');
+    git(run.origin, 'config', 'filter.planted.clean', `touch ${marker}; cat`);
+    git(run.origin, 'config', 'filter.planted.required', 'true');
+    write(run.path, { 'landed.txt': 'change' });
+    await Effect.runPromise(removeBranch(run.origin, 'agentgraph/7', 'main', head));
+    expect(existsSync(marker)).toBe(false);
+    expect(readFileSync(join(run.path, 'landed.txt'), 'utf8')).toBe('change');
+    expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(head);
+  });
+
+  it('skips a checkout with missing metadata without crashing', async () => {
+    const run = setup();
+    rmSync(join(run.path, '.git'));
+    await run.clean();
     expect(existsSync(run.path)).toBe(true);
     expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
-    await engine.run(
-      Effect.flatMap(Store, s => s.put({ ...fresh(), id: 'other-9', issue: 9, workflow: 'other', status: 'done' }))
+  });
+
+  it('does not fetch issues for a finished dirty branch across two passes', async () => {
+    const run = setup();
+    git(run.origin, 'update-ref', 'refs/heads/main', run.head, git(run.origin, 'rev-parse', 'main'));
+    write(run.path, { 'landed.txt': 'dirty' });
+    writeIssueAt(
+      issuePath(run.tracker, 7),
+      readFileSync(issuePath(run.tracker, 7), 'utf8').replace('state: open', 'state: closed')
     );
-    await engine.run(tick(shared, 7, true));
-    expect(existsSync(run.path)).toBe(false);
-    expect(git(run.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
+    writeIssueAt(issuePath(run.tracker, 8), '---\ntitle: Landed\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+    write(run.tracker, { '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: run.head }) });
+    say(run, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' });
+    const engine = services(run, []);
+    await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), checkout: run.checkout, status: 'done' })));
+    const fetched: number[] = [];
+    await engine.run(
+      Effect.updateService(
+        Effect.andThen(scanIssuesAndRunningRuns(graph), scanIssuesAndRunningRuns(graph)),
+        Tracker,
+        tracker => ({
+          ...tracker,
+          issue: n => {
+            fetched.push(n);
+            return tracker.issue(n);
+          },
+        })
+      )
+    );
+    expect(fetched).toEqual([]);
+    expect(readFileSync(join(run.path, 'landed.txt'), 'utf8')).toBe('dirty');
+    expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
   });
 
   it('keeps an unmerged branch with unique commits', async () => {

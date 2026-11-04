@@ -117,6 +117,7 @@ export type Run = {
   blocked?: { base: string; head: string; graph: string };
   /** The run whose `run` proposal started this one. */
   by?: string;
+  checkout?: Pick<Workflow, 'branch'> & Required<Pick<Workflow, 'base'>>;
   startCommit?: string;
   owed?: string[];
   unshown?: true;

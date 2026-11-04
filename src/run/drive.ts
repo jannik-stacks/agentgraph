@@ -92,6 +92,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         ((issue.state === 'open' ? issue.pull?.branch : undefined) ??
           current.base?.branch ??
           formatTemplate(base, issue));
+      yield* store.put((current = { ...current, checkout: { base: ref, ...(own && { branch: own }) } }));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, graph));
       if (current.graphTree === undefined)
         yield* store.put((current = { ...current, graphTree: yield* ensureGraphRef(made.git, graph.dir) }));

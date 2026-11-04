@@ -16,7 +16,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import {
   runDockerCli,
   envVersion,
@@ -174,19 +174,60 @@ export const removeBranch = (git: string, branch: string, base: string, head?: s
     if (!(yield* isLanded(tip))) return yield* Effect.logWarning(`1 skipped checkout cleanup ${branch}: unlanded`);
     const trees = (yield* readGit(env, ['worktree', 'list', '--porcelain', '-z']))
       .split('\0\0')
-      .filter(t => t.split('\0').includes(`branch ${ref}`));
-    for (const tree of trees) {
-      const fields = tree.split('\0');
-      const path = fields[0]!.slice('worktree '.length);
-      const sha = fields.find(f => f.startsWith('HEAD '))!.slice(5);
-      const unsafe = existsSync(path) && (realpathSync(path) !== path || !lstatSync(join(path, '.git')).isFile());
-      const dirty =
-        !unsafe && existsSync(path) && (yield* readGit({ GIT_WORK_TREE: path }, ['status', '--porcelain', '-uall']));
-      if (unsafe || dirty || !(yield* isLanded(sha)))
-        return yield* Effect.logWarning(`1 skipped cleanup ${path} ${branch}: unsafe, dirty or unlanded`);
+      .filter(t => t.split('\0').includes(`branch ${ref}`))
+      .map(t => {
+        const fields = t.split('\0');
+        return { path: fields[0]!.slice('worktree '.length), sha: fields.find(f => f.startsWith('HEAD '))!.slice(5) };
+      });
+    for (const { path, sha } of trees) {
+      const admin = yield* Effect.try(() => {
+        if (!existsSync(path)) return '';
+        const file = join(path, '.git');
+        if (realpathSync(path) !== path || !lstatSync(file).isFile()) throw new Error('unsafe checkout metadata');
+        const pointer = readFileSync(file, 'utf8');
+        const admin = resolve(path, pointer.slice('gitdir: '.length).trim());
+        const expected = join(realpathSync(git), 'worktrees', basename(admin));
+        if (
+          !pointer.startsWith('gitdir: ') ||
+          admin !== expected ||
+          realpathSync(admin) !== expected ||
+          existsSync(join(admin, 'config.worktree')) ||
+          resolve(admin, readFileSync(join(admin, 'commondir'), 'utf8').trim()) !== realpathSync(git) ||
+          !lstatSync(join(admin, 'gitdir')).isFile() ||
+          resolve(admin, readFileSync(join(admin, 'gitdir'), 'utf8').trim()) !== file
+        )
+          throw new Error('redirected checkout metadata');
+        return admin;
+      }).pipe(
+        Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped cleanup ${path} ${branch}: metadata`, e), undefined))
+      );
+      if (admin === undefined) return;
+      if (!admin) {
+        yield* Effect.logWarning(`1 skipped checkout ${path}: missing`);
+        continue;
+      }
+      const trusted = {
+        GIT_DIR: admin,
+        GIT_COMMON_DIR: resolve(git),
+        GIT_WORK_TREE: path,
+        GIT_INDEX_FILE: join(admin, 'index'),
+      };
+      if ((yield* readGit(trusted, ['ls-files', '--stage', '-z'])).split('\0').some(f => f.startsWith('160000 ')))
+        return yield* Effect.logWarning(`1 skipped checkout ${path}: submodules`);
+      const args = (yield* readGit(
+        trusted,
+        ['config', '--null', '--name-only', '--get-regexp', '^filter\\..*\\.(clean|process|required)$'],
+        { codes: [1] }
+      ))
+        .split('\0')
+        .filter(Boolean)
+        .flatMap(key => ['-c', `${key}=${key.endsWith('.required') ? 'false' : ''}`]);
+      args.push('-c', 'core.fsmonitor=');
+      const dirty = yield* readGit(trusted, [...args, 'status', '--porcelain', '-uall', '--no-renames']);
+      if (dirty || !(yield* isLanded(sha)))
+        return yield* Effect.logWarning(`1 skipped cleanup ${path} ${branch}: dirty or unlanded`);
     }
-    for (const tree of trees) {
-      const path = tree.split('\0')[0]!.slice('worktree '.length);
+    for (const { path } of trees) {
       if (existsSync(path)) yield* hostGit(env, ['worktree', 'remove', '--force', path]);
       yield* Effect.logInfo(`removed checkout ${path} branch ${branch}`);
     }
