@@ -1,9 +1,10 @@
 import { writeFile } from 'node:fs/promises';
 import { Schema, Result, Effect } from 'effect';
-import { Said } from '../proposal.ts';
+import { Said, type Proposal } from '../proposal.ts';
 import { type IssueWithPull, news } from '../context.ts';
 import { pickNewest } from './hear.ts';
-import type { Run, Seen, Step } from '../workflow.ts';
+import { type Outcome, type Run, type Seen, type Step, unchanged } from '../workflow.ts';
+import { isPart } from './start.ts';
 import type { Checkout } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
 import { getStepReturns } from '../graph.ts';
@@ -90,7 +91,7 @@ export const pickLastHeard = (t: IssueWithPull) =>
   pickNewest(...[t.issue, t.pull].flatMap(x => x?.events ?? []).flatMap(m => (m.trusted ? m.at : [])));
 
 /** The files whose lines added in `diff` are conflict markers. */
-export const findMarkedFiles = (diff: string) => {
+const findMarkedFiles = (diff: string) => {
   const files = new Set<string>();
   let file = '';
   for (const line of diff.split('\n')) {
@@ -112,4 +113,75 @@ export const findUngranted = (step: Step, graph: Graph, proposals: readonly Said
     ...('agent' in step.does ? ['ask', ...(back ? ['back'] : [])] : []),
   ]);
   return proposals.filter(p => !granted.has(p.kind)).map(p => `${step.name} may not propose ${p.kind}`);
+};
+
+const fail = (problems: string[]) => ({
+  outcome: { kind: 'failed', checks: [], proposals: [], problems } satisfies Outcome,
+});
+
+/** What a try's proposals come to before its checks: an outcome to end on, or the proposals to check and apply. */
+export const pickTryOutcome = (o: {
+  step: Step;
+  graph: Graph;
+  run: Pick<Run, 'onto' | 'base'>;
+  branch: string | undefined;
+  own: string | undefined;
+  proposals: Said[];
+  problems: string[];
+  asked: boolean;
+  held: boolean;
+  open: boolean;
+  merges: Record<number, string | undefined>;
+  diff: string;
+  untouched: boolean;
+  dirty: boolean;
+}) => {
+  const { step, proposals, own, run } = o;
+  const returns = getStepReturns(step, o.graph.agents);
+  const ungranted = findUngranted(step, o.graph, proposals);
+  if (ungranted.length > 0) return fail([...o.problems, ...ungranted]);
+  const problems = [...o.problems];
+  for (const p of proposals) {
+    if ((p.kind === 'push' || p.kind === 'pull_request') && p.branch !== own)
+      problems.push(`branch ${p.branch} is not this run's branch ${own ?? '(none)'}`);
+    if (p.kind === 'merge' && (!own || o.merges[p.number] !== own))
+      problems.push(`merge #${p.number} is not from this run's branch ${own ?? '(none)'}`);
+  }
+  const marked = proposals.some(p => p.kind === 'push') ? findMarkedFiles(o.diff) : [];
+  if (marked.length > 0) problems.push(`conflict markers left in ${marked.join(', ')}`);
+  const ask = proposals.find(p => p.kind === 'ask');
+  if (ask) return { outcome: { kind: 'ask', question: ask.question } satisfies Outcome };
+  const back = proposals.find(p => p.kind === 'back');
+  const world = proposals
+    .filter(p => p.kind !== 'ask' && p.kind !== 'back')
+    .map((p): Proposal => {
+      if (p.kind === 'push' && run.onto) return { ...p, onto: run.onto.sha, ...(run.onto.merge && { merge: true }) };
+      if (p.kind !== 'pull_request') return p;
+      const body = p.body.replace(/^Stacks on #\d+\.?[ \t]*/gim, '').trim();
+      return run.base
+        ? { ...p, base: run.base.branch, body: `${body}\n\nStacks on #${run.base.pull}` }
+        : { ...p, body };
+    });
+  const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
+  const answered = commented && o.asked && o.held && o.untouched;
+  const unpushed = !answered && !back && returns.includes('push') && !world.some(p => p.kind === 'push') && o.dirty;
+  if (unpushed || (o.asked && commented && !o.held && (returns.includes('push') || returns.includes('pull_request'))))
+    return fail([
+      ...problems,
+      unpushed
+        ? 'files changed but nothing was pushed: end with a push proposal, which the runner commits and pushes, or ask'
+        : 'a pass needs a pull request or an ask',
+    ]);
+  if (
+    !back &&
+    !answered &&
+    returns.includes('pull_request') &&
+    o.branch !== undefined &&
+    !o.open &&
+    !proposals.some(p => p.kind === 'pull_request' || (p.kind === 'issue' && isPart(p)))
+  )
+    problems.push('a pass needs a pull request or an ask');
+  const idle = back || world.some(p => p.kind === 'issue') ? undefined : unchanged(returns, o.held);
+  if (idle && !o.diff.trim()) return fail([idle]);
+  return { world, back, problems, answered };
 };

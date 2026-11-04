@@ -59,7 +59,7 @@ no-comment src/graph.ts 3
 no-comment src/harnesses.ts 5
 no-comment src/main.ts 2
 no-comment src/proposal.ts 3
-no-comment src/run/attempt.ts 4
+no-comment src/run/attempt.ts 5
 no-comment src/run/check.ts 8
 no-comment src/run/checkout.ts 4
 no-comment src/run/execute.ts 2

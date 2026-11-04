@@ -23,7 +23,6 @@ import {
   type RunRecord,
   type Seen,
   type Workflow,
-  unchanged,
   isHumanWaitStep,
   isIssueTriggered,
   isQuiet,
@@ -64,22 +63,13 @@ import {
   findUndispatchable,
   startProposedRun,
   readFiledIssues,
-  isPart,
   findRecipient,
   writeTold,
   type Child,
   createIssues,
   formatWaitingOn,
 } from './run/start.ts';
-import {
-  writeNews,
-  shapes,
-  pickLastHeard,
-  parseProposals,
-  findUngranted,
-  findMarkedFiles,
-  block,
-} from './run/attempt.ts';
+import { writeNews, shapes, pickLastHeard, parseProposals, pickTryOutcome, block } from './run/attempt.ts';
 import { moveCheckoutOnto, runAside, runFollow, runCatchUp } from './run/follow.ts';
 
 /** The open pull request a run on `issue` stacks on, from a "Stacks on #n" line naming it or its issue. */
@@ -473,83 +463,40 @@ const runAttempt = (
 
     const parsed = replies.map(reply => parseProposals(reply, !('run' in step.does)));
     const proposals = parsed.flatMap(p => p.proposals);
-    const problems = parsed.flatMap(p => p.problems);
-    const ungranted = findUngranted(step, graph, proposals);
-    if (ungranted.length > 0)
-      return done({ kind: 'failed', checks: [], proposals: [], problems: [...problems, ...ungranted] }, tried);
-    for (const p of proposals) {
-      if ((p.kind === 'push' || p.kind === 'pull_request') && p.branch !== own)
-        problems.push(`branch ${p.branch} is not this run's branch ${own ?? '(none)'}`);
-      if (p.kind === 'merge') {
-        const target = own
-          ? yield* Effect.flatMap(Tracker, f => f.issue(p.number)).pipe(
+    const merges = own
+      ? yield* Effect.forEach(
+          proposals.flatMap(p => (p.kind === 'merge' ? [p.number] : [])),
+          n =>
+            Effect.flatMap(Tracker, f => f.issue(n)).pipe(
               Effect.catchIf(
                 e => e.status === 404,
                 () => Effect.succeed(undefined)
-              )
+              ),
+              Effect.map(target => [n, target?.pull?.branch] as const)
             )
-          : undefined;
-        if (!own || target?.pull?.branch !== own)
-          problems.push(`merge #${p.number} is not from this run's branch ${own ?? '(none)'}`);
-      }
-    }
-    const marked = proposals.some(p => p.kind === 'push') ? findMarkedFiles(yield* readCheckoutDiff(work)) : [];
-    if (marked.length > 0) problems.push(`conflict markers left in ${marked.join(', ')}`);
-    const ask = proposals.find(p => p.kind === 'ask');
-    if (ask) return done({ kind: 'ask', question: ask.question }, tried);
-    const back = proposals.find(p => p.kind === 'back');
-    const world = proposals
-      .filter(p => p.kind !== 'ask' && p.kind !== 'back')
-      .map((p): Proposal => {
-        if (p.kind === 'push' && run.onto) return { ...p, onto: run.onto.sha, ...(run.onto.merge && { merge: true }) };
-        if (p.kind !== 'pull_request') return p;
-        const body = p.body.replace(/^Stacks on #\d+\.?[ \t]*/gim, '').trim();
-        return run.base
-          ? {
-              ...p,
-              base: run.base.branch,
-              body: `${body}\n\nStacks on #${run.base.pull}`,
-            }
-          : { ...p, body };
-      });
-
-    const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
+        )
+      : [];
+    const diff = yield* readCheckoutDiff(work);
     const tree = yield* writeCheckoutTree(work);
-    const answered = commented && answering && tree === before;
-    const unpushed =
-      !answered &&
-      !back &&
-      returns.includes('push') &&
-      !world.some(p => p.kind === 'push') &&
-      tree !== (yield* readGit(work.git, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]));
-    if (unpushed || (asked && commented && !held && (returns.includes('push') || returns.includes('pull_request'))))
-      return done(
-        {
-          kind: 'failed',
-          checks: [],
-          proposals: [],
-          problems: [
-            ...problems,
-            unpushed
-              ? 'files changed but nothing was pushed: end with a push proposal, which the runner commits and pushes, or ask'
-              : 'a pass needs a pull request or an ask',
-          ],
-        },
-        tried
-      );
-    if (
-      !back &&
-      !answered &&
-      returns.includes('pull_request') &&
-      w.branch !== undefined &&
-      t.issue.pull === undefined &&
-      t.pull === undefined &&
-      !proposals.some(p => p.kind === 'pull_request' || (p.kind === 'issue' && isPart(p)))
-    )
-      problems.push('a pass needs a pull request or an ask');
-    const idle = back || world.some(p => p.kind === 'issue') ? undefined : unchanged(returns, held);
-    if (idle && !(yield* readCheckoutDiff(work)).trim())
-      return done({ kind: 'failed', checks: [], proposals: [], problems: [idle] }, tried);
+    const published = yield* readGit(work.git, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]);
+    const verdict = pickTryOutcome({
+      step,
+      graph,
+      run,
+      branch: w.branch,
+      own,
+      proposals,
+      problems: parsed.flatMap(p => p.problems),
+      asked,
+      held,
+      open: t.issue.pull !== undefined || t.pull !== undefined,
+      merges: Object.fromEntries(merges),
+      diff,
+      untouched: tree === before,
+      dirty: tree !== published,
+    });
+    if ('outcome' in verdict) return done(verdict.outcome, tried);
+    const { world, back, problems, answered } = verdict;
     const checked = answered
       ? { outcome: { kind: 'pass' } as const }
       : yield* Effect.raceFirst(
