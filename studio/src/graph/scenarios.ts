@@ -6,9 +6,7 @@ import type { Trace } from '../../../src/trace.ts';
 export const makeTrailOutcome = (o: Outcome) =>
   o.kind === 'failed'
     ? { kind: o.kind, failed: o.checks.length + o.proposals.length + o.problems.length }
-    : o.kind === 'back'
-      ? { kind: o.kind, why: o.why }
-      : { kind: o.kind };
+    : { kind: o.kind };
 
 /** One outcome a run met, with the run as it stood before it. */
 export type Trail = {
