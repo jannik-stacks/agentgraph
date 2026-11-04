@@ -120,6 +120,8 @@ export const ensureInstance = async (root: string, repo: string, base?: string, 
   const key = getSha(real, 6);
   const dir = join(resolve(root), `${basename(real)}-${key}-local`);
   const found = readInstance(dir);
+  if (found && !existsSync(origin(found)))
+    throw new Error(`the tracker folder ${found.tracker} is missing; restore it, or move ${dir} aside to start anew`);
   const paths = [dir, found?.data ?? join(dir, 'data'), origin(found ?? { tracker: join(dir, 'tracker') })];
   paths.forEach(assertOutside);
   if (found && (!base || base === found.base) && (!readonly || found.readonly)) return { ...found, made: false };

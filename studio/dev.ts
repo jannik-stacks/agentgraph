@@ -18,20 +18,22 @@ const { values, positionals } = parseArgs({
     tune: { type: 'string' },
   },
 });
-const { data: root, config } = await readHostSettings(values).catch((e: Error) => {
+const quit = (e: Error) => {
   console.error(e.message);
   return process.exit(2);
-});
+};
+const { data: root, config } = await readHostSettings(values).catch(quit);
 const repo = values.repo === undefined ? undefined : await findRepo(resolve(values.repo));
 if (values.repo && !repo) {
   console.error(`${values.repo} is not in a git repo`);
   process.exit(2);
 }
-const instance = repo === undefined ? undefined : await ensureInstance(root, repo);
-const moved = instance && (await ensureBase(instance));
+const instance = repo === undefined ? undefined : await ensureInstance(root, repo).catch(quit);
+const moved = instance && (await ensureBase(instance).catch(quit));
 if (moved) console.error(`${moved}\nThe studio shows the graph of agentgraph's base.`);
 const graphDir = resolve(
-  values.dir ?? (instance ? await ensureGraph(instance) : join(import.meta.dirname, '..', 'examples', 'sandbox'))
+  values.dir ??
+    (instance ? await ensureGraph(instance).catch(quit) : join(import.meta.dirname, '..', 'examples', 'sandbox'))
 );
 const dataDir = resolve(instance?.data ?? root);
 const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;

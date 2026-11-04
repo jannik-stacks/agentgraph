@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   utimesSync,
@@ -779,6 +780,22 @@ describe('an instance', () => {
     expect(await ensureGraph(i)).toBe(graph);
     expect(cli('show', 'graph').stdout).toContain(`graph ${graph}\n`);
     expect(readFileSync(join(graph, 'workflows', 'issue.md'), 'utf8')).toContain('wait: human');
+  });
+
+  it('names a missing tracker folder in the CLI and the studio instead of crashing', async () => {
+    const w = world();
+    const root = join(w.root, 'agentgraph-data');
+    const i = await ensureInstance(root, w.seed);
+    renameSync(i.tracker, join(i.dir, 'forge'));
+    const env = { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_CONFIG: '', AGENTGRAPH_TRACKER: '', AGENTGRAPH_DIR: '' };
+    const studio = join(import.meta.dirname, '..', 'studio', 'dev.ts');
+    const ran = [
+      [runTs, 'show', '--data', root],
+      [studio, '--repo', w.seed, '--data', root],
+    ].map(args => spawnSync(process.execPath, args, { cwd: w.seed, encoding: 'utf8', env }));
+    expect(ran.map(r => [r.status, r.stderr.trim()])).toEqual(
+      ran.map(() => [2, `the tracker folder ${i.tracker} is missing; restore it, or move ${i.dir} aside to start anew`])
+    );
   });
 
   it.each([
