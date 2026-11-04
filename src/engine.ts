@@ -20,7 +20,7 @@ import { Said, type Proposal } from './proposal.ts';
 import { PluginMetadata, makeContinuedMeta } from './meta.ts';
 import type { Check, Graph } from './folder.ts';
 import { getStepReturns } from './graph.ts';
-import { Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
+import { formatCause, Sandbox, SandboxError, type Checkout, type Exit } from './sandbox.ts';
 import {
   commitCheckout,
   ensureGraphRef,
@@ -2212,7 +2212,7 @@ export const drive = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, S
         Effect.catchDefect(defect =>
           Effect.andThen(
             Effect.logError(`run ${current.id}`, defect),
-            new SandboxError({ reason: 'infra', detail: String(defect) })
+            new SandboxError({ reason: 'infra', detail: formatCause(defect) })
           )
         ),
         Effect.scoped,

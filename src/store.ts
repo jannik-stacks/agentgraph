@@ -23,6 +23,7 @@ import { isRunDone, type Run, type RunRecord } from './workflow.ts';
 import { isOnIssue } from './graph.ts';
 import { PluginMetadata, getRunOrigin } from './meta.ts';
 import { ResultSheet } from './results.ts';
+import { formatCause } from './sandbox.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
 const changes = (before: RunRecord | undefined, next: RunRecord): Trace | undefined => {
@@ -124,7 +125,7 @@ export const checkLogs = ['all', 'failed', 'off'] as const;
 
 export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {
   override get message() {
-    return `${this.path}: ${String(this.cause)}`;
+    return `${this.path}: ${formatCause(this.cause)}`;
   }
 }
 

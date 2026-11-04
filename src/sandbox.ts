@@ -1,4 +1,5 @@
 import { Context, Data, type Effect, type Redacted, type Stream, type Scope } from 'effect';
+import { inspect } from 'node:util';
 import type { Graph } from './folder.ts';
 
 /** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given and, with `readonly`, writable alongside scratch. */
@@ -41,6 +42,14 @@ export type Checkout = {
   news: string;
   /** How many files the checkout's commands wrote over the shared cache so far, when the sandbox can tell. */
   written?: () => Promise<number | undefined>;
+};
+
+export const formatCause = (cause: unknown): string => {
+  try {
+    return cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : inspect(cause, { depth: 2 });
+  } catch {
+    return 'an unprintable value';
+  }
 };
 
 export class SandboxError extends Data.TaggedError('SandboxError')<{
