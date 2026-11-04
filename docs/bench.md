@@ -84,4 +84,6 @@ The Bench controls discover every label key. URL `where` is a JSON object of lab
 
 Rerun the same command after an interruption: units whose slot is done are skipped, and a unit whose run ended without a result starts a new attempt beside the old one. Low disk [holds work](sandbox.md#disk). Ctrl-C or `kill <pid in start-runs.lock>` stops. One `start-runs` works per set, and it exits 1 while units are left.
 
+`node bench/migrate.ts <old bench dir> <set> --repos <clones>` copies a bench dir of the earlier `diff.patch` and `score.json` layout into slots, cloning files where the disk can, with its results at version `migrated`. The old dir stays as it was, and a second pass skips the slots it already filled. <!-- code: bench/migrate.ts#copyOldBenchRuns -->
+
 `sh bin/overnight.sh <queue>` runs a file of commands, each up to three times; `sh bin/overnight.sh status <queue>` shows progress. Keep queues out of `/tmp`. Tunes live under `AGENTGRAPH_TUNE` (`~/.agentgraph/tune`); `node bin/tune.ts status <tune dir>` shows one.
