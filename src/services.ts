@@ -24,7 +24,6 @@ import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
 
-/** Everything the runner reads from the environment. */
 export type Settings = {
   repo: string;
   graph: string;
@@ -36,13 +35,12 @@ export type Settings = {
   prices: string;
   /** The name prefix of each repo's docker volume for toolchains and package caches; empty for none. */
   cache: string;
-  /** The image commands start in when a graph names none. */
   image: string;
   sandbox: string;
   checkLogs: (typeof checkLogs)[number];
   /** The studio's URL that posted bodies link back to; empty for none. */
   studio: string;
-  trust: string[];
+  trust: string[] | undefined;
   /** A tracker plugin's name, or the path of a tracker folder with its git remote in `origin.git`. */
   tracker: string;
   trackerDir: string;
@@ -124,10 +122,9 @@ export const settings = Config.all({
   cache: Config.String('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
   checkLogs: Config.Literals(checkLogs, 'AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.String('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
-  trust: Config.String('AGENTGRAPH_TRUST').pipe(
-    Config.map(trust => trust.split(',').map(login => login.trim())),
-    Config.withDefault<string[]>([])
-  ),
+  trust: Config.option(
+    Config.String('AGENTGRAPH_TRUST').pipe(Config.map(trust => trust.split(',').map(login => login.trim())))
+  ).pipe(Config.map(Option.getOrUndefined)),
   app: Config.option(
     Config.all({ id: Config.String('AGENTGRAPH_APP_ID'), key: Config.Redacted('AGENTGRAPH_APP_KEY') })
   ),

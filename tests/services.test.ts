@@ -157,7 +157,7 @@ it.each([
   ['an empty trust list trusts no one instead of the graph list', { AGENTGRAPH_TRUST: '' }, { trust: [''] }],
   ['trusted logins are trimmed', { AGENTGRAPH_TRUST: 'alice, bob ,carol' }, { trust: ['alice', 'bob', 'carol'] }],
   ['an empty cache volume disables the cache', { AGENTGRAPH_CACHE_VOLUME: '' }, { cache: '' }],
-  ['unset settings take their defaults', {}, { trust: [], cache: 'agentgraph-cache', checkLogs: 'all' }],
+  ['unset settings take their defaults', {}, { trust: undefined, cache: 'agentgraph-cache', checkLogs: 'all' }],
   ['numbers are trimmed', { AGENTGRAPH_EVERY: ' 3 ', AGENTGRAPH_COMPRESS_DAYS: ' 7' }, { every: 3, compress: 7 }],
   ['an empty compress setting is 0, never', { AGENTGRAPH_COMPRESS_DAYS: '' }, { compress: 0 }],
   ['no tracker and no App env read as no tracker name', { AGENTGRAPH_TRACKER: '' }, { tracker: '' }],

@@ -403,7 +403,7 @@ async function prune(data: string) {
 
 async function runOnInstance() {
   const saved = values.instance && readInstance(root, values.instance);
-  const repo = values.repo ? await findRepo(resolve(values.repo)) : saved ? saved.repo : await findRepo('.');
+  const repo = saved && !values.repo ? saved.repo : await findRepo(resolve(values.repo ?? '.'));
   if (!repo) {
     if (values.repo || verb !== 'show')
       fail(`${verb || 'agentgraph'} runs inside a git repo, or pass --repo <dir>\n${usage}`);
@@ -426,10 +426,6 @@ async function runOnInstance() {
           : `owner    ${i.owner}, from git config user.name, the one login this instance trusts`,
       ].join('\n')
     );
-  Object.assign(process.env, {
-    AGENTGRAPH_TRACKER: i.trackerName ?? 'folder',
-    AGENTGRAPH_TRACKER_DIR: i.tracker,
-  });
   const readTrackerService = async () => {
     const graph = await ensureGraph(i, graphDir).catch(() => '');
     const setup = await makeTrackerSetup({

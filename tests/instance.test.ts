@@ -26,7 +26,7 @@ it('reads every instance field strictly and resolves paths against its folder', 
   const record = {
     ...parse(readFileSync(file, 'utf8')),
     slug: 'owner/repository',
-    graph: '../../../seed',
+    graph: '../../seed',
     env: '../keys.env',
     loop: true,
     trust: [],
@@ -38,6 +38,7 @@ it('reads every instance field strictly and resolves paths against its folder', 
   expect(read).toMatchObject({
     slug: 'owner/repository',
     env: join(root, 'instances', 'keys.env'),
+    graph: seed,
     loop: true,
     trust: [],
     image: 'sandbox:custom',
@@ -45,5 +46,5 @@ it('reads every instance field strictly and resolves paths against its folder', 
   });
   writeFileSync(file, stringify({ ...record, unknown: true }));
   expect(() => findInstances(join(root, 'instances'))).toThrow('unknown');
-  await expect(ensureGraph({ ...instance, graph: seed })).resolves.toBe(seed);
+  await expect(ensureGraph(read!)).resolves.toBe(seed);
 });

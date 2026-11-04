@@ -82,9 +82,9 @@ The Inbox lists runs that wait for a person, with the commands `agi show` prints
 
 An instance binds one checkout to one graph in one data root. `--instance <name>` selects
 `<root>/<name>/instance.yaml`; the default name is the checkout basename, with no hash.
-An explicit name can select a saved checkout from outside its repo. Use two names for a live instance and a bench instance of the same checkout. Every lookup
-uses the selected `--data` root. Names are single path components; reusing one for another
-checkout fails. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
+An explicit name can select a saved checkout from outside its repo. Use two names for a
+live instance and a bench instance of the same checkout. Every lookup uses the selected
+`--data` root. Names are single path components; reusing one for another checkout fails. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
 
 The record holds `repo` (checkout path), `slug` (tracker repository, such as `owner/name`),
 `base`, `owner`, `exported`, and `loop` (boolean, initially false). Optional fields are
@@ -134,4 +134,4 @@ Keep `base`, `owner`, `provider`, and `exported`; add `loop: false`. For an exte
 add `graph: <absolute graph path>` to the instance. Add `tracker: github` and
 `env: <App env file>` for a GitHub instance; local instances may omit `tracker`.
 Use `--instance <name>` on subsequent commands when the name differs from the checkout
-basename. The engine does not discover or migrate old hashed folder names.
+basename. Folder migration is manual.

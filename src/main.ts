@@ -111,13 +111,6 @@ export const isLoopHeld = (data: string) =>
     () => true
   );
 
-/**
- * Reads the settings, the App env file named by `AGENTGRAPH_APP_ENV` and the environment, builds the services, catches up
- * with one sweep and then ticks every `every` minutes under the data dir's loop lock. Each pass first runs `refresh`,
- * then reads the settings and builds the services again, so a renewed login reaches it without a restart. With `one`,
- * it looks at that issue once, or at every open issue once when `issue` is `'all'`, and resolves with the runs it
- * touched; `base` is the branch workflows that name none start from, and `labels` go on each run it begins. An abort of `signal` interrupts it, and a run it drove resumes on the next look.
- */
 export const start = (
   one?: {
     graph: string;
