@@ -122,10 +122,10 @@ describe('the status comment', () => {
   });
 });
 
-const moved = (r: Run, others: Run[] = [], quiet = false) => {
+const moved = (r: Run, others: Run[] = [], quiet = false, pull?: Issue) => {
   const { to, from } = proposeStatusUpdates(
     r,
-    holding(getCommentBody(run)!),
+    holding(getCommentBody(run)!, pull),
     undefined,
     0,
     others.map(o => ({ run: o, t: holding(''), usd: 0 })),
@@ -136,7 +136,9 @@ const moved = (r: Run, others: Run[] = [], quiet = false) => {
 
 describe('the status change', () => {
   it('goes from the status the sticky shows to the one the runs are in', () => {
-    expect(moved({ ...run, status: 'waiting' })).toEqual({ to: 'needs-review', from: 'working' });
+    const pull = { ...issue, number: 8, url: 'https://github.com/o/r/pull/8' };
+    expect(moved({ ...run, status: 'waiting' }, [], false, pull)).toEqual({ to: 'needs-review', from: 'working' });
+    expect(moved({ ...run, status: 'waiting' }).to).toBe('needs-answer');
     expect(moved({ ...run, status: 'waiting', reason: 'Which one?' }).to).toBe('needs-answer');
     expect(moved({ ...run, status: 'waiting', reason: `${stoppedByRunner}: x` }).to).toBe('needs-answer');
     expect(moved({ ...run, status: 'done' }).to).toBe('done');

@@ -61,17 +61,18 @@ export const runFollow = (
     const applied = work.head && (yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work));
     if (applied) yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
     const failed = applied && !applied.ok ? applied : undefined;
-    const body =
-      failed &&
-      `#${base.pull} moved and ${branch} could not follow: ${failed.reason}. Rebase it by hand, or say what to do.`;
+    const stuck = `#${base.pull} moved and ${branch} could not follow`;
     const { from: _pending, tip: _tip, ...rest } = base;
     const { reason, ...kept } = run;
+    const asked = reason?.split(stuck)[0]!.trimEnd();
+    const body = failed && `${stuck}: ${failed.reason}. Rebase it by hand, or say what to do.`;
+    const said = [asked, body].filter(Boolean).join('\n\n');
     yield* store.put(
       yield* writeStatus(
         w,
         {
           ...kept,
-          ...(body ? { reason: body } : reason && !base.from ? { reason } : {}),
+          ...(said && { reason: said }),
           base: {
             ...rest,
             sha: head,

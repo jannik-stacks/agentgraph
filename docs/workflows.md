@@ -189,7 +189,7 @@ A trusted `/agent` comment reaches a working run by the workflow's `concurrency`
 
 A catch-up error is recorded once in the run trace. The run stays waiting and retries when the base head, branch head or graph changes. <!-- code: src/run/trigger.ts#tick -->
 
-A stacked run records its parent pull request in `base`. After a refused follow, `from` keeps the last successful base and `tip` records the branch head that failed. It retries when either head moves. An unknown tip is not recorded and does not block a retry. <!-- code: src/run/follow.ts#runFollow src/workflow.ts#Run -->
+A stacked run records its parent pull request in `base`. After a refused follow, `from` keeps the last successful base and `tip` records the branch head that failed. It retries when either head moves. An unknown tip is not recorded and does not block a retry. A refused follow adds its question after the one the run already waits on, and a later follow drops only its own. <!-- code: src/run/follow.ts#runFollow src/workflow.ts#Run -->
 
 Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp -->
 
@@ -218,8 +218,8 @@ status:
 | Label                     | When                                                                               |
 | --- | --- |
 | `agentgraph:working`      | A step runs, or a run waits on a run it started                                    |
-| `agentgraph:needs-review` | A run waits at a `wait: human` step, usually a pull request to review and merge    |
-| `agentgraph:needs-answer` | A run asked a question, or paused on a runner error until someone replies `/agent` |
+| `agentgraph:needs-review` | A run waits at a `wait: human` step with a pull request to review and merge        |
+| `agentgraph:needs-answer` | A run asked a question, waits with no pull request, or paused on a runner error    |
 | `agentgraph:done`         | The latest run finished                                                            |
 | `agentgraph:stopped`      | The latest run stopped                                                             |
 
