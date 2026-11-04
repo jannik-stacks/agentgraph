@@ -35,8 +35,8 @@ export const runSetup = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'st
       });
   });
 
-/** What the checkout, or its `tree` when already written, changed since its base. */
-export const readCheckoutDiff = (work: Checkout & { tree?: string }, ...args: string[]) =>
+/** What the checkout changed since its base. */
+export const readCheckoutDiff = (work: Checkout, ...args: string[]) =>
   Effect.flatMap(writeCheckoutTree(work), to =>
     readGit(work.git, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', ...args, work.base, to])
   );
@@ -52,7 +52,7 @@ const lines = (text: string) => text.split('\n').filter(line => line.trim());
 export const findFanOutItems = (
   each: string | { run: string },
   graph: Graph,
-  work: Checkout & { tree?: string },
+  work: Checkout,
   minutes: number,
   env: Record<string, string> = { AGENTGRAPH_BASE: work.base }
 ) => {

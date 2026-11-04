@@ -32,7 +32,6 @@ const reopen = (graph: Graph, run: RunRecord, traces: boolean, reply: string) =>
     const ready = traces ? '' : yield* writeCheckoutTree(work);
     const left: Left = {
       ...work,
-      ...(ready && { tree: ready }),
       run: run.id,
       ...(run.issue !== undefined && { issue: run.issue }),
       context: [run.title, run.body].filter(Boolean).join('\n\n'),

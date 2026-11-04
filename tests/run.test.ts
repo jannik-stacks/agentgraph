@@ -279,6 +279,41 @@ describe('drive', () => {
     expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({ step: 'review', reason: 'Ready?' });
   });
 
+  it.each([1, 2])('judges generated files and saves them after %i attempts', async attempts => {
+    const where = world();
+    const small = {
+      ...graph,
+      checks: {
+        ...graph.checks,
+        types: { ...graph.checks.types!, run: 'grep -q second input.txt' },
+        claims: {
+          ...graph.checks.claims!,
+          each: 'cp input.txt generated.txt; echo generated.txt',
+        },
+      },
+    };
+    const flow = { ...w, steps: [w.steps.find(s => s.name === 'implement')!] };
+    const turns = (attempts === 1 ? ['second'] : ['first', 'second']).flatMap(input => [
+      [
+        start('i1'),
+        wrote('.gitignore', 'input.txt\n'),
+        wrote('input.txt', `${input}\n`),
+        wrote('generated.txt', 'before\n'),
+        wrote('hello.txt', 'hello\n'),
+        reply(push, pull),
+      ],
+      judged,
+    ]);
+    const { specs, run } = services(where, turns);
+    const ended = await run(runWorkflow(flow, { ...fresh(), step: 'implement' }, small));
+    expect(ended).toMatchObject({ status: 'done' });
+    expect(specs.filter(s => s.check === 'claims').map(s => s.prompt)).toEqual(
+      Array.from({ length: attempts }, () => expect.stringContaining('generated.txt'))
+    );
+    expect(git(where.origin, 'show', `refs/agentgraph/attempts/run-7/${attempts}:generated.txt`)).toBe('second');
+    expect(git(where.origin, 'show', 'agentgraph/7:generated.txt')).toBe('second');
+  });
+
   it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
     const where = world();
     const { specs, run } = services(where, [

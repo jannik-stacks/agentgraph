@@ -136,10 +136,8 @@ export const gitIdentity = ['-c', 'user.name=agentgraph', '-c', 'user.email=agen
 export const readGit = (...args: Parameters<typeof hostGit>) =>
   Effect.map(hostGit(...args), out => out.toString('utf8').trim());
 
-export const writeCheckoutTree = ({ git, tree }: Pick<Checkout, 'git'> & { tree?: string }) =>
-  tree === undefined
-    ? indexLock.withPermits(1)(Effect.andThen(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])))
-    : Effect.succeed(tree);
+export const writeCheckoutTree = ({ git }: Pick<Checkout, 'git'>) =>
+  indexLock.withPermits(1)(Effect.andThen(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])));
 
 export const addGraphArgs = ['add', '-A', '--', '.', ':(exclude,glob)**/node_modules/**'];
 
@@ -170,7 +168,7 @@ export const commitCheckout = (
   message = name
 ) =>
   Effect.gen(function* () {
-    const tree = yield* writeCheckoutTree(work);
+    const tree = work.tree ?? (yield* writeCheckoutTree(work));
     const commit = yield* readGit(work.git, [
       ...gitIdentity,
       'commit-tree',

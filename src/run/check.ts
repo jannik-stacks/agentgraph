@@ -69,7 +69,6 @@ export const formatTracesPrompt = (work: Checkout) =>
 
 /** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
 export type Left = Checkout & {
-  tree?: string;
   run: string;
   issue?: number;
   context: string;

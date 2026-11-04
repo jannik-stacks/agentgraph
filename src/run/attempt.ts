@@ -467,7 +467,7 @@ export const runAttempt = (
       )
     );
     tree = yield* writeCheckoutTree(work);
-    const diff = yield* readCheckoutDiff({ ...work, tree });
+    const diff = yield* readCheckoutDiff(work);
     const published = yield* readGit(work.git, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]);
     const verdict = pickTryOutcome({
       step,
@@ -494,7 +494,6 @@ export const runAttempt = (
             {
               run: run.id,
               ...work,
-              tree,
               issue: run.issue,
               context: context(t),
               reply: replies.join('\n\n'),
