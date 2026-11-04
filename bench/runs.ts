@@ -158,7 +158,7 @@ const findRunFiles = (dir: string, depth: number): string[] => {
   );
 };
 
-const findBenchRuns = (roots: readonly string[]) =>
+export const findBenchRuns = (roots: readonly string[]) =>
   [...new Set(roots.flatMap(root => (existsSync(root) ? findRunFiles(root, 9) : [])))].flatMap(file => {
     const run = JSON.parse(readRecordSync(file)) as RunRecord;
     const data = dirname(dirname(file));

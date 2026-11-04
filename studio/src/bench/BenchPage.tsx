@@ -8,6 +8,8 @@ import { BenchData, type BenchRow as Row } from './data.ts';
 import { Button, cx, Disclosure, Live, Link, MultiSelect, Muted, Select, Tooltip, useScrollFade } from '../ui.tsx';
 import {
   cost,
+  getBenchNumbers,
+  findBenchNumericFields,
   defaultBenchBy,
   defaultBenchScoreWeights,
   formatMinutes,
@@ -134,6 +136,7 @@ const Bench = ({ value }: { value: BenchData }) => {
   }, [w]);
   const dropped = useMemo(() => (drop ?? unpanelled).split(',').filter(Boolean), [drop]);
   const minutes = xAxis === 'minutes';
+  const isCost = xAxis === null || xAxis === 'usd';
   const rows = value.rows;
   const judges = useMemo(() => [...new Set(rows.flatMap(r => Object.keys(r.vsHuman)))].toSorted(), [rows]);
   const labelKeys = useMemo(() => [...new Set(rows.flatMap(r => Object.keys(r.labels)))].toSorted(), [rows]);
@@ -143,17 +146,20 @@ const Bench = ({ value }: { value: BenchData }) => {
   }));
   const infraRows = rows.filter(r => r.infra && isBenchMatch(r, {}));
   const matchingInfraRows = infraRows.filter(r => isBenchMatch(r, where));
+  const numericFields = findBenchNumericFields(rows.filter(r => isBenchMatch(r, where)));
+  if (rows.some(r => isBenchMatch(r, where)) && !isCost && !numericFields.includes(xAxis))
+    throw new Error(`Non-numeric bench field: ${xAxis}`);
   const points = useMemo(() => {
     return summarise(value.rows, {
       where,
       by: groupKeys,
       color,
       w: weights,
-      x: r => (minutes ? r.minutes : cost(r, cache === 'off')),
+      x: r => (isCost ? cost(r, cache === 'off') : getBenchNumbers(r)[xAxis]!),
       judges: judges.filter(j => !dropped.includes(j)),
       infraZero: infra === 'zero',
     }).filter(p => p.n > 0);
-  }, [value, where, groupKeys, color, weights, minutes, cache, judges, dropped, infra]);
+  }, [value, where, groupKeys, color, weights, isCost, xAxis, cache, judges, dropped, infra]);
 
   if (!value.rows.length)
     return <Muted>No bench runs. Start the studio with --bench and one or more bench set dirs.</Muted>;
@@ -173,7 +179,11 @@ const Bench = ({ value }: { value: BenchData }) => {
   const colors = [...new Set(points.map(p => p.labels[color]))].toSorted();
   const tone = (v: string | undefined) =>
     color ? tones[colors.indexOf(v) % tones.length]! : 'text-zinc-600 dark:text-zinc-400';
-  const xLabel = minutes ? 'minutes per task' : `notional USD per task${cache === 'off' ? ', cache off' : ''}, log`;
+  const xLabel = minutes
+    ? 'minutes per task'
+    : isCost
+      ? `notional USD per task${cache === 'off' ? ', cache off' : ''}, log`
+      : xAxis;
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
@@ -224,18 +234,21 @@ const Bench = ({ value }: { value: BenchData }) => {
         </Control>
         <Control
           label="Axis"
-          tip="Choose list-price token cost (checking cost excluded), cost with cache tokens priced as plain input, or wall minutes with machine sleep removed. Cost falls back to the recorded amount without tokens; models missing from the price table are named in point tips."
+          tip="Choose list-price token cost (checking cost excluded), cost with cache tokens priced as plain input, wall minutes with machine sleep removed, or any numeric row field. Cost falls back to the recorded amount without tokens; models missing from the price table are named in point tips."
         >
           <Select
             label="x"
-            value={minutes ? 'minutes' : cache === 'off' ? 'off' : 'usd'}
+            value={isCost ? (cache === 'off' ? 'off' : 'usd') : minutes ? 'minutes' : `field:${xAxis}`}
             options={[
               { value: 'usd', label: 'cost, list price' },
               { value: 'off', label: 'cost, cache off' },
               { value: 'minutes', label: 'minutes' },
+              ...numericFields
+                .filter(k => !['usd', 'minutes'].includes(k))
+                .map(k => ({ value: `field:${k}`, label: k })),
             ]}
             onChange={v => {
-              setX(v === 'minutes' ? 'minutes' : null);
+              setX(v.startsWith('field:') ? v.slice(6) : v === 'minutes' ? 'minutes' : null);
               setCache(v === 'off' ? 'off' : null);
             }}
           />
@@ -351,13 +364,15 @@ const Bench = ({ value }: { value: BenchData }) => {
             ))}
           </div>
           <Scatter
-            log={!minutes}
+            log={isCost}
             xLabel={xLabel}
             yLabel="quality"
             xTip={
               minutes
                 ? 'Minutes per task, averaged over repeats within each case, then over cases.'
-                : 'Notional USD cost per task on a log scale, averaged over repeats within each case, then over cases.'
+                : isCost
+                  ? 'Notional USD cost per task on a log scale, averaged over repeats within each case, then over cases.'
+                  : `${xAxis}, averaged over repeats within each case, then over cases.`
             }
             yTip="Quality per task, averaged over repeats within each case, then over cases."
             hTip="The human baseline."

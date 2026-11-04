@@ -126,7 +126,7 @@ export const Scatter = ({
         .domain(xs.length ? [x0 / 1.4, x1 * 1.4] : [0.01, 1])
         .range([left, width - right])
     : scaleLinear()
-        .domain([0, (x1 || 1) * 1.08])
+        .domain([Math.min(0, x0 * 1.08), (x1 || 1) * 1.08])
         .nice()
         .range([left, width - right]);
   const y = scaleLinear()

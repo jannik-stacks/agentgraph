@@ -21,6 +21,21 @@ export const presets: Record<string, typeof defaultBenchScoreWeights> = {
 
 export const cost = (row: Row, cacheOff = false) => (cacheOff ? row.usdUncached : row.usd);
 
+export const getBenchNumbers = (row: Row): Record<string, number> =>
+  Object.fromEntries(
+    Object.entries({ ...row.labels, ...row }).flatMap(([key, value]) =>
+      (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) &&
+      Number.isFinite(Number(value))
+        ? [[key, Number(value)]]
+        : []
+    )
+  );
+
+export const findBenchNumericFields = (rows: readonly Row[]) => {
+  const numbers = rows.map(getBenchNumbers);
+  return Object.keys(numbers[0] ?? {}).filter(key => numbers.every(row => Object.hasOwn(row, key)));
+};
+
 const countBad = (f?: Row['findings']) => (f ? f.critical + f.high : 0);
 
 export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[]) => {

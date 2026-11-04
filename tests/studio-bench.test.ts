@@ -16,6 +16,8 @@ import { tmp } from './kit.ts';
 import { getBenchSlot } from '../bench/runs.ts';
 import {
   bootstrap,
+  getBenchNumbers,
+  findBenchNumericFields,
   cost,
   defaultBenchScoreWeights,
   frontier,
@@ -90,6 +92,29 @@ describe('bench score', () => {
   it('caps the judge part at the human, so judged and tested parts share one scale', () => {
     expect(quality(row({ vsHuman: { opus: 1, sonnet: 1 } }), defaultBenchScoreWeights)).toBe(1);
     expect(quality(row({ hidden: 0, vsHuman: { opus: 1 } }), defaultBenchScoreWeights)).toBeCloseTo(0.35 / 0.85);
+  });
+
+  it('discovers finite numeric fields and averages labels over repeats then cases', () => {
+    const rows = [
+      row({ case: 'a', hidden: 1, labels: { words: '0', blank: ' ', bad: 'Infinity', mixed: '1', missing: '1' } }),
+      row({ case: 'a', hidden: 1, labels: { words: '4', blank: '', bad: 'NaN', mixed: 'oops' } }),
+      row({ case: 'b', hidden: 1, labels: { words: '-8', blank: '', bad: 'Infinity', mixed: '2' } }),
+    ];
+    const fields = findBenchNumericFields(rows);
+    expect(fields).toContain('words');
+    expect(fields).toContain('minutes');
+    expect(fields.filter(key => ['blank', 'bad', 'mixed', 'missing'].includes(key))).toEqual([]);
+    expect(findBenchNumericFields([])).toEqual([]);
+    const [point] = summarise(rows, { w: defaultBenchScoreWeights, x: r => getBenchNumbers(r).words!, by: [] });
+    expect(point!.x).toBe(-3);
+    expect(
+      summarise(rows, {
+        w: defaultBenchScoreWeights,
+        x: r => getBenchNumbers(r).words!,
+        by: ['words'],
+        where: { words: ['4'] },
+      }).map(p => [p.labels.words, p.x])
+    ).toEqual([['4', 4]]);
   });
 
   it('costs a row at list price, with or without its cache reads', () => {

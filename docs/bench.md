@@ -80,6 +80,17 @@ The Bench controls discover every label key. URL `where` is a JSON object of lab
 
 <!-- code: studio/src/bench/score.ts#summarise studio/src/bench/BenchPage.tsx#BenchPage studio/src/bench/Forest.tsx#Forest -->
 
+The x axis also lists row fields and labels whose values are finite numbers on every filtered row. Blank or missing values exclude a field. Numeric axes are linear, named after the field, and averaged over repeats within each case, then over cases, like minutes. For example, `x=graph-words` plots a numeric run label; filtering, grouping and colouring still use its string value. <!-- code: studio/src/bench/score.ts#getBenchNumbers studio/src/bench/score.ts#findBenchNumericFields -->
+
+For graph-size experiments, run the optional script from a clone:
+
+```sh
+node bench/graph-size.ts <set or run dir>...
+node bench/graph-size.ts <run dir> --git-dir <repo>
+```
+
+It writes ordinary labels: `graph-words` counts whitespace-separated tokens in Markdown under `prompts/`, `agents/`, `skills/`, `workflows/` and `checks/`, including frontmatter; `graph-checks` counts check Markdown files; `graph-script-lines` counts nonblank lines in every file under `scripts/`. It excludes `node_modules/`. Counts use the attempt's graph copy, or the run's `graphTree` in its git repository (use the second form for another repository). Trees are cached within a pass; unchanged labels add no entries. Imported references are counted as skips with a reason; missing graphs fail. This script is outside the published package. <!-- code: bench/graph-size.ts#readGraphSize bench/graph-size.ts#writeGraphSizeLabels -->
+
 ## Long runs
 
 Rerun the same command after an interruption: runs whose slot is done are skipped, and one that ended without a result starts a new attempt beside the old one. Low disk [holds work](sandbox.md#disk). Ctrl-C or `kill <pid in start-runs.lock>` stops. One `start-runs` works per set, and it exits 1 while runs are left.
