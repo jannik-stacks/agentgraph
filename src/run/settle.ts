@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { Effect, Stream, Result, Schedule } from 'effect';
 import { type Run, type Workflow, isQuiet } from '../workflow.ts';
-import { currentRunLinkRef, Tracker } from '../tracker.ts';
+import { currentRunLinkRef, Tracker, TrackerError } from '../tracker.ts';
 import { stoppedByRunner, proposeStatusUpdates } from '../context.ts';
 import { type StoreError, Store } from '../store.ts';
 import type { Graph } from '../folder.ts';
@@ -9,6 +10,11 @@ import { runEndedChecks } from './evaluate.ts';
 import { LockHeldError } from '../owner.ts';
 import { readIssueWithPull } from './hear.ts';
 import { type StatusChange, readPlugins } from '../plugin.ts';
+import type { Proposal } from '../proposal.ts';
+import { getSha } from '../hash.ts';
+import type { Applied } from '../event.ts';
+import type { Checkout } from '../sandbox.ts';
+import { writeCheckoutTree } from '../git.ts';
 
 /**
  * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size label and
@@ -145,3 +151,100 @@ export const writeMovedStatus = (w: Workflow, asked: Run, moved: Run, graph: Gra
 /** The run with no review thread left to answer: what it says next goes to the top of where a human last spoke. */
 export const removeThreads = (run: Run): Run =>
   run.said ? { ...run, said: run.said.slice(0, 1).map(s => ({ issue: s.issue })) } : run;
+
+export const getOperationKey = (run: Run, issue: number, proposal: Proposal, slot: string, tree?: string) =>
+  getSha(
+    JSON.stringify([
+      run.id,
+      run.step,
+      run.tries,
+      run.rounds,
+      issue,
+      slot,
+      Object.entries(proposal).toSorted(([a], [b]) => a.localeCompare(b)),
+      tree,
+    ])
+  );
+
+const writeApplied = (run: Run, issue: number, key: string, applied: Applied) =>
+  Effect.flatMap(Store, store => {
+    const recorded = { ...applied, operation: key, issue };
+    return Effect.as(
+      store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied: recorded }),
+      recorded
+    );
+  });
+
+export const findAppliedBefore = (run: Run, issue: number, key: string, proposal?: Proposal) =>
+  Effect.gen(function* () {
+    const lines = yield* Stream.runCollect((yield* Store).read(run.id));
+    const traced = lines.findLast(t => 'applied' in t && t.applied.operation === key && t.applied.ok);
+    if (traced && 'applied' in traced) return traced.applied;
+    const posted = proposal && (yield* (yield* Tracker).findPost(issue, proposal, key));
+    return posted && (yield* writeApplied(run, issue, key, posted));
+  });
+
+export const writeOnce = (
+  run: Run,
+  issue: number,
+  key: string,
+  write: Effect.Effect<Applied, TrackerError | StoreError, Tracker | Store>,
+  proposal?: Proposal
+) =>
+  Effect.gen(function* () {
+    const before = yield* findAppliedBefore(run, issue, key, proposal);
+    if (before) return before;
+    const marked = Effect.updateService(write, currentRunLinkRef, link => link && { ...link, operation: key });
+    return yield* writeApplied(run, issue, key, yield* marked);
+  });
+
+/**
+ * Applies the accepted proposals after a pass, pushes first. A comment with no thread of its own goes once to a place in
+ * `run.said` that no comment here answers, the top level before the newest thread, else to where a human last spoke,
+ * else to `to`.
+ */
+export const writeProposals = (
+  run: Run,
+  proposals: Proposal[],
+  work?: Checkout,
+  to?: number
+): Effect.Effect<Applied[], TrackerError | StoreError, Tracker | Store> =>
+  Effect.flatMap(Tracker, tracker =>
+    Effect.gen(function* () {
+      const threads = new Set(proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : [])));
+      const open = (run.said ?? []).filter(s => s.under === undefined || !threads.has(s.under));
+      const places = open.length > 0 ? open : [{ issue: run.said?.[0]?.issue ?? to ?? run.issue }];
+      const place = places.find(s => s.under === undefined) ?? places.at(-1)!;
+      const sent = proposals
+        .toSorted((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push'))
+        .flatMap((p): [number, Proposal][] =>
+          p.kind !== 'comment'
+            ? [[run.issue, p]]
+            : p.under !== undefined
+              ? [[to ?? run.issue, p]]
+              : p.edit !== undefined
+                ? [[places[0]!.issue, p]]
+                : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
+        );
+      const applied: Applied[] = [];
+      const tree =
+        work && proposals.some(p => p.kind === 'push')
+          ? yield* writeCheckoutTree(work).pipe(Effect.mapError(e => new TrackerError({ message: e.detail })))
+          : undefined;
+      let refused = false;
+      for (const [i, [issue, p]] of sent.entries()) {
+        const a = refused
+          ? { proposal: p, ok: false, reason: 'push failed; not applied' }
+          : yield* writeOnce(
+              run,
+              issue,
+              work ? getOperationKey(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
+              tracker.apply(issue, p, work),
+              work && p
+            );
+        applied.push(a);
+        if (p.kind === 'push' && !a.ok) refused = true;
+      }
+      return applied;
+    })
+  ).pipe(useRunLink(run));

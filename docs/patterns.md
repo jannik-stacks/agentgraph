@@ -51,7 +51,7 @@ The engine reaches the outside only through four services, each with a test stan
 | Proposal validation and application | Whether `until` holds |
 | Push safety, triggers and trust | Questions for people |
 
-A malformed reply fails the try. `transition` maps a workflow, a run and an outcome to the next run, with no clock or I/O; `drive` does the reads and writes around it. Proposals are the only write path. <!-- code: src/workflow.ts#transition src/engine.ts#writeProposals src/engine.ts#tick src/engine.ts#drive -->
+A malformed reply fails the try. `transition` maps a workflow, a run and an outcome to the next run, with no clock or I/O; `drive` does the reads and writes around it. Proposals are the only write path. <!-- code: src/workflow.ts#transition src/run/settle.ts#writeProposals src/engine.ts#tick src/engine.ts#drive -->
 
 Graph files decode strictly: a bad reference or unknown key fails `check` with its path before anything runs. <!-- code: src/folder.ts#loadGraph -->
 
@@ -75,7 +75,7 @@ Use `<!-- unfinished -->` or `<!-- untested -->` on the same line as a heading o
 
 `npm run check` is the gate before a merge: format, lint, unused code, docs, example graphs, types, all tests with coverage and the studio build, with the tests running alongside the rest. The commit hook runs `npm run check:static`, which is everything but the tests and the studio build. `npm run hooks` turns the hooks on. `sh bin/precommit.sh` runs the agentgraph example's fast checks on the uncommitted change against `HEAD`, or `AGENTGRAPH_BASE`.
 
-Docs tie claims to code with hidden `<!-- code: src/engine.ts#writeProposals -->` comments. `node bin/refs.mjs` fails on a missing file or symbol, `--coverage` on a field, value, status, proposal kind, flag or `AGENTGRAPH_` variable in no docs code span, and `--diff main` lists pairs changed on one side only. `node bin/commands.mjs` fails on documented commands, flags or scripts that do not exist.
+Docs tie claims to code with hidden `<!-- code: src/run/settle.ts#writeProposals -->` comments. `node bin/refs.mjs` fails on a missing file or symbol, `--coverage` on a field, value, status, proposal kind, flag or `AGENTGRAPH_` variable in no docs code span, and `--diff main` lists pairs changed on one side only. `node bin/commands.mjs` fails on documented commands, flags or scripts that do not exist.
 
 `bin/lsp.ts` gives find references and rename from the shell through the TypeScript language server. Positions are `file:line:col` from 1.
 

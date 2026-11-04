@@ -163,7 +163,7 @@ The version hashes the check's file, its judge's file, its judge's harness and m
 
 Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. A collapsed ⁂ footer sits before the marker, even with no extra content. With `AGENTGRAPH_STUDIO_URL` set, the ⁂ links to the run in the studio, and `/runs?gh=<link or comment id>` finds the run behind a write. <!-- code: src/tracker.ts#formatBodyWithRunLink src/store.ts#locate -->
 
-A runner that stops between posting and recording finds the post by its operation key and does not post again. <!-- code: src/engine.ts#findAppliedBefore -->
+A runner that stops between posting and recording finds the post by its operation key and does not post again. <!-- code: src/run/settle.ts#findAppliedBefore -->
 
 ## Check logs
 

@@ -39,7 +39,7 @@ A refused write fails the try. Any other GitHub error parks the run with a quest
 
 An agent posts only the kinds its `returns` lists, so a reviewer that returns `[back]` keeps its findings in the run: a pass leaves its reply in the trace, and `back` hands it to the next step as feedback.
 
-A comment goes where a person started or woke the run, else to the branch's open pull request, else the issue. `under` names a review comment to reply under. When people spoke in several places, a comment without `under` posts once, at top level if one of them was. <!-- code: src/engine.ts#writeProposals -->
+A comment goes where a person started or woke the run, else to the branch's open pull request, else the issue. `under` names a review comment to reply under. When people spoke in several places, a comment without `under` posts once, at top level if one of them was. <!-- code: src/run/settle.ts#writeProposals -->
 
 ## Pushes
 
@@ -51,7 +51,7 @@ A `pull_request` on a branch whose pull request is open rewrites its title and b
 
 A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/tracker.ts#unpushable -->
 
-Both trackers report held paths in the push result's `held` list, recorded in the trace. The first push holding a path on a branch is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. Later pushes still list that held path but succeed unless another failure occurs. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. After a newly held path, later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/tracker.ts#makePushResult src/engine.ts#writeProposals -->
+Both trackers report held paths in the push result's `held` list, recorded in the trace. The first push holding a path on a branch is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. Later pushes still list that held path but succeed unless another failure occurs. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. After a newly held path, later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/tracker.ts#makePushResult src/run/settle.ts#writeProposals -->
 
 ## Filing issues
 
