@@ -80,7 +80,7 @@ const findEarlierAttempts = (final: string) => {
 
 type SavedUsage = Partial<ReturnType<typeof readDataUsage>> & { dir?: string; infra?: string };
 
-const sumSavedUsage = (entries: SavedUsage[]) => {
+const sumSavedUsage = (entries: SavedUsage[], dir: string) => {
   const sum = (get: (e: SavedUsage) => number | undefined) =>
     getRounded(entries.reduce((n, e) => n + (get(e) ?? 0), 0));
   const tokens: Record<string, TokenCounts> = {};
@@ -100,7 +100,7 @@ const sumSavedUsage = (entries: SavedUsage[]) => {
       tools: sum(e => e.split?.tools),
       setup: sum(e => e.split?.setup),
       checks: sum(e => e.split?.checks),
-      infra: sum(e => (e.infra ? e.ms : 0)),
+      infra: sum(e => (e.infra && e.dir !== dir ? e.ms : 0)),
     },
   };
 };
@@ -296,7 +296,11 @@ const migrateArm = async (
       const why = whyInfra(m);
       const entries = findSavedUsage(from);
       const usage =
-        (imported && (entries.length ? sumSavedUsage(entries) : readJson<SavedUsage>(join(from, 'usage.json')))) || {};
+        (imported &&
+          (entries.length
+            ? sumSavedUsage(entries, relative(root, from))
+            : readJson<SavedUsage>(join(from, 'usage.json')))) ||
+        {};
       const ms = usage.ms ?? m.ms;
       await appendBenchResults(
         readSlotRun(slot)!,

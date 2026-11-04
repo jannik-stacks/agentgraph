@@ -20,6 +20,11 @@ const makeScore = (hidden: boolean) => ({
 
 const makeTokens = (input: number) => ({ smart: { input, cacheRead: 0, cacheWrite: 0, output: 1 } });
 
+const SAVED_RETRIES = [
+  { retry: 'gone', attempts: ['1'] },
+  { retry: 'there without data', attempts: ['1', '2'] },
+];
+
 const makeOldBench = async () => {
   const root = tmp('migrate');
   const repo = join(root, 'repos', 'demo');
@@ -232,8 +237,10 @@ describe('bench/migrate.ts', () => {
     expect(readRunChange(floor.at, readAttemptRun(floor.at)!.run)).toContain('a + b');
   });
 
-  it('keeps the saved retries of an arm whose retry dirs are gone, counted once', async () => {
+  it.each(SAVED_RETRIES)('keeps a saved retry whose dir is $retry, counted once', async ({ retry, attempts }) => {
     const { root, old, at, addArm } = await makeOldBench();
+    if (retry === 'there without data')
+      await addArm(join(at, 'floor.1792604940434'), { meta: { ms: 60_000, infra: 'docker unreachable' }, usage: {} });
     await addArm(join(at, 'floor'), {
       usage: {
         sessions: 2,
@@ -267,7 +274,7 @@ describe('bench/migrate.ts', () => {
     });
     await copyOldBenchRuns(old, old, join(root, 'repos'));
     const floor = readBenchRows([join(old, 'runs')]).find(r => r.labels.arm === 'floor')!;
-    expect(readdirSync(join(floor.at, '..'))).toEqual(['1']);
+    expect(readdirSync(join(floor.at, '..'))).toEqual(attempts);
     expect(floor).toMatchObject({
       checkUsd: 0.3,
       minutes: 3,
