@@ -28,7 +28,9 @@ export const findLoginProvider = (trace: Trace[], step: Run['step']) => {
     .at(-1);
 };
 
-export const findRunsWaitingOnPeople = (runs: Run[]) =>
+export const findRunsWaitingOnPeople = <R extends Pick<Run, 'id' | 'status' | 'reason' | 'by' | 'started'>>(
+  runs: R[]
+) =>
   runs
     .filter(run => run.status === 'waiting' && !runs.some(c => c.by === run.id && run.reason === `waiting on ${c.id}`))
     .toSorted((a, b) => b.started.localeCompare(a.started));
@@ -39,7 +41,11 @@ export const formatShellWord = (word: string) =>
 export const formatInstanceFlags = (repo?: string, data?: string) =>
   `${repo ? ` --repo ${formatShellWord(repo)}` : ''}${data ? ` --data ${formatShellWord(data)}` : ''}`;
 
-export const formatNextSteps = (run: Run, github?: string, flags = '') => {
+export const formatNextSteps = (
+  run: Pick<Run, 'id' | 'workflow' | 'issue' | 'status' | 'reason'>,
+  github?: string,
+  flags = ''
+) => {
   const issue = github && `https://github.com/${github}/issues/${run.issue}`;
   const n = run.issue;
   return [

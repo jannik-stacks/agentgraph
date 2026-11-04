@@ -1,7 +1,8 @@
 import type { Agent, Check } from './folder.ts';
 import type { Run, RunRecord, Step, Workflow } from './workflow.ts';
 
-export const isOnIssue = (run: RunRecord): run is Run => run.issue !== undefined;
+export const isOnIssue = <R extends Pick<RunRecord, 'issue'>>(run: R): run is R & Pick<Run, 'issue'> =>
+  run.issue !== undefined;
 
 /**
  * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run
@@ -55,7 +56,7 @@ const formatTrigger = (w: Workflow) =>
 export function makeWorkflowGraph(
   w: Workflow,
   checks: Record<string, Pick<Check, 'mode' | 'agent'>>,
-  run?: Run,
+  run?: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'>,
   agents: Record<string, Pick<Agent, 'returns' | 'reads' | 'model'>> = {}
 ): WorkflowGraph {
   const index = (name: string) => w.steps.findIndex(s => s.name === name);

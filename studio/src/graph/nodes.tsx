@@ -11,7 +11,7 @@ import {
 import { useSetAtom } from 'jotai';
 import type { ReactNode } from 'react';
 import type { WorkflowGraph } from '../../../src/graph.ts';
-import type { Run } from '../../../src/workflow.ts';
+import type { RunDrawnOnWorkflow } from './scenarios.ts';
 import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
 import { accent, cx, TipBubble, Tooltip, useTip } from '../ui.tsx';
@@ -88,7 +88,7 @@ const arrival = { left: -5 };
 export type StepFlowNode = Node<
   {
     node: GraphNode;
-    overlay?: { visits: number; here?: Run | undefined } | undefined;
+    overlay?: { visits: number; here?: RunDrawnOnWorkflow['run'] | undefined } | undefined;
     runCountsByStatus?: Record<string, number> | undefined;
     hidden: ReadonlySet<string>;
     selected: boolean;
@@ -151,7 +151,7 @@ const shineTiming = (id: string) => {
   } as React.CSSProperties;
 };
 
-const statusLine = (node: GraphNode, run: Run) =>
+const statusLine = (node: GraphNode, run: RunDrawnOnWorkflow['run']) =>
   run.status === 'waiting' && run.reason !== undefined
     ? 'asking you'
     : run.status === 'waiting'

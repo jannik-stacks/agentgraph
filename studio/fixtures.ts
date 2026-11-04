@@ -4,7 +4,8 @@ import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
 import { makeServedGraph, servedIds } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
-import { findTraceLinks, makeRunSummary, mergeCheckEntries } from './src/runs/trace.ts';
+import { findCheckVerdicts } from './src/graph/trail.ts';
+import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
 import { resultSources } from './src/results/result.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as StoreModule from '../src/store.ts';
@@ -87,6 +88,29 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraph()): Plugin => {
         if (Result.isFailure(found)) return json(res, { error: found.failure.message }, 400);
         json(res, found.success ?? null, found.success ? 200 : 404);
       });
+      use('/api/verdicts', async (req, res) => {
+        const served = await reader.read();
+        const data = process.env.AGI_STUDIO_DATA;
+        const query = new URL(req.url ?? '/', 'http://studio').searchParams;
+        const [fixture, step, check] = ['fixture', 'step', 'check'].map(k => query.get(k) ?? '') as [
+          string,
+          string,
+          string,
+        ];
+        if (!data || !served) return json(res, []);
+        const { Effect } = await import('effect');
+        const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
+        const runs = await Effect.runPromise(
+          Effect.gen(function* () {
+            const store = yield* Store;
+            const records = (yield* store.listRecords()).filter(run => `${served.name}/${run.workflow}` === fixture);
+            return yield* Effect.forEach(records, run =>
+              Effect.map(store.readChecks(run.id), checks => ({ fixture, run, checks }))
+            );
+          }).pipe(Effect.provide(fileStore(data)))
+        );
+        json(res, findCheckVerdicts(runs, fixture, step, check));
+      });
       use('/api/runs', async (req, res) => {
         const served = await reader.read();
         const dir = await readDataDir(req);
@@ -102,7 +126,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraph()): Plugin => {
         const answer = await Effect.runPromise(
           Effect.gen(function* () {
             const store = yield* Store;
-            const entry = (run: WorkflowModule.RunRecord, all: boolean) =>
+            const entry = (run: WorkflowModule.RunRecord, all: boolean, body = true) =>
               Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
                 const lines = mergeCheckEntries(trace, checks);
                 const summary = makeRunSummary(run, lines);
@@ -110,17 +134,22 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraph()): Plugin => {
                 return {
                   fixture: `${bench ? 'bench' : served!.name}/${run.workflow}`,
                   repo: served?.graph?.repo ?? '',
-                  run,
+                  run: all ? run : pickListedRun(run, body),
                   labels: readRunLabels(data, run.id),
                   ...(all ? { usd, lastAt, urls, trace: lines } : summary),
                   ...findTraceLinks(trace),
                   ...(bench && { data: bench }),
                 };
               });
-            if (!one)
-              return yield* Effect.forEach(yield* Effect.filter(yield* store.listRecords(), run => keep(run.id)), run =>
-                entry(run, false)
+            if (!one) {
+              const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
+              const told = new Map<number, string>();
+              for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
+                if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
+              return yield* Effect.forEach(runs, run =>
+                entry(run, false, run.issue !== undefined && told.get(run.issue) === run.id)
               );
+            }
             const run = (yield* keep(one)) ? yield* store.getRecord(one) : undefined;
             return run ? yield* entry(run, true) : null;
           }).pipe(Effect.provide(fileStore(data)))

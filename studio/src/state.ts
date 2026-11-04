@@ -2,6 +2,8 @@ import { atom } from 'jotai';
 import type { readRunResults } from '../../bin/results.ts';
 import type { Step } from '../../bin/tune.ts';
 import type { RunResults } from './results/result.ts';
+import type { RunRecord } from '../../src/workflow.ts';
+import type { findCheckVerdicts } from './graph/trail.ts';
 import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
 
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
@@ -100,8 +102,8 @@ export const makeLiveJsonAtom = <T>(
   return value;
 };
 
-/** Every run of the served graph, with its trace, every text in it cut short. */
-export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof makeRunSummary>, 'trail' | 'checks'>)[]>(
+/** Every run of the served graph as the run list reads it, with its trail and no trace. */
+export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof makeRunSummary>, 'trail'>)[]>(
   '/api/runs',
   ['data']
 );
@@ -120,4 +122,7 @@ export const runResultsAtom = (data?: string | null) =>
   openOnce<ServedResults>(makeDataHref('/api/results?from=runs', data), data);
 
 export const runAtom = (id: string, data?: string | null) =>
-  openOnce<ServedRun | null>(makeDataHref(`/api/runs/${encodeURIComponent(id)}`, data), data);
+  openOnce<(ServedRun & { run: RunRecord }) | null>(makeDataHref(`/api/runs/${encodeURIComponent(id)}`, data), data);
+
+export const getVerdictsAtom = (fixture: string, step: string, check: string) =>
+  openOnce<ReturnType<typeof findCheckVerdicts>>(`/api/verdicts?${new URLSearchParams({ fixture, step, check })}`);

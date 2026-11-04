@@ -15,7 +15,12 @@ export type Trail = {
 }[];
 
 /** A run drawn over its workflow: a simulated one carries its trace, a live one fetches it. */
-export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] };
+export type RunDrawnOnWorkflow = {
+  fixture: Fixture;
+  run: Pick<Run, 'id' | 'issue' | 'step' | 'status' | 'tries' | 'rounds' | 'reason' | 'said'>;
+  trail: Trail;
+  trace?: Trace[];
+};
 
 /** A fixture workflow with its checks and the runs simulated over it; a served graph's also carries its prompts and what each agent returns and reads. */
 export type Fixture = {

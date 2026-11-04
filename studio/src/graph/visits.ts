@@ -1,8 +1,7 @@
 import type { WorkflowGraph } from '../../../src/graph.ts';
 import type { CheckEntry, Trace } from '../../../src/trace.ts';
-import type { Run } from '../../../src/workflow.ts';
 import { getStepDoerKind } from './chips.ts';
-import { makeTrailOutcome, type Trail } from './scenarios.ts';
+import { makeTrailOutcome, type RunDrawnOnWorkflow, type Trail } from './scenarios.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
 export const makeRunTrail = (trace: (Trace | CheckEntry)[]): Trail => {
@@ -40,7 +39,7 @@ const isAgent = (n: Node) => getStepDoerKind(n.doer) === 'agent';
 export function makeWorkflowRunVisits(
   graph: WorkflowGraph,
   trail: Trail,
-  run: Run
+  run: RunDrawnOnWorkflow['run']
 ): { visits: Visit[]; end: End; missing: string[] } {
   const find = (step: string) => graph.nodes.find(n => n.step === step);
   const missing = [...new Set([...trail.map(entry => entry.at.step), run.step].filter(step => !find(step)))];

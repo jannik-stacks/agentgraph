@@ -64,25 +64,36 @@ it('serves an imported run in the studio run list and on its own page', async ()
     watcher: { add: () => {}, on: () => {} },
     middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) },
   });
-  const ask = (url: string) =>
+  const ask = (url: string, route = '/api/runs') =>
     new Promise<{ status: number; body: unknown }>(done => {
       const res = {
         statusCode: 200,
         setHeader: () => {},
         end: (body: string) => done({ status: res.statusCode, body: JSON.parse(body) }),
       };
-      routes['/api/runs']!({ url }, res);
+      routes[route]!({ url }, res);
     });
   const list = await ask('/');
   expect(list).toMatchObject({
     status: 200,
-    body: [{ run: { id, workflow: 'import' }, usd: 0, urls: [], checks: [] }],
+    body: [{ run: { id, workflow: 'import' }, usd: 0, urls: [] }],
   });
   expect((list.body as object[])[0]).not.toHaveProperty('trace');
+  expect((list.body as object[])[0]).not.toHaveProperty('checks');
+  expect((list.body as { run: object }[])[0]!.run).not.toHaveProperty('startCommit');
+  expect(await ask('?fixture=sandbox/import&step=implement&check=tests', '/api/verdicts')).toEqual({
+    status: 200,
+    body: [],
+  });
   const one = await ask(`/${id}`);
   expect(one).toMatchObject({
     status: 200,
-    body: { run: { id, status: 'done' }, usd: 0, urls: [], trace: [{ saved: { id } }] },
+    body: {
+      run: { id, status: 'done', startCommit: expect.any(String) },
+      usd: 0,
+      urls: [],
+      trace: [{ saved: { id } }],
+    },
   });
   expect(Object.keys(one.body as object)).not.toEqual(expect.arrayContaining(['trail']));
   expect(Object.keys(one.body as object)).not.toEqual(expect.arrayContaining(['checks']));

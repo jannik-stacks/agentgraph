@@ -1,4 +1,5 @@
-import type { makeRunSummary, ServedRun } from '../runs/trace.ts';
+import type { CheckEntry } from '../../../src/trace.ts';
+import type { RunRecord } from '../../../src/workflow.ts';
 import type { Fixture } from './scenarios.ts';
 
 export const splitSelection = (selected: string | null) => {
@@ -11,7 +12,7 @@ export const splitSelection = (selected: string | null) => {
 };
 
 export const findCheckVerdicts = (
-  runs: (Pick<ServedRun, 'fixture' | 'run'> & Pick<ReturnType<typeof makeRunSummary>, 'checks'>)[],
+  runs: { fixture: string; run: Pick<RunRecord, 'id' | 'issue'>; checks: CheckEntry[] }[],
   fixture: string,
   step: string,
   check: string

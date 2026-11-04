@@ -1,20 +1,19 @@
 import { useAtomValue } from 'jotai';
 import { Code, Markdown } from '../Markdown.tsx';
 import { atLink } from '../runs/trace.ts';
-import { runsAtom } from '../state.ts';
+import { getVerdictsAtom } from '../state.ts';
 import { accent, cx, Disclosure, Field, Fields, Link } from '../ui.tsx';
 import { Crumbs, checkModeTips, Section, Term, To } from './panel.tsx';
 import type { Fixture } from './scenarios.ts';
-import { findAgentUses, findCheckVerdicts } from './trail.ts';
+import { findAgentUses } from './trail.ts';
 
 const latest = 12;
 
 const Path = ({ children }: { children: string }) => <p className="font-mono text-zinc-500">{children}</p>;
 
 const Verdicts = ({ fixture, step, name }: { fixture: string; step: string; name: string }) => {
-  const { value: runs, failure } = useAtomValue(runsAtom);
-  if (!runs) return <p className="text-zinc-500">{failure ?? 'Loading runs.'}</p>;
-  const verdicts = findCheckVerdicts(runs, fixture, step, name);
+  const { value: verdicts, failure } = useAtomValue(getVerdictsAtom(fixture, step, name));
+  if (!verdicts) return <p className="text-zinc-500">{failure ?? 'Loading verdicts.'}</p>;
   if (!verdicts.length) return <p className="text-zinc-500">No run has run it here yet.</p>;
   const failed = verdicts.filter(v => !v.empty && !v.pass).length;
   const skipped = verdicts.filter(v => v.empty).length;

@@ -67,39 +67,40 @@ export const makeRunSummary = (run: RunRecord, lines: Line[]) => ({
       ? [line.applied.url]
       : []
   ),
-  checks: lines.flatMap(line =>
-    'check' in line
-      ? [
-          {
-            at: line.at,
-            step: line.step,
-            ...(line.item !== undefined && { item: true }),
-            check: {
-              check: line.check.check,
-              pass: line.check.pass,
-              ...(line.check.empty && { empty: true }),
-              ...(line.item === undefined &&
-                line.check.findings !== undefined && {
-                  findings:
-                    line.check.findings.length > 160 ? `${line.check.findings.slice(0, 160)}...` : line.check.findings,
-                }),
-            },
-          },
-        ]
-      : []
-  ),
 });
+
+const listedFields = [
+  'id',
+  'workflow',
+  'issue',
+  'title',
+  'body',
+  'step',
+  'status',
+  'tries',
+  'rounds',
+  'reason',
+  'said',
+  'by',
+  'started',
+  'ended',
+] as const;
+
+export const pickListedRun = (run: RunRecord, body = true) =>
+  Object.fromEntries(
+    listedFields.flatMap(k => (run[k] === undefined || (k === 'body' && !body) ? [] : [[k, run[k]]]))
+  ) as Pick<RunRecord, (typeof listedFields)[number]>;
 
 /** A run as the dev server answers it: the run, its summary, where it lives, its pull request and branch, and its trace when opened alone. */
 export type ServedRun = {
   fixture: string;
   repo: string;
-  run: RunRecord;
+  run: ReturnType<typeof pickListedRun>;
   labels: ReturnType<typeof readRunLabels>;
   trace?: Line[];
   data?: string;
 } & ReturnType<typeof findTraceLinks> &
-  Omit<ReturnType<typeof makeRunSummary>, 'trail' | 'checks'>;
+  Omit<ReturnType<typeof makeRunSummary>, 'trail'>;
 
 export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
 

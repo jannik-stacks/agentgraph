@@ -448,7 +448,7 @@ const sessionRow = (
 };
 
 /** What a run is doing or waiting for, in a sentence or two. */
-export const statusTip = (run: RunRecord) => {
+export const statusTip = (run: Pick<RunRecord, 'said' | 'issue' | 'status' | 'step' | 'tries' | 'reason'>) => {
   const at = `issue #${run.said?.[0]?.issue ?? run.issue}`;
   if (run.status === 'running') return `Working on ${run.step}, try ${run.tries + 1}.`;
   if (run.status === 'done') return 'Finished every step.';
@@ -477,6 +477,7 @@ const RunInfo = ({ r }: { r: ServedRun }) => {
   const [raw, setRaw] = useState(false);
   const { value } = useAtomValue(runResultsAtom(data));
   const results = value?.runs.find(x => x.key === run.id);
+  const { value: opened } = useAtomValue(runAtom(run.id, data));
   return (
     <>
       <p className="flex gap-x-2 text-zinc-500">
@@ -485,7 +486,7 @@ const RunInfo = ({ r }: { r: ServedRun }) => {
           raw
         </button>
       </p>
-      {raw && <Raw value={run} />}
+      {raw && opened && <Raw value={opened.run} />}
       {value && results && <RunResultLines run={results} fields={value.fields} />}
       {run.reason && (
         <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
