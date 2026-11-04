@@ -52,13 +52,14 @@ export const readAttemptRun = (at: string) => {
 };
 
 export const readRunChange = (at: string, run: Pick<RunRecord, 'id' | 'startCommit'>) => {
-  if (!run.startCommit) return '';
-  const r = spawnSync(
-    'git',
-    ['--git-dir', join(at, 'tracker', 'origin.git'), 'diff', run.startCommit, `refs/agentgraph/runs/${run.id}`],
-    { encoding: 'utf8', maxBuffer: 1 << 28 }
-  );
-  return r.status === 0 ? r.stdout : '';
+  const r =
+    run.startCommit &&
+    spawnSync(
+      'git',
+      ['--git-dir', join(at, 'tracker', 'origin.git'), 'diff', run.startCommit, `refs/agentgraph/runs/${run.id}`],
+      { encoding: 'utf8', maxBuffer: 1 << 28 }
+    );
+  return r && r.status === 0 ? r.stdout : readRecordSync(join(at, 'change.patch'));
 };
 
 export const readLatestRunChecks = (data: string, id: string) =>
@@ -135,11 +136,6 @@ export const getBenchUsageCost = (u: { usd?: number; tokens?: Record<string, Tok
 };
 
 const skippedDirs = new Set([
-  '.attic',
-  '.cache',
-  '.envs',
-  '.git',
-  '.locks',
   'cases',
   'graph',
   'homes',
@@ -158,7 +154,9 @@ const findRunFiles = (dir: string, depth: number): string[] => {
   if (existsSync(join(dir, 'run.json'))) return [join(dir, 'run.json')];
   if (!depth) return [];
   return readdirSync(dir, { withFileTypes: true }).flatMap(e =>
-    e.isDirectory() && !skippedDirs.has(e.name) ? findRunFiles(join(dir, e.name), depth - 1) : []
+    e.isDirectory() && !e.name.startsWith('.') && !skippedDirs.has(e.name)
+      ? findRunFiles(join(dir, e.name), depth - 1)
+      : []
   );
 };
 
@@ -240,7 +238,14 @@ const readRow = (found: Found, earlier: Found[], base?: Map<string, CheckEntry>,
   const setup = latest.get('bench/setup')?.check.value as
     | { labels?: Record<string, string>; setup?: boolean }
     | undefined;
-  const usage = [found, ...earlier].map(f => readDataUsage(f.data));
+  const usage = [found, ...earlier].map(f => ({
+    ...readDataUsage(f.data),
+    ...(
+      readLatestRunChecks(f.data, f.run.id).get('bench/arm')?.check.value as
+        | { usage?: Pick<ReturnType<typeof readDataUsage>, 'sessions' | 'usd' | 'tokens'> }
+        | undefined
+    )?.usage,
+  }));
   const tokens: Record<string, TokenCounts> = {};
   for (const u of usage)
     for (const [m, t] of Object.entries(u.tokens)) {
