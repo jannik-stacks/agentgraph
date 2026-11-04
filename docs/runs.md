@@ -81,6 +81,8 @@ count(-1) should throw.
 
 <!-- code: src/workflow.ts#Run -->
 
+Every run is saved first under a lock on its id, and only when no run has that id yet, so two passes that begin the same run save it once. <!-- code: src/run/start.ts#startRun -->
+
 | Field | Meaning |
 | --- | --- |
 | `id`, `workflow`, `issue` | The run, its workflow and its issue; an [imported run](#imported-runs) has no issue |

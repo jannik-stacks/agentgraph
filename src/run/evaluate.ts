@@ -2,12 +2,12 @@ import { Effect, Stream, Result } from 'effect';
 import type { Check, Graph } from '../folder.ts';
 import type { RunRecord } from '../workflow.ts';
 import { type SandboxError, Sandbox } from '../sandbox.ts';
-import { runSetup } from './checkout.ts';
 import { writeCheckoutTree, readGit } from '../git.ts';
-import { type Left, writeCheckFiles, runOneCheck } from './check.ts';
 import { type StoreError, Store } from '../store.ts';
 import type { SessionStop } from '../trace.ts';
 import type { TrackerError } from '../tracker.ts';
+import { runSetup } from './checkout.ts';
+import { type Left, writeCheckFiles, runOneCheck } from './check.ts';
 import { formatFailure } from './execute.ts';
 
 const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | TrackerError | StoreError, R>) =>

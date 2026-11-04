@@ -2,10 +2,10 @@ import { Effect, Result } from 'effect';
 import type { Said, Proposal } from '../proposal.ts';
 import { TrackerError, Tracker, withheld } from '../tracker.ts';
 import { type Workflow, type Run, type RunRecord, begin, isRunDone } from '../workflow.ts';
-import { findAppliedBefore, getOperationKey, writeOnce, useRunLink } from './settle.ts';
 import type { Applied } from '../event.ts';
 import { Store } from '../store.ts';
 import type { Graph } from '../folder.ts';
+import { findAppliedBefore, getOperationKey, writeOnce, useRunLink } from './settle.ts';
 import { isInScope, isRetro } from './hear.ts';
 
 export type Child = Extract<Said, { kind: 'issue' }>;

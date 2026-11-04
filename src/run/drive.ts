@@ -1,17 +1,17 @@
 import { Effect, Result, Option } from 'effect';
 import { type Workflow, type Run, type Outcome, transition, isRunDone } from '../workflow.ts';
 import type { Issue } from '../event.ts';
-import { findPullNumber, formatTemplate, readIssueWithPull, readHeardOutcome, readContinuedRun } from './hear.ts';
 import type { Graph } from '../folder.ts';
 import { type StoreError, Store } from '../store.ts';
-import { type Services, formatFailure } from './execute.ts';
 import { type TrackerError, Tracker } from '../tracker.ts';
 import type { SessionStop } from '../trace.ts';
-import { formatWaitingOn } from './start.ts';
 import { stoppedByRunner } from '../context.ts';
-import { writeProposals, removeThreads, writeStatus, readRunSpend } from './settle.ts';
 import { Sandbox, SandboxError, formatCause } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout } from '../git.ts';
+import { findPullNumber, formatTemplate, readIssueWithPull, readHeardOutcome, readContinuedRun } from './hear.ts';
+import { type Services, formatFailure } from './execute.ts';
+import { formatWaitingOn } from './start.ts';
+import { writeProposals, removeThreads, writeStatus, readRunSpend } from './settle.ts';
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
@@ -35,7 +35,6 @@ const rejected = 'the model provider rejected the key or login. Fix it, then sta
 /**
  * Runs the graph's setup, then tries until the run stops running. A runner error is retried once, then parks the run at its step, so an
  * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
- * @internal
  */
 export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {

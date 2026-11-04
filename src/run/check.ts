@@ -6,17 +6,17 @@ import { type Checkout, type Exit, type Sandbox, SandboxError } from '../sandbox
 import type { Graph, Check } from '../folder.ts';
 import type { StoreError } from '../store.ts';
 import { Store } from '../store.ts';
-import { isRetro } from './hear.ts';
 import { transcript, formatSqueezed } from '../context.ts';
 import type { Proposal } from '../proposal.ts';
 import type { Run, CheckResult, Step, Outcome } from '../workflow.ts';
-import { EachFailed, findFanOutItems, readCheckoutDiff, most } from './checkout.ts';
-import { runShell, runJudge } from './execute.ts';
 import { pickUsed, type Trace, SessionStop } from '../trace.ts';
 import { getSha } from '../hash.ts';
 import type { Session } from '../session.ts';
 import { getStepReturns } from '../graph.ts';
 import type { Applied } from '../event.ts';
+import { isRetro } from './hear.ts';
+import { EachFailed, findFanOutItems, readCheckoutDiff, most } from './checkout.ts';
+import { runShell, runJudge } from './execute.ts';
 
 export const getTraceFiles = (work: Checkout) => ({
   AGENTGRAPH_TRACES: join(dirname(work.news), 'traces.md'),
@@ -338,7 +338,6 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
 
 /**
  * The step's checks over what a try left behind, all at once, so every finding of a try comes back together.
- * @internal
  */
 export const runStepChecks = (
   step: Step,

@@ -4,14 +4,6 @@ import { Schema, Result, Effect, Option } from 'effect';
 import { Said, type Proposal } from '../proposal.ts';
 import { type IssueWithPull, news, formatSqueezed, formatRequest, context } from '../context.ts';
 import {
-  pickNewest,
-  readIssueWithPull,
-  formatTemplate,
-  readHeardOutcome,
-  readContinuedRun,
-  findPullNumber,
-} from './hear.ts';
-import {
   type Outcome,
   type Run,
   type Seen,
@@ -20,6 +12,22 @@ import {
   type Workflow,
   type CheckResult,
 } from '../workflow.ts';
+import { type Checkout, SandboxError, Sandbox } from '../sandbox.ts';
+import type { Graph } from '../folder.ts';
+import { getStepReturns } from '../graph.ts';
+import { SessionStop, pickUsed } from '../trace.ts';
+import { type TrackerError, Tracker } from '../tracker.ts';
+import { type StoreError, Store } from '../store.ts';
+import { writeCheckoutTree, readGit } from '../git.ts';
+import type { Applied } from '../event.ts';
+import {
+  pickNewest,
+  readIssueWithPull,
+  formatTemplate,
+  readHeardOutcome,
+  readContinuedRun,
+  findPullNumber,
+} from './hear.ts';
 import {
   isPart,
   readFiledIssues,
@@ -31,18 +39,10 @@ import {
   startProposedRun,
   formatWaitingOn,
 } from './start.ts';
-import { type Checkout, SandboxError, Sandbox } from '../sandbox.ts';
-import type { Graph } from '../folder.ts';
-import { getStepReturns } from '../graph.ts';
-import { SessionStop, pickUsed } from '../trace.ts';
-import { type TrackerError, Tracker } from '../tracker.ts';
-import { type StoreError, Store } from '../store.ts';
 import { type Services, runShell, runSession } from './execute.ts';
-import { writeCheckoutTree, readGit } from '../git.ts';
 import { writeTraces, makeScriptEnv, getTraceFiles, formatTracesPrompt, runStepChecks } from './check.ts';
 import { readCheckoutDiff, findFanOutItems, most } from './checkout.ts';
 import { getOperationKey, findAppliedBefore, writeOnce, writeProposals, useRunLink, removeThreads } from './settle.ts';
-import type { Applied } from '../event.ts';
 
 const decodeProposal = Schema.decodeUnknownResult(Said, {
   onExcessProperty: 'error',

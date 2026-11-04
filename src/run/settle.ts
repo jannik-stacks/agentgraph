@@ -5,16 +5,16 @@ import { currentRunLinkRef, Tracker, TrackerError } from '../tracker.ts';
 import { stoppedByRunner, proposeStatusUpdates } from '../context.ts';
 import { type StoreError, Store } from '../store.ts';
 import type { Graph } from '../folder.ts';
-import type { Services } from './execute.ts';
-import { runEndedChecks } from './evaluate.ts';
 import { LockHeldError } from '../owner.ts';
-import { readIssueWithPull } from './hear.ts';
 import { type StatusChange, readPlugins } from '../plugin.ts';
 import type { Proposal } from '../proposal.ts';
 import { getSha } from '../hash.ts';
 import type { Applied } from '../event.ts';
 import type { Checkout } from '../sandbox.ts';
 import { writeCheckoutTree } from '../git.ts';
+import type { Services } from './execute.ts';
+import { runEndedChecks } from './evaluate.ts';
+import { readIssueWithPull } from './hear.ts';
 
 /**
  * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size label and

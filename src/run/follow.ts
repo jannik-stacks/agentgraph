@@ -5,16 +5,16 @@ import { type Workflow, type Run, isRunDone, formatFailedTryFeedback } from '../
 import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
 import { Tracker } from '../tracker.ts';
-import { formatTemplate, readIssueWithPull } from './hear.ts';
-import { writeStatus, removeThreads, writeProposals, useRunLink } from './settle.ts';
 import type { Issue, Applied } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
-import { startProposedRun } from './start.ts';
-import { runSetup } from './checkout.ts';
 import { context } from '../context.ts';
-import { runStepChecks } from './check.ts';
 import { SessionStop } from '../trace.ts';
 import { getStepReturns } from '../graph.ts';
+import { formatTemplate, readIssueWithPull } from './hear.ts';
+import { writeStatus, removeThreads, writeProposals, useRunLink } from './settle.ts';
+import { startProposedRun } from './start.ts';
+import { runSetup } from './checkout.ts';
+import { runStepChecks } from './check.ts';
 import { shapes, parseProposals, findUngranted } from './attempt.ts';
 import { runSession } from './execute.ts';
 
