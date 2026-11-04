@@ -758,18 +758,13 @@ export const tick = (
     return [...moved.filter(r => !ended.some(e => e.id === r.id)), ...ended];
   });
 
-/**
- * One pass over the issues of live runs, then wherever a trusted `/agent` was said since the newest run began, closed or
- * merged ones too, then the open issues, up to `limits.parallel` at once: each gets one look, and a new run only on a trusted
- * mark. Each issue is read from its own last run on, so it catches up on what a repo-wide look has passed. `debounce` is
- * as for `tick`.
- */
-export const scanIssuesAndRunningRuns = (
+const makeIssueScan = (
   graph: Graph,
   debounce = 0,
   meta?: Run['meta'],
-  fork?: Parameters<typeof tick>[5]
-): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
+  fork?: Parameters<typeof tick>[5],
+  locks = new Map<number, Semaphore.Semaphore>()
+) =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
     const [listing, invalidate] = yield* Effect.cachedInvalidateWithTTL(
@@ -778,7 +773,6 @@ export const scanIssuesAndRunningRuns = (
     );
     const listed = yield* listing;
     const fetched = [...listed];
-    const open = listed.filter(t => !t.pull && isInScope(graph, t));
     const all = yield* Effect.flatMap(Store, s => s.list());
     const runs = all.filter(r => !isRunDone(r) || r.owed);
     const from = pickNewest(...all.map(r => r.started));
@@ -788,9 +782,11 @@ export const scanIssuesAndRunningRuns = (
     const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
     const latest = yield* Effect.cached(Stream.runCollect(tracker.since(cursor, boards)));
     const history = cursor ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards))) : latest;
-    const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
-    const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
-    const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
+    const gate = (n: number) => {
+      const lock = locks.get(n) ?? Semaphore.makeUnsafe(1);
+      locks.set(n, lock);
+      return lock;
+    };
     const look = (n: number) =>
       tick(
         graph,
@@ -824,43 +820,118 @@ export const scanIssuesAndRunningRuns = (
         }),
         Effect.catchTag('TrackerError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
       );
-    const changed = (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();
+    return { all, runs, from, listed, latest, fetched, gate, look };
+  });
+
+/**
+ * One pass over the issues of live runs, then wherever a trusted `/agent` was said since the newest run began, closed or
+ * merged ones too, then the open issues, up to `limits.parallel` at once: each gets one look, and a new run only on a trusted
+ * mark. Each issue is read from its own last run on, so it catches up on what a repo-wide look has passed. `debounce` is
+ * as for `tick`.
+ */
+export const scanIssuesAndRunningRuns = (
+  graph: Graph,
+  debounce = 0,
+  meta?: Run['meta'],
+  fork?: Parameters<typeof tick>[5],
+  locks?: Map<number, Semaphore.Semaphore>
+): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
+  Effect.gen(function* () {
+    const tracker = yield* Tracker;
+    const { runs, from, listed, latest, fetched, gate, look } = yield* makeIssueScan(
+      graph,
+      debounce,
+      meta,
+      fork,
+      locks
+    );
+    const open = listed.filter(t => !t.pull && isInScope(graph, t));
+    const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
+    const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
+    const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
+    const changed = (yield* Effect.forEach(issues, n => gate(n).withPermits(1)(look(n)), {
+      concurrency: graph.limits.parallel,
+    })).flat();
     const kept = yield* Effect.flatMap(Store, s => s.list());
     const sandbox = yield* Sandbox;
     const branches = yield* sandbox
       .readBranches()
       .pipe(Effect.catch(e => Effect.as(Effect.logWarning('local branches', e), [])));
+    const uses = (branch: string) => (r: Run) => {
+      if (r.checkout) return r.checkout.branch === branch;
+      const template = graph.workflows[r.workflow]?.branch;
+      return (
+        branch.split(/\D+/).includes(String(r.issue)) ||
+        (!!template && matchesGlob(branch, template.replaceAll('{issue}', String(r.issue)).replaceAll('{parent}', '*')))
+      );
+    };
     for (const branch of branches.filter(isAgentBranch)) {
-      const using = kept.filter(r => {
-        if (r.checkout) return r.checkout.branch === branch;
-        const template = graph.workflows[r.workflow]?.branch;
-        return (
-          branch.split(/\D+/).includes(String(r.issue)) ||
-          (!!template &&
-            matchesGlob(branch, template.replaceAll('{issue}', String(r.issue)).replaceAll('{parent}', '*')))
-        );
-      });
+      const using = kept.filter(uses(branch));
       if (!using.length || using.some(r => !isRunDone(r) || r.owed)) continue;
-      const found = fetched.filter(t => t.pull?.branch === branch);
-      const pull = [
-        ...found,
-        ...(found.some(t => t.state === 'merged')
-          ? []
-          : yield* tracker
+      yield* [...new Set(using.map(r => r.issue))].reduce(
+        (effect, n) => gate(n).withPermits(1)(effect),
+        Effect.gen(function* () {
+          const current = yield* Effect.flatMap(Store, s => s.list());
+          if (current.filter(uses(branch)).some(r => !isRunDone(r) || r.owed)) return;
+          const pull =
+            fetched.find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull ??
+            (yield* tracker
               .issues({ branch })
-              .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), [])))),
-      ].find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull;
-      yield* sandbox
-        .removeBranch(
-          branch,
-          using.some(r => !r.checkout)
-            ? undefined
-            : (pull?.base ?? using.reduce((a, b) => (a.started > b.started ? a : b)).checkout!.base),
-          pull?.head
-        )
-        .pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup ${branch}`, e)));
+              .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), [])))).find(
+              t => t.state === 'merged' && t.pull?.branch === branch
+            )?.pull;
+          yield* sandbox
+            .removeBranch(
+              branch,
+              using.some(r => !r.checkout)
+                ? undefined
+                : (pull?.base ?? using.reduce((a, b) => (a.started > b.started ? a : b)).checkout!.base),
+              pull?.head
+            )
+            .pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup ${branch}`, e)));
+        })
+      );
     }
     return changed;
+  });
+
+export const scanTrackerEvents = (
+  graph: Graph,
+  cursor: string,
+  fork: Parameters<typeof tick>[5],
+  locks: NonNullable<Parameters<typeof scanIssuesAndRunningRuns>[4]>,
+  due: Set<number>
+) =>
+  Effect.gen(function* () {
+    const tracker = yield* Tracker;
+    const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
+    const events = yield* Stream.runCollect(tracker.since(cursor, boards));
+    const trusted = events.filter(m => m.trusted);
+    if (trusted.length || due.size)
+      yield* Effect.gen(function* () {
+        const { all, listed, gate, look } = yield* makeIssueScan(graph, 0, undefined, fork, locks);
+        const numbers = new Set(trusted.map(m => m.issue));
+        const missing = yield* Effect.forEach(
+          [...numbers].filter(n => !listed.some(t => t.number === n)),
+          n => tracker.issue(n)
+        );
+        const issues = new Set([...numbers, ...due]);
+        for (const r of all) {
+          const w = graph.workflows[r.workflow];
+          const pull = w && findPullNumber(w, r.issue, [...listed, ...missing]);
+          if (pull !== undefined && numbers.has(pull)) issues.add(r.issue);
+        }
+        yield* Effect.forEach(
+          issues,
+          n =>
+            gate(n)
+              .withPermitsIfAvailable(1)(look(n))
+              .pipe(Effect.tap(result => Effect.sync(() => (Option.isSome(result) ? due.delete(n) : due.add(n))))),
+          { concurrency: graph.limits.parallel }
+        );
+      }).pipe(Effect.catchTag('TrackerError', e => Effect.logError(e)));
+
+    return pickNewest(cursor, ...events.map(m => m.at)) ?? cursor;
   });
 
 export const startLoopDrives = () => {
@@ -868,6 +939,8 @@ export const startLoopDrives = () => {
   return {
     passes: Effect.runSync(Scope.provide(FiberSet.make(), scope)),
     driving: new Set<string>(),
+    ticks: new Map<number, Semaphore.Semaphore>(),
+    due: new Set<number>(),
     permits: Semaphore.makeUnsafe(1),
     settled: [] as Run[],
     stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),

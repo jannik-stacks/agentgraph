@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, symlinkSync, rmSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect, Logger } from 'effect';
+import { Effect, Logger, Semaphore } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { removeBranch } from '../src/disk.ts';
 import { getCheckoutPaths } from '../src/env.ts';
 import * as host from '../src/git.ts';
+import { Sandbox } from '../src/sandbox.ts';
 import { Store } from '../src/store.ts';
 import { Tracker } from '../src/tracker.ts';
 import { runWorkflow } from '../src/run/drive.ts';
@@ -48,6 +49,31 @@ const cleanOldRun = async (exact: boolean) => {
 };
 
 describe('landed checkout cleanup', () => {
+  it.each([7, 9])('keeps a branch reused by issue #%s after the cleanup snapshot', async issue => {
+    const run = setup();
+    git(run.origin, 'update-ref', 'refs/heads/main', run.head, git(run.origin, 'rev-parse', 'main'));
+    writeIssueAt(issuePath(run.tracker, 7), '---\ntitle: Done\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
+    const engine = services(run, []);
+    await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), checkout: run.checkout, status: 'done' })));
+    const locks = new Map([[7, Semaphore.makeUnsafe(1)]]);
+    await engine.run(
+      Effect.flatMap(Store, store =>
+        Effect.updateService(scanIssuesAndRunningRuns(graph, 0, undefined, undefined, locks), Sandbox, sandbox => ({
+          ...sandbox,
+          readBranches: () =>
+            Effect.andThen(
+              locks.get(7)!.withPermits(1)(
+                store.put({ ...fresh(), id: `replacement-${issue}`, issue, checkout: run.checkout }).pipe(Effect.orDie)
+              ),
+              sandbox.readBranches()
+            ),
+        }))
+      )
+    );
+    expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
+    expect(existsSync(run.path)).toBe(true);
+  });
+
   it('removes a merged checkout and branch, preserving data, attempt refs and symlink targets', async () => {
     const run = setup();
     writeIssueAt(

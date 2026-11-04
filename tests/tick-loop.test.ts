@@ -466,7 +466,8 @@ describe('the loop', () => {
     };
     try {
       await expect(main(undefined, doubles, defaults, stop.signal, refresh)).rejects.toThrow();
-      expect(seen.slice(0, 3)).toEqual(['login-1', 'login-1', 'login-3']);
+      expect(seen.filter((key, i) => i === 0 || key !== seen[i - 1])).toEqual(['login-1', 'login-3']);
+      expect(passes).toBe(4);
     } finally {
       if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
       else process.env.ANTHROPIC_API_KEY = previous;

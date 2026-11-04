@@ -2,27 +2,28 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Layer, Stream } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
-import { runPass, scanIssuesAndRunningRuns, startLoopDrives } from '../src/run/trigger.ts';
-import { folderTracker } from '../src/tracker.ts';
+import { runPass, scanIssuesAndRunningRuns, scanTrackerEvents, startLoopDrives } from '../src/run/trigger.ts';
+import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionSpec } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
-import { issuePath, writeIssueAt } from './kit.ts';
+import { issuePath, write, writeIssueAt } from './kit.ts';
 import type { Graph } from '../src/folder.ts';
-import { comment, readChecks, say, world } from './world.ts';
+import { comment, fresh, readChecks, readTrace, say, world } from './world.ts';
 
 const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 const flow = {
   ...small.workflows.issue!,
   checks: [],
+  on: { ...small.workflows.issue!.on, issues: { label: 'ready' } },
   steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })),
 };
 const asks = [start('s'), reply({ kind: 'ask', question: 'Continue?' })];
 
-const setup = (parallel: number) => {
+const setup = (parallel: number, holdSweep = false) => {
   const where = world();
   const graph = { ...small, workflows: { issue: flow }, limits: { ...small.limits, parallel } };
   const opened: SessionSpec[] = [];
@@ -43,28 +44,262 @@ const setup = (parallel: number) => {
       },
     }))
   ).pipe(Layer.provide(replaySession([asks, asks])));
-  const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session);
+  const { promise: sweepHeld, resolve: releaseSweep } = Promise.withResolvers<void>();
+  const looked: number[] = [];
+  let listings = 0;
+  const cursors: string[] = [];
+  let holding = false;
+  const tracker = Layer.effect(
+    Tracker,
+    Effect.map(Tracker, t => ({
+      ...t,
+      since: (cursor, columns) => {
+        cursors.push(cursor);
+        return t.since(cursor, columns);
+      },
+      issues: filter =>
+        Effect.suspend(() => {
+          listings++;
+          return t.issues(filter);
+        }),
+      issue: n =>
+        Effect.suspend(() => {
+          looked.push(n);
+          return t.issue(n);
+        }),
+      apply: (...args) =>
+        args[0] === 7 && holdSweep && args[1].kind === 'react'
+          ? Effect.andThen(
+              Effect.sync(() => {
+                holding = true;
+              }),
+              Effect.andThen(
+                Effect.promise(() => sweepHeld),
+                t.apply(...args)
+              )
+            )
+          : t.apply(...args),
+    }))
+  ).pipe(Layer.provide(folderTracker(where.tracker)));
+  let reads = 0;
+  const store = Layer.effect(
+    Store,
+    Effect.map(Store, s => ({
+      ...s,
+      list: (...args) =>
+        Effect.suspend(() => {
+          reads++;
+          return s.list(...args);
+        }),
+    }))
+  ).pipe(Layer.provide(fileStore(where.data)));
+  const layer = Layer.mergeAll(tracker, store, hostSandbox(where.origin), session);
   const drives = startLoopDrives();
   const pass = (g: Graph = graph) =>
     Effect.runPromise(
-      runPass(drives, fork => scanIssuesAndRunningRuns(g, 0, undefined, fork)).pipe(Effect.provide(layer))
+      runPass(drives, fork => scanIssuesAndRunningRuns(g, 0, undefined, fork, drives.ticks)).pipe(Effect.provide(layer))
     );
+  let cursor = '2026-10-16T00:00:00.000Z';
+  const poll = async () => {
+    cursor = await Effect.runPromise(
+      runPass(drives, fork => scanTrackerEvents(graph, cursor, fork, drives.ticks, drives.due)).pipe(
+        Effect.provide(layer)
+      )
+    );
+    return cursor;
+  };
   const read = (id: string) => Effect.runPromise(Effect.flatMap(Store, s => s.get(id)).pipe(Effect.provide(layer)));
   const status = (id: string) => read(id).then(r => r?.status);
-  const ask = () => {
+  const ask = (kind: 'comment' | 'label' = 'comment') => {
     writeIssueAt(
       issuePath(where.tracker, 9),
-      '---\ntitle: Add a farewell\nstate: open\nauthor: morgan\nlabels: []\n---\n\nAdd bye.txt.\n'
+      `---\ntitle: Add a farewell\nstate: open\nauthor: morgan\nlabels: [${kind === 'label' ? 'ready' : ''}]\n---\n\nAdd bye.txt.\n`
     );
-    say(where, comment(9, 'morgan', true, '/agent', '2026-10-16T00:01:00.000Z'));
+    say(
+      where,
+      kind === 'comment'
+        ? comment(9, 'morgan', true, '/agent', '2026-10-16T00:01:00.000Z')
+        : { issue: 9, kind: 'label', label: 'ready', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' }
+    );
   };
-  return { where, graph, opened, release, drives, pass, read, status, ask };
+  return {
+    where,
+    graph,
+    opened,
+    release,
+    drives,
+    pass,
+    poll,
+    read,
+    status,
+    ask,
+    looked,
+    cursors,
+    releaseSweep,
+    listings: () => listings,
+    reads: () => reads,
+    isHolding: () => holding,
+  };
 };
 
 const locks = (data: string) =>
   existsSync(join(data, '.locks')) ? readdirSync(join(data, '.locks')).filter(f => f.endsWith('.lock')) : [];
 
 describe('loop drives', () => {
+  it.each(['comment', 'label'] as const)(
+    'hears a trusted %s before a long sweep ends and handles it once',
+    async kind => {
+      const loop = setup(2, true);
+      let finished = false;
+      const sweep = loop.pass().then(runs => {
+        finished = true;
+        return runs;
+      });
+      try {
+        await vi.waitFor(() => expect(loop.isHolding()).toBe(true));
+        loop.ask(kind);
+        const cursor = await loop.poll();
+        await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+        const before = [...loop.looked];
+        const listings = loop.listings();
+        await loop.poll();
+        expect([finished, loop.looked, loop.listings(), cursor]).toEqual([
+          false,
+          before,
+          listings,
+          '2026-10-16T00:01:00.000Z',
+        ]);
+        loop.releaseSweep();
+        await sweep;
+        await loop.pass();
+        const second = await Effect.runPromise(
+          Effect.flatMap(Store, s => s.list({ issue: 9 })).pipe(Effect.provide(fileStore(loop.where.data)))
+        );
+        expect(second).toHaveLength(1);
+        expect(
+          readTrace(loop.where.data, second[0]!.id).filter(
+            t => 'applied' in t && t.applied.proposal.kind === 'react' && !t.applied.proposal.remove
+          )
+        ).toHaveLength(1);
+      } finally {
+        loop.releaseSweep();
+        loop.release();
+        await sweep;
+        await loop.drives.stop();
+      }
+    }
+  );
+
+  it('reads only since the cursor for quiet or untrusted polls, even with old ended runs', async () => {
+    const loop = setup(2);
+    try {
+      await Effect.runPromise(
+        Effect.flatMap(Store, s => s.put({ ...fresh(), started: '2020-01-01T00:00:00.000Z', status: 'done' })).pipe(
+          Effect.provide(fileStore(loop.where.data))
+        )
+      );
+      await loop.poll();
+      say(loop.where, comment(7, 'stranger', false, '/agent', '2026-10-16T00:01:00.000Z'));
+      const cursor = await loop.poll();
+      await loop.poll();
+      expect([loop.looked, loop.listings(), loop.reads(), loop.opened, cursor, loop.cursors]).toEqual([
+        [],
+        0,
+        0,
+        [],
+        '2026-10-16T00:01:00.000Z',
+        ['2026-10-16T00:00:00.000Z', '2026-10-16T00:00:00.000Z', '2026-10-16T00:01:00.000Z'],
+      ]);
+    } finally {
+      await loop.drives.stop();
+    }
+  });
+
+  it('keeps reading events while a busy issue is due and ticks it once after it frees', async () => {
+    const loop = setup(1, true);
+    const sweep = loop.pass();
+    const ticks: number[] = [];
+    try {
+      await vi.waitFor(() => expect(loop.isHolding()).toBe(true));
+      const lock = loop.drives.ticks.get(7)!;
+      const withPermitsIfAvailable = lock.withPermitsIfAvailable.bind(lock);
+      lock.withPermitsIfAvailable = permits => effect =>
+        withPermitsIfAvailable(permits)(
+          Effect.andThen(
+            Effect.sync(() => ticks.push(7)),
+            effect
+          )
+        );
+      loop.where.human('/agent', '2026-10-16T00:01:00.000Z');
+      expect(await loop.poll()).toBe('2026-10-16T00:01:00.000Z');
+      expect([[...loop.drives.due], ticks]).toEqual([[7], []]);
+      loop.ask();
+      say(loop.where, comment(9, 'morgan', true, '/agent', '2026-10-16T00:02:00.000Z'));
+      const before = loop.cursors.length;
+      await loop.poll();
+      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+      expect([loop.cursors[before], [...loop.drives.due], ticks]).toEqual(['2026-10-16T00:01:00.000Z', [7], []]);
+      loop.releaseSweep();
+      await sweep;
+      await loop.poll();
+      await loop.poll();
+      expect([[...loop.drives.due], ticks]).toEqual([[], [7]]);
+    } finally {
+      loop.releaseSweep();
+      loop.release();
+      await sweep;
+      await loop.drives.stop();
+    }
+  });
+
+  it('ticks the waiting run issue when its merged PR is missing from the open listing', async () => {
+    const loop = setup(2);
+    loop.graph.workflows.issue = {
+      ...loop.graph.workflows.issue!,
+      steps: [{ name: 'merge', does: { wait: 'human' }, checks: [], tries: 1 }],
+    };
+    const run = { ...fresh(), step: 'merge', status: 'waiting' as const };
+    try {
+      await Effect.runPromise(Effect.flatMap(Store, s => s.put(run)).pipe(Effect.provide(fileStore(loop.where.data))));
+      writeIssueAt(
+        issuePath(loop.where.tracker, 8),
+        '---\ntitle: Landed\nstate: merged\nauthor: morgan\nlabels: []\n---\n'
+      );
+      write(loop.where.tracker, {
+        '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'landed' }),
+      });
+      say(loop.where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' });
+      await loop.poll();
+      expect([loop.looked.includes(8), loop.drives.ticks.has(7), (await loop.read(run.id))?.seen]).toEqual([
+        true,
+        true,
+        '2026-10-16T00:01:00.000Z',
+      ]);
+    } finally {
+      loop.release();
+      await loop.drives.stop();
+    }
+  });
+
+  it('reads run history only after new trusted events arrive', async () => {
+    const loop = setup(2);
+    try {
+      await loop.pass();
+      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+      const listings = loop.listings();
+      const before = loop.cursors.length;
+      loop.where.human('/agent', '2026-10-16T00:01:00.000Z');
+      await loop.poll();
+      expect([loop.listings(), loop.cursors.slice(before)]).toEqual([
+        listings + 1,
+        ['2026-10-16T00:00:00.000Z', '2026-10-16T00:00:00.000Z', ''],
+      ]);
+    } finally {
+      loop.release();
+      await loop.drives.stop();
+    }
+  });
+
   it('answers a second issue within a pass while a long drive holds the first', async () => {
     const loop = setup(2);
     try {
