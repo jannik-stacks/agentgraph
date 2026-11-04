@@ -11,7 +11,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { findBrief, findReply, parseBrief } from './brief.mjs';
-import { addedLines, readBaseShaFromEnv, baseText, changedFiles, inBase, isTestFile, ownLines, report, parseTestCallTitle, isTestRelocation } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, baseText, changedFiles, inBase, isTestFile, ownLines, report, parseTestCallTitle } from './changes.mjs';
 
 const count = (text, pattern) => text.match(pattern)?.length ?? 0;
 const testCalls = /\b(it|test)(\.each\([^)]*\))?\(/g;
@@ -46,11 +46,11 @@ const integrity = () => {
     if (!isTestFile(path)) continue;
     const before = baseText(sha, path);
     if (deleted) {
-      if (before !== undefined && !isTestRelocation(sha)) findings.push(`${path}: deletes a test file with ${count(before, testCalls)} tests`);
+      if (before !== undefined) findings.push(`${path}: deletes a test file with ${count(before, testCalls)} tests`);
       continue;
     }
     const after = readFileSync(path, 'utf8');
-    if (before !== undefined && !isTestRelocation(sha)) {
+    if (before !== undefined) {
       const [was, is] = [count(before, testCalls), count(after, testCalls)];
       if (is < was) findings.push(`${path}: ${was - is} fewer tests than the base (${was} to ${is})`);
       const [had, has] = [count(before, expectCalls), count(after, expectCalls)];
@@ -110,7 +110,7 @@ const shapeText = {
 const shape = () => {
   for (const { path, deleted } of changed) {
     if (deleted || !isTestFile(path)) continue;
-    const added = new Set(ownLines(sha, path).map(({ line }) => line));
+    const added = new Set(addedLines(sha, path).map(({ line }) => line));
     for (const { line, what } of parseTestShape(readFileSync(path, 'utf8')))
       if (added.has(line)) findings.push(`${path}:${line}: ${shapeText[what]}`);
   }

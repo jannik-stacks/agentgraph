@@ -158,44 +158,6 @@ export const findDominantTokenRename = (sha, files) => {
   return { rename, renamed };
 };
 
-const readTestBlocks = text => {
-  const lines = text.split('\n');
-  const code = text.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, value => value.replace(/[^\n]/g, ' ')).split('\n');
-  const blocks = [];
-  for (let at = 0; at < lines.length; at++) {
-    const start = /^(\s*)(?:it|test)(?:\.[a-zA-Z]+)*(?:\(|$)/.exec(code[at]);
-    if (!start) continue;
-    const first = at;
-    if (!code[at].trimEnd().endsWith(');')) {
-      while (++at < lines.length)
-        if (code[at].startsWith(start[1]) && /^(?:\}\);|\);)$/.test(code[at].slice(start[1].length))) break;
-    }
-    if (at === lines.length) return [];
-    blocks.push(lines.slice(first, at + 1).map(line => line.slice(start[1].length)).join('\n'));
-  }
-  return blocks;
-};
-
-const relocations = new Map();
-
-export const isTestRelocation = sha => {
-  if (!relocations.has(sha)) {
-    const changed = changedFiles(sha).filter(({ path }) => isTestFile(path));
-    const sources = [...new Set(changed.map(({ path }) => basePath(sha, path)))];
-    const before = sources.flatMap(path => inBase(sha, path) ? [git('show', `${sha}:./${path}`)] : []);
-    const after = changed.filter(({ deleted }) => !deleted).map(({ path }) => readFileSync(path, 'utf8'));
-    const was = before.flatMap(readTestBlocks).sort();
-    const now = after.flatMap(readTestBlocks).sort();
-    const moved = sources.some(path => !existsSync(path));
-    const fixtures = changedFiles(sha).filter(({ path }) => path.startsWith('tests/') && /\.[cm]?[jt]sx?$/.test(path));
-    const old = [...new Set(fixtures.map(({ path }) => basePath(sha, path)))].flatMap(path => inBase(sha, path) ? [git('show', `${sha}:./${path}`)] : []).join('\n');
-    const fresh = fixtures.filter(({ deleted }) => !deleted).map(({ path }) => readFileSync(path, 'utf8')).join('\n');
-    const assertions = text => JSON.stringify((text.match(/\bexpect(?:\.soft)?\([\s\S]*?;/g) ?? []).map(statement => statement.split('\n').map(line => line.trim()).join('\n')).sort());
-    relocations.set(sha, moved && was.length > 0 && JSON.stringify(was) === JSON.stringify(now) && assertions(old) === assertions(fresh));
-  }
-  return relocations.get(sha);
-};
-
 let changeRename;
 
 /**
@@ -205,10 +167,6 @@ let changeRename;
 export const ownLines = (sha, path) => {
   changeRename ??= findDominantTokenRename(sha, changedFiles(sha)).rename;
   const lines = addedLines(sha, path);
-  if (isTestFile(path) && isTestRelocation(sha)) {
-    const old = new Set(changedFiles(sha).filter(f => isTestFile(f.path)).flatMap(f => (baseText(sha, f.path) ?? '').split('\n').map(line => line.trim())));
-    return lines.filter(({ text }) => !old.has(text.trim()));
-  }
   if (!changeRename || !inBase(sha, path)) return lines;
   const renamedAt = new Set();
   for (const hunk of readChangeDiff(sha, [path], 0).split(/^(?=@@ )/m).slice(1)) {
