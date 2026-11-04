@@ -29,8 +29,13 @@ case $code in
   ;;
 esac
 
+[ -f "$data/live/instance.yaml" ] || {
+  echo "provision $data/live/instance.yaml and its checkout before starting the engine; see docs/hosting.md" >&2
+  exit 1
+}
+
 backup() {
-  tar -czf "/tmp/$1.tar.gz" -C "$data" --exclude=./work --exclude=./index --exclude=./news --exclude=./.locks . &&
+  tar -czf "/tmp/$1.tar.gz" -C "$data" --exclude='*/data/.locks' . &&
     curl -sSf -X PUT --data-binary "@/tmp/$1.tar.gz" http://data.internal/data.tar.gz
 }
 
@@ -43,7 +48,7 @@ backup() {
   done
 ) &
 saver=$!
-node bin/run.ts loop --data "$data" &
+node bin/run.ts loop --instance live --data "$data" &
 engine=$!
 trap 'kill $saver $engine 2> /dev/null || :; wait $saver $engine || :; backup last || :; exit 0' TERM INT
 wait $engine || exit $?

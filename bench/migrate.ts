@@ -129,10 +129,14 @@ const copyAttempt = async (from: string, at: string, c: ReturnType<typeof readBe
   rmSync(tracker, { recursive: true, force: true });
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
   const change = readFileOrEmpty(join(at, 'change.patch'));
-  await writeImportedRun({ repo, tracker, data: join(at, 'data') }, change.trim() ? join(at, 'change.patch') : c.base, {
-    version,
-    from: c.base,
-  });
+  await writeImportedRun(
+    { checkout: repo, tracker, data: join(at, 'data') },
+    change.trim() ? join(at, 'change.patch') : c.base,
+    {
+      version,
+      from: c.base,
+    }
+  );
   return true;
 };
 

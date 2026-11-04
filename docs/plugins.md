@@ -57,7 +57,7 @@ A plugin can declare `settingsSchema`; it decodes only `plugins.<name>` in `sett
 Bind its type once with `makePlugin<typeof settings.Type>({ name, settingsSchema: settings, tools: { ... } })`;
 handlers then infer `ctx.settings`. Without a schema, that plugin's settings must be absent.
 Unknown settings, duplicate plugin or tool names and symlink entries fail `check`.
-<!-- code: src/plugin.ts#makePlugin src/folder.ts#SettingsFile src/plugin.ts#readPlugins -->
+<!-- code: src/plugin.ts#makePlugin src/folder.ts#GraphSettings src/plugin.ts#readPlugins -->
 
 Imports run on the host during `check`. Review them as host code: the context supplies no tracker writes
 or engine services, but TypeScript can still read the host environment, files and network.

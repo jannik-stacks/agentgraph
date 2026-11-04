@@ -12,19 +12,17 @@ import {
   makeEnvProvider,
   parseModelUrls,
   splitNames,
-  readConfiguredGraph,
+  readOverrides,
   readHarnessSettings,
 } from './harnesses.ts';
-import { GraphError, parseGraphSettings } from './folder.ts';
+import { parseGraphSettings } from './folder.ts';
 import { readPlugins, type TrackerHost } from './plugin.ts';
 import { readOrUndefined } from './read.ts';
 import { remoteSandbox } from './remote.ts';
 import { priceTable } from './prices.ts';
-import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
 
-/** Everything the runner reads from the environment. */
 export type Settings = {
   repo: string;
   graph: string;
@@ -36,13 +34,12 @@ export type Settings = {
   prices: string;
   /** The name prefix of each repo's docker volume for toolchains and package caches; empty for none. */
   cache: string;
-  /** The image commands start in when a graph names none. */
   image: string;
   sandbox: string;
   checkLogs: (typeof checkLogs)[number];
   /** The studio's URL that posted bodies link back to; empty for none. */
   studio: string;
-  trust: string[];
+  trust: string[] | undefined;
   /** A tracker plugin's name, or the path of a tracker folder with its git remote in `origin.git`. */
   tracker: string;
   trackerDir: string;
@@ -92,7 +89,7 @@ export const hostSettings = {
 
 const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
 
-const trackerName = Config.all(
+export const readTrackerName = Config.all(
   ['AGENTGRAPH_TRACKER', ...app].map(name => Config.String(name).pipe(Config.withDefault('')))
 ).pipe(Config.map(([tracker, ...apps]) => tracker || (apps.some(Boolean) ? 'github' : '')));
 
@@ -101,13 +98,13 @@ export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker',
     Config.all({
       ...hostSettings,
       config: Config.option(Config.String('AGENTGRAPH_CONFIG')),
-      tracker: trackerName,
+      tracker: readTrackerName,
     }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider()))
   );
   const tracker = flags.tracker || s.tracker || undefined;
   const data = resolve(flags.data ?? s.data);
   const file = join(data, 'config.ts');
-  const config = Option.getOrElse(s.config, () => (!tracker && existsSync(file) ? file : undefined));
+  const config = Option.getOrElse(s.config, () => (existsSync(file) ? file : undefined));
   return { ...s, data, tracker, config };
 };
 
@@ -124,14 +121,11 @@ export const settings = Config.all({
   cache: Config.String('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
   checkLogs: Config.Literals(checkLogs, 'AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.String('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
-  trust: Config.String('AGENTGRAPH_TRUST').pipe(
-    Config.map(trust => trust.split(',').map(login => login.trim())),
-    Config.withDefault<string[]>([])
-  ),
+  trust: readOverrides.pipe(Config.map(overrides => overrides.trust)),
   app: Config.option(
     Config.all({ id: Config.String('AGENTGRAPH_APP_ID'), key: Config.Redacted('AGENTGRAPH_APP_KEY') })
   ),
-  tracker: trackerName,
+  tracker: readTrackerName,
   trackerDir: Config.String('AGENTGRAPH_TRACKER_DIR').pipe(Config.withDefault('')),
 }).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
 
@@ -170,30 +164,14 @@ export const makeTrackerSetup = async (
   const graph = isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
   const picked = await pickTracker(s.tracker, graph);
   if ('problem' in picked) throw new Error(picked.problem);
-  if (s.trackerDir && picked.dir)
-    throw new Error(
-      `tracker ${s.tracker} is a folder; an instance names a tracker plugin, its folder is ${s.trackerDir}`
-    );
   const dir = picked.dir ?? s.trackerDir;
   const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(dir && { dir }) });
-  if (s.trackerDir && setup.origin.origin !== join(s.trackerDir, 'origin.git'))
+  if (setup.origin.local && dir && setup.origin.origin !== join(dir, 'origin.git'))
     throw new Error(
       `tracker ${s.tracker} keeps its issues outside ${s.trackerDir}; an instance tracker wraps the folder it is given`
     );
   return setup;
 };
-
-/**
- * The graph at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
- * default branch, so only a merged pull request changes it.
- */
-export const graphAt = (path: string) =>
-  isAbsolute(path)
-    ? readConfiguredGraph(path)
-    : Effect.flatMap(Sandbox, s => s.checkout('origin/HEAD')).pipe(
-        Effect.mapError(e => new GraphError({ problems: [{ path, message: e.detail }] })),
-        Effect.flatMap(work => readConfiguredGraph(join(work.dir, path)))
-      );
 
 const findLocalModelHosts = (url: string) =>
   Object.values(parseModelUrls(url))
@@ -211,8 +189,7 @@ export const whyModelHostsMissing = Effect.gen(function* () {
   ].join('\n');
 });
 
-/** The production services. The graph is read once for its trust list. Tests build their own from the file and host layers. */
-export const makeProductionLayers = () => {
+export const makeProductionLayers = (setup?: TrackerSetup) => {
   let previous: string | undefined;
   let place: ReturnType<typeof makeTrackerSetup>;
   return (s: Settings): Layer.Layer<Services> => {
@@ -225,7 +202,7 @@ export const makeProductionLayers = () => {
       Option.getOrUndefined(Option.map(s.app, app => [app.id, Redacted.value(app.key)])),
     ]);
     if (key !== previous) {
-      place = makeTrackerSetup(s);
+      place = setup ? Promise.resolve(setup) : makeTrackerSetup(s);
       previous = key;
     }
     const current = place;
@@ -241,12 +218,6 @@ export const makeProductionLayers = () => {
               direct: findLocalModelHosts(s.proxy.url),
               ...origin,
             });
-        const trust = s.trust.length
-          ? s.trust
-          : yield* Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
-              Effect.provide(sandbox),
-              Effect.catch(() => Effect.succeed<string[]>([]))
-            );
         const config = yield* readHarnessSettings.pipe(
           Effect.catch(e =>
             Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {
@@ -255,7 +226,7 @@ export const makeProductionLayers = () => {
           )
         );
         return Layer.mergeAll(
-          tracker(trust),
+          tracker(s.trust),
           fileStore(s.data, s.checkLogs),
           harnessSession({
             ...Struct.pick(s, ['data', 'proxy', 'passed', 'prices']),

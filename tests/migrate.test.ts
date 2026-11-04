@@ -66,7 +66,7 @@ const buildTemplate = async () => {
   const arm = join(root, 'arm');
   save(join(arm, 'graph', 'settings.yaml'), 'limits: {}\n');
   git(root, 'init', '-q', '--bare', join(arm, 'forge', 'origin.git'));
-  const id = await writeImportedRun({ repo, tracker: join(arm, 'forge'), data: join(arm, 'data') }, merged, {
+  const id = await writeImportedRun({ checkout: repo, tracker: join(arm, 'forge'), data: join(arm, 'data') }, merged, {
     version: 'old',
     from: base,
     input: { case: 'demo', arm: 'v2', repeat: 1 },

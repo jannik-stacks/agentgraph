@@ -36,6 +36,7 @@ const toolTests = [
   'tests/harnesses.test.ts',
   'tests/host-env.test.ts',
   'tests/import.test.ts',
+  'tests/instance-setup.test.ts',
   'tests/install-scripts.test.ts',
   'tests/keychain-scripts.test.ts',
   'tests/keys-script.test.ts',

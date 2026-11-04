@@ -38,7 +38,7 @@ const serveStudio = (data: string) => {
 it('keeps a commit or a patch as an ended run with no issue, once per import', async () => {
   const w = seeded('import', { 'README.md': 'hi\n' });
   dirs.push(w.root);
-  const i = await ensureInstance(join(w.root, 'agentgraph'), w.seed);
+  const i = await ensureInstance(join(w.root, 'agentgraph'), 'test', w.seed);
   const base = git(w.seed, 'rev-parse', 'HEAD');
   writeFileSync(join(w.seed, 'hello.txt'), 'hello\n');
   git(w.seed, 'add', '-A');
@@ -74,7 +74,7 @@ it('keeps a commit or a patch as an ended run with no issue, once per import', a
 it('serves an imported run in the studio run list and on its own page', async () => {
   const w = seeded('import-api', { 'README.md': 'hi\n' });
   dirs.push(w.root);
-  const i = await ensureInstance(join(w.root, 'agentgraph'), w.seed);
+  const i = await ensureInstance(join(w.root, 'agentgraph'), 'test', w.seed);
   const id = await writeImportedRun(i, 'HEAD', { version: '0.0.1', from: 'HEAD' });
   const ask = serveStudio(i.data);
   const list = await ask('/');

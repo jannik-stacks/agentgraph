@@ -83,9 +83,11 @@ agi start --provider anthropic --save "Add a greet function"
 agi loop --tracker github --dir .agentgraph --data ~/agentgraph-data
 ```
 
+The shared `--instance <name>` flag chooses the named instance. See the [settings table](local.md#named-instances-and-settings).
+
 ## Environment
 
-The runner reads these. The CLI sets `AGENTGRAPH_DIR`, `AGENTGRAPH_DATA`, `AGENTGRAPH_TRACKER` and `AGENTGRAPH_REPO` from its flags, and `AGENTGRAPH_TRUST` to the instance owner. <!-- code: src/services.ts#settings -->
+The runner reads these. Instance defaults and command overrides follow the [settings table](local.md#named-instances-and-settings). <!-- code: src/services.ts#settings -->
 
 | Variable | Meaning and default |
 | --- | --- |
@@ -96,8 +98,8 @@ The runner reads these. The CLI sets `AGENTGRAPH_DIR`, `AGENTGRAPH_DATA`, `AGENT
 | `AGENTGRAPH_EVERY` | Poll interval in minutes, 5 |
 | `AGENTGRAPH_COMPRESS_DAYS` | Days after which `loop` compresses an untouched ended run's trace and check record with zstd, 14; 0 never |
 | `AGENTGRAPH_TRACKER_DIR` | The folder a tracker plugin picked by name keeps its files in; a local instance sets its `tracker/` |
-| `AGENTGRAPH_REPO` | `owner/name` to work on instead of the graph's `repo` |
-| `AGENTGRAPH_TRUST` | Comma-separated logins trusted instead of the graph's `trust` |
+| `AGENTGRAPH_REPO` | Tracker repository override of instance `repo` |
+| `AGENTGRAPH_TRUST` | Comma-separated logins overriding instance trust |
 | `AGENTGRAPH_PROVIDER` | The provider; agents that name no harness get its first |
 | `AGENTGRAPH_HARNESS` | The harness every agent runs on |
 | `AGENTGRAPH_MODELS` | `alias=model` pairs, `*` for agents without a `model` |
@@ -108,7 +110,7 @@ The runner reads these. The CLI sets `AGENTGRAPH_DIR`, `AGENTGRAPH_DATA`, `AGENT
 | `AGENTGRAPH_CONFIG` | The [harness plugins](sandbox.md#harnesses) file, `config.ts` in the data root, else `agentgraph.config.ts` |
 | `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`, as `--logs` |
 | `AGENTGRAPH_CACHE_VOLUME` | Name prefix of the per-repo [toolchain cache](sandbox.md#toolchains) volumes, `agentgraph-cache` |
-| `AGENTGRAPH_IMAGE` | Sandbox image when the graph sets none, `agentgraph-sandbox:local` |
+| `AGENTGRAPH_IMAGE` | Sandbox image override; default `agentgraph-sandbox:local` |
 | `AGENTGRAPH_SANDBOX_URL` | A box server that runs commands instead of docker; see [Hosting](hosting.md) |
 | `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links) |
 

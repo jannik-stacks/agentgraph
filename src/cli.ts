@@ -19,6 +19,7 @@ const flag = (name: string) => {
 };
 const shared = {
   data: text(Flag.String('data')),
+  instance: text(Flag.String('instance')),
   repo: text(Flag.String('repo')),
   base: text(Flag.String('base')),
   dir: text(Flag.String('dir')),

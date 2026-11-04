@@ -103,7 +103,7 @@ export const makeStatusLabel = (
 });
 
 export type TrackerSetup = {
-  layer: (trust?: readonly string[]) => Layer.Layer<Tracker>;
+  layer: (trust?: readonly string[], as?: string) => Layer.Layer<Tracker>;
   origin: { origin: string; local?: boolean; token?: Effect.Effect<string, TrackerError> };
 };
 
@@ -457,6 +457,16 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           reason,
           ...(away && { moved: away }),
         });
+        if (p.kind === 'issue') {
+          const k = await open({
+            title: p.title,
+            body: p.body,
+            ...(p.parent !== undefined && { parent: p.parent }),
+            ...(p.milestone !== undefined && { milestone: p.milestone }),
+            labels: p.labels ?? [],
+          });
+          return { proposal: p, ok: true, url: md(k), id: String(k) };
+        }
         const t = await must(n);
         await adopt(n);
         switch (p.kind) {
@@ -604,15 +614,6 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             await say({ issue: p.number, kind: 'merged' });
             return { proposal: p, ok: true, url: pr.url };
           }
-          case 'issue': {
-            const k = await open({
-              title: p.title,
-              body: p.body,
-              ...(p.parent !== undefined && { parent: p.parent }),
-              labels: p.labels ?? [],
-            });
-            return { proposal: p, ok: true, url: md(k), id: String(k) };
-          }
           case 'react': {
             const file = join(findIssueDir(dir, n), 'reactions');
             const id = p.comment ?? `#${n}`;
@@ -640,7 +641,8 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           try: f,
           catch: e => (e instanceof TrackerError ? e : new TrackerError({ message: (e as Error).message })),
         });
-      const locked = <A>(f: () => Promise<A>) => lock.withPermits(1)(io(() => runLocked(dir, f)));
+      const locked = <A>(f: () => Promise<A>) =>
+        lock.withPermits(1)(Effect.uninterruptible(io(() => runLocked(dir, f))));
 
       return {
         searchIssues: (query, options) =>
@@ -728,7 +730,7 @@ export const folder = makePlugin({
   tracker: ({ dir }): TrackerSetup => {
     if (!dir) throw new Error('the folder tracker needs a folder: --tracker <dir>');
     return {
-      layer: trust => folderTracker(dir, undefined, trust),
+      layer: (trust, as) => folderTracker(dir, as, trust),
       origin: { origin: join(dir, 'origin.git'), local: true },
     };
   },

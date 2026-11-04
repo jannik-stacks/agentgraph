@@ -4,6 +4,7 @@ import { basename, delimiter, dirname, join } from 'node:path';
 import { Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox, dockerArgs, readImage } from '../src/docker.ts';
+import { ensureInstance } from '../src/instance.ts';
 import { commitCheckoutOnce } from '../src/git.ts';
 import {
   dependencyDirs,
@@ -1095,23 +1096,27 @@ describe('image precedence', () => {
 });
 
 describe('deployment image startup', () => {
-  it('fails a missing custom tag without building stock contents', () => {
+  it('requires a named instance and fails a missing custom tag without building stock contents', async () => {
     const bin = tmp('startup');
+    const data = join(bin, 'data');
     const log = join(bin, 'calls');
     writeFileSync(
       join(bin, 'docker'),
       `#!/bin/sh\necho "$*" >> ${log}\ncase "$*" in "image inspect custom:missing") exit 1;; esac\n`
     );
     chmodSync(join(bin, 'docker'), 0o755);
-    const result = spawnSync('sh', [join(import.meta.dirname, '../examples/deploy/engine/start.sh')], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: `${bin}${delimiter}${process.env.PATH}`,
-        AGENTGRAPH_IMAGE: 'custom:missing',
-        AGENTGRAPH_SANDBOX_URL: '',
-      },
-    });
+    const script = join(import.meta.dirname, '../examples/deploy/engine/start.sh');
+    const env = {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH}`,
+      AGENTGRAPH_DATA: data,
+      AGENTGRAPH_IMAGE: 'custom:missing',
+      AGENTGRAPH_SANDBOX_URL: '',
+    };
+    const unprovisioned = spawnSync('sh', [script], { encoding: 'utf8', env });
+    expect([unprovisioned.status, unprovisioned.stderr]).toEqual([1, expect.stringContaining('provision')]);
+    await ensureInstance(data, 'live', origin());
+    const result = spawnSync('sh', [script], { encoding: 'utf8', env });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('missing custom image custom:missing');
     expect(readFileSync(log, 'utf8')).not.toContain('build');

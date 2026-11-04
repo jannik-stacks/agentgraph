@@ -72,7 +72,7 @@ export default { ...folder, name: 'mine' };
   );
 });
 
-it('holds an instance tracker to its folder, refusing a path and a graph whose plugin moved the folder', async () => {
+it('confines local plugins to their folder and permits an explicit tracker path', async () => {
   const [folderDir, other, before, after] = [tmp('instance'), tmp('other'), tmp('graph-a'), tmp('graph-b')];
   const tracker = JSON.stringify(join(import.meta.dirname, '..', 'src', 'tracker.ts'));
   write(before, {
@@ -91,7 +91,7 @@ export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: h
   expect(await Promise.all([setup(before, 'mine'), setup(after, 'mine'), setup(before, other)])).toEqual([
     join(folderDir, 'origin.git'),
     `tracker mine keeps its issues outside ${folderDir}; an instance tracker wraps the folder it is given`,
-    `tracker ${other} is a folder; an instance names a tracker plugin, its folder is ${folderDir}`,
+    join(other, 'origin.git'),
   ]);
 });
 
@@ -154,10 +154,10 @@ const readWith = (env: Record<string, string>) =>
   );
 
 it.each([
-  ['an empty trust list trusts no one instead of the graph list', { AGENTGRAPH_TRUST: '' }, { trust: [''] }],
+  ['an empty trust override trusts no one', { AGENTGRAPH_TRUST: '' }, { trust: [] }],
   ['trusted logins are trimmed', { AGENTGRAPH_TRUST: 'alice, bob ,carol' }, { trust: ['alice', 'bob', 'carol'] }],
   ['an empty cache volume disables the cache', { AGENTGRAPH_CACHE_VOLUME: '' }, { cache: '' }],
-  ['unset settings take their defaults', {}, { trust: [], cache: 'agentgraph-cache', checkLogs: 'all' }],
+  ['unset settings take their defaults', {}, { trust: undefined, cache: 'agentgraph-cache', checkLogs: 'all' }],
   ['numbers are trimmed', { AGENTGRAPH_EVERY: ' 3 ', AGENTGRAPH_COMPRESS_DAYS: ' 7' }, { every: 3, compress: 7 }],
   ['an empty compress setting is 0, never', { AGENTGRAPH_COMPRESS_DAYS: '' }, { compress: 0 }],
   ['no tracker and no App env read as no tracker name', { AGENTGRAPH_TRACKER: '' }, { tracker: '' }],

@@ -149,7 +149,7 @@ describe("the user's repo", () => {
     const objects = files(join(seed, '.git', 'objects'), /^$/);
     const data = join(root, 'agentgraph-data');
 
-    const i = await ensureInstance(data, seed, 'main');
+    const i = await ensureInstance(data, 'test', seed, 'main');
     git(join(i.tracker, 'origin.git'), 'config', 'remote.origin.pushurl', seed);
     expect(await ensureBase(i)).toBeUndefined();
     const graph = await ensureGraph(i);
@@ -157,7 +157,13 @@ describe("the user's repo", () => {
     expect(await formatGraphName(i, graph)).toMatch(/^\.agentgraph\/ at main [0-9a-f]{7}$/);
     const loaded = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     expect(
-      await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.tracker, 'Add a greeting', i.owner, 'issue')
+      await writeTriggeringIssue(
+        { ...loaded, trust: [i.owner] },
+        folderTracker(i.tracker, i.owner),
+        'Add a greeting',
+        i.owner,
+        'issue'
+      )
     ).toBe(1);
     Object.assign(process.env, {
       AGENTGRAPH_TRACKER: i.tracker,
@@ -216,16 +222,22 @@ describe("the user's repo", () => {
     const { root, seed, ran } = userRepo();
     const before = { ...look(seed), objects: files(join(seed, '.git', 'objects'), /^$/) };
     const data = join(root, 'agentgraph-data');
-    const i = await ensureInstance(data, seed, 'main', true);
+    const i = await ensureInstance(data, 'test', seed, 'main', true);
     const evil = join(root, 'evil');
     mkdirSync(evil);
     symlinkSync(join(seed, '.git'), join(evil, basename(i.dir)));
-    await expect(ensureInstance(evil, seed, 'main')).rejects.toThrow('inside');
-    expect((await ensureInstance(data, seed)).readonly).toBe(true);
+    await expect(ensureInstance(evil, 'test', seed, 'main')).rejects.toThrow('inside');
+    expect((await ensureInstance(data, 'test', seed)).readonly).toBe(true);
     expect(await ensureBase(i)).toBeUndefined();
     expect(await whyGraphUncommitted(i, await ensureGraph(i))).toBeUndefined();
     const loaded = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
-    await writeTriggeringIssue({ ...loaded, trust: [i.owner] }, i.tracker, 'Add a greeting', i.owner, 'issue');
+    await writeTriggeringIssue(
+      { ...loaded, trust: [i.owner] },
+      folderTracker(i.tracker, i.owner),
+      'Add a greeting',
+      i.owner,
+      'issue'
+    );
     Object.assign(process.env, {
       AGENTGRAPH_TRACKER: i.tracker,
       AGENTGRAPH_TRUST: i.owner,

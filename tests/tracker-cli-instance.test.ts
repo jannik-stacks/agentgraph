@@ -81,7 +81,7 @@ describe('the human verbs on a tracker folder', () => {
       failures
     );
     expect(run!.status).toBe('done');
-    const trace = readFileSync(join(w.root, 'data', run!.id, 'trace.jsonl'), 'utf8')
+    const trace = readFileSync(join(w.data, run!.id, 'trace.jsonl'), 'utf8')
       .trim()
       .split('\n')
       .map(l => JSON.parse(l));
@@ -230,10 +230,8 @@ await runLocked(dir, async () => {
     await w.tracker('issue', 'A question');
     const [parked] = await w.run([], 1, { kind: 'say', issue: 1, text: 'Remember the original request' }, 2);
     const { reason: _reason, ...running } = { ...parked!, status: 'running' as const, retried: true as const };
-    await Effect.runPromise(
-      Effect.flatMap(Store, store => store.put(running)).pipe(Effect.provide(fileStore(join(w.root, 'data'))))
-    );
-    const lock = join(w.root, 'data', '.locks', `${running.id}.lock`);
+    await Effect.runPromise(Effect.flatMap(Store, store => store.put(running)).pipe(Effect.provide(fileStore(w.data))));
+    const lock = join(w.data, '.locks', `${running.id}.lock`);
     writeFileSync(lock, String(process.pid));
     expect(await w.run([], issue)).toEqual([running]);
     const dead = spawnSync(process.execPath, ['-e', ''], { env: { ...process.env, NODE_OPTIONS: '' } });
@@ -241,7 +239,7 @@ await runLocked(dir, async () => {
     const [recovered] = await w.run([[start('recovered'), reply({ kind: 'comment', body: 'Recovered.' })]], issue);
     expect(recovered).toMatchObject({ id: running.id, status: 'done' });
     expect(existsSync(lock)).toBe(false);
-    const trace = readFileSync(join(w.root, 'data', running.id, 'trace.jsonl'), 'utf8')
+    const trace = readFileSync(join(w.data, running.id, 'trace.jsonl'), 'utf8')
       .trim()
       .split('\n')
       .map(l => JSON.parse(l));
@@ -250,7 +248,8 @@ await runLocked(dir, async () => {
 
   it('sets, removes and prints run labels through the CLI', async () => {
     const w = world();
-    const data = join(w.root, 'data');
+    await w.tracker('init', w.seed);
+    const data = w.data;
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     const run = begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: '2026-10-16T00:00:01.000Z' });
     const { issue: _issue, ...imported } = { ...run, id: 'import-1' };
@@ -260,10 +259,14 @@ await runLocked(dir, async () => {
       )
     );
     const label = (...args: string[]) =>
-      spawnSync(process.execPath, [runTs, 'label', ...args, '--data', data, '--tracker', w.dir], {
-        encoding: 'utf8',
-        env: { ...process.env, NODE_OPTIONS: '' },
-      });
+      spawnSync(
+        process.execPath,
+        [runTs, 'label', ...args, '--repo', w.seed, '--data', join(w.root, 'instances'), '--tracker', w.dir],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, NODE_OPTIONS: '' },
+        }
+      );
     const runs = [
       label('triage-1', 'arm=v2', 'model=gpt 6'),
       label('triage-1', 'arm-', 'set=explorer'),
@@ -295,7 +298,7 @@ await runLocked(dir, async () => {
     const w = world();
     await w.tracker('init', w.seed);
     await w.tracker('issue', 'A task');
-    const data = join(w.root, 'data');
+    const data = w.data;
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     const parked = {
       ...begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: '2026-10-16T00:00:01.000Z' }),
@@ -304,10 +307,17 @@ await runLocked(dir, async () => {
       reason: `${stoppedByRunner} (SandboxError). Reply to try triage again.`,
     };
     await Effect.runPromise(Effect.flatMap(Store, store => store.put(parked)).pipe(Effect.provide(fileStore(data))));
-    const flags = ['--dir', sandboxGraph, '--data', data, '--tracker', w.dir];
+    const flags = ['--dir', sandboxGraph, '--repo', w.seed, '--data', join(w.root, 'instances'), '--tracker', w.dir];
+    const env = {
+      ...process.env,
+      NODE_OPTIONS: '',
+      AGENTGRAPH_PROVIDER: 'litellm',
+      AGENTGRAPH_PROXY_KEYS: '*=test',
+      AGENTGRAPH_SANDBOX_URL: 'http://unused',
+    };
     const resumed = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', ...flags], {
       encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '' },
+      env,
     });
     expect(resumed.status, resumed.stderr).toBe(0);
     expect(resumed.stdout).toContain('triage-1 triage running');
@@ -318,13 +328,13 @@ await runLocked(dir, async () => {
     expect(stored).toMatchObject({ status: 'running' });
     const empty = spawnSync(process.execPath, [runTs, 'resume', '--parked', ...flags], {
       encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '' },
+      env,
     });
     expect(empty.status, empty.stderr).toBe(0);
     expect(empty.stdout).toContain('0 runs parked');
     const invalid = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', '--parked', ...flags], {
       encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '' },
+      env,
     });
     expect(invalid.status).not.toBe(0);
     expect(invalid.stderr).toContain('usage: agi resume');
@@ -342,8 +352,10 @@ await runLocked(dir, async () => {
         '1',
         '--dir',
         sandboxGraph,
+        '--repo',
+        w.seed,
         '--data',
-        join(w.root, 'data'),
+        join(w.root, 'instances'),
         '--tracker',
         w.dir,
         '--workflow',
@@ -351,11 +363,20 @@ await runLocked(dir, async () => {
         '--step',
         'triage',
       ],
-      { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '',
+          AGENTGRAPH_PROVIDER: 'litellm',
+          AGENTGRAPH_PROXY_KEYS: '*=test',
+          AGENTGRAPH_SANDBOX_URL: 'http://unused',
+        },
+      }
     );
     expect(dispatched.status, dispatched.stderr).toBe(0);
     const [run] = await Effect.runPromise(
-      Effect.flatMap(Store, store => store.list()).pipe(Effect.provide(fileStore(join(w.root, 'data'))))
+      Effect.flatMap(Store, store => store.list()).pipe(Effect.provide(fileStore(w.data)))
     );
     expect(run).toMatchObject({ workflow: 'triage', status: 'running', by: 'cli' });
     await expect(w.run([], 1, { kind: 'dispatch', issue: 1, workflow: 'triage' })).rejects.toThrow(
@@ -365,7 +386,7 @@ await runLocked(dir, async () => {
       'the graph has no workflow nope'
     );
     const stored = await Effect.runPromise(
-      Effect.flatMap(Store, store => store.get(run!.id)).pipe(Effect.provide(fileStore(join(w.root, 'data'))))
+      Effect.flatMap(Store, store => store.get(run!.id)).pipe(Effect.provide(fileStore(w.data)))
     );
     expect(stored!.status).toBe('running');
   });
@@ -374,7 +395,7 @@ await runLocked(dir, async () => {
     const w = world();
     await w.tracker('init', w.seed);
     await w.tracker('issue', 'A task');
-    const data = join(w.root, 'data');
+    const data = w.data;
     const dispatched = spawnSync(
       process.execPath,
       [
@@ -384,14 +405,25 @@ await runLocked(dir, async () => {
         'what is left?',
         '--dir',
         sandboxGraph,
+        '--repo',
+        w.seed,
         '--data',
-        data,
+        join(w.root, 'instances'),
         '--tracker',
         w.dir,
         '--workflow',
         'router',
       ],
-      { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '',
+          AGENTGRAPH_PROVIDER: 'litellm',
+          AGENTGRAPH_PROXY_KEYS: '*=test',
+          AGENTGRAPH_SANDBOX_URL: 'http://unused',
+        },
+      }
     );
     expect(dispatched.status, dispatched.stderr).toBe(0);
     const [run] = await Effect.runPromise(
@@ -432,7 +464,7 @@ await runLocked(dir, async () => {
           Effect.provide(
             Layer.mergeAll(
               folderTracker(w.dir),
-              fileStore(join(w.root, 'data')),
+              fileStore(w.data),
               hostSandbox(w.origin),
               replaySession([[start('router'), reply({ kind: 'comment', body: 'Here is why.' })]])
             )
@@ -500,14 +532,14 @@ describe('an instance', () => {
     const guidance = expect.stringMatching(/no graph found[\s\S]*copy an example/i);
     expect(refused.map(r => [r.status, r.stderr])).toEqual(refused.map(() => [1, guidance]));
     expect(message).toMatch(/^no graph found\. Copy an example into this folder first:\n  cp -R /);
-    const i = await ensureInstance(root, w.seed);
+    const i = await ensureInstance(root, 'seed', w.seed);
     expect(findIssueNumbers(i.tracker)).toEqual([]);
     expect(existsSync(join(w.seed, '.agentgraph'))).toBe(false);
     expect(cli('show').status).toBe(0);
     const copied = spawnSync('sh', ['-c', message.split('\n')[1]!.trim()], { cwd: w.seed, encoding: 'utf8' });
     expect(copied.status, copied.stderr).toBe(0);
     expect(cli('check').stdout.trim()).toBe('ok');
-    const graph = join(i.repo, '.agentgraph');
+    const graph = join(i.checkout, '.agentgraph');
     expect(await ensureGraph(i)).toBe(graph);
     expect(cli('show', 'graph').stdout).toContain(`graph ${graph}\n`);
     expect(readFileSync(join(graph, 'workflows', 'issue.md'), 'utf8')).toContain('wait: human');
@@ -516,7 +548,7 @@ describe('an instance', () => {
   it('names a missing tracker folder in the CLI and the studio instead of crashing', async () => {
     const w = world();
     const root = join(w.root, 'agentgraph-data');
-    const i = await ensureInstance(root, w.seed);
+    const i = await ensureInstance(root, 'seed', w.seed);
     renameSync(i.tracker, join(i.dir, 'forge'));
     const env = { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_CONFIG: '', AGENTGRAPH_TRACKER: '', AGENTGRAPH_DIR: '' };
     const studio = join(import.meta.dirname, '..', 'studio', 'dev.ts');
@@ -534,10 +566,10 @@ describe('an instance', () => {
     );
   });
 
-  it('shows issues through the tracker instance.yaml names, and keeps the name when the provider is saved', async () => {
+  it('shows stored data without discovering the saved tracker and preserves its name when saving the provider', async () => {
     const w = world();
     const root = join(w.root, 'agentgraph-data');
-    const i = await ensureInstance(root, w.seed);
+    const i = await ensureInstance(root, 'seed', w.seed);
     const graph = join(w.seed, '.agentgraph');
     cpSync(join(import.meta.dirname, '..', 'examples', 'starter'), graph, { recursive: true });
     const trackerTs = JSON.stringify(join(import.meta.dirname, '..', 'src', 'tracker.ts'));
@@ -558,14 +590,14 @@ export default { name: 'mine', tracker: host => (writeFileSync(host.dir + '.pick
       encoding: 'utf8',
       env: { ...process.env, NODE_OPTIONS: '', AGENTGRAPH_TRACKER: '', AGENTGRAPH_DIR: '', AGENTGRAPH_APP_ENV: '' },
     });
-    expect(shown.stdout, shown.stderr).toContain('#1 open Mine');
-    expect(existsSync(`${i.tracker}.picked`)).toBe(true);
+    expect([shown.status, shown.stderr]).toEqual([0, '']);
+    expect(existsSync(`${i.tracker}.picked`)).toBe(false);
   });
 
   it('refuses an instance tracker that keeps its issues outside the instance folder', async () => {
     const w = world();
     const root = join(w.root, 'agentgraph-data');
-    const i = await ensureInstance(root, w.seed);
+    const i = await ensureInstance(root, 'seed', w.seed);
     const graph = join(w.seed, '.agentgraph');
     cpSync(join(import.meta.dirname, '..', 'examples', 'starter'), graph, { recursive: true });
     mkdirSync(join(graph, 'plugins'));
@@ -583,7 +615,11 @@ export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: 
       AGENTGRAPH_DIR: '',
       AGENTGRAPH_APP_ENV: '',
     };
-    const runs = [['show'], ['start', 'Fix it'], ['close', '1']].map(args =>
+    const runs = [
+      ['loop', '--once'],
+      ['start', 'Fix it'],
+      ['close', '1'],
+    ].map(args =>
       spawnSync(process.execPath, [runTs, ...args, '--data', root], { cwd: w.seed, encoding: 'utf8', env })
     );
     const why = `tracker moved keeps its issues outside ${i.tracker}`;
@@ -621,15 +657,21 @@ export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: 
       });
       return { code: r.status, out: r.stdout.trim(), err: r.stderr.trim() };
     };
-    await expect(ensureInstance(join(w.seed, 'data'), w.seed)).rejects.toThrow('inside');
-    const i = await ensureInstance(root, w.seed);
+    await expect(ensureInstance(join(w.seed, 'data'), 'seed', w.seed)).rejects.toThrow('inside');
+    const i = await ensureInstance(root, 'seed', w.seed);
     expect(i).toMatchObject({ base: 'main', owner: 'morgan', made: true });
-    expect((await ensureInstance(root, w.seed)).made).toBe(false);
+    expect((await ensureInstance(root, 'seed', w.seed)).made).toBe(false);
     expect(await ensureBase(i)).toBeUndefined();
     expect(await ensureGraph(i, sandboxGraph)).toBe(sandboxGraph);
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
     expect(
-      await writeTriggeringIssue({ ...graph, trust: [i.owner] }, i.tracker, 'Add a greeting', i.owner, 'issue')
+      await writeTriggeringIssue(
+        { ...graph, trust: [i.owner] },
+        folderTracker(i.tracker, i.owner),
+        'Add a greeting',
+        i.owner,
+        'issue'
+      )
     ).toBe(1);
     const shownGraph = cli('show', 'graph', '--dir', sandboxGraph).out;
     expect(shownGraph).toContain(`graph ${sandboxGraph}`);
@@ -767,11 +809,11 @@ export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: 
   it('reads .agentgraph from git, else from disk, and holds one loop per data dir', async () => {
     const w = world();
     git(w.seed, 'config', 'user.name', 'morgan');
-    const i = await ensureInstance(join(w.root, 'agentgraph-data'), w.seed);
+    const i = await ensureInstance(join(w.root, 'agentgraph-data'), 'seed', w.seed);
     await ensureBase(i);
     await expect(ensureGraph(i)).rejects.toThrow('Copy an example into this folder first:');
     cpSync(sandboxGraph, join(w.seed, '.agentgraph'), { recursive: true });
-    const onDisk = join(i.repo, '.agentgraph');
+    const onDisk = join(i.checkout, '.agentgraph');
     const readOnDisk = async () => {
       const graph = await ensureGraph(i);
       return [graph, await whyGraphUncommitted(i, graph), await formatGraphName(i, graph)];
@@ -815,7 +857,7 @@ const BAD_FLAGS = [
   [{ AGENTGRAPH_EVERY: '0' }, ['show'], 'at ["AGENTGRAPH_EVERY"]'],
   [{}, ['check', 'x', '--runs', '--issue', 'abc'], '--issue takes an issue number'],
   [{}, ['check', 'x', '--runs', '--issue', '0'], '--issue takes an issue number'],
-  [{}, ['say', '1', 'hi', '--label', 'needs-review'], 'say does not run on --tracker'],
+  [{}, ['say', '1', 'hi', '--label', 'needs-review'], 'runs inside a git repo'],
   [{}, ['say', '1', 'hi', '--run-label', 'arm=v2'], 'Unrecognized flag: --run-label in command agi say'],
   [{}, ['start', 'x', '--run-label', 'Arm=v2'], '["Arm"]'],
   [{}, ['start', 'x', '--run-label', 'arm-'], 'Expected string'],
@@ -830,7 +872,8 @@ describe('the CLI flags', () => {
   ] as const)('releases the %s loop lock before exiting on %s', async (kind, signal) => {
     const w = world();
     const root = join(w.root, 'loop-data');
-    const data = kind === 'tracker' ? root : (await ensureInstance(root, w.seed)).data;
+    const { data } = await ensureInstance(root, 'seed', w.seed);
+    if (kind === 'tracker') await w.tracker('init', w.seed);
     const child = spawn(
       process.execPath,
       [
@@ -840,7 +883,9 @@ describe('the CLI flags', () => {
         root,
         '--dir',
         sandboxGraph,
-        ...(kind === 'tracker' ? ['--tracker', root] : ['--provider', 'litellm']),
+        '--provider',
+        'litellm',
+        ...(kind === 'tracker' ? ['--tracker', w.dir] : []),
       ],
       {
         cwd: w.seed,
@@ -883,13 +928,14 @@ describe('the CLI flags', () => {
       { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
     );
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain('runs inside a git repo');
+    expect(result.stderr).toContain('--repo must name a readable git repo');
   });
 
   it.each(['tracker', 'instance'])('prints the remaining heartbeat wait when a %s loop restarts', async kind => {
     const w = world();
     const root = join(w.root, 'loop-data');
-    const data = kind === 'tracker' ? root : (await ensureInstance(root, w.seed)).data;
+    const instance = await ensureInstance(root, 'seed', w.seed);
+    const data = instance.data;
     const state = join(w.root, 'state');
     const heartbeat = join(state, 'owners', 'old-owner');
     mkdirSync(join(state, 'owners'), { recursive: true });
@@ -908,7 +954,7 @@ describe('the CLI flags', () => {
         root,
         '--dir',
         sandboxGraph,
-        ...(kind === 'tracker' ? ['--tracker', root] : ['--provider', 'litellm']),
+        ...(kind === 'tracker' ? ['--tracker', 'folder', '--provider', 'litellm'] : ['--provider', 'litellm']),
       ],
       {
         cwd: w.seed,
@@ -995,9 +1041,14 @@ describe('the tracker selection', () => {
   });
 
   it('keeps a folder AGENTGRAPH_TRACKER names over the App env, so show asks nothing of GitHub', () => {
+    const w = world();
+    const folder = tmp('folder');
+    git(folder, 'init', '-q', '--bare', 'origin.git');
     const shown = cli(
-      { AGENTGRAPH_TRACKER: tmp('folder'), AGENTGRAPH_APP_ID: '1', AGENTGRAPH_APP_KEY: 'not a key' },
+      { AGENTGRAPH_TRACKER: folder, AGENTGRAPH_APP_ID: '1', AGENTGRAPH_APP_KEY: 'not a key' },
       'show',
+      '--repo',
+      w.seed,
       '--dir',
       sandboxGraph
     );

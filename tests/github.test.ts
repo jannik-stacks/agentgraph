@@ -1055,6 +1055,49 @@ describe('githubTracker', () => {
     expect(minted).toContainEqual({ permissions: { issues: 'write' }, repositories: ['r'] });
   });
 
+  it('assigns the workflow milestone when filing an issue through the tracker', async () => {
+    const f = fake({
+      'GET /repos/o/r/milestones?state=all&per_page=100': [{ number: 3, title: 'release' }],
+      'POST /repos/o/r/issues': { id: 555, number: 10, html_url: 'https://github.com/o/r/issues/10' },
+    });
+    const result = await run(
+      f,
+      Effect.flatMap(Tracker, t =>
+        t.apply(0, {
+          kind: 'issue',
+          title: 'Work',
+          body: 'Ready',
+          milestone: 'release',
+        })
+      )
+    );
+    expect(result).toMatchObject({ ok: true, id: '10' });
+    expect(f.calls.find(c => c.method === 'POST' && c.path === '/repos/o/r/issues')?.body).toEqual({
+      title: 'Work',
+      body: 'Ready',
+      milestone: 3,
+    });
+  });
+
+  it('refuses to file an issue when its workflow milestone does not exist', async () => {
+    const f = fake({ 'GET /repos/o/r/milestones?state=all&per_page=100': [] });
+    const failure = await run(
+      f,
+      Effect.flatMap(Tracker, t =>
+        Effect.flip(
+          t.apply(0, {
+            kind: 'issue',
+            title: 'Work',
+            body: 'Ready',
+            milestone: 'missing',
+          })
+        )
+      )
+    );
+    expect(failure.message).toBe('no milestone missing');
+    expect(f.calls.some(c => c.method === 'POST' && c.path === '/repos/o/r/issues')).toBe(false);
+  });
+
   it('returns the created issue when its sub-issue link is refused', async () => {
     const f = fake({
       'POST /repos/o/r/issues': { id: 555, number: 10, html_url: 'https://github.com/o/r/issues/10' },

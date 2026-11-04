@@ -8,7 +8,7 @@ import { harnesses } from './fixtures.ts';
 describe('the sandbox example graph', () => {
   it('loads without problems and draws its issue workflow', async () => {
     const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));
-    expect(graph.repo).toBe('acme/sandbox');
+    expect(graph.repo).toBe('');
     expect(Object.keys(graph.agents).sort()).toEqual([
       'claude-reviewer',
       'implementor',

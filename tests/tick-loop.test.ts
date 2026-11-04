@@ -3,9 +3,9 @@ import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
-import { describe, expect, it } from 'vitest';
-import { issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
-import { readEngineEnv, start as main, temporary } from '../src/main.ts';
+import { describe, expect, it, vi } from 'vitest';
+import { issueDebounceMs, scanIssuesAndRunningRuns, startLoopDrives, tick } from '../src/run/trigger.ts';
+import { readEngineEnv, readInstanceEnv, start as main, temporary } from '../src/main.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { removeRunLink, type Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -374,6 +374,7 @@ describe('start with one issue', () => {
     const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');
     const env = {
       AGENTGRAPH_APP_ENV: join(where.root, 'app.env'),
+      AGENTGRAPH_REPO: 'acme/sandbox',
       AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2',
       AGENTGRAPH_DIR: sandbox,
     };
@@ -435,42 +436,56 @@ describe('start with one issue', () => {
 });
 
 describe('the loop', () => {
-  it('reads the settings again each pass and keeps the last ones when the refresh fails', async () => {
+  it('waits out the quiet period on a hosted loop pass and not on a folder loop pass', async () => {
+    const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');
+    const env = { AGENTGRAPH_REPO: 'acme/sandbox', AGENTGRAPH_PROXY_KEYS: '*=k', AGENTGRAPH_DIR: sandbox };
+    const pass = async (local: boolean) => {
+      const where = world();
+      const doubles = (s: Settings) =>
+        Layer.mergeAll(folderTracker(where.tracker), fileStore(s.data), hostSandbox(where.origin), replaySession([]));
+      writeIssueAt(issuePath(where.tracker, 7, 'events.jsonl'), '');
+      say(where, {
+        issue: 7,
+        kind: 'label',
+        label: 'triage',
+        actor: 'morgan',
+        trusted: true,
+        at: new Date().toISOString(),
+      });
+      const drives = startLoopDrives();
+      const setup = { ...(await readInstanceEnv(undefined, {}, env)), tracker: { origin: { local } } };
+      try {
+        await main({ graph: sandbox, issue: 'all', data: where.data, drives, setup: setup as never }, doubles, env);
+        return Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
+      } finally {
+        await drives.stop();
+      }
+    };
+    expect((await pass(false)).length).toBe(0);
+    expect((await pass(true)).length).toBe(1);
+  });
+
+  it('polls tracker events with the drives cursor and drives the issues they name', async () => {
     const where = world();
-    const defaults = {
-      AGENTGRAPH_TRACKER: where.tracker,
-      AGENTGRAPH_DATA: where.data,
-      AGENTGRAPH_REPO: 'acme/sandbox',
-      AGENTGRAPH_DIR: join(import.meta.dirname, '..', 'examples', 'sandbox'),
-      AGENTGRAPH_EVERY: '0.0001',
-      AGENTGRAPH_SESSION_ENV: 'ANTHROPIC_API_KEY',
-    };
-    const previous = process.env.ANTHROPIC_API_KEY;
-    process.env.ANTHROPIC_API_KEY = 'login-0';
-    const seen: string[] = [];
-    const doubles = (s: Settings) => {
-      seen.push(Redacted.value(s.passed.ANTHROPIC_API_KEY!));
-      return Layer.mergeAll(
-        folderTracker(where.tracker),
-        fileStore(s.data),
-        hostSandbox(where.origin),
-        replaySession([])
-      );
-    };
-    const stop = new AbortController();
-    let passes = 0;
-    const refresh = async () => {
-      if (++passes === 4) stop.abort();
-      if (passes === 2) throw new Error('login server down');
-      process.env.ANTHROPIC_API_KEY = `login-${passes}`;
-    };
+    const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');
+    const env = { AGENTGRAPH_REPO: 'acme/sandbox', AGENTGRAPH_PROXY_KEYS: '*=k', AGENTGRAPH_DIR: sandbox };
+    const doubles = (s: Settings) =>
+      Layer.mergeAll(folderTracker(where.tracker), fileStore(s.data), hostSandbox(where.origin), replaySession([]));
+    const at = new Date(Date.now() - issueDebounceMs - 1000).toISOString();
+    writeIssueAt(issuePath(where.tracker, 7, 'events.jsonl'), '');
+    say(where, { issue: 7, kind: 'label', label: 'triage', actor: 'morgan', trusted: true, at });
+    const drives = startLoopDrives();
     try {
-      await expect(main(undefined, doubles, defaults, stop.signal, refresh)).rejects.toThrow();
-      expect(seen.filter((key, i) => i === 0 || key !== seen[i - 1])).toEqual(['login-1', 'login-3']);
-      expect(passes).toBe(4);
+      const polled = await main({ graph: sandbox, issue: 'all', data: where.data, drives, poll: true }, doubles, env);
+      expect([polled, drives.cursor]).toEqual([[], at]);
+      await vi.waitFor(async () => {
+        const runs = await Effect.runPromise(
+          Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data)))
+        );
+        expect(runs.map(r => [r.issue, r.workflow])).toEqual([[7, 'triage']]);
+      });
     } finally {
-      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
-      else process.env.ANTHROPIC_API_KEY = previous;
+      await drives.stop();
     }
   });
 });
@@ -569,6 +584,16 @@ describe('readEngineEnv', () => {
     expect(await withShell({}, () => readEngineEnv({ AGENTGRAPH_APP_ENV: env }))).toMatchObject({
       AGENTGRAPH_APP_ID: '42',
     });
+  });
+
+  it('reads a scoped instance env file without changing the process and lets the shell override it', async () => {
+    const { env } = file('AGENTGRAPH_REPO=instance/repository\nAGENTGRAPH_IMAGE=instance:image\n');
+    const before = process.env.AGENTGRAPH_IMAGE;
+    expect(await withShell({ AGENTGRAPH_REPO: 'command/repository' }, () => readEngineEnv({}, env))).toMatchObject({
+      AGENTGRAPH_REPO: 'command/repository',
+      AGENTGRAPH_IMAGE: 'instance:image',
+    });
+    expect(process.env.AGENTGRAPH_IMAGE).toBe(before);
   });
 
   it('leaves a missing required setting to fail by name', async () => {

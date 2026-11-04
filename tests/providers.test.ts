@@ -22,7 +22,8 @@ const writeLogin = (access: string) => {
   writeFileSync(login, JSON.stringify({ auth_mode: 'chatgpt', tokens, last_refresh: '2026-01-01T00:00:00Z' }));
 };
 
-const readSessionAuth = async () => JSON.parse((await chatgpt.settings!()).AGENTGRAPH_CHATGPT_AUTH!);
+const readSessionAuth = async () =>
+  JSON.parse((await chatgpt.settings!({ image: '', sandbox: '', env: {} })).AGENTGRAPH_CHATGPT_AUTH!);
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -32,7 +33,7 @@ describe('chatgpt', () => {
     writeLogin(access);
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
-    const settings = await chatgpt.settings!();
+    const settings = await chatgpt.settings!({ image: '', sandbox: '', env: {} });
     expect(fetch).not.toHaveBeenCalled();
     expect(settings).toMatchObject({
       AGENTGRAPH_PROXY_URL: '*=',
@@ -70,4 +71,84 @@ describe('chatgpt', () => {
     vi.stubGlobal('fetch', async () => new Response('', { status: 401 }));
     await expect(readSessionAuth()).rejects.toThrow('the ChatGPT login stopped working (HTTP 401)');
   });
+});
+
+const PROVIDER_KEYS = [
+  ['claude', 'CLAUDE_CODE_OAUTH_TOKEN'],
+  ['anthropic', 'ANTHROPIC_API_KEY'],
+  ['litellm', 'AGENTGRAPH_PROXY_KEYS'],
+] as const;
+
+it.each(PROVIDER_KEYS)('uses scoped credentials and model choices for %s', async (name, key) => {
+  const provider = makeProviders().find(p => p.name === name)!;
+  const env = { [key]: 'only-in-scope', AGENTGRAPH_MODELS: '*=scoped' };
+  const host = { image: '', sandbox: '', env };
+  expect(await provider.ready(host)).toBe(true);
+  expect(await provider.ready({ ...host, env: { [`${key}_FILE`]: '/unused/scoped-secret' } })).toBe(true);
+  const settings = await provider.settings!(host);
+  expect(settings.AGENTGRAPH_MODELS).toBe(name === 'litellm' ? '*=scoped' : '*=sonnet,smart=opus,fast=haiku');
+  expect(settings.AGENTGRAPH_SESSION_ENV).toBe(name === 'litellm' ? undefined : key);
+  expect(settings.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  expect(settings.CLAUDE_CODE_OAUTH_TOKEN_FILE).toBeUndefined();
+});
+
+it('keeps proxy credentials scoped while supplying its default model map', async () => {
+  const proxy = makeProviders().find(p => p.name === 'litellm')!;
+  expect(await proxy.ready({ image: '', sandbox: '', env: {} })).toBe(false);
+  expect(await proxy.ready({ image: '', sandbox: '', env: { AGENTGRAPH_PROXY_KEYS: '*=scoped' } })).toBe(true);
+  expect(await proxy.settings!({ image: '', sandbox: '', env: {} })).toEqual({ AGENTGRAPH_MODELS: '*=smart' });
+});
+
+const PROVIDER_COMMANDS = [
+  ['claude', 'claude', ['auth', 'status']],
+  ['chatgpt', 'codex', ['login', 'status']],
+] as const;
+
+it.each(PROVIDER_COMMANDS)('passes the scoped environment to %s login detection', async (name, command, args) => {
+  const bin = tmp('provider-detection');
+  const log = join(bin, 'detected');
+  writeFileSync(
+    join(bin, command),
+    `#!/bin/sh
+printf '%s %s\\n' "$SCOPED_TOKEN" "$*" > "$SCOPED_LOG"
+`,
+    { mode: 0o755 }
+  );
+  const env = { PATH: bin, SCOPED_TOKEN: 'only-in-scope', SCOPED_LOG: log };
+  const provider = makeProviders().find(p => p.name === name)!;
+  expect(await provider.detect!({ image: '', sandbox: '', env })).toBe(true);
+  expect(readFileSync(log, 'utf8').trim()).toBe(`only-in-scope ${args.join(' ')}`);
+});
+
+it('uses scoped credentials for both subscription login commands', async () => {
+  const bin = tmp('provider-login');
+  const log = join(bin, 'login');
+  writeFileSync(
+    join(bin, 'codex'),
+    `#!/bin/sh
+[ "$SCOPED_TOKEN" = only-in-scope ] || exit 1
+printf '%s|%s|%s\\n' "$SCOPED_TOKEN" "$CODEX_HOME" "$*" >> "$SCOPED_LOG"
+`,
+    { mode: 0o755 }
+  );
+  const path = process.env.PATH;
+  process.env.PATH = bin;
+  const descriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+  Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+  try {
+    await chatgpt.login!({
+      image: '',
+      sandbox: '',
+      env: { PATH: bin, SCOPED_TOKEN: 'only-in-scope', SCOPED_LOG: log },
+    });
+  } finally {
+    if (path === undefined) delete process.env.PATH;
+    else process.env.PATH = path;
+    if (descriptor) Object.defineProperty(process.stdin, 'isTTY', descriptor);
+    else Reflect.deleteProperty(process.stdin, 'isTTY');
+  }
+  expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+    `only-in-scope|${join(login, '..')}|-c cli_auth_credentials_store="file" login`,
+    `only-in-scope|${join(login, '..')}|-c cli_auth_credentials_store="file" login status`,
+  ]);
 });

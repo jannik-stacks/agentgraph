@@ -360,7 +360,7 @@ const addArmRun = async (set: string, repo: string, base: string, input: BenchIn
   writeFileSync(join(at, 'change.patch'), `${patch}\n`);
   const data = join(at, 'data');
   const id = await writeImportedRun(
-    { repo, tracker: join(at, 'tracker'), data },
+    { checkout: repo, tracker: join(at, 'tracker'), data },
     patch ? join(at, 'change.patch') : base,
     {
       version: 't',
@@ -573,7 +573,7 @@ describe('bin/bench.ts score and judge', () => {
     const { repo, set, kase } = makeSumCase(root);
     const graph = join(root, 'graph');
     mkdirSync(graph);
-    writeFileSync(join(graph, 'settings.yaml'), 'repo: me/demo\n');
+    writeFileSync(join(graph, 'settings.yaml'), '{}');
     writeFileSync(join(root, 'keys.env'), 'AGENTGRAPH_PROXY_KEYS=implementor=k\n');
     writeFileSync(join(set, 'budget.json'), JSON.stringify({ now: 0, at: Date.now() }));
     const input = makeBenchInput(readBenchCase(kase), 'v2', 1, { graph });

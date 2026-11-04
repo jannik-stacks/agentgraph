@@ -38,8 +38,8 @@ export const findRunsWaitingOnPeople = <R extends Pick<Run, 'id' | 'status' | 'r
 export const formatShellWord = (word: string) =>
   /^[\w./@:+=-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 
-export const formatInstanceFlags = (repo?: string, data?: string) =>
-  `${repo ? ` --repo ${formatShellWord(repo)}` : ''}${data ? ` --data ${formatShellWord(data)}` : ''}`;
+export const formatInstanceFlags = (repo?: string, data?: string, name?: string) =>
+  `${repo ? ` --repo ${formatShellWord(repo)}` : ''}${data ? ` --data ${formatShellWord(data)}` : ''}${name ? ` --instance ${formatShellWord(name)}` : ''}`;
 
 export const formatNextSteps = (
   run: Pick<Run, 'id' | 'workflow' | 'issue' | 'status' | 'reason'>,

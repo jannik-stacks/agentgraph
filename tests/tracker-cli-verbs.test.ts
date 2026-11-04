@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Proposal } from '../src/proposal.ts';
 import { loadGraph } from '../src/folder.ts';
 import { writeTriggeringIssue } from '../src/main.ts';
+import { folderTracker } from '../src/tracker.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { harnesses, reply, start, wrote } from './fixtures.ts';
 import { git, issuePath, writeIssueAt } from './kit.ts';
@@ -90,7 +91,7 @@ describe('the human verbs on a tracker folder', () => {
     expect(first.map(r => [r.issue, r.step, r.status])).toEqual([[2, 'merge', 'waiting']]);
     expect(await w.tracker('show', '3')).toContain('+hello');
     expect(await w.run([])).toEqual([]);
-    expect(readdirSync(join(w.root, 'data')).filter(d => d.startsWith('issue-'))).toHaveLength(1);
+    expect(readdirSync(w.data).filter(d => d.startsWith('issue-'))).toHaveLength(1);
     await w.tracker('close', '1');
     expect(await w.tracker('show')).toMatch(/^#1 closed Fix the typo\n/);
     expect(await w.tracker('show', '1')).toContain('In the readme.');
@@ -100,17 +101,33 @@ describe('the human verbs on a tracker folder', () => {
     const w = world();
     await w.tracker('init', w.seed);
     const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
-    await expect(writeTriggeringIssue(graph, w.dir, 'Add a greeting', 'morgan', 'router')).rejects.toThrow(
-      'name one workflow with a label: --workflow <name>'
-    );
-    await expect(writeTriggeringIssue(graph, w.dir, 'Add a greeting', 'morgan')).rejects.toThrow('issue|triage');
-    await expect(writeTriggeringIssue(graph, w.dir, 'Add a greeting', 'x[bot]', 'issue')).rejects.toThrow(
-      'x[bot] may not'
-    );
     await expect(
-      writeTriggeringIssue({ ...graph, trust: ['ann'] }, w.dir, 'Add a greeting', 'morgan', 'issue')
+      writeTriggeringIssue(graph, folderTracker(w.dir, 'morgan'), 'Add a greeting', 'morgan', 'router')
+    ).rejects.toThrow('name one workflow with a label: --workflow <name>');
+    await expect(
+      writeTriggeringIssue(graph, folderTracker(w.dir, 'morgan'), 'Add a greeting', 'morgan')
+    ).rejects.toThrow('issue|triage');
+    await expect(
+      writeTriggeringIssue(graph, folderTracker(w.dir, 'morgan'), 'Add a greeting', 'x[bot]', 'issue')
+    ).rejects.toThrow('x[bot] may not');
+    await expect(
+      writeTriggeringIssue(
+        { ...graph, trust: ['ann'] },
+        folderTracker(w.dir, 'morgan'),
+        'Add a greeting',
+        'morgan',
+        'issue'
+      )
     ).rejects.toThrow('morgan may not');
-    expect(await writeTriggeringIssue(graph, w.dir, 'Add a greeting\n\nAdd hello.txt.', 'morgan', 'issue')).toBe(1);
+    expect(
+      await writeTriggeringIssue(
+        graph,
+        folderTracker(w.dir, 'morgan'),
+        'Add a greeting\n\nAdd hello.txt.',
+        'morgan',
+        'issue'
+      )
+    ).toBe(1);
     expect(await w.tracker('show', '1')).toMatch(
       /^#1 open Add a greeting by morgan \[agent:ready\]\n\nAdd hello.txt.\n/
     );
@@ -163,7 +180,7 @@ describe('the human verbs on a tracker folder', () => {
       [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
-    const backs = readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')
+    const backs = readFileSync(join(w.data, waiting!.id, 'trace.jsonl'), 'utf8')
       .split('\n')
       .filter(Boolean)
       .map(l => JSON.parse(l) as { outcome?: { kind: string; why?: string } })
@@ -252,7 +269,7 @@ describe('the human verbs on a tracker folder', () => {
     );
     const router = routed.find(r => r.workflow === 'router')!;
     expect(router.status).toBe('done');
-    const trace = readFileSync(join(w.root, 'data', router.id, 'trace.jsonl'), 'utf8');
+    const trace = readFileSync(join(w.data, router.id, 'trace.jsonl'), 'utf8');
     expect(trace).toContain('"source":"cli"');
     expect(
       JSON.parse(
@@ -276,8 +293,6 @@ describe('the human verbs on a tracker folder', () => {
     expect(
       timeline.some(m => m.comment?.body.includes('Answer in thread.') && m.comment.under === event.comment.id)
     ).toBe(true);
-    expect(readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')).toContain(
-      '"text":"Please revise it"'
-    );
+    expect(readFileSync(join(w.data, waiting!.id, 'trace.jsonl'), 'utf8')).toContain('"text":"Please revise it"');
   });
 });

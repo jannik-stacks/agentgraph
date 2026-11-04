@@ -1,28 +1,23 @@
 #!/usr/bin/env node
+import { readInstallationReach } from '../src/github.ts';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { basename, isAbsolute, join, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { ConfigProvider, Effect, Option, Redacted, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Redacted, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
 import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
-import { readInstallationReach } from '../src/github.ts';
+import { readConfiguredGraph, readHarnessSettings, splitNames, type Provider } from '../src/harnesses.ts';
 import {
-  makeHarnessConfigProvider,
-  readConfiguredGraph,
-  readHarnessSettings,
-  splitNames,
-  type Provider,
-} from '../src/harnesses.ts';
-import {
-  ensureGraph,
+  ensureInstanceGraph,
   ensureInstance,
   writePullToRepo,
   findInstances,
+  readInstance,
   findPull,
   findRepo,
   mergePull,
@@ -31,14 +26,20 @@ import {
   writeComment,
   writeReview,
   writeInstanceProvider,
-  writeLabels,
   formatGraphName,
   whyGraphUncommitted,
   writeImportedRun,
   type Instance,
 } from '../src/instance.ts';
 import type { JsonValue } from '../src/meta.ts';
-import { createLoopLock, isLoopHeld, readEngineEnv, start, writeTriggeringIssue } from '../src/main.ts';
+import {
+  createLoopLock,
+  isLoopHeld,
+  readEngineEnv,
+  readInstanceEnv,
+  start,
+  writeTriggeringIssue,
+} from '../src/main.ts';
 import { LockHeldError } from '../src/owner.ts';
 import {
   findLoginProvider,
@@ -51,8 +52,16 @@ import {
   formatShellWord,
 } from '../src/status.ts';
 import { isOnIssue } from '../src/graph.ts';
-import { makeTrackerSetup, pickTracker, readHostSettings, whyModelHostsMissing } from '../src/services.ts';
-import { fileStore, pruneLogs, Store } from '../src/store.ts';
+import {
+  makeTrackerSetup,
+  pickTracker,
+  readHostSettings,
+  hostSettings,
+  settings,
+  type Settings,
+  whyModelHostsMissing,
+} from '../src/services.ts';
+import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
 import type { Run, RunRecord } from '../src/workflow.ts';
 
@@ -61,6 +70,7 @@ const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.
 const parsed = await readArgs(process.argv.slice(2), version);
 if (typeof parsed === 'number') process.exit(parsed);
 const { verb, values, rest } = parsed;
+const overrides = values.base === undefined ? {} : { base: values.base };
 const usage = `see agi ${verb} --help`;
 const fail = (message: string, code = 2): never => {
   console.error(message);
@@ -71,7 +81,6 @@ const failLoopLock = (error: unknown): never => {
     fail(`another loop holds this data dir, try again in ${error.seconds} seconds`, 1);
   throw error;
 };
-if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
 const isIssueNumber = (k: number) => Number.isInteger(k) && k > 0;
 const n = Number(rest[0]);
 const numbered = () => (isIssueNumber(n) ? n : fail(`${verb} takes an issue number\n${usage}`));
@@ -113,27 +122,24 @@ const formatRunnerErrors = async (data: string, runs: Run[]) => {
   return lines;
 };
 const makeHarnessChoice = (provider: string | undefined) => ({
-  config: host.config,
   provider,
   harness: values.harness,
 });
 const formatUnserved = (provider: Provider, harness: string) =>
   `${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.`;
-const checkGraph = async (graph: string, i: Pick<Instance, 'provider' | 'trackerName'> | undefined) => {
-  const runner = process.env.AGENTGRAPH_DIR;
-  const named = selection ?? i?.trackerName;
-  const picked = named && (await pickTracker(named, { dir: graph, fromRepo: !!runner && !isAbsolute(runner) }));
+const checkGraph = async (graph: string, i: Instance | undefined) => {
+  const runner = scope.env.AGENTGRAPH_DIR;
+  const named = selection;
+  const picked =
+    named && existsSync(graph) && (await pickTracker(named, { dir: graph, fromRepo: !!runner && !isAbsolute(runner) }));
   const problems = await Effect.runPromise(
-    Effect.zip(readHarnessSettings, readConfiguredGraph(graph)).pipe(
+    Effect.zip(readHarnessSettings, readConfiguredGraph(graph, i, overrides)).pipe(
       Effect.map(([{ providers = [], provider: named }, loaded]) => {
         const provider = providers.find(p => p.name === named);
         return provider ? findUnserved(provider, loaded) : [];
       }),
       Effect.catchTag('GraphError', e => Effect.succeed(e.problems)),
-      Effect.provideService(
-        ConfigProvider.ConfigProvider,
-        makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i?.provider))
-      )
+      Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
     )
   );
   if (picked && 'problem' in picked) problems.push({ path: 'tracker', message: picked.problem });
@@ -144,12 +150,7 @@ const checkGraph = async (graph: string, i: Pick<Instance, 'provider' | 'tracker
 
 const pickProvider = async (i: Instance, after: string): Promise<{ provider: Provider; ready?: boolean }> => {
   const { providers = [], provider: named } = await Effect.runPromise(
-    readHarnessSettings.pipe(
-      Effect.provideService(
-        ConfigProvider.ConfigProvider,
-        makeHarnessConfigProvider(makeHarnessChoice(values.provider ?? i.provider))
-      )
-    )
+    readHarnessSettings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
   ).catch((e: Error) => fail(e.message, 1));
   if (named)
     return {
@@ -159,8 +160,8 @@ const pickProvider = async (i: Instance, after: string): Promise<{ provider: Pro
     };
   const found: { provider: Provider; ready: boolean }[] = [];
   for (const provider of providers) {
-    const ready = await provider.ready(host);
-    if (ready || provider.detect?.(host)) found.push({ provider, ready });
+    const ready = await provider.ready({ ...host, env: scope.env });
+    if (ready || (await provider.detect?.({ ...host, env: scope.env }))) found.push({ provider, ready });
   }
   if (found.length === 0)
     fail(['No model to use.', ...providers.flatMap(p => (p.setup ? [`  ${p.setup}`] : [])), after].join('\n'), 1);
@@ -179,22 +180,9 @@ const pickProvider = async (i: Instance, after: string): Promise<{ provider: Pro
   return picked;
 };
 
-const applySettings = (provider: Provider) => async () => void Object.assign(process.env, await provider.settings?.());
-
-const applyNamedProvider = async () => {
-  const { providers = [], provider: named } = await Effect.runPromise(readHarnessSettings).catch((e: Error) =>
-    fail(e.message, 1)
-  );
-  const provider = providers.find(p => p.name === named);
-  if (!provider) return;
-  if (!(await provider.ready(host)))
-    fail(
-      [`${provider.name} is not ready; log in with agi in a repo first`, provider.setup].filter(Boolean).join('\n'),
-      1
-    );
-  const apply = applySettings(provider);
-  await apply();
-  return apply;
+const applySettings = async (provider: Provider) => {
+  Object.assign(scope.env, await provider.settings?.({ ...host, env: scope.env }));
+  Object.assign(scope.env, await readEngineEnv(scope.env), commandEnv);
 };
 
 const findUnserved = (provider: Provider, graph: Graph) =>
@@ -206,44 +194,60 @@ const findUnserved = (provider: Provider, graph: Graph) =>
     }));
 
 const connect = async (i: Instance, graph: string, after: string) => {
-  const root = !host.sandbox && whyRoot();
-  if (root) fail(`${root}\n${after}`, 1);
   const { provider, ready } = await pickProvider(i, after);
+  scope = await readInstanceEnv(i, makeHarnessChoice(provider.name), defaults, commandEnv);
+  scope.env.AGENTGRAPH_DIR = graph;
   if (values.save && values.provider) writeInstanceProvider(i, provider.name);
   const harness = values.harness ?? provider.harnesses[0]!;
   if (!provider.harnesses.includes(harness)) fail(`${formatUnserved(provider, harness)}\n${after}`);
   console.log(
-    `agentgraph ${version}: ${harness} on ${provider.name}, ${await formatGraphName(i, graph)}, local tracker`
+    `agentgraph ${version}: ${harness} on ${provider.name}, ${await formatGraphName(i, graph)}, ${trackerSetup.origin.local ? 'local' : scope.env.AGENTGRAPH_TRACKER} tracker`
   );
-  console.log(`repo     ${i.repo}, base ${i.base}`);
-  if (!(ready ?? (await provider.ready(host))))
+  console.log(`repo     ${i.checkout}, base ${i.base}`);
+  if (!(ready ?? (await provider.ready({ ...host, env: scope.env }))))
     await (
       provider.login ??
       (() => Promise.reject(new Error([`${provider.name} is not ready`, provider.setup].filter(Boolean).join('\n'))))
-    )(host).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
-  await applySettings(provider)().catch((e: Error) => fail(`${e.message}\n${after}`, 1));
-  if (!host.sandbox) {
-    const missing = await Effect.runPromise(whyModelHostsMissing).catch((e: Error) => fail(e.message, 1));
+    )({ ...host, env: scope.env }).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+  await applySettings(provider).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+  scope.env.AGENTGRAPH_DIR = graph;
+  const resolved = await Effect.runPromise(
+    Effect.all({ host: Config.all(hostSettings), graph: readConfiguredGraph(graph, i, overrides) }).pipe(
+      Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
+    )
+  ).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+  if (!resolved.host.sandbox) {
+    const root = whyRoot();
+    if (root) fail(`${root}\n${after}`, 1);
+    const missing = await Effect.runPromise(
+      whyModelHostsMissing.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+    ).catch((e: Error) => fail(e.message, 1));
     if (missing) fail(`${missing}\n${after}`, 1);
-    const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`), host.image)).catch(
-      (e: Error) => fail(`${e.message}\n${after}`, 1)
-    );
+    const docker = await Effect.runPromise(
+      ensureDocker(line => console.log(`sandbox  ${line}`), resolved.graph.image ?? resolved.host.image).pipe(
+        Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
+      )
+    ).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
     console.log(`sandbox  docker ${docker}`);
   }
   const aliases = new Map(
-    splitNames(process.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
+    splitNames(scope.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
   );
   return { provider, ...(values.model && { model: aliases.get(values.model) ?? values.model }) };
 };
 
-const loadServedGraph = async ({ provider, model }: Awaited<ReturnType<typeof connect>>, graph: string) => {
+const loadServedGraph = async (
+  { provider, model }: Awaited<ReturnType<typeof connect>>,
+  graph: string,
+  instance?: Instance
+) => {
   const loaded = await Effect.runPromise(
-    readConfiguredGraph(graph).pipe(
-      Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(makeHarnessChoice(provider.name)))
+    readConfiguredGraph(graph, instance, overrides).pipe(
+      Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
     )
   );
   if (model)
-    process.env.AGENTGRAPH_MODELS = ['*', ...Object.values(loaded.agents).flatMap(a => a.model ?? [])]
+    scope.env.AGENTGRAPH_MODELS = ['*', ...Object.values(loaded.agents).flatMap(a => a.model ?? [])]
       .map(alias => `${alias}=${model}`)
       .join(',');
   const unserved = findUnserved(provider, loaded);
@@ -253,7 +257,7 @@ const loadServedGraph = async ({ provider, model }: Awaited<ReturnType<typeof co
 
 const prepare = async (i: Instance, graph: string, after: string) => {
   const connection = await connect(i, graph, after);
-  const loaded = await loadServedGraph(connection, graph).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+  const loaded = await loadServedGraph(connection, graph, i).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   return { loaded, provider: connection.provider.name };
 };
 
@@ -271,70 +275,84 @@ const trapInterrupt = (release?: () => Promise<void>) => {
   process.on('SIGTERM', stop);
 };
 
-const host = await readHostSettings(values).catch((e: Error) => fail(e.message));
-const { tracker: selection, data: root } = host;
+let trackerSetup: Awaited<ReturnType<typeof makeTrackerSetup>>;
 
-const graphDir = values.dir ?? process.env.AGENTGRAPH_DIR;
-const selected = formatInstanceFlags(values.repo && resolve(values.repo), values.data && root);
-
-if (verb === 'check' && values.dir && !values.runs) {
-  const repo = selection ? undefined : await findRepo(resolve(values.repo ?? '.'));
-  if (values.repo && !repo) fail('--repo must name a readable git repo');
-  const saved = repo ? findInstances(root).find(i => i.repo === realpathSync(repo)) : undefined;
-  await checkGraph(resolve(values.dir), saved);
-}
-if (selection) await runOnTracker(selection);
-else await runOnInstance();
-
-async function runOnTracker(selection: string) {
-  if (values.provider || values.harness || values.model || values.save)
-    fail('--provider, --harness, --model and --save work in a repo; a tracker runner reads the graph and its env');
-  process.env.AGENTGRAPH_TRACKER = selection;
-  const github = selection === 'github';
-  const refresh = ['loop', 'check', 'dispatch', 'resume'].includes(verb) ? await applyNamedProvider() : undefined;
-  const graph = values.dir && resolve(values.dir);
-  const needGraph = () => graph ?? fail(`${verb} on a tracker needs --dir`);
-  switch (verb) {
-    case 'loop': {
-      if (values.once) return printRuns(await start({ graph: needGraph(), issue: 'all', data: root }));
-      process.env.AGENTGRAPH_DATA = root;
-      if (graph)
-        Object.assign(process.env, {
-          AGENTGRAPH_DIR: graph,
-          AGENTGRAPH_REPO: (await Effect.runPromise(readConfiguredGraph(graph))).repo,
-        });
-      const looping = start(undefined, undefined, {}, stopping.signal, refresh).then(
-        () => {},
-        (e: unknown) => (stopping.signal.aborted ? undefined : failLoopLock(e))
-      );
-      trapInterrupt(() => (stopping.abort(), looping));
-      return looping;
-    }
-    case 'show': {
-      const env = await readEngineEnv();
-      const { AGENTGRAPH_APP_ID: id, AGENTGRAPH_APP_KEY: key } = env;
-      if (github && (!id || !key)) fail('set AGENTGRAPH_APP_ENV to the App env file');
-      const { repo } = await Effect.runPromise(readConfiguredGraph(needGraph()));
-      const lines = [
-        ...(!github ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
-        ...findRunsWaitingOnPeople(await listRuns(root)).flatMap(run =>
-          formatNextSteps(run, github ? repo : undefined)
-        ),
-      ];
-      console.log(lines.length ? `Needs you\n${lines.join('\n')}` : 'Nothing needs you');
-      return;
-    }
-    case 'check':
-    case 'resume':
-    case 'dispatch':
-      return printRuns(await start({ graph: needGraph(), issue: 'all', data: root, instruction: instructed() }));
-    case 'prune-logs':
-      return prune(root);
-    case 'label':
-      return relabel(root);
-    default:
-      fail(`${verb || 'a verb'} does not run on --tracker or with App credentials\n${usage}`);
+const instruction =
+  (verb === 'check' && values.runs) || verb === 'resume' || verb === 'dispatch' ? instructed() : undefined;
+let host = await readHostSettings({ data: values.data }).catch((e: Error) => fail(e.message));
+const root = host.data;
+const saved = values.instance !== undefined ? readInstance(root, values.instance) : undefined;
+const checkout = saved && !values.repo ? saved.checkout : await findRepo(resolve(values.repo ?? '.'));
+if (values.repo && !checkout) fail('--repo must name a readable git repo');
+const isGraphCheck = verb === 'check' && values.dir !== undefined && !values.runs;
+const i = isGraphCheck
+  ? (saved ?? (checkout ? readInstance(root, basename(checkout)) : undefined))
+  : checkout
+    ? await ensureInstance(root, values.instance ?? basename(checkout), checkout, undefined, values['read-only']).catch(
+        (e: Error) => fail(e.message)
+      )
+    : undefined;
+if (values.instance && !i) fail(`no instance ${values.instance} under ${root}; pass --repo <dir> to create it`);
+const defaults = {
+  ...(host.config && { AGENTGRAPH_CONFIG: host.config }),
+};
+const commandEnv = {
+  ...(values.logs !== undefined && { AGENTGRAPH_CHECK_LOGS: values.logs }),
+  ...(values.tracker !== undefined && { AGENTGRAPH_TRACKER: values.tracker }),
+};
+let scope = await readInstanceEnv(i, makeHarnessChoice(values.provider), defaults, commandEnv);
+host = {
+  ...host,
+  ...(await Effect.runPromise(
+    Config.all(hostSettings).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+  )),
+};
+const graphDir = values.dir ?? scope.env.AGENTGRAPH_DIR;
+const selected = i ? formatInstanceFlags(i.checkout, root, basename(i.dir)) : '';
+const selection = scope.env.AGENTGRAPH_TRACKER!;
+if (isGraphCheck) await checkGraph(resolve(values.dir!), i);
+if (!i) {
+  if (verb === 'show') await showInstances(root);
+  else fail(`${verb} runs inside a git repo, or pass --repo <dir>\n${usage}`);
+} else {
+  if (verb === 'prune-logs') {
+    await prune(i.data);
+    process.exit(0);
   }
+  if (verb === 'label') {
+    await relabel(i.data);
+    process.exit(0);
+  }
+  if (
+    verb === 'show' &&
+    rest[0] !== 'graph' &&
+    !['folder', 'github'].includes(selection) &&
+    !existsSync(join(resolve(selection), 'origin.git'))
+  ) {
+    const runs = await listRuns(i.data, rest[0] ? { issue: numbered() } : {});
+    printRuns(runs);
+    for (const line of findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, undefined, selected)))
+      console.log(line);
+    process.exit(0);
+  }
+  const graph =
+    ((verb === 'show' && rest[0] !== 'graph') || ['export', 'close', 'import'].includes(verb)) &&
+    ['folder', 'github'].includes(selection)
+      ? ''
+      : await ensureInstanceGraph(i, graphDir).catch((e: Error) => fail(e.message, 1));
+  scope.env.AGENTGRAPH_DIR = graph;
+  if (verb === 'show' && rest[0] === 'graph') {
+    console.log(`graph ${graph}`);
+    for (const file of readdirSync(graph, { recursive: true, encoding: 'utf8' }).toSorted()) console.log(`  ${file}`);
+    process.exit(0);
+  }
+  const current = await Effect.runPromise(
+    settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+  );
+  const setup = await makeTrackerSetup(current).catch((e: Error) => fail(e.message, 1));
+  if (setup.origin.local && !existsSync(setup.origin.origin))
+    fail(`the tracker folder ${i.tracker} has no origin.git; restore it, or move ${i.dir} aside to start anew`);
+  await runOnInstance(values.base === undefined ? i : { ...i, base: values.base }, setup, current.trust, graph);
 }
 
 function instructed(): Instruction {
@@ -369,47 +387,18 @@ async function prune(data: string) {
   console.log(`${values.apply ? 'deleted' : 'would delete'} ${files} unreferenced log(s), ${bytes} bytes`);
 }
 
-async function runOnInstance() {
-  const repo = await findRepo(resolve(values.repo ?? '.'));
-  if (!repo) {
-    if (values.repo || verb !== 'show')
-      fail(`${verb || 'agentgraph'} runs inside a git repo, or pass --repo <dir>\n${usage}`);
-    return showInstances(root);
-  }
-  const i = await ensureInstance(root, repo, values.base, values['read-only']).catch((e: Error) => fail(e.message));
-  if (i.made)
-    console.log(
-      [
-        `data     ${i.dir} (new)`,
-        i.unnamed
-          ? `owner    ${i.owner}, your OS user, since git config user.name is unset. It is the one login this instance trusts; to change it, edit owner in ${join(i.dir, 'instance.yaml')}`
-          : `owner    ${i.owner}, from git config user.name, the one login this instance trusts`,
-      ].join('\n')
-    );
-  Object.assign(process.env, {
-    AGENTGRAPH_TRACKER: i.trackerName ?? 'folder',
-    AGENTGRAPH_TRACKER_DIR: i.tracker,
-    AGENTGRAPH_TRUST: i.owner,
-  });
-  const readTrackerService = async () => {
-    const graph = await ensureGraph(i, graphDir).catch(() => '');
-    const setup = await makeTrackerSetup({
-      repo: i.repo,
-      studio: '',
-      app: Option.none(),
-      graph,
-      tracker: i.trackerName ?? 'folder',
-      trackerDir: i.tracker,
-    }).catch((e: Error) => fail(e.message, 1));
-    return Effect.runPromise(Effect.provide(Tracker, setup.layer()));
-  };
-  let trackerService: Promise<Tracker['Service']> | undefined;
-  const getTracker = () => (trackerService ??= readTrackerService());
-  if (i.trackerName) await getTracker();
+async function runOnInstance(
+  instance: Instance,
+  setup: Awaited<ReturnType<typeof makeTrackerSetup>>,
+  trust: Settings['trust'],
+  graph: string
+) {
+  trackerSetup = setup;
+  const i = setup.origin.local ? { ...instance, tracker: dirname(setup.origin.origin) } : instance;
+  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, setup.layer(trust, i.owner)));
   const synced = async () => {
-    const why = await ensureBase(i);
+    const why = setup.origin.local && (await ensureBase(i));
     if (why) fail(why, 1);
-    const graph = await ensureGraph(i, graphDir).catch((e: Error) => fail(e.message, 1));
     const uncommitted = await whyGraphUncommitted(i, graph);
     if (uncommitted) console.error(uncommitted);
     return graph;
@@ -425,11 +414,11 @@ async function runOnInstance() {
       const { loaded, provider } = await prepare(i, graph, 'Nothing was filed.');
       if (values['run-label'] && (await isLoopHeld(i.data)))
         fail(
-          'a loop drives this repo, so the run is not started here: start without --run-label, then agi label <run id>'
+          `a loop drives this repo, so the run is not started here: start without --run-label, then agi label <run id>${selected}`
         );
       const issue = await writeTriggeringIssue(
-        { ...loaded, trust: [i.owner] },
-        i.tracker,
+        loaded,
+        setup.layer(loaded.trust, i.owner),
         text,
         i.owner,
         values.workflow,
@@ -443,13 +432,21 @@ async function runOnInstance() {
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
-      await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line).catch((e: Error) =>
-        fail(e.message)
-      );
-      if (values.label) await writeLabels(i.tracker, i.owner, issue, values.label).catch((e: Error) => fail(e.message));
+      if (values.line) {
+        if (!setup.origin.local) fail('--line applies to a local tracker');
+        await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
+      } else {
+        const posted = await Effect.runPromise(
+          (await getTracker()).apply(n, { kind: 'comment', body: formatAgentComment(said()) })
+        );
+        if (!posted.ok) fail(posted.reason ?? 'comment was refused');
+      }
+      if (values.label)
+        await Effect.runPromise((await getTracker()).apply(issue, { kind: 'label', add: values.label, remove: [] }));
       return drive(i, issue, graph, provider);
     }
     case 'review': {
+      if (!setup.origin.local) fail('review this pull request on the tracker');
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
         rest[1] as 'approve' | 'changes'
       ];
@@ -464,12 +461,14 @@ async function runOnInstance() {
       return;
     }
     case 'merge': {
+      if (!setup.origin.local) fail('merge this pull request on the tracker');
       await synced();
       const pull = await mergePull(i, numbered()).catch((e: Error) => fail(e.message, 1));
       console.log(`${pull.base} at ${pull.head.slice(0, 7)} in agentgraph`);
       return report(i, n, true);
     }
     case 'export': {
+      if (!setup.origin.local) fail('export applies to a local tracker');
       numbered();
       const result = await writePullToRepo(i, n, {
         ...(values.as && { as: values.as }),
@@ -483,6 +482,7 @@ async function runOnInstance() {
       return;
     }
     case 'close': {
+      if (!setup.origin.local) fail('close this issue on the tracker');
       const pull = await findPull(i.tracker, numbered());
       const open = new Set(
         (await Effect.runPromise((await getTracker()).issues({ state: 'open' }))).map(t => t.number)
@@ -493,31 +493,34 @@ async function runOnInstance() {
       return;
     }
     case 'show':
-      if (rest[0] === 'graph') {
-        const graph = await synced();
-        console.log(`graph ${graph}`);
-        for (const file of readdirSync(graph, { recursive: true, encoding: 'utf8' }).toSorted())
-          console.log(`  ${file}`);
-        return;
-      }
       return rest[0] ? showIssue(await getTracker(), numbered(), i) : showAll(i, await getTracker());
     case 'check':
     case 'resume':
     case 'dispatch': {
       if (verb === 'check' && !values.runs) return checkGraph(await synced(), i);
       const graph = await synced();
-      const { provider } = await prepare(i, graph, 'Nothing was run.');
-      const choice = makeHarnessChoice(provider);
+      const { provider } = await prepare(i, graph, 'Nothing was driven.');
+      trapInterrupt();
       return printRuns(
-        await start({ graph, issue: 'all', data: i.data, base: i.base, instruction: instructed(), choice })
+        await start(
+          {
+            graph,
+            issue: 'all',
+            data: i.data,
+            instance: i,
+            ...overrides,
+            setup: { ...scope, tracker: trackerSetup },
+            instruction: instruction!,
+            choice: makeHarnessChoice(provider),
+          },
+          undefined,
+          {},
+          stopping.signal
+        )
       );
     }
     case 'loop':
-      return loop(i);
-    case 'prune-logs':
-      return prune(i.data);
-    case 'label':
-      return relabel(i.data);
+      return loop(i, graph);
     case 'import': {
       if (rest.length < 1 || rest.length > 2)
         fail(`import takes a commit or patch file, then an optional issue file\n${usage}`);
@@ -574,7 +577,9 @@ async function drive(i: Instance, issue: number, graph: string, provider: string
       issue,
       data: i.data,
       marked: true,
-      base: i.base,
+      instance: i,
+      ...overrides,
+      setup: { ...scope, tracker: trackerSetup },
       choice: makeHarnessChoice(provider),
       labels: startLabels,
     },
@@ -591,7 +596,7 @@ async function drive(i: Instance, issue: number, graph: string, provider: string
     process.exit(130);
   }
   if (runs.length === 0) console.log(`nothing to do on #${issue}`);
-  return report(i, issue);
+  return trackerSetup.origin.local ? report(i, issue) : printRuns(runs);
 }
 
 function openStudio(i: Instance) {
@@ -603,10 +608,18 @@ function openStudio(i: Instance) {
     if (spawnSync('npm', ['ci', '--prefix', dir, '--no-audit', '--no-fund'], { stdio: 'inherit' }).status !== 0)
       fail('the studio install failed', 1);
   }
-  const flags = [...(values.data ? ['--data', root] : []), ...(graphDir ? ['--dir', resolve(graphDir)] : [])];
-  const { status } = spawnSync(process.execPath, [join(dir, 'watch.ts'), '--repo', i.repo, ...flags], {
+  const flags = [
+    '--instance',
+    basename(i.dir),
+    '--data',
+    root,
+    ...(values.dir ? ['--dir', resolve(values.dir)] : []),
+    ...(values.tracker ? ['--tracker', values.tracker] : []),
+  ];
+  const { status } = spawnSync(process.execPath, [join(dir, 'watch.ts'), '--repo', i.checkout, ...flags], {
     cwd: dir,
     stdio: 'inherit',
+    env: { ...process.env, AGI_STUDIO_HARNESS_CHOICE: JSON.stringify(makeHarnessChoice(values.provider)) },
   });
   if (status) process.exit(status);
 }
@@ -627,11 +640,13 @@ async function report(
     if (stat) console.log(`\n${stat}`);
     console.log(`In your repo: ${ref}    git diff ${formatShellWord(`${base}...${ref}`)}`);
     console.log(
-      `Worktree:     git worktree add ${formatShellWord(`../${basename(i.repo)}-${issue}`)} ${formatShellWord(ref)}`
+      `Worktree:     git worktree add ${formatShellWord(`../${basename(i.checkout)}-${issue}`)} ${formatShellWord(ref)}`
     );
   }
   const runs = await listRuns(i.data, { issue });
-  const waiting = findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, undefined, selected));
+  const waiting = findRunsWaitingOnPeople(runs).flatMap(run =>
+    formatNextSteps(run, scope.env.AGENTGRAPH_TRACKER === 'github' ? scope.env.AGENTGRAPH_REPO : undefined, selected)
+  );
   for (const line of waiting.filter(l => !l.startsWith('  '))) console.log(line);
   const last = runs.toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
   if (last?.status === 'stopped') console.log(`${last.id} stopped at ${last.step}: ${last.reason}`);
@@ -644,7 +659,7 @@ async function report(
       const providers = await Effect.runPromise(
         readHarnessSettings.pipe(
           Effect.map(settings => settings.providers ?? []),
-          Effect.provideService(ConfigProvider.ConfigProvider, makeHarnessConfigProvider(makeHarnessChoice(undefined)))
+          Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
         )
       ).catch((e: Error) => {
         console.error(`Could not read login providers: ${e.message}`);
@@ -658,49 +673,66 @@ async function report(
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
   const steps = merged
     ? merge
-    : [...waiting.filter(l => l.startsWith('  ')), `  agi show ${issue}${selected}`, '  agi studio'];
+    : [...waiting.filter(l => l.startsWith('  ')), `  agi show ${issue}${selected}`, `  agi studio${selected}`];
   if (steps.length) console.log(`Next:\n${steps.join('\n')}`);
 }
 
-async function loop(i: Instance) {
-  const moved = await ensureBase(i);
+async function loop(i: Instance, first: string) {
+  const moved = trackerSetup.origin.local && (await ensureBase(i));
   if (moved) fail(moved, 1);
-  const first = await ensureGraph(i, graphDir).catch((e: Error) => fail(e.message, 1));
   const uncommitted = await whyGraphUncommitted(i, first);
   if (uncommitted) console.error(uncommitted);
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(failLoopLock);
   const drives = values.once ? undefined : startLoopDrives();
-  trapInterrupt(release);
+  const ended = Promise.withResolvers<void>();
+  trapInterrupt(() => (stopping.abort(), ended.promise));
+  let why = '';
+  const drive = (poll?: true) =>
+    start(
+      {
+        graph: scope.env.AGENTGRAPH_DIR!,
+        issue: 'all',
+        data: i.data,
+        instance: i,
+        ...overrides,
+        setup: { ...scope, tracker: trackerSetup },
+        choice: makeHarnessChoice(connection.provider.name),
+        ...(drives && { drives }),
+        ...(poll && { poll }),
+      },
+      undefined,
+      {},
+      stopping.signal
+    ).catch((e: unknown) => (stopping.signal.aborted ? [] : (console.error(e), [])));
+  const polling =
+    drives &&
+    !trackerSetup.origin.local &&
+    (async () => {
+      while (!stopping.signal.aborted) {
+        await sleep(host.every * 60_000, undefined, { signal: stopping.signal }).catch(() => {});
+        if (!why && !stopping.signal.aborted) await drive(true);
+      }
+    })();
   try {
     while (!stopping.signal.aborted) {
-      let graph = '';
-      const why =
-        (await ensureBase(i)) ||
-        (await ensureGraph(i, graphDir)
-          .then(dir => loadServedGraph(connection, (graph = dir)))
-          .then(
-            () => '',
-            (e: Error) => e.message
-          ));
+      const graph = scope.env.AGENTGRAPH_DIR!;
+      const current = await Effect.runPromise(
+        settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+      );
+      await writeIdleRunsCompressed(i.data, current.compress).catch((e: Error) =>
+        console.error(`compressing idle runs failed: ${e.message}`)
+      );
+      why ||= await loadServedGraph(connection, graph, i).then(
+        () => '',
+        (e: Error) => e.message
+      );
       if (why) console.error(why);
       else {
-        const decided: RunRecord[] = await start(
-          {
-            graph,
-            issue: 'all',
-            data: i.data,
-            base: i.base,
-            choice: makeHarnessChoice(connection.provider.name),
-            ...(drives && { drives }),
-          },
-          undefined,
-          {},
-          stopping.signal
-        ).catch((e: unknown) => (stopping.signal.aborted ? [] : (console.error(e), [])));
+        const decided: RunRecord[] = await drive();
         const runs = [...new Map([...decided, ...(drives?.settled.splice(0) ?? [])].map(r => [r.id, r])).values()];
         printRuns(runs);
-        for (const issue of new Set(runs.filter(isOnIssue).map(r => r.issue))) {
+        for (const issue of new Set((trackerSetup.origin.local ? runs : []).filter(isOnIssue).map(r => r.issue))) {
           const result = await writePullToRepo(i, issue, { auto: true }).catch((e: Error) => ({ why: e.message }));
           if (result)
             console.log(
@@ -715,25 +747,57 @@ async function loop(i: Instance) {
       const signal = AbortSignal.any([stopping.signal, woken.signal]);
       await Promise.race([
         sleep(host.every * 60_000, undefined, { signal }),
-        waitForTrackerEdit(i.tracker, signal),
+        ...(trackerSetup.origin.local ? [waitForTrackerEdit(i.tracker, signal)] : []),
       ]).catch(() => {});
       woken.abort();
-      await applySettings(connection.provider)().catch((e: Error) =>
-        console.error(
-          `${connection.provider.name} settings did not refresh, the next pass keeps the last: ${e.message}`
-        )
-      );
+      if (stopping.signal.aborted) break;
+      const last = scope;
+      try {
+        scope = await readInstanceEnv(i, makeHarnessChoice(connection.provider.name), defaults, commandEnv);
+        await applySettings(connection.provider);
+      } catch (e) {
+        scope = last;
+        console.error(`the settings did not refresh, the next pass keeps the last: ${(e as Error).message}`);
+      }
+      try {
+        const moved = trackerSetup.origin.local && (await ensureBase(i));
+        if (moved) throw new Error(moved);
+        scope.env.AGENTGRAPH_DIR = await ensureInstanceGraph(i, values.dir ?? scope.env.AGENTGRAPH_DIR);
+        trackerSetup = await makeTrackerSetup(
+          await Effect.runPromise(settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config)))
+        );
+        why = '';
+      } catch (e) {
+        why = (e as Error).message;
+      }
     }
   } finally {
-    await drives?.stop();
-    await release();
+    stopping.abort();
+    try {
+      await polling;
+      await drives?.stop();
+    } finally {
+      await release();
+      ended.resolve();
+    }
   }
 }
 
 async function showAll(i: Instance, tracker: Tracker['Service']) {
   const runs = await listRuns(i.data);
   const lines = [
-    ...findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, undefined, selected)),
+    ...(scope.env.AGENTGRAPH_TRACKER === 'github'
+      ? await Effect.runPromise(
+          readInstallationReach({
+            repo: scope.env.AGENTGRAPH_REPO!,
+            id: scope.env.AGENTGRAPH_APP_ID!,
+            key: Redacted.make(scope.env.AGENTGRAPH_APP_KEY!),
+          })
+        )
+      : []),
+    ...findRunsWaitingOnPeople(runs).flatMap(run =>
+      formatNextSteps(run, scope.env.AGENTGRAPH_TRACKER === 'github' ? scope.env.AGENTGRAPH_REPO : undefined, selected)
+    ),
     ...(await formatRunnerErrors(i.data, runs)),
   ];
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
@@ -741,7 +805,7 @@ async function showAll(i: Instance, tracker: Tracker['Service']) {
 }
 
 async function showIssue(tracker: Tracker['Service'], issue: number, i: Instance) {
-  const pull = await findPull(i.tracker, issue);
+  const pull = trackerSetup.origin.local ? await findPull(i.tracker, issue) : undefined;
   for (const k of new Set([issue, pull?.number ?? issue])) {
     const t = await Effect.runPromise(tracker.issue(k)).catch((e: Error) => fail(e.message, 1));
     const diff = join(findIssueDir(i.tracker, k), 'diff.patch');
@@ -755,9 +819,13 @@ async function showInstances(root: string) {
   if (all.length === 0) console.log(`no instances under ${root}`);
   for (const i of all) {
     const waiting = findRunsWaitingOnPeople(await listRuns(i.data)).flatMap(run =>
-      formatNextSteps(run, undefined, formatInstanceFlags(i.repo, root))
+      formatNextSteps(
+        run,
+        i.trackerName === 'github' ? i.repo : undefined,
+        formatInstanceFlags(i.checkout, root, basename(i.dir))
+      )
     );
-    console.log(`${i.repo}${existsSync(i.repo) ? '' : ' (gone)'}  ${i.dir}`);
+    console.log(`${i.checkout}${existsSync(i.checkout) ? '' : ' (gone)'}  ${i.dir}`);
     for (const line of waiting) console.log(`  ${line}`);
   }
 }

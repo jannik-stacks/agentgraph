@@ -1,4 +1,3 @@
-repo: bench/any
 limits:
   minutes: 40
   usd-per-run: 5

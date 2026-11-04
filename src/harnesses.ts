@@ -1,10 +1,11 @@
+import { getSettings } from './settings.ts';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open as openFile, rm, symlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Config, ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
-import { type HarnessCheck, GraphError, loadGraph } from './folder.ts';
+import { Config, ConfigProvider, Effect, Layer, Option, Redacted, Stream } from 'effect';
+import { type Graph, type HarnessCheck, GraphError, loadGraph } from './folder.ts';
 import { type Command, type Exit, Sandbox, type SandboxError } from './sandbox.ts';
 import { getListPriceUsd, type Prices, readPrices } from './prices.ts';
 import { Session } from './session.ts';
@@ -35,11 +36,11 @@ export type Provider = {
   name: string;
   harnesses: string[];
   auth?: ModelRoute['auth'];
-  ready: (host: { image: string; sandbox: string }) => boolean | Promise<boolean>;
+  ready: (host: { image: string; sandbox: string; env: Record<string, string> }) => boolean | Promise<boolean>;
   detect?: (host: Parameters<Provider['ready']>[0]) => boolean;
   setup?: string;
   whyLogin?: () => string;
-  settings?: () => Record<string, string> | Promise<Record<string, string>>;
+  settings?: (host: Parameters<Provider['ready']>[0]) => Record<string, string> | Promise<Record<string, string>>;
   login?: (host: Parameters<Provider['ready']>[0]) => Promise<void>;
 };
 
@@ -80,12 +81,46 @@ export const readHarnessSettings = Effect.gen(function* () {
   });
 });
 
-export const readConfiguredGraph = (dir: string) =>
+export const readOverrides = Config.all({
+  repo: Config.option(Config.String('AGENTGRAPH_REPO')),
+  trust: Config.option(Config.String('AGENTGRAPH_TRUST')),
+  image: Config.option(Config.String('AGENTGRAPH_IMAGE')),
+}).pipe(
+  Config.map(env => ({
+    ...(Option.isSome(env.repo) && { repo: env.repo.value }),
+    ...(Option.isSome(env.trust) && {
+      trust: env.trust.value
+        .split(',')
+        .map(login => login.trim())
+        .filter(Boolean),
+    }),
+    ...(Option.isSome(env.image) && { image: env.image.value }),
+  }))
+);
+
+export const readConfiguredGraph = (
+  dir: string,
+  instance: Parameters<typeof getSettings>[1] = {},
+  flags: Parameters<typeof getSettings>[3] = {}
+) =>
   Effect.gen(function* () {
     const settings = yield* readHarnessSettings;
     const graph = yield* loadGraph(dir, settings.harnesses, settings.harness);
-    const repo = yield* Effect.orDie(Config.String('AGENTGRAPH_REPO').pipe(Config.withDefault('')));
-    return { ...graph, repo: repo || graph.repo };
+    const overrides = { ...(yield* Effect.orDie(readOverrides)), ...flags };
+    const resolved = getSettings(graph, instance, undefined, overrides);
+    return {
+      ...graph,
+      repo: resolved.repo,
+      ...(resolved.trust !== undefined && { trust: resolved.trust }),
+      ...(resolved.image !== undefined && { image: resolved.image }),
+      limits: { ...graph.limits, parallel: resolved.parallel },
+      workflows: Object.fromEntries(
+        Object.entries(graph.workflows).map(([name, workflow]) => {
+          const { base } = getSettings(graph, instance, workflow, overrides);
+          return [name, { ...workflow, ...(base !== undefined && { base }) }];
+        })
+      ),
+    } satisfies Graph;
   });
 
 export const makeEnvProvider = (env?: Record<string, string>) =>

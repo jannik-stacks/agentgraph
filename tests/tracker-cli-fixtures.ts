@@ -27,10 +27,12 @@ afterEach(() => {
 });
 
 export const makeTrackerWorld = () => {
-  const { root, seed, data } = seeded('tracker-cli', {
+  const { root, seed } = seeded('tracker-cli', {
     'package.json': JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }),
   });
   dirs.push(root);
+  git(seed, 'config', 'user.name', 'morgan');
+  const data = join(root, 'instances', 'seed', 'data');
   const dir = join(root, 'tracker');
   const as = 'morgan';
   const tracker = async (verb: string, ...args: string[]): Promise<string> => {
@@ -127,5 +129,5 @@ export const makeTrackerWorld = () => {
       services
     );
   };
-  return { root, seed, dir, origin: join(dir, 'origin.git'), tracker, run, seen };
+  return { root, seed, dir, data, origin: join(dir, 'origin.git'), tracker, run, seen };
 };

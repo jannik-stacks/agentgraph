@@ -135,7 +135,15 @@
       }
     },
     {
-      "files": ["src/workflow.ts", "src/folder.ts", "src/context.ts", "src/graph.ts", "src/trace.ts", "src/results.ts"],
+      "files": [
+        "src/workflow.ts",
+        "src/folder.ts",
+        "src/context.ts",
+        "src/graph.ts",
+        "src/trace.ts",
+        "src/results.ts",
+        "src/settings.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",

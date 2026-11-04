@@ -594,7 +594,7 @@ export const writeArmGraph = (c: Case & Commands, arm: string, at: string) => {
   }
   writeFileAtomic(
     join(graph, 'settings.yaml'),
-    stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image, repo: c.repo })
+    stringify({ ...parse(readFileOrEmpty(join(graph, 'settings.yaml'))), image: c.image })
   );
   if (options.point) repoint(graph, options.point);
   return graph;
@@ -616,7 +616,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     const [run] = await start(
       { graph, issue: 1, data: join(at, 'data'), meta: makeBenchMeta(set, input), labels: makeArmRunLabels(input) },
       undefined,
-      keys
+      { ...keys, AGENTGRAPH_REPO: c.repo }
     );
     status = run?.status;
     reason = run?.reason;
@@ -686,7 +686,7 @@ const writeEmptyRun = async (c: Case, at: string, repo: string, input: BenchInpu
   const tracker = join(at, 'tracker');
   if (!existsSync(join(tracker, 'origin.git')))
     sh('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
-  await writeImportedRun({ repo: resolve(repo), tracker, data: join(at, 'data') }, c.base, {
+  await writeImportedRun({ checkout: resolve(repo), tracker, data: join(at, 'data') }, c.base, {
     version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
     from: c.base,
     input,
@@ -802,7 +802,7 @@ export const writeReferenceRun = async (
     if (change !== undefined) writeFileAtomic(join(at, 'change.patch'), change.endsWith('\n') ? change : `${change}\n`);
     const data = join(at, 'data');
     const id = await writeImportedRun(
-      { repo: resolve(repo), tracker, data },
+      { checkout: resolve(repo), tracker, data },
       change === undefined ? c.base : join(at, 'change.patch'),
       {
         version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
