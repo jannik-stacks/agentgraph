@@ -238,15 +238,16 @@ export const writeProposals = (
           : undefined;
       let refused = false;
       for (const [i, [issue, p]] of sent.entries()) {
-        const a = refused
-          ? { proposal: p, ok: false, reason: 'push failed; not applied' }
-          : yield* writeOnce(
-              run,
-              issue,
-              work ? getOperationKey(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
-              tracker.apply(issue, p, work),
-              work && p
-            );
+        const a =
+          refused && !(p.kind === 'comment' && p.under !== undefined)
+            ? { proposal: p, ok: false, reason: 'push failed; not applied' }
+            : yield* writeOnce(
+                run,
+                issue,
+                work ? getOperationKey(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
+                tracker.apply(issue, p, work),
+                work && p
+              );
         applied.push(a);
         if (p.kind === 'push' && !a.ok) refused = true;
       }

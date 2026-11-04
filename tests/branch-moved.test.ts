@@ -13,7 +13,19 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git, issuePath, writeIssueAt } from './kit.ts';
-import { world, push, pull, services, readTrace, bodies, driveStored, fresh, pullRequest } from './world.ts';
+import {
+  world,
+  push,
+  pull,
+  services,
+  readTrace,
+  bodies,
+  driveStored,
+  fresh,
+  pullRequest,
+  say,
+  comment,
+} from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 
 describe('a run branch that moved', () => {
@@ -608,8 +620,13 @@ describe('a run branch that moved', () => {
     expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('other');
   });
 
-  it('returns a refused push to the agent without posting its replies or other writes', async () => {
+  it('returns a refused push to the agent, posting only its thread replies', async () => {
     const where = world();
+    pullRequest(where);
+    const at = '2026-10-16T00:00:03.000Z';
+    const review = comment(8, 'morgan', true, '/agent question only what is sfw?', at);
+    say(where, { ...review, comment: { ...review.comment!, id: 'r1', path: 'hello.txt', line: 1 } });
+    const answer = { kind: 'comment', body: 'Socket Firewall.', under: 'r1' } satisfies Proposal;
     const attempted: Proposal[] = [];
     const failing = Layer.effect(
       Tracker,
@@ -624,13 +641,12 @@ describe('a run branch that moved', () => {
       }))
     ).pipe(Layer.provide(folderTracker(where.tracker)));
     const skipped: Proposal[] = [
-      { kind: 'comment', body: 'Fixed', under: 'review-1' },
       { kind: 'comment', body: 'Changes landed' },
       { kind: 'label', add: ['done'] },
       { kind: 'issue', title: 'Follow up', body: '## Done when\nDetails', relation: 'follow-up' } as Proposal,
     ];
     const session = replaySession([
-      [start('a'), wrote('hello.txt', 'hello\n'), reply(...skipped, push, pull)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(answer, ...skipped, push, pull)],
       [start('a'), reply({ kind: 'ask', question: 'Retry later' })],
     ]);
     const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), session);
@@ -644,7 +660,10 @@ describe('a run branch that moved', () => {
     const failed = readTrace(where.data, 'run-7').flatMap(t =>
       'outcome' in t && t.outcome.kind === 'failed' ? [t.outcome] : []
     );
-    expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped.slice(0, 3), pull, skipped[3]]);
+    expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped.slice(0, 2), pull, skipped[2]]);
     expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).not.toContain('Changes landed');
+    const pr = await Effect.runPromise(Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(layer)));
+    const replies = pr.events.flatMap(m => m.comment ?? []).filter(c => c.author === 'agentgraph[bot]');
+    expect(replies.map(c => [c.body, c.under])).toEqual([['Socket Firewall.', 'r1']]);
   });
 });
