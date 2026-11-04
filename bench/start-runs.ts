@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { claim, onStop, readFileOrEmpty, release, startChildProcess } from '../bin/resume.ts';
 import type * as BenchModule from '../bin/bench.ts';
+import { parseLabelPatch, parseLabels } from '../src/labels.ts';
 import { isBenchCaseValid, isBenchUnitDone } from './runs.ts';
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
@@ -126,7 +127,6 @@ if (import.meta.main) {
   if (!Number.isInteger(parallel) || parallel < 1) throw new Error('--parallel must be a positive integer');
   const graph = values.graph && resolve(values.graph);
   const bench: typeof BenchModule = await import('../bin/bench.ts');
-  const graphHash = graph && bench.getBenchGraphHash(graph);
   const picked = list(values.cases);
   const cases = (JSON.parse(readFileSync(join(set, 'set.json'), 'utf8')) as { cases: Entry[] }).cases.filter(
     c => (c.split !== 'gate' || c.use) && (!picked.length || picked.includes(c.id))
@@ -137,12 +137,9 @@ if (import.meta.main) {
     )
   );
   const judged = values.judges !== 'none';
+  const labels = parseLabels(parseLabelPatch(values.label));
   const done = (u: Unit) =>
-    isBenchUnitDone(
-      set,
-      { case: u.c.id, arm: u.arm, repeat: u.repeat, point: u.point, ...(graphHash && { graph: graphHash }) },
-      judged
-    );
+    isBenchUnitDone(set, bench.makeBenchInput(u.c, u.arm, u.repeat, { point: u.point, graph, labels }), judged);
   const queue = units.filter(u => !done(u));
   log(`planned ${units.length}, on disk ${units.length - queue.length}, starting ${queue.length}`);
   if (values.dry) process.exit(0);
@@ -197,6 +194,7 @@ if (import.meta.main) {
         '--repo',
         join(values.repos, u.c.repo.split('/').pop()!),
         ...(graph ? ['--graph', graph] : []),
+        ...values.label.flatMap(l => ['--label', l]),
       ];
       const step = (command: string, ...more: string[]) =>
         runLogged(
@@ -208,8 +206,7 @@ if (import.meta.main) {
       const gate = await step('score');
       if (gate) return `gate score exit ${gate}`;
       if (isBenchCaseValid(set, u.c.id) === false) return undefined;
-      const labels = values.label.flatMap(l => ['--label', l]);
-      const ran = await step('run', ...labels);
+      const ran = await step('run');
       if (ran) return `run exit ${ran}`;
       const scored = await step('score');
       if (scored) return `score exit ${scored}`;

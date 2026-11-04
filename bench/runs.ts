@@ -11,7 +11,14 @@ import type { RunRecord } from '../src/workflow.ts';
 import type { ResultSheet } from '../src/results.ts';
 import { readJsonlRows, readRecordSync } from '../src/store.ts';
 
-export type BenchInput = { case: string; arm: string; repeat: number; point?: string; graph?: string };
+export type BenchInput = {
+  case: string;
+  arm: string;
+  repeat: number;
+  point?: string;
+  graph?: string;
+  labels?: Record<string, string>;
+};
 
 export const referenceArms = ['base', 'human'];
 
@@ -21,7 +28,7 @@ export const getBenchSlot = (set: string, input: BenchInput) =>
   join(
     set,
     'runs',
-    `${input.case}-${input.arm}-r${input.repeat}-${hash(JSON.stringify([input.case, input.arm, input.repeat, input.point ?? '', input.graph ?? ''])).slice(0, 8)}`
+    `${input.case}-${input.arm}-r${input.repeat}-${hash(JSON.stringify([input.case, input.arm, input.repeat, input.point ?? '', input.graph ?? '', ...(input.labels ? [Object.entries(input.labels).toSorted()] : [])])).slice(0, 8)}`
   );
 
 export const readBenchAttempts = (slot: string) =>
@@ -71,7 +78,7 @@ export const isBenchUnitDone = (set: string, input: BenchInput, judged: boolean)
   const checks = readSlotChecks(getBenchSlot(set, input));
   const armed = checks.get('bench/arm');
   if (!armed) return false;
-  return !armed.check.pass || (checks.has('bench/size') && (!judged || checks.has('bench/judge')));
+  return !armed.check.pass || (checks.has('bench/hidden') && (!judged || checks.has('bench/judge')));
 };
 
 export const readDataUsage = (data: string) => {
@@ -230,7 +237,9 @@ const readRow = (found: Found, earlier: Found[], base?: Map<string, CheckEntry>,
   const armed = latest.get('bench/arm');
   const judged = latest.get('bench/judge')?.check.value as JudgeValue | undefined;
   const size = latest.get('bench/size')?.check.value as { files?: number } | undefined;
-  const setup = latest.get('bench/setup')?.check.value as { labels?: Record<string, string> } | undefined;
+  const setup = latest.get('bench/setup')?.check.value as
+    | { labels?: Record<string, string>; setup?: boolean }
+    | undefined;
   const usage = [found, ...earlier].map(f => readDataUsage(f.data));
   const tokens: Record<string, TokenCounts> = {};
   for (const u of usage)
@@ -249,7 +258,8 @@ const readRow = (found: Found, earlier: Found[], base?: Map<string, CheckEntry>,
     checks: usage.reduce((n, u) => n + u.split.checks, 0),
     infra: earlier.reduce((n, f, i) => n + armMs(f, usage[i + 1]!), 0),
   };
-  const infra = armed && !armed.check.pass ? armed.check.findings || 'infra' : undefined;
+  const infra =
+    armed && !armed.check.pass ? armed.check.findings || 'infra' : setup?.setup === false ? 'setup fails' : undefined;
   const share = hidden?.check.share;
   const suite = isPass(base?.get('bench/suite')) === 0 ? undefined : isPass(latest.get('bench/suite'));
   return {
@@ -260,7 +270,7 @@ const readRow = (found: Found, earlier: Found[], base?: Map<string, CheckEntry>,
       ...(harness && model && { harness, model }),
       arm,
       ...(run.graph && { graph: labels.graph ?? run.graph.slice(0, 12) }),
-      set: set ? basename(set) : (labels.set ?? ''),
+      set: labels.set ?? (set ? basename(set) : ''),
       tests:
         (human ?? latest).get('bench/hidden') && !(human ?? latest).get('bench/hidden')!.check.na
           ? 'hidden'

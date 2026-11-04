@@ -18,8 +18,8 @@ import { parseArgs } from 'node:util';
 import { presets, quality, random } from '../studio/src/bench/score.ts';
 import { getMean, getRounded, sum } from '../src/stats.ts';
 import { propose as proposeWith, readCandidateRows } from '../tune/propose.ts';
-import { codexUsed, getBenchGraphHash, pickBenchTestCommands } from './bench.ts';
-import { type BenchRow, getBenchSlot, isBenchUnitDone } from '../bench/runs.ts';
+import { codexUsed, makeBenchInput, pickBenchTestCommands, readBenchCase } from './bench.ts';
+import { type BenchRow, getBenchSlot, isBenchCaseValid, isBenchUnitDone } from '../bench/runs.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import {
   agentgraphDir,
@@ -216,13 +216,12 @@ const evalOf = (
 };
 
 type Job = { id: string; case: string; repeat?: number };
-const makeJobInput = (dir: string, t: Tune, j: Job) => ({
-  case: j.case,
-  arm: 'v2',
-  repeat: j.repeat ?? 1,
-  point: t.point,
-  graph: getBenchGraphHash(join(dir, 'cands', j.id, 'graph')),
-});
+const makeJobInput = (dir: string, t: Tune, j: Job) =>
+  makeBenchInput(readBenchCase(join(dir, 'cases', j.case)), 'v2', j.repeat ?? 1, {
+    point: t.point,
+    graph: join(dir, 'cands', j.id, 'graph'),
+    labels: { tune: basename(dir), cand: j.id },
+  });
 const tuneLog = (dir: string) => (e: object) =>
   appendJsonl(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
 
@@ -251,7 +250,10 @@ const bench = {
             t.point,
             '--repeat',
             String(j.repeat ?? 1),
-            ...(command === 'run' ? ['--label', `tune=${basename(dir)}`, '--label', `cand=${j.id}`] : []),
+            '--label',
+            `tune=${basename(dir)}`,
+            '--label',
+            `cand=${j.id}`,
             ...(o.keys ? ['--keys', o.keys] : []),
           ],
           { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, NODE_OPTIONS: '' } }
@@ -263,6 +265,7 @@ const bench = {
     const next = async () => {
       for (let j = queue.shift(); j; j = queue.shift()) {
         await call('score', j);
+        if (isBenchCaseValid(dir, j.case) === false) continue;
         await call('run', j);
         await call('score', j);
         if (o.judged) await call('judge', j);

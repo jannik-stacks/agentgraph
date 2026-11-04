@@ -24,6 +24,8 @@ import {
   parseBenchJudgeVerdict,
   whyPointUnready,
   writeArmGraph,
+  makeBenchInput,
+  readBenchCase,
 } from '../bin/bench.ts';
 import { faked } from './fixtures.ts';
 import {
@@ -427,8 +429,9 @@ describe('bin/bench.ts score and judge', () => {
     expect(gone.stderr).toContain('sha256:one');
     rmSync(failPin);
 
-    const v2 = { case: 'demo', arm: 'v2', repeat: 1 };
-    const floor = { case: 'demo', arm: 'floor', repeat: 1 };
+    const v2 = makeBenchInput(readBenchCase(kase), 'v2', 1);
+    const floor = makeBenchInput(readBenchCase(kase), 'floor', 1);
+    expect(v2.graph).not.toBe(floor.graph);
     await addArmRun(set, repo, base, v2, git(repo, 'diff', base, merged, '--', 'sum.js'));
     await addArmRun(set, repo, base, floor, '');
     bench('score', 'v2', kase, set, '--repo', repo);
@@ -584,6 +587,26 @@ describe('arm graphs', () => {
         'utf8'
       ).replace(/^ {4}checks: \[tests\]\n/m, '')
     );
+  });
+
+  it('keys an agent run on its graph tree, implicit or not, and its labels, and a reference on neither', () => {
+    const graph = tmp('input-graph');
+    dirs.push(graph);
+    writeFileSync(join(graph, 'settings.yaml'), 'image: a\n');
+    const c = { id: 'demo', repo: 'me/demo' };
+    const before = makeBenchInput(c, 'v2', 1, { point: 'opencode:luna', graph });
+    writeFileSync(join(graph, 'settings.yaml'), 'image: b\n');
+    const after = makeBenchInput(c, 'v2', 1, { point: 'opencode:luna', graph });
+    expect(getBenchSlot('set', before)).not.toBe(getBenchSlot('set', after));
+    expect(makeBenchInput(c, 'v2', 1).graph).toMatch(/^[0-9a-f]{20}$/);
+    expect(getBenchSlot('set', makeBenchInput(c, 'v2', 1, { graph, labels: { cand: 'a' } }))).not.toBe(
+      getBenchSlot('set', makeBenchInput(c, 'v2', 1, { graph, labels: { cand: 'b' } }))
+    );
+    expect(makeBenchInput(c, 'human', 1, { point: 'opencode:luna', graph })).toEqual({
+      case: 'demo',
+      arm: 'human',
+      repeat: 1,
+    });
   });
 });
 

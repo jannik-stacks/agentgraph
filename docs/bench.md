@@ -13,21 +13,21 @@ node bench/start-runs.ts <set> --points opencode:luna --repeats 3 --dry
 
 A plan is every case of `set.json` times each arm, point and repeat, with `--cases`, `--graph <dir>` and any `--label k=v`. Each unit gates its case on the references, then runs, scores and judges its slot through `bin/bench.ts` (`--judges`, default `opus:1,sonnet:2`; `none` skips). Points take aliases such as `opencode:glm` ([OpenRouter](../infra/local/README.md#openrouter-models)). Before any unit starts it names every queued point that has no list price or that the model proxy refuses a one-line request with the key its agents get. Logs go to `<set>/logs/<case>-<arm>-<point>-r<k>.log`. <!-- code: bin/bench.ts#whyPointUnready bench/runs.ts#isBenchUnitDone -->
 
-A run's identity is its origin input: case, arm, repeat, point and the graph's tree hash. It picks the slot `<set>/runs/<case>-<arm>-r<k>-<hash>/`, where each attempt gets its own numbered dir with the graph, a tracker and the run data. References are one slot per case at repeat 1. A unit is done when its case is invalid, its arm failed for infra, or its slot has `bench/size` and, when judged, `bench/judge`. [Run labels](runs.md#run-labels) are free metadata on top: `bench run` adds `case`, `arm`, `harness`, `model`, `repeat`, `engine` (its commit) and any `--label k=v`. <!-- code: bench/runs.ts#getBenchSlot bin/bench.ts#runArm bin/bench.ts#writeReferenceRun -->
+A run's identity is its origin input: case, arm, repeat, point, the tree hash of the graph it runs (the repo's example graph unless `--graph` names one, plus `bench/floor` for floor) and any `--label k=v`, so changing the graph or a label starts new runs. The engine is not part of it: to rerun an older engine, run from its worktree into another set, or pass a label. It picks the slot `<set>/runs/<case>-<arm>-r<k>-<hash>/`, where each attempt gets its own numbered dir with the graph, a tracker and the run data. References are one slot per case at repeat 1. A unit is done when its case is invalid, its arm failed for infra, or its slot has `bench/hidden` and, when judged, `bench/judge`. Scores land in one append, and a run that changed nothing gets a `bench/judge` marked n/a. [Run labels](runs.md#run-labels) record the same and more: `bench run` adds `case`, `arm`, `harness`, `model`, `repeat`, `engine` (its commit) and the `--label` pairs. <!-- code: bench/runs.ts#getBenchSlot bin/bench.ts#runArm bin/bench.ts#writeReferenceRun -->
 
 ## Cases
 
 A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden.relaxed.diff` loosens merged tests that pin more than the issue says.
 
-| Case field | Meaning |
-| --- | --- |
-| `repo`, `base`, `merged` | Repo and commits to replay |
-| `test`, `suite`, `typecheck`, `setup`, `build` | Optional commands; `suite` defaults to `test` |
-| `image` | Local image for scoring and both arms, such as `agentgraph-sandbox:node22` |
-| `hasTests: false` | Metrics and judges only; hidden tests are recorded as skipped with a reason |
-| `size`, `kind`, `area` | Case labels |
-| `labels` | Extra case labels as a map of strings to strings |
-| `control` | `bug` flips an added comparison; `padded` adds trivial tests |
+| Case field                                     | Meaning                                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------------- |
+| `repo`, `base`, `merged`                       | Repo and commits to replay                                                  |
+| `test`, `suite`, `typecheck`, `setup`, `build` | Optional commands; `suite` defaults to `test`                               |
+| `image`                                        | Local image for scoring and both arms, such as `agentgraph-sandbox:node22`  |
+| `hasTests: false`                              | Metrics and judges only; hidden tests are recorded as skipped with a reason |
+| `size`, `kind`, `area`                         | Case labels                                                                 |
+| `labels`                                       | Extra case labels as a map of strings to strings                            |
+| `control`                                      | `bug` flips an added comparison; `padded` adds trivial tests                |
 
 Case commands override repo recipes. A case that touches test files without a test command is invalid, including repos without a recipe. Cases without test files record a hidden-test skip. The gate prints its verdict, reason and test counts; reports count skips and list their reasons.
 
@@ -39,11 +39,11 @@ Bench cleanup only considers labelled environment tags recorded in that case's `
 
 ## Arms
 
-| Arm | What runs |
-| --- | --- |
-| `human` | The merged change |
-| `v2` | The example graph named after the repo, else `examples/bench`: implement, check tests, review with one return, a human merge |
-| `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
+| Arm     | What runs                                                                                                                    |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `human` | The merged change                                                                                                            |
+| `v2`    | The example graph named after the repo, else `examples/bench`: implement, check tests, review with one return, a human merge |
+| `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review                                                     |
 
 Each arm starts from the base with the fix hidden. A scripted maintainer answers the first question with "No more information. Use your judgment."; a second ends the arm. An unfinished arm retries once, then counts as infra and stays out of the rates. An arm that changed nothing scores 0.
 

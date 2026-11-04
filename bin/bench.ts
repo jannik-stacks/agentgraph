@@ -454,22 +454,32 @@ export const repoint = (graph: string, point: string) => {
   if (own.size) keys.AGENTGRAPH_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
 };
 
-export const getBenchGraphHash = (dir: string) => hash(treeText(dir));
+/** The identity of an arm's run: a reference takes its case and repeat, an agent arm adds its point, graph and labels. */
+export const makeBenchInput = (
+  c: Pick<Case, 'id' | 'repo'>,
+  arm: string,
+  repeat: number,
+  o: Partial<Record<'point' | 'graph', string | undefined>> & { labels?: Record<string, string> } = {}
+): BenchInput =>
+  referenceArms.includes(arm) || arm === 'control'
+    ? { case: c.id, arm, repeat }
+    : {
+        case: c.id,
+        arm,
+        repeat,
+        ...(o.point && { point: o.point }),
+        graph: hash(
+          treeText(findCaseGraphDir(c, o.graph)) + (arm === 'floor' ? treeText(join(agentgraphDir, 'bench/floor')) : '')
+        ),
+        ...(o.labels && Object.keys(o.labels).length && { labels: o.labels }),
+      };
 
-/** The slot input of `arm` for this invocation; a reference takes no point or graph. */
-const readInput = (c: Pick<Case, 'id'>, arm: string, repeat = options.repeat): BenchInput => {
-  const agent = !referenceArms.includes(arm) && arm !== 'control';
-  return {
-    case: c.id,
-    arm,
-    repeat,
-    ...(agent && options.point && { point: options.point }),
-    ...(agent && options.graph && { graph: getBenchGraphHash(options.graph) }),
-  };
-};
+const readInput = (c: Pick<Case, 'id' | 'repo'>, arm: string, repeat = options.repeat) =>
+  makeBenchInput(c, arm, repeat, options);
 
 /** The first repeat of a reference arm, which gates the case and is what agent runs are judged against. */
-const readGateSlot = (set: string, c: Pick<Case, 'id'>, arm: string) => getBenchSlot(set, readInput(c, arm, 1));
+const readGateSlot = (set: string, c: Pick<Case, 'id'>, arm: string) =>
+  getBenchSlot(set, { case: c.id, arm, repeat: 1 });
 
 const makeArmRunLabels = (input: BenchInput) => {
   const [harness, model] = input.point?.split(':') ?? [];
@@ -615,8 +625,8 @@ export const runnerError = (reason = '') =>
   /runner error|^(SandboxError|SessionStop|TrackerError)\b/.test(reason) ? reason.slice(0, 200) : undefined;
 
 /** The graph an arm of the case starts from: `--graph` when given, else the example graph of its repo. */
-const findCaseGraphDir = (c: Pick<Case, 'repo'>) =>
-  options.graph ?? join(agentgraphDir, 'examples', findExampleGraphName(c.repo));
+const findCaseGraphDir = (c: Pick<Case, 'repo'>, graph = options.graph) =>
+  graph ?? join(agentgraphDir, 'examples', findExampleGraphName(c.repo));
 
 export const readCaseImage = async (c: Case & Commands, set: string, graph = findCaseGraphDir(c)) => {
   const file = join(findCaseWorkDir(set, c), 'image.json');
