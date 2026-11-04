@@ -128,7 +128,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       let count = (yield* readGit(work.git, ['rev-parse', `--glob=${attempts}*`])).split('\n').filter(Boolean).length;
       while (current.status === 'running') {
         const tried = yield* runAttempt({ ...w, base }, current, graph, work, own);
-        yield* commitCheckout(work.git, `${attempts}${++count}`, '', [
+        yield* commitCheckout({ git: work.git, ...(tried.tree && { tree: tried.tree }) }, `${attempts}${++count}`, '', [
           work.head ?? work.base,
           work.saved,
           work.published,

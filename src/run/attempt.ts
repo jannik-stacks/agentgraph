@@ -240,7 +240,7 @@ export const runAttempt = (
   work: Checkout,
   own?: string
 ): Effect.Effect<
-  { outcome: Outcome; run: Run } | { failure: TrackerError; run: Run },
+  { outcome: Outcome; run: Run; tree?: string } | { failure: TrackerError; run: Run; tree?: string },
   SandboxError | SessionStop | TrackerError | StoreError,
   Services
 > =>
@@ -248,7 +248,8 @@ export const runAttempt = (
     const store = yield* Store;
     const step = w.steps.find(s => s.name === run.step)!;
     const minutes = graph.limits.minutes;
-    const done = (outcome: Outcome, next = run) => ({ outcome, run: next });
+    let tree: string | undefined;
+    const done = (outcome: Outcome, next = run) => ({ outcome, run: next, ...(tree !== undefined && { tree }) });
     const returns = getStepReturns(step, graph.agents);
     /** The first session of a run a comment started, which may answer that comment. */
     const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
@@ -465,8 +466,8 @@ export const runAttempt = (
         ])
       )
     );
-    const tree = yield* writeCheckoutTree(work);
-    const diff = yield* readCheckoutDiff(work, tree);
+    tree = yield* writeCheckoutTree(work);
+    const diff = yield* readCheckoutDiff({ ...work, tree });
     const published = yield* readGit(work.git, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]);
     const verdict = pickTryOutcome({
       step,
@@ -493,6 +494,7 @@ export const runAttempt = (
             {
               run: run.id,
               ...work,
+              tree,
               issue: run.issue,
               context: context(t),
               reply: replies.join('\n\n'),
@@ -503,6 +505,7 @@ export const runAttempt = (
           ),
           Effect.map(watch(tried, { at: tried.seen ?? run.started }), cut => ({ cut }))
         );
+    if (!answered && step.checks.length > 0) tree = yield* writeCheckoutTree(work);
     if ('cut' in checked)
       return done(checked.cut.outcome, yield* readContinuedRun({ ...tried, seen: checked.cut.at }, checked.cut.events));
     const { outcome: gated } = checked;
@@ -552,7 +555,7 @@ export const runAttempt = (
     const children = world.filter((p): p is Child => p.kind === 'issue');
     const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run' && p.kind !== 'tell');
     const landed = yield* Effect.gen(function* () {
-      const applied = yield* writeProposals(tried, rest, work, to);
+      const applied = yield* writeProposals(tried, rest, to, { work, tree });
       if (applied.some(a => !a.ok && a.proposal.kind === 'push'))
         return [
           ...applied,
@@ -563,7 +566,7 @@ export const runAttempt = (
       useRunLink(tried, spoke),
       Effect.catchTag('TrackerError', failure => Effect.succeed({ failure }))
     );
-    if ('failure' in landed) return { failure: landed.failure, run: tried };
+    if ('failure' in landed) return { failure: landed.failure, run: tried, tree };
     if (landed.some(a => a.ok)) tried = removeThreads(tried);
     if (tried.onto && landed.some(a => a.ok && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;

@@ -234,7 +234,6 @@ export const runAside = (
     const landed = yield* writeProposals(
       run,
       proposals.filter(p => p.kind === 'comment'),
-      undefined,
       number
     ).pipe(
       useRunLink(run, r.id),

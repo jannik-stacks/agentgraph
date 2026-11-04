@@ -136,8 +136,10 @@ export const gitIdentity = ['-c', 'user.name=agentgraph', '-c', 'user.email=agen
 export const readGit = (...args: Parameters<typeof hostGit>) =>
   Effect.map(hostGit(...args), out => out.toString('utf8').trim());
 
-export const writeCheckoutTree = ({ git }: Pick<Checkout, 'git'>) =>
-  indexLock.withPermits(1)(Effect.andThen(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])));
+export const writeCheckoutTree = ({ git, tree }: Pick<Checkout, 'git'> & { tree?: string }) =>
+  tree === undefined
+    ? indexLock.withPermits(1)(Effect.andThen(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])))
+    : Effect.succeed(tree);
 
 export const addGraphArgs = ['add', '-A', '--', '.', ':(exclude,glob)**/node_modules/**'];
 
@@ -161,15 +163,15 @@ export const ensureGraphRef = (git: Checkout['git'], dir: string) => {
 };
 
 export const commitCheckout = (
-  git: Checkout['git'],
+  work: Pick<Checkout, 'git'> & { tree?: string },
   name: string,
   old: string,
   parents: (string | undefined)[],
   message = name
 ) =>
   Effect.gen(function* () {
-    const tree = yield* writeCheckoutTree({ git });
-    const commit = yield* readGit(git, [
+    const tree = yield* writeCheckoutTree(work);
+    const commit = yield* readGit(work.git, [
       ...gitIdentity,
       'commit-tree',
       tree,
@@ -177,13 +179,13 @@ export const commitCheckout = (
       '-m',
       message,
     ]);
-    yield* hostGit(git, ['update-ref', name, commit, old]);
+    yield* hostGit(work.git, ['update-ref', name, commit, old]);
   });
 
 export const commitCheckoutOnce = (git: Checkout['git'], name: string, parents: (string | undefined)[]) =>
   Effect.gen(function* () {
     if (yield* Effect.isSuccess(hostGit(git, ['rev-parse', '--verify', '--quiet', name]))) return;
-    yield* commitCheckout(git, name, '', parents);
+    yield* commitCheckout({ git }, name, '', parents);
   });
 
 /** Keeps the last published tree as a local commit for saved-work replay. */

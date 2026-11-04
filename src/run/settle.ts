@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Effect, Stream, Schedule } from 'effect';
 import { type Run, type Workflow, isQuiet } from '../workflow.ts';
-import { currentRunLinkRef, Tracker, TrackerError } from '../tracker.ts';
+import { currentRunLinkRef, Tracker, type TrackerError } from '../tracker.ts';
 import { stoppedByRunner, proposeStatusUpdates } from '../context.ts';
 import { type StoreError, Store } from '../store.ts';
 import type { Graph } from '../folder.ts';
@@ -11,7 +11,6 @@ import type { Proposal } from '../proposal.ts';
 import { getSha } from '../hash.ts';
 import type { Applied } from '../event.ts';
 import type { Checkout } from '../sandbox.ts';
-import { writeCheckoutTree } from '../git.ts';
 import type { Services } from './execute.ts';
 import { runEndedChecks } from './evaluate.ts';
 import { readIssueWithPull } from './hear.ts';
@@ -213,8 +212,8 @@ const unpushed = 'The push with this reply failed, so its changes are not on the
 export const writeProposals = (
   run: Run,
   proposals: Proposal[],
-  work?: Checkout,
-  to?: number
+  to?: number,
+  checkout?: { work: Checkout; tree: string }
 ): Effect.Effect<Applied[], TrackerError | StoreError, Tracker | Store> =>
   Effect.flatMap(Tracker, tracker =>
     Effect.gen(function* () {
@@ -234,10 +233,6 @@ export const writeProposals = (
                 : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
         );
       const applied: Applied[] = [];
-      const tree =
-        work && proposals.some(p => p.kind === 'push')
-          ? yield* writeCheckoutTree(work).pipe(Effect.mapError(e => new TrackerError({ message: e.detail })))
-          : undefined;
       let refused = false;
       let thrown: TrackerError | undefined;
       for (const [i, [issue, proposed]] of sent.entries()) {
@@ -250,11 +245,11 @@ export const writeProposals = (
         const write = writeOnce(
           run,
           issue,
-          work
-            ? getOperationKey(run, issue, proposed, `land:${i}`, p.kind === 'push' ? tree : undefined)
+          checkout
+            ? getOperationKey(run, issue, proposed, `land:${i}`, p.kind === 'push' ? checkout.tree : undefined)
             : randomUUID(),
-          tracker.apply(issue, p, work),
-          work && p
+          tracker.apply(issue, p, checkout?.work),
+          checkout && p
         );
         const a =
           p.kind === 'push'

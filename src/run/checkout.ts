@@ -35,9 +35,9 @@ export const runSetup = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'st
       });
   });
 
-/** What the checkout, or `tree` written from it, changed since its base. */
-export const readCheckoutDiff = (work: Checkout, tree?: string, ...args: string[]) =>
-  Effect.flatMap(tree === undefined ? writeCheckoutTree(work) : Effect.succeed(tree), to =>
+/** What the checkout, or its `tree` when already written, changed since its base. */
+export const readCheckoutDiff = (work: Checkout & { tree?: string }, ...args: string[]) =>
+  Effect.flatMap(writeCheckoutTree(work), to =>
     readGit(work.git, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', ...args, work.base, to])
   );
 
@@ -52,7 +52,7 @@ const lines = (text: string) => text.split('\n').filter(line => line.trim());
 export const findFanOutItems = (
   each: string | { run: string },
   graph: Graph,
-  work: Checkout,
+  work: Checkout & { tree?: string },
   minutes: number,
   env: Record<string, string> = { AGENTGRAPH_BASE: work.base }
 ) => {
@@ -66,7 +66,7 @@ export const findFanOutItems = (
           return hunks.map(hunk => `${head}${hunk}`.trimEnd());
         })
     );
-  if (each === 'files') return Effect.map(readCheckoutDiff(work, undefined, '--name-only'), lines);
+  if (each === 'files') return Effect.map(readCheckoutDiff(work, '--name-only'), lines);
   const script = typeof each === 'string' ? each : each.run;
   return Effect.flatMap(runShell(script, graph, work.dir, env, minutes), out =>
     out.code === 0 ? Effect.succeed(lines(out.output)) : Effect.fail(new EachFailed({ detail: out.output.trim() }))

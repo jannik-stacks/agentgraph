@@ -824,7 +824,7 @@ export const dockerSandbox = (o: {
           };
           const save = (name: string) =>
             commitCheckout(
-              work.git,
+              work,
               name,
               saved,
               [rev, saved, work.published],
