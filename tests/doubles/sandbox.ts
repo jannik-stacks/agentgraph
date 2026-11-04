@@ -26,6 +26,17 @@ const spawned = (command: Command) =>
 const late = (command: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `${command.cmd} ran past ${command.minutes} minutes` });
 
+const listRefs = async (cwd: string) =>
+  new Map(
+    (await git('git', ['for-each-ref', '--format=%(refname) %(objectname) %(parent)'], { cwd })).stdout
+      .split('\n')
+      .filter(Boolean)
+      .map(line => {
+        const [name = '', sha = '', parent = ''] = line.split(' ');
+        return [name, { sha, parent }];
+      })
+  );
+
 const attempts = 'refs/agentgraph/attempts/*';
 const graphs = 'refs/agentgraph/graphs/*';
 
@@ -58,22 +69,30 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         const dir = await mkdtemp(join(tmpdir(), 'agentgraph-work-'));
         const news = await mkdtemp(join(tmpdir(), 'agentgraph-news-'));
         const run = (...args: string[]) => git('git', args, { cwd: dir }).then(r => r.stdout.trim());
-        await git('git', ['clone', '-q', repo, dir]);
-        if (ref.startsWith('refs/')) await run('fetch', '-q', 'origin', `+${ref}:${ref}`);
-        await run('fetch', '-q', 'origin', `${attempts}:${attempts}`);
-        const base = await run('rev-parse', '--verify', `origin/${ref}`).catch(() => run('rev-parse', '--verify', ref));
-        const kept = keep
-          ? await run('fetch', '-q', 'origin', `+${keep}:${keep}`).then(
-              () => run('rev-parse', keep),
-              () => ''
-            )
-          : '';
-        const remote = branch ? await run('rev-parse', '--verify', `origin/${branch}`).catch(() => '') : '';
-        const from = remote || (kept ? await run('rev-parse', '--verify', `${kept}^`) : base);
-        const fork = await run('merge-base', from, base).catch(() => from);
+        const kept = keep && (await listRefs(repo)).has(keep) ? keep : '';
+        const fetched = [
+          ...(ref.startsWith('refs/') ? [`+${ref}:${ref}`] : []),
+          `${attempts}:${attempts}`,
+          ...(kept ? [`+${kept}:${kept}`] : []),
+        ];
+        await git('git', [...fetched.flatMap(spec => ['-c', `remote.origin.fetch=${spec}`]), 'clone', '-q', repo, dir]);
+        const refs = await listRefs(dir);
+        const resolve = async (name: string) => {
+          const found = [name, `refs/${name}`, `refs/tags/${name}`, `refs/heads/${name}`, `refs/remotes/${name}`]
+            .map(n => refs.get(n))
+            .find(Boolean);
+          if (found) return found.sha;
+          if (/^[a-z][\w./-]*$/.test(name) && !/^[0-9a-f]+$/.test(name)) throw new Error(`no ref ${name}`);
+          return run('rev-parse', '--verify', name);
+        };
+        const base = await resolve(`origin/${ref}`).catch(() => resolve(ref));
+        const remote = branch ? await resolve(`origin/${branch}`).catch(() => '') : '';
+        const parent = kept && refs.get(kept)?.parent;
+        const from = remote || (kept ? parent || (await run('rev-parse', '--verify', `${kept}^`)) : base);
+        const fork = from === base ? base : await run('merge-base', from, base).catch(() => from);
         await run('checkout', '-q', ...(branch ? ['-B', branch] : ['--detach']), from);
         if (kept) await run('read-tree', '-u', '--reset', kept);
-        return { dir, base: fork, run, from, kept, news };
+        return { dir, base: fork, run, from, kept: kept && refs.get(kept)!.sha, news };
       };
       return Effect.acquireRelease(
         Effect.tryPromise({
@@ -82,27 +101,35 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         }),
         ({ dir, run, from, kept, news }) =>
           Effect.tryPromise(async () => {
-            await run('push', '-q', 'origin', `${attempts}:${attempts}`);
-            const pushGraphs = () => run('push', '-q', 'origin', `${graphs}:${graphs}`);
-            // UNEXPECTED: parallel runs on one graph create the same graphs ref at once; the retry finds it in place.
-            await pushGraphs().catch(pushGraphs);
-            if (!keep) return;
-            await run('add', '-A');
             const parents = [
               '-p',
               from,
               ...(kept ? ['-p', kept] : []),
               ...(checked?.published ? ['-p', checked.published] : []),
             ];
-            const commit = await run(
-              ...gitIdentity,
-              'commit-tree',
-              await run('write-tree'),
-              ...parents,
-              '-m',
-              keep + (checked?.published ? `\n\nbaseline ${checked.published}` : '')
-            );
-            await run('push', '-q', 'origin', `+${commit}:${keep}`);
+            const saved =
+              keep &&
+              (await run('add', '-A').then(async () =>
+                run(
+                  ...gitIdentity,
+                  'commit-tree',
+                  await run('write-tree'),
+                  ...parents,
+                  '-m',
+                  keep + (checked?.published ? `\n\nbaseline ${checked.published}` : '')
+                )
+              ));
+            const push = () =>
+              run(
+                'push',
+                '-q',
+                'origin',
+                `${attempts}:${attempts}`,
+                `${graphs}:${graphs}`,
+                ...(saved ? [`+${saved}:${keep}`] : [])
+              );
+            // UNEXPECTED: parallel runs on one graph create the same graphs ref at once; the retry finds it in place.
+            await push().catch(push);
           }).pipe(
             Effect.mapError(e => new Error(`unsaved checkout preserved at ${dir}: ${String(e)}`, { cause: e })),
             Effect.orDie,
