@@ -126,7 +126,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(workflow|trace|git|folder|context|graph|env|disk|tracker|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(workflow|trace|git|folder|context|graph|env|disk|tracker|store|session|sandbox|docker|remote|github|harnesses|engine|run/\\w+|services|main|instance|status)\\.ts$",
                 "message": "values import values only"
               }
             ]
@@ -142,7 +142,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(git|env|disk|tracker|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(git|env|disk|tracker|store|session|sandbox|docker|remote|github|harnesses|engine|run/\\w+|services|main|instance|status)\\.ts$",
                 "message": "logic imports values and logic only"
               }
             ]
@@ -158,7 +158,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(tracker|store|session|sandbox|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(tracker|store|session|sandbox|docker|remote|github|harnesses|engine|run/\\w+|services|main|instance|status)\\.ts$",
                 "message": "libs import logic and below"
               }
             ]
@@ -174,7 +174,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(docker|remote|github|harnesses|engine|run/\\w+|services|main|instance|status)\\.ts$",
                 "message": "ports import libs and below"
               }
             ]
@@ -190,8 +190,25 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(engine|run/\\w+|services|main|instance|status)\\.ts$",
                 "message": "adapters import ports and below"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/run/**"],
+      "rules": {
+        "import/no-relative-parent-imports": "off",
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\.\\./(docker|remote|github|harnesses|services|main|instance|status)\\.ts$",
+                "message": "engine imports ports and below, never adapters"
               }
             ]
           }
@@ -276,7 +293,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(git|env|disk|tracker|store|session|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(git|env|disk|tracker|store|session|docker|remote|github|harnesses|engine|run/\\w+|services|main|instance|status)\\.ts$",
                 "message": "logic imports values and logic only"
               }
             ]
@@ -292,7 +309,7 @@
           {
             "patterns": [
               {
-                "regex": "^\\./(tracker|store|session|docker|remote|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "regex": "^\\./(tracker|store|session|docker|remote|github|harnesses|engine|run/\\w+|services|main|instance|status)\\.ts$",
                 "message": "libs import logic and below"
               }
             ]

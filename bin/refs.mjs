@@ -211,7 +211,12 @@ const userFacing = () => {
     [...cli.flags].map(flag => `--${flag}`)
   );
   add('CLI command', 'src/cli.ts', [...cli.words]);
-  for (const file of [...readdirSync(join(root, 'src')).map(f => `src/${f}`), 'bin/run.ts'])
+  for (const file of [
+    ...readdirSync(join(root, 'src'), { recursive: true })
+      .filter(f => f.endsWith('.ts'))
+      .map(f => `src/${f}`),
+    'bin/run.ts',
+  ])
     add(
       'env var',
       file,
@@ -240,7 +245,8 @@ const coverage = () => {
   const named = name => new RegExp(`(^|[^\\w-])${name.replace(/[.$]/g, '\\$&')}([^\\w-]|$)`, 'm').test(code);
   const uncited = userFacing().filter(i => !named(i.name));
   const cited = new Set(pairs.map(p => `${p.file}#${p.symbol}`));
-  const internal = readdirSync(join(root, 'src'))
+  const internal = readdirSync(join(root, 'src'), { recursive: true })
+    .filter(f => f.endsWith('.ts'))
     .flatMap(f =>
       [...read(`src/${f}`).matchAll(/^export (?:const|function|class|type|interface) (\w+)/gm)].map(
         m => `src/${f}#${m[1]}`

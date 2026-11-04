@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const src = join(import.meta.dirname, '..', 'src');
-const files = readdirSync(src).filter(f => f.endsWith('.ts'));
+const files = readdirSync(src, { recursive: true }).filter(f => f.endsWith('.ts'));
 const text = Object.fromEntries(files.map(f => [f, readFileSync(join(src, f), 'utf8')]));
 
 /** The text between the bracket at `open` and its match. */
