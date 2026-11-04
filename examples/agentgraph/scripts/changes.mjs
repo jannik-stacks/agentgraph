@@ -55,18 +55,7 @@ export const changedFiles = sha => {
 };
 
 /** Whether `path` exists in the commit `sha`. */
-const based = new Map();
-export const inBase = (sha, path) => {
-  const object = `${sha}:./${basePath(sha, path)}`;
-  if (!based.has(object))
-    try {
-      execFileSync('git', ['cat-file', '-e', object], { stdio: 'ignore' });
-      based.set(object, true);
-    } catch {
-      based.set(object, false);
-    }
-  return based.get(object);
-};
+export const inBase = (sha, path) => git('ls-tree', '--name-only', sha, '--', basePath(sha, path)) !== '';
 
 /** The lines a file gains, with their line numbers in the new version. A new file gains all of its lines. */
 export const addedLines = (sha, path) => {
