@@ -39,10 +39,18 @@ import {
   startProposedRun,
   formatWaitingOn,
 } from './start.ts';
-import { type Services, runShell, runSession } from './execute.ts';
+import { type Services, makeAgentSessionSpec, runShell, runSession } from './execute.ts';
 import { writeTraces, makeScriptEnv, getTraceFiles, formatTracesPrompt, runStepChecks } from './check.ts';
 import { readCheckoutDiff, findFanOutItems, most } from './checkout.ts';
-import { getOperationKey, findAppliedBefore, writeOnce, writeProposals, useRunLink, removeThreads } from './settle.ts';
+import {
+  getOperationKey,
+  findAppliedBefore,
+  writeAppliedTrace,
+  writeOnce,
+  writeProposals,
+  useRunLink,
+  removeThreads,
+} from './settle.ts';
 
 const decodeProposal = Schema.decodeUnknownResult(Said, {
   onExcessProperty: 'error',
@@ -371,15 +379,8 @@ export const runAttempt = (
             run.id,
             step.name,
             {
-              harness: agent.harness,
-              agent: name,
-              minutes,
-              ...(agent.model !== undefined && { model: agent.model }),
-              system: agent.body,
+              ...makeAgentSessionSpec(graph, name, work),
               prompt,
-              dir: work.dir,
-              base: work.base,
-              tools: agent.tools,
               read: [dirname(work.news)],
               ...(resume && { resume }),
             },
@@ -574,10 +575,7 @@ export const runAttempt = (
         : [{ proposal: proposed, ok: false, reason: 'its run id was taken' }];
     const applied = [...landed.success, ...delivered, ...dispatched];
     const failed = [...landed.success, ...dispatched].filter(a => !a.ok);
-    yield* store.trace(
-      run.id,
-      ...applied.filter(a => !a.operation).map(a => ({ at: new Date().toISOString(), step: step.name, applied: a }))
-    );
+    yield* writeAppliedTrace(run.id, step.name, applied);
     return done(
       failed.length
         ? { kind: 'failed', checks: [], proposals: failed, problems: [] }

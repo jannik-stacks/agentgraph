@@ -16,7 +16,7 @@ import { getStepReturns } from '../graph.ts';
 import type { Applied } from '../event.ts';
 import { isRetro } from './hear.ts';
 import { EachFailed, findFanOutItems, readCheckoutDiff, most } from './checkout.ts';
-import { runShell, runJudge } from './execute.ts';
+import { makeAgentSessionSpec, runShell, runJudge } from './execute.ts';
 
 export const getTraceFiles = (work: Checkout) => ({
   AGENTGRAPH_TRACES: join(dirname(work.news), 'traces.md'),
@@ -215,17 +215,10 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
           lines,
           step,
           {
-            harness: agent.harness,
-            agent: check.agent,
+            ...makeAgentSessionSpec(graph, check.agent, work),
             check: check.name,
             returns,
-            minutes: graph.limits.minutes,
-            ...(agent.model !== undefined && { model: agent.model }),
-            system: agent.body,
             prompt,
-            dir: work.dir,
-            base: work.base,
-            tools: agent.tools,
             ...(reads && { read: [dirname(work.news)] }),
           },
           item

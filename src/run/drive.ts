@@ -4,14 +4,14 @@ import type { Issue } from '../event.ts';
 import type { Graph } from '../folder.ts';
 import { type StoreError, Store } from '../store.ts';
 import { type TrackerError, Tracker } from '../tracker.ts';
-import type { SessionStop } from '../trace.ts';
+import { type SessionStop, makeOutcomeLine } from '../trace.ts';
 import { stoppedByRunner } from '../context.ts';
 import { Sandbox, SandboxError, formatCause } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout } from '../git.ts';
 import { findPullNumber, formatTemplate, readIssueWithPull, readHeardOutcome, readContinuedRun } from './hear.ts';
 import { type Services, formatFailure } from './execute.ts';
 import { formatWaitingOn } from './start.ts';
-import { writeProposals, removeThreads, writeStatus, readRunSpend } from './settle.ts';
+import { writeAppliedTrace, writeProposals, removeThreads, writeStatus, readRunSpend } from './settle.ts';
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
@@ -43,34 +43,12 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     let current = run;
     const settle = (outcome: Outcome, next: Run, failure?: SessionStop['reason']) =>
       Effect.gen(function* () {
-        yield* store.trace(next.id, {
-          at: new Date().toISOString(),
-          step: current.step,
-          outcome,
-          ...(failure && { failure }),
-          run: {
-            step: next.step,
-            status: next.status,
-            tries: next.tries,
-            rounds: next.rounds,
-            ...(next.reason !== undefined && { reason: next.reason }),
-          },
-        });
+        yield* store.trace(next.id, makeOutcomeLine(current.step, outcome, next, failure));
         const child = (yield* store.list()).some(r => r.by === next.id && next.reason === formatWaitingOn(r));
         if (next.status === 'waiting' && next.reason && !next.reason.startsWith(stoppedByRunner) && !child) {
           const body = outcome.kind === 'failed' ? 'How should I proceed?' : next.reason;
           const said = yield* Effect.result(writeProposals(removeThreads(next), [{ kind: 'comment', body }]));
-          if (Result.isSuccess(said))
-            yield* store.trace(
-              next.id,
-              ...said.success
-                .filter(a => !a.operation)
-                .map(applied => ({
-                  at: new Date().toISOString(),
-                  step: next.step,
-                  applied,
-                }))
-            );
+          if (Result.isSuccess(said)) yield* writeAppliedTrace(next.id, next.step, said.success);
         }
         current = yield* writeStatus(w, next, graph);
         yield* store.put(current);
@@ -89,15 +67,12 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         graph
       );
       yield* store.put(current);
-      const stacked =
-        graph.stacks && !current.base && findStackBase(w, issue, yield* tracker.issues({ state: 'open' }));
+      const open = yield* Effect.cached(tracker.issues({ state: 'open' }));
+      const stacked = graph.stacks && !current.base && findStackBase(w, issue, yield* open);
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const named = w.branch && formatTemplate(w.branch, issue);
       const old = named && named.replace(/^agentgraph\//, 'bothub/');
-      const own =
-        old && old !== named && (yield* tracker.issues({ state: 'open' })).some(t => t.pull?.branch === old)
-          ? old
-          : named;
+      const own = old && old !== named && (yield* open).some(t => t.pull?.branch === old) ? old : named;
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
         ((issue.state === 'open' ? issue.pull?.branch : undefined) ??

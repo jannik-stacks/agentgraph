@@ -9,6 +9,9 @@ import type { Graph } from '../folder.ts';
 import { findAppliedBefore, getOperationKey, writeOnce, useRunLink } from './settle.ts';
 import { isInScope, isRetro } from './hear.ts';
 
+export const makeRunId = (w: Pick<Workflow, 'name'>, issue: number, at: string) =>
+  `${w.name}-${issue}-${at.replace(/\D/g, '')}`;
+
 export type Child = Extract<Said, { kind: 'issue' }>;
 
 /** Saves a new run once, under its id's lock and only when no run has that id, then lets `ready` finish it under that lock. */
@@ -128,7 +131,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       const p = children[i]!;
       if (!isPart(p) || p.size !== 'XL' || depth + 1 >= deepest) continue;
       const at = new Date().toISOString();
-      yield* startRun(begin(w, { id: `${w.name}-${n}-${at.replace(/\D/g, '')}`, issue: n, started: at }));
+      yield* startRun(begin(w, { id: makeRunId(w, n, at), issue: n, started: at }));
     }
     return applied;
   }).pipe(useRunLink(run));
@@ -198,7 +201,7 @@ export const startProposedRun = (
       const child: Run = {
         ...begin(
           w,
-          { id: `${w.name}-${p.issue}-${at.replace(/\D/g, '')}`, issue: p.issue, started: at },
+          { id: makeRunId(w, p.issue, at), issue: p.issue, started: at },
           w.steps.find(s => s.name === p.step)
         ),
         by: run.id,

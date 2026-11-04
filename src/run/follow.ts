@@ -11,12 +11,12 @@ import { context } from '../context.ts';
 import { SessionStop } from '../trace.ts';
 import { getStepReturns } from '../graph.ts';
 import { formatTemplate, readIssueWithPull } from './hear.ts';
-import { writeStatus, removeThreads, writeProposals, useRunLink } from './settle.ts';
+import { writeAppliedTrace, writeStatus, removeThreads, writeProposals, useRunLink } from './settle.ts';
 import { startProposedRun } from './start.ts';
 import { runSetup } from './checkout.ts';
 import { runStepChecks } from './check.ts';
 import { shapes, parseProposals, findUngranted } from './attempt.ts';
-import { runSession } from './execute.ts';
+import { makeAgentSessionSpec, runSession } from './execute.ts';
 
 /** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
 export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =>
@@ -189,13 +189,11 @@ export const runAside = (
   number: number
 ) =>
   Effect.gen(function* () {
-    const store = yield* Store;
     const tracker = yield* Tracker;
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
     if (!to || !('agent' in to.does))
       return yield* new SessionStop({ reason: 'provider', detail: 'this wait step has no answering session' });
-    const agent = graph.agents[to.does.agent]!;
     const comments = getStepReturns(to, graph.agents).includes('comment');
     const kept = run.sessions[to.name];
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, graph));
@@ -215,14 +213,8 @@ export const runAside = (
       run.id,
       step.name,
       {
-        harness: agent.harness,
-        agent: to.does.agent,
-        minutes: graph.limits.minutes,
-        ...(agent.model !== undefined && { model: agent.model }),
-        system: agent.body,
+        ...makeAgentSessionSpec(graph, to.does.agent, { dir: work.dir }),
         prompt,
-        dir: work.dir,
-        tools: agent.tools,
         ...(kept && { resume: kept, fork: true as const }),
       },
       undefined,
@@ -253,12 +245,7 @@ export const runAside = (
     if (!back && !landed.some(a => a.ok))
       return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
     const undone = landed.some(a => a.ok) && run.eyes ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
-    yield* store.trace(
-      run.id,
-      ...[...landed, ...undone]
-        .filter(a => !a.operation)
-        .map(applied => ({ at: new Date().toISOString(), step: step.name, applied }))
-    );
+    yield* writeAppliedTrace(run.id, step.name, [...landed, ...undone]);
     const { eyes, ...rest } = landed.some(a => a.ok) ? removeThreads(run) : run;
     const answered = { ...rest, ...(eyes && !undone.length && { eyes }) };
     if (!back || r.id === undefined) return { run: answered };

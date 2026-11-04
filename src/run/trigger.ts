@@ -1,4 +1,4 @@
-import { Duration, Effect, Result, Option, Schema, Stream } from 'effect';
+import { Duration, Effect, Option, Schema, Stream } from 'effect';
 import { formatEventLine, stoppedByRunner } from '../context.ts';
 import { Tracker, TrackerError } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
@@ -7,7 +7,7 @@ import { PluginMetadata } from '../meta.ts';
 import type { Graph } from '../folder.ts';
 import { Sandbox } from '../sandbox.ts';
 import { Store, type StoreError } from '../store.ts';
-import { SessionStop } from '../trace.ts';
+import { SessionStop, makeOutcomeLine } from '../trace.ts';
 import {
   begin,
   fold,
@@ -38,7 +38,7 @@ import {
 } from './hear.ts';
 import { runLaterChecks } from './evaluate.ts';
 import { isParked, writeMovedStatus, writeStatus, runEndChecks } from './settle.ts';
-import { findUndispatchable, startProposedRun, formatWaitingOn, startRun } from './start.ts';
+import { findUndispatchable, startProposedRun, formatWaitingOn, makeRunId, startRun } from './start.ts';
 import { runAside, runFollow, runCatchUp } from './follow.ts';
 import { runWorkflow } from './drive.ts';
 
@@ -71,6 +71,12 @@ const spokenByCli = (issue: number, text: string, at: string, parent?: Comment):
   },
 });
 
+const decodeRunMeta = (meta: Run['meta']) =>
+  Schema.decodeUnknownEffect(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
+    Effect.map(decoded => (decoded ? { meta: decoded } : {})),
+    Effect.mapError(() => new TrackerError({ message: 'invalid run metadata' }))
+  );
+
 export type Instruction =
   | { kind: 'say'; issue: number; text: string; comment?: string }
   | ({ kind: 'dispatch'; text?: string } & Omit<Extract<Proposal, { kind: 'run' }>, 'kind'>)
@@ -84,9 +90,7 @@ export const instruct = (
   meta?: Run['meta']
 ): Effect.Effect<RunRecord[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
-    const supplied = yield* Schema.decodeUnknownEffect(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
-      Effect.mapError(() => new TrackerError({ message: 'invalid run metadata' }))
-    );
+    const supplied = yield* decodeRunMeta(meta);
     if (instruction.kind === 'resume') {
       const store = yield* Store;
       const runs = yield* store.list();
@@ -131,7 +135,7 @@ export const instruct = (
       if (refused.length) return yield* new TrackerError({ message: refused[0]!.reason! });
       const child = yield* startProposedRun(graph, { id: 'cli' }, p, {
         ...(text && { said: [{ issue: p.issue }] }),
-        ...(supplied && { meta: supplied }),
+        ...supplied,
       });
       if (!child)
         return yield* new TrackerError({
@@ -143,7 +147,7 @@ export const instruct = (
             at: child.started,
             step: child.step,
             spoken: spokenByCli(p.issue, text, child.started),
-            ...(supplied && { meta: supplied }),
+            ...supplied,
           })
         );
       return [child];
@@ -173,9 +177,9 @@ export const instruct = (
       .at(-1);
     if (target)
       yield* Effect.flatMap(Store, store =>
-        store.trace(target.id, { at, step: target.step, spoken: event, ...(supplied && { meta: supplied }) })
+        store.trace(target.id, { at, step: target.step, spoken: event, ...supplied })
       );
-    return yield* tick(graph, owner?.issue ?? issue.number, true, 0, supplied).pipe(
+    return yield* tick(graph, owner?.issue ?? issue.number, true, 0, supplied.meta).pipe(
       Effect.provideService(Tracker, {
         ...tracker,
         since: () => Stream.make(event),
@@ -230,19 +234,14 @@ export const tick = (
   meta?: Run['meta']
 ): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
-    const supplied = yield* Schema.decodeUnknownEffect(Schema.UndefinedOr(PluginMetadata))(meta).pipe(
-      Effect.mapError(() => new TrackerError({ message: 'invalid run metadata' }))
-    );
+    const supplied = yield* decodeRunMeta(meta);
     const store = yield* Store;
     const tracker = yield* Tracker;
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const all = yield* store.list();
     const runs = all.filter(mine).filter(r => !isRetro(graph, r) || isParked(r));
     const waiting = runs.filter(r => !isRunDone(r)).map(run => ({ run, at: run.seen ?? run.started }));
-    const started = runs
-      .map(r => r.started)
-      .sort()
-      .at(-1);
+    const started = pickNewest(...runs.map(r => r.started));
     const cursor = started === undefined ? '' : [started, ...waiting.map(p => p.at)].sort()[0]!;
     const issues = yield* tracker.issues({ state: 'open' });
     const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
@@ -294,8 +293,7 @@ export const tick = (
               t.spoken.issue === spoken.issue &&
               t.spoken.comment?.body === spoken.comment?.body
           );
-          if (!recorded)
-            yield* store.trace(run.id, { at: m.at, step: run.step, spoken, ...(supplied && { meta: supplied }) });
+          if (!recorded) yield* store.trace(run.id, { at: m.at, step: run.step, spoken, ...supplied });
           return run;
         });
       if (m.kind !== 'comment' && m.kind !== 'label' && m.kind !== 'column') return Effect.succeed(run);
@@ -325,28 +323,18 @@ export const tick = (
     const events = latest.map(onRun).filter(mine);
     const used = new Set<Event>();
     const touched: Run[] = [];
+    const current = (r: Run) => touched.find(t => t.id === r.id) ?? r;
     /** Moves a live run outside a session: traces the outcome and saves where it led. */
     const record = (run: Run, outcome: Outcome, next: Run) =>
       Effect.gen(function* () {
-        yield* store.trace(run.id, {
-          at: new Date().toISOString(),
-          step: run.step,
-          outcome,
-          run: {
-            step: next.step,
-            status: next.status,
-            tries: next.tries,
-            rounds: next.rounds,
-            ...(next.reason !== undefined && { reason: next.reason }),
-          },
-        });
+        yield* store.trace(run.id, makeOutcomeLine(run.step, outcome, next));
         yield* store.put(next);
         touched.push(next);
       });
     waiting.sort((a, b) => b.run.started.localeCompare(a.run.started));
     for (const waitingRun of waiting)
       yield* Effect.gen(function* () {
-        if (Result.isFailure(yield* Effect.result(store.lock(waitingRun.run.id)))) return;
+        if (!(yield* Effect.isSuccess(store.lock(waitingRun.run.id)))) return;
         const run = yield* store.get(waitingRun.run.id);
         if (!run || isRunDone(run)) return;
         const at = run.seen ?? run.started;
@@ -471,7 +459,7 @@ export const tick = (
       }).pipe(Effect.scoped);
     for (const before of runs.filter(r => r.status === 'waiting' && !touched.some(t => t.id === r.id)))
       yield* Effect.gen(function* () {
-        if (Result.isFailure(yield* Effect.result(store.lock(before.id)))) return;
+        if (!(yield* Effect.isSuccess(store.lock(before.id)))) return;
         const parent = yield* store.get(before.id);
         if (!parent || parent.status !== 'waiting') return;
         const w = graph.workflows[parent.workflow];
@@ -487,7 +475,7 @@ export const tick = (
 
     const busy = new Set(
       runs
-        .map(r => touched.find(t => t.id === r.id) ?? r)
+        .map(current)
         .filter(r => !isRunDone(r) && !isRetro(graph, r))
         .map(r => `${r.workflow}#${r.issue}`)
     );
@@ -512,8 +500,8 @@ export const tick = (
           .at(-1);
         const step = w.steps.find(s => s.name === restart);
         const begun = {
-          ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }, step),
-          ...(supplied && { meta: supplied }),
+          ...begin(w, { id: makeRunId(w, issue, at), issue, started: at }, step),
+          ...supplied,
           ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
@@ -620,14 +608,14 @@ export const tick = (
         if (fresh.length === 0) continue;
         const at = pickNewest(...fresh.map(m => m.at))!;
         const begun: Run = {
-          ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
+          ...begin(w, { id: makeRunId(w, issue, at), issue, started: at }),
           feedback: `## What a person said or pushed\n\n${fresh.map(formatEventLine).join('\n\n')}`,
         };
         if (yield* startRun(begun)) touched.push(begun);
       }
     }
 
-    for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => !isRunDone(r))) {
+    for (const r of runs.map(current).filter(r => !isRunDone(r))) {
       const w = graph.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
       if (
@@ -654,9 +642,9 @@ export const tick = (
       );
     }
 
-    for (const before of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => r.status === 'waiting'))
+    for (const before of runs.map(current).filter(r => r.status === 'waiting'))
       yield* Effect.gen(function* () {
-        if (Result.isFailure(yield* Effect.result(store.lock(before.id)))) return;
+        if (!(yield* Effect.isSuccess(store.lock(before.id)))) return;
         const r = yield* store.get(before.id);
         if (!r || r.status !== 'waiting') return;
         const w = graph.workflows[r.workflow];

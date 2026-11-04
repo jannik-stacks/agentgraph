@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Effect, Stream, Result, Schedule } from 'effect';
+import { Effect, Stream, Schedule } from 'effect';
 import { type Run, type Workflow, isQuiet } from '../workflow.ts';
 import { currentRunLinkRef, Tracker, TrackerError } from '../tracker.ts';
 import { stoppedByRunner, proposeStatusUpdates } from '../context.ts';
@@ -51,7 +51,7 @@ export const readRunSpend = (id: string) =>
 export const runEndChecks = (graph: Graph, id: string): Effect.Effect<Run | undefined, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
-    if (Result.isFailure(yield* Effect.result(store.lock(id)))) return;
+    if (!(yield* Effect.isSuccess(store.lock(id)))) return;
     const ended = yield* store.get(id);
     if (!ended?.owed?.length) return ended;
     let run = ended;
@@ -149,6 +149,11 @@ export const writeMovedStatus = (w: Workflow, asked: Run, moved: Run, graph: Gra
 };
 
 /** The run with no review thread left to answer: what it says next goes to the top of where a human last spoke. */
+export const writeAppliedTrace = (id: string, step: string, applied: Applied[]) =>
+  Effect.flatMap(Store, store =>
+    store.trace(id, ...applied.filter(a => !a.operation).map(a => ({ at: new Date().toISOString(), step, applied: a })))
+  );
+
 export const removeThreads = (run: Run): Run =>
   run.said ? { ...run, said: run.said.slice(0, 1).map(s => ({ issue: s.issue })) } : run;
 

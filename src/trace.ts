@@ -103,6 +103,20 @@ export type Trace = { at: string; step: string } & (
   | { told: { text: string; by: string } }
 );
 
+export const makeOutcomeLine = (step: string, outcome: Outcome, next: Run, failure?: SessionStop['reason']): Trace => ({
+  at: new Date().toISOString(),
+  step,
+  outcome,
+  ...(failure && { failure }),
+  run: {
+    step: next.step,
+    status: next.status,
+    tries: next.tries,
+    rounds: next.rounds,
+    ...(next.reason !== undefined && { reason: next.reason }),
+  },
+});
+
 /** A check's full output in the store: its sha256 and its length in bytes. */
 export type Log = { hash: string; bytes: number };
 

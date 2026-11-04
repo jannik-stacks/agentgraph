@@ -3,7 +3,7 @@ import { Effect, Semaphore, Stream, Option } from 'effect';
 import { type TrackerError, Tracker } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { Session } from '../session.ts';
-import { type SandboxError, Sandbox } from '../sandbox.ts';
+import { type Checkout, type SandboxError, Sandbox } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
 import { type Trace, type SessionSpec, type Aside, SessionStop, pickUsed } from '../trace.ts';
 import { getRecordedResult } from '../result.ts';
@@ -12,6 +12,25 @@ import { startTools } from '../tools.ts';
 import { formatRedactedText, formatSqueezed } from '../context.ts';
 
 export type Services = Tracker | Store | Session | Sandbox;
+
+export const makeAgentSessionSpec = (
+  graph: Graph,
+  name: string,
+  work: Pick<Checkout, 'dir'> & Partial<Pick<Checkout, 'base'>>,
+  minutes = graph.limits.minutes
+) => {
+  const agent = graph.agents[name]!;
+  return {
+    harness: agent.harness,
+    agent: name,
+    minutes,
+    ...(agent.model !== undefined && { model: agent.model }),
+    system: agent.body,
+    dir: work.dir,
+    ...(work.base !== undefined && { base: work.base }),
+    tools: agent.tools,
+  };
+};
 
 export const runShell = (
   script: string,

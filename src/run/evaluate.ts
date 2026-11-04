@@ -1,4 +1,4 @@
-import { Effect, Stream, Result } from 'effect';
+import { Effect, Stream } from 'effect';
 import type { Check, Graph } from '../folder.ts';
 import type { RunRecord } from '../workflow.ts';
 import { type SandboxError, Sandbox } from '../sandbox.ts';
@@ -104,7 +104,7 @@ export const runEndedChecks = (
 export const runLaterChecks = (graph: Graph, id: string, names: string[]) =>
   Effect.gen(function* () {
     const store = yield* Store;
-    if (Result.isFailure(yield* Effect.result(store.lock(id)))) return;
+    if (!(yield* Effect.isSuccess(store.lock(id)))) return;
     const run = yield* store.getRecord(id);
     if (!run?.ended) return;
     const after = (yield* store.readChecks(id)).filter(e => e.at >= run.ended! && !e.item);
