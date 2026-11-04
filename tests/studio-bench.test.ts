@@ -175,6 +175,22 @@ describe('bench score', () => {
     ]);
   });
 
+  it('keeps alternatives within a label and requires every filtered label', () => {
+    const rows = ['smart', 'small', 'other'].map(model =>
+      row({
+        hidden: 1,
+        labels: { ...row({}).labels, model },
+      })
+    );
+    const lens = { w: defaultBenchScoreWeights, x: (r: Row) => r.minutes };
+    expect(
+      summarise(rows, { ...lens, where: { model: ['smart', 'small'], harness: ['opencode'] } }).map(p => p.labels.model)
+    ).toEqual(['smart', 'small']);
+    expect(summarise(rows, { ...lens, where: { model: [] } })).toEqual([]);
+    expect(summarise(rows, { ...lens, where: { model: ['smart'], harness: ['missing'] } })).toEqual([]);
+    expect(summarise(rows, lens)).toHaveLength(3);
+  });
+
   it('groups points by label values without delimiter collisions', () => {
     const labels = row({}).labels;
     const rows = [

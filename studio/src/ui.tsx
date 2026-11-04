@@ -395,6 +395,126 @@ export const Select = ({
   </label>
 );
 
+export const useScrollFade = () =>
+  useCallback((element: HTMLElement | null) => {
+    if (!element) return;
+    const update = () => element.classList.toggle('agi-scroll-fade', element.scrollHeight > element.clientHeight);
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    for (const child of element.children) observer.observe(child);
+    update();
+    return () => observer.disconnect();
+  }, []);
+
+export const MultiSelect = ({
+  label,
+  values,
+  selected,
+  onChange,
+}: {
+  label: string;
+  values: string[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+}) => {
+  const fade = useScrollFade();
+  const id = useId();
+  const panel = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const picks = values.filter(v => selected.includes(v));
+  const short = picks.map(v => v || '(empty)').join(', ');
+  const summary = !picks.length ? 'none' : short.length <= 24 ? short : `${picks.length} of ${values.length}`;
+  const shown = values.filter(v => v.toLowerCase().includes(search.trim().toLowerCase()));
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: Event) => {
+      if (event.target instanceof Node && panel.current?.contains(event.target)) return;
+      panel.current?.hidePopover();
+    };
+    window.addEventListener('resize', close);
+    document.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('resize', close);
+      document.removeEventListener('scroll', close, true);
+    };
+  }, [open]);
+  return (
+    <div className="min-w-0 space-y-0.5 text-xs">
+      <span id={`${id}-label`} className="block text-zinc-500">
+        {label}
+      </span>
+      <Button
+        ref={button}
+        popoverTarget={id}
+        aria-labelledby={`${id}-label ${id}-summary`}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span id={`${id}-summary`} className="truncate">
+          {summary}
+        </span>
+        <span aria-hidden="true">▾</span>
+      </Button>
+      <div
+        ref={panel}
+        id={id}
+        popover="auto"
+        role="dialog"
+        aria-labelledby={`${id}-label`}
+        onKeyDown={e => {
+          if (e.key !== 'Escape') return;
+          e.preventDefault();
+          e.currentTarget.hidePopover();
+          button.current?.focus();
+        }}
+        onToggle={e => {
+          const next = e.newState === 'open';
+          setOpen(next);
+          if (!next) setSearch('');
+          if (next && button.current) {
+            place(e.currentTarget, button.current.getBoundingClientRect());
+            e.currentTarget.querySelector('input')?.focus();
+          }
+        }}
+        className="fixed inset-auto m-0 w-72 max-w-[calc(100vw-1rem)] rounded-md border border-zinc-300 bg-white p-2 text-xs text-zinc-900 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      >
+        <input
+          autoFocus
+          type="search"
+          aria-label={`Search ${label}`}
+          placeholder="Search…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className={cx(field, 'w-full px-2 py-1')}
+        />
+        <div className="my-2 flex gap-1">
+          <Button onClick={() => onChange(values)}>all</Button>
+          <Button onClick={() => onChange([])}>none</Button>
+        </div>
+        <div ref={fade} className="max-h-[min(15rem,40dvh)] overflow-y-auto">
+          {shown.map(v => (
+            <label
+              key={v}
+              className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 break-all hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 shrink-0"
+                checked={selected.includes(v)}
+                onChange={e => onChange(e.target.checked ? [...selected, v] : selected.filter(s => s !== v))}
+              />
+              {v || '(empty)'}
+            </label>
+          ))}
+          {!shown.length && <p className="p-1 text-zinc-500">No matches.</p>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const pattern = (words: string[]) =>
   new RegExp(`(${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'i');
 

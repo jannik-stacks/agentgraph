@@ -228,3 +228,45 @@ body {
     display: none;
   }
 }
+
+@property --agi-fade-top {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --agi-fade-bottom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@supports (animation-timeline: scroll(self)) {
+  .agi-scroll-fade {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--agi-fade-top),
+      #000 calc(100% - var(--agi-fade-bottom)),
+      transparent
+    );
+    animation: agi-scroll-fade linear both;
+    animation-timeline: scroll(self);
+  }
+}
+
+@keyframes agi-scroll-fade {
+  0% {
+    --agi-fade-top: 0px;
+    --agi-fade-bottom: 2rem;
+  }
+  10%,
+  90% {
+    --agi-fade-top: 2rem;
+    --agi-fade-bottom: 2rem;
+  }
+  100% {
+    --agi-fade-top: 2rem;
+    --agi-fade-bottom: 0px;
+  }
+}

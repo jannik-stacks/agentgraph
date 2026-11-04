@@ -80,6 +80,10 @@ export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, see
   return { y: point[0], x: point[1], yCi: ci(0), xCi: ci(1) };
 };
 
+export const isBenchMatch = (row: Row, where: Record<string, string[]>) =>
+  !['human', 'base'].includes(row.labels.arm ?? '') &&
+  Object.entries(where).every(([key, values]) => values.includes(row.labels[key]!));
+
 export const summarise = (
   rows: readonly Row[],
   o: {
@@ -94,11 +98,7 @@ export const summarise = (
 ) => {
   const keys = [...new Set([...(o.by ?? defaultBenchBy), ...(o.color ? [o.color] : []), 'set', 'tests'])];
   const byPoint = Map.groupBy(
-    rows.filter(
-      r =>
-        !['human', 'base'].includes(r.labels.arm ?? '') &&
-        Object.entries(o.where ?? {}).every(([k, vs]) => !vs.length || vs.includes(r.labels[k]!))
-    ),
+    rows.filter(r => isBenchMatch(r, o.where ?? {})),
     r => JSON.stringify(keys.map(k => [k, r.labels[k] ?? null]))
   );
   return [...byPoint].map(([key, all]) => {

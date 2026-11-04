@@ -5,7 +5,7 @@ import { getMean } from '../../../src/stats.ts';
 import { queryParam } from '../state.ts';
 import { usePluginData } from '../plugins.ts';
 import { BenchData, type BenchRow as Row } from './data.ts';
-import { Button, cx, Disclosure, Help, Live, Muted, Select, Tooltip } from '../ui.tsx';
+import { Button, cx, Help, Live, MultiSelect, Muted, Select, Tooltip, useScrollFade } from '../ui.tsx';
 import {
   cost,
   defaultBenchBy,
@@ -88,41 +88,20 @@ const unpricedModels = (rs: Row[]) => {
   return missing.length ? `no list price for ${missing.join(', ')}, counted as $0` : '';
 };
 
-const Control = ({ label, tip, children }: { label: string; tip?: string; children: ReactNode }) => (
+const Control = ({ label, tip, children }: { label: string; tip: string; children: ReactNode }) => (
   <div className="space-y-1">
-    <Tooltip tip={tip} focusable={!!tip}>
+    <div className="flex items-center gap-1.5">
       <h3 className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">{label}</h3>
-    </Tooltip>
+      <Help tip={tip} />
+    </div>
     {children}
-  </div>
-);
-
-const LabelChoices = ({
-  values,
-  selected,
-  onChange,
-}: {
-  values: string[];
-  selected: string[];
-  onChange: (values: string[]) => void;
-}) => (
-  <div className="max-h-40 overflow-y-auto">
-    {values.map(v => (
-      <label key={v} className="flex items-center gap-1.5">
-        <input
-          type="checkbox"
-          checked={selected.includes(v)}
-          onChange={e => onChange(e.target.checked ? [...selected, v] : selected.filter(s => s !== v))}
-        />
-        {v || '(empty)'}
-      </label>
-    ))}
   </div>
 );
 
 const BenchPage = () => <Live state={usePluginData('bench', BenchData)}>{value => <Bench value={value} />}</Live>;
 
 const Bench = ({ value }: { value: BenchData }) => {
+  const fade = useScrollFade();
   const [w, setW] = useAtom(params.w);
   const [xAxis, setX] = useAtom(params.x);
   const [whereParam, setWhere] = useAtom(params.where);
@@ -153,6 +132,10 @@ const Bench = ({ value }: { value: BenchData }) => {
   const rows = value.rows;
   const judges = useMemo(() => [...new Set(rows.flatMap(r => Object.keys(r.vsHuman)))].toSorted(), [rows]);
   const labelKeys = useMemo(() => [...new Set(rows.flatMap(r => Object.keys(r.labels)))].toSorted(), [rows]);
+  const labelValues = labelKeys.map(key => ({
+    key,
+    values: [...new Set(rows.flatMap(r => (r.labels[key] === undefined ? [] : [r.labels[key]!])))].toSorted(),
+  }));
   const points = useMemo(() => {
     return summarise(value.rows, {
       where,
@@ -187,7 +170,10 @@ const Bench = ({ value }: { value: BenchData }) => {
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
-      <aside className="shrink-0 space-y-4 overflow-y-auto border-b border-zinc-200 p-4 text-xs md:w-64 md:border-r md:border-b-0 dark:border-zinc-800">
+      <aside
+        ref={fade}
+        className="shrink-0 space-y-4 overflow-y-auto border-b border-zinc-200 p-4 text-xs md:w-64 md:border-r md:border-b-0 dark:border-zinc-800"
+      >
         <Control label="Weights" tip="Choose a preset or adjust how much each score and penalty counts.">
           <div className="flex flex-wrap gap-1">
             {Object.entries(presets).map(([name, p]) => (
@@ -227,7 +213,7 @@ const Bench = ({ value }: { value: BenchData }) => {
         </Control>
         <Control
           label="Axis"
-          tip="Cost prices each run’s tokens at the public API list price from LiteLLM’s table, with separate rates for cache reads and writes, for every model, subscriptions and free ones included. A model the table lacks is named in the point’s tip. Without tokens, it uses the cost the run recorded. Cache off prices cache reads and writes as plain input. Checking cost is apart. Minutes are wall time with machine sleep removed."
+          tip="Choose list-price token cost (checking cost excluded), cost with cache tokens priced as plain input, or wall minutes with machine sleep removed. Cost falls back to the recorded amount without tokens; models missing from the price table are named in point tips."
         >
           <Select
             label="x"
@@ -244,31 +230,33 @@ const Bench = ({ value }: { value: BenchData }) => {
           />
         </Control>
         <Control
-          label="Where"
-          tip="Values within a label are alternatives; labels must all match. Clear a selection to include every value."
+          label="Filter"
+          tip="Keep only runs whose label values you pick: values within a label are OR, different labels are AND. All includes every value; none keeps no runs."
         >
           {whereParam && <Button onClick={() => setWhere(null)}>clear filters</Button>}
-          {labelKeys.map(k => (
-            <Disclosure key={k} summary={`${k}${where[k]?.length ? ` (${where[k]!.join(', ')})` : ''}`}>
-              <LabelChoices
-                values={[...new Set(rows?.flatMap(r => (r.labels[k] === undefined ? [] : [r.labels[k]!])))].toSorted()}
-                selected={where[k] ?? []}
-                onChange={vs =>
-                  setWhere(
-                    JSON.stringify(
-                      Object.fromEntries(Object.entries({ ...where, [k]: vs }).filter(([, vs]) => vs.length))
-                    )
-                  )
-                }
-              />
-            </Disclosure>
-          ))}
+          <div className="space-y-2">
+            {labelValues
+              .filter(({ values }) => values.length > 1)
+              .map(({ key, values }) => (
+                <MultiSelect
+                  key={key}
+                  label={key}
+                  values={values}
+                  selected={where[key] ?? values}
+                  onChange={vs => {
+                    const next = { ...where, [key]: vs };
+                    if (vs.length === values.length) delete next[key];
+                    setWhere(Object.keys(next).length ? JSON.stringify(next) : null);
+                  }}
+                />
+              ))}
+          </div>
         </Control>
         <Control
-          label="By"
-          tip="Select the labels that define each chart point. Colour also splits points. Judge-only cases stay separate."
+          label="Group points by"
+          tip="Each point merges runs sharing the ticked labels, averaged over repeats within a case, then over cases; fewer labels merge more runs. Colour and case set also split points, and judge-only cases stay separate."
         >
-          <LabelChoices values={labelKeys} selected={groupKeys} onChange={vs => setBy(vs.join(','))} />
+          <MultiSelect label="Labels" values={labelKeys} selected={groupKeys} onChange={vs => setBy(vs.join(','))} />
           <Select
             label="color"
             value={color}
@@ -285,7 +273,10 @@ const Bench = ({ value }: { value: BenchData }) => {
             </div>
           )}
         </Control>
-        <Control label="Infra">
+        <Control
+          label="Infra"
+          tip="Infrastructure failures are excluded from scores by default. Count them as zero to include them."
+        >
           <Tooltip tip="Give infra runs a quality of 0 instead of leaving them out.">
             <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
               <input
@@ -319,7 +310,7 @@ const Bench = ({ value }: { value: BenchData }) => {
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
         <section className="max-w-3xl">
           <div className="mb-2 flex flex-wrap items-center gap-1 text-xs text-zinc-500">
-            <Tooltip tip="Which labels name the points on the chart. Each point is the runs that share the labels picked under By.">
+            <Tooltip tip="Which labels name the points on the chart. Each point is the runs that share the labels picked under Group points by.">
               <span className="mr-1">names</span>
             </Tooltip>
             {varying.map(k => (
