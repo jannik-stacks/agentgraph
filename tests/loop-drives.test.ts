@@ -47,11 +47,16 @@ const setup = (parallel: number, holdSweep = false) => {
   const { promise: sweepHeld, resolve: releaseSweep } = Promise.withResolvers<void>();
   const looked: number[] = [];
   let listings = 0;
+  const cursors: string[] = [];
   let holding = false;
   const tracker = Layer.effect(
     Tracker,
     Effect.map(Tracker, t => ({
       ...t,
+      since: (cursor, columns) => {
+        cursors.push(cursor);
+        return t.since(cursor, columns);
+      },
       issues: filter =>
         Effect.suspend(() => {
           listings++;
@@ -115,6 +120,7 @@ const setup = (parallel: number, holdSweep = false) => {
     status,
     ask,
     looked,
+    cursors,
     releaseSweep,
     listings: () => listings,
     isHolding: () => holding,
@@ -182,24 +188,58 @@ describe('loop drives', () => {
     }
   });
 
-  it('retries a busy issue without blocking polls on other issues', async () => {
+  it('waits for the sweep tick on the same issue, then ticks once', async () => {
     const loop = setup(2, true);
     const sweep = loop.pass();
+    let poll: Promise<string> | undefined;
+    let finished = false;
+    const ticks: number[] = [];
     try {
       await vi.waitFor(() => expect(loop.isHolding()).toBe(true));
+      const lock = loop.drives.ticks.get(7)!;
+      const withPermits = lock.withPermits.bind(lock);
+      lock.withPermits = permits => effect =>
+        withPermits(permits)(
+          Effect.andThen(
+            Effect.sync(() => ticks.push(7)),
+            effect
+          )
+        );
       loop.where.human('/agent', '2026-10-16T00:01:00.000Z');
-      expect(await loop.poll()).toBe('2026-10-16T00:00:00.000Z');
-      loop.ask();
-      await loop.poll();
-      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
-      expect(loop.isHolding()).toBe(true);
+      poll = loop.poll().then(cursor => {
+        finished = true;
+        return cursor;
+      });
+      await vi.waitFor(() => expect(loop.looked).toContain(7));
+      expect([finished, ticks]).toEqual([false, []]);
       loop.releaseSweep();
-      await sweep;
-      expect((await loop.poll()) > '2026-10-16T00:00:00.000Z').toBe(true);
+      await Promise.all([sweep, poll]);
+      expect([finished, ticks]).toEqual([true, [7]]);
     } finally {
       loop.releaseSweep();
       loop.release();
-      await sweep;
+      await Promise.all([sweep, poll]);
+      await loop.drives.stop();
+    }
+  });
+
+  it('reads one event window and no open listing for an event on a known run issue', async () => {
+    const loop = setup(2);
+    try {
+      await loop.pass();
+      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+      const listings = loop.listings();
+      const before = loop.cursors.length;
+      loop.where.human('/agent', '2026-10-16T00:01:00.000Z');
+      await loop.poll();
+      loop.where.human('/agent', new Date(Date.now() + 1000).toISOString());
+      await loop.poll();
+      expect([loop.listings(), loop.cursors.slice(before)]).toEqual([
+        listings,
+        ['2026-10-16T00:00:00.000Z', '2026-10-16T00:00:00.000Z'],
+      ]);
+    } finally {
+      loop.release();
       await loop.drives.stop();
     }
   });

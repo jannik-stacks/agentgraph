@@ -13,7 +13,7 @@ import {
   tick,
   type Instruction,
 } from './run/trigger.ts';
-import { writeIssueFile, type TrackerError } from './tracker.ts';
+import { writeIssueFile } from './tracker.ts';
 import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
@@ -186,12 +186,7 @@ export const start = (
           Effect.catch(e => Effect.logWarning(`compressing idle runs failed: ${e.cause}`))
         );
         let cursor = new Date().toISOString();
-        const look = <A>(
-          scan: (
-            graph: Graph,
-            fork: Parameters<typeof tick>[5]
-          ) => Effect.Effect<A, TrackerError | StoreError, Services>
-        ) =>
+        const look = <A, E>(scan: (graph: Graph, fork: Parameters<typeof tick>[5]) => Effect.Effect<A, E, Services>) =>
           Effect.flatMap(read, env =>
             runPass(drives, fork =>
               provided(
@@ -200,11 +195,7 @@ export const start = (
             ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(env)))
           );
         const poll = look((graph, fork) => scanTrackerEvents(graph, cursor, fork, drives.ticks)).pipe(
-          Effect.tap(next =>
-            Effect.sync(() => {
-              cursor = next;
-            })
-          ),
+          Effect.map(next => (cursor = next)),
           Effect.catch(e => Effect.logError(e))
         );
         const pass = Effect.tryPromise(refresh).pipe(
