@@ -22,7 +22,7 @@ import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { settings, type Settings } from '../src/services.ts';
 import { Session } from '../src/session.ts';
-import { fileStore, Store } from '../src/store.ts';
+import { fileStore, Store, StoreError } from '../src/store.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import { begin, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
@@ -985,6 +985,38 @@ describe('tick', () => {
         [true, undefined],
         [true, '2026-10-16T00:00:00.000Z'],
       ],
+    ]);
+  });
+
+  it('finishes the start of a run that begins waiting on the next tick when its first status write fails', async () => {
+    const where = world();
+    const { run } = services(where, []);
+    const hold = {
+      ...small,
+      workflows: {
+        issue: {
+          ...small.workflows.issue!,
+          steps: [{ name: 'approve', does: { wait: 'human' as const }, checks: [], tries: 1 }],
+        },
+      },
+    };
+    let failures = 1;
+    const flaky = Effect.map(Store, s => ({
+      ...s,
+      readChecks: (id: string) =>
+        failures-- > 0 ? Effect.fail(new StoreError({ path: id, cause: new Error('busy') })) : s.readChecks(id),
+    }));
+    const before = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7)))).length;
+    await expect(run(tick(hold, 7).pipe(Effect.provideServiceEffect(Store, flaky)))).rejects.toThrow('busy');
+    await run(tick(hold, 7));
+    await run(tick(hold, 7));
+    const [saved] = await run(Effect.flatMap(Store, s => s.list({ issue: 7 })));
+    const after = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7)))).length;
+    expect([saved!.status, saved!.unshown, saved!.comment !== undefined, after - before]).toEqual([
+      'waiting',
+      undefined,
+      true,
+      1,
     ]);
   });
 
