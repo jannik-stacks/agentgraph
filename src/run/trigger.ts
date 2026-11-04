@@ -768,7 +768,9 @@ export const scanIssuesAndRunningRuns = (
   graph: Graph,
   debounce = 0,
   meta?: Run['meta'],
-  fork?: Parameters<typeof tick>[5]
+  fork?: Parameters<typeof tick>[5],
+  locks?: Map<number, Semaphore.Semaphore>,
+  events?: Event[]
 ): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
@@ -790,7 +792,21 @@ export const scanIssuesAndRunningRuns = (
     const history = cursor ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards))) : latest;
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
-    const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
+    const issues = [
+      ...new Set(
+        events
+          ? events.flatMap(m => [
+              m.issue,
+              ...runs
+                .filter(r => {
+                  const w = graph.workflows[r.workflow];
+                  return w && findPullNumber(w, r.issue, listed) === m.issue;
+                })
+                .map(r => r.issue),
+            ])
+          : [...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)]
+      ),
+    ];
     const look = (n: number) =>
       tick(
         graph,
@@ -822,9 +838,39 @@ export const scanIssuesAndRunningRuns = (
                 )
               ),
         }),
-        Effect.catchTag('TrackerError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
+        Effect.catchTag('TrackerError', e =>
+          events ? Effect.fail(e) : Effect.as(Effect.logError(`look at #${n}`, e), [])
+        )
       );
-    const changed = (yield* Effect.forEach(issues, look, { concurrency: graph.limits.parallel })).flat();
+    const gates = locks ?? new Map<number, Semaphore.Semaphore>();
+    const gate = (n: number) => {
+      const lock = gates.get(n) ?? Semaphore.makeUnsafe(1);
+      gates.set(n, lock);
+      return lock;
+    };
+    let skipped = 0;
+    const changed = (yield* Effect.forEach(
+      issues,
+      n => {
+        const lock = gate(n);
+        return events
+          ? lock
+              .withPermitsIfAvailable(1)(look(n))
+              .pipe(
+                Effect.map(result =>
+                  Option.getOrElse(result, () => {
+                    skipped++;
+                    return [];
+                  })
+                )
+              )
+          : lock.withPermits(1)(look(n));
+      },
+      { concurrency: graph.limits.parallel }
+    )).flat();
+    if (skipped)
+      return yield* new TrackerError({ message: `${skipped} skipped issue ticks: already ticking; retry next poll` });
+    if (events) return changed;
     const kept = yield* Effect.flatMap(Store, s => s.list());
     const sandbox = yield* Sandbox;
     const branches = yield* sandbox
@@ -841,26 +887,54 @@ export const scanIssuesAndRunningRuns = (
         );
       });
       if (!using.length || using.some(r => !isRunDone(r) || r.owed)) continue;
-      const found = fetched.filter(t => t.pull?.branch === branch);
-      const pull = [
-        ...found,
-        ...(found.some(t => t.state === 'merged')
-          ? []
-          : yield* tracker
-              .issues({ branch })
-              .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), [])))),
-      ].find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull;
-      yield* sandbox
-        .removeBranch(
-          branch,
-          using.some(r => !r.checkout)
-            ? undefined
-            : (pull?.base ?? using.reduce((a, b) => (a.started > b.started ? a : b)).checkout!.base),
-          pull?.head
-        )
-        .pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup ${branch}`, e)));
+      yield* [...new Set(using.map(r => r.issue))].reduce(
+        (effect, n) => gate(n).withPermits(1)(effect),
+        Effect.gen(function* () {
+          const current = yield* Effect.flatMap(Store, s => s.list());
+          if (current.some(r => using.some(before => before.issue === r.issue) && (!isRunDone(r) || r.owed))) return;
+          const found = fetched.filter(t => t.pull?.branch === branch);
+          const pull = [
+            ...found,
+            ...(found.some(t => t.state === 'merged')
+              ? []
+              : yield* tracker
+                  .issues({ branch })
+                  .pipe(Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped PR lookup ${branch}`, e), [])))),
+          ].find(t => t.state === 'merged' && t.pull?.branch === branch)?.pull;
+          yield* sandbox
+            .removeBranch(
+              branch,
+              using.some(r => !r.checkout)
+                ? undefined
+                : (pull?.base ?? using.reduce((a, b) => (a.started > b.started ? a : b)).checkout!.base),
+              pull?.head
+            )
+            .pipe(Effect.catch(e => Effect.logWarning(`checkout cleanup ${branch}`, e)));
+        })
+      );
     }
     return changed;
+  });
+
+export const scanTrackerEvents = (
+  graph: Graph,
+  cursor: string,
+  fork: Parameters<typeof tick>[5],
+  locks: NonNullable<Parameters<typeof scanIssuesAndRunningRuns>[4]>
+) =>
+  Effect.gen(function* () {
+    const tracker = yield* Tracker;
+    const boards = Object.values(graph.workflows).some(w => w.on.issues?.column);
+    const events = yield* Stream.runCollect(tracker.since(cursor, boards));
+    const trusted = events.filter(m => m.trusted);
+    if (trusted.length) {
+      const completed = yield* scanIssuesAndRunningRuns(graph, 0, undefined, fork, locks, trusted).pipe(
+        Effect.as(true),
+        Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(e.message), false))
+      );
+      if (!completed) return cursor;
+    }
+    return pickNewest(cursor, ...events.map(m => m.at)) ?? cursor;
   });
 
 export const startLoopDrives = () => {
@@ -868,6 +942,7 @@ export const startLoopDrives = () => {
   return {
     passes: Effect.runSync(Scope.provide(FiberSet.make(), scope)),
     driving: new Set<string>(),
+    ticks: new Map<number, Semaphore.Semaphore>(),
     permits: Semaphore.makeUnsafe(1),
     settled: [] as Run[],
     stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),

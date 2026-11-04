@@ -8,11 +8,12 @@ import {
   issueDebounceMs,
   runPass,
   scanIssuesAndRunningRuns,
+  scanTrackerEvents,
   startLoopDrives,
   tick,
   type Instruction,
 } from './run/trigger.ts';
-import { writeIssueFile } from './tracker.ts';
+import { writeIssueFile, type TrackerError } from './tracker.ts';
 import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
@@ -184,23 +185,37 @@ export const start = (
         const compress = Effect.tryPromise(() => writeIdleRunsCompressed(s.data, s.compress)).pipe(
           Effect.catch(e => Effect.logWarning(`compressing idle runs failed: ${e.cause}`))
         );
-        const pass = Effect.tryPromise(refresh).pipe(
-          Effect.catch(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
-          Effect.andThen(read),
-          Effect.flatMap(env =>
+        let cursor = new Date().toISOString();
+        const look = <A>(
+          scan: (
+            graph: Graph,
+            fork: Parameters<typeof tick>[5]
+          ) => Effect.Effect<A, TrackerError | StoreError, Services>
+        ) =>
+          Effect.flatMap(read, env =>
             runPass(drives, fork =>
               provided(
-                Effect.flatMap(settings, now => graphAt(now.graph)).pipe(
-                  Effect.flatMap(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs, undefined, fork))
-                )
+                Effect.flatMap(settings, now => graphAt(now.graph)).pipe(Effect.flatMap(graph => scan(graph, fork)))
               )
-            ).pipe(
-              Effect.tap(() => Effect.sync(() => drives.settled.splice(0))),
-              Effect.provideService(ConfigProvider.ConfigProvider, configured(env))
-            )
+            ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(env)))
+          );
+        const poll = look((graph, fork) => scanTrackerEvents(graph, cursor, fork, drives.ticks)).pipe(
+          Effect.tap(next =>
+            Effect.sync(() => {
+              cursor = next;
+            })
           ),
           Effect.catch(e => Effect.logError(e))
         );
+        const pass = Effect.tryPromise(refresh).pipe(
+          Effect.catch(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
+          Effect.andThen(
+            look((graph, fork) => scanIssuesAndRunningRuns(graph, issueDebounceMs, undefined, fork, drives.ticks))
+          ),
+          Effect.tap(() => Effect.sync(() => drives.settled.splice(0))),
+          Effect.catch(e => Effect.logError(e))
+        );
+        yield* Effect.forkScoped(Effect.forever(Effect.andThen(Effect.sleep(`${s.every} minutes`), poll)));
         return yield* Effect.forever(
           Effect.andThen(Effect.andThen(compress, pass), Effect.sleep(`${s.every} minutes`))
         );
