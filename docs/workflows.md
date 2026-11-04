@@ -94,7 +94,7 @@ plugins:
 
 Owners, members and collaborators steer the bot; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins, read at startup. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. Locally, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker -->
 
-The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels, except an `XL` part the engine [triages again](proposals.md#filing-issues). `milestone` limits new runs to issues in that milestone. <!-- code: src/engine.ts#runStepChecks src/engine.ts#isInScope -->
+The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels, except an `XL` part the engine [triages again](proposals.md#filing-issues). `milestone` limits new runs to issues in that milestone. <!-- code: src/engine.ts#runStepChecks src/run/hear.ts#isInScope -->
 
 ## Dispatch
 
@@ -116,13 +116,13 @@ An agent that may return `run` can start a workflow with `on: dispatch`:
 
 ### Routing
 
-An `issue_comment` workflow whose agent may `tell` is a router and runs beside other live runs. In a graph with a router, only `issue_comment` workflows hear `/agent` comments; the others hear what the router tells them. <!-- code: src/engine.ts#getHeardEvent -->
+An `issue_comment` workflow whose agent may `tell` is a router and runs beside other live runs. In a graph with a router, only `issue_comment` workflows hear `/agent` comments; the others hear what the router tells them. <!-- code: src/run/hear.ts#getHeardEvent -->
 
 ```json
 { "kind": "tell", "issue": 12, "text": "stop" }
 ```
 
-The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/engine.ts#findRecipient src/engine.ts#readRunEvents src/engine.ts#tick -->
+The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/engine.ts#findRecipient src/run/hear.ts#readRunEvents src/engine.ts#tick -->
 
 ## The session
 
@@ -156,7 +156,7 @@ A trusted `/agent` comment reaches a working run by the workflow's `concurrency`
 - `queue`: the try and its checks finish, then the comment applies as an answer.
 - `cancel`: the session stops and the step resumes with the comment as feedback; the cut try does not count.
 
-`/agent cancel` parks the step and asks how to go on. `/agent stop` ends the run. Comments in a row become one answer, and the first `stop` or `cancel` wins. The engine waits for 30 seconds of quiet before it starts or wakes a run. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#fold src/engine.ts#issueDebounceMs src/engine.ts#readHeardOutcome -->
+`/agent cancel` parks the step and asks how to go on. `/agent stop` ends the run. Comments in a row become one answer, and the first `stop` or `cancel` wins. The engine waits for 30 seconds of quiet before it starts or wakes a run. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#fold src/engine.ts#issueDebounceMs src/run/hear.ts#readHeardOutcome -->
 
 ## When the base or the graph moves
 
