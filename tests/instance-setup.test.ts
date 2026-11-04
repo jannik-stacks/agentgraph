@@ -131,6 +131,22 @@ it('constructs a GitHub instance offline without a local origin or shell credent
   expect([checked.status, checked.stdout.trim(), checked.stderr]).toEqual([0, 'ok', '']);
 });
 
+it('refuses start and say on a hosted tracker, where the App posts as an untrusted bot', async () => {
+  const w = await makeInstance('hosted');
+  const env = join(w.root, 'app.env');
+  writeFileSync(env, 'ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY=offline-key\n');
+  w.save({ tracker: 'github', env, provider: 'anthropic' });
+  rmSync(w.instance.tracker, { recursive: true });
+  const refused = [
+    ['start', 'Fix it'],
+    ['say', '1', 'hi'],
+  ].map(args => w.run(...args));
+  expect(refused.map(r => [r.status, r.stdout, r.stderr])).toEqual([
+    [2, '', expect.stringContaining('open the issue on the tracker')],
+    [2, '', expect.stringContaining('comment on the tracker')],
+  ]);
+});
+
 it('authenticates a provider using credentials only in the instance env', async () => {
   const w = await makeInstance('auth');
   const file = join(w.root, 'keys.env');
