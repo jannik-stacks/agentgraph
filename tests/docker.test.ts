@@ -78,6 +78,7 @@ describe('docker with a stand-in docker client', () => {
         `[ "$1" = rm ] && { sleep 0.2; echo "$*" >> ${log}.rm; exit 0; }`,
         `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
         `[ "$1 $2" = "volume inspect" ] && for a; do case $a in agentgraph-*) echo /m/$a;; esac; done`,
+        `[ "$1 $2" = "volume ls" ] && { cat ${log}.live 2>/dev/null; exit 0; }`,
         `case "$1" in commit|volume) echo "$*" >> ${log}.all; exit 0;; esac`,
         `printf '%s\\n' "$@" > ${log}`,
         `echo "$*" >> ${log}.all`,
@@ -85,6 +86,7 @@ describe('docker with a stand-in docker client', () => {
         `echo line one; echo line two >&2`,
         `case "$*" in *"skelfail deps"*) exit 98;; *"skeltool x deps"*) exit 97;; *"skelfail tree"*) ;; *exit125*) exit 125;; *measured*) printf '\\nagentgraph-used 104857600 usage_usec 2500000 oom_kill 0\\n';; *interleaved*) printf '\\nagentgraph-used 1048576 usage_usec 2000 oom_kill 0\\nafter\\n';; *oomed*) printf '\\nagentgraph-used 67108864 usage_usec 1500 oom_kill 1\\n'; exit 137;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
         `case "$*" in *agentgraph.envbuild*) printf '@@ignored\\n@@untracked\\n@@lower\\n0\\n';; esac`,
+        `case "$*" in *src=agentgraph-envbuild-*) echo @@layered;; esac`,
       ].join('\n')
     );
     chmodSync(join(bin, 'docker'), 0o755);
@@ -519,6 +521,36 @@ describe('docker with a stand-in docker client', () => {
     expect(text).not.toMatch(/src=agentgraph-cache,|agentgraph-cache /);
   });
 
+  it.each([
+    ['an untrusted base', 'feature', ''],
+    ['a live overlay of the cache', 'main', 'live'],
+  ])('keeps the build writes of %s out of the cache volume', async (_, ref, live) => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    writeFileSync(`${log}.live`, live && `${startHeartbeat()}\n`);
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
+      s.checkout(ref, undefined, undefined, { repo: 'acme/trust', toolchain: 'true' })
+    );
+    writeFileSync(`${log}.live`, '');
+    expect(Exit.isSuccess(exit) && exit.value.env?.key).toBeTruthy();
+    const text = readFileSync(all, 'utf8');
+    const build = text.split('\n').find(l => l.includes('agentgraph.envbuild')) ?? '';
+    const key = /agentgraph-lower-(\w+),dst=/.exec(build)?.[1];
+    expect(/src=(\S+),dst=\/cache /.exec(build)?.[1]).toBe(`agentgraph-envbuild-${key}-c`);
+    expect(text).toMatch(
+      new RegExp(
+        `volume create --label agentgraph\\.layer=\\S+ --label agentgraph\\.lower=agentgraph-cache-acme-trust-\\w+ .*upperdir=/m/agentgraph-lower-${key}/\\.agentgraph-env/cache/upper.* agentgraph-envbuild-${key}-c`
+      )
+    );
+    expect(text).toMatch(/volume rm -f agentgraph-envbuild-\w+-c\n/);
+    expect(text).toMatch(/commit --change LABEL .* agentgraph\.layered=true /);
+    expect(text).toMatch(
+      new RegExp(
+        `lowerdir=/m/agentgraph-lower-${key}/\\.agentgraph-env/cache/upper:/m/agentgraph-cache-acme-trust-\\w+,upperdir=/m/agentgraph-layer-\\w+-c/upper`
+      )
+    );
+  });
+
   it('records an uppercase cache prefix for every checkout of a data dir', async () => {
     const data = tmp('data');
     const exit = await use(dockerSandbox({ data, origin: origin(), cache: 'TeamCache' }), s =>
@@ -624,7 +656,7 @@ describe('docker with a stand-in docker client', () => {
     expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
     expect(builds() - before).toBe(1);
     expect(readFileSync(`${log}.all`, 'utf8')).toMatch(
-      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.cache=agentgraph-cache-\S+ agentgraph\.version=\d+ agentgraph\.lowerkb=5 agentgraph\.complete=true/
+      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.cache=agentgraph-cache-\S+ agentgraph\.layered=false agentgraph\.version=\d+ agentgraph\.lowerkb=5 agentgraph\.complete=true/
     );
   });
 
@@ -657,6 +689,7 @@ describe('docker with a stand-in docker client', () => {
     process.env.AGENTGRAPH_STATE = tmp('state');
     try {
       const repo = origin();
+      git(repo, 'symbolic-ref', 'HEAD', 'refs/heads/feature');
       const builds = () =>
         [
           ...(existsSync(`${log}.all`) ? readFileSync(`${log}.all`, 'utf8') : '').matchAll(

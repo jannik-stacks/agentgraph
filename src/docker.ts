@@ -754,6 +754,13 @@ export const dockerSandbox = (o: {
           const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
           yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
+          const untrusted =
+            !!graph &&
+            !!cache &&
+            (yield* inMirror(['merge-base', '--is-ancestor', base, o.local ? 'HEAD' : 'refs/remotes/origin/HEAD']).pipe(
+              Effect.as(false),
+              Effect.orElseSucceed(() => true)
+            ));
           const { cache: repoCache, env } =
             graph && cache
               ? yield* Effect.tryPromise({
@@ -765,6 +772,7 @@ export const dockerSandbox = (o: {
                       git: mirror,
                       base,
                       cache,
+                      ...(untrusted && { untrusted }),
                       ...(setup && { setup }),
                       ...(graph.toolchain && { toolchain: graph.toolchain }),
                     }),

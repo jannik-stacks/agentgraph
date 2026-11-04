@@ -14,7 +14,8 @@ import { isOwnerRunning, ownerId, readStateDir, startHeartbeat, waitForLock } fr
  * the same `inputs` needs no setup. They live once in the volume `lower`: dependency directories at
  * `.agentgraph-env/data/<n>` in their order, the rest under `.agentgraph-env/rest`. The image only carries the labels.
  * In `deps` mode setup saw only the skeleton and `inputs` is its digest; in `tree` mode it saw every file and `inputs`
- * is the base tree.
+ * is the base tree. When `layered`, the build's writes to `/cache` stayed in `.agentgraph-env/cache` of `lower`, over
+ * the repo's cache volume.
  */
 type SandboxSetup = {
   image: string;
@@ -24,12 +25,13 @@ type SandboxSetup = {
   key: string;
   mode: 'deps' | 'tree';
   inputs: string;
+  layered?: boolean;
 };
 
 /**
  * What a sandbox setup is built from: `git` is a repo dir holding `base`, `image` the image it starts from, and `cache`
  * the prefix of the repo's cache volume. `repo` names the repo, or is empty, and then `origin`, its URL or absolute
- * path, tells it apart.
+ * path, tells it apart. An `untrusted` base gets its own environment and never writes the repo's cache volume.
  */
 type SandboxSetupSpec = {
   repo: string;
@@ -40,6 +42,7 @@ type SandboxSetupSpec = {
   cache: string;
   setup?: string;
   toolchain?: string;
+  untrusted?: boolean;
 };
 
 /**
@@ -183,11 +186,13 @@ const build = [
   '      *) mkdir -p "$out/rest/$(dirname "$d")" || exit 1; mv "${d%/}" "$out/rest/${d%/}" || exit 1;; esac',
   '  done',
   '  find /work -mindepth 1 -maxdepth 1 ! -name .agentgraph-env -exec rm -rf {} +',
-  '  mv $out/listing.part $out/listing && du -sk $out > $out/size.part && cut -f1 $out/size.part > $out/kb && touch $out/done',
+  '  mv $out/listing.part $out/listing && { du -sk $out 2>/dev/null || true; } > $out/size.part',
+  '  cut -f1 $out/size.part > $out/kb && touch $out/done',
   'fi',
   'cat $out/listing',
   'echo @@lower',
   'cat $out/kb',
+  '[ ! -d $out/cache ] || echo @@layered',
 ].join('\n');
 
 const section = (out: string, name: string) => {
@@ -243,6 +248,7 @@ const envOfLabels = (tag: string, l: Record<string, string>): SandboxSetup => ({
   key: l['agentgraph.env']!,
   mode: l['agentgraph.mode'] === 'deps' ? 'deps' : 'tree',
   inputs: l['agentgraph.inputs'] ?? '',
+  layered: l['agentgraph.layered'] === 'true',
 });
 
 const building = new Map<string, Promise<SandboxSetup | 'setup' | undefined>>();
@@ -277,7 +283,7 @@ export const readSandboxSetup = async (
   await createCacheVolume(cache);
   touch(cache);
   if (!lines && !spec.setup) return { cache };
-  const family = hash([envVersion, cache, spec.setup ?? '']);
+  const family = hash([envVersion, cache, spec.setup ?? '', ...(spec.untrusted ? [spec.base] : [])]);
   const wide = join(readStateDir(), 'tree-only', family);
   const one = async (mode: SandboxSetup['mode']) => {
     const inputs = mode === 'deps' ? skeleton.digest : tree;
@@ -331,6 +337,16 @@ const createSandboxSetup = async (
     if (env) await runDockerCli(['rmi', '-f', tag]).catch(() => '');
     const name = `agentgraph-envbuild-${key}`;
     await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, makeSetupVolumeName(key)]);
+    const release = await waitForLock(`cache-${b.cache}`);
+    const layer = await (
+      spec.untrusted || (await isCacheOverlaid(b.cache))
+        ? createBuildLayer(spec.image, b.cache, key)
+        : Promise.resolve('')
+    ).catch((e: unknown) => {
+      release();
+      throw e;
+    });
+    if (layer) release();
     const started = Date.now();
     const args = [
       'run',
@@ -359,7 +375,7 @@ const createSandboxSetup = async (
       '--mount',
       `type=bind,src=${spec.git},dst=${spec.git},readonly`,
       '--mount',
-      `type=volume,src=${b.cache},dst=/cache`,
+      `type=volume,src=${layer || b.cache},dst=/cache`,
       ...Object.entries(packageManagerCacheEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
       '--mount',
       `type=volume,src=${makeSetupVolumeName(key)},dst=/work`,
@@ -377,7 +393,6 @@ const createSandboxSetup = async (
       mode === 'deps' ? b.skeleton.paths.join('\n') : '',
       mode === 'deps' ? b.skeleton.stubs.join('\n') : '',
     ];
-    const release = await waitForLock(`cache-${b.cache}`);
     const out = await runDockerCli(args, 7_200_000)
       .then(
         output => ({ code: 0, output }),
@@ -386,7 +401,7 @@ const createSandboxSetup = async (
           output: e.output ?? e.message,
         })
       )
-      .finally(release);
+      .finally(() => (layer ? discard([{ name: layer, dst: '' }]) : release()));
     if (/Conflict\. The container name/.test(out.output)) {
       await runDockerCli(['rm', '-f', name]).catch(() => '');
       continue;
@@ -399,6 +414,7 @@ const createSandboxSetup = async (
       const ignored = section(out.output, 'ignored');
       const outputs = ignored.filter(p => p.endsWith('/')).map(p => p.slice(0, -1));
       const complete = outputs.length === ignored.length && !section(out.output, 'untracked').length;
+      const layered = out.output.includes('\n@@layered');
       const env: SandboxSetup = {
         image: tag,
         outputs,
@@ -407,13 +423,14 @@ const createSandboxSetup = async (
         key,
         mode,
         inputs: b.inputs,
+        layered,
       };
       const kb = Number(section(out.output, 'lower')[0]);
       if (!Number.isFinite(kb) || kb < 0) throw new Error('env build omitted its size');
       await runDockerCli([
         'commit',
         '--change',
-        `LABEL agentgraph.env=${key} agentgraph.cache=${b.cache} agentgraph.version=${envVersion} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
+        `LABEL agentgraph.env=${key} agentgraph.cache=${b.cache} agentgraph.layered=${layered} agentgraph.version=${envVersion} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
         name,
         tag,
       ]);
@@ -426,6 +443,63 @@ const createSandboxSetup = async (
       await runDockerCli(['rm', '-f', name]).catch(() => '');
     }
   }
+};
+
+const isCacheOverlaid = async (cache: string) =>
+  (
+    await runDockerCli([
+      'volume',
+      'ls',
+      '--filter',
+      `label=agentgraph.lower=${cache}`,
+      '--format',
+      '{{.Label "agentgraph.layer"}}',
+    ])
+  )
+    .split('\n')
+    .some(owner => owner && isOwnerRunning(owner));
+
+const createBuildLayer = async (image: string, cache: string, key: string) => {
+  if (!(await overlays(image))) throw new Error('an untrusted environment build needs docker overlay volumes');
+  const lower = makeSetupVolumeName(key);
+  const [uid, gid] = user();
+  await runDockerCli([
+    'run',
+    ...unlogged,
+    '--rm',
+    '--pull',
+    'never',
+    '--network',
+    'none',
+    '--user',
+    '0:0',
+    '--cap-drop=ALL',
+    '--cap-add=CHOWN',
+    '--cap-add=DAC_OVERRIDE',
+    '--cap-add=FOWNER',
+    '--security-opt',
+    'no-new-privileges=true',
+    '--mount',
+    `type=volume,src=${lower},dst=/l`,
+    image,
+    'sh',
+    '-c',
+    `mkdir -p /l/.agentgraph-env/cache/upper /l/.agentgraph-env/cache/work && chown ${uid}:${gid} /l/.agentgraph-env /l/.agentgraph-env/cache/upper`,
+  ]);
+  const [c, l] = await mountpoints(cache, lower);
+  const name = `agentgraph-envbuild-${key}-c`;
+  await runDockerCli(['volume', 'rm', '-f', name]).catch(() => '');
+  await runDockerCli([
+    'volume',
+    'create',
+    '--label',
+    `agentgraph.layer=${startHeartbeat()}`,
+    '--label',
+    `agentgraph.lower=${cache}`,
+    ...makeOverlayOpts(c!, `${l}/.agentgraph-env/cache`),
+    name,
+  ]);
+  return name;
 };
 
 /** A dependency directory of a checkout: the volume `name` at `dst`, and when it is an overlay, the volume `upper` holding its writes. */
@@ -517,7 +591,7 @@ const overlays = (image: string) =>
  * delete and remake them.
  */
 export const createSharedMounts = async (
-  from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower'>,
+  from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower' | 'layered'>,
   owner: string,
   dir: string,
   more: string[] = [],
@@ -601,16 +675,17 @@ export const createSharedMounts = async (
       }
     }
     if (shared) {
-      const [lower, upper] = await mountpoints(cache, shared);
+      const [lower, upper, layer] = await mountpoints(cache, shared, ...(from.layered ? [from.lower!] : []));
+      const release = await waitForLock(`cache-${cache}`);
       await runDockerCli([
         'volume',
         'create',
         ...label,
         '--label',
         `agentgraph.lower=${cache}`,
-        ...makeOverlayOpts(lower!, upper!),
+        ...makeOverlayOpts(layer ? `${layer}/.agentgraph-env/cache/upper:${lower}` : lower!, upper!),
         `${shared}-o`,
-      ]);
+      ]).finally(release);
       sharedMounts.push({ name: `${shared}-o`, dst: '/cache', upper: shared });
     }
   } catch (e) {

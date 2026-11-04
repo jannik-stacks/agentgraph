@@ -6,15 +6,15 @@ Sessions, `run` steps, checks and checkout setup run in throwaway Docker contain
 
 A container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory, 1.5 CPUs, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets its model credentials and, when configured, its own tool bearer. <!-- code: src/docker.ts#dockerArgs -->
 
-| Path | What | Access |
-| --- | --- | --- |
-| `/work` | The checkout | writable; read only for a session with no `edit`, `write` or `bash` tool |
-| `/scratch` | Private disk-backed temporary files, outside the checkout; removed with it | writable |
-| `/tmp` | Small memory-backed temporary files; 1 GiB, charged to the memory limit | writable |
-| `/home/agent` | The session home | writable |
-| `/graph` | The graph, `AGENTGRAPH_DIR`; scripts and setup only | read only |
-| `/cache` | The repo's toolchain cache | overlay |
-| the mirror | The repo's git objects | read only |
+| Path          | What                                                                       | Access                                                                   |
+| ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `/work`       | The checkout                                                               | writable; read only for a session with no `edit`, `write` or `bash` tool |
+| `/scratch`    | Private disk-backed temporary files, outside the checkout; removed with it | writable                                                                 |
+| `/tmp`        | Small memory-backed temporary files; 1 GiB, charged to the memory limit    | writable                                                                 |
+| `/home/agent` | The session home                                                           | writable                                                                 |
+| `/graph`      | The graph, `AGENTGRAPH_DIR`; scripts and setup only                        | read only                                                                |
+| `/cache`      | The repo's toolchain cache                                                 | overlay                                                                  |
+| the mirror    | The repo's git objects                                                     | read only                                                                |
 
 Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerSandbox -->
 
@@ -28,10 +28,10 @@ A read-only session also gets the mirror, its worktree's git dir and the depende
 
 Sessions and setup use the graph's `network`; scripts and checks get none. Environment builds use Docker's default network.
 
-| `network` | Docker network | Reachable |
-| --- | --- | --- |
+| `network`          | Docker network       | Reachable                                                                           |
+| ------------------ | -------------------- | ----------------------------------------------------------------------------------- |
 | `egress` (default) | `agentgraph-sandbox` | The model proxy, the optional Ollama relay, an HTTPS allowlist, selected host tools |
-| `models` | `agentgraph-models` | The model proxy and selected host tools |
+| `models`           | `agentgraph-models`  | The model proxy and selected host tools                                             |
 
 `infra/local/egress/allowlist` has GitHub's download hosts, `registry.npmjs.org`, and the model login hosts. No PyPI, crates.io, SSH or browsing.
 
@@ -53,7 +53,7 @@ Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `u
 
 ### Toolchains
 
-The image has toolchain managers and a C compiler. Each repo has its own cache volume at `/cache`, named `agentgraph-cache-<repo>-<hash>`. The hash covers the repo (its `repo` name, else its origin URL or path), the image ID and the toolchain lines, both the ones detected from the base's files and graph `toolchain`. It keeps rustup, cargo, npm, pnpm and yarn downloads, so later runs of the same repo reuse them, a changed `setup` keeps them, and other repos never see them. Only environment builds write it, one at a time, and the trace counts other writes (`cache`). Commands outside a checkout get none. A `rust-toolchain` file pins Rust, and `Cargo.toml` alone selects stable. Graph `toolchain` adds the rest:
+The image has toolchain managers and a C compiler. Each repo has its own cache volume at `/cache`, named `agentgraph-cache-<repo>-<hash>`. The hash covers the repo (its `repo` name, else its origin URL or path), the image ID and the toolchain lines, both the ones detected from the base's files and graph `toolchain`. It keeps rustup, cargo, npm, pnpm and yarn downloads, so later runs of the same repo reuse them, a changed `setup` keeps them, and other repos never see them. Only environment builds write it, one at a time, and the trace counts other writes (`cache`). A build whose base is not on the default branch, such as an outside pull request, gets its own environment and writes `/cache` through an overlay kept with that environment, so trusted runs never execute what it installed. A build while a checkout has the cache mounted does the same, and checkouts wait while a build writes the cache in place. Docker without overlay volumes cannot build an untrusted base. Commands outside a checkout get none. A `rust-toolchain` file pins Rust, and `Cargo.toml` alone selects stable. Graph `toolchain` adds the rest:
 
 ```yaml
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
@@ -92,12 +92,12 @@ An agent's `harness` picks the session program. The operator's `agentgraph.confi
 
 The config's `provider` and `harness` select defaults; `AGENTGRAPH_PROVIDER` and `AGENTGRAPH_HARNESS` override them. A selected harness runs every agent. Otherwise an agent without a `harness` gets the provider's first, else the config's first. A graph loads only when every harness is in the config and passes its `check`. <!-- code: src/folder.ts#loadGraph -->
 
-| Harness | Tool permissions | Aside fork |
-| --- | --- | --- |
-| `opencode` | Patterns, such as `bash(git diff*)` | `--session <id> --fork` |
-| `pi` | Plain tool names; a pattern fails the graph check | `--fork <id>` |
-| `claude` | Patterns; a tool it lacks fails the graph check; commit and pull request attribution is off | `--resume <id> --fork-session` |
-| `codex` | `edit`, `write` and `bash` together give every tool, else a read-only `/work`; some of the three fails the check. Codex's own sandbox stays off, as it needs namespaces the container forbids | none, a fresh session |
+| Harness    | Tool permissions                                                                                                                                                                              | Aside fork                     |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `opencode` | Patterns, such as `bash(git diff*)`                                                                                                                                                           | `--session <id> --fork`        |
+| `pi`       | Plain tool names; a pattern fails the graph check                                                                                                                                             | `--fork <id>`                  |
+| `claude`   | Patterns; a tool it lacks fails the graph check; commit and pull request attribution is off                                                                                                   | `--resume <id> --fork-session` |
+| `codex`    | `edit`, `write` and `bash` together give every tool, else a read-only `/work`; some of the three fails the check. Codex's own sandbox stays off, as it needs namespaces the container forbids | none, a fresh session          |
 
 An agent with `reads: traces` needs a tool that can read the trace files. The graph author supplies it, and a harness may validate it in `check`. The news file path is included in every agent's prompt and made available to its harness, regardless of tool names.
 
@@ -123,12 +123,12 @@ A provider can set `auth` to a non-secret mode understood by its harness. The bu
 
 Recovery runs only for the latest stop caused by a login failure and uses the provider recorded on that session. If the trace has no provider, the CLI gives no provider-specific advice. <!-- code: src/status.ts#findLoginProvider -->
 
-| Provider | Harness | Ready when |
-| --- | --- | --- |
-| `claude` | `claude` | its token is in the macOS Keychain or `~/.config/agentgraph/claude-token`, or `CLAUDE_CODE_OAUTH_TOKEN` is set |
-| `chatgpt` | `codex`, `opencode`, `pi` | its own login is in `~/.config/agentgraph/codex/auth.json`; offered when `codex login status` passes |
-| `anthropic` | `claude` | `ANTHROPIC_API_KEY` is set |
-| `litellm` | any | `AGENTGRAPH_PROXY_KEYS` is set; agents without a model get `smart`. ChatGPT comes through here ([local stack](../infra/local/README.md)) |
+| Provider    | Harness                   | Ready when                                                                                                                               |
+| ----------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude`    | `claude`                  | its token is in the macOS Keychain or `~/.config/agentgraph/claude-token`, or `CLAUDE_CODE_OAUTH_TOKEN` is set                           |
+| `chatgpt`   | `codex`, `opencode`, `pi` | its own login is in `~/.config/agentgraph/codex/auth.json`; offered when `codex login status` passes                                     |
+| `anthropic` | `claude`                  | `ANTHROPIC_API_KEY` is set                                                                                                               |
+| `litellm`   | any                       | `AGENTGRAPH_PROXY_KEYS` is set; agents without a model get `smart`. ChatGPT comes through here ([local stack](../infra/local/README.md)) |
 
 The first pick of `claude` runs `claude setup-token`, joins a token pasted over several lines, tries it with one small `claude -p` call, and keeps it only when that works.
 
@@ -142,10 +142,10 @@ With `chatgpt`, every session holds a working ChatGPT access token, in its envir
 
 An agent's `model` is the name its endpoint expects. `AGENTGRAPH_MODELS` maps `alias=model` pairs, `*` for agents without a `model`; without one, opencode and pi ask for `default`.
 
-| Setting | Meaning |
-| --- | --- |
-| `AGENTGRAPH_PROXY_URL` | One base URL, or `harness=url` pairs. Empty leaves Claude Code on its own login; opencode and pi need one. |
-| `AGENTGRAPH_PROXY_KEYS` | `agent=key` pairs, `*` for the rest. Without a key, an agent gets `none` when its harness has a URL, else its own login. |
+| Setting                  | Meaning                                                                                                                                                                                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AGENTGRAPH_PROXY_URL`   | One base URL, or `harness=url` pairs. Empty leaves Claude Code on its own login; opencode and pi need one.                                                                                                                                                               |
+| `AGENTGRAPH_PROXY_KEYS`  | `agent=key` pairs, `*` for the rest. Without a key, an agent gets `none` when its harness has a URL, else its own login.                                                                                                                                                 |
 | `AGENTGRAPH_SESSION_ENV` | Only model login variables: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `AGENTGRAPH_CHATGPT_AUTH` and `OPENCODE_AUTH_CONTENT`. Tracker and plugin service credentials cannot be forwarded through this setting. Values of 8 or more characters are hidden in output. |
 
 In the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code, passed by name, never in arguments. Every session is priced at its model's public list price, subscriptions too, so runs compare across providers. The table is LiteLLM's, pinned at `infra/local/prices.json.gz` (`AGENTGRAPH_PRICES` names another), and `infra/local/aliases.json` maps proxy aliases to its models. A model the table lacks is `unpriced`, never $0. <!-- code: src/harnesses.ts#priced src/prices.ts#readPrices -->
