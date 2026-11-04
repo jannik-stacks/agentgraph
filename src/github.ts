@@ -492,7 +492,7 @@ export const githubTracker = (
             head: `${app.repo.split('/')[0]}:${branch}`,
             per_page: '100',
           });
-          return (yield* all<RestIssue & RestPull>(`${repo}/pulls?${query}`))
+          return (yield* gh<(RestIssue & RestPull)[]>('GET', `${repo}/pulls?${query}`))
             .map(p => toIssue(p, self, p))
             .filter(matches(filter));
         }

@@ -226,6 +226,30 @@ describe('githubTracker', () => {
     expect(found.map(t => [t.state, t.pull?.branch, t.pull?.head])).toEqual([['merged', 'agentgraph/7', 'landed']]);
   });
 
+  it('bounds branch PR lookups to one page even when a next link exists', async () => {
+    const f = fake({
+      'GET /repos/o/r/pulls': () => ({
+        body: [],
+        headers: { link: '<https://api.github.com/repos/o/r/pulls?page=2>; rel="next"' },
+      }),
+      'GET /repos/o/r/pulls?page=2': [
+        {
+          ...issue(8, { state: 'closed' }),
+          ...pull(8, {
+            head: { ref: 'agentgraph/7', sha: 'landed', repo: { full_name: 'o/r' } },
+            merged_at: '2026-10-16T00:01:00Z',
+          }),
+        },
+      ],
+    });
+    const found = await run(
+      f,
+      Effect.flatMap(Tracker, tracker => tracker.issues({ branch: 'agentgraph/7' }))
+    );
+    expect(f.calls.filter(c => c.path.startsWith('/repos/o/r/pulls'))).toHaveLength(1);
+    expect(found).toEqual([]);
+  });
+
   it('searches all states without adding a state qualifier', async () => {
     const f = fake({ 'GET /search/issues': { items: [] } });
     await run(

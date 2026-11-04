@@ -24,6 +24,28 @@ const setup = () => {
   return { ...where, path, head, clean, checkout: { branch: 'agentgraph/7', base: 'main' } };
 };
 
+const cleanOldRun = async (exact: boolean) => {
+  const run = setup();
+  const head = exact
+    ? run.head
+    : git(
+        run.origin,
+        'commit-tree',
+        git(run.origin, 'rev-parse', `${run.head}^{tree}`),
+        '-p',
+        run.head,
+        '-m',
+        'Merged descendant'
+      );
+  writeIssueAt(issuePath(run.tracker, 7), '---\ntitle: Done\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
+  writeIssueAt(issuePath(run.tracker, 8), '---\ntitle: Landed\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+  write(run.tracker, { '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head }) });
+  const engine = services(run, []);
+  await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done' })));
+  await engine.run(scanIssuesAndRunningRuns(graph));
+  return run;
+};
+
 describe('landed checkout cleanup', () => {
   it('removes a merged checkout and branch, preserving data, attempt refs and symlink targets', async () => {
     const run = setup();
@@ -165,6 +187,30 @@ describe('landed checkout cleanup', () => {
     expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
     expect(messages.some(m => m.level === 'Warn' && m.text.includes('1 skipped removal'))).toBe(true);
     expect(messages.some(m => m.level === 'Error')).toBe(false);
+  });
+
+  it('skips symbolic agent refs and preserves their main target', async () => {
+    const run = world();
+    const main = git(run.origin, 'rev-parse', 'main');
+    git(run.origin, 'symbolic-ref', 'refs/heads/agentgraph/7', 'refs/heads/main');
+    const messages: string[] = [];
+    await Effect.runPromise(
+      removeBranch(run.origin, 'agentgraph/7', 'main').pipe(
+        Effect.provide(Logger.layer([Logger.make(({ message }) => messages.push(String(message)))]))
+      )
+    );
+    expect(git(run.origin, 'rev-parse', 'main')).toBe(main);
+    expect(git(run.origin, 'symbolic-ref', 'refs/heads/agentgraph/7')).toBe('refs/heads/main');
+    expect(messages.some(m => m.includes('1 skipped cleanup') && m.includes('symbolic ref'))).toBe(true);
+  });
+
+  it('requires an exact merged PR head to clean old runs without checkout records', async () => {
+    const exact = await cleanOldRun(true);
+    const mismatch = await cleanOldRun(false);
+    expect(existsSync(exact.path)).toBe(false);
+    expect(git(exact.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
+    expect(existsSync(mismatch.path)).toBe(true);
+    expect(git(mismatch.origin, 'rev-parse', 'agentgraph/7')).toBe(mismatch.head);
   });
 
   it('does not fetch issues for a done run whose local branch is gone', async () => {
