@@ -194,7 +194,7 @@ describe('stacks', () => {
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
           if (p.kind === 'rebase' && !p.head && refused) {
             refused = false;
-            return Effect.succeed({ proposal: p, ok: false, reason: 'temporary ref refusal' });
+            return Effect.succeed({ proposal: p, ok: false, reason: 'temporary ref refusal', moved: true as const });
           }
           return f.apply(n, p, work);
         },
@@ -225,6 +225,25 @@ describe('stacks', () => {
     expect(readFileSync(issuePath(where.tracker, 9, 'events.jsonl'), 'utf8')).toContain(
       '#8 moved and agentgraph/9 could not follow'
     );
+    expect(saved(where).base?.sha).toBe(moved);
+  });
+
+  it('tries a conflicting follow once per base head and branch tip', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const { run } = services(where, [child('hello and bye\n', 'hello.txt')]);
+    await run(runWorkflow(flow, run9(), merging));
+    const conflicted = move('hello.txt', 'hi\n');
+    const rebases = () =>
+      readTrace(where.data, 'run-9').filter(t => 'applied' in t && t.applied.proposal.kind === 'rebase');
+    await run(tick(merging, 9));
+    await run(tick(merging, 9));
+    expect(rebases()).toHaveLength(1);
+    expect(saved(where).base).toMatchObject({ sha: conflicted, tip: git(where.origin, 'rev-parse', 'agentgraph/9') });
+    const moved = move('more.txt', 'more\n');
+    await run(tick(merging, 9));
+    await run(tick(merging, 9));
+    expect(rebases()).toHaveLength(2);
     expect(saved(where).base?.sha).toBe(moved);
   });
 });
