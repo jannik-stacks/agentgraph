@@ -305,20 +305,30 @@ const readRow = (
   };
 };
 
+const splitFinishedRuns = (fs: FoundRun[]) => {
+  const groups: FoundRun[][] = [[]];
+  for (const [i, f] of fs.entries()) {
+    groups.at(-1)!.unshift(f);
+    if (i < fs.length - 1 && readLatestRunChecks(f.data, f.run.id).has('bench/hidden')) groups.push([]);
+  }
+  return groups as [FoundRun, ...FoundRun[]][];
+};
+
 export const readBenchRows = (roots: readonly string[]) => {
-  const slots = [...Map.groupBy(findBenchRuns(roots), f => f.slot).values()].map(fs => {
-    const [found, ...earlier] = fs.toSorted(
-      (a, b) => b.attempt - a.attempt || b.run.started.localeCompare(a.run.started)
-    ) as [FoundRun, ...FoundRun[]];
-    const input = (getRunOrigin(found.run.meta)?.input ?? {}) as Partial<BenchInput>;
-    return {
-      found,
-      earlier,
-      key: JSON.stringify([found.set ?? '', input.case ?? '']),
-      arm: input.arm,
-      latest: readLatestRunChecks(found.data, found.run.id),
-    };
-  });
+  const slots = [...Map.groupBy(findBenchRuns(roots), f => f.slot).values()]
+    .flatMap(fs =>
+      splitFinishedRuns(fs.toSorted((a, b) => a.attempt - b.attempt || a.run.started.localeCompare(b.run.started)))
+    )
+    .map(([found, ...earlier]) => {
+      const input = (getRunOrigin(found.run.meta)?.input ?? {}) as Partial<BenchInput>;
+      return {
+        found,
+        earlier,
+        key: JSON.stringify([found.set ?? '', input.case ?? '']),
+        arm: input.arm,
+        latest: readLatestRunChecks(found.data, found.run.id),
+      };
+    });
   const refs = (arm: string) => new Map(slots.flatMap(s => (s.arm === arm ? [[s.key, s] as const] : [])));
   const bases = refs('base');
   const humans = refs('human');
@@ -335,10 +345,10 @@ export const readBenchRows = (roots: readonly string[]) => {
       )
     );
     const cacheKey = JSON.stringify(files);
-    const cached = rowCache.get(found.slot);
+    const cached = rowCache.get(join(found.data, found.run.id));
     if (cached?.key === cacheKey) return [cached.row];
     const row = readRow(found, earlier, base?.latest, human?.latest);
-    rowCache.set(found.slot, { key: cacheKey, row });
+    rowCache.set(join(found.data, found.run.id), { key: cacheKey, row });
     return [row];
   });
 };

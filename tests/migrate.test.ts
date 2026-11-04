@@ -113,7 +113,7 @@ describe('bench/migrate.ts', () => {
     expect(readFileSync(join(v2.data, v2.run, 'checks.jsonl'), 'utf8')).toBe(checks);
   });
 
-  it('adds a later engine of the same evaluation as an attempt, and keeps another graph in its own slot', async () => {
+  it('adds a later engine of the same evaluation as an attempt with its own row, and another graph as its own slot', async () => {
     const { root, old, out, addArm } = await makeOldBench();
     const point = JSON.parse(readFileSync(join(out, 'point.json'), 'utf8'));
     save(join(out, 'point.json'), { ...point, at: '2026-10-01T00:00:00.000Z' });
@@ -128,11 +128,12 @@ describe('bench/migrate.ts', () => {
     await copyOldBenchRuns(old, old, join(root, 'repos'));
     await copyOldBenchRuns(old, old, join(root, 'repos'));
     const v2 = readBenchRows([join(old, 'runs')]).filter(r => r.labels.arm === 'v2');
-    expect(v2.map(r => [r.labels.graph, r.labels.engine, r.hidden]).toSorted()).toEqual([
-      ['tree1', 'ef567890', 0],
-      ['tree2', 'ab12', 1],
+    expect(v2.map(r => [r.labels.graph, r.labels.engine, r.hidden, r.minutes]).toSorted()).toEqual([
+      ['tree1', 'abcd1234', 1, 1],
+      ['tree1', 'ef567890', 0, 1],
+      ['tree2', 'ab12', 1, 1],
     ]);
-    const merged = v2.find(r => r.labels.graph === 'tree1')!;
+    const merged = v2.find(r => r.labels.engine === 'ef567890')!;
     expect(readdirSync(join(merged.at, '..'))).toEqual(['1', '2']);
     expect(readRunChange(merged.at, readAttemptRun(merged.at)!.run)).toContain('a + b');
   });
