@@ -14,7 +14,7 @@ import {
 import { delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { folderTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
+import { folderTracker, Tracker, runLocked, writeIssueFile } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import {
   ensureGraph,
@@ -484,6 +484,21 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
       .filter(Boolean)
       .map(line => (JSON.parse(line) as { comment: { id: string } }).comment.id);
     expect(new Set(ids).size).toBe(100);
+  });
+
+  it('holds a CLI write until the tracker lock is free', async () => {
+    const dir = tmp('tracker-lock');
+    dirs.push(dir);
+    const n = await writeIssueFile(dir, { title: 'Lock', author: 'morgan', labels: [] }, '');
+    const state = () => readFileSync(join(dir, `${n}.md`), 'utf8').match(/state: (\w+)/)?.[1];
+    let closing: Promise<void> | undefined;
+    await runLocked(dir, async () => {
+      closing = writeClosed(dir, 'morgan', n);
+      await new Promise(done => setTimeout(done, 700));
+      expect(state()).toBe('open');
+    });
+    await closing;
+    expect(state()).toBe('closed');
   });
 
   it('parks say after both checkout attempts fail', async () => {

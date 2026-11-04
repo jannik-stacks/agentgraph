@@ -11,7 +11,7 @@ import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
 import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
-import { folderTracker, Tracker, formatIssueFile, parseIssueFile, writeTimelineEvent } from './tracker.ts';
+import { folderTracker, Tracker, formatIssueFile, parseIssueFile, runLocked, writeTimelineEvent } from './tracker.ts';
 import { gitIdentity, hostGit, makeHostEnv, readGit } from './git.ts';
 import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
@@ -258,7 +258,7 @@ const writeTrustedEvent = (
   dir: string,
   as: string,
   m: Omit<Parameters<typeof writeTimelineEvent>[1], 'actor' | 'trusted'>
-) => writeTimelineEvent(dir, { ...m, actor: as, trusted: true });
+) => runLocked(dir, () => writeTimelineEvent(dir, { ...m, actor: as, trusted: true }));
 
 export const writeComment = async (dir: string, as: string, n: number, body: string, line?: string) => {
   if (!line) return apply(dir, as, n, { kind: 'comment', body });
@@ -284,13 +284,14 @@ export const writeReview = async (
 export const writeLabels = (dir: string, as: string, n: number, add: string[]) =>
   apply(dir, as, n, { kind: 'label', add, remove: [] });
 
-export const writeClosed = async (dir: string, as: string, n: number) => {
-  const md = join(dir, `${n}.md`);
-  if (!existsSync(md)) throw new Error(`no issue #${n}`);
-  const { front, body } = parseIssueFile(readFileSync(md, 'utf8'));
-  writeFileAtomic(md, formatIssueFile({ ...front, state: 'closed' }, body.trim()));
-  await writeTrustedEvent(dir, as, { issue: n, kind: 'closed' });
-};
+export const writeClosed = (dir: string, as: string, n: number) =>
+  runLocked(dir, async () => {
+    const md = join(dir, `${n}.md`);
+    if (!existsSync(md)) throw new Error(`no issue #${n}`);
+    const { front, body } = parseIssueFile(readFileSync(md, 'utf8'));
+    writeFileAtomic(md, formatIssueFile({ ...front, state: 'closed' }, body.trim()));
+    await writeTimelineEvent(dir, { issue: n, kind: 'closed', actor: as, trusted: true });
+  });
 
 export const mergePull = async (i: Pick<Instance, 'tracker' | 'owner'>, n: number) => {
   const pr = await findPull(i.tracker, n);
@@ -301,9 +302,11 @@ export const mergePull = async (i: Pick<Instance, 'tracker' | 'owner'>, n: numbe
     throw new Error(`${base} moved since ${branch} branched; review ${n} changes "rebase" first`);
   await inTracker(i, ['update-ref', `refs/heads/${base}`, head, at]);
   await apply(i.tracker, i.owner, pr.number, { kind: 'merge', number: pr.number, head });
-  for (const t of await readIssues(i.tracker))
-    if (t.state === 'open' && t.pull?.base === branch)
-      writeFileAtomic(join(i.tracker, String(t.number), 'pull.json'), { ...t.pull, base });
+  await runLocked(i.tracker, async () => {
+    for (const t of await readIssues(i.tracker))
+      if (t.state === 'open' && t.pull?.base === branch)
+        writeFileAtomic(join(i.tracker, String(t.number), 'pull.json'), { ...t.pull, base });
+  });
   const issue = Number(/(\d+)$/.exec(branch)?.[1]);
   const named = (await readIssues(i.tracker)).find(t => t.number === issue);
   if (named?.state === 'open') await writeClosed(i.tracker, i.owner, issue);

@@ -21,6 +21,7 @@ import {
 import type { Proposal } from './proposal.ts';
 import type { Checkout } from './sandbox.ts';
 import { hostGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
+import { waitForLock } from './owner.ts';
 
 /** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
 export const currentRunLinkRef = Context.Reference<RunLink | undefined>('agentgraph/currentRunLink', {
@@ -198,17 +199,27 @@ const publish = async (path: string, text: string) => {
   }
 };
 
-export const writeIssueFile = async (
-  dir: string,
-  front: Pick<Issue, 'title' | 'author' | 'labels'> & Partial<Omit<Issue, 'number' | 'body' | 'url' | 'pull'>>,
-  body: string
-): Promise<number> => {
+export const runLocked = async <A>(dir: string, f: () => Promise<A>) => {
+  const release = await waitForLock('.tracker', dir);
+  try {
+    return await f();
+  } finally {
+    await release();
+  }
+};
+
+type IssueFront = Pick<Issue, 'title' | 'author' | 'labels'> & Partial<Omit<Issue, 'number' | 'body' | 'url' | 'pull'>>;
+
+const fileIssue = async (dir: string, front: IssueFront, body: string): Promise<number> => {
   await mkdir(dir, { recursive: true });
   const taken = (await readdir(dir)).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
   const number = Math.max(0, ...taken) + 1;
   const written = await publish(join(dir, `${number}.md`), formatIssueFile({ state: 'open', ...front }, body));
-  return written ? number : writeIssueFile(dir, front, body);
+  return written ? number : fileIssue(dir, front, body);
 };
+
+export const writeIssueFile = (dir: string, front: IssueFront, body: string) =>
+  runLocked(dir, () => fileIssue(dir, front, body));
 
 const me = 'agentgraph[bot]';
 
@@ -348,7 +359,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         return head;
       };
       const open = async ({ body, pull, ...front }: Pick<Issue, 'title' | 'body'> & Partial<Issue>) => {
-        const number = await writeIssueFile(dir, { labels: [], author: who, ...front }, body);
+        const number = await fileIssue(dir, { labels: [], author: who, ...front }, body);
         await writePull(number, pull);
         return number;
       };
@@ -562,6 +573,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           try: f,
           catch: e => (e instanceof TrackerError ? e : new TrackerError({ message: (e as Error).message })),
         });
+      const locked = <A>(f: () => Promise<A>) => lock.withPermits(1)(io(() => runLocked(dir, f)));
 
       return {
         searchIssues: (query, options) =>
@@ -613,13 +625,10 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             )
           ),
         apply: (n, p, work) =>
-          Effect.flatMap(makePostableProposal(p), ({ posted }) =>
-            lock.withPermits(1)(io(() => apply(n, posted, work)))
-          ).pipe(Effect.map(a => ({ ...a, proposal: p }))),
-        status: (n, to, names) =>
-          lock
-            .withPermits(1)(io(() => apply(n, makeStatusLabel(to, names))))
-            .pipe(Effect.asVoid),
+          Effect.flatMap(makePostableProposal(p), ({ posted }) => locked(() => apply(n, posted, work))).pipe(
+            Effect.map(a => ({ ...a, proposal: p }))
+          ),
+        status: (n, to, names) => Effect.asVoid(locked(() => apply(n, makeStatusLabel(to, names)))),
         findPost: (n, p, operation) =>
           io(async (): Promise<Applied | undefined> => {
             if (p.kind === 'comment' && p.edit === undefined) {
