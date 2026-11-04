@@ -518,6 +518,8 @@ export function pickCommandTarget(
         .map(c => `\`/agent:${c}\``)
         .join(', ')}.`,
     };
+  if (to && picked && to.workflow !== picked.name)
+    return { why: `\`/agent${found[0]}\` names ${picked.name}, but the run it goes to is ${to.workflow}.` };
   const worked = runs
     .filter(
       r =>

@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import type { Said, Proposal } from '../proposal.ts';
-import { TrackerError, Tracker, withheld } from '../tracker.ts';
+import { type TrackerError, Tracker, withheld } from '../tracker.ts';
 import { type Workflow, type Run, type RunRecord, begin, isRunDone } from '../workflow.ts';
 import type { Applied } from '../event.ts';
 import { Store } from '../store.ts';
@@ -222,13 +222,9 @@ export const findRecipient = (graph: Graph, issue: number, by: string) =>
     )
   );
 
-/** Passes trusted text to a live run, as a router proposal or CLI instruction. */
-export const writeTold = (graph: Graph, issue: number, text: string, by: string) =>
-  Effect.gen(function* () {
-    const to = yield* findRecipient(graph, issue, by);
-    if (!to) return yield* new TrackerError({ message: `no live run on #${issue} to tell` });
-    yield* Effect.flatMap(Store, s =>
-      s.trace(to.id, { at: new Date().toISOString(), step: to.step, told: { text, by } })
-    );
-    return to;
-  });
+/** Passes trusted text to the live run `to`, as a router proposal. */
+export const writeTold = (to: Run, text: string, by: string) =>
+  Effect.as(
+    Effect.flatMap(Store, s => s.trace(to.id, { at: new Date().toISOString(), step: to.step, told: { text, by } })),
+    to
+  );

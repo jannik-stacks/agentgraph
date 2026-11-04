@@ -570,7 +570,7 @@ export const tick = (
       const held =
         restart === undefined
           ? [...busy].some(k => k.endsWith(`#${m.issue}`) && concerns(k.slice(0, k.lastIndexOf('#'))))
-          : runs.some(r => r.issue === m.issue && r.workflow === w.name && !isRunDone(current(r)));
+          : busy.has(`${w.name}#${m.issue}`);
       if (!held && !old) yield* start(w, m.issue, m.at, m, restart);
     }
     if (

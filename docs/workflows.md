@@ -84,7 +84,7 @@ commands:
 
 A command goes to one run, even beside a router: the newest run that was live when it was said, or the live run of the workflow it names. A restart starts that run's workflow again once no run of it is live, or the issue's newest workflow when none was live.
 
-A command that is unknown, names an unknown step, or is turned off or kept from its author does nothing and is not feedback. The engine answers it once on the issue with why, and with the valid commands for an unknown one. A refused `tell` fails the router's proposal with the same reason. `agi check` fails a workflow named `stop`, `cancel` or `restart`, and a `commands` entry that names neither a command nor a comment workflow. <!-- code: src/run/trigger.ts#tick src/workflow.ts#compileWorkflow -->
+A command that is unknown, names an unknown step, or is turned off or kept from its author does nothing and is not feedback. The engine answers it once on the issue with why, and with the valid commands for an unknown one. A refused `tell` fails the router's proposal with the same reason, and so does a `tell` that names a workflow with no live run. `agi check` fails a workflow named `stop`, `cancel` or `restart`, and a `commands` entry that names neither a command nor a comment workflow. <!-- code: src/run/trigger.ts#tick src/workflow.ts#compileWorkflow -->
 
 A comment that asks for no work can end the run after one session that only comments. That works without a branch, with an open pull request, or after a finished run of that workflow. Otherwise a first session that may push fails when it changed nothing.
 

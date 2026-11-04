@@ -456,7 +456,12 @@ describe('dispatch', () => {
     ]);
   });
 
-  const tell = async (commands: NonNullable<Graph['commands']>, status: 'waiting' | 'running') => {
+  const tell = async (
+    commands: NonNullable<Graph['commands']>,
+    status: 'waiting' | 'running',
+    text = ':stop',
+    g: Graph = graph
+  ) => {
     const where = world();
     const triage = {
       ...begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: at(0) }),
@@ -466,8 +471,8 @@ describe('dispatch', () => {
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(triage)).pipe(Effect.provide(fileStore(where.data))));
     mention(where, '/agent stop the triage');
     const driven = status === 'running' ? [turn({ kind: 'ask', question: 'Which size?' })] : [];
-    const told = Array(3).fill(turn({ kind: 'tell', issue: 1, text: ':stop' }));
-    await run(where, [...driven, ...told], tick({ ...graph, commands }));
+    const told = Array(3).fill(turn({ kind: 'tell', issue: 1, text }));
+    await run(where, [...driven, ...told], tick({ ...g, commands }));
     const after = await runs(where);
     return [after.find(r => r.workflow === 'router')!.reason, after.find(r => r.id === 'triage-1')!.status];
   };
@@ -476,6 +481,24 @@ describe('dispatch', () => {
     expect([await tell({ stop: false }, 'waiting'), await tell({ stop: ['morgan'] }, 'running')]).toEqual([
       ['tell failed: `/agent:stop` is turned off here.', 'waiting'],
       ['tell failed: Only morgan may use `/agent:stop`.', 'waiting'],
+    ]);
+  });
+
+  it('refuses a tell naming a workflow when only a run of another workflow is live, even for a step only it has', async () => {
+    const triage = graph.workflows.triage!;
+    const plan = {
+      ...triage,
+      name: 'plan',
+      on: { issue_comment: {} },
+      steps: [{ ...triage.steps[0]!, name: 'plan-only' }],
+    };
+    const planned = { ...graph, workflows: { ...graph.workflows, plan } };
+    expect([
+      await tell({}, 'waiting', ':plan:restart:plan-only', planned),
+      await tell({}, 'waiting', ':plan size it', planned),
+    ]).toEqual([
+      ['tell failed: no live run on #1 to tell', 'waiting'],
+      ['tell failed: no live run on #1 to tell', 'waiting'],
     ]);
   });
 

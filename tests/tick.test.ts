@@ -1230,6 +1230,21 @@ describe('tick', () => {
     ]);
   });
 
+  it('starts one replacement for two restarts said before the same tick', async () => {
+    const where = world();
+    const asked = [start('t'), reply({ kind: 'ask', question: 'Which file?' })];
+    const { run } = services(where, [asked, asked]);
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), step: 'implement', status: 'waiting', reason: 'Hi?' })));
+    say(where, comment(7, 'morgan', true, '/agent:restart', '2026-10-16T00:01:00.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent:restart', '2026-10-16T00:01:01.000Z'));
+    await run(tick(graph));
+    const stored = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored.map(r => [r.id === 'run-7' ? r.id : r.workflow, r.status]).toSorted()).toEqual([
+      ['issue', 'waiting'],
+      ['run-7', 'stopped'],
+    ]);
+  });
+
   it('restarts for a login a restart is kept to', async () => {
     const where = world();
     const { run } = services(where, [[start('t'), reply({ kind: 'ask', question: 'Which file?' })]]);

@@ -522,25 +522,27 @@ export const runAttempt = (
         Effect.gen(function* () {
           const key = getOperationKey(tried, p.issue, p, `tell:${i}`);
           const prior = yield* findAppliedBefore(tried, p.issue, key);
-          const to = prior?.id ? yield* store.get(prior.id) : yield* findRecipient(graph, p.issue, run.id);
-          return { p, to, key };
+          const stored = prior?.id ? yield* store.get(prior.id) : undefined;
+          const others = (yield* store.list({ issue: p.issue })).filter(r => r.id !== run.id);
+          const told = makeToldEvent(p.issue, { text: p.text, by: run.id }, new Date().toISOString());
+          const target = pickCommandTarget(graph, others, told, stored);
+          if (target && 'why' in target) return { p, key, to: undefined, why: target.why };
+          return { p, key, to: target ? target.run : (stored ?? (yield* findRecipient(graph, p.issue, run.id))) };
         })
     );
     const refused = [
       ...(yield* findUndispatchable(graph, run, runs)),
-      ...tells.flatMap(({ p, to }): Applied[] => {
-        if (!to) return [{ proposal: p, ok: false, reason: `no live run on #${p.issue} to tell` }];
-        const target = pickCommandTarget(graph, [], makeToldEvent(p.issue, { text: p.text, by: run.id }, ''), to);
-        return target && 'why' in target ? [{ proposal: p, ok: false, reason: target.why }] : [];
-      }),
+      ...tells.flatMap(({ p, to, why }): Applied[] =>
+        to ? [] : [{ proposal: p, ok: false, reason: why ?? `no live run on #${p.issue} to tell` }]
+      ),
     ];
     if (refused.length > 0) return done({ kind: 'failed', checks: [], proposals: refused, problems: [] }, tried);
-    const delivered = yield* Effect.forEach(tells, ({ p, key }) =>
+    const delivered = yield* Effect.forEach(tells, ({ p, key, to }) =>
       writeOnce(
         tried,
         p.issue,
         key,
-        Effect.map(writeTold(graph, p.issue, p.text, run.id), to => ({ proposal: p, ok: true, id: to.id }))
+        Effect.map(writeTold(to!, p.text, run.id), told => ({ proposal: p, ok: true, id: told.id }))
       )
     );
     const children = world.filter((p): p is Child => p.kind === 'issue');

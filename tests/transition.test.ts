@@ -445,6 +445,19 @@ describe('getEventOutcome', () => {
     });
   });
 
+  const told = (body: string) => ({ ...comment(body), actor: 'router-1' });
+
+  it('refuses a command naming a workflow that is told to a run of another one', () => {
+    const live = at('implement', { status: 'waiting', reason: 'which API?' });
+    expect(
+      ['/agent:plan:restart:implement', '/agent:plan more tests'].map(b => pickCommandTarget(kit, [], told(b), live))
+    ).toEqual([
+      { why: '`/agent:plan:restart:implement` names plan, but the run it goes to is issue.' },
+      { why: '`/agent:plan` names plan, but the run it goes to is issue.' },
+    ]);
+    expect(heard(live, told('/agent:plan:restart:implement'), {}, [live])).toBeUndefined();
+  });
+
   it('restarts the live run a restart picks, validated against that run, and leaves the newer finished run alone', () => {
     const live = at('implement', { status: 'waiting', reason: 'which API?' });
     const finished = begin(kit.workflows.plan!, { id: 'p1', issue: 7, started: '2026-10-16T00:30:00Z' });
