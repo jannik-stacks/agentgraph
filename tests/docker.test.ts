@@ -114,7 +114,7 @@ describe('docker with a stand-in docker client', () => {
     [{ cpus: 4 }, '4g', '4'],
     [{ memory: '16g', cpus: 8 }, '16g', '8'],
   ] as const)('passes command limits %j to Docker without growing tmpfs', (limits, memory, cpus) => {
-    const args = dockerArgs(command('/work', { ...(limits && { limits }) }), 'image', 'name', { mounts: [] });
+    const args = dockerArgs(command('/work', { limits }), 'image', 'name', { mounts: [] });
     expect(args[args.indexOf('--memory') + 1]).toBe(memory);
     expect(args[args.indexOf('--memory-swap') + 1]).toBe(memory);
     expect(args[args.indexOf('--cpus') + 1]).toBe(cpus);

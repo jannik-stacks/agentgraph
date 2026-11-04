@@ -658,6 +658,35 @@ describe('tick', () => {
     });
   });
 
+  it('uses back target limits for an aside and inherits graph CPUs', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    say(where, comment(8, 'morgan', true, '/agent rerun the screenshots', '2026-10-16T00:00:05.000Z'));
+    const configured = {
+      ...merging,
+      limits: { ...merging.limits, memory: '4g', cpus: 3 },
+      workflows: {
+        issue: {
+          ...merging.workflows.issue,
+          steps: merging.workflows.issue.steps.map(s => ({
+            ...s,
+            limits: s.name === 'implement' ? { memory: '8g' } : { memory: '16g', cpus: 6 },
+          })),
+        },
+      },
+    };
+    const { specs, run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Will check.' })]]);
+    const touched = await run(Effect.andThen(waiting(where), tick(configured, 7)));
+    expect(touched).toMatchObject([{ id: 'run-7', step: 'merge', status: 'waiting' }]);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({
+      resume: { id: 'a' },
+      fork: true,
+      limits: { memory: '8g', cpus: 3 },
+    });
+    expect(configured.limits).toMatchObject({ memory: '4g', cpus: 3 });
+  });
+
   it('sends a run waiting at merge back when the aside a mention starts proposes back, resuming its fork', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');

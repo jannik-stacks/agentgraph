@@ -214,6 +214,7 @@ export const runAside = (
       step.name,
       {
         ...makeAgentSessionSpec(graph, to.does.agent, { dir: work.dir }),
+        limits: { ...graph.limits, ...to.limits },
         prompt,
         ...(kept && { resume: kept, fork: true as const }),
       },
