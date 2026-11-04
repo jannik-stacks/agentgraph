@@ -127,6 +127,34 @@ const columnQuery = `query($owner: String!, $name: String!, $after: String) {
   }
 }`;
 
+const itemQuery = `query($owner: String!, $name: String!, $issue: Int!, $login: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $issue) { id projectItems(first: 100) { nodes { id project { id } } } }
+  }
+  repositoryOwner(login: $login) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        id
+        field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } }
+      }
+    }
+  }
+}`;
+const addItemMutation = `mutation($project: ID!, $content: ID!) {
+  addProjectV2ItemById(input: { projectId: $project, contentId: $content }) { item { id } }
+}`;
+const moveItemMutation = `mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+  updateProjectV2ItemFieldValue(
+    input: { projectId: $project, itemId: $item, fieldId: $field, value: { singleSelectOptionId: $option } }
+  ) { projectV2Item { id } }
+}`;
+type ProjectItem = {
+  repository: { issue: { id: string; projectItems: { nodes: { id: string; project: { id: string } }[] } } };
+  repositoryOwner: {
+    projectV2: { id: string; field: { id: string; options: { id: string; name: string }[] } | null } | null;
+  } | null;
+};
+
 const readProjectToken: Effect.Effect<string, TrackerError> = Effect.gen(function* () {
   const set = yield* Effect.orElseSucceed(Config.option(Config.Redacted('AGENTGRAPH_PROJECT_TOKEN')), Option.none);
   const value = Option.match(set, { onNone: () => '', onSome: Redacted.value }).trim();
@@ -320,6 +348,16 @@ export const githubTracker = (
   projectToken = readProjectToken
 ): Layer.Layer<Tracker> => {
   const request = requester(fetch);
+  const graphql = <T>(query: string, variables: Record<string, unknown>) =>
+    Effect.flatMap(projectToken, auth =>
+      request<{ data?: T; errors?: { message: string }[] }>('POST', '/graphql', auth, { query, variables })
+    ).pipe(
+      Effect.filterOrFail(
+        ({ data }) => !data.errors?.length && data.data !== undefined,
+        ({ data }) => new TrackerError({ message: data.errors?.map(e => e.message).join('; ') ?? 'no data' })
+      ),
+      Effect.map(({ data }) => data.data!)
+    );
   return Layer.sync(Tracker, () => {
     const listed = (user: User, association = '') => (trust ? trust.includes(login(user)) : members.has(association));
     const repo = `/repos/${app.repo}`;
@@ -1082,16 +1120,32 @@ export const githubTracker = (
       status: (number, to, names) => Effect.asVoid(act(number, makeStatusLabel(to, names))),
       findPost,
       slug: me,
-      graphql: (query, variables) =>
-        Effect.flatMap(projectToken, auth =>
-          request<{ data?: unknown; errors?: { message: string }[] }>('POST', '/graphql', auth, { query, variables })
-        ).pipe(
-          Effect.filterOrFail(
-            ({ data }) => !data.errors?.length,
-            ({ data }) => new TrackerError({ message: data.errors!.map(e => e.message).join('; ') })
-          ),
-          Effect.map(({ data }) => data.data)
-        ),
+      moveToColumn: (number, column) =>
+        Effect.gen(function* () {
+          const [owner, name] = app.repo.split('/');
+          const [login, board] = column.project.split('/');
+          const found = yield* graphql<ProjectItem>(itemQuery, {
+            owner,
+            name,
+            issue: number,
+            login,
+            number: Number(board),
+          });
+          const project = found.repositoryOwner?.projectV2;
+          const option = project?.field?.options.find(o => o.name === column.name);
+          if (!project?.field || !option)
+            return yield* new TrackerError({
+              message: `project ${column.project} has no Status option ${column.name}`,
+            });
+          const { issue } = found.repository;
+          const item =
+            issue.projectItems.nodes.find(i => i.project.id === project.id)?.id ??
+            (yield* graphql<{ addProjectV2ItemById: { item: { id: string } } }>(addItemMutation, {
+              project: project.id,
+              content: issue.id,
+            })).addProjectV2ItemById.item.id;
+          yield* graphql(moveItemMutation, { project: project.id, item, field: project.field.id, option: option.id });
+        }),
       ...(studio && { studio }),
     };
   });

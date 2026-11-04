@@ -594,6 +594,61 @@ describe('githubTracker', () => {
     ]).toEqual([expected, queries, said.length, true]);
   });
 
+  it.each([
+    ['adds the card when missing, then moves it', [{ id: 'item-other', project: { id: 'project-3x' } }], 'item-new', 3],
+    ['moves the existing card', [{ id: 'item-7', project: { id: 'project-3' } }], 'item-7', 2],
+  ])('%s to a board column', async (_, items, item, queries) => {
+    const f = fake({
+      'POST /graphql': (body: Body) => {
+        const query = (body as { query: string }).query;
+        if (query.includes('addProjectV2ItemById'))
+          return { body: { data: { addProjectV2ItemById: { item: { id: 'item-new' } } } } };
+        if (query.includes('updateProjectV2ItemFieldValue')) return { body: { data: {} } };
+        return {
+          body: {
+            data: {
+              repository: { issue: { id: 'issue-7', projectItems: { nodes: items } } },
+              repositoryOwner: {
+                projectV2: {
+                  id: 'project-3',
+                  field: { id: 'field-status', options: [{ id: 'opt-review', name: 'In Review' }] },
+                },
+              },
+            },
+          },
+        };
+      },
+    });
+    await Effect.runPromise(
+      Effect.flatMap(Tracker, t => t.moveToColumn!(7, { project: 'acme/3', name: 'In Review' })).pipe(
+        Effect.provide(githubTracker(app, f.fetch, undefined, undefined, undefined, Effect.succeed('user-token')))
+      )
+    );
+    const posted = f.calls.filter(c => c.path === '/graphql');
+    expect([posted.length, posted[0]!.body?.variables, posted.at(-1)!.body?.variables]).toEqual([
+      queries,
+      { owner: 'o', name: 'r', issue: 7, login: 'acme', number: 3 },
+      { project: 'project-3', item, field: 'field-status', option: 'opt-review' },
+    ]);
+  });
+
+  it('fails moving to a column the board does not have', async () => {
+    const f = fake({
+      'POST /graphql': {
+        data: {
+          repository: { issue: { id: 'issue-7', projectItems: { nodes: [] } } },
+          repositoryOwner: { projectV2: { id: 'project-3', field: { id: 'field-status', options: [] } } },
+        },
+      },
+    });
+    const exit = await Effect.runPromiseExit(
+      Effect.flatMap(Tracker, t => t.moveToColumn!(7, { project: 'acme/3', name: 'Done' })).pipe(
+        Effect.provide(githubTracker(app, f.fetch, undefined, undefined, undefined, Effect.succeed('user-token')))
+      )
+    );
+    expect(JSON.stringify(exit)).toContain('project acme/3 has no Status option Done');
+  });
+
   it('trusts only the listed logins when given a trust list, labels included', async () => {
     const f = fake({
       'GET /repos/o/r/issues/8': issue(8, { user: { login: 'bob' }, author_association: 'COLLABORATOR' }),

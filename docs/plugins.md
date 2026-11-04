@@ -94,8 +94,8 @@ Known secrets are masked before output and tracing. Plugin credentials stay on t
 
 A plugin can declare `on.status` instead of, or next to, tools. The engine calls it after it changes an issue's
 [status](workflows.md#status-on-the-issue), with `{ issue, repo, from, to }`; `from` is absent on the first status.
-The context holds `repo`, the plugin's `settings`, `tracker.searchIssues` and, on GitHub, `tracker.graphql(query, variables)`,
-which sends with the project token. Hooks run in filename order. A hook that throws is logged and the run goes on.
+The context holds `repo`, the plugin's `settings`, `tracker.searchIssues` and, on GitHub, `tracker.moveToColumn(issue,
+{ project, name })`, which puts the issue's card in that column of a project board with the project token. Hooks run in filename order. A hook that throws is logged and the run goes on.
 <!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/engine.ts#announce src/tracker.ts#Tracker -->
 
 ```ts

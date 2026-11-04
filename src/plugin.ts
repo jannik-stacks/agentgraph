@@ -6,7 +6,7 @@ import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
 import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue, SchemaRepresentation } from 'effect';
-import type { Issue, IssueStatus } from './event.ts';
+import type { Event, Issue, IssueStatus } from './event.ts';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -46,7 +46,7 @@ type TrackerMember = (host: TrackerHost) => unknown;
 export type StatusChange = { issue: number; repo: string; from?: IssueStatus; to: IssueStatus };
 
 export type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abortSignal'> & {
-  readonly tracker: { readonly graphql?: (query: string, variables: Record<string, unknown>) => Promise<unknown> };
+  readonly tracker: { readonly moveToColumn?: (issue: number, column: NonNullable<Event['column']>) => Promise<void> };
 };
 
 type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;

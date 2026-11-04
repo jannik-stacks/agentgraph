@@ -4,53 +4,36 @@ import type { HookContext } from '../src/plugin.ts';
 
 const settings = { project: 'acme/3', status: { 'needs-review': 'In Review' } };
 
-const fake = (items: { id: string; project: { id: string } }[]) => {
-  const calls: { query: string; variables: Record<string, unknown> }[] = [];
+const fake = () => {
+  const calls: unknown[][] = [];
   const context: HookContext<typeof settings> = {
     repo: 'acme/app',
     settings,
-    tracker: {
-      searchIssues: async () => [],
-      graphql: async (query, variables) => {
-        calls.push({ query, variables });
-        if (query.includes('addProjectV2ItemById')) return { addProjectV2ItemById: { item: { id: 'item-new' } } };
-        if (query.includes('updateProjectV2ItemFieldValue')) return {};
-        return {
-          repository: { issue: { id: 'issue-7', projectItems: { nodes: items } } },
-          repositoryOwner: {
-            projectV2: {
-              id: 'project-3',
-              field: { id: 'field-status', options: [{ id: 'opt-review', name: 'In Review' }] },
-            },
-          },
-        };
-      },
-    },
+    tracker: { searchIssues: async () => [], moveToColumn: async (...args) => void calls.push(args) },
   };
   return { calls, context };
 };
 
 describe('the board plugin', () => {
-  it('moves the issue on the project to the mapped Status option, adding it when missing', async () => {
-    const { calls, context } = fake([{ id: 'item-other', project: { id: 'project-9' } }]);
+  it('moves the issue to the mapped Status option', async () => {
+    const { calls, context } = fake();
     await board.on!.status!({ issue: 7, repo: 'acme/app', from: 'working', to: 'needs-review' }, context);
-    expect(calls.map(c => c.variables)).toEqual([
-      { owner: 'acme', name: 'app', issue: 7, login: 'acme', number: 3 },
-      { project: 'project-3', content: 'issue-7' },
-      { project: 'project-3', item: 'item-new', field: 'field-status', option: 'opt-review' },
-    ]);
-  });
-
-  it('reuses the existing item', async () => {
-    const { calls, context } = fake([{ id: 'item-7', project: { id: 'project-3' } }]);
-    await board.on!.status!({ issue: 7, repo: 'acme/app', to: 'needs-review' }, context);
-    expect(calls.at(-1)?.variables).toMatchObject({ item: 'item-7' });
-    expect(calls).toHaveLength(2);
+    expect(calls).toEqual([[7, { project: 'acme/3', name: 'In Review' }]]);
   });
 
   it('does nothing for an unmapped status', async () => {
-    const { calls, context } = fake([]);
+    const { calls, context } = fake();
     await board.on!.status!({ issue: 7, repo: 'acme/app', to: 'done' }, context);
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a tracker that has no project boards, before any move', async () => {
+    const { calls, context } = fake();
+    const { moveToColumn: _, ...folder } = context.tracker;
+    const change = { issue: 7, repo: 'acme/app', to: 'needs-review' } as const;
+    await expect(board.on!.status!(change, { ...context, tracker: folder })).rejects.toThrow(
+      'needs a tracker with project boards'
+    );
     expect(calls).toEqual([]);
   });
 });

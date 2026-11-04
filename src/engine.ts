@@ -1979,7 +1979,7 @@ const show = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreErro
 const announce = (graph: Graph, change: StatusChange) =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
-    const { graphql } = tracker;
+    const { moveToColumn } = tracker;
     const { hooks } = yield* Effect.tryPromise(() => readPlugins(graph.dir, graph.plugins));
     for (const hook of hooks)
       yield* Effect.tryPromise(async () =>
@@ -1988,7 +1988,7 @@ const announce = (graph: Graph, change: StatusChange) =>
           settings: hook.settings,
           tracker: {
             searchIssues: (...args) => Effect.runPromise(tracker.searchIssues(...args)),
-            ...(graphql && { graphql: (query, variables) => Effect.runPromise(graphql(query, variables)) }),
+            ...(moveToColumn && { moveToColumn: (issue, column) => Effect.runPromise(moveToColumn(issue, column)) }),
           },
         })
       ).pipe(Effect.catch(e => Effect.logWarning(`status hook of plugin ${hook.plugin}`, e)));
