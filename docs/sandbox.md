@@ -47,7 +47,7 @@ Bases of one repo that differ only in source share one. Environments of differen
 
 ### Disk
 
-`bin/env.ts` frees disk. It removes unused volumes, environments and cache volumes no run can reuse, and score trees nobody holds (under `--root` or `AGENTGRAPH_GC_ROOTS`), then the least recently used until the total is under `AGENTGRAPH_ENV_CAP` (`60g`). It keeps what a container, a live checkout or a pin uses, and what a live runner used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2). <!-- code: src/disk.ts#collect -->
+`bin/env.ts` frees disk. It removes unused volumes, environments and cache volumes no run can reuse, and score trees nobody holds (under `--root` or `AGENTGRAPH_GC_ROOTS`), then the least recently used until the total is under `AGENTGRAPH_ENV_CAP` (`60g`). It keeps what a container, a live checkout or a pin uses, and what a live runner used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2). A cache volume stays while any environment built with it is left. <!-- code: src/disk.ts#collect -->
 
 Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `unpin` and `sweep`, which drops dead runners' dependency volumes. Bench collection and automatic low-disk collection only consider environment tags and cache volumes recorded in the case or runner data dir (`.envs/refs.jsonl`). A retained environment keeps its shared lower volume. Global collection stays an explicit operator action. Collection runs below `AGENTGRAPH_MIN_FREE_GB` (40) free. If that is not enough, `disk low` names what holds the space and bench work waits. <!-- code: src/disk.ts#ensureFreeDisk -->
 

@@ -12,6 +12,7 @@ import type { Graph } from './folder.ts';
 import {
   dependencyDirs,
   discard,
+  isVolumeName,
   readSandboxSetup,
   readSetupInputKey,
   createSharedMounts,
@@ -92,7 +93,7 @@ export type CheckoutContainerSpec = {
 } & Pick<Graph, 'image' | 'network'>;
 
 const volume = (name: string, dst: string, nocopy = false, readonly = false) => {
-  if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
+  if (!isVolumeName(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
   return [
     '--mount',
     `type=volume,src=${name},dst=${dst}${nocopy ? ',volume-nocopy' : ''}${readonly ? ',readonly' : ''}`,

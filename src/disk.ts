@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
-import { runDockerCli, envVersion, held, makeSetupVolumeName, unlogged, used } from './env.ts';
+import { runDockerCli, envVersion, held, isVolumeName, makeSetupVolumeName, unlogged, used } from './env.ts';
 import { isLockedByOtherProcess, isOwnerRunning, readStateDir } from './owner.ts';
 
 /**
@@ -45,6 +45,9 @@ export const parseByteSize = (size: string) => {
   return Number(m[1]) * 1000 ** ' kmgt'.indexOf(m[2]!.toLowerCase() || ' ');
 };
 
+const isEnvRef = (ref: unknown): ref is string =>
+  typeof ref === 'string' && (/^agentgraph-env\/[a-z0-9._-]+:[a-z0-9]+$/.test(ref) || isVolumeName(ref));
+
 export const readEnvRefs = (dir: string): string[] => {
   const file = join(dir, '.envs', 'refs.jsonl');
   const refs: unknown[] = existsSync(file)
@@ -53,17 +56,12 @@ export const readEnvRefs = (dir: string): string[] => {
         .filter(Boolean)
         .map(line => JSON.parse(line))
     : [];
-  if (
-    !refs.every(
-      (ref): ref is string =>
-        typeof ref === 'string' && /^agentgraph-env\/[a-z0-9._-]+:[a-z0-9]+$|^[a-z0-9][a-z0-9._-]*$/.test(ref)
-    )
-  )
-    throw new Error(`invalid environment refs in ${file}`);
+  if (!refs.every(isEnvRef)) throw new Error(`invalid environment refs in ${file}`);
   return [...new Set(refs)];
 };
 
 export const writeEnvRef = (dir: string, tag: string) => {
+  if (!isEnvRef(tag)) throw new Error(`invalid environment ref ${tag}`);
   if (readEnvRefs(dir).includes(tag)) return;
   mkdirSync(join(dir, '.envs'), { recursive: true });
   appendFileSync(join(dir, '.envs', 'refs.jsonl'), `${JSON.stringify(tag)}\n`);
@@ -212,6 +210,7 @@ export const inventory = async (
   );
   const items: DiskCacheEntry[] = [];
   const keys = new Set<string>();
+  const needed = new Set<string>();
   let excluded = 0;
   const inspected = tagsById.size
     ? lines(
@@ -233,6 +232,7 @@ export const inventory = async (
       o.eligible === undefined ? allTags : allTags.filter(t => o.eligible!.includes(t) && t.endsWith(`:${key}`));
     if (!key || isData(labels)) continue;
     keys.add(key);
+    if (labels['agentgraph.cache']) needed.add(labels['agentgraph.cache']);
     if (!tags.length) {
       excluded += allTags.length;
       continue;
@@ -277,7 +277,7 @@ export const inventory = async (
       refs: [v.name],
       bytes: df.volumes.get(v.name) ?? 0,
       used: existsSync(stamp) ? statSync(stamp).mtimeMs : 0,
-      ...(v.labels['agentgraph.version'] !== String(envVersion) && { always: true, gone: 'old version' }),
+      ...(needed.has(v.name) && { held: 'environment' }),
       ...(mounted.has(v.name) ? { held: 'container' } : overlaid(v.name) && { held: 'live checkout' }),
       ...(held(v.name, false) && { held: 'recent use' }),
     });

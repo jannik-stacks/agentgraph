@@ -233,6 +233,8 @@ const labels = async (tag: string) => {
 
 export const makeSetupVolumeName = (key: string) => `agentgraph-lower-${key}`;
 
+export const isVolumeName = (name: string) => /^\w[\w.-]*$/.test(name);
+
 const envOfLabels = (tag: string, l: Record<string, string>): SandboxSetup => ({
   image: tag,
   outputs: JSON.parse(l['agentgraph.outputs'] ?? '[]') as string[],
@@ -269,7 +271,7 @@ export const readSandboxSetup = async (
   const lines = [...makeToolchainSetupCommands(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join(
     '\n'
   );
-  if (!/^\w[\w.-]*$/.test(spec.cache)) throw new Error(`volume name not allowed: ${spec.cache}`);
+  if (!isVolumeName(spec.cache)) throw new Error(`volume name not allowed: ${spec.cache}`);
   const slug = makeRepoSlug(spec.repo || basename(spec.origin).replace(/\.git$/, ''));
   const cache = `${spec.cache}-${slug}-${hash([spec.repo || spec.origin, from, lines])}`;
   await createCacheVolume(cache);
@@ -300,15 +302,7 @@ export const readSandboxSetup = async (
 };
 
 const createCacheVolume = (name: string) =>
-  runDockerCli([
-    'volume',
-    'create',
-    '--label',
-    `agentgraph.cache=${name}`,
-    '--label',
-    `agentgraph.version=${envVersion}`,
-    name,
-  ]);
+  runDockerCli(['volume', 'create', '--label', `agentgraph.cache=${name}`, name]);
 
 const createSandboxSetup = async (
   spec: SandboxSetupSpec,
@@ -419,7 +413,7 @@ const createSandboxSetup = async (
       await runDockerCli([
         'commit',
         '--change',
-        `LABEL agentgraph.env=${key} agentgraph.version=${envVersion} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
+        `LABEL agentgraph.env=${key} agentgraph.cache=${b.cache} agentgraph.version=${envVersion} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
         name,
         tag,
       ]);

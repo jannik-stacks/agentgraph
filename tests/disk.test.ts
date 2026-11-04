@@ -236,10 +236,14 @@ describe('collect', () => {
 
 const caches = (more = '') => ({
   ...box,
+  'image inspect --format {{.Id}}': box['image inspect --format {{.Id}}'].replace(
+    '"agentgraph.env":"k1",',
+    '"agentgraph.env":"k1","agentgraph.cache":"agentgraph-cache-r-env",'
+  ),
   'volume ls --format': [
-    `agentgraph-cache-r-new\tagentgraph.cache=agentgraph-cache-r-new,agentgraph.version=${envVersion}`,
-    'agentgraph-cache-r-old\tagentgraph.cache=agentgraph-cache-r-old,agentgraph.version=1',
-    `agentgraph-cache-r-run\tagentgraph.cache=agentgraph-cache-r-run,agentgraph.version=${envVersion}`,
+    'agentgraph-cache-r-new\tagentgraph.cache=agentgraph-cache-r-new',
+    'agentgraph-cache-r-env\tagentgraph.cache=agentgraph-cache-r-env',
+    'agentgraph-cache-r-run\tagentgraph.cache=agentgraph-cache-r-run',
     'agentgraph-cache\t',
     'agentgraph-copy\tagentgraph.cache=agentgraph-cache-r-new',
     more,
@@ -253,28 +257,41 @@ const removals = (log: () => string) =>
     .filter(l => l.startsWith('volume rm'));
 
 describe('toolchain cache volumes', () => {
-  it('lists labelled cache volumes with their size, old versions always, and holds what a container mounts', async () => {
+  it('lists labelled cache volumes with their size, and holds what a container or an environment uses', async () => {
     await faked(caches(), async () => {
       const by = Object.fromEntries((await inventory()).filter(i => i.kind === 'cache').map(i => [i.refs[0], i]));
       expect(Object.keys(by).toSorted()).toEqual([
+        'agentgraph-cache-r-env',
         'agentgraph-cache-r-new',
-        'agentgraph-cache-r-old',
         'agentgraph-cache-r-run',
       ]);
       expect(by['agentgraph-cache-r-new']).toMatchObject({ bytes: 2e9 });
-      expect(by['agentgraph-cache-r-new']?.always).toBeUndefined();
-      expect(by['agentgraph-cache-r-old']).toMatchObject({ always: true, gone: 'old version' });
+      expect(by['agentgraph-cache-r-new']?.held).toBeUndefined();
+      expect(by['agentgraph-cache-r-env']?.held).toBe('environment');
       expect(by['agentgraph-cache-r-run']?.held).toBe('container');
     });
   });
 
-  it('removes old and unused cache volumes, never a mounted one or the bare default volume', async () => {
+  it('removes unused cache volumes past the cap, never a mounted one or the bare default volume', async () => {
     await faked(caches(), async log => {
       await collect({});
-      expect(removals(log)).toEqual(['volume rm agentgraph-cache-r-old']);
+      expect(removals(log)).toEqual([]);
       await collect({ limit: 0 });
       expect(removals(log)).toContain('volume rm agentgraph-cache-r-new');
       expect(log()).not.toMatch(/volume rm (agentgraph-cache-r-run|agentgraph-cache|agentgraph-copy)\n/);
+    });
+  });
+
+  it.each([
+    ['pinned', undefined],
+    ['out of scope', ['agentgraph-cache-r-env']],
+  ])('keeps the cache volume of a kept environment that is %s', async (_, eligible) => {
+    await faked(caches(), async log => {
+      pin('keep', ['agentgraph-env/r:k1'], 1);
+      await collect({ limit: 0, ...(eligible && { eligible }) });
+      expect(log()).not.toContain('rmi agentgraph-env/r:k1');
+      expect(removals(log)).not.toContain('volume rm agentgraph-cache-r-env');
+      expect((await inventory()).find(i => i.refs[0] === 'agentgraph-cache-r-env')?.held).toBe('environment');
     });
   });
 
@@ -343,6 +360,15 @@ describe('environment ownership ledger', () => {
     const dir = tmp('data');
     write(dir, { '.envs/refs.jsonl': '42\n' });
     expect(() => readEnvRefs(dir)).toThrow('invalid environment refs');
+  });
+
+  it('records cache volumes of any name docker accepts, and refuses others before writing', () => {
+    const dir = tmp('data');
+    writeEnvRef(dir, 'TeamCache-project-0123456789abcdef01234567');
+    writeEnvRef(dir, 'agentgraph-env/r:k1');
+    expect(readEnvRefs(dir)).toEqual(['TeamCache-project-0123456789abcdef01234567', 'agentgraph-env/r:k1']);
+    expect(() => writeEnvRef(dir, 'x,dst=/etc')).toThrow('invalid environment ref');
+    expect(readEnvRefs(dir)).toHaveLength(2);
   });
 
   it('records refs in a directory without confusing the run store', async () => {

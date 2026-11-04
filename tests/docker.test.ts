@@ -27,6 +27,7 @@ import {
   written,
 } from '../src/env.ts';
 import { isOwnerRunning, startHeartbeat } from '../src/owner.ts';
+import { readEnvRefs } from '../src/disk.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -496,11 +497,7 @@ describe('docker with a stand-in docker client', () => {
       })
     );
     expect(Exit.isSuccess(exit)).toBe(true);
-    const caches = [
-      ...readFileSync(all, 'utf8').matchAll(
-        /volume create --label agentgraph\.cache=(\S+) --label agentgraph\.version=\d+ (\S+)/g
-      ),
-    ];
+    const caches = [...readFileSync(all, 'utf8').matchAll(/volume create --label agentgraph\.cache=(\S+) (\S+)/g)];
     expect(caches.every(([, label, name]) => label === name)).toBe(true);
     const names = [...new Set(caches.map(([, name]) => name!))];
     expect(names).toEqual([
@@ -520,6 +517,18 @@ describe('docker with a stand-in docker client', () => {
       .map(l => readOverlayLower(/src=(agentgraph-layer-\w+-c-o),dst=\/cache,/.exec(l)?.[1] ?? 'none'));
     expect(execs).toEqual([names[0], names[0], names[1]]);
     expect(text).not.toMatch(/src=agentgraph-cache,|agentgraph-cache /);
+  });
+
+  it('records an uppercase cache prefix for every checkout of a data dir', async () => {
+    const data = tmp('data');
+    const exit = await use(dockerSandbox({ data, origin: origin(), cache: 'TeamCache' }), s =>
+      Effect.all([1, 2].map(() => s.checkout('main', undefined, undefined, { repo: 'acme/x', toolchain: 'true' })))
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(readEnvRefs(data)).toEqual([
+      expect.stringMatching(/^TeamCache-acme-x-[0-9a-f]{24}$/),
+      expect.stringMatching(/^agentgraph-env\/acme-x:\w+$/),
+    ]);
   });
 
   it('tells repos without a name apart by their origin', async () => {
@@ -615,7 +624,7 @@ describe('docker with a stand-in docker client', () => {
     expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
     expect(builds() - before).toBe(1);
     expect(readFileSync(`${log}.all`, 'utf8')).toMatch(
-      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.version=\d+ agentgraph\.lowerkb=5 agentgraph\.complete=true/
+      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.cache=agentgraph-cache-\S+ agentgraph\.version=\d+ agentgraph\.lowerkb=5 agentgraph\.complete=true/
     );
   });
 
