@@ -347,8 +347,12 @@ describe('a run fetched on demand', async () => {
     createStore: () => { set: (atom: object, value: unknown) => void };
     Provider: unknown;
   }>('jotai');
-  const { runAtom } = await studioModule<{ runAtom: (id: string) => object }>('state.ts');
+  const state = await studioModule<{ runAtom: (id: string) => object; runsAtom: object; locationAtom: object }>(
+    'state.ts'
+  );
+  const { runAtom } = state;
   const { StepDetails } = await studioModule<{ StepDetails: unknown }>('graph/StepDetails.tsx');
+  const { RunsPage } = await studioModule<{ RunsPage: unknown }>('runs/RunsPage.tsx');
   const { fixture } = await import('./fixtures.ts');
   const workflow = fixture('kit').workflows.issue!;
   const step = workflow.steps.find(s => s.name === 'implement')!;
@@ -365,11 +369,43 @@ describe('a run fetched on demand', async () => {
         createElement(StepDetails, {
           fixture: { id: 'kit/issue', workflow, checks, runs: [] },
           step,
-          run: { fixture: { id: 'kit/issue', workflow, checks, runs: [] }, run, trail: [], live: true },
+          run: { fixture: { id: 'kit/issue', workflow, checks, runs: [] }, run, trail: [] },
         })
       ),
     };
   };
+
+  const readAtoms = (node: unknown, location?: { path: string; query: URLSearchParams }) => {
+    const store = jotai.createStore() as ReturnType<typeof jotai.createStore> & { get: (atom: object) => unknown };
+    if (location) store.set(state.locationAtom, location);
+    const read = new Set<object>();
+    const get = store.get.bind(store);
+    store.get = atom => {
+      read.add(atom);
+      return get(atom);
+    };
+    renderToStaticMarkup(createElement(jotai.Provider, { store }, node));
+    return read;
+  };
+  const triage = workflow.steps.find(s => s.name === 'triage')!;
+  const live = { fixture: { id: 'kit/issue', workflow, checks, runs: [] }, run, trail: [] };
+
+  it.each([
+    ['implement', step, true],
+    ['triage', triage, false],
+  ] as const)('reads the run trace on the %s step only when it has checks', (_name, shown, reads) => {
+    const read = readAtoms(createElement(StepDetails, { fixture: live.fixture, step: shown, run: live }));
+    expect(read.has(runAtom(run.id))).toBe(reads);
+  });
+
+  it.each([
+    ['/runs', true],
+    ['/runs?gh=https://github.com/o/r/issues/1', false],
+  ] as const)('reads the run list at %s only when it shows it', (href, reads) => {
+    const url = new URL(href, 'http://studio');
+    const read = readAtoms(createElement(RunsPage), { path: url.pathname, query: url.searchParams });
+    expect(read.has(state.runsAtom)).toBe(reads);
+  });
 
   it('shows loading while the run is fetched, with the step and its checks around it', () => {
     const { visits, step: details } = render({});

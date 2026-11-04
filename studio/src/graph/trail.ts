@@ -1,4 +1,4 @@
-import type { ServedRun } from '../runs/trace.ts';
+import type { makeRunSummary, ServedRun } from '../runs/trace.ts';
 import type { Fixture } from './scenarios.ts';
 
 export const splitSelection = (selected: string | null) => {
@@ -11,7 +11,7 @@ export const splitSelection = (selected: string | null) => {
 };
 
 export const findCheckVerdicts = (
-  runs: Pick<ServedRun, 'fixture' | 'run' | 'checks'>[],
+  runs: (Pick<ServedRun, 'fixture' | 'run'> & Pick<ReturnType<typeof makeRunSummary>, 'checks'>)[],
   fixture: string,
   step: string,
   check: string

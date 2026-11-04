@@ -12,19 +12,19 @@ export const makeTrailOutcome = (o: Outcome) =>
 
 /** One outcome a run met, with the run as it stood before it. */
 export type Trail = {
-  at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason'>;
+  at: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'>;
   outcome: ReturnType<typeof makeTrailOutcome>;
 }[];
 
-/** A run drawn over its workflow: a live one fetches its trace, a simulated one carries it. */
-export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[]; live?: boolean };
+/** A run drawn over its workflow: a simulated one carries its trace, a live one fetches it. */
+export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] };
 
 /** A fixture workflow with its checks and the runs simulated over it; a served graph's also carries its prompts and what each agent returns and reads. */
 export type Fixture = {
   id: string;
   workflow: Workflow;
   checks: Record<string, Pick<Check, 'mode' | 'agent' | 'run' | 'returns'> & Partial<Pick<Doc<Check>, 'body'>>>;
-  runs: { label: string; trail: Trail; trace: Trace[]; run: Run }[];
+  runs: { label: string; trace: Trace[]; run: Run }[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;
   roles?: Record<string, Pick<Agent, 'returns' | 'reads' | 'model'>>;
@@ -120,7 +120,7 @@ export const simulate = (
   w: Workflow,
   next: Policy,
   engine: Pick<typeof WorkflowModule, 'begin' | 'transition'>
-): { trail: Trail; trace: Trace[]; run: Run } => {
+): { trace: Trace[]; run: Run } => {
   let run = engine.begin(w, { id: 'sim', issue: 1, started: '2026-10-16T00:00:00Z' });
   const trail: Trail = [];
   const trace: Trace[] = [];
@@ -131,11 +131,8 @@ export const simulate = (
       trail
     );
     if (!outcome) break;
-    const { step, status, tries, rounds, reason } = run;
-    trail.push({
-      at: { step, status, tries, rounds, ...(reason !== undefined && { reason }) },
-      outcome: makeTrailOutcome(outcome),
-    });
+    const { step, status, tries, rounds } = run;
+    trail.push({ at: { step, status, tries, rounds }, outcome: makeTrailOutcome(outcome) });
     run = engine.transition(w, run, outcome);
     trace.push({
       at: '',
@@ -144,5 +141,5 @@ export const simulate = (
       run: { step: run.step, status: run.status, tries: run.tries, rounds: run.rounds },
     });
   }
-  return { trail, trace, run };
+  return { trace, run };
 };

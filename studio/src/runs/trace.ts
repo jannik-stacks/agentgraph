@@ -61,7 +61,7 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
 export const makeRunSummary = (run: RunRecord, lines: Line[]) => ({
   usd: lines.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0),
   lastAt: lines.at(-1)?.at,
-  trail: isOnIssue(run) ? makeRunTrail(run, lines) : [],
+  trail: isOnIssue(run) ? makeRunTrail(lines) : [],
   urls: lines.flatMap(line =>
     'applied' in line && line.applied.url && ['issue', 'merge'].includes(line.applied.proposal.kind)
       ? [line.applied.url]
@@ -99,7 +99,7 @@ export type ServedRun = {
   trace?: Line[];
   data?: string;
 } & ReturnType<typeof findTraceLinks> &
-  ReturnType<typeof makeRunSummary>;
+  Omit<ReturnType<typeof makeRunSummary>, 'trail' | 'checks'>;
 
 export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
 

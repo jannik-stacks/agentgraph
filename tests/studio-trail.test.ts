@@ -97,3 +97,46 @@ describe('findAgentUses', () => {
     });
   });
 });
+
+describe('a live run trail', async () => {
+  const engine = await import('../src/workflow.ts');
+  const { makeWorkflowGraph } = await import('../src/graph.ts');
+  const { fixture } = await import('./fixtures.ts');
+  const { simulate } = await studioModule<{
+    simulate: (w: unknown, next: () => unknown, e: unknown) => { trace: unknown[]; run: { reason?: string } };
+  }>('graph/scenarios.ts');
+  const { makeRunTrail, makeWorkflowRunVisits } = await studioModule<{
+    makeRunTrail: (trace: unknown[]) => unknown[];
+    makeWorkflowRunVisits: (
+      graph: unknown,
+      trail: unknown[],
+      run: unknown
+    ) => { visits: { node: { step: string }; outOfRounds?: boolean }[] };
+  }>('graph/visits.ts');
+  const workflow = fixture('kit').workflows.issue!;
+  const graph = makeWorkflowGraph(workflow, {});
+  const pass = { kind: 'pass' };
+  const back = { kind: 'back', why: 'a hunk needs a change' };
+  const replay = (outcomes: object[]) => {
+    const queue = [...outcomes];
+    const { trace, run } = simulate(workflow, () => queue.shift(), engine);
+    return {
+      run,
+      marked: makeWorkflowRunVisits(graph, makeRunTrail(trace), run).visits.flatMap(v =>
+        v.outOfRounds ? [v.node.step] : []
+      ),
+    };
+  };
+  const twice = [pass, pass, back, pass, back, pass];
+
+  it('marks no way back as out of rounds when the run stopped for another reason', () => {
+    const { run, marked } = replay([...twice, { kind: 'stop', why: 'Spent $5.29, over the budget' }]);
+    expect(run.reason).toBeDefined();
+    expect(marked).toEqual([]);
+  });
+
+  it('marks the way back that found no round left', () => {
+    const { marked } = replay([...twice, back]);
+    expect(marked).toEqual(['review']);
+  });
+});

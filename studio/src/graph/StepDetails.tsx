@@ -1,5 +1,5 @@
-import { atom, useAtomValue } from 'jotai';
-import { useState } from 'react';
+import { useAtomValue } from 'jotai';
+import { type ReactNode, useState } from 'react';
 import { makeWorkflowGraph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
 import type { Line } from '../runs/trace.ts';
@@ -222,7 +222,15 @@ export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
   </div>
 );
 
-const simulated = atom<{ value?: { trace?: Line[] } | null; failure?: string; retry?: () => void }>({});
+const LiveCheckList = ({ id, list }: { id: string; list: (lines: Line[] | undefined) => ReactNode }) => {
+  const opened = useAtomValue(runAtom(id));
+  return (
+    <>
+      <Live state={opened}>{value => value === null && <p className="text-zinc-500">No run {id}.</p>}</Live>
+      {list(opened.value?.trace)}
+    </>
+  );
+};
 
 /** The served graph's runs that stand at a step now. */
 const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
@@ -255,7 +263,6 @@ export const StepDetails = ({
 }) => {
   const { workflow, checks } = fixture;
   const { does } = step;
-  const opened = useAtomValue(run?.live ? runAtom(run.run.id) : simulated);
   const checkList = (lines: Line[] | undefined) => (
     <ul className="space-y-1.5">
       {step.checks.map(name => (
@@ -265,7 +272,7 @@ export const StepDetails = ({
           check={checks[name]}
           path={`${workflow.name}/${step.name}`}
           lines={lines?.filter(line => line.step === step.name)}
-          run={run?.live ? run.run.id : undefined}
+          run={run && !run.trace ? run.run.id : undefined}
         />
       ))}
     </ul>
@@ -376,12 +383,7 @@ export const StepDetails = ({
               : 'What must pass before the step is done. They run after each try, all at once.'
           }
         >
-          {run?.live && (
-            <Live state={opened}>
-              {value => value === null && <p className="text-zinc-500">No run {run.run.id}.</p>}
-            </Live>
-          )}
-          {checkList(run?.live ? opened.value?.trace : run?.trace)}
+          {run && !run.trace ? <LiveCheckList id={run.run.id} list={checkList} /> : checkList(run?.trace)}
         </Section>
       )}
       {fixture.agents && (

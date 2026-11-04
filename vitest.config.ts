@@ -77,11 +77,13 @@ export default defineConfig({
   plugins: [
     {
       name: 'studio-page-manifest-tests',
-      resolveId: id => (id === 'virtual:agentgraph-pages' ? '\0virtual:agentgraph-pages' : undefined),
+      resolveId: id => (id === 'virtual:agentgraph-pages' || id === 'virtual:served' ? `\0${id}` : undefined),
       load: id =>
         id === '\0virtual:agentgraph-pages'
           ? 'export const pages = [{ name: "count", title: "Count", href: "/plugins/count", load: async () => ({ default: () => null }) }];'
-          : undefined,
+          : id === '\0virtual:served'
+            ? 'export const served = null;'
+            : undefined,
     },
   ],
   test: {

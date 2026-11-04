@@ -25,7 +25,7 @@ import type { Fixture, RunDrawnOnWorkflow } from './scenarios.ts';
 import { AgentDetails, CheckDetails } from './OpenedDetails.tsx';
 import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
 import { splitSelection } from './trail.ts';
-import { makeRunStory, makeWorkflowRunVisits } from './visits.ts';
+import { makeRunStory, makeRunTrail, makeWorkflowRunVisits } from './visits.ts';
 
 const graphParam = queryParam('graph');
 const runParam = queryParam('run');
@@ -325,7 +325,6 @@ export const GraphPage = () => {
                   fixture,
                   run,
                   trail,
-                  live: true,
                 },
               ]
             : []
@@ -335,7 +334,7 @@ export const GraphPage = () => {
           label: `simulated ${fixture.workflow.name}, ${s.label}`,
           fixture,
           run: s.run,
-          trail: s.trail,
+          trail: makeRunTrail(s.trace),
           trace: s.trace,
         })),
       ]),
@@ -374,7 +373,7 @@ export const GraphPage = () => {
           {picked ? (
             <>
               <span className={accent.text}>
-                {'live' in picked ? `Live, run ${picked.run.id}` : 'Simulated run'}, {picked.run.status} at{' '}
+                {'trace' in picked ? 'Simulated run' : `Live, run ${picked.run.id}`}, {picked.run.status} at{' '}
                 {picked.run.step}.
               </span>{' '}
               {makeRunStory(

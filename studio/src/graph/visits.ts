@@ -5,17 +5,19 @@ import { getStepDoerKind } from './chips.ts';
 import { makeTrailOutcome, type Trail } from './scenarios.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
-export const makeRunTrail = ({ reason }: Pick<Run, 'reason'>, trace: (Trace | CheckEntry)[]): Trail => {
+export const makeRunTrail = (trace: (Trace | CheckEntry)[]): Trail => {
   let before: Pick<Run, 'status' | 'tries' | 'rounds'> = { status: 'running', tries: 0, rounds: {} };
   return trace.flatMap(line => {
     if (!('outcome' in line)) return [];
-    const at = { ...before, step: line.step, ...(reason !== undefined && { reason }) };
+    const at = { ...before, step: line.step };
     before = line.run;
     return [{ at, outcome: makeTrailOutcome(line.outcome) }];
   });
 };
 
 type Node = WorkflowGraph['nodes'][number];
+
+const countRounds = ({ rounds }: Pick<Run, 'rounds'>, step: string) => rounds[step] ?? 0;
 
 /** One time a run is at a step: how it got there, the failed tries, and how it left. */
 type Visit = {
@@ -67,7 +69,11 @@ export function makeWorkflowRunVisits(graph: WorkflowGraph, trail: Trail, run: R
     const o = entry.outcome;
     if (o.kind === 'failed') visit.failed.push(o.failed);
     else if (o.kind === 'answer') visit.answered++;
-    else if (o.kind === 'back' && (trail[i + 1]?.at ?? run).reason !== undefined) visit.outOfRounds = true;
+    else if (
+      o.kind === 'back' &&
+      countRounds(trail[i + 1]?.at ?? run, entry.at.step) === countRounds(entry.at, entry.at.step)
+    )
+      visit.outOfRounds = true;
     else if (o.kind === 'pass' || o.kind === 'back' || o.kind === 'stop') visit.left = o.kind;
   });
   const last = visits.at(-1);
