@@ -35,7 +35,7 @@ Sessions and setup use the graph's `network`; scripts and checks get none. Envir
 
 `infra/local/egress/allowlist` has GitHub's download hosts, `registry.npmjs.org`, and the model login hosts. No PyPI, crates.io, SSH or browsing.
 
-Graph `setup` installs dependencies, such as `npm ci --no-audit --no-fund`. With `models`, they must already be in the image or environment. A failed setup retries, then parks the run; an answer retries setup and the step. <!-- code: src/engine.ts#runSetup -->
+Graph `setup` installs dependencies, such as `npm ci --no-audit --no-fund`. With `models`, they must already be in the image or environment. A failed setup retries, then parks the run; an answer retries setup and the step. <!-- code: src/run/checkout.ts#runSetup -->
 
 ## Environments
 

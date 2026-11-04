@@ -1,8 +1,8 @@
-import { getSha } from './hash.ts';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Data, Duration, Effect, Result, Option, Schedule, Schema, Stream } from 'effect';
+import { Duration, Effect, Result, Option, Schedule, Schema, Stream } from 'effect';
+import { getSha } from './hash.ts';
 import {
   formatRequest,
   context,
@@ -58,6 +58,7 @@ import {
   parseAgentRequest,
 } from './workflow.ts';
 import { type Services, runShell, runJudge, runSession, formatFailure } from './run/execute.ts';
+import { EachFailed, findFanOutItems, readCheckoutDiff, most, runSetup } from './run/checkout.ts';
 
 const decodeProposal = Schema.decodeUnknownResult(Said, {
   onExcessProperty: 'error',
@@ -693,40 +694,6 @@ const feedback = (m: Event) =>
 const lastHeard = (t: IssueWithPull) =>
   pickNewest(...[t.issue, t.pull].flatMap(x => x?.events ?? []).flatMap(m => (m.trusted ? m.at : [])));
 
-/** Runs the graph's setup in a checkout, so its checks find what it installs, and traces how long it took. */
-const runSetup = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
-  Effect.gen(function* () {
-    if (work.env)
-      yield* Effect.flatMap(Store, s =>
-        s.trace(run.id, { at: new Date().toISOString(), step: run.step, env: work.env! })
-      );
-    if (!graph.setup || work.ready) return;
-    const started = Date.now();
-    const out = yield* runShell(
-      graph.setup,
-      graph,
-      work.dir,
-      { AGENTGRAPH_BASE: work.base },
-      graph.limits.minutes,
-      'proxy'
-    );
-    const setup = { ms: Date.now() - started, exit: out.code, ...pickUsed(out) };
-    yield* Effect.flatMap(Store, s => s.trace(run.id, { at: new Date().toISOString(), step: run.step, setup }));
-    if (out.code !== 0)
-      return yield* new SandboxError({
-        reason: 'infra',
-        detail: `setup exited ${out.code}: ${formatSqueezed(out.output)}`,
-      });
-  });
-
-/** What the checkout changed since its base. */
-const changes = (work: Checkout, ...args: string[]) =>
-  Effect.flatMap(writeCheckoutTree(work), tree =>
-    readGit(work.git, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args, work.base, tree])
-  );
-
-const readCheckoutDiff = (work: Checkout) => changes(work, '--text');
-
 /** The files whose lines added in `diff` are conflict markers. */
 const markedIn = (diff: string) => {
   const files = new Set<string>();
@@ -736,37 +703,6 @@ const markedIn = (diff: string) => {
     else if (/^\+(<{7}|>{7})( |$)/.test(line)) files.add(file);
   }
   return [...files];
-};
-
-/** The most items a fan-out takes when its check sets no `max`; a step fans out over at most this many. */
-const most = 20;
-
-class EachFailed extends Data.TaggedError('EachFailed')<{ detail: string }> {}
-
-/** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
-const findFanOutItems = (
-  each: string | { run: string },
-  graph: Graph,
-  work: Checkout,
-  minutes: number,
-  env: Record<string, string> = { AGENTGRAPH_BASE: work.base }
-) => {
-  const lines = (text: string) => text.split('\n').filter(line => line.trim());
-  if (each === 'hunks')
-    return Effect.map(readCheckoutDiff(work), diff =>
-      diff
-        .split(/^(?=diff --git )/m)
-        .filter(Boolean)
-        .flatMap(file => {
-          const [head = '', ...hunks] = file.split(/^(?=@@ )/m);
-          return hunks.map(hunk => `${head}${hunk}`.trimEnd());
-        })
-    );
-  if (each === 'files') return Effect.map(changes(work, '--name-only'), lines);
-  const script = typeof each === 'string' ? each : each.run;
-  return Effect.flatMap(runShell(script, graph, work.dir, env, minutes), out =>
-    out.code === 0 ? Effect.succeed(lines(out.output)) : Effect.fail(new EachFailed({ detail: out.output.trim() }))
-  );
 };
 
 /** Writes the news since `seen` to the checkout's news file; a failed write logs and keeps the old file. */

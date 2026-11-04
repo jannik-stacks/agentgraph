@@ -37,7 +37,7 @@ steps:
 
 Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a `wait: human` step. An agent step gets the skill named by `skill`, else the one named like the step. A workflow without `steps` is one agent step named after its file, with its body as the prompt. <!-- code: src/workflow.ts#compileWorkflow -->
 
-`each` on an agent step opens one fresh session per changed file (`files`), hunk (`hunks`) or output line of `{ run: <command> }`. These never resume. Past 20 items, one session gets them all. <!-- code: src/engine.ts#most -->
+`each` on an agent step opens one fresh session per changed file (`files`), hunk (`hunks`) or output line of `{ run: <command> }`. These never resume. Past 20 items, one session gets them all. <!-- code: src/run/checkout.ts#most -->
 
 ### Gates
 
