@@ -673,6 +673,17 @@ const patience = 6;
  * its environment broke (proxy, docker, a runner error, the machine asleep) waits for the environment and is tried
  * again, up to `patience` attempts, then ends as infra.
  */
+const writeEmptyRun = async (c: Case, at: string, repo: string, input: BenchInput) => {
+  const tracker = join(at, 'tracker');
+  if (!existsSync(join(tracker, 'origin.git')))
+    sh('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
+  await writeImportedRun({ repo: resolve(repo), tracker, data: join(at, 'data') }, c.base, {
+    version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
+    from: c.base,
+    input,
+  });
+};
+
 const runArm = async (arm: string, caseDir: string, set: string, repo: string) => {
   const c = await readCaseImage(readBenchCase(caseDir), set);
   const input = readInput(c, arm);
@@ -717,6 +728,7 @@ const runArm = async (arm: string, caseDir: string, set: string, repo: string) =
       const nothing = ran?.status === 'running' ? 'run did not finish' : undefined;
       const env =
         broke ??
+        (found?.at === at ? undefined : 'the attempt started no run') ??
         runnerError(ran?.reason) ??
         harnessError(join(at, 'data')) ??
         (nothing || !change.trim() ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
@@ -726,10 +738,10 @@ const runArm = async (arm: string, caseDir: string, set: string, repo: string) =
         continue;
       }
       if (!env && nothing && ++empty < 2) continue;
-      if (found?.at !== at) throw new Error(`${basename(slot)}: attempt ${basename(at)} left no run: ${env ?? broke}`);
+      if (found?.at !== at) await writeEmptyRun(c, at, repo, input);
       const why = env ?? nothing;
       return await appendBenchResults(
-        found,
+        readSlotRun(slot)!,
         [
           {
             check: 'bench/arm',
@@ -1160,6 +1172,11 @@ const isCurrent = (found: SlotRun, names: string[], version: string) => {
   return names.every(name => latest.get(name)?.version === version);
 };
 
+const isArmScorable = (found: SlotRun) => {
+  const armed = readLatestRunChecks(found.data, found.run.id).get('bench/arm');
+  return armed ? armed.check.pass : found.run.workflow === 'import';
+};
+
 /** A score run as the results it writes; a failed run keeps its output's tail as findings. */
 export const makeBenchResults = (
   c: Case & Commands,
@@ -1327,11 +1344,7 @@ const score = async (arm: string, caseDir: string, set: string, repo: string, dr
   if ((await writeCaseValid(c, set, repo)) && arm !== 'control') {
     const slot = getBenchSlot(set, readInput(c, arm));
     const found = readSlotRun(slot);
-    if (
-      found &&
-      (found.run.workflow === 'import' || readLatestRunChecks(found.data, found.run.id).get('bench/arm')?.check.pass)
-    )
-      await scoreRuns(c, set, repo, [slot]);
+    if (found && isArmScorable(found)) await scoreRuns(c, set, repo, [slot]);
   }
   if (cache) await collect({ eligible: readEnvRefs(findCaseWorkDir(set, c)), ...(drop && { limit: 0 }) });
 };
@@ -1560,8 +1573,7 @@ const judge = async (arm: string, caseDir: string, set: string) => {
   if (!human || !valid?.check.pass) return;
   const found = readSlotRun(getBenchSlot(set, readInput(c, arm)));
   if (!found) throw new Error(`${c.id}/${arm}: no run to judge`);
-  const armed = readLatestRunChecks(found.data, found.run.id).get('bench/arm');
-  if (found.run.workflow !== 'import' && !armed?.check.pass) return;
+  if (!isArmScorable(found)) return;
   const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
   const changes = { human: readRunChange(human.at, human.run), [arm]: readRunChange(found.at, found.run) };
   if (!changes[arm]!.trim()) {

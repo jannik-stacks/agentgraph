@@ -519,6 +519,35 @@ describe('bin/bench.ts score and judge', () => {
     });
   });
 
+  it('ends an arm that never started a run as infra after its last attempt', () => {
+    const root = tmp('bench-norun');
+    dirs.push(root);
+    const { repo, set, kase } = makeSumCase(root);
+    const graph = join(root, 'graph');
+    mkdirSync(graph);
+    writeFileSync(join(graph, 'settings.yaml'), 'repo: me/demo\n');
+    writeFileSync(join(root, 'keys.env'), 'AGENTGRAPH_PROXY_KEYS=implementor=k\n');
+    writeFileSync(join(set, 'budget.json'), JSON.stringify({ now: 0, at: Date.now() }));
+    const input = makeBenchInput(readBenchCase(kase), 'v2', 1, { graph });
+    for (const n of [1, 2, 3, 4, 5]) mkdirSync(join(getBenchSlot(set, input), String(n)), { recursive: true });
+    const run = () =>
+      spawnSync(
+        process.execPath,
+        [cli, 'run', 'v2', kase, set, '--repo', repo, '--graph', graph, '--keys', join(root, 'keys.env')],
+        {
+          encoding: 'utf8',
+          env: hostDocker(),
+        }
+      );
+    const first = run();
+    expect(first.status, first.stderr).toBe(0);
+    const found = readAttemptRun(join(getBenchSlot(set, input), '6'))!;
+    expect(readLatestRunChecks(found.data, found.run.id).get('bench/arm')!.check).toMatchObject({ pass: false });
+    expect(isBenchUnitDone(set, input, true)).toBe(true);
+    expect(run().status).toBe(0);
+    expect(existsSync(join(getBenchSlot(set, input), '7'))).toBe(false);
+  });
+
   it('typechecks a case without hidden tests and calls it invalid when the human fails it', () => {
     const root = tmp('bench');
     dirs.push(root);
