@@ -26,16 +26,14 @@ const spawned = (command: Command) =>
 const late = (command: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `${command.cmd} ran past ${command.minutes} minutes` });
 
-const listRefs = async (cwd: string) =>
-  new Map(
-    (await git('git', ['for-each-ref', '--format=%(refname) %(objectname) %(parent)'], { cwd })).stdout
-      .split('\n')
-      .filter(Boolean)
-      .map(line => {
-        const [name = '', sha = '', parent = ''] = line.split(' ');
-        return [name, { sha, parent }];
-      })
-  );
+const resolveCommits = async (cwd: string, revisions: string[]) => {
+  const pending = git('git', ['cat-file', '--batch-check=%(objectname)'], { cwd });
+  pending.child.stdin!.end(revisions.map(r => `${r}^{commit}\n`).join(''));
+  return (await pending).stdout
+    .split('\n')
+    .slice(0, revisions.length)
+    .map(line => (/^[0-9a-f]{40,64}$/.test(line) ? line : ''));
+};
 
 const attempts = 'refs/agentgraph/attempts/*';
 const graphs = 'refs/agentgraph/graphs/*';
@@ -69,30 +67,25 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         const dir = await mkdtemp(join(tmpdir(), 'agentgraph-work-'));
         const news = await mkdtemp(join(tmpdir(), 'agentgraph-news-'));
         const run = (...args: string[]) => git('git', args, { cwd: dir }).then(r => r.stdout.trim());
-        const kept = keep && (await listRefs(repo)).has(keep) ? keep : '';
+        const kept = keep && (await resolveCommits(repo, [keep]))[0] ? keep : '';
         const fetched = [
           ...(ref.startsWith('refs/') ? [`+${ref}:${ref}`] : []),
           `${attempts}:${attempts}`,
           ...(kept ? [`+${kept}:${kept}`] : []),
         ];
         await git('git', [...fetched.flatMap(spec => ['-c', `remote.origin.fetch=${spec}`]), 'clone', '-q', repo, dir]);
-        const refs = await listRefs(dir);
-        const resolve = async (name: string) => {
-          const found = [name, `refs/${name}`, `refs/tags/${name}`, `refs/heads/${name}`, `refs/remotes/${name}`]
-            .map(n => refs.get(n))
-            .find(Boolean);
-          if (found) return found.sha;
-          if (/^[a-z][\w./-]*$/.test(name) && !/^[0-9a-f]+$/.test(name)) throw new Error(`no ref ${name}`);
-          return run('rev-parse', '--verify', name);
-        };
-        const base = await resolve(`origin/${ref}`).catch(() => resolve(ref));
-        const remote = branch ? await resolve(`origin/${branch}`).catch(() => '') : '';
-        const parent = kept && refs.get(kept)?.parent;
-        const from = remote || (kept ? parent || (await run('rev-parse', '--verify', `${kept}^`)) : base);
+        const [remoteBase = '', localBase = '', remote = '', keptCommit = '', keptParent = ''] = await resolveCommits(
+          dir,
+          [`origin/${ref}`, ref, branch ? `origin/${branch}` : '', kept, kept && `${kept}~1`]
+        );
+        const base = remoteBase || localBase;
+        if (!base) throw new Error(`no commit ${ref}`);
+        if (kept && !keptParent) throw new Error(`no parent of ${kept}`);
+        const from = remote || (kept ? keptParent : base);
         const fork = from === base ? base : await run('merge-base', from, base).catch(() => from);
         await run('checkout', '-q', ...(branch ? ['-B', branch] : ['--detach']), from);
         if (kept) await run('read-tree', '-u', '--reset', kept);
-        return { dir, base: fork, run, from, kept: kept && refs.get(kept)!.sha, news };
+        return { dir, base: fork, run, from, kept: keptCommit, news };
       };
       return Effect.acquireRelease(
         Effect.tryPromise({

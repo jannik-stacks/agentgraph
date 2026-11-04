@@ -497,6 +497,26 @@ describe('hostSandbox', () => {
     await killed('exec');
     await killed('lines');
   });
+
+  it('checks out an annotated tag and the remote head by the commit they name', async () => {
+    const { root } = seeded('tagged', { 'README.md': 'hi\n' }, 'origin.git');
+    dirs.push(root);
+    const origin = join(root, 'origin.git');
+    const head = git(origin, 'rev-parse', 'main');
+    git(origin, 'tag', '-a', '-m', 'one', 'v1', 'main');
+    const bases = await Effect.runPromise(
+      Effect.gen(function* () {
+        const sandbox = yield* Sandbox;
+        const read = (ref: string) =>
+          Effect.map(sandbox.checkout(ref), work => [work.base, git(work.dir, 'rev-parse', 'HEAD')]);
+        return [yield* read('v1'), yield* read('origin')];
+      }).pipe(Effect.scoped, Effect.provide(hostSandbox(origin)))
+    );
+    expect(bases).toEqual([
+      [head, head],
+      [head, head],
+    ]);
+  });
 });
 
 describe('seeded', () => {
