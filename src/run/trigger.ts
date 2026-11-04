@@ -852,11 +852,11 @@ export const scanIssuesAndRunningRuns = (
     const changed = (yield* Effect.forEach(issues, n => getGate(gates, n).withPermits(1)(look(n, meta)), {
       concurrency: graph.limits.parallel,
     })).flat();
+    const kept = yield* Effect.flatMap(Store, s => s.list());
     const sandbox = yield* Sandbox;
     const branches = yield* sandbox
       .readBranches()
       .pipe(Effect.catch(e => Effect.as(Effect.logWarning('local branches', e), [])));
-    const kept = yield* Effect.flatMap(Store, s => s.list());
     const uses = (branch: string) => (r: Run) => {
       if (r.checkout) return r.checkout.branch === branch;
       const template = graph.workflows[r.workflow]?.branch;
@@ -867,9 +867,7 @@ export const scanIssuesAndRunningRuns = (
     };
     const cleanBranch = (branch: string, using: Run[]) =>
       Effect.gen(function* () {
-        const current = (yield* Effect.forEach([...new Set(using.map(r => r.issue))], issue =>
-          Effect.flatMap(Store, s => s.list({ issue }))
-        )).flat();
+        const current = yield* Effect.flatMap(Store, s => s.list());
         if (current.filter(uses(branch)).some(r => !isRunDone(r) || r.owed)) return;
         const isLanded = (t: Issue) => t.state === 'merged' && t.pull?.branch === branch;
         const pull = (

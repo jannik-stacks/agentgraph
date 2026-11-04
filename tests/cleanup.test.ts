@@ -50,7 +50,7 @@ const cleanOldRun = async (exact: boolean) => {
 };
 
 describe('landed checkout cleanup', () => {
-  it.each([7, 9])('keeps a branch reused by issue #%s after branch discovery', async issue => {
+  it.each([7, 9])('keeps a branch reused by issue #%s after the cleanup snapshot', async issue => {
     const run = setup();
     git(run.origin, 'update-ref', 'refs/heads/main', run.head, git(run.origin, 'rev-parse', 'main'));
     writeIssueAt(issuePath(run.tracker, 7), '---\ntitle: Done\nstate: closed\nauthor: morgan\nlabels: []\n---\n');
