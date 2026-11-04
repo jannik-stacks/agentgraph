@@ -822,13 +822,26 @@ const BAD_FLAGS = [
 ] as const;
 
 describe('the CLI flags', () => {
-  it.each(['SIGTERM', 'SIGINT'] as const)('releases the loop lock before exiting on %s', async signal => {
+  it.each([
+    ['instance', 'SIGTERM'],
+    ['instance', 'SIGINT'],
+    ['tracker', 'SIGTERM'],
+    ['tracker', 'SIGINT'],
+  ] as const)('releases the %s loop lock before exiting on %s', async (kind, signal) => {
     const w = world();
     const root = join(w.root, 'loop-data');
-    const i = await ensureInstance(root, w.seed);
+    const data = kind === 'tracker' ? root : (await ensureInstance(root, w.seed)).data;
     const child = spawn(
       process.execPath,
-      [runTs, 'loop', '--data', root, '--dir', sandboxGraph, '--provider', 'litellm'],
+      [
+        runTs,
+        'loop',
+        '--data',
+        root,
+        '--dir',
+        sandboxGraph,
+        ...(kind === 'tracker' ? ['--tracker', root] : ['--provider', 'litellm']),
+      ],
       {
         cwd: w.seed,
         env: {
@@ -842,17 +855,17 @@ describe('the CLI flags', () => {
         },
       }
     );
-    const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
+    const exited = new Promise<number | null>(resolve => child.once('exit', code => resolve(code)));
     let output = '';
     child.stdout.on('data', chunk => (output += chunk));
     child.stderr.on('data', chunk => (output += chunk));
     try {
       await expect.poll(() => output, { timeout: 10_000 }).toContain('under a temp dir');
-      expect(existsSync(join(i.data, '.locks', 'loop.lock'))).toBe(true);
+      expect(existsSync(join(data, '.locks', 'loop.lock'))).toBe(true);
       child.kill(signal);
-      await exited;
-      expect(existsSync(join(i.data, '.locks', 'loop.lock'))).toBe(false);
-      const release = await createLoopLock(i.data);
+      expect(await exited).toBe(signal === 'SIGTERM' ? 143 : 0);
+      expect(existsSync(join(data, '.locks', 'loop.lock'))).toBe(false);
+      const release = await createLoopLock(data);
       await release();
       await release();
     } finally {
