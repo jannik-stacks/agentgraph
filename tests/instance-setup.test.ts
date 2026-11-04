@@ -648,7 +648,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
   try {
     await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 5000 });
     child.kill('SIGTERM');
-    await vi.waitFor(() => expect(exited).toEqual([0, null]), { timeout: 5000 });
+    await vi.waitFor(() => expect(exited).toEqual([143, null]), { timeout: 5000 });
     const release = await createLoopLock(w.instance.data);
     await release();
     const replacement = w.run('loop', '--once', '--tracker', 'ready');

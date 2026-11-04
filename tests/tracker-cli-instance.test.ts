@@ -872,7 +872,8 @@ describe('the CLI flags', () => {
   ] as const)('releases the %s loop lock before exiting on %s', async (kind, signal) => {
     const w = world();
     const root = join(w.root, 'loop-data');
-    const data = kind === 'tracker' ? root : (await ensureInstance(root, 'seed', w.seed)).data;
+    const { data } = await ensureInstance(root, 'seed', w.seed);
+    if (kind === 'tracker') await w.tracker('init', w.seed);
     const child = spawn(
       process.execPath,
       [
@@ -882,7 +883,9 @@ describe('the CLI flags', () => {
         root,
         '--dir',
         sandboxGraph,
-        ...(kind === 'tracker' ? ['--tracker', root] : ['--provider', 'litellm']),
+        '--provider',
+        'litellm',
+        ...(kind === 'tracker' ? ['--tracker', w.dir] : []),
       ],
       {
         cwd: w.seed,
