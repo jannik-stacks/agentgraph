@@ -5,7 +5,19 @@ import { getMean } from '../../../src/stats.ts';
 import { queryParam } from '../state.ts';
 import { usePluginData } from '../plugins.ts';
 import { BenchData, type BenchRow as Row } from './data.ts';
-import { Button, cx, Help, Live, MultiSelect, Muted, Select, Tooltip, useScrollFade } from '../ui.tsx';
+import {
+  Button,
+  cx,
+  Disclosure,
+  Help,
+  Live,
+  Link,
+  MultiSelect,
+  Muted,
+  Select,
+  Tooltip,
+  useScrollFade,
+} from '../ui.tsx';
 import {
   cost,
   defaultBenchBy,
@@ -16,7 +28,9 @@ import {
   roughBelow,
   formatLabel,
   summarise,
+  isBenchMatch,
 } from './score.ts';
+import { atLink } from '../runs/trace.ts';
 import { Forest } from './Forest.tsx';
 import { Scatter } from './Scatter.tsx';
 import { readBenchRowResults, type RunResults } from '../results/result.ts';
@@ -136,6 +150,8 @@ const Bench = ({ value }: { value: BenchData }) => {
     key,
     values: [...new Set(rows.flatMap(r => (r.labels[key] === undefined ? [] : [r.labels[key]!])))].toSorted(),
   }));
+  const infraRows = rows.filter(r => r.infra && isBenchMatch(r, where));
+  const infraTotal = rows.filter(r => r.infra && isBenchMatch(r, {})).length;
   const points = useMemo(() => {
     return summarise(value.rows, {
       where,
@@ -275,18 +291,32 @@ const Bench = ({ value }: { value: BenchData }) => {
         </Control>
         <Control
           label="Infra"
-          tip="Infrastructure failures are excluded from scores by default. Count them as zero to include them."
+          tip="Infrastructure failures are excluded from scores by default. Count them as zero to include them, or inspect their reasons and runs below."
         >
-          <Tooltip tip="Give infra runs a quality of 0 instead of leaving them out.">
-            <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
-              <input
-                type="checkbox"
-                checked={infra === 'zero'}
-                onChange={e => setInfra(e.target.checked ? 'zero' : null)}
-              />
-              infra runs count as 0
-            </label>
-          </Tooltip>
+          <p className="text-zinc-500">
+            {infraRows.length} of {infraTotal} infra runs match filters
+          </p>
+          <label className="flex items-start gap-1.5 text-zinc-600 dark:text-zinc-400">
+            <input
+              className="mt-0.5 shrink-0"
+              type="checkbox"
+              checked={infra === 'zero'}
+              onChange={e => setInfra(e.target.checked ? 'zero' : null)}
+            />
+            Count infra runs as 0
+          </label>
+          <Disclosure summary={`Inspect infra runs (${infraRows.length})`}>
+            <ul className="mt-2 space-y-2">
+              {infraRows.map(row => (
+                <li key={row.run} className="space-y-0.5 break-words">
+                  <Link href={atLink(row.run, undefined, row.data)} className="underline underline-offset-2">
+                    {row.labels.model} / {row.labels.harness} / {row.case} / repeat {row.repeat}
+                  </Link>
+                  <p className="text-zinc-500 [overflow-wrap:anywhere]">{row.infra}</p>
+                </li>
+              ))}
+            </ul>
+          </Disclosure>
         </Control>
         <Control
           label="Judges"
