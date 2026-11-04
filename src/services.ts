@@ -164,12 +164,23 @@ export const pickTracker = async (
   return { tracker: trackers[named ? name : 'folder'] as (host: TrackerHost) => TrackerSetup, ...(dir && { dir }) };
 };
 
-const where = async (s: Settings) => {
+export const makeTrackerSetup = async (
+  s: Pick<Settings, 'repo' | 'studio' | 'app' | 'graph' | 'tracker' | 'trackerDir'>
+) => {
   const graph = isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
   const picked = await pickTracker(s.tracker, graph);
   if ('problem' in picked) throw new Error(picked.problem);
+  if (s.trackerDir && picked.dir)
+    throw new Error(
+      `tracker ${s.tracker} is a folder; an instance names a tracker plugin, its folder is ${s.trackerDir}`
+    );
   const dir = picked.dir ?? s.trackerDir;
-  return picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(dir && { dir }) });
+  const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(dir && { dir }) });
+  if (s.trackerDir && setup.origin.origin !== join(s.trackerDir, 'origin.git'))
+    throw new Error(
+      `tracker ${s.tracker} keeps its issues outside ${s.trackerDir}; an instance tracker wraps the folder it is given`
+    );
+  return setup;
 };
 
 /**
@@ -203,7 +214,7 @@ export const whyModelHostsMissing = Effect.gen(function* () {
 /** The production services. The graph is read once for its trust list. Tests build their own from the file and host layers. */
 export const makeProductionLayers = () => {
   let previous: string | undefined;
-  let place: ReturnType<typeof where>;
+  let place: ReturnType<typeof makeTrackerSetup>;
   return (s: Settings): Layer.Layer<Services> => {
     const key = JSON.stringify([
       s.repo,
@@ -214,7 +225,7 @@ export const makeProductionLayers = () => {
       Option.getOrUndefined(Option.map(s.app, app => [app.id, Redacted.value(app.key)])),
     ]);
     if (key !== previous) {
-      place = where(s);
+      place = makeTrackerSetup(s);
       previous = key;
     }
     const current = place;

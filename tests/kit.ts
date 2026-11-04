@@ -1,15 +1,21 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { findIssueDir } from '../src/tracker.ts';
 
 export const tmp = (name: string) => mkdtempSync(join(tmpdir(), `agentgraph-${name}-`));
 
-export const issuePath = (dir: string, n: number, name = 'issue.md') => {
-  const at = findIssueDir(dir, n);
-  mkdirSync(at, { recursive: true });
-  return join(at, name);
+export const issuePath = (dir: string, n: number, name = 'issue.md') => join(findIssueDir(dir, n), name);
+
+export const writeIssueAt = (path: string, text: string) => {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text);
+};
+
+export const appendIssueAt = (path: string, text: string) => {
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, text);
 };
 
 export const findStatus = (dir: string, n: number) => {

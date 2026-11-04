@@ -13,7 +13,7 @@ import type { Graph } from '../src/folder.ts';
 import type { Step } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
-import { git, issuePath } from './kit.ts';
+import { git, issuePath, writeIssueAt } from './kit.ts';
 import { graph, w, world, push, pull, judged, services, readChecks, readTrace, fresh, say, comment } from './world.ts';
 import { runStepChecks } from '../src/run/check.ts';
 import { runWorkflow } from '../src/run/drive.ts';
@@ -91,7 +91,7 @@ describe('a base that moved', () => {
     const tip = git(mover, 'rev-parse', 'HEAD');
     git(mover, 'push', '-q', 'origin', 'HEAD:agentgraph/7');
     const pr = JSON.parse(readFileSync(issuePath(where.tracker, 8, 'pull.json'), 'utf8'));
-    writeFileSync(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ ...pr, head: tip }));
+    writeIssueAt(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ ...pr, head: tip }));
     git(mover, 'reset', '-q', '--hard', 'origin/main');
     writeFileSync(join(mover, 'upstream.txt'), 'upstream\n');
     git(mover, 'add', '-A');
@@ -121,7 +121,7 @@ describe('a base that moved', () => {
       const tip = git(mover, 'rev-parse', 'HEAD');
       git(mover, 'push', '-q', 'origin', 'agentgraph/7');
       const pr = JSON.parse(readFileSync(issuePath(where.tracker, 8, 'pull.json'), 'utf8'));
-      writeFileSync(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ ...pr, head: tip }));
+      writeIssueAt(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ ...pr, head: tip }));
       git(mover, 'reset', '-q', '--hard', 'origin/main');
       writeFileSync(join(mover, 'upstream.txt'), 'upstream\n');
       git(mover, 'add', '-A');

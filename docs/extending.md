@@ -4,7 +4,7 @@ Start with the parts that ship, then change the ones your repo needs.
 
 ## Trackers
 
-A tracker reads issues and applies writes. Two ship as built-in plugins: `github` uses a GitHub App, and `folder` keeps issues in a local folder. A plugin with a `tracker` member adds another; see [Trackers](plugins.md#trackers). <!-- code: src/tracker.ts#Tracker src/services.ts#where src/main.ts#start -->
+A tracker reads issues and applies writes. Two ship as built-in plugins: `github` uses a GitHub App, and `folder` keeps issues in a local folder. A plugin with a `tracker` member adds another; see [Trackers](plugins.md#trackers). <!-- code: src/tracker.ts#Tracker src/services.ts#makeTrackerSetup src/main.ts#start -->
 
 ## Harnesses
 

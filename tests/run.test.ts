@@ -16,7 +16,7 @@ import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { fakeDocker, harnesses, makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { git, findStatus, issuePath } from './kit.ts';
+import { findStatus, git, issuePath, writeIssueAt } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
   graph,
@@ -585,11 +585,11 @@ describe('drive', () => {
     git(clone, 'add', '-A');
     git(clone, 'commit', '-q', '-m', 'Touch CHAT.md');
     git(clone, 'push', '-q', 'origin', 'agentgraph/8');
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8),
       '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/8', base: 'main', head: git(clone, 'rev-parse', 'HEAD') })
     );

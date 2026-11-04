@@ -44,7 +44,7 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import type { Services } from '../src/run/execute.ts';
-import { findStatus, git, tmp, issuePath } from './kit.ts';
+import { findStatus, git, issuePath, tmp, writeIssueAt } from './kit.ts';
 
 const runTs = join(import.meta.dirname, '..', 'bin', 'run.ts');
 const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');
@@ -222,8 +222,8 @@ describe('the human verbs on a tracker folder', () => {
   it('starts a run on a dropped issue file once, and reads one without frontmatter', async () => {
     const w = world();
     await w.tracker('init', w.seed);
-    writeFileSync(issuePath(w.dir, 1), '# Fix the typo\n\nIn the readme.\n');
-    writeFileSync(
+    writeIssueAt(issuePath(w.dir, 1), '# Fix the typo\n\nIn the readme.\n');
+    writeIssueAt(
       issuePath(w.dir, 2),
       '---\ntitle: Add a greeting\nauthor: morgan\nlabels: [agent:ready]\n---\n\nAdd hello.txt.\n'
     );
@@ -509,6 +509,31 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     expect(state()).toBe('closed');
   });
 
+  it('makes a callback resumed after its lock was released wait for the next holder', async () => {
+    const dir = tmp('tracker-lock-late');
+    dirs.push(dir);
+    const gate = Promise.withResolvers<void>();
+    const entered: string[] = [];
+    let late: Promise<void> | undefined;
+    await runLocked(dir, async () => {
+      late = gate.promise.then(() => runLocked(dir, async () => void entered.push('late')));
+    });
+    const free = await holdLock(dir);
+    gate.resolve();
+    await new Promise(done => setTimeout(done, 700));
+    entered.push('freed');
+    await free();
+    await late;
+    const nested = await runLocked(dir, () => runLocked(dir, async () => 'nested'));
+    const thrown = await runLocked(dir, () => Promise.reject(new Error('boom'))).catch((e: Error) => e.message);
+    expect({ entered, nested, thrown, after: await runLocked(dir, async () => 'free') }).toEqual({
+      entered: ['freed', 'late'],
+      nested: 'nested',
+      thrown: 'boom',
+      after: 'free',
+    });
+  });
+
   it('moves the base only once it holds the tracker lock for the whole merge', async () => {
     const w = world();
     await w.tracker('init', w.seed);
@@ -519,7 +544,7 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     git(w.seed, 'push', '-q', w.origin, 'HEAD:refs/heads/agentgraph/1');
     const head = git(w.seed, 'rev-parse', 'HEAD');
     const pr = await writeIssueFile(w.dir, { title: 'Fix it', author: 'agentgraph[bot]', labels: [] }, '');
-    writeFileSync(issuePath(w.dir, pr, 'pull.json'), JSON.stringify({ branch: 'agentgraph/1', base: 'main', head }));
+    writeIssueAt(issuePath(w.dir, pr, 'pull.json'), JSON.stringify({ branch: 'agentgraph/1', base: 'main', head }));
     const base = () => git(w.root, '--git-dir', w.origin, 'rev-parse', 'refs/heads/main');
     const before = base();
     const free = await holdLock(w.dir);

@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
@@ -15,7 +15,7 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, result, seeded, start } from './fixtures.ts';
 import { runWorkflow } from '../src/run/drive.ts';
-import { issuePath } from './kit.ts';
+import { appendIssueAt, issuePath, writeIssueAt } from './kit.ts';
 
 export const replyHint = 'Reply `/agent` and your answer, or `/agent stop` to end the run.';
 export const graph = makeTestGraph('kit', {
@@ -39,12 +39,12 @@ export const world = () => {
   );
   removeAfter(root);
   const tracker = join(root, 'tracker');
-  writeFileSync(
+  writeIssueAt(
     issuePath(tracker, 7),
     '---\ntitle: Add a greeting\nstate: open\nauthor: morgan\nlabels: []\n---\n\nAdd hello.txt.\n'
   );
   const human = (body: string, at: string) =>
-    appendFileSync(
+    appendIssueAt(
       issuePath(tracker, 7, 'events.jsonl'),
       `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Event)}\n`
     );
@@ -146,7 +146,7 @@ export const driveStored = (flow: typeof w, r: Run, h: Graph) =>
 export const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
 export const say = (where: ReturnType<typeof world>, m: Event) =>
-  appendFileSync(issuePath(where.tracker, m.issue, 'events.jsonl'), `${JSON.stringify(m)}\n`);
+  appendIssueAt(issuePath(where.tracker, m.issue, 'events.jsonl'), `${JSON.stringify(m)}\n`);
 
 export const comment = (issue: number, actor: string, trusted: boolean, body: string, at: string): Event => ({
   issue,
@@ -167,11 +167,11 @@ export const check = (issue: number, name: string, conclusion: string, at: strin
 
 /** Pull request #8 on run 7's branch. */
 export const pullRequest = (where: ReturnType<typeof world>, base = 'b1') => {
-  writeFileSync(
+  writeIssueAt(
     issuePath(where.tracker, 8),
     '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
   );
-  writeFileSync(
+  writeIssueAt(
     issuePath(where.tracker, 8, 'pull.json'),
     JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'x', baseSha: base })
   );

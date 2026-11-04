@@ -12,7 +12,7 @@ import { begin, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { git, issuePath } from './kit.ts';
+import { git, issuePath, writeIssueAt } from './kit.ts';
 import { world, push, pull, services, readTrace, bodies, driveStored, fresh, pullRequest } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 
@@ -205,7 +205,7 @@ describe('a run branch that moved', () => {
   it('refuses a merge proposal for another run branch', async () => {
     const where = world();
     pullRequest(where);
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/8', base: 'main', head: 'foreign' })
     );
@@ -223,7 +223,7 @@ describe('a run branch that moved', () => {
   it.each(['agentgraph/7', 'bothub/7'])('accepts a merge proposal for its own branch: %s', async branch => {
     const where = world();
     pullRequest(where);
-    writeFileSync(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
+    writeIssueAt(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
     const { run } = services(where, [[start('a'), reply({ kind: 'merge', number: 8, head: 'own' })]]);
     await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('merged');

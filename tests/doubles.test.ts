@@ -20,7 +20,7 @@ import { begin } from '../src/workflow.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { fixture, plant, seeded } from './fixtures.ts';
-import { commit, findStatus, git, issuePath } from './kit.ts';
+import { commit, findStatus, git, issuePath, writeIssueAt } from './kit.ts';
 
 const dirs: string[] = [];
 const temp = () => {
@@ -238,7 +238,7 @@ describe('fileStore', () => {
 describe('folderTracker', () => {
   it('reads issues, filters by label and parent, labels, opens issues and refuses a merge whose head moved', async () => {
     const dir = temp();
-    writeFileSync(issuePath(dir, 1), '---\ntitle: One\nstate: open\nauthor: a\nlabels: [ready]\n---\n\nFirst.\n');
+    writeIssueAt(issuePath(dir, 1), '---\ntitle: One\nstate: open\nauthor: a\nlabels: [ready]\n---\n\nFirst.\n');
     const out = await Effect.runPromise(
       Effect.gen(function* () {
         const tracker = yield* Tracker;
@@ -305,7 +305,7 @@ describe('folderTracker files', () => {
 
   it('gives issues filed at once their own numbers, and adopts a dropped file once', async () => {
     const dir = temp();
-    writeFileSync(issuePath(dir, 1), '---\ntitle: One\nauthor: a\nlabels: [ready]\n---\n');
+    writeIssueAt(issuePath(dir, 1), '---\ntitle: One\nauthor: a\nlabels: [ready]\n---\n');
     const numbers = await Effect.runPromise(
       Effect.gen(function* () {
         const tracker = yield* Tracker;
@@ -367,7 +367,7 @@ describe('folderTracker push', () => {
     git(join(dir, 'seed'), 'push', '-q', 'origin', 'HEAD:main');
     git(dir, 'clone', '-q', '--mirror', origin, mirror);
     git(dir, '--git-dir', mirror, 'worktree', 'add', '-q', '--detach', work, 'main');
-    writeFileSync(issuePath(dir, 1), '---\ntitle: One\nstate: open\nauthor: a\n---\n\nFirst.\n');
+    writeIssueAt(issuePath(dir, 1), '---\ntitle: One\nstate: open\nauthor: a\n---\n\nFirst.\n');
     writeFileSync(join(work, 'hello.txt'), 'hello\n');
     const checkout = {
       dir: work,
@@ -480,7 +480,7 @@ describe('folderTracker push', () => {
 describe('folderTracker issue', () => {
   it('reads back reviews, review comments, commits and checks, and withholds an outsider', async () => {
     const dir = temp();
-    writeFileSync(issuePath(dir, 8), '---\ntitle: Fix\nstate: open\nauthor: a\n---\n\nCloses #7\n');
+    writeIssueAt(issuePath(dir, 8), '---\ntitle: Fix\nstate: open\nauthor: a\n---\n\nCloses #7\n');
     const said = (actor: string, trusted: boolean, body: string, more: object = {}) => ({
       issue: 8,
       actor,
@@ -502,7 +502,7 @@ describe('folderTracker issue', () => {
         check: { name: 'test', conclusion: 'failure' },
       },
     ];
-    writeFileSync(issuePath(dir, 8, 'events.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
+    writeIssueAt(issuePath(dir, 8, 'events.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
     const t = await Effect.runPromise(
       Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(folderTracker(dir)))
     );

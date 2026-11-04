@@ -15,7 +15,7 @@ import { begin, cancelled, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
-import { git, findStatus, issuePath } from './kit.ts';
+import { findStatus, git, issuePath, writeIssueAt } from './kit.ts';
 import {
   replyHint,
   world,
@@ -73,18 +73,18 @@ describe('stacks', () => {
       git(clone, 'commit', '-q', '-m', `Write ${file}`);
       git(clone, 'push', '-q', 'origin', 'agentgraph/7');
       const head = git(clone, 'rev-parse', 'HEAD');
-      writeFileSync(
+      writeIssueAt(
         issuePath(where.tracker, 8, 'pull.json'),
         JSON.stringify({ branch: 'agentgraph/7', base: 'main', head })
       );
       return head;
     };
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8),
       '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
     const head = move('hello.txt', 'hello\n');
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 9),
       '---\ntitle: Say bye\nstate: open\nauthor: morgan\n---\n\nAdd bye.txt.\n\nStacks on #7\n'
     );
@@ -508,7 +508,7 @@ describe('coworker', () => {
 
   it("starts a mention workflow on a maintainer's agent:ready, never on a bot's or an outsider's, and once per issue", async () => {
     const where = world();
-    writeFileSync(issuePath(where.tracker, 7, 'events.jsonl'), '');
+    writeIssueAt(issuePath(where.tracker, 7, 'events.jsonl'), '');
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(await run(scanIssuesAndRunningRuns(ready))).toEqual([]);
     say(where, marked('stx-agentgraph[bot]', false, '2026-10-16T00:00:01.000Z'));
@@ -533,7 +533,7 @@ describe('coworker', () => {
 
   it('looks past a merged pull request GitHub refuses to show', async () => {
     const where = world();
-    writeFileSync(issuePath(where.tracker, 8), '---\ntitle: Merged\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+    writeIssueAt(issuePath(where.tracker, 8), '---\ntitle: Merged\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
     say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:00:01.000Z' });
     const tracker = Layer.effect(
       Tracker,
@@ -875,7 +875,7 @@ describe('compound engineering', () => {
 
   it('looks up no open issue a run never worked on', async () => {
     const where = world();
-    writeFileSync(issuePath(where.tracker, 12), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');
+    writeIssueAt(issuePath(where.tracker, 12), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');
     say(where, comment(12, 'morgan', true, 'Unrelated.', '2026-10-16T00:00:05.000Z'));
     const asked: number[] = [];
     const counted = Layer.effect(
@@ -892,11 +892,11 @@ describe('compound engineering', () => {
 
   it('takes what is said on a merged pull request as feedback on the issue its branch worked on', async () => {
     const where = world();
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8),
       '---\ntitle: Add hello\nstate: merged\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'x', baseSha: 'b1' })
     );

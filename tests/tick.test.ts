@@ -28,7 +28,7 @@ import { begin, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { git, issuePath } from './kit.ts';
+import { git, issuePath, writeIssueAt } from './kit.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import {
   graph,
@@ -498,7 +498,7 @@ describe('tick', () => {
     const final = await Effect.runPromise(
       Effect.gen(function* () {
         yield* waiting(where);
-        writeFileSync(
+        writeIssueAt(
           issuePath(where.tracker, 8, 'pull.json'),
           JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
         );
@@ -775,7 +775,7 @@ describe('tick', () => {
       }
     );
     await run(waiting(where));
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
     );
@@ -833,7 +833,7 @@ describe('tick', () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     await services(where, []).run(waiting(where));
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8, 'pull.json'),
       JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
     );
@@ -1134,7 +1134,7 @@ describe('tick', () => {
 
   it('replies to a plain comment on a thread with a finished run, not to one for someone else or on another thread', async () => {
     const where = world();
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 9),
       '---\ntitle: Other\nstate: open\nauthor: morgan\nlabels: []\n---\n\nOther.\n'
     );
@@ -1256,7 +1256,7 @@ describe('start with one issue', () => {
       meta: { bench: { case: 'greeting' } },
       labels: { case: 'greeting', arm: 'v2' },
     };
-    writeFileSync(issuePath(where.tracker, 7, 'events.jsonl'), '');
+    writeIssueAt(issuePath(where.tracker, 7, 'events.jsonl'), '');
     say(where, {
       issue: 7,
       kind: 'label',
@@ -1440,7 +1440,7 @@ describe('scanIssuesAndRunningRuns', () => {
   it.each([false, true])('shares polling across forty issues with a prior run: %s', async prior => {
     const where = world();
     for (let n = 8; n < 47; n++)
-      writeFileSync(
+      writeIssueAt(
         issuePath(where.tracker, n),
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\nBody.\n`
       );
@@ -1481,7 +1481,7 @@ describe('scanIssuesAndRunningRuns', () => {
   it('drives a commanded issue and a parked one with a new answer, and skips an unmarked one and one waiting with nothing new', async () => {
     const where = world();
     for (const n of [8, 9, 10])
-      writeFileSync(
+      writeIssueAt(
         issuePath(where.tracker, n),
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody ${n}.\n`
       );
@@ -1518,7 +1518,7 @@ describe('scanIssuesAndRunningRuns', () => {
 
   it('resumes a finished run on a comment that the repo-wide look has already passed', async () => {
     const where = world();
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 9),
       '---\ntitle: Issue 9\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody 9.\n'
     );
@@ -1542,7 +1542,7 @@ describe('scanIssuesAndRunningRuns', () => {
 
   it('looks at issues side by side, up to limits.parallel', async () => {
     const where = world();
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8),
       '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody.\n'
     );
@@ -1571,7 +1571,7 @@ describe('scanIssuesAndRunningRuns', () => {
 
   it('parks a run whose session dies with a runner error and drives the others on', async () => {
     const where = world();
-    writeFileSync(
+    writeIssueAt(
       issuePath(where.tracker, 8),
       '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nDies.\n'
     );

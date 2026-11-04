@@ -202,15 +202,17 @@ const publish = async (path: string, text: string) => {
   }
 };
 
-const holding = new AsyncLocalStorage<ReadonlySet<string>>();
+const holding = new AsyncLocalStorage<readonly { dir: string; held: boolean }[]>();
 
 export const runLocked = async <A>(dir: string, f: () => Promise<A>): Promise<A> => {
-  const held = holding.getStore() ?? new Set<string>();
-  if (held.has(resolve(dir))) return f();
+  const tokens = holding.getStore() ?? [];
+  if (tokens.some(t => t.held && t.dir === resolve(dir))) return f();
   const release = await waitForLock('.tracker', dir);
+  const token = { dir: resolve(dir), held: true };
   try {
-    return await holding.run(new Set([...held, resolve(dir)]), f);
+    return await holding.run([...tokens, token], f);
   } finally {
+    token.held = false;
     await release();
   }
 };

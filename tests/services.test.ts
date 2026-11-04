@@ -1,8 +1,8 @@
 import { join } from 'node:path';
-import { ConfigProvider, Effect, Result, Redacted } from 'effect';
+import { ConfigProvider, Effect, Option, Result, Redacted } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
 import { makeEnvProvider } from '../src/harnesses.ts';
-import { makeProductionLayers, pickTracker, readHostSettings, settings } from '../src/services.ts';
+import { makeProductionLayers, makeTrackerSetup, pickTracker, readHostSettings, settings } from '../src/services.ts';
 import { Tracker, writeIssueFile } from '../src/tracker.ts';
 import { tmp, write } from './kit.ts';
 
@@ -70,6 +70,29 @@ export default { ...folder, name: 'mine' };
   await expect(titles({ AGENTGRAPH_TRACKER: 'nope' })).rejects.toThrow(
     /no tracker plugin nope .*trackers: github, folder, mine/
   );
+});
+
+it('holds an instance tracker to its folder, refusing a path and a graph whose plugin moved the folder', async () => {
+  const [folderDir, other, before, after] = [tmp('instance'), tmp('other'), tmp('graph-a'), tmp('graph-b')];
+  const tracker = JSON.stringify(join(import.meta.dirname, '..', 'src', 'tracker.ts'));
+  write(before, {
+    'plugins/mine.ts': `import { folder } from ${tracker};\nexport default { ...folder, name: 'mine' };\n`,
+  });
+  write(after, {
+    'plugins/mine.ts': `import { folder } from ${tracker};
+export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: host.dir + '/issues' }) };
+`,
+  });
+  const setup = (graph: string, name: string) =>
+    makeTrackerSetup({ repo: 'o/r', studio: '', app: Option.none(), graph, tracker: name, trackerDir: folderDir }).then(
+      s => s.origin.origin,
+      (e: Error) => e.message
+    );
+  expect(await Promise.all([setup(before, 'mine'), setup(after, 'mine'), setup(before, other)])).toEqual([
+    join(folderDir, 'origin.git'),
+    `tracker mine keeps its issues outside ${folderDir}; an instance tracker wraps the folder it is given`,
+    `tracker ${other} is a folder; an instance names a tracker plugin, its folder is ${folderDir}`,
+  ]);
 });
 
 it('says why a tracker selection cannot work, reading only', async () => {

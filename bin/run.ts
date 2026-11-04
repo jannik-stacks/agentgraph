@@ -10,7 +10,7 @@ import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
 import type { Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { findIssueDir, Tracker, type TrackerSetup } from '../src/tracker.ts';
+import { findIssueDir, Tracker } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
 import {
   makeHarnessConfigProvider,
@@ -52,7 +52,7 @@ import {
   formatShellWord,
 } from '../src/status.ts';
 import { isOnIssue } from '../src/graph.ts';
-import { pickTracker, readHostSettings, whyModelHostsMissing } from '../src/services.ts';
+import { makeTrackerSetup, pickTracker, readHostSettings, whyModelHostsMissing } from '../src/services.ts';
 import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
 import type { Run, RunRecord } from '../src/workflow.ts';
@@ -382,22 +382,19 @@ async function runOnInstance() {
     AGENTGRAPH_TRACKER_DIR: i.tracker,
     AGENTGRAPH_TRUST: i.owner,
   });
-  const readSetup = async () => {
-    const name = i.trackerName ?? 'folder';
-    const graph = await ensureGraph(i, graphDir).catch(() => undefined);
-    const picked = await pickTracker(name, graph ? { dir: graph, fromRepo: false } : undefined);
-    if ('problem' in picked) return fail(picked.problem, 1);
-    const made = picked.tracker({ repo: i.repo, studio: '', app: Option.none(), dir: i.tracker });
-    if (made.origin.origin !== join(i.tracker, 'origin.git'))
-      fail(
-        `tracker ${name} keeps its issues outside ${i.tracker}; an instance tracker wraps the folder it is given`,
-        1
-      );
-    return made;
+  const getTracker = async () => {
+    const graph = await ensureGraph(i, graphDir).catch(() => '');
+    const setup = await makeTrackerSetup({
+      repo: i.repo,
+      studio: '',
+      app: Option.none(),
+      graph,
+      tracker: i.trackerName ?? 'folder',
+      trackerDir: i.tracker,
+    }).catch((e: Error) => fail(e.message, 1));
+    return Effect.runPromise(Effect.provide(Tracker, setup.layer()));
   };
-  let setup: Promise<TrackerSetup> | undefined = i.trackerName ? readSetup() : undefined;
-  await setup;
-  const getTracker = async () => Effect.runPromise(Effect.provide(Tracker, (await (setup ??= readSetup())).layer()));
+  if (i.trackerName) await getTracker();
   const synced = async () => {
     const why = await ensureBase(i);
     if (why) fail(why, 1);

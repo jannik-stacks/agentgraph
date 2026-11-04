@@ -1,4 +1,4 @@
-import { appendFileSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
-import { issuePath } from './kit.ts';
+import { appendIssueAt, issuePath, writeIssueAt } from './kit.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'retro-gate'), harnesses));
 
@@ -24,7 +24,7 @@ const world = () => {
   const { root, data } = seeded('retro-gate', { 'README.md': 'demo\n' }, 'tracker/origin.git');
   dirs.push(root);
   const tracker = join(root, 'tracker');
-  writeFileSync(
+  writeIssueAt(
     issuePath(tracker, 1),
     '---\ntitle: Issue 1\nstate: open\nauthor: morgan\nlabels: []\n---\n\nSay hello.\n'
   );
@@ -36,7 +36,7 @@ const world = () => {
     trusted: true,
     at: '2026-10-16T00:00:01.000Z',
   };
-  appendFileSync(issuePath(tracker, 1, 'events.jsonl'), `${JSON.stringify(label)}\n`);
+  appendIssueAt(issuePath(tracker, 1, 'events.jsonl'), `${JSON.stringify(label)}\n`);
   return { origin: join(tracker, 'origin.git'), tracker, data };
 };
 

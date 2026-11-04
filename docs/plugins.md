@@ -143,7 +143,7 @@ export default makePlugin({
 });
 ```
 
-On an instance the tracker keeps the folder it is given: `agi` refuses one whose `origin.git` lies elsewhere, since
+On an instance the tracker keeps the folder it is given: `agi` and the loop, on every graph change, refuse one whose `origin.git` lies elsewhere, since
 merge and export work on that remote. The CLI verbs write your side, issues, comments, reviews and closes, straight to
 the folder, so a wrapper shapes what the bot reads and writes.
 
