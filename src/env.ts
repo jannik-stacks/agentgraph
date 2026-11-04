@@ -14,8 +14,8 @@ import { isOwnerRunning, ownerId, readStateDir, startHeartbeat, waitForLock } fr
  * the same `inputs` needs no setup. They live once in the volume `lower`: dependency directories at
  * `.agentgraph-env/data/<n>` in their order, the rest under `.agentgraph-env/rest`. The image only carries the labels.
  * In `deps` mode setup saw only the skeleton and `inputs` is its digest; in `tree` mode it saw every file and `inputs`
- * is the base tree. When `layered`, the build's writes to `/cache` stayed in `.agentgraph-env/cache` of `lower`, over
- * the repo's cache volume.
+ * is the base tree. When `layered`, the build's writes to `/cache` stayed in the volume `<lower>-c`, over the repo's
+ * cache volume.
  */
 type SandboxSetup = {
   image: string;
@@ -31,7 +31,7 @@ type SandboxSetup = {
 /**
  * What a sandbox setup is built from: `git` is a repo dir holding `base`, `image` the image it starts from, and `cache`
  * the prefix of the repo's cache volume. `repo` names the repo, or is empty, and then `origin`, its URL or absolute
- * path, tells it apart. An `untrusted` base gets its own environment and never writes the repo's cache volume.
+ * path, tells it apart. A `base` no `trusted` ref reaches gets its own environment and never writes the repo's cache volume.
  */
 type SandboxSetupSpec = {
   repo: string;
@@ -42,7 +42,7 @@ type SandboxSetupSpec = {
   cache: string;
   setup?: string;
   toolchain?: string;
-  untrusted?: boolean;
+  trusted: string[];
 };
 
 /**
@@ -64,8 +64,8 @@ export const makeToolchainSetupCommands = (files: string[]) => {
 export const manifest =
   /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.pnpmfile\.cjs|yarn\.lock|\.yarnrc(\.yml)?|\.npmrc|\.nvmrc|\.node-version|Cargo\.toml|Cargo\.lock|rust-toolchain(\.toml)?)$|^(patches|\.yarn\/(patches|releases))\//;
 
-/** The files setup sees in `deps` mode: `paths` from the base, `stubs` made empty, and a digest over both. */
-type Skeleton = { paths: string[]; stubs: string[]; digest: string };
+/** The files setup sees in `deps` mode: `paths` from the base, `targets` made near empty, and a digest over both. */
+type Skeleton = { paths: string[]; targets: string[]; digest: string };
 
 const git = (dir: string, ...args: string[]) =>
   new Promise<string>((done, fail) =>
@@ -76,7 +76,7 @@ const git = (dir: string, ...args: string[]) =>
 
 /**
  * The skeleton of `rev`: its `manifest` files and ignore rules outside `node_modules`, and the Cargo target files beside
- * a `Cargo.toml` (lib, bins, build script, benches, examples and tests) that setup gets as stubs, so a fetch or
+ * a `Cargo.toml` (lib, bins, build script, benches, examples and tests) that setup gets near empty, so a fetch or
  * dependency build works without the source.
  * @internal
  */
@@ -91,7 +91,7 @@ export const readDependencySkeleton = async (dir: string, rev: string): Promise<
     .filter(e => !/(^|\/)node_modules\//.test(e.path));
   const crates = new Set(entries.filter(e => /(^|\/)Cargo\.toml$/.test(e.path)).map(e => e.path.slice(0, -10)));
   const paths = entries.filter(e => manifest.test(e.path) || /(^|\/)\.gitignore$/.test(e.path));
-  const stubs = entries
+  const targets = entries
     .map(e => e.path)
     .filter(p => {
       const m =
@@ -101,9 +101,9 @@ export const readDependencySkeleton = async (dir: string, rev: string): Promise<
       return Boolean(m && crates.has(m[1]!));
     });
   const digest = createHash('sha256')
-    .update(JSON.stringify([paths.map(e => `${e.meta} ${e.path}`), stubs]))
+    .update(JSON.stringify([paths.map(e => `${e.meta} ${e.path}`), targets]))
     .digest('hex');
-  return { paths: paths.map(e => e.path), stubs, digest };
+  return { paths: paths.map(e => e.path), targets, digest };
 };
 
 /** What `rev` gives setup in `mode`: the skeleton digest or the tree id. */
@@ -146,53 +146,45 @@ const asOperator = () => {
 };
 
 /**
- * Builds in the lower volume at `/work`, under its lock, once: the base's files (only the skeleton and its stubs in
- * `deps` mode), the toolchain under the cache lock, setup, then the directories git does not track move to
- * `.agentgraph-env`, dependency directories to `data/<n>` and the rest to `rest`, and the source goes. Every write
- * stays in the volume, so the moves are renames. A later build of the same key finds `done` and prints the listing.
+ * Builds in the fresh lower volume at `/work`: the base's files (only the skeleton and its Cargo targets in `deps` mode), the
+ * toolchain, setup, then the directories git does not track move to `.agentgraph-env`, dependency directories to
+ * `data/<n>` and the rest to `rest`, and the source goes. Every write stays in the volume, so the moves are renames.
  */
 const build = [
   'set -e',
   'export HOME=/tmp TMPDIR=/tmp GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="*" AGENTGRAPH_BASE="$2"',
-  'cd /work && mkdir -p .agentgraph-env && exec 8>.agentgraph-env/lock && flock 8',
+  'cd /work && mkdir .agentgraph-env',
   'out=.agentgraph-env',
-  'if [ ! -e $out/done ]; then',
-  '  find /work -mindepth 1 -maxdepth 1 ! -name .agentgraph-env -exec rm -rf {} +',
-  '  rm -rf $out/data $out/rest $out/listing',
-  '  export GIT_DIR="$1" GIT_WORK_TREE=/work GIT_INDEX_FILE=/tmp/index',
-  '  git read-tree "$2"',
-  '  if [ "$5" = deps ]; then',
-  '    printf "%s\\n" "$6" | sed "/^$/d" | git checkout-index --stdin',
-  '    printf "%s\\n" "$7" | sed "/^$/d" | while read -r f; do',
-  '      mkdir -p "$(dirname "$f")"; case "$f" in *lib.rs) : > "$f";; *) echo "fn main() {}" > "$f";; esac',
-  '    done',
-  '  else git checkout-index -a; fi',
-  '  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE',
-  '  if [ -n "$3" ]; then (exec 9>/cache/.toolchain.lock && flock 9 && sh -ec "$3") || exit 97; fi',
-  '  if [ -n "$4" ]; then RUSTUP_AUTO_INSTALL=0 sh -ec "$4" || exit 98; fi',
-  '  if [ "$5" = deps ] && [ -d target ]; then',
-  '    printf "%s\\n" "$6" | grep "Cargo\\.toml$" | while read -r f; do',
-  '      sed -n "/^\\[package\\]/,/^\\[/s/^name *= *\\"\\([^\\"]*\\)\\".*/\\1/p" "$f" | head -1',
-  '    done | while read -r n; do RUSTUP_AUTO_INSTALL=0 cargo clean --offline -q -p "$n" || true; done',
-  '  fi',
-  '  export GIT_DIR="$1" GIT_WORK_TREE=/work GIT_INDEX_FILE=/tmp/index',
-  '  git ls-files -o -i --exclude-standard --directory > $out/ignored.part',
-  '  git ls-files -o --exclude-standard --directory > $out/untracked.part',
-  '  { echo @@ignored; grep -v "^.agentgraph-env/$" $out/ignored.part || [ "$?" -eq 1 ];',
-  '    echo @@untracked; grep -v "^.agentgraph-env/$" $out/untracked.part || [ "$?" -eq 1 ]; } > $out/listing.part',
-  '  mkdir -p $out/data $out/rest && n=0',
-  '  sed -n "/^@@ignored$/,/^@@untracked$/p" $out/listing.part | grep "/$" | while read -r d; do',
-  '    case "$d" in node_modules/|*/node_modules/|target/|*/target/) mv "${d%/}" "$out/data/$n" || exit 1; n=$((n + 1));;',
-  '      *) mkdir -p "$out/rest/$(dirname "$d")" || exit 1; mv "${d%/}" "$out/rest/${d%/}" || exit 1;; esac',
+  'export GIT_DIR="$1" GIT_WORK_TREE=/work GIT_INDEX_FILE=/tmp/index',
+  'git read-tree "$2"',
+  'if [ "$5" = deps ]; then',
+  '  printf "%s\\n" "$6" | sed "/^$/d" | git checkout-index --stdin',
+  '  printf "%s\\n" "$7" | sed "/^$/d" | while read -r f; do',
+  '    mkdir -p "$(dirname "$f")"; case "$f" in *lib.rs) : > "$f";; *) echo "fn main() {}" > "$f";; esac',
   '  done',
-  '  find /work -mindepth 1 -maxdepth 1 ! -name .agentgraph-env -exec rm -rf {} +',
-  '  mv $out/listing.part $out/listing && { du -sk $out 2>/dev/null || true; } > $out/size.part',
-  '  cut -f1 $out/size.part > $out/kb && touch $out/done',
+  'else git checkout-index -a; fi',
+  'unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE',
+  'if [ -n "$3" ]; then (exec 9>/cache/.toolchain.lock && flock 9 && sh -ec "$3") || exit 97; fi',
+  'if [ -n "$4" ]; then RUSTUP_AUTO_INSTALL=0 sh -ec "$4" || exit 98; fi',
+  'if [ "$5" = deps ] && [ -d target ]; then',
+  '  printf "%s\\n" "$6" | grep "Cargo\\.toml$" | while read -r f; do',
+  '    sed -n "/^\\[package\\]/,/^\\[/s/^name *= *\\"\\([^\\"]*\\)\\".*/\\1/p" "$f" | head -1',
+  '  done | while read -r n; do RUSTUP_AUTO_INSTALL=0 cargo clean --offline -q -p "$n" || true; done',
   'fi',
+  'export GIT_DIR="$1" GIT_WORK_TREE=/work GIT_INDEX_FILE=/tmp/index',
+  'git ls-files -o -i --exclude-standard --directory > $out/ignored',
+  'git ls-files -o --exclude-standard --directory > $out/untracked',
+  '{ echo @@ignored; grep -v "^.agentgraph-env/$" $out/ignored || [ "$?" -eq 1 ];',
+  '  echo @@untracked; grep -v "^.agentgraph-env/$" $out/untracked || [ "$?" -eq 1 ]; } > $out/listing',
+  'mkdir -p $out/data $out/rest && n=0',
+  'sed -n "/^@@ignored$/,/^@@untracked$/p" $out/listing | grep "/$" | while read -r d; do',
+  '  case "$d" in node_modules/|*/node_modules/|target/|*/target/) mv "${d%/}" "$out/data/$n" || exit 1; n=$((n + 1));;',
+  '    *) mkdir -p "$out/rest/$(dirname "$d")" || exit 1; mv "${d%/}" "$out/rest/${d%/}" || exit 1;; esac',
+  'done',
+  'find /work -mindepth 1 -maxdepth 1 ! -name .agentgraph-env -exec rm -rf {} +',
   'cat $out/listing',
   'echo @@lower',
-  'cat $out/kb',
-  '[ ! -d $out/cache ] || echo @@layered',
+  '{ du -sk $out 2>/dev/null || true; } | cut -f1',
 ].join('\n');
 
 const section = (out: string, name: string) => {
@@ -274,6 +266,7 @@ export const readSandboxSetup = async (
     runDockerCli(['image', 'inspect', '--format', '{{.Id}}', spec.image]),
     readDependencySkeleton(spec.git, spec.base),
   ]);
+  const untrusted = !(await isReachable(spec.git, spec.base, spec.trusted));
   const lines = [...makeToolchainSetupCommands(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join(
     '\n'
   );
@@ -283,7 +276,7 @@ export const readSandboxSetup = async (
   await createCacheVolume(cache);
   touch(cache);
   if (!lines && !spec.setup) return { cache };
-  const family = hash([envVersion, cache, spec.setup ?? '', ...(spec.untrusted ? [spec.base] : [])]);
+  const family = hash([envVersion, cache, spec.setup ?? '', ...(untrusted ? [spec.base] : [])]);
   const wide = join(readStateDir(), 'tree-only', family);
   const one = async (mode: SandboxSetup['mode']) => {
     const inputs = mode === 'deps' ? skeleton.digest : tree;
@@ -292,7 +285,7 @@ export const readSandboxSetup = async (
     const pending = building.get(tag);
     if (pending) return pending;
     const made = waitForLock(`env-${key}`).then(release =>
-      createSandboxSetup(spec, { key, tag, mode, inputs, lines, skeleton, cache }).finally(release)
+      createSandboxSetup(spec, { key, tag, mode, inputs, lines, skeleton, cache, untrusted }).finally(release)
     );
     building.set(tag, made);
     made.catch(() => building.delete(tag));
@@ -320,173 +313,187 @@ const createSandboxSetup = async (
     lines: string;
     skeleton: Skeleton;
     cache: string;
+    untrusted: boolean;
   }
 ): Promise<SandboxSetup | 'setup' | undefined> => {
   const { key, tag, mode } = b;
-  for (;;) {
-    const found = await labels(tag);
-    const env = found && envOfLabels(tag, found);
-    if (
-      env &&
-      (await runDockerCli(['volume', 'inspect', env.lower!]).then(
-        () => true,
-        () => false
-      ))
-    )
-      return (touch(key), env);
-    if (env) await runDockerCli(['rmi', '-f', tag]).catch(() => '');
-    const name = `agentgraph-envbuild-${key}`;
-    await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, makeSetupVolumeName(key)]);
-    const release = await waitForLock(`cache-${b.cache}`);
-    const layer = await (
-      spec.untrusted || (await isCacheOverlaid(b.cache))
-        ? createBuildLayer(spec.image, b.cache, key)
-        : Promise.resolve('')
-    ).catch((e: unknown) => {
+  const found = await labels(tag);
+  const env = found && envOfLabels(tag, found);
+  const lower = makeSetupVolumeName(key);
+  if (
+    env &&
+    (await runDockerCli(['volume', 'inspect', lower, ...(env.layered ? [`${lower}-c`] : [])]).then(
+      () => true,
+      () => false
+    ))
+  )
+    return (touch(key), env);
+  if (env) await runDockerCli(['rmi', '-f', tag]).catch(() => '');
+  const name = `agentgraph-envbuild-${key}`;
+  const clear = async () => {
+    await runDockerCli(['rm', '-f', name]).catch(() => '');
+    await runDockerCli(['volume', 'rm', '-f', lower, `${lower}-c`]).catch(() => '');
+  };
+  await clear();
+  await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, lower]);
+  let release: (() => void) | undefined = await waitForLock(`cache-${b.cache}`);
+  let layer = '';
+  let failed = true;
+  try {
+    if (b.untrusted || (await isCacheOverlaid(b.cache))) {
+      layer = await createBuildLayer(spec.image, b.cache, key);
       release();
-      throw e;
-    });
-    if (layer) release();
+      release = undefined;
+    }
     const started = Date.now();
-    const args = [
+    const out = await runDockerCli(
+      [
+        'run',
+        ...unlogged,
+        '--init',
+        '--pull',
+        'never',
+        '--name',
+        name,
+        '--label',
+        'agentgraph.envbuild=1',
+        '--network',
+        'bridge',
+        '--user',
+        '0:0',
+        '--cap-drop=ALL',
+        '--cap-add=CHOWN',
+        '--cap-add=SETUID',
+        '--cap-add=SETGID',
+        '--security-opt',
+        'no-new-privileges=true',
+        '--tmpfs',
+        '/tmp:rw,exec,nosuid,nodev,size=4g',
+        '--memory',
+        '8g',
+        '--mount',
+        `type=bind,src=${spec.git},dst=${spec.git},readonly`,
+        '--mount',
+        `type=volume,src=${layer || b.cache},dst=/cache`,
+        ...Object.entries(packageManagerCacheEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
+        '--mount',
+        `type=volume,src=${lower},dst=/work`,
+        spec.image,
+        'sh',
+        '-c',
+        asOperator(),
+        'sh',
+        build,
+        spec.git,
+        spec.base,
+        b.lines,
+        spec.setup ?? '',
+        mode,
+        mode === 'deps' ? b.skeleton.paths.join('\n') : '',
+        mode === 'deps' ? b.skeleton.targets.join('\n') : '',
+      ],
+      7_200_000
+    ).then(
+      output => ({ code: 0, output }),
+      (e: { code?: number; output?: string; message: string }) => ({
+        code: typeof e.code === 'number' ? e.code : -1,
+        output: e.output ?? e.message,
+      })
+    );
+    if (out.code === 97 && mode === 'tree') throw new Error(`toolchain exited: ${out.output.trim().slice(-2000)}`);
+    if (out.code === 97 || out.code === 98) return mode === 'deps' ? undefined : 'setup';
+    if (out.code !== 0) throw new Error(`env build exited ${out.code}: ${out.output.trim().slice(-2000)}`);
+    const ignored = section(out.output, 'ignored');
+    const outputs = ignored.filter(p => p.endsWith('/')).map(p => p.slice(0, -1));
+    const complete = outputs.length === ignored.length && !section(out.output, 'untracked').length;
+    const made: SandboxSetup = { image: tag, outputs, complete, lower, key, mode, inputs: b.inputs, layered: !!layer };
+    const kb = Number(section(out.output, 'lower')[0]);
+    if (!Number.isFinite(kb) || kb < 0) throw new Error('env build omitted its size');
+    await runDockerCli([
+      'commit',
+      '--change',
+      `LABEL agentgraph.env=${key} agentgraph.cache=${b.cache} agentgraph.layered=${!!layer} agentgraph.version=${envVersion} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
+      name,
+      tag,
+    ]);
+    touch(key);
+    failed = false;
+    console.error(
+      `env ${tag} built in ${Math.round((Date.now() - started) / 1000)}s from the ${mode === 'deps' ? 'skeleton' : 'whole tree'}`
+    );
+    return made;
+  } finally {
+    await runDockerCli(['rm', '-f', name]).catch(() => '');
+    if (layer) await discard([{ name: layer, dst: '' }]);
+    if (failed) await clear();
+    release?.();
+  }
+};
+
+const isReachable = async (dir: string, base: string, from: string[]) =>
+  (
+    await Promise.all(
+      from.map(ref =>
+        git(dir, 'merge-base', '--is-ancestor', base, ref).then(
+          () => true,
+          () => false
+        )
+      )
+    )
+  ).includes(true);
+
+export const parseDockerLabels = (text = '') =>
+  Object.fromEntries(
+    text
+      .split(',')
+      .filter(Boolean)
+      .map(kv => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)])
+  ) as Record<string, string>;
+
+export const isLiveOverlay = (labels: Record<string, string>, lower: string) =>
+  (labels['agentgraph.lower'] === lower || labels['agentgraph.env'] === lower) &&
+  Boolean(labels['agentgraph.layer']) &&
+  isOwnerRunning(labels['agentgraph.layer']!);
+
+const isCacheOverlaid = async (cache: string) =>
+  (await runDockerCli(['volume', 'ls', '--filter', `label=agentgraph.lower=${cache}`, '--format', '{{.Labels}}']))
+    .split('\n')
+    .some(l => isLiveOverlay(parseDockerLabels(l), cache));
+
+const runAsRoot = (image: string, mounts: string[], script: string, timeout?: number) =>
+  runDockerCli(
+    [
       'run',
       ...unlogged,
-      '--init',
+      '--rm',
       '--pull',
       'never',
-      '--name',
-      name,
-      '--label',
-      'agentgraph.envbuild=1',
       '--network',
-      'bridge',
+      'none',
       '--user',
       '0:0',
       '--cap-drop=ALL',
       '--cap-add=CHOWN',
-      '--cap-add=SETUID',
-      '--cap-add=SETGID',
+      '--cap-add=DAC_OVERRIDE',
+      '--cap-add=FOWNER',
       '--security-opt',
       'no-new-privileges=true',
-      '--tmpfs',
-      '/tmp:rw,exec,nosuid,nodev,size=4g',
-      '--memory',
-      '8g',
-      '--mount',
-      `type=bind,src=${spec.git},dst=${spec.git},readonly`,
-      '--mount',
-      `type=volume,src=${layer || b.cache},dst=/cache`,
-      ...Object.entries(packageManagerCacheEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
-      '--mount',
-      `type=volume,src=${makeSetupVolumeName(key)},dst=/work`,
-      spec.image,
+      ...mounts.flatMap(m => ['--mount', m]),
+      image,
       'sh',
       '-c',
-      asOperator(),
-      'sh',
-      build,
-      spec.git,
-      spec.base,
-      b.lines,
-      spec.setup ?? '',
-      mode,
-      mode === 'deps' ? b.skeleton.paths.join('\n') : '',
-      mode === 'deps' ? b.skeleton.stubs.join('\n') : '',
-    ];
-    const out = await runDockerCli(args, 7_200_000)
-      .then(
-        output => ({ code: 0, output }),
-        (e: { code?: number; output?: string; message: string }) => ({
-          code: typeof e.code === 'number' ? e.code : -1,
-          output: e.output ?? e.message,
-        })
-      )
-      .finally(() => (layer ? discard([{ name: layer, dst: '' }]) : release()));
-    if (/Conflict\. The container name/.test(out.output)) {
-      await runDockerCli(['rm', '-f', name]).catch(() => '');
-      continue;
-    }
-    if (out.code !== 0) await runDockerCli(['volume', 'rm', '-f', makeSetupVolumeName(key)]).catch(() => '');
-    try {
-      if (out.code === 97 && mode === 'tree') throw new Error(`toolchain exited: ${out.output.trim().slice(-2000)}`);
-      if (out.code === 97 || out.code === 98) return mode === 'deps' ? undefined : 'setup';
-      if (out.code !== 0) throw new Error(`env build exited ${out.code}: ${out.output.trim().slice(-2000)}`);
-      const ignored = section(out.output, 'ignored');
-      const outputs = ignored.filter(p => p.endsWith('/')).map(p => p.slice(0, -1));
-      const complete = outputs.length === ignored.length && !section(out.output, 'untracked').length;
-      const layered = out.output.includes('\n@@layered');
-      const env: SandboxSetup = {
-        image: tag,
-        outputs,
-        complete,
-        lower: makeSetupVolumeName(key),
-        key,
-        mode,
-        inputs: b.inputs,
-        layered,
-      };
-      const kb = Number(section(out.output, 'lower')[0]);
-      if (!Number.isFinite(kb) || kb < 0) throw new Error('env build omitted its size');
-      await runDockerCli([
-        'commit',
-        '--change',
-        `LABEL agentgraph.env=${key} agentgraph.cache=${b.cache} agentgraph.layered=${layered} agentgraph.version=${envVersion} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
-        name,
-        tag,
-      ]);
-      touch(key);
-      console.error(
-        `env ${tag} built in ${Math.round((Date.now() - started) / 1000)}s from the ${mode === 'deps' ? 'skeleton' : 'whole tree'}`
-      );
-      return env;
-    } finally {
-      await runDockerCli(['rm', '-f', name]).catch(() => '');
-    }
-  }
-};
-
-const isCacheOverlaid = async (cache: string) =>
-  (
-    await runDockerCli([
-      'volume',
-      'ls',
-      '--filter',
-      `label=agentgraph.lower=${cache}`,
-      '--format',
-      '{{.Label "agentgraph.layer"}}',
-    ])
-  )
-    .split('\n')
-    .some(owner => owner && isOwnerRunning(owner));
+      script,
+    ],
+    timeout
+  );
 
 const createBuildLayer = async (image: string, cache: string, key: string) => {
   if (!(await overlays(image))) throw new Error('an untrusted environment build needs docker overlay volumes');
-  const lower = makeSetupVolumeName(key);
+  const own = `${makeSetupVolumeName(key)}-c`;
   const [uid, gid] = user();
-  await runDockerCli([
-    'run',
-    ...unlogged,
-    '--rm',
-    '--pull',
-    'never',
-    '--network',
-    'none',
-    '--user',
-    '0:0',
-    '--cap-drop=ALL',
-    '--cap-add=CHOWN',
-    '--cap-add=DAC_OVERRIDE',
-    '--cap-add=FOWNER',
-    '--security-opt',
-    'no-new-privileges=true',
-    '--mount',
-    `type=volume,src=${lower},dst=/l`,
-    image,
-    'sh',
-    '-c',
-    `mkdir -p /l/.agentgraph-env/cache/upper /l/.agentgraph-env/cache/work && chown ${uid}:${gid} /l/.agentgraph-env /l/.agentgraph-env/cache/upper`,
-  ]);
-  const [c, l] = await mountpoints(cache, lower);
+  await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, own]);
+  await runAsRoot(image, [`type=volume,src=${own},dst=/c`], `mkdir /c/upper /c/work && chown ${uid}:${gid} /c/upper`);
+  const [c, o] = await mountpoints(cache, own);
   const name = `agentgraph-envbuild-${key}-c`;
   await runDockerCli(['volume', 'rm', '-f', name]).catch(() => '');
   await runDockerCli([
@@ -496,7 +503,7 @@ const createBuildLayer = async (image: string, cache: string, key: string) => {
     `agentgraph.layer=${startHeartbeat()}`,
     '--label',
     `agentgraph.lower=${cache}`,
-    ...makeOverlayOpts(c!, `${l}/.agentgraph-env/cache`),
+    ...makeOverlayOpts(c!, o!),
     name,
   ]);
   return name;
@@ -550,29 +557,13 @@ const overlays = (image: string) =>
       string,
       string,
     ];
-    const run = (mount: string, ...cmd: string[]) =>
-      runDockerCli([
-        'run',
-        ...unlogged,
-        '--rm',
-        '--pull',
-        'never',
-        '--network',
-        'none',
-        '--user',
-        '0:0',
-        '--mount',
-        mount,
-        image,
-        ...cmd,
-      ]);
     try {
       await runDockerCli(['volume', 'create', lower]);
       await runDockerCli(['volume', 'create', upper]);
-      await run(`type=volume,src=${upper},dst=/u`, 'mkdir', '-p', '/u/upper', '/u/work');
+      await runAsRoot(image, [`type=volume,src=${upper},dst=/u`], 'mkdir -p /u/upper /u/work');
       const [l, u] = await mountpoints(lower, upper);
       await runDockerCli(['volume', 'create', ...makeOverlayOpts(l!, u!), over]);
-      await run(`type=volume,src=${over},dst=/o`, 'touch', '/o/x');
+      await runAsRoot(image, [`type=volume,src=${over},dst=/o`], 'touch /o/x');
       return true;
     } catch {
       return false;
@@ -591,7 +582,7 @@ const overlays = (image: string) =>
  * delete and remake them.
  */
 export const createSharedMounts = async (
-  from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower' | 'layered'>,
+  from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower' | 'layered'> & Partial<Pick<SandboxSetup, 'key'>>,
   owner: string,
   dir: string,
   more: string[] = [],
@@ -601,6 +592,7 @@ export const createSharedMounts = async (
   const paths = [...new Set([...made, ...more])];
   const rest = from.outputs.filter(o => !deps.test(o));
   const over = (made.length > 0 || Boolean(cache)) && (await overlays(from.image));
+  if (from.layered && cache && !over) throw new Error('a layered environment needs docker overlay volumes');
   const shared = over && cache ? `agentgraph-layer-${owner}-c` : '';
   if (!paths.length && !rest.length && !shared) return [];
   const label = ['--label', `agentgraph.layer=${startHeartbeat()}`, '--label', `agentgraph.owner=${owner}`];
@@ -611,6 +603,11 @@ export const createSharedMounts = async (
   const [uid, gid] = user();
   const script = [
     'set -e',
+    ...(over && made.length
+      ? [
+          `for p in /lower/.agentgraph-env /lower/.agentgraph-env/data ${made.map((_, i) => `/lower/.agentgraph-env/data/${i}`).join(' ')}; do [ -d "$p" ] && [ ! -L "$p" ] || { echo "not a directory: $p" >&2; exit 1; }; done`,
+        ]
+      : []),
     ...sharedMounts.map((_, i) =>
       i >= made.length
         ? `chown ${uid}:${gid} /u/${i}`
@@ -627,35 +624,15 @@ export const createSharedMounts = async (
   try {
     for (const name of [...sharedMounts.map(l => l.name), ...(shared ? [shared] : [])])
       await runDockerCli(['volume', 'create', ...label, name]);
-    await runDockerCli(
+    await runAsRoot(
+      from.image,
       [
-        'run',
-        ...unlogged,
-        '--rm',
-        '--pull',
-        'never',
-        '--network',
-        'none',
-        '--user',
-        '0:0',
-        '--cap-drop=ALL',
-        '--cap-add=CHOWN',
-        '--cap-add=DAC_OVERRIDE',
-        '--cap-add=FOWNER',
-        '--security-opt',
-        'no-new-privileges=true',
-        '--mount',
         `type=bind,src=${dir},dst=/dst`,
-        ...(from.lower && (made.length || rest.length)
-          ? ['--mount', `type=volume,src=${from.lower},dst=/lower,readonly`]
-          : []),
-        ...sharedMounts.flatMap((l, i) => ['--mount', `type=volume,src=${l.name},dst=/u/${i},volume-nocopy`]),
-        ...(shared ? ['--mount', `type=volume,src=${shared},dst=/c,volume-nocopy`] : []),
-        from.image,
-        'sh',
-        '-c',
-        script,
+        ...(from.lower && (made.length || rest.length) ? [`type=volume,src=${from.lower},dst=/lower,readonly`] : []),
+        ...sharedMounts.map((l, i) => `type=volume,src=${l.name},dst=/u/${i},volume-nocopy`),
+        ...(shared ? [`type=volume,src=${shared},dst=/c,volume-nocopy`] : []),
       ],
+      script,
       3_600_000
     );
     if (over && made.length) {
@@ -675,7 +652,7 @@ export const createSharedMounts = async (
       }
     }
     if (shared) {
-      const [lower, upper, layer] = await mountpoints(cache, shared, ...(from.layered ? [from.lower!] : []));
+      const [lower, upper, layer] = await mountpoints(cache, shared, ...(from.layered ? [`${from.lower}-c`] : []));
       const release = await waitForLock(`cache-${cache}`);
       await runDockerCli([
         'volume',
@@ -683,7 +660,8 @@ export const createSharedMounts = async (
         ...label,
         '--label',
         `agentgraph.lower=${cache}`,
-        ...makeOverlayOpts(layer ? `${layer}/.agentgraph-env/cache/upper:${lower}` : lower!, upper!),
+        ...(layer && from.key ? ['--label', `agentgraph.env=${from.key}`] : []),
+        ...makeOverlayOpts(layer ? `${layer}/upper:${lower}` : lower!, upper!),
         `${shared}-o`,
       ]).finally(release);
       sharedMounts.push({ name: `${shared}-o`, dst: '/cache', upper: shared });

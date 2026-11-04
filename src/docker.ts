@@ -739,7 +739,7 @@ export const dockerSandbox = (o: {
         ref: string | undefined,
         branch?: string,
         keep?: string,
-        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
+        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo' | 'workflows'>>
       ) =>
         Effect.gen(function* () {
           const box = yield* readImage(graph, image);
@@ -754,13 +754,16 @@ export const dockerSandbox = (o: {
           const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
           yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
-          const untrusted =
-            !!graph &&
-            !!cache &&
-            (yield* inMirror(['merge-base', '--is-ancestor', base, o.local ? 'HEAD' : 'refs/remotes/origin/HEAD']).pipe(
-              Effect.as(false),
-              Effect.orElseSucceed(() => true)
-            ));
+          const trusted =
+            graph && cache
+              ? yield* Effect.forEach(
+                  [
+                    'origin/HEAD',
+                    ...Object.values(graph.workflows ?? {}).flatMap(w => (w.base ? [`refs/heads/${w.base}`] : [])),
+                  ],
+                  verify
+                )
+              : [];
           const { cache: repoCache, env } =
             graph && cache
               ? yield* Effect.tryPromise({
@@ -772,7 +775,7 @@ export const dockerSandbox = (o: {
                       git: mirror,
                       base,
                       cache,
-                      ...(untrusted && { untrusted }),
+                      trusted: trusted.filter(Boolean),
                       ...(setup && { setup }),
                       ...(graph.toolchain && { toolchain: graph.toolchain }),
                     }),

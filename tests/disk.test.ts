@@ -389,6 +389,25 @@ describe('environment ownership ledger', () => {
 });
 
 describe('scoped collection', () => {
+  it("removes an environment's cache layer with it, and a left one alone", async () => {
+    const vols = `${box['volume ls --format']}agentgraph-lower-k1-c\tagentgraph.lower=k1\\nagentgraph-lower-gone-c\tagentgraph.lower=gone\\n`;
+    await faked({ ...box, 'volume ls --format': vols }, async log => {
+      const items = await inventory();
+      expect(items.find(i => i.refs[0] === 'agentgraph-env/r:k1')?.refs).toEqual([
+        'agentgraph-env/r:k1',
+        'agentgraph-lower-k1',
+        'agentgraph-lower-k1-c',
+      ]);
+      expect(items.find(i => i.refs[0] === 'agentgraph-lower-gone-c')).toMatchObject({ kind: 'lower', always: true });
+      await collect({ eligible: ['agentgraph-env/r:k1'], limit: 0 });
+      expect(
+        log()
+          .split('\n')
+          .filter(l => /^(rmi|volume rm)/.test(l))
+      ).toEqual(['rmi agentgraph-env/r:k1', 'volume rm agentgraph-lower-k1', 'volume rm agentgraph-lower-k1-c']);
+    });
+  });
+
   it('drops only recorded, labelled envs beside another repo', async () => {
     await faked(box, async log => {
       await collect({ eligible: ['agentgraph-env/r:k1', 'agentgraph-env/unlabeled:abc'], limit: 0 });
@@ -426,12 +445,15 @@ describe('scoped collection', () => {
     });
   });
 
-  it('keeps a lower held by a live checkout', async () => {
+  it.each([
+    ['its dependency overlay', 'agentgraph.lower=k1'],
+    ['the cache overlay of a layered environment', 'agentgraph.lower=agentgraph-cache-r,agentgraph.env=k1'],
+  ])('keeps a lower a live checkout reads through %s', async (_, labels) => {
     const owner = startHeartbeat();
     await faked(
       {
         ...box,
-        'volume ls --format': `${box['volume ls --format']}agentgraph-layer-live\tagentgraph.lower=k1,agentgraph.layer=${owner}\\n`,
+        'volume ls --format': `${box['volume ls --format']}agentgraph-layer-live\t${labels},agentgraph.layer=${owner}\\n`,
       },
       async log => {
         await collect({ eligible: ['agentgraph-env/r:k1'], limit: 0 });

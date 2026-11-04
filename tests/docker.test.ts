@@ -75,10 +75,12 @@ describe('docker with a stand-in docker client', () => {
         '#!/bin/sh',
         'case "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; esac',
         `[ "$1" = network ] && { echo "$*" >> ${log}.network; case "$*" in *tools-fail.internal*) exit 4;; *IPAM.Config*) echo '[{"Gateway":"172.30.0.1","Subnet":"172.30.0.0/16"}]'; exit 0;; esac; echo true; exit 0; }`,
-        `[ "$1" = rm ] && { sleep 0.2; echo "$*" >> ${log}.rm; exit 0; }`,
+        `[ "$1" = rm ] && { sleep 0.2; : > ${log}.held; echo "$*" >> ${log}.rm; exit 0; }`,
         `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
         `[ "$1 $2" = "volume inspect" ] && for a; do case $a in agentgraph-*) echo /m/$a;; esac; done`,
-        `[ "$1 $2" = "volume ls" ] && { cat ${log}.live 2>/dev/null; exit 0; }`,
+        `[ "$1 $2" = "volume ls" ] && { case "$*" in *label=agentgraph.lower=*) rm ${log}.lsfail 2>/dev/null && exit 1;; esac; for a; do case $a in label=agentgraph.lower=*) f=\${a#label=};; esac; done; [ -s ${log}.live ] && echo "$f,$(cat ${log}.live)"; exit 0; }`,
+        `[ "$1 $2" = "volume rm" ] && for a; do grep -qx -- "$a" ${log}.held 2>/dev/null && { echo "volume $a is in use" >&2; exit 1; }; done`,
+        `case "$*" in *agentgraph.envbuild=1*) for a; do case $a in type=volume,src=*) v=\${a#type=volume,src=}; echo "\${v%%,*}" >> ${log}.held;; esac; done;; esac`,
         `case "$1" in commit|volume) echo "$*" >> ${log}.all; exit 0;; esac`,
         `printf '%s\\n' "$@" > ${log}`,
         `echo "$*" >> ${log}.all`,
@@ -86,7 +88,6 @@ describe('docker with a stand-in docker client', () => {
         `echo line one; echo line two >&2`,
         `case "$*" in *"skelfail deps"*) exit 98;; *"skeltool x deps"*) exit 97;; *"skelfail tree"*) ;; *exit125*) exit 125;; *measured*) printf '\\nagentgraph-used 104857600 usage_usec 2500000 oom_kill 0\\n';; *interleaved*) printf '\\nagentgraph-used 1048576 usage_usec 2000 oom_kill 0\\nafter\\n';; *oomed*) printf '\\nagentgraph-used 67108864 usage_usec 1500 oom_kill 1\\n'; exit 137;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
         `case "$*" in *agentgraph.envbuild*) printf '@@ignored\\n@@untracked\\n@@lower\\n0\\n';; esac`,
-        `case "$*" in *src=agentgraph-envbuild-*) echo @@layered;; esac`,
       ].join('\n')
     );
     chmodSync(join(bin, 'docker'), 0o755);
@@ -527,28 +528,82 @@ describe('docker with a stand-in docker client', () => {
   ])('keeps the build writes of %s out of the cache volume', async (_, ref, live) => {
     const all = `${log}.all`;
     writeFileSync(all, '');
-    writeFileSync(`${log}.live`, live && `${startHeartbeat()}\n`);
+    writeFileSync(`${log}.live`, live && `agentgraph.layer=${startHeartbeat()}`);
     const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
       s.checkout(ref, undefined, undefined, { repo: 'acme/trust', toolchain: 'true' })
     );
     writeFileSync(`${log}.live`, '');
+    expect(readFileSync(`${log}.held`, 'utf8')).toBe('');
     expect(Exit.isSuccess(exit) && exit.value.env?.key).toBeTruthy();
     const text = readFileSync(all, 'utf8');
     const build = text.split('\n').find(l => l.includes('agentgraph.envbuild')) ?? '';
     const key = /agentgraph-lower-(\w+),dst=/.exec(build)?.[1];
     expect(/src=(\S+),dst=\/cache /.exec(build)?.[1]).toBe(`agentgraph-envbuild-${key}-c`);
+    expect(build).not.toContain(`src=agentgraph-lower-${key}-c,`);
     expect(text).toMatch(
       new RegExp(
-        `volume create --label agentgraph\\.layer=\\S+ --label agentgraph\\.lower=agentgraph-cache-acme-trust-\\w+ .*upperdir=/m/agentgraph-lower-${key}/\\.agentgraph-env/cache/upper.* agentgraph-envbuild-${key}-c`
+        `volume create --label agentgraph\\.layer=\\S+ --label agentgraph\\.lower=agentgraph-cache-acme-trust-\\w+ .*upperdir=/m/agentgraph-lower-${key}-c/upper.* agentgraph-envbuild-${key}-c`
       )
     );
     expect(text).toMatch(/volume rm -f agentgraph-envbuild-\w+-c\n/);
     expect(text).toMatch(/commit --change LABEL .* agentgraph\.layered=true /);
     expect(text).toMatch(
       new RegExp(
-        `lowerdir=/m/agentgraph-lower-${key}/\\.agentgraph-env/cache/upper:/m/agentgraph-cache-acme-trust-\\w+,upperdir=/m/agentgraph-layer-\\w+-c/upper`
+        `--label agentgraph\\.env=${key} .*lowerdir=/m/agentgraph-lower-${key}-c/upper:/m/agentgraph-cache-acme-trust-\\w+,upperdir=/m/agentgraph-layer-\\w+-c/upper`
       )
     );
+  });
+
+  it('keys and layers a base no trusted ref reaches apart from trusted ones for a direct caller', async () => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    const repo = origin();
+    const setup = (base: string, trusted: string[]) =>
+      readSandboxSetup({
+        repo: 'acme/bench',
+        origin: repo,
+        image: 'base:1',
+        git: join(repo, '.git'),
+        base,
+        cache: 'agentgraph-cache',
+        toolchain: 'true',
+        trusted,
+      });
+    const { env: untrusted } = await setup('feature', ['main']);
+    const build = readFileSync(all, 'utf8')
+      .split('\n')
+      .find(l => l.includes('agentgraph.envbuild'));
+    expect(/src=(\S+),dst=\/cache /.exec(build ?? '')?.[1]).toBe(`agentgraph-envbuild-${untrusted?.key}-c`);
+    expect(untrusted?.layered).toBe(true);
+    const { env: main } = await setup('main', ['main']);
+    const { env: feature } = await setup('feature', ['main', 'feature']);
+    expect(main?.layered).toBe(false);
+    expect(feature?.key).toBe(main?.key);
+    expect(untrusted?.key).not.toBe(main?.key);
+  });
+
+  it('trusts a base on a workflow base branch', async () => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
+      s.checkout('feature', undefined, undefined, {
+        repo: 'acme/dev',
+        toolchain: 'true',
+        workflows: { w: { base: 'feature' } } as never,
+      })
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(readFileSync(all, 'utf8')).not.toContain('src=agentgraph-envbuild-');
+  });
+
+  it('releases the cache lock when the overlay query fails, so a retry builds', async () => {
+    writeFileSync(`${log}.lsfail`, '');
+    const sandbox = dockerSandbox({ data: tmp('data'), origin: origin() });
+    const checkout = () =>
+      use(sandbox, s => s.checkout('main', undefined, undefined, { repo: 'acme/retry', toolchain: 'true' }));
+    expect(Exit.isFailure(await checkout())).toBe(true);
+    expect(existsSync(`${log}.lsfail`)).toBe(false);
+    expect(Exit.isSuccess(await checkout())).toBe(true);
   });
 
   it('records an uppercase cache prefix for every checkout of a data dir', async () => {
@@ -812,6 +867,7 @@ describe('docker images and sandbox setups shared by concurrent callers', () => 
       cache: 'c',
       toolchain: 'true',
       origin: repo,
+      trusted: ['main'],
     };
     const envs = await Promise.all([1, 2].map(() => readSandboxSetup({ ...spec, repo: 'one' })));
     expect(envs.map(e => e.env?.mode)).toEqual(['deps', 'deps']);
@@ -835,6 +891,7 @@ describe('docker images and sandbox setups shared by concurrent callers', () => 
         git: join(repo, '.git'),
         base: 'main',
         cache: '--x',
+        trusted: [],
       })
     ).rejects.toThrow('volume name not allowed: --x');
   });
@@ -1263,7 +1320,7 @@ describe('disk lifecycle', () => {
     ]);
   });
 
-  it('keys a skeleton by the files a package manager reads and the ignore rules, with stubs for Cargo targets', async () => {
+  it('keys a skeleton by the files a package manager reads and the ignore rules, with near empty Cargo targets', async () => {
     const dir = tmp('skeleton');
     const files = [
       '.gitignore',
@@ -1301,7 +1358,7 @@ describe('disk lifecycle', () => {
       'patches/x.patch',
       'pnpm-lock.yaml',
     ]);
-    expect(one.stubs.sort()).toEqual([
+    expect(one.targets.toSorted()).toEqual([
       'crates/a/benches/b.rs',
       'crates/a/build.rs',
       'crates/a/src/bin/x.rs',
@@ -1340,6 +1397,24 @@ describe('disk lifecycle', () => {
       await discard(sharedMounts);
       expect(log()).toContain('volume rm -f agentgraph-layer-own-0-o agentgraph-layer-own-1 agentgraph-layer-own-0');
     });
+  });
+
+  it('refuses a symlink in the sandbox setup copy before any overlay names it', async () => {
+    await faked(
+      { 'volume inspect': '/lower\\n/u0\\n', 'run*/lower/.agentgraph-env/data/0*-L': "'; exit 1; '" },
+      async log => {
+        await expect(
+          createSharedMounts(
+            { image: 'img', outputs: ['node_modules'], lower: 'agentgraph-lower-k' },
+            'link',
+            tmp('work'),
+            []
+          )
+        ).rejects.toThrow();
+        expect(log()).not.toContain('agentgraph-env/data/0,upperdir');
+        expect(log()).toContain('volume rm -f agentgraph-layer-link-0');
+      }
+    );
   });
 
   it('gives a checkout its own overlay over the shared cache, so run code never writes it', async () => {

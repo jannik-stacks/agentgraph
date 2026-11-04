@@ -296,7 +296,7 @@ export const remoteSandbox = (o: {
         ref: string | undefined,
         branch?: string,
         keep?: string,
-        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo'>>
+        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo' | 'workflows'>>
       ) =>
         Effect.gen(function* () {
           if (graph?.image) return yield* infra(`a remote sandbox runs one image; the graph names ${graph.image}`);

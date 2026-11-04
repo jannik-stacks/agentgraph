@@ -884,6 +884,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
         git,
         base: c.base,
         cache,
+        trusted: ['refs/remotes/origin/HEAD'],
         ...(c.setup && { setup: c.setup }),
         ...(c.toolchain && { toolchain: c.toolchain }),
       })

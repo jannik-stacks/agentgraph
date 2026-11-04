@@ -14,8 +14,18 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
-import { runDockerCli, envVersion, held, isVolumeName, makeSetupVolumeName, unlogged, used } from './env.ts';
-import { isLockedByOtherProcess, isOwnerRunning, readStateDir } from './owner.ts';
+import {
+  runDockerCli,
+  envVersion,
+  held,
+  isLiveOverlay,
+  isVolumeName,
+  makeSetupVolumeName,
+  parseDockerLabels,
+  unlogged,
+  used,
+} from './env.ts';
+import { isLockedByOtherProcess, readStateDir } from './owner.ts';
 
 /**
  * What a cache item is: a sandbox setup image with its dependency volume, a dependency volume no image uses, a repo's
@@ -151,13 +161,6 @@ const usage = async () => {
 };
 
 const isData = (labels: Record<string, string>) => Object.keys(labels).some(k => k.startsWith('com.docker.compose.'));
-const parseDockerLabels = (text = '') =>
-  Object.fromEntries(
-    text
-      .split(',')
-      .filter(Boolean)
-      .map(kv => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)])
-  ) as Record<string, string>;
 
 /**
  * Every cache item agentgraph left in docker, and the host build dirs under `roots`. Only our names count; compose
@@ -198,15 +201,10 @@ export const inventory = async (
       return { name, labels: parseDockerLabels(labels) };
     })
     .filter(v => !isData(v.labels));
-  const overlaid = (key: string) =>
-    vols.some(
-      v =>
-        v.labels['agentgraph.lower'] === key &&
-        v.labels['agentgraph.layer'] &&
-        isOwnerRunning(v.labels['agentgraph.layer'])
-    );
+  const overlaid = (key: string) => vols.some(v => isLiveOverlay(v.labels, key));
+  const listEnvVolumes = (key: string) => [makeSetupVolumeName(key), `${makeSetupVolumeName(key)}-c`];
   const names = new Set(
-    vols.filter(v => v.name === makeSetupVolumeName(v.labels['agentgraph.lower'] ?? '')).map(v => v.name)
+    vols.filter(v => listEnvVolumes(v.labels['agentgraph.lower'] ?? '').includes(v.name)).map(v => v.name)
   );
   const items: DiskCacheEntry[] = [];
   const keys = new Set<string>();
@@ -242,7 +240,7 @@ export const inventory = async (
     const lastUsedMs = existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
     items.push({
       kind: 'env',
-      refs: [...tags, ...(names.has(makeSetupVolumeName(key)) ? [makeSetupVolumeName(key)] : [])],
+      refs: [...tags, ...listEnvVolumes(key).filter(v => names.has(v))],
       bytes: unique + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
       used: lastUsedMs,
       ...(why && { always: true, gone: why }),
@@ -255,8 +253,8 @@ export const inventory = async (
   }
   const measured = o.measure ? df.volumes : new Map<string, number>();
   for (const v of vols) {
-    const key = v.name.slice('agentgraph-lower-'.length);
-    if (v.name !== makeSetupVolumeName(key) || keys.has(key) || v.labels['agentgraph.lower'] !== key) continue;
+    const key = v.labels['agentgraph.lower'] ?? '';
+    if (!names.has(v.name) || keys.has(key)) continue;
     if (o.eligible !== undefined && !o.eligible.some(t => t.startsWith('agentgraph-env/') && t.endsWith(`:${key}`)))
       continue;
     items.push({
@@ -336,7 +334,7 @@ const remove = async (i: DiskCacheEntry) => {
   const tags = i.refs.filter(r => r.includes(':'));
   if (tags.length && !(await ok(['rmi', ...tags]))) return false;
   for (const v of i.refs.filter(r => !r.includes(':'))) {
-    const key = v.slice('agentgraph-lower-'.length);
+    const key = v.slice('agentgraph-lower-'.length).replace(/-c$/, '');
     const retained = await runDockerCli([
       'image',
       'ls',
