@@ -288,8 +288,8 @@ const isGraphCheck = verb === 'check' && values.dir !== undefined && !values.run
 const i = isGraphCheck
   ? (saved ?? (checkout ? readInstance(root, basename(checkout)) : undefined))
   : checkout
-    ? await ensureInstance(root, values.instance ?? basename(checkout), checkout, undefined, values['read-only']).catch(
-        (e: Error) => fail(e.message)
+    ? await ensureInstance(root, values.instance, checkout, undefined, values['read-only']).catch((e: Error) =>
+        fail(e.message)
       )
     : undefined;
 if (values.instance && !i) fail(`no instance ${values.instance} under ${root}; pass --repo <dir> to create it`);

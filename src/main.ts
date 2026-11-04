@@ -89,7 +89,7 @@ export const readInstanceEnv = async (
     config: makeHarnessConfigProvider(
       {
         ...choice,
-        provider: choice.provider ?? env.AGENTGRAPH_PROVIDER ?? instance?.provider,
+        provider: choice.provider || env.AGENTGRAPH_PROVIDER || instance?.provider,
       },
       makeEnvProvider(env)
     ),

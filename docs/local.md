@@ -84,7 +84,11 @@ An instance binds one checkout to one graph in one data root. `--instance <name>
 `<root>/<name>/instance.yaml`; the default name is the checkout basename, with no hash.
 An explicit name can select a saved checkout from outside its repo. Use two names for a
 live instance and a bench instance of the same checkout. Every lookup uses the selected
-`--data` root. Names are single path components; reusing one for another checkout fails. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
+`--data` root. Names are single path components; reusing one for another checkout fails.
+Without `--instance`, a missing record is made only when every other folder in the root is an
+instance of another checkout. Otherwise the command stops and names the folders: pass
+`--instance <name>` to use one, or to make the new record. `agi show` outside a repo skips a
+record it cannot read with a one-line warning. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
 
 The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),
 `base`, `owner`, `exported`, and `loop` (boolean, initially false). Optional fields are
@@ -113,7 +117,7 @@ Highest priority comes first in this single precedence table.
 An explicit empty trust list trusts nobody. The runtime graph carries these resolved values;
 graph `settings.yaml` rejects `repo` and `trust`. Image and parallel remain graph defaults.
 `AGENTGRAPH_PROVIDER`, `AGENTGRAPH_DIR`, and `AGENTGRAPH_TRACKER` remain command overrides
-of their instance fields, with their CLI flags taking priority. `AGENTGRAPH_APP_ENV` remains
+of their instance fields (an empty `AGENTGRAPH_PROVIDER` counts as unset), with their CLI flags taking priority. `AGENTGRAPH_APP_ENV` remains
 the App env-file override. `AGENTGRAPH_DATA` still selects the root. There is no engine
 `AGENTGRAPH_PARALLEL`; `AGENTGRAPH_BASE` remains a check-script input. Host resources and
 secret variables keep their existing meanings.

@@ -22,7 +22,7 @@ agi studio
 
 The first run builds the sandbox images, about 3 minutes. An implementor changes the code and runs the tests, a reviewer reads it, then it waits for you. The branch lands in your repo; your checkout never moves.
 
-The engine requires a graph. Read and edit the copied agents, workflows and checks for your repo before the first run. [First run](docs/local.md#first-run) also covers copying from a clone. No GitHub needed: `~/.agentgraph/<repo>-<hash>-local/` holds `instance.yaml`, the runs in `data/` and `tracker/`, which stands in for GitHub.
+The engine requires a graph. Read and edit the copied agents, workflows and checks for your repo before the first run. [First run](docs/local.md#first-run) also covers copying from a clone. No GitHub needed: `~/.agentgraph/<repo>/` holds `instance.yaml`, the runs in `data/` and `tracker/`, which stands in for GitHub.
 
 ### From source
 

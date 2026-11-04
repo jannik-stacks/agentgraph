@@ -28,8 +28,7 @@ const { data: root, config } = await readHostSettings(values).catch(quit);
 const saved = values.instance !== undefined ? readInstance(root, values.instance) : undefined;
 const repo = values.repo === undefined ? saved?.checkout : await findRepo(resolve(values.repo));
 if (values.repo && !repo) quit(new Error(`${values.repo} is not in a git repo`));
-const instance =
-  repo === undefined ? undefined : await ensureInstance(root, values.instance ?? basename(repo), repo).catch(quit);
+const instance = repo === undefined ? undefined : await ensureInstance(root, values.instance, repo).catch(quit);
 const choice = JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}');
 const scope = await readInstanceEnv(
   instance,

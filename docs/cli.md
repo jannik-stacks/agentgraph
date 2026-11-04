@@ -73,7 +73,7 @@ Printed commands carry the `--repo` and `--data` given. Inside a repo, `check --
 
 ## Picking a provider
 
-A provider is where model calls go and how they log in; [Sandbox and models](sandbox.md#providers) lists them. The CLI takes `--provider`, then `provider` in `instance.yaml`, then `AGENTGRAPH_PROVIDER`, then the only ready one, which it saves. It picks before it sets up Docker, so a missing model fails before the image build. With several ready it asks, or fails without a terminal. With none, or an agent whose harness the provider does not serve, it says why and files nothing. <!-- code: bin/run.ts#pickProvider -->
+A provider is where model calls go and how they log in; [Sandbox and models](sandbox.md#providers) lists them. The CLI takes `--provider`, then a non-empty `AGENTGRAPH_PROVIDER`, then `provider` in `instance.yaml`, then the only ready one, which it saves. It picks before it sets up Docker, so a missing model fails before the image build. With several ready it asks, or fails without a terminal. With none, or an agent whose harness the provider does not serve, it says why and files nothing. <!-- code: bin/run.ts#pickProvider -->
 
 ## Examples
 

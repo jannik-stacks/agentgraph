@@ -1,8 +1,10 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
-import { expect, it } from 'vitest';
+import { ConfigProvider, Config, Effect } from 'effect';
+import { expect, it, vi } from 'vitest';
 import { ensureGraph, ensureInstanceGraph, ensureInstance, findInstances } from '../src/instance.ts';
+import { readInstanceEnv } from '../src/main.ts';
 import { commit } from './kit.ts';
 import { seeded } from './fixtures.ts';
 
@@ -46,7 +48,11 @@ it('reads every instance field strictly and resolves paths against its folder', 
     limits: { parallel: 1 },
   });
   writeFileSync(file, stringify({ ...record, unknown: true }));
-  expect(() => findInstances(join(root, 'instances'))).toThrow('unknown');
+  const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+  expect(findInstances(join(root, 'instances'))).toEqual([]);
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining(`skipping ${file}: `));
+  warn.mockRestore();
+  writeFileSync(file, stringify(record));
   await expect(ensureGraph(read!)).resolves.toBe(seed);
 });
 
@@ -58,4 +64,55 @@ it('selects the updated committed graph before callers discover plugins', async 
   const graph = await ensureInstanceGraph(i);
   expect(readFileSync(join(graph, 'settings.yaml'), 'utf8')).toBe('image: sandbox:reviewed\n');
   expect(await ensureInstanceGraph(i)).toBe(graph);
+});
+
+it('skips an old record in the listing with a warning', async () => {
+  const { root, seed } = seeded('old-record', { 'file.txt': 'content' });
+  const data = join(root, 'instances');
+  const live = await ensureInstance(data, 'live', seed);
+  mkdirSync(join(data, 'old-6ff957-local'));
+  writeFileSync(
+    join(data, 'old-6ff957-local', 'instance.yaml'),
+    stringify({ repo: seed, base: 'main', owner: 'o', exported: {} })
+  );
+  const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+  expect(findInstances(data).map(i => i.dir)).toEqual([live.dir]);
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining(join(data, 'old-6ff957-local', 'instance.yaml')));
+  warn.mockRestore();
+});
+
+it('makes an unnamed instance only beside instances of other checkouts', async () => {
+  const { root, seed } = seeded('implicit-instance', { 'file.txt': 'content' });
+  const other = seeded('implicit-other', { 'file.txt': 'content' });
+  const data = join(root, 'instances');
+  const first = await ensureInstance(data, undefined, seed);
+  expect([first.made, first.dir]).toEqual([true, join(data, 'seed')]);
+  expect((await ensureInstance(data, undefined, seed)).made).toBe(false);
+  const next = join(root, 'next');
+  await ensureInstance(next, 'mine', other.seed);
+  expect((await ensureInstance(next, undefined, seed)).made).toBe(true);
+  const flat = join(root, 'flat');
+  mkdirSync(join(flat, 'runs'), { recursive: true });
+  await expect(ensureInstance(flat, undefined, seed)).rejects.toThrow(`${flat} has no instance seed but holds runs`);
+  const old = join(root, 'old');
+  mkdirSync(join(old, 'seed-6ff957-local'), { recursive: true });
+  writeFileSync(join(old, 'seed-6ff957-local', 'instance.yaml'), stringify({ repo: seed }));
+  await expect(ensureInstance(old, undefined, seed)).rejects.toThrow('holds seed-6ff957-local; pass --instance');
+  const renamed = join(root, 'renamed');
+  await ensureInstance(renamed, 'live', seed);
+  await expect(ensureInstance(renamed, undefined, seed)).rejects.toThrow('holds live');
+  expect((await ensureInstance(flat, 'seed', seed)).made).toBe(true);
+});
+
+it('treats an empty AGENTGRAPH_PROVIDER as unset so the record provider wins', async () => {
+  vi.stubEnv('AGENTGRAPH_PROVIDER', '');
+  try {
+    const scope = await readInstanceEnv({ provider: 'saved', data: '/unused' });
+    const named = await Effect.runPromise(
+      Config.String('AGENTGRAPH_PROVIDER').pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+    );
+    expect(named).toBe('saved');
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
