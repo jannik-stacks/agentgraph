@@ -250,7 +250,9 @@ export const writeProposals = (
         const write = writeOnce(
           run,
           issue,
-          work ? getOperationKey(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
+          work
+            ? getOperationKey(run, issue, proposed, `land:${i}`, p.kind === 'push' ? tree : undefined)
+            : randomUUID(),
           tracker.apply(issue, p, work),
           work && p
         );

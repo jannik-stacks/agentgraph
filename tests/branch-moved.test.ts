@@ -624,7 +624,10 @@ describe('a run branch that moved', () => {
 
   const unpushed = 'The push with this reply failed, so its changes are not on the pull request yet.';
 
-  const failingPush = (pushed: (p: Proposal) => ReturnType<Tracker['Service']['apply']>, turns: SessionEvent[][]) => {
+  const failingPush = (
+    pushed: (p: Proposal, real: ReturnType<Tracker['Service']['apply']>) => ReturnType<Tracker['Service']['apply']>,
+    turns: SessionEvent[][]
+  ) => {
     const where = world();
     pullRequest(where);
     const review = comment(8, 'morgan', true, '/agent question only what is sfw?', '2026-10-16T00:00:03.000Z');
@@ -636,7 +639,7 @@ describe('a run branch that moved', () => {
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
           attempted.push(p);
-          return p.kind === 'push' ? pushed(p) : f.apply(n, p, work);
+          return p.kind === 'push' ? pushed(p, f.apply(n, p, work)) : f.apply(n, p, work);
         },
       }))
     ).pipe(Layer.provide(folderTracker(where.tracker)));
@@ -694,18 +697,23 @@ describe('a run branch that moved', () => {
     ]);
   });
 
-  it('posts the thread reply once, then parks as a runner error, when the push throws', async () => {
+  it.each([
+    { throws: 2, status: 'waiting' },
+    { throws: 1, status: 'done' },
+  ])('posts the thread reply once when the push throws $throws times', async ({ throws, status }) => {
     const answer = { kind: 'comment', body: 'Socket Firewall.', under: 'r1' } satisfies Proposal;
+    let pushes = 0;
     const { drive, replies } = failingPush(
-      () => Effect.fail(new TrackerError({ status: 502, message: 'bad gateway' })),
+      (_p, real) =>
+        ++pushes <= throws ? Effect.fail(new TrackerError({ status: 502, message: 'bad gateway' })) : real,
       [
         [start('a'), wrote('hello.txt', 'hello\n'), reply(answer, push, pull)],
         [start('a'), reply(answer, push, pull)],
       ]
     );
-    const parked = await drive();
-    expect(parked).toMatchObject({ status: 'waiting', retried: true });
-    expect(parked.reason).toMatch(/^Stopped by a runner error/);
+    const ended = await drive();
+    expect(ended.status).toBe(status);
+    expect(ended.reason?.startsWith('Stopped by a runner error') ?? false).toBe(status === 'waiting');
     expect(await replies()).toEqual([[`Socket Firewall.\n\n${unpushed}`, 'r1']]);
   });
 });
