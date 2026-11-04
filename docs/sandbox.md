@@ -188,6 +188,7 @@ Host tools use a session TCP relay on the sandbox's selected internal network. I
 
 The sandbox image supplies `agi file put <path>` for selected host-tool sessions. It uses
 `AGENTGRAPH_TOOL_URL` and the reserved session bearer to stream a local PNG/JPEG to the session endpoint and prints an opaque handle, with no path or image bytes in model
-context. Capture outside `/work`, for example in `/tmp`. Rebuild custom images to include this command.
+context. Each handle can be read once by a host tool. Capture outside `/work`, for example in `/tmp`.
+Rebuild custom images to include this command.
 Remote sandboxes still reject host tools and file passing. See [Plugins](plugins.md).
 <!-- code: src/files.ts#makeFiles src/tools.ts#startTools infra/local/sandbox/file.ts#runFile -->

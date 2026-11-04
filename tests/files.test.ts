@@ -21,11 +21,8 @@ const open = async (trace: Parameters<typeof startTools>[2] = () => {}) => {
     description: 'Read file',
     inputSchema: Schema.Struct({ ref: Schema.String }),
     execute: async ({ ref }, ctx) => {
-      const first = await ctx.readFile(ref);
-      const bytes = [...first.bytes];
-      first.bytes.fill(0);
-      const second = await ctx.readFile(ref);
-      return { bytes, again: [...second.bytes], type: first.type };
+      const file = await ctx.readFile(ref);
+      return { bytes: [...file.bytes.subarray(0, image.length)], type: file.type };
     },
   });
   const endpoint = await startTools(
@@ -73,20 +70,20 @@ afterEach(async () => {
   for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-it('scopes random handles and returns immutable copies with metadata only', async () => {
+it('scopes random handles and consumes reads with metadata only', async () => {
   const events: unknown[] = [];
   const files = await open(event => {
     if (event.name.startsWith('file_')) events.push({ name: event.name, input: event.input });
   });
   const ref = await files.put();
   expect(ref).toMatch(/^file_[a-f0-9]{64}$/);
-  expect(await files.read(ref)).toEqual({ bytes: [...image], again: [...image], type: 'image/png' });
+  expect(await files.read(ref)).toEqual({ bytes: [...image], type: 'image/png' });
   const hash = createHash('sha256').update(image).digest('hex');
   expect(events).toEqual([
     { name: 'file_put', input: { ref, bytes: 8, type: 'image/png', hash, session: 'test-session' } },
     { name: 'file_read', input: { ref, bytes: 8, type: 'image/png', hash, session: 'test-session' } },
-    { name: 'file_read', input: { ref, bytes: 8, type: 'image/png', hash, session: 'test-session' } },
   ]);
+  await expect(files.read(ref)).rejects.toThrow(`File ${ref}: unknown, expired or outside this session`);
   const other = await open();
   await expect(other.read(ref)).rejects.toThrow(ref);
   await expect(files.read('guessed')).rejects.toThrow('File guessed: unknown, expired or outside this session');
@@ -109,17 +106,40 @@ it('accepts JPEG magic', async () => {
   expect((await files.read(ref)).type).toBe('image/jpeg');
 });
 
-it('caps session file count', async () => {
+it('accepts more than 32 sequential uploads when each handle is consumed', async () => {
   const files = await open();
-  for (let index = 0; index < 32; index++) await files.put();
-  await expect(files.put()).rejects.toThrow('count limit');
+  const results = [];
+  for (let index = 0; index < 40; index++) results.push(await files.read(await files.put()));
+  expect(results).toEqual(Array.from({ length: 40 }, () => ({ bytes: [...image], type: 'image/png' })));
+});
+
+it('allows only one concurrent read to consume a handle', async () => {
+  const files = await open();
+  const ref = await files.put();
+  const results = await Promise.allSettled([files.read(ref), files.read(ref)]);
+  expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+  expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+});
+
+it('caps unread file count', async () => {
+  const files = await open();
+  const ref = await files.put();
+  for (let index = 0; index < 31; index++) await files.put();
+  await expect(files.put()).rejects.toThrow('held file count limit');
+  await files.read(ref);
+  expect(await files.put()).toMatch(/^file_/);
+  await expect(files.put()).rejects.toThrow('held file count limit');
 });
 
 it('caps retained bytes', async () => {
   const files = await open();
   const bytes = new Uint8Array(10 * 1024 * 1024);
   bytes.set(image);
-  for (let index = 0; index < 6; index++) await files.put(bytes);
+  const ref = await files.put(bytes);
+  for (let index = 0; index < 5; index++) await files.put(bytes);
+  await expect(files.put(bytes)).rejects.toThrow('byte limit');
+  await files.read(ref);
+  expect(await files.put(bytes)).toMatch(/^file_/);
   await expect(files.put(bytes)).rejects.toThrow('byte limit');
 });
 

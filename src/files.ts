@@ -24,6 +24,8 @@ export const makeFiles = (
       await trace('read', ref, file.bytes.length, file.hash, file.type);
       signal.throwIfAborted();
       if (closed) throw new Error('session closed');
+      if (!files.delete(ref)) throw new Error('unknown, expired or outside this session');
+      total -= file.bytes.length;
       return { type: file.type, bytes: new Uint8Array(file.bytes) };
     } catch (error) {
       throw new Error(`File ${ref}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
@@ -35,7 +37,7 @@ export const makeFiles = (
       signal.throwIfAborted();
       if (closed) throw new Error('File upload: session closed');
       if (pending >= 2) throw new Error('File upload: concurrent upload limit reached');
-      if (files.size + pending >= 32) throw new Error('File upload: session count limit reached');
+      if (files.size + pending >= 32) throw new Error('File upload: held file count limit reached');
       pending++;
       try {
         const chunks: Uint8Array[] = [];
@@ -57,7 +59,7 @@ export const makeFiles = (
             ? 'image/jpeg'
             : undefined;
         if (!type) throw new Error('File upload: expected PNG or JPEG magic bytes');
-        if (total + size > 64 * 1024 * 1024) throw new Error('File upload: session byte limit reached');
+        if (total + size > 64 * 1024 * 1024) throw new Error('File upload: held byte limit reached');
         const ref = `file_${randomBytes(32).toString('hex')}`;
         total += size;
         try {

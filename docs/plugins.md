@@ -16,7 +16,10 @@ export default makePlugin({
       inputSchema: Schema.Struct({ query: Schema.String }),
       execute: async ({ query }, ctx) =>
         (await ctx.tracker.searchIssues(query, { limit: 10 })).map(({ number, title, url, body }) => ({
-          number, title, url, body: body.slice(0, 500),
+          number,
+          title,
+          url,
+          body: body.slice(0, 500),
         })),
     }),
   },
@@ -34,14 +37,16 @@ Names outside the harness's built-ins must name registered plugin tools; unknown
 `abortSignal` and its own `settings`. Search stays within this repo and applies the tracker's text trust rules.
 `readFile(ref)` returns fresh image bytes and their PNG or JPEG media type from a session handle.
 Save images in sandbox `/tmp`, run `agi file put <path>`, then pass the handles to a tool.
-The host opens no agent-supplied path. Handles expire at session close; unknown and cross-session
+The host opens no agent-supplied path. A successful read consumes the handle and frees its slot and
+held bytes. Unread handles expire at session close; consumed, unknown and cross-session
 handles fail. Uploads are acknowledged only after raw bytes are saved at `data/files/<sha256>`
 with a synced temporary file and atomic rename, and the trace is synced. Put/read traces contain
 handle, size, type, hash and the trace session key. Closing a session drops its handles, while durable
 bytes remain available to the store by hash. Durable reads reject a hash mismatch.
 <!-- code: src/files.ts#makeFiles src/store.ts#fileStore src/tools.ts#startTools -->
+
 Binary uploads reuse session authentication and relay with a separate route: 10 MiB per file,
-32 files, 64 MiB retained, 256 MiB cumulative input and two concurrent uploads per session.
+32 unread files at once, 64 MiB held, 256 MiB cumulative input and two concurrent uploads per session.
 Chunk counts enforce limits regardless of Content-Length. PNG/JPEG magic bytes are checked;
 no host image parser runs. Isolated decoding and re-encoding remain a later option.
 Host plugins still run as trusted code.
@@ -60,6 +65,7 @@ No shipped example lets an agent or a `run` step return `merge`: either could la
 then runs on the host with its secrets. `npm run check:examples` fails on such a grant, and the engine applies
 a `merge` only from a step whose `returns` lists it.
 <!-- code: bin/merge-grants.mjs -->
+
 The engine supplies `effect`, `ai` and `@jannik-stacks/agi/plugins` from its own install, including
 Effect and AI SDK subpaths, so plugins share its Effect runtime. Other packages use Node's normal
 resolution from the graph. Keep local helpers in subfolders of `plugins/`; their source contributes
@@ -103,7 +109,11 @@ scope: `gh auth refresh -s project`. Hooks run in filename order. A hook that th
 ```ts
 export default makePlugin({
   name: 'notify',
-  on: { status: async ({ issue, to }) => { if (to.startsWith('needs')) await fetch(/* ... */) } },
+  on: {
+    status: async ({ issue, to }) => {
+      if (to.startsWith('needs')) await fetch(/* ... */);
+    },
+  },
 });
 ```
 
