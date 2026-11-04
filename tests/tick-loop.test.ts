@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
-import { describe, expect, it } from 'vitest';
-import { issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
+import { describe, expect, it, vi } from 'vitest';
+import { issueDebounceMs, scanIssuesAndRunningRuns, startLoopDrives, tick } from '../src/run/trigger.ts';
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { removeRunLink, type Event } from '../src/event.ts';
@@ -436,6 +436,30 @@ describe('start with one issue', () => {
 });
 
 describe('the loop', () => {
+  it('polls tracker events with the drives cursor and drives the issues they name', async () => {
+    const where = world();
+    const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');
+    const env = { AGENTGRAPH_REPO: 'acme/sandbox', AGENTGRAPH_PROXY_KEYS: '*=k', AGENTGRAPH_DIR: sandbox };
+    const doubles = (s: Settings) =>
+      Layer.mergeAll(folderTracker(where.tracker), fileStore(s.data), hostSandbox(where.origin), replaySession([]));
+    const at = new Date(Date.now() - issueDebounceMs - 1000).toISOString();
+    writeIssueAt(issuePath(where.tracker, 7, 'events.jsonl'), '');
+    say(where, { issue: 7, kind: 'label', label: 'triage', actor: 'morgan', trusted: true, at });
+    const drives = startLoopDrives();
+    try {
+      const polled = await main({ graph: sandbox, issue: 'all', data: where.data, drives, poll: true }, doubles, env);
+      expect([polled, drives.cursor]).toEqual([[], at]);
+      await vi.waitFor(async () => {
+        const runs = await Effect.runPromise(
+          Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data)))
+        );
+        expect(runs.map(r => [r.issue, r.workflow])).toEqual([[7, 'triage']]);
+      });
+    } finally {
+      await drives.stop();
+    }
+  });
+
   it('reads the settings again each pass and keeps the last ones when the refresh fails', async () => {
     const where = world();
     const defaults = {

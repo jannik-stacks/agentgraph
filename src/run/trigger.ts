@@ -967,6 +967,7 @@ export const startLoopDrives = () => {
     driving: new Set<string>(),
     gates: new Map<number, Semaphore.Semaphore>(),
     due: new Map<number, string>(),
+    cursor: new Date(Date.now() - 300_000).toISOString(),
     permits: Semaphore.makeUnsafe(1),
     settled: [] as Run[],
     stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),

@@ -687,6 +687,32 @@ async function loop(i: Instance, first: string) {
   const drives = values.once ? undefined : startLoopDrives();
   trapInterrupt(release);
   let why = '';
+  const drive = (poll?: true) =>
+    start(
+      {
+        graph: scope.env.AGENTGRAPH_DIR!,
+        issue: 'all',
+        data: i.data,
+        instance: i,
+        ...overrides,
+        setup: { ...scope, tracker: trackerSetup },
+        choice: makeHarnessChoice(connection.provider.name),
+        ...(drives && { drives }),
+        ...(poll && { poll }),
+      },
+      undefined,
+      {},
+      stopping.signal
+    ).catch((e: unknown) => (stopping.signal.aborted ? [] : (console.error(e), [])));
+  const polling =
+    drives &&
+    !trackerSetup.origin.local &&
+    (async () => {
+      while (!stopping.signal.aborted) {
+        await sleep(host.every * 60_000, undefined, { signal: stopping.signal }).catch(() => {});
+        if (!why && !stopping.signal.aborted) await drive(true);
+      }
+    })();
   try {
     while (!stopping.signal.aborted) {
       const graph = scope.env.AGENTGRAPH_DIR!;
@@ -702,21 +728,7 @@ async function loop(i: Instance, first: string) {
       );
       if (why) console.error(why);
       else {
-        const decided: RunRecord[] = await start(
-          {
-            graph,
-            issue: 'all',
-            data: i.data,
-            instance: i,
-            ...overrides,
-            setup: { ...scope, tracker: trackerSetup },
-            choice: makeHarnessChoice(connection.provider.name),
-            ...(drives && { drives }),
-          },
-          undefined,
-          {},
-          stopping.signal
-        ).catch((e: unknown) => (stopping.signal.aborted ? [] : (console.error(e), [])));
+        const decided: RunRecord[] = await drive();
         const runs = [...new Map([...decided, ...(drives?.settled.splice(0) ?? [])].map(r => [r.id, r])).values()];
         printRuns(runs);
         for (const issue of new Set((trackerSetup.origin.local ? runs : []).filter(isOnIssue).map(r => r.issue))) {
@@ -758,6 +770,7 @@ async function loop(i: Instance, first: string) {
     }
   } finally {
     try {
+      await polling;
       await drives?.stop();
     } finally {
       await release();

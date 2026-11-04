@@ -187,6 +187,7 @@ export const start = (
     };
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
     drives?: ReturnType<typeof startLoopDrives>;
+    poll?: true;
   },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(one?.setup?.tracker),
   defaults: Record<string, string> = {},
@@ -226,11 +227,16 @@ export const start = (
         yield* warnTemporary(one.data);
         const labels = parseLabels(one.labels ?? {});
         const look = (fork?: Parameters<typeof tick>[5]) => {
+          const { drives } = one;
           const driven = one.instruction
             ? instruct(graph, one.instruction, one.meta)
-            : one.issue === 'all'
-              ? scanIssuesAndRunningRuns(graph, 0, one.meta, fork)
-              : tick(graph, one.issue, one.marked, 0, one.meta, fork);
+            : one.poll && drives
+              ? scanTrackerEvents(graph, drives.cursor, fork, drives.gates, drives.due).pipe(
+                  Effect.map(next => ((drives.cursor = next), []))
+                )
+              : one.issue === 'all'
+                ? scanIssuesAndRunningRuns(graph, 0, one.meta, fork, drives?.gates)
+                : tick(graph, one.issue, one.marked, 0, one.meta, fork);
           return provided(
             !Object.keys(labels).length
               ? driven
