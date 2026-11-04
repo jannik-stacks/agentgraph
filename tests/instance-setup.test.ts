@@ -544,6 +544,21 @@ writeFileSync(${JSON.stringify(marker)}, 'imported'); throw new Error('unreviewe
   expect(existsSync(marker)).toBe(false);
 });
 
+it('prints the startup banner for an origin-less instance with a committed graph', async () => {
+  const w = await makeInstance('banner');
+  const graph = join(w.seed, '.agentgraph');
+  mkdirSync(graph);
+  writeFileSync(join(graph, 'settings.yaml'), '{}');
+  git(w.seed, 'add', '.agentgraph');
+  git(w.seed, 'commit', '-qm', 'graph');
+  const env = join(w.root, 'model.env');
+  writeFileSync(env, 'ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY=offline-key\n');
+  w.save({ graph: undefined, tracker: 'github', env, provider: 'anthropic' });
+  rmSync(w.instance.tracker, { recursive: true });
+  const result = w.run('loop', '--once');
+  expect(result.stdout).toMatch(/\.agentgraph\/ at main [0-9a-f]{7}, /);
+});
+
 it('starts the hosted entrypoint from a non-repo image with its named instance', async () => {
   const w = await makeInstance('live');
   const env = join(w.root, 'model.env');
