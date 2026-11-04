@@ -55,6 +55,7 @@ const measureChecks = async (sessions: number, judged = false) => {
     Effect.andThen(Deferred.await(full))
   );
   const sandbox = Layer.succeed(Sandbox, {
+    readBranches: () => Effect.die('unexpected branch listing'),
     readHead: () => Effect.die('unexpected readHead'),
     removeBranch: () => Effect.die('unexpected cleanup'),
     checkout: () => Effect.die('unexpected checkout'),

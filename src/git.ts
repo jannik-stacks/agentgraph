@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -135,6 +136,15 @@ export const gitIdentity = ['-c', 'user.name=agentgraph', '-c', 'user.email=agen
 
 export const readGit = (...args: Parameters<typeof hostGit>) =>
   Effect.map(hostGit(...args), out => out.toString('utf8').trim());
+
+export const readBranches = (git: string) =>
+  Effect.suspend(() =>
+    existsSync(git)
+      ? Effect.map(readGit({ GIT_DIR: git }, ['branch', '--list', '--format=%(refname:strip=2)']), out =>
+          out.split('\n').filter(Boolean)
+        )
+      : Effect.succeed([])
+  );
 
 export const writeCheckoutTree = ({ git }: Pick<Checkout, 'git'>) =>
   indexLock.withPermits(1)(Effect.andThen(hostGit(git, ['add', '-A']), readGit(git, ['write-tree'])));
