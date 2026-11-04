@@ -31,11 +31,9 @@ const at = (s: number) => `2026-10-16T00:00:${String(s).padStart(2, '0')}.000Z`;
 
 /** A bare origin with main, and a tracker holding `issues` as `[number, author, parent?]`, #1 labelled triage by a maintainer. */
 const world = (issues: [number, string, number?][] = [[1, 'morgan']]) => {
-  const { root, seed, data } = seeded('triage', { 'README.md': 'demo\n' });
+  const { root, data } = seeded('triage', { 'README.md': 'demo\n' }, 'tracker/origin.git');
   dirs.push(root);
   const tracker = join(root, 'tracker');
-  mkdirSync(tracker);
-  git(root, 'clone', '-q', '--bare', seed, join(tracker, 'origin.git'));
   for (const [n, author, parent] of issues)
     writeFileSync(
       join(tracker, `${n}.md`),

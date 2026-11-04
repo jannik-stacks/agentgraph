@@ -15,7 +15,6 @@ import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, result, seeded, start } from './fixtures.ts';
-import { git } from './kit.ts';
 
 export const replyHint = 'Reply `/agent` and your answer, or `/agent stop` to end the run.';
 export const graph = makeTestGraph('kit', {
@@ -29,14 +28,16 @@ export const removeAfter = (dir: string) => onTestFinished(() => rmSync(dir, { r
 
 /** A bare origin with one commit on main, a tracker with issue #7 and its `/agent` comment, and a data dir. */
 export const world = () => {
-  const { root, seed, data } = seeded('run', {
-    'README.md': 'demo\n',
-    'package.json': JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }),
-  });
+  const { root, data } = seeded(
+    'run',
+    {
+      'README.md': 'demo\n',
+      'package.json': JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }),
+    },
+    'tracker/origin.git'
+  );
   removeAfter(root);
   const tracker = join(root, 'tracker');
-  mkdirSync(tracker);
-  git(root, 'clone', '-q', '--bare', seed, join(tracker, 'origin.git'));
   writeFileSync(
     join(tracker, '7.md'),
     '---\ntitle: Add a greeting\nstate: open\nauthor: morgan\nlabels: []\n---\n\nAdd hello.txt.\n'

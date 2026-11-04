@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,7 +11,6 @@ import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
-import { git } from './kit.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'retro-gate'), harnesses));
 
@@ -21,11 +20,9 @@ afterEach(() => {
 });
 
 const world = () => {
-  const { root, seed, data } = seeded('retro-gate', { 'README.md': 'demo\n' });
+  const { root, data } = seeded('retro-gate', { 'README.md': 'demo\n' }, 'tracker/origin.git');
   dirs.push(root);
   const tracker = join(root, 'tracker');
-  mkdirSync(tracker);
-  git(root, 'clone', '-q', '--bare', seed, join(tracker, 'origin.git'));
   writeFileSync(
     join(tracker, '1.md'),
     '---\ntitle: Issue 1\nstate: open\nauthor: morgan\nlabels: []\n---\n\nSay hello.\n'

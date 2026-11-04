@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
 import settings from '../agentgraph.config.ts';
@@ -146,15 +146,28 @@ export const faked = async <A>(out: Record<string, string>, f: (log: () => strin
   }
 };
 
-/** A temp root holding `seed`, a repo with `files` committed on main, and the path of a `data` dir. */
-export const seeded = (name: string, files: Record<string, string>) => {
+const templates = new Map<string, string>();
+
+/**
+ * A temp root holding `seed`, a repo with `files` committed on main, and the path of a `data` dir; with `origin`, a
+ * bare clone of `seed` at that path under the root. Each call copies one template, so its commits match across calls.
+ */
+export const seeded = (name: string, files: Record<string, string>, origin?: string) => {
+  const key = JSON.stringify([files, origin]);
+  let template = templates.get(key);
+  if (!template) {
+    template = tmp(`${name}-template`);
+    const seed = join(template, 'seed');
+    git(template, 'init', '-q', '-b', 'main', seed);
+    write(seed, files);
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-q', '-m', 'init');
+    if (origin) git(template, 'clone', '-q', '--bare', seed, join(template, origin));
+    templates.set(key, template);
+  }
   const root = tmp(name);
-  const seed = join(root, 'seed');
-  git(root, 'init', '-q', '-b', 'main', seed);
-  write(seed, files);
-  git(seed, 'add', '-A');
-  git(seed, 'commit', '-q', '-m', 'init');
-  return { root, seed, data: join(root, 'data') };
+  cpSync(template, root, { recursive: true });
+  return { root, seed: join(root, 'seed'), data: join(root, 'data') };
 };
 
 export const start = (session: string): SessionEvent => ({
