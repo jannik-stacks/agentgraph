@@ -46,7 +46,11 @@ export type Checkout = {
 export class SandboxError extends Data.TaggedError('SandboxError')<{
   reason: 'timeout' | 'stalled' | 'infra' | 'host';
   detail: string;
-}> {}
+}> {
+  override get message() {
+    return this.detail || this.reason;
+  }
+}
 
 /**
  * Where a run's checkout lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a

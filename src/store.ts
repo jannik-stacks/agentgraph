@@ -122,7 +122,11 @@ export const readResultSheets = (roots: readonly string[]) => {
 /** Which check output the store keeps: every run's, only failing ones', or none. */
 export const checkLogs = ['all', 'failed', 'off'] as const;
 
-export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {}
+export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {
+  override get message() {
+    return `${this.path}: ${String(this.cause)}`;
+  }
+}
 
 /** Runs, traces and run files in the data dir. */
 export class Store extends Context.Service<
