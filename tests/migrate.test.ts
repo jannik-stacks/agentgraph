@@ -133,14 +133,30 @@ describe('bench/migrate.ts', () => {
   it('keeps every attempt, numbered or in the attic, and an arm saved without its run data', async () => {
     const { root, old, at, addArm } = await makeOldBench();
     await addArm(join(at, 'v2.1792604940434'), { meta: { ms: 30_000, infra: 'docker unreachable' } });
-    await addArm(join(at, 'floor'), { usage: { sessions: 2, usd: 1.5, tokens: {} } });
+    await addArm(join(at, 'floor'), {
+      usage: {
+        sessions: 2,
+        usd: 1.5,
+        checkUsd: 0.3,
+        ms: 180_000,
+        tokens: {},
+        split: { agent: 100_000, tools: 20_000, setup: 30_000, checks: 10_000, infra: 20_000 },
+        attempts: [],
+      },
+    });
     await copyOldBenchRuns(old, old, join(root, 'repos'));
     const rows = readBenchRows([join(old, 'runs')]);
     const v2 = rows.find(r => r.labels.arm === 'v2')!;
     expect(readdirSync(join(v2.at, '..'))).toEqual(['1', '2']);
     expect(v2).toMatchObject({ minutes: 1.5, usd: 1, hidden: 1 });
     const floor = rows.find(r => r.labels.arm === 'floor')!;
-    expect(floor).toMatchObject({ usd: 1.5, hidden: 1 });
+    expect(floor).toMatchObject({
+      usd: 1.5,
+      checkUsd: 0.3,
+      minutes: 3,
+      hidden: 1,
+      split: { agent: 100_000, tools: 20_000, setup: 30_000, checks: 10_000, infra: 20_000 },
+    });
     expect(readRunChange(floor.at, readAttemptRun(floor.at)!.run)).toContain('a + b');
   });
 

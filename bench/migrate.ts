@@ -20,7 +20,6 @@ import { writeImportedRun } from '../src/instance.ts';
 import { getRounded } from '../src/stats.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { writeRunLabels } from '../src/labels.ts';
-import type { TokenCounts } from '../src/prices.ts';
 import { type BenchInput, getBenchSlot, readAttemptRun } from './runs.ts';
 
 const version = 'migrated';
@@ -242,9 +241,8 @@ const migrateArm = async (
       );
       const m = from === final ? meta : (readJson<typeof meta>(join(from, 'meta.json')) ?? {});
       const why = whyInfra(m);
-      const usage =
-        imported &&
-        readJson<{ sessions?: number; usd?: number; tokens?: Record<string, TokenCounts> }>(join(from, 'usage.json'));
+      const usage = (imported && readJson<{ ms?: number }>(join(from, 'usage.json'))) || {};
+      const ms = usage.ms ?? m.ms;
       await appendBenchResults(
         readSlotRun(slot)!,
         [
@@ -253,11 +251,9 @@ const migrateArm = async (
             pass: !why,
             ...(why && { findings: why }),
             value: {
-              ...(typeof m.ms === 'number' && { ms: m.ms }),
+              ...(typeof ms === 'number' && { ms }),
               ...(from === final && { answers: meta.answers ?? 0 }),
-              ...(usage && {
-                usage: { sessions: usage.sessions ?? 0, usd: usage.usd ?? 0, tokens: usage.tokens ?? {} },
-              }),
+              ...(Object.keys(usage).length && { usage }),
             },
           },
         ],

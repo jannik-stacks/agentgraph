@@ -240,30 +240,27 @@ const readRow = (
   const setup = latest.get('bench/setup')?.check.value as
     | { labels?: Record<string, string>; setup?: boolean }
     | undefined;
-  const usage = [found, ...earlier].map(f => ({
-    ...readDataUsage(f.data),
-    ...(
-      readLatestRunChecks(f.data, f.run.id).get('bench/arm')?.check.value as
-        | { usage?: Pick<ReturnType<typeof readDataUsage>, 'sessions' | 'usd' | 'tokens'> }
-        | undefined
-    )?.usage,
-  }));
+  const usage = [found, ...earlier].map(f => {
+    const value = (f === found ? latest : readLatestRunChecks(f.data, f.run.id)).get('bench/arm')?.check.value as
+      | { ms?: number; usage?: Partial<ReturnType<typeof readDataUsage>> }
+      | undefined;
+    const u = { ...readDataUsage(f.data), ...value?.usage };
+    return { ...u, ms: value?.ms ?? u.ms, split: { infra: 0, ...u.split } };
+  });
   const tokens: Record<string, TokenCounts> = {};
   for (const u of usage)
     for (const [m, t] of Object.entries(u.tokens)) {
       const sum = (tokens[m] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
       for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) sum[k] += t[k];
     }
-  const total = (k: 'usd' | 'checkUsd' | 'sessions') => getRounded(usage.reduce((n, u) => n + u[k], 0));
-  const armMs = (f: FoundRun, u: (typeof usage)[number]) =>
-    Number((readLatestRunChecks(f.data, f.run.id).get('bench/arm')?.check.value as { ms?: number })?.ms ?? u.ms);
-  const ms = [found, ...earlier].reduce((n, f, i) => n + armMs(f, usage[i]!), 0);
+  const total = (k: 'usd' | 'checkUsd' | 'sessions' | 'ms') => getRounded(usage.reduce((n, u) => n + u[k], 0));
+  const part = (k: keyof (typeof usage)[number]['split']) => usage.reduce((n, u) => n + u.split[k], 0);
   const split = {
-    agent: usage.reduce((n, u) => n + u.split.agent, 0),
-    tools: usage.reduce((n, u) => n + u.split.tools, 0),
-    setup: usage.reduce((n, u) => n + u.split.setup, 0),
-    checks: usage.reduce((n, u) => n + u.split.checks, 0),
-    infra: earlier.reduce((n, f, i) => n + armMs(f, usage[i + 1]!), 0),
+    agent: part('agent'),
+    tools: part('tools'),
+    setup: part('setup'),
+    checks: part('checks'),
+    infra: part('infra') + usage.slice(1).reduce((n, u) => n + u.ms, 0),
   };
   const infra =
     armed && !armed.check.pass ? armed.check.findings || 'infra' : setup?.setup === false ? 'setup fails' : undefined;
@@ -299,7 +296,7 @@ const readRow = (
     findings: judged?.findings ?? { critical: 0, high: 0 },
     ...(judged?.against && { against: judged.against }),
     answers: Number((armed?.check.value as { answers?: number } | undefined)?.answers ?? 0),
-    minutes: ms / 60_000,
+    minutes: total('ms') / 60_000,
     tokens,
     split,
     ...getBenchUsageCost({ usd: total('usd'), tokens }),
