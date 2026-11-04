@@ -1,5 +1,3 @@
-import { getSha } from './hash.ts';
-import { readOrUndefined } from './read.ts';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
@@ -9,6 +7,8 @@ import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
 import { parse, stringify } from 'yaml';
+import { getSha } from './hash.ts';
+import { readOrUndefined } from './read.ts';
 import { getCachePath } from './env.ts';
 import type { Issue } from './event.ts';
 import { folderTracker, Tracker, formatIssueFile, parseIssueFile, writeTimelineEvent } from './tracker.ts';
@@ -16,8 +16,9 @@ import { gitIdentity, hostGit, makeHostEnv, readGit } from './git.ts';
 import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
 import { formatShellWord } from './status.ts';
-import { fileStore, Store, writeFileAtomic } from './store.ts';
+import { fileStore, writeFileAtomic } from './store.ts';
 import type { RunRecord } from './workflow.ts';
+import { startRun } from './run/start.ts';
 
 export type Instance = {
   dir: string;
@@ -416,6 +417,6 @@ export const writeImportedRun = async (
     ended: at,
     meta: { engine: { origin: { plugin: 'agi', version: o.version, job: 'import', input: o.input ?? null } } },
   };
-  await Effect.runPromise(Effect.flatMap(Store, s => s.put(run)).pipe(Effect.provide(fileStore(i.data))));
+  await Effect.runPromise(startRun(run).pipe(Effect.provide(fileStore(i.data))));
   return id;
 };

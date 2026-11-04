@@ -68,6 +68,7 @@ import {
   type Child,
   createIssues,
   formatWaitingOn,
+  startRun,
 } from './run/start.ts';
 import { writeNews, shapes, pickLastHeard, parseProposals, pickTryOutcome, block } from './run/attempt.ts';
 import { moveCheckoutOnto, runAside, runFollow, runCatchUp } from './run/follow.ts';
@@ -1105,11 +1106,11 @@ export const tick = (
           ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
-        if (Result.isFailure(yield* Effect.result(store.lock(begun.id)))) return;
-        if (yield* store.get(begun.id)) return;
-        const first = begun.status === 'running' ? begun : yield* writeStatus(w, begun, graph);
+        const first = yield* startRun(begun, run =>
+          run.status === 'running' ? Effect.succeed(run) : writeStatus(w, run, graph)
+        );
+        if (!first) return;
         busy.add(`${w.name}#${issue}`);
-        yield* store.put(first);
         const run = m ? yield* eyes(first, m) : first;
         if (run !== first) yield* store.put(run);
         const mark = w.on.issues?.label;
@@ -1211,12 +1212,7 @@ export const tick = (
           ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
           feedback: `## What a person said or pushed\n\n${fresh.map(formatEventLine).join('\n\n')}`,
         };
-        yield* Effect.gen(function* () {
-          if (Result.isFailure(yield* Effect.result(store.lock(begun.id)))) return;
-          if (yield* store.get(begun.id)) return;
-          yield* store.put(begun);
-          touched.push(begun);
-        }).pipe(Effect.scoped);
+        if (yield* startRun(begun)) touched.push(begun);
       }
     }
 

@@ -1,7 +1,7 @@
-import { Effect } from 'effect';
+import { Effect, Result } from 'effect';
 import type { Said, Proposal } from '../proposal.ts';
 import { TrackerError, Tracker, withheld } from '../tracker.ts';
-import { type Workflow, type Run, begin, isRunDone } from '../workflow.ts';
+import { type Workflow, type Run, type RunRecord, begin, isRunDone } from '../workflow.ts';
 import { findAppliedBefore, getOperationKey, writeOnce, useRunLink } from './settle.ts';
 import type { Applied } from '../event.ts';
 import { Store } from '../store.ts';
@@ -9,6 +9,20 @@ import type { Graph } from '../folder.ts';
 import { isInScope, isRetro } from './hear.ts';
 
 export type Child = Extract<Said, { kind: 'issue' }>;
+
+/** Saves a new run once, under its id's lock and only when no run has that id; `ready` finishes it before it is saved. */
+export const startRun = <A extends RunRecord, E = never, R = never>(
+  run: A,
+  ready: (run: A) => Effect.Effect<A, E, R> = Effect.succeed
+) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    if (Result.isFailure(yield* Effect.result(store.lock(run.id)))) return;
+    if (yield* store.getRecord(run.id)) return;
+    const first = yield* ready(run);
+    yield* store.put(first);
+    return first;
+  }).pipe(Effect.scoped);
 
 export const isPart = (p: Child): p is Extract<Child, { relation: 'part' }> => p.relation === 'part';
 
@@ -101,18 +115,11 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
         summary
       )
     );
-    const store = yield* Store;
     for (const [i, n] of numbers.entries()) {
       const p = children[i]!;
       if (!isPart(p) || p.size !== 'XL' || depth + 1 >= deepest) continue;
       const at = new Date().toISOString();
-      yield* store.put(
-        begin(w, {
-          id: `${w.name}-${n}-${at.replace(/\D/g, '')}`,
-          issue: n,
-          started: at,
-        })
-      );
+      yield* startRun(begin(w, { id: `${w.name}-${n}-${at.replace(/\D/g, '')}`, issue: n, started: at }));
     }
     return applied;
   }).pipe(useRunLink(run));
@@ -187,8 +194,7 @@ export const startProposedRun = (
       by: run.id,
       ...seed,
     };
-    yield* Effect.flatMap(Store, s => s.put(child));
-    return child;
+    return (yield* startRun(child)) ?? child;
   });
 
 export const findRecipient = (graph: Graph, issue: number, by: string) =>
