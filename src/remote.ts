@@ -348,6 +348,12 @@ export const remoteSandbox = (o: {
         });
 
       yield* Effect.promise(() => mkdir(getCachePath(o.data, 'sync'), { recursive: true }));
-      return { readHead: host.readHead, checkout, exec: (c: Command) => Effect.scoped(exec(c)), lines };
+      return {
+        readHead: host.readHead,
+        removeBranch: host.removeBranch,
+        checkout,
+        exec: (c: Command) => Effect.scoped(exec(c)),
+        lines,
+      };
     })
   );

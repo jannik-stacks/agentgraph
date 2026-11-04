@@ -26,7 +26,7 @@ import {
   unlogged,
   written,
 } from './env.ts';
-import { ensureFreeDisk, readEnvRefs, writeEnvRefs } from './disk.ts';
+import { ensureFreeDisk, readEnvRefs, writeEnvRefs, removeBranch } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { commitCheckout, commitCheckoutOnce, hostGit, makeHostEnv, readGit } from './git.ts';
@@ -896,6 +896,15 @@ export const dockerSandbox = (o: {
           return work;
         });
 
-      return { readHead, checkout, exec, lines, tools, scratch: inside.scratch };
+      return {
+        readHead,
+        removeBranch: (branch, base, head) =>
+          lock.withPermits(1)(removeBranch(mirror, branch, o.local && base === 'origin/HEAD' ? 'HEAD' : base, head)),
+        checkout,
+        exec,
+        lines,
+        tools,
+        scratch: inside.scratch,
+      };
     })
   );

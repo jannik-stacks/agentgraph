@@ -1,11 +1,14 @@
 import { readDirOrEmpty, readOrUndefined } from './read.ts';
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { makeHostEnv } from './git.ts';
+import { makeHostEnv, hostGit, readGit } from './git.ts';
+import { Effect } from 'effect';
 import {
   appendFileSync,
   existsSync,
   mkdirSync,
+  lstatSync,
+  realpathSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -155,6 +158,42 @@ const du = (path: string) =>
       e ? reject(e) : done(Number(out.split('\t')[0]) * 1024)
     )
   );
+
+export const removeBranch = (git: string, branch: string, base: string, head?: string) =>
+  Effect.gen(function* () {
+    if (!existsSync(git)) return;
+    const env = { GIT_DIR: git };
+    const ref = `refs/heads/${branch}`;
+    const tip = yield* readGit(env, ['rev-parse', '--verify', '--quiet', ref], { codes: [1] });
+    if (!tip) return;
+    const isLanded = (sha: string) =>
+      Effect.gen(function* () {
+        if (head && (yield* Effect.isSuccess(hostGit(env, ['merge-base', '--is-ancestor', sha, head])))) return true;
+        return yield* Effect.isSuccess(hostGit(env, ['merge-base', '--is-ancestor', sha, base]));
+      });
+    if (!(yield* isLanded(tip))) return yield* Effect.logWarning(`1 skipped checkout cleanup ${branch}: unlanded`);
+    const trees = (yield* readGit(env, ['worktree', 'list', '--porcelain', '-z']))
+      .split('\0\0')
+      .filter(t => t.split('\0').includes(`branch ${ref}`));
+    for (const tree of trees) {
+      const fields = tree.split('\0');
+      const path = fields[0]!.slice('worktree '.length);
+      const sha = fields.find(f => f.startsWith('HEAD '))!.slice(5);
+      const unsafe = existsSync(path) && (realpathSync(path) !== path || !lstatSync(join(path, '.git')).isFile());
+      const dirty =
+        !unsafe && existsSync(path) && (yield* readGit({ GIT_WORK_TREE: path }, ['status', '--porcelain', '-uall']));
+      if (unsafe || dirty || !(yield* isLanded(sha)))
+        return yield* Effect.logWarning(`1 skipped cleanup ${path} ${branch}: unsafe, dirty or unlanded`);
+    }
+    for (const tree of trees) {
+      const path = tree.split('\0')[0]!.slice('worktree '.length);
+      if (existsSync(path)) yield* hostGit(env, ['worktree', 'remove', '--force', path]);
+      yield* Effect.logInfo(`removed checkout ${path} branch ${branch}`);
+    }
+    yield* hostGit(env, ['worktree', 'prune']);
+    yield* hostGit(env, ['update-ref', '-d', ref, tip]);
+    yield* Effect.logInfo(`removed local branch ${branch}`);
+  });
 
 /** Unique bytes of each image by id and bytes of each volume by name, as `docker system df` counts them. */
 const usage = async () => {
