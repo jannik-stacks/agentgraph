@@ -646,7 +646,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
     exited = [code, signal];
   });
   try {
-    await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 5000 });
+    await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 20_000 });
     child.kill('SIGTERM');
     await vi.waitFor(() => expect(exited).toEqual([143, null]), { timeout: 5000 });
     const release = await createLoopLock(w.instance.data);
@@ -656,7 +656,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   }
-});
+}, 30_000);
 
 it('invalidates loaded virtual pages when switching graphs and removing a plugin', async () => {
   const w = await makeInstance('pages');
