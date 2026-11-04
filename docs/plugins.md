@@ -123,6 +123,31 @@ optional `status(n, to, names)` shows an issue's status by the names in the grap
 labels, `folder` moves the issue's folder. A status the tracker refuses is shown again on the next pass.
 <!-- code: src/plugin.ts#TrackerHost src/services.ts#readHostSettings src/services.ts#pickTracker src/tracker.ts#folder src/github.ts#github src/run/settle.ts#writeStatus -->
 
+### Your own tracker
+
+The built-ins ship as `folder` and `github` in `@jannik-stacks/agi/trackers`, so a graph plugin can wrap one under a
+new name:
+
+```ts
+// .agentgraph/plugins/my-folder.ts
+import { join } from 'node:path';
+import { makePlugin } from '@jannik-stacks/agi/plugins';
+import { folder } from '@jannik-stacks/agi/trackers';
+
+export default makePlugin({
+  ...folder,
+  name: 'my-folder',
+  tracker: host => folder.tracker!({ ...host, dir: join(host.dir ?? '.', 'issues') }),
+});
+```
+
+To change more, copy `folderTracker` from `src/tracker.ts` in a clone into the plugin and edit it. Pick the plugin
+with `--tracker my-folder`, `AGENTGRAPH_TRACKER=my-folder` or `tracker: my-folder` in instance.yaml, and run
+`agi check --dir <graph>` to see that the name resolves to a plugin with a tracker in a graph the host reads. A graph
+plugin named `folder` would replace the built-in, but a new name keeps the swap visible. Turning status off needs no
+fork: `status: false` in settings.yaml.
+<!-- code: src/plugin.ts src/trackers.ts -->
+
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect

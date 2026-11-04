@@ -51,6 +51,29 @@ export default makePlugin({ name: 'external', settingsSchema: Input, tools: {
 } });
 `;
 
+it('lets a graph plugin wrap the built-in trackers by their package paths', async () => {
+  const dir = await makePluginDir({
+    'plugins/mine.ts': `import { folder } from '@jannik-stacks/agi/trackers';
+export default { ...folder, name: 'mine' };
+`,
+  });
+  const picked = execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+import { readPlugins } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href)};
+const { trackers } = await readPlugins(${JSON.stringify(dir)}, {});
+const { github } = await import('@jannik-stacks/agi/trackers');
+console.log(trackers.mine({ dir: '/t' }).origin.origin, github.name);
+`,
+    ],
+    { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+  );
+  expect(picked.trim()).toBe('/t/origin.git github');
+});
+
 const readExternalPlugin = (dir: string) =>
   JSON.parse(
     execFileSync(

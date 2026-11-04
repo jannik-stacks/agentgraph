@@ -10,8 +10,9 @@ import type { Event, Issue, IssueStatus } from './event.ts';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === '@jannik-stacks/agi/plugins')
-      return { url: new URL(`./plugin${extname(import.meta.filename)}`, import.meta.url).href, shortCircuit: true };
+    const local = { '@jannik-stacks/agi/plugins': 'plugin', '@jannik-stacks/agi/trackers': 'trackers' }[specifier];
+    if (local)
+      return { url: new URL(`./${local}${extname(import.meta.filename)}`, import.meta.url).href, shortCircuit: true };
     if (['effect', 'ai'].some(name => specifier === name || specifier.startsWith(`${name}/`))) {
       if (context.conditions.includes('require')) return { url: import.meta.resolve(specifier), shortCircuit: true };
       return nextResolve(specifier, { ...context, parentURL: import.meta.url });

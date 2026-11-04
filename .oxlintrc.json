@@ -183,7 +183,7 @@
       }
     },
     {
-      "files": ["src/docker.ts", "src/remote.ts", "src/github.ts", "src/harnesses.ts"],
+      "files": ["src/docker.ts", "src/remote.ts", "src/github.ts", "src/harnesses.ts", "src/trackers.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",

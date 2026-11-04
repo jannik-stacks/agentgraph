@@ -27,13 +27,17 @@
     "./plugins": {
       "types": "./dist/plugin.d.mts",
       "import": "./dist/plugin.mjs"
+    },
+    "./trackers": {
+      "types": "./dist/trackers.d.mts",
+      "import": "./dist/trackers.mjs"
     }
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown bin/run.ts && tsdown src/plugin.ts --dts --no-clean",
+    "build": "tsdown bin/run.ts && tsdown src/plugin.ts src/trackers.ts --dts --no-clean",
     "up": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile sandbox up -d --wait",
     "down": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile '*' down",
     "keys": "bash infra/local/keys.sh",

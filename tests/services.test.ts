@@ -48,7 +48,7 @@ it('picks a tracker plugin by name, else a tracker folder at the path, and fails
   const tracker = JSON.stringify(join(import.meta.dirname, '..', 'src', 'tracker.ts'));
   write(graph, {
     'plugins/mine.ts': `import { folder } from ${tracker};
-export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: ${JSON.stringify(mine)} }) };
+export default { ...folder, name: 'mine' };
 `,
   });
   const titles = (vars: Record<string, string>) => {
@@ -65,7 +65,7 @@ export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: $
     const issues = Effect.flatMap(Tracker, t => t.issues());
     return Effect.runPromise(Effect.provide(issues, makeProductionLayers()(s))).then(all => all.map(i => i.title));
   };
-  expect(await titles({ AGENTGRAPH_TRACKER: 'mine' })).toEqual(['from mine']);
+  expect(await titles({ AGENTGRAPH_TRACKER: 'mine', AGENTGRAPH_TRACKER_DIR: mine })).toEqual(['from mine']);
   expect(await titles({ AGENTGRAPH_TRACKER: other })).toEqual(['from the folder']);
   await expect(titles({ AGENTGRAPH_TRACKER: 'nope' })).rejects.toThrow(
     /no tracker plugin nope .*trackers: github, folder, mine/
