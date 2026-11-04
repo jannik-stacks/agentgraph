@@ -12,7 +12,7 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { randomBytes } from 'node:crypto';
 import { getSha } from '../src/hash.ts';
@@ -119,9 +119,16 @@ const branches = /\b(?:if|for|while|match|case|catch|loop)\b|&&|\|\|/g;
 const comment = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
 
 const hash = (text: string) => getSha(text, 20);
-const treeText = (dir: string): string =>
-  readdirSync(dir, { withFileTypes: true })
-    .flatMap(e => (e.isDirectory() ? [treeText(join(dir, e.name))] : [e.name, readFileSync(join(dir, e.name), 'utf8')]))
+const treeText = (dir: string) =>
+  readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter(e => statSync(join(e.parentPath, e.name)).isFile())
+    .map(e => relative(dir, join(e.parentPath, e.name)))
+    .filter(path => !path.split(sep).includes('node_modules'))
+    .toSorted()
+    .map(path => {
+      const text = readFileSync(join(dir, path), 'utf8');
+      return `${path}\0${text.length}\0${text}`;
+    })
     .join('\0');
 const sh = (cmd: string, args: string[], o: { cwd?: string; env?: Record<string, string> } = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...o, env: { ...process.env, ...o.env } });
@@ -470,7 +477,10 @@ export const makeBenchInput = (
         repeat,
         ...(o.point && { point: o.point }),
         graph: hash(
-          treeText(findCaseGraphDir(c, o.graph)) + (arm === 'floor' ? treeText(join(agentgraphDir, 'bench/floor')) : '')
+          JSON.stringify([
+            treeText(findCaseGraphDir(c, o.graph)),
+            arm === 'floor' ? treeText(join(agentgraphDir, 'bench/floor')) : '',
+          ])
         ),
         ...(o.labels && Object.keys(o.labels).length && { labels: o.labels }),
       };

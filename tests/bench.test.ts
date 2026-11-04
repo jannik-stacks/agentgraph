@@ -1,5 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -628,6 +637,11 @@ describe('arm graphs', () => {
     const after = makeBenchInput(c, 'v2', 1, { point: 'opencode:luna', graph });
     expect(getBenchSlot('set', before)).not.toBe(getBenchSlot('set', after));
     expect(makeBenchInput(c, 'v2', 1).graph).toMatch(/^[0-9a-f]{20}$/);
+    mkdirSync(join(graph, 'skills', 'alpha'), { recursive: true });
+    writeFileSync(join(graph, 'skills', 'alpha', 'SKILL.md'), 'x');
+    const alpha = makeBenchInput(c, 'v2', 1, { graph }).graph;
+    renameSync(join(graph, 'skills', 'alpha'), join(graph, 'skills', 'beta'));
+    expect(makeBenchInput(c, 'v2', 1, { graph }).graph).not.toBe(alpha);
     expect(getBenchSlot('set', makeBenchInput(c, 'v2', 1, { graph, labels: { cand: 'a' } }))).not.toBe(
       getBenchSlot('set', makeBenchInput(c, 'v2', 1, { graph, labels: { cand: 'b' } }))
     );
