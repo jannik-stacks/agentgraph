@@ -382,7 +382,7 @@ async function runOnInstance() {
     AGENTGRAPH_TRACKER_DIR: i.tracker,
     AGENTGRAPH_TRUST: i.owner,
   });
-  const getTracker = async () => {
+  const readTrackerService = async () => {
     const graph = await ensureGraph(i, graphDir).catch(() => '');
     const setup = await makeTrackerSetup({
       repo: i.repo,
@@ -394,6 +394,8 @@ async function runOnInstance() {
     }).catch((e: Error) => fail(e.message, 1));
     return Effect.runPromise(Effect.provide(Tracker, setup.layer()));
   };
+  let trackerService: Promise<Tracker['Service']> | undefined;
+  const getTracker = () => (trackerService ??= readTrackerService());
   if (i.trackerName) await getTracker();
   const synced = async () => {
     const why = await ensureBase(i);
@@ -693,7 +695,10 @@ async function loop(i: Instance) {
       const signal = AbortSignal.any([stopping.signal, woken.signal]);
       await Promise.race([
         sleep(host.every * 60_000, undefined, { signal }),
-        watch(i.tracker, { signal, recursive: true }).next(),
+        (async () => {
+          for await (const { filename } of watch(i.tracker, { signal, recursive: true }))
+            if (!filename?.startsWith('.tracker.lock')) return;
+        })(),
       ]).catch(() => {});
       woken.abort();
       await applySettings(connection.provider)().catch((e: Error) =>

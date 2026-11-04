@@ -1,3 +1,4 @@
+import { Struct } from 'effect';
 import type { Located } from '../../../src/store.ts';
 import type { readRunLabels } from '../../../src/labels.ts';
 import type { CheckEntry, Trace } from '../../../src/trace.ts';
@@ -87,9 +88,10 @@ const listedFields = [
 ] as const;
 
 export const pickListedRun = (run: RunRecord, body: boolean) =>
-  Object.fromEntries(
-    listedFields.flatMap(k => (run[k] === undefined || (k === 'body' && !body) ? [] : [[k, run[k]]]))
-  ) as Pick<RunRecord, (typeof listedFields)[number]>;
+  Struct.pick(
+    run,
+    listedFields.filter(k => body || k !== 'body')
+  );
 
 /** A run as the dev server answers it: the run, its summary, where it lives, its pull request and branch, and its trace when opened alone. */
 export type ServedRun = {

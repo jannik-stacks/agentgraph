@@ -241,7 +241,6 @@ export const makeProductionLayers = () => {
               direct: findLocalModelHosts(s.proxy.url),
               ...origin,
             });
-        // a graph that does not load trusts no one; every tick reports why it does not load
         const trust = s.trust.length
           ? s.trust
           : yield* Effect.scoped(Effect.map(graphAt(s.graph), graph => graph.trust)).pipe(
