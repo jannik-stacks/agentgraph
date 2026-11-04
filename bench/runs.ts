@@ -173,6 +173,7 @@ const findBenchRuns = (roots: readonly string[]) =>
         slot: slotted ? dirname(at) : file,
         attempt: slotted ? Number(basename(at)) : 0,
         set: slotted ? dirname(dirname(dirname(at))) : undefined,
+        latest: readLatestRunChecks(data, run.id),
       },
     ];
   });
@@ -224,8 +225,7 @@ const readRow = (
   base?: Map<string, CheckEntry>,
   human?: Map<string, CheckEntry>
 ) => {
-  const { run, data, set } = found;
-  const latest = readLatestRunChecks(data, run.id);
+  const { run, data, set, latest } = found;
   const input = (getRunOrigin(run.meta)?.input ?? {}) as Partial<BenchInput>;
   const labels = readRunLabels(data, run.id);
   const id = input.case ?? labels.case ?? run.id;
@@ -241,7 +241,7 @@ const readRow = (
     | { labels?: Record<string, string>; setup?: boolean }
     | undefined;
   const usage = [found, ...earlier].map(f => {
-    const value = (f === found ? latest : readLatestRunChecks(f.data, f.run.id)).get('bench/arm')?.check.value as
+    const value = f.latest.get('bench/arm')?.check.value as
       | { ms?: number; usage?: Partial<ReturnType<typeof readDataUsage>> }
       | undefined;
     const u = { ...readDataUsage(f.data), ...value?.usage };
@@ -309,7 +309,7 @@ const splitFinishedRuns = (fs: FoundRun[]) => {
   const groups: FoundRun[][] = [[]];
   for (const [i, f] of fs.entries()) {
     groups.at(-1)!.unshift(f);
-    if (i < fs.length - 1 && readLatestRunChecks(f.data, f.run.id).has('bench/hidden')) groups.push([]);
+    if (i < fs.length - 1 && f.latest.has('bench/hidden')) groups.push([]);
   }
   return groups as [FoundRun, ...FoundRun[]][];
 };
@@ -326,19 +326,18 @@ export const readBenchRows = (roots: readonly string[]) => {
         earlier,
         key: JSON.stringify([found.set ?? '', input.case ?? '']),
         arm: input.arm,
-        latest: readLatestRunChecks(found.data, found.run.id),
       };
     });
   const refs = (arm: string) => new Map(slots.flatMap(s => (s.arm === arm ? [[s.key, s] as const] : [])));
   const bases = refs('base');
   const humans = refs('human');
   const invalid = new Set(
-    [...humans.values()].flatMap(s => (s.latest.get('bench/valid')?.check.pass === false ? [s.key] : []))
+    [...humans.values()].flatMap(s => (s.found.latest.get('bench/valid')?.check.pass === false ? [s.key] : []))
   );
-  return slots.flatMap(({ found, earlier, key, arm, latest }) => {
+  return slots.flatMap(({ found, earlier, key, arm }) => {
     if (invalid.has(key)) return [];
     const [base, human] = [bases.get(key), humans.get(key)];
-    if (arm === 'control' || (found.run.workflow !== 'import' && !latest.has('bench/arm'))) return [];
+    if (arm === 'control' || (found.run.workflow !== 'import' && !found.latest.has('bench/arm'))) return [];
     const files = [found, ...earlier, ...(base ? [base.found] : []), ...(human ? [human.found] : [])].flatMap(f =>
       ['run.json', 'checks.jsonl', 'labels.jsonl', 'trace.jsonl'].map(
         n => statSync(join(f.data, f.run.id, n), { throwIfNoEntry: false })?.mtimeMs ?? 0
@@ -347,7 +346,7 @@ export const readBenchRows = (roots: readonly string[]) => {
     const cacheKey = JSON.stringify(files);
     const cached = rowCache.get(join(found.data, found.run.id));
     if (cached?.key === cacheKey) return [cached.row];
-    const row = readRow(found, earlier, base?.latest, human?.latest);
+    const row = readRow(found, earlier, base?.found.latest, human?.found.latest);
     rowCache.set(join(found.data, found.run.id), { key: cacheKey, row });
     return [row];
   });
