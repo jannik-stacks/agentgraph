@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { Cause, Duration, Effect, Layer, Queue, Redacted, Stream } from 'effect';
-import { gitIdentity } from '../../src/git.ts';
+import { gitIdentity, readBranches } from '../../src/git.ts';
 import { removeBranch } from '../../src/disk.ts';
 import { Sandbox, SandboxError, type Checkout, type Command, type Exit } from '../../src/sandbox.ts';
 
@@ -42,6 +42,7 @@ const graphs = 'refs/agentgraph/graphs/*';
 /** Commands on the host, with clones of the local git repo `repo` as worktrees. No network rules. */
 export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
+    readBranches: () => readBranches(repo),
     removeBranch: (branch, base, head) => removeBranch(repo, branch, base === 'origin/HEAD' ? 'HEAD' : base, head),
     readHead: ref =>
       Effect.tryPromise({

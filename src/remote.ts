@@ -349,6 +349,7 @@ export const remoteSandbox = (o: {
 
       yield* Effect.promise(() => mkdir(getCachePath(o.data, 'sync'), { recursive: true }));
       return {
+        readBranches: host.readBranches,
         readHead: host.readHead,
         removeBranch: host.removeBranch,
         checkout,

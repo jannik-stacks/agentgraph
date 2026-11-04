@@ -793,6 +793,17 @@ export const scanIssuesAndRunningRuns = (
     const listed = yield* listing;
     const open = listed.filter(t => !t.pull && isInScope(graph, t));
     const all = yield* Effect.flatMap(Store, s => s.list());
+    const branches = new Set(
+      yield* Effect.flatMap(Sandbox, s => s.readBranches()).pipe(
+        Effect.catch(e => Effect.as(Effect.logWarning('local branches', e), []))
+      )
+    );
+    const runs = all.filter(r => {
+      if (!isRunDone(r) || r.owed) return true;
+      const branch = graph.workflows[r.workflow]?.branch;
+      const own = branch && formatTemplate(branch, listed.find(t => t.number === r.issue) ?? { number: r.issue });
+      return own && isAgentBranch(own) && branches.has(own);
+    });
     const from = pickNewest(...all.map(r => r.started));
     const cursor = from
       ? new Date(Date.parse(all.flatMap(r => [r.started, r.seen ?? r.started]).toSorted()[0]!) - debounce).toISOString()
@@ -802,7 +813,7 @@ export const scanIssuesAndRunningRuns = (
     const history = cursor ? yield* Effect.cached(Stream.runCollect(tracker.since('', boards))) : latest;
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
-    const issues = [...new Set([...all.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
+    const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
     const look = (n: number) =>
       tick(
         graph,

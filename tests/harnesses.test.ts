@@ -65,6 +65,7 @@ const session = (
 ) => {
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
+    readBranches: () => Effect.die('unexpected branch listing'),
     readHead: () => Effect.die('readHead'),
     removeBranch: () => Effect.die('cleanup'),
     checkout: () => Effect.die('checkout'),

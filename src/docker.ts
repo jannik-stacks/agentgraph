@@ -29,7 +29,7 @@ import {
 import { ensureFreeDisk, readEnvRefs, writeEnvRefs, removeBranch } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { commitCheckout, commitCheckoutOnce, hostGit, makeHostEnv, readGit } from './git.ts';
+import { commitCheckout, commitCheckoutOnce, hostGit, makeHostEnv, readGit, readBranches } from './git.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
@@ -897,6 +897,7 @@ export const dockerSandbox = (o: {
         });
 
       return {
+        readBranches: () => readBranches(mirror),
         readHead,
         removeBranch: (branch, base, head) =>
           lock.withPermits(1)(removeBranch(mirror, branch, o.local && base === 'origin/HEAD' ? 'HEAD' : base, head)),

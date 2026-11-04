@@ -73,6 +73,7 @@ export class Sandbox extends Context.Service<
   {
     scratch?: string;
     tools?: Effect.Effect<{ subnet: string } & Pick<NonNullable<Command['tools']>, 'host'>, SandboxError>;
+    readBranches: () => Effect.Effect<string[], SandboxError>;
     readHead: (ref: string) => Effect.Effect<string, SandboxError>;
     removeBranch: (branch: string, base: string, head?: string) => Effect.Effect<void, SandboxError>;
     checkout: (

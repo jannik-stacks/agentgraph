@@ -4,6 +4,7 @@ import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { removeBranch } from '../src/disk.ts';
 import { Store } from '../src/store.ts';
+import { Tracker } from '../src/tracker.ts';
 import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { commit, git, issuePath, write, writeIssueAt } from './kit.ts';
 import { fresh, graph, say, services, world } from './world.ts';
@@ -56,6 +57,31 @@ describe('landed checkout cleanup', () => {
     expect(readFileSync(join(run.data, 'run-7/logs/output'), 'utf8')).toBe('log');
     expect(readFileSync(join(shared, 'dependency.js'), 'utf8')).toBe('shared');
     await run.clean();
+  });
+
+  it('does not fetch issues for a done run whose local branch is gone', async () => {
+    const run = setup();
+    await run.clean();
+    writeIssueAt(
+      issuePath(run.tracker, 7),
+      readFileSync(issuePath(run.tracker, 7), 'utf8').replace('state: open', 'state: closed')
+    );
+    writeIssueAt(issuePath(run.tracker, 8), '---\ntitle: Landed\nstate: merged\nauthor: morgan\nlabels: []\n---\n');
+    write(run.tracker, { '8/pull.json': JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: run.head }) });
+    say(run, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' });
+    const engine = services(run, []);
+    await engine.run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done' })));
+    const fetched: number[] = [];
+    await engine.run(
+      Effect.updateService(scanIssuesAndRunningRuns(graph), Tracker, tracker => ({
+        ...tracker,
+        issue: n => {
+          fetched.push(n);
+          return tracker.issue(n);
+        },
+      }))
+    );
+    expect(fetched).toEqual([]);
   });
 
   it('keeps a checkout reached through a symlink', async () => {
