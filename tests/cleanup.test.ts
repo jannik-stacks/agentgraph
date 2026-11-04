@@ -505,4 +505,22 @@ describe('landed checkout cleanup', () => {
     expect(git(run.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
     expect(git(run.origin, 'worktree', 'list', '--porcelain')).not.toContain(run.path);
   });
+
+  it('stops listing a mirror branch once its checkout is gone, though the next fetch restores it', async () => {
+    const run = setup();
+    const mirror = join(run.data, 'mirror.git');
+    git(run.data, 'init', '--bare', '-q', mirror);
+    const fetch = () =>
+      git(mirror, 'fetch', '-q', '--prune', '--update-head-ok', run.origin, '+refs/heads/*:refs/heads/*');
+    fetch();
+    const path = getCheckoutPaths(run.data, 'mirrored').dir;
+    git(mirror, 'worktree', 'add', '-q', path, 'agentgraph/7');
+    const listed = () => Effect.runPromise(host.readBranches(mirror, true));
+    expect(await listed()).toContain('agentgraph/7');
+    await Effect.runPromise(removeBranch(mirror, 'agentgraph/7', 'main', run.head, run.data));
+    fetch();
+    expect(existsSync(path)).toBe(false);
+    expect(git(mirror, 'rev-parse', 'agentgraph/7')).toBe(run.head);
+    expect(await listed()).not.toContain('agentgraph/7');
+  });
 });
