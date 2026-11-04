@@ -42,7 +42,7 @@ export const runFollow = (w: Workflow, given: Run, known: NonNullable<Run['base'
   Effect.gen(function* () {
     const store = yield* Store;
     const tracker = yield* Tracker;
-    yield* store.lock(given.id);
+    if (!(yield* Effect.isSuccess(store.lock(given.id)))) return;
     const run = (yield* store.get(given.id)) ?? given;
     if (isRunDone(run)) return;
     const base = run.base ?? known;

@@ -19,7 +19,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | `close <n>` | Closes the issue and its open pull request; a live run stops on its next look | |
 | `show [n]`, `show graph` | What needs you, one issue's timeline and diff, or the graph in use; outside a repo, every instance | yes |
 | `studio` | Starts the [studio](local.md#the-studio) for this repo and prints its URL | |
-| `loop` | Drives every open issue, then again when something changes or every `AGENTGRAPH_EVERY` minutes | yes |
+| `loop` | Drives every open issue in the background, then looks again when something changes or every `AGENTGRAPH_EVERY` minutes | yes |
 | `check` | Validates a graph without a model or container; prints each problem or `ok` | yes |
 | `check <name>... --runs` | Runs the named checks on ended runs; see [Checks](checks.md#end-checks) | yes |
 | `resume <run id>` or `resume --parked` | Queues one or all runs parked by a runner error for the next loop pass | yes |

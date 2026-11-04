@@ -37,6 +37,7 @@ const toolTests = [
   'tests/keys-script.test.ts',
   'tests/labels.test.ts',
   'tests/leak-probe.test.ts',
+  'tests/loop-drives.test.ts',
   'tests/lsp.test.ts',
   'tests/note-pairs.test.ts',
   'tests/overnight.test.ts',

@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { ConfigProvider, Effect, Option, Redacted, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { ensureDocker, whyRoot } from '../src/docker.ts';
-import type { Instruction } from '../src/run/trigger.ts';
+import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
 import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
 import { readInstallationReach } from '../src/github.ts';
@@ -660,6 +660,7 @@ async function loop(i: Instance) {
   if (uncommitted) console.error(uncommitted);
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(failLoopLock);
+  const drives = values.once ? undefined : startLoopDrives();
   trapInterrupt();
   try {
     while (!stopping.signal.aborted) {
@@ -674,12 +675,20 @@ async function loop(i: Instance) {
           ));
       if (why) console.error(why);
       else {
-        const runs: RunRecord[] = await start(
-          { graph, issue: 'all', data: i.data, base: i.base, choice: makeHarnessChoice(connection.provider.name) },
+        const decided: RunRecord[] = await start(
+          {
+            graph,
+            issue: 'all',
+            data: i.data,
+            base: i.base,
+            choice: makeHarnessChoice(connection.provider.name),
+            ...(drives && { drives }),
+          },
           undefined,
           {},
           stopping.signal
         ).catch((e: unknown) => (stopping.signal.aborted ? [] : (console.error(e), [])));
+        const runs = [...new Map([...decided, ...(drives?.settled.splice(0) ?? [])].map(r => [r.id, r])).values()];
         printRuns(runs);
         for (const issue of new Set(runs.filter(isOnIssue).map(r => r.issue))) {
           const result = await writePullToRepo(i, issue, { auto: true }).catch((e: Error) => ({ why: e.message }));
@@ -706,6 +715,7 @@ async function loop(i: Instance) {
       );
     }
   } finally {
+    await drives?.stop();
     await release();
   }
 }

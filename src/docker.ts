@@ -431,6 +431,8 @@ const start = (args: string[], secrets: Command['secrets'], name: string, on: (c
 const timeout = (c: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
 
+const mirrorLocks = new Map<string, Semaphore.Semaphore>();
+
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`, or of
  * `origin` itself when it is a `local` tracker's bare repo. With
@@ -455,7 +457,7 @@ export const dockerSandbox = (o: {
       const cache = o.cache ?? 'agentgraph-cache';
       const mirror = o.local ? o.origin : join(o.data, 'mirror.git');
       let configured = false;
-      const lock = yield* Semaphore.make(1);
+      const lock = mirrorLocks.get(mirror) ?? mirrorLocks.set(mirror, Semaphore.makeUnsafe(1)).get(mirror)!;
       const roomy = (base: string) =>
         Effect.tryPromise({
           try: () =>

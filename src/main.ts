@@ -3,7 +3,15 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
 import { ConfigProvider, Effect, Exit, Layer, Scope } from 'effect';
-import { instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick, type Instruction } from './run/trigger.ts';
+import {
+  instruct,
+  issueDebounceMs,
+  runPass,
+  scanIssuesAndRunningRuns,
+  startLoopDrives,
+  tick,
+  type Instruction,
+} from './run/trigger.ts';
 import { writeIssueFile } from './tracker.ts';
 import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
@@ -113,13 +121,14 @@ export const start = (
     marked?: true;
     base?: string;
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
+    drives?: ReturnType<typeof startLoopDrives>;
   },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(),
   defaults: Record<string, string> = {},
   signal?: AbortSignal,
   refresh: () => Promise<unknown> = async () => {}
 ): Promise<RunRecord[]> => {
-  const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+  const provided = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.provide(effect, Layer.unwrap(Effect.map(settings, services)));
   const read = Effect.tryPromise(() => readEngineEnv(defaults));
   const program = one
@@ -144,28 +153,33 @@ export const start = (
         });
         yield* warnTemporary(one.data);
         const labels = parseLabels(one.labels ?? {});
-        const driven = one.instruction
-          ? instruct(graph, one.instruction, one.meta)
-          : one.issue === 'all'
-            ? scanIssuesAndRunningRuns(graph, 0, one.meta)
-            : tick(graph, one.issue, one.marked, 0, one.meta);
-        const labelled = !Object.keys(labels).length
-          ? driven
-          : Effect.updateService(driven, Store, store => ({
-              ...store,
-              put: run =>
-                Effect.andThen(
-                  Effect.flatMap(store.get(run.id), was =>
-                    was ? Effect.void : writeRunLabels(one.data, run.id, labels)
-                  ),
-                  store.put(run)
-                ),
-            }));
-        return yield* provided(labelled).pipe(choose(provider));
+        const look = (fork?: Parameters<typeof tick>[5]) => {
+          const driven = one.instruction
+            ? instruct(graph, one.instruction, one.meta)
+            : one.issue === 'all'
+              ? scanIssuesAndRunningRuns(graph, 0, one.meta, fork)
+              : tick(graph, one.issue, one.marked, 0, one.meta, fork);
+          return provided(
+            !Object.keys(labels).length
+              ? driven
+              : Effect.updateService(driven, Store, store => ({
+                  ...store,
+                  put: run =>
+                    Effect.andThen(
+                      Effect.flatMap(store.get(run.id), was =>
+                        was ? Effect.void : writeRunLabels(one.data, run.id, labels)
+                      ),
+                      store.put(run)
+                    ),
+                }))
+          ).pipe(choose(provider));
+        };
+        return yield* one.drives ? runPass(one.drives, look) : look();
       })
     : Effect.gen(function* () {
         const s = yield* settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(yield* read)));
         yield* Effect.flatMap(Store, store => store.lock('loop')).pipe(Effect.provide(fileStore(s.data)));
+        const drives = yield* Effect.acquireRelease(Effect.sync(startLoopDrives), d => Effect.promise(d.stop));
         yield* warnTemporary(s.data);
         const compress = Effect.tryPromise(() => writeIdleRunsCompressed(s.data, s.compress)).pipe(
           Effect.catch(e => Effect.logWarning(`compressing idle runs failed: ${e.cause}`))
@@ -174,12 +188,16 @@ export const start = (
           Effect.catch(e => Effect.logWarning(`the refresh failed, this pass keeps the last settings: ${e.cause}`)),
           Effect.andThen(read),
           Effect.flatMap(env =>
-            provided(
-              Effect.flatMap(settings, now => graphAt(now.graph)).pipe(
-                Effect.flatMap(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs)),
-                Effect.scoped
+            runPass(drives, fork =>
+              provided(
+                Effect.flatMap(settings, now => graphAt(now.graph)).pipe(
+                  Effect.flatMap(graph => scanIssuesAndRunningRuns(graph, issueDebounceMs, undefined, fork))
+                )
               )
-            ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configured(env)))
+            ).pipe(
+              Effect.tap(() => Effect.sync(() => drives.settled.splice(0))),
+              Effect.provideService(ConfigProvider.ConfigProvider, configured(env))
+            )
           ),
           Effect.catch(e => Effect.logError(e))
         );
