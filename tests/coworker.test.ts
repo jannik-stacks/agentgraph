@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { Effect, Layer, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
-import { drive, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
+import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -33,6 +33,7 @@ import {
   pullRequest,
 } from './world.ts';
 import { runStepChecks } from '../src/run/check.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 describe('stacks', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
@@ -102,7 +103,7 @@ describe('stacks', () => {
     const where = world();
     const { head } = parent(where);
     const { specs, run } = services(where, [child()]);
-    const parked = await run(drive(flow, run9(), merging));
+    const parked = await run(runWorkflow(flow, run9(), merging));
     expect(parked).toMatchObject({
       step: 'merge',
       status: 'waiting',
@@ -123,7 +124,7 @@ describe('stacks', () => {
     const where = world();
     parent(where);
     const { specs, run } = services(where, [child()]);
-    const parked = await run(drive(flow, run9(), { ...merging, stacks: false }));
+    const parked = await run(runWorkflow(flow, run9(), { ...merging, stacks: false }));
     expect(parked.base).toBeUndefined();
     expect(specs[0]!.prompt).toContain('pull requests go into main.');
     const pr = pr10(where);
@@ -141,7 +142,7 @@ describe('stacks', () => {
     ]);
     const parked = await first.run(
       Effect.gen(function* () {
-        const waiting = yield* drive(flow, run9(), merging);
+        const waiting = yield* runWorkflow(flow, run9(), merging);
         return yield* driveStored(flow, { ...waiting, step: 'implement', status: 'running' }, merging);
       })
     );
@@ -161,7 +162,7 @@ describe('stacks', () => {
     const where = world();
     const { move } = parent(where);
     const { run } = services(where, [child()]);
-    await run(drive(flow, run9(), merging));
+    await run(runWorkflow(flow, run9(), merging));
     const moved = move('more.txt', 'more\n');
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(moved);
@@ -178,7 +179,7 @@ describe('stacks', () => {
   it('traces a sandbox start error while following a stacked branch', async () => {
     const where = world();
     const { move } = parent(where);
-    await services(where, [child()]).run(drive(flow, run9(), merging));
+    await services(where, [child()]).run(runWorkflow(flow, run9(), merging));
     move('more.txt', 'more\n');
     let first = true;
     const sandbox = Layer.effect(
@@ -219,7 +220,7 @@ describe('stacks', () => {
     const layer = Layer.mergeAll(tracker, fileStore(where.data), hostSandbox(where.origin), replaySession([child()]));
     const run = <A, E>(effect: Effect.Effect<A, E, Tracker | Store | Sandbox | Session>) =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)));
-    await run(drive(flow, run9(), merging));
+    await run(runWorkflow(flow, run9(), merging));
     const before = git(where.origin, 'rev-parse', 'agentgraph/9');
     const moved = move('more.txt', 'more\n');
     await run(tick(merging, 9));
@@ -233,7 +234,7 @@ describe('stacks', () => {
     const where = world();
     const { move } = parent(where);
     const { run } = services(where, [child('hello and bye\n', 'hello.txt')]);
-    await run(drive(flow, run9(), merging));
+    await run(runWorkflow(flow, run9(), merging));
     const before = git(where.origin, 'rev-parse', 'agentgraph/9');
     const moved = move('hello.txt', 'hi\n');
     await run(tick(merging, 9));
@@ -256,7 +257,7 @@ describe('coworker', () => {
     say(where, comment(8, 'ana', true, 'mind the edge case', '2026-10-16T00:00:02.000Z'));
     say(where, check(8, 'test', 'failure', '2026-10-16T00:00:03.000Z'));
     const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
-    await run(drive(flow, begun(), small));
+    await run(runWorkflow(flow, begun(), small));
     expect(specs[0]!.prompt).toContain('## Pull request #8 Add hello');
     expect(specs[0]!.prompt).toContain('#7 @morgan: /agent');
     expect(specs[0]!.prompt).toContain('#8 @ana: mind the edge case');
@@ -270,7 +271,7 @@ describe('coworker', () => {
   const parked = async (where: ReturnType<typeof world>, turns: SessionEvent[][]) => {
     pullRequest(where);
     const s = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })], ...turns]);
-    const asked = await s.run(drive(flow, begun(), small));
+    const asked = await s.run(runWorkflow(flow, begun(), small));
     expect(asked).toMatchObject({ status: 'waiting', sessions: { implement: { id: 'a' } } });
     return { ...s, asked };
   };
@@ -358,7 +359,7 @@ describe('coworker', () => {
     );
     const agents = Object.fromEntries(Object.entries(small.agents).map(([k, a]) => [k, { ...a, tools: ['read'] }]));
     const done = await Effect.runPromise(
-      drive({ ...flow, concurrency: 'queue' }, begun(), { ...small, agents }).pipe(
+      runWorkflow({ ...flow, concurrency: 'queue' }, begun(), { ...small, agents }).pipe(
         Effect.provide(layer),
         Effect.provide(TestClock.layer())
       )
@@ -403,7 +404,7 @@ describe('coworker', () => {
       session
     );
     const go = (w: typeof flow) =>
-      Effect.runPromise(drive(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestClock.layer())));
+      Effect.runPromise(runWorkflow(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestClock.layer())));
     return { specs, go };
   };
   const bye = comment(7, 'ana', true, '/agent say bye too', later(1));
@@ -555,7 +556,7 @@ describe('coworker', () => {
       [start('a'), wrote('hello.txt', 'TODO\n'), reply(push, pull)],
       [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
     ]);
-    const asked = await run(drive(flow, begun(), small));
+    const asked = await run(runWorkflow(flow, begun(), small));
     const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
     const status = issue.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))?.comment?.id;
     expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: status });
@@ -588,7 +589,9 @@ describe('coworker', () => {
       [start('a'), reply(push, pull)],
       [start('a'), ...(fixed ? [wrote('hello.txt', 'hello\n')] : []), reply(push, pull)],
     ]);
-    const done = await run(drive(typed, begin(typed, { id: 'run-7', issue: 7, started: fresh().started }), checked));
+    const done = await run(
+      runWorkflow(typed, begin(typed, { id: 'run-7', issue: 7, started: fresh().started }), checked)
+    );
     expect(specs).toHaveLength(3);
     expect(specs[2]!.prompt).toContain(findings);
     expect(done).toMatchObject({ status: fixed ? 'done' : 'waiting', tries: fixed ? 2 : 3 });
@@ -618,7 +621,9 @@ describe('coworker', () => {
       [start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       [start('r'), reply({ kind: 'comment', body: 'Fine.' })],
     ]);
-    await run(drive(reviewed, begin(reviewed, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), small));
+    await run(
+      runWorkflow(reviewed, begin(reviewed, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), small)
+    );
     expect(specs[0]!.prompt).not.toContain('## The change on the branch');
     expect(specs[1]!.prompt).toMatch(/## The change on the branch\n\n````diff\n[\s\S]*\+hello\n````/);
   });
@@ -637,7 +642,7 @@ describe('coworker', () => {
       [start('a'), { type: 'usage', input: 1, output: 1, usd: 0.12 }, reply()],
       [start('r'), { type: 'usage', input: 1, output: 1, usd: 0.22 }, reply()],
     ]);
-    await run(drive(unbranched, begun(), { ...small, workflows: { issue: unbranched } }));
+    await run(runWorkflow(unbranched, begun(), { ...small, workflows: { issue: unbranched } }));
     const updates = readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'comment' ? [t.applied.proposal.body] : []
     );
@@ -651,7 +656,7 @@ describe('coworker', () => {
   it('tells a waiting run how to be answered in its status footer, and posts the question itself plain', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
-    await run(drive(flow, begun(), small));
+    await run(runWorkflow(flow, begun(), small));
     const issue = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
     expect(issue.filter(b => b === 'Hello or hi?')).toEqual(['Hello or hi?']);
     expect(issue.filter(b => b.includes(replyHint))).toHaveLength(1);
@@ -660,7 +665,7 @@ describe('coworker', () => {
   it('edits the same sticky after an answered question', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
-    await run(drive(flow, begun(), small));
+    await run(runWorkflow(flow, begun(), small));
     where.human('/agent hi', new Date().toISOString());
     await services(where, [[start('a'), reply({ kind: 'ask', question: 'Hi with a dot?' })]]).run(tick(small, 7));
     expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual([
@@ -679,7 +684,7 @@ describe('coworker', () => {
     const line = { id: 'r1', author: 'morgan', body: 'why hello?', at, path: 'hello.txt', line: 1 };
     say(where, { ...comment(8, 'morgan', true, 'why hello?', at), comment: line });
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Asked for.', under: 'r1' })]]);
-    await run(drive(flow, { ...begun(), said: [{ issue: 7 }] }, small));
+    await run(runWorkflow(flow, { ...begun(), said: [{ issue: 7 }] }, small));
     expect(specs[0]!.prompt).toContain('@morgan on hello.txt:1, id r1: why hello?');
     const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under, c.path])).toEqual([
@@ -699,7 +704,7 @@ describe('coworker', () => {
     const review = comment(8, 'morgan', true, '/agent yes, bye too', '');
     const [again, done] = await run(
       Effect.gen(function* () {
-        yield* drive(flow, begun(), small);
+        yield* runWorkflow(flow, begun(), small);
         say(where, comment(8, 'morgan', true, '/agent hello', at()));
         const [again] = yield* tick(small, 7);
         review.at = review.comment!.at = review.comment!.id = at();

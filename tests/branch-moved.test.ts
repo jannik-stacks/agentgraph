@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync, symlinkS
 import { join } from 'node:path';
 import { Deferred, Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { drive, tick } from '../src/engine.ts';
+import { tick } from '../src/engine.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Command } from '../src/sandbox.ts';
@@ -14,6 +14,7 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { world, push, pull, services, readTrace, bodies, driveStored, fresh, pullRequest } from './world.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 describe('a run branch that moved', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
@@ -31,7 +32,7 @@ describe('a run branch that moved', () => {
         [start('a'), wrote('hello.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
       ]);
       const parked = await first.run(
-        drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
+        runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
       );
       const mover = join(where.root, 'mover');
       git(where.root, 'clone', '-q', where.origin, mover);
@@ -88,7 +89,9 @@ describe('a run branch that moved', () => {
       ])
     );
     const done = await Effect.runPromise(
-      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(
+        Effect.provide(layer)
+      )
     );
     expect(done.status).toBe('done');
     expect(readTrace(where.data, 'run-7').filter(t => 'outcome' in t && t.outcome.kind === 'failed')).toEqual([]);
@@ -105,7 +108,7 @@ describe('a run branch that moved', () => {
       [start('a'), wrote('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
     ]);
     const parked = await first.run(
-      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
     );
     git(seed, 'checkout', '-q', '--detach', git(where.origin, 'rev-parse', 'main'));
     writeFileSync(join(seed, 'other.txt'), 'upstream\n');
@@ -137,7 +140,7 @@ describe('a run branch that moved', () => {
       [start('a'), wrote('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
     ]);
     const parked = await first.run(
-      drive(flow, { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), tries }, small)
+      runWorkflow(flow, { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), tries }, small)
     );
     const from = git(where.origin, 'rev-parse', 'main');
     git(seed, 'checkout', '-q', '--detach', from);
@@ -190,7 +193,7 @@ describe('a run branch that moved', () => {
       [start('a'), wrote('hello.txt', 'hello\n'), reply({ ...push, branch }, { ...pull, branch })],
       [start('a'), reply({ kind: 'ask', question: 'Use my own branch?' })],
     ]);
-    await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect(git(where.origin, 'rev-parse', branch)).toBe(before);
     expect(
       readTrace(where.data, 'run-7').flatMap(t =>
@@ -210,7 +213,7 @@ describe('a run branch that moved', () => {
       [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 8, head: 'foreign' })],
       [start('a'), reply({ kind: 'ask', question: 'My own PR?' })],
     ]);
-    await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('open');
     expect(
       readTrace(where.data, 'run-7').some(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'merge')
@@ -222,7 +225,7 @@ describe('a run branch that moved', () => {
     pullRequest(where);
     writeFileSync(join(where.tracker, '8', 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
     const { run } = services(where, [[start('a'), reply({ kind: 'merge', number: 8, head: 'own' })]]);
-    await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('merged');
   });
 
@@ -242,7 +245,7 @@ describe('a run branch that moved', () => {
         } else writeFileSync(join(spec.dir, 'big.txt'), 'x'.repeat((1 << 20) + 1));
       }
     );
-    await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect(git(where.origin, 'for-each-ref', '--format=%(refname)', 'refs/heads/agentgraph/7')).toBe('');
   });
 
@@ -259,7 +262,7 @@ describe('a run branch that moved', () => {
       [start('a'), wrote('hello.txt', 'hello\n'), ended],
       [start('a'), reply({ kind: 'ask', question: 'Try later?' })],
     ]);
-    const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    const done = await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect(git(where.origin, 'for-each-ref', '--format=%(refname)', 'refs/heads/agentgraph/7')).toBe('');
     expect(done).toMatchObject({ status: 'waiting', reason: 'Try later?', tries: 0 });
     expect(specs).toHaveLength(2);
@@ -290,7 +293,7 @@ describe('a run branch that moved', () => {
             readFileSync(join(spec.dir, 'hello.txt'), 'utf8') === 'pending\n';
       }
     );
-    const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    const done = await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect(replayed).toBe(true);
     expect(done).toMatchObject({ status: 'done', tries: 0 });
     expect(specs).toHaveLength(2);
@@ -346,7 +349,7 @@ describe('a run branch that moved', () => {
             reason: 'Waiting',
           })
         );
-        const parked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit);
+        const parked = yield* runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit);
         expect(
           readTrace(where.data, 'run-7').some(
             t =>
@@ -378,7 +381,7 @@ describe('a run branch that moved', () => {
     ]);
     const issue = await run(
       Effect.gen(function* () {
-        const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
+        const asked = yield* runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
         yield* driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'This one' }), small);
         return yield* Effect.flatMap(Tracker, f => f.issue(7));
       })
@@ -426,7 +429,11 @@ describe('a run branch that moved', () => {
     );
     const [done, issues] = await Effect.runPromise(
       Effect.gen(function* () {
-        const parked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
+        const parked = yield* runWorkflow(
+          flow,
+          begin(flow, { id: 'run-7', issue: 7, started: fresh().started }),
+          small
+        );
         const done = yield* driveStored(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), small);
         return [done, yield* Effect.flatMap(Tracker, f => f.issues())] as const;
       }).pipe(Effect.provide(layer))
@@ -470,7 +477,7 @@ describe('a run branch that moved', () => {
       replaySession([[start('a'), wrote('hello.txt', 'hi'), reply(push, pull)]])
     );
     const done = await Effect.runPromise(
-      drive(checked, begin(checked, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
+      runWorkflow(checked, begin(checked, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
         Effect.provide(layer)
       )
     );
@@ -492,7 +499,7 @@ describe('a run branch that moved', () => {
     const fragment = '{"at":"unfinished';
     writeFileSync(path, partial ? good + fragment : good.trimEnd());
     const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
-    const done = await run(drive(flow, current, small));
+    const done = await run(runWorkflow(flow, current, small));
     expect(done.status).toBe('done');
     expect(readTrace(where.data, 'run-7').some(t => 'outcome' in t)).toBe(true);
     const fragments = readdirSync(join(where.data, 'run-7')).filter(name => name.endsWith('.partial'));
@@ -525,7 +532,7 @@ describe('a run branch that moved', () => {
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(current)).pipe(Effect.provide(fileStore(where.data))));
     appendFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'broken record\n');
     const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
-    await expect(run(drive(flow, current, small))).rejects.toThrow();
+    await expect(run(runWorkflow(flow, current, small))).rejects.toThrow();
   });
 
   it('keeps the human answer in a fresh session after a failed try', async () => {
@@ -539,7 +546,7 @@ describe('a run branch that moved', () => {
       feedback: 'Use blue',
       answers: [{ asked: 'Which color?', said: 'Use blue' }],
     };
-    const done = await run(drive(flow, current, small));
+    const done = await run(runWorkflow(flow, current, small));
     expect(done.status).toBe('done');
     expect(specs).toHaveLength(2);
     expect(specs[1]!.resume).toBeUndefined();
@@ -560,7 +567,9 @@ describe('a run branch that moved', () => {
         ],
         [start('a'), reply({ kind: 'ask', question: 'Please have a maintainer push the workflow.' })],
       ]);
-      const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+      const done = await run(
+        runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
+      );
       expect(done.status).toBe('waiting');
       expect(specs[1]!.prompt).toContain('.github/workflows/socket.yml');
       expect(specs[1]!.prompt).toContain(only ? 'Nothing pushed' : 'Not pushed');
@@ -584,7 +593,7 @@ describe('a run branch that moved', () => {
       ],
       [start('a'), wrote('other.txt', 'other\n'), reply(push, pull)],
     ]);
-    const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    const done = await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     const applied = readTrace(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied] : []
     );
@@ -624,7 +633,9 @@ describe('a run branch that moved', () => {
     ]);
     const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), session);
     const done = await Effect.runPromise(
-      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(
+        Effect.provide(layer)
+      )
     );
     expect(done).toMatchObject({ status: 'waiting', reason: 'Retry later' });
     expect(attempted.some(p => skipped.some(s => JSON.stringify(s) === JSON.stringify(p)))).toBe(false);

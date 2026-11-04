@@ -31,7 +31,7 @@ An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a ste
 3. `back` returns to its step, and nothing else applies.
 4. Otherwise `tell`, then pushes, then the other writes in order, then `issue` filings, which a failed push skips. `run` dispatches last, only when nothing failed.
 
-A missing block, invalid JSON, wrong fields or a kind the step may not use fails the try, with the expected shape as feedback. A kind it may not use fails the try before anything applies, an `ask` included. <!-- code: src/engine.ts#runAttempt -->
+A missing block, invalid JSON, wrong fields or a kind the step may not use fails the try, with the expected shape as feedback. A kind it may not use fails the try before anything applies, an `ask` included. <!-- code: src/run/attempt.ts#runAttempt -->
 
 A refused write fails the try. Any other GitHub error parks the run with a question.
 
@@ -45,7 +45,7 @@ A comment goes where a person started or woke the run, else to the branch's open
 
 `push` and `pull_request` must name the run's own `agentgraph/` branch. A push is refused if the branch moved since the checkout last saw it, and never forces except to finish a [rebase](workflows.md#when-the-base-or-the-graph-moves).
 
-While the branch has no open pull request, an agent that may return `pull_request` must return one, or an `ask`, a `back`, an `issue` part, or comments answering a finished run. <!-- code: src/engine.ts#runAttempt -->
+While the branch has no open pull request, an agent that may return `pull_request` must return one, or an `ask`, a `back`, an `issue` part, or comments answering a finished run. <!-- code: src/run/attempt.ts#runAttempt -->
 
 A `pull_request` on a branch whose pull request is open rewrites its title and body. A step of its own after review, with an agent that returns only `pull_request`, keeps the description current each time the change goes round again. <!-- code: src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
@@ -73,7 +73,7 @@ One refused filing fails the try and files nothing. The engine refuses a body wi
 
 `stacks_on` names one earlier part by position, from 1, and `depends_on` lists earlier positions. The engine writes them as `Stacks on #n` and `Depends on #n` lines; on an existing issue, write the line yourself.
 
-With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/engine.ts#findStackBase src/github.ts#githubTracker -->
+With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/run/drive.ts#findStackBase src/github.ts#githubTracker -->
 
 A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/engine.ts#pending src/run/follow.ts#runFollow -->
 

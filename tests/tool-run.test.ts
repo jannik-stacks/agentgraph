@@ -3,7 +3,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { join } from 'node:path';
 import { ConfigProvider, Effect, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { drive } from '../src/engine.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 import { loadGraph } from '../src/folder.ts';
 import { folderTracker } from '../src/tracker.ts';
 import { Session } from '../src/session.ts';
@@ -78,7 +78,11 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
       },
     });
     const done = await Effect.runPromise(
-      drive(workflow, begin(workflow, { id: 'tool-run', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph).pipe(
+      runWorkflow(
+        workflow,
+        begin(workflow, { id: 'tool-run', issue: 7, started: '2026-10-16T00:00:01.000Z' }),
+        graph
+      ).pipe(
         Effect.provide(
           Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session)
         )

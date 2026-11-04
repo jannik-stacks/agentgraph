@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { Effect, Exit, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { drive, tick } from '../src/engine.ts';
+import { tick } from '../src/engine.ts';
 import { Tracker } from '../src/tracker.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -16,6 +16,7 @@ import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts'
 import { git } from './kit.ts';
 import { graph, w, world, push, pull, judged, services, readChecks, readTrace, fresh, say, comment } from './world.ts';
 import { runStepChecks } from '../src/run/check.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 const readJudgeSessions = (data: string) =>
   readChecks(data, 'run-7').flatMap(e =>
@@ -41,7 +42,7 @@ describe('a base that moved', () => {
       judged,
       [start('r1'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
-    expect(await first.run(drive(w, fresh(), graph))).toMatchObject({
+    expect(await first.run(runWorkflow(w, fresh(), graph))).toMatchObject({
       step: 'merge',
       status: 'waiting',
       graph: 'fixture',

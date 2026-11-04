@@ -13,7 +13,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { drive, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
+import { instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { readEngineEnv, start as main, temporary } from '../src/main.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
@@ -46,6 +46,7 @@ import {
   comment,
   pullRequest,
 } from './world.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 const card = (project: string, name: string, trusted: boolean): Event => ({
   issue: 7,
@@ -108,7 +109,7 @@ describe('tick', () => {
       })
     ).pipe(Layer.provide(Layer.mergeAll(base, turns)));
     const done = await Effect.runPromise(
-      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
         Effect.provide(Layer.mergeAll(base, session))
       )
     );
@@ -292,7 +293,7 @@ describe('tick', () => {
     const kept = 'refs/agentgraph/runs/run-7';
     const [asked, , saved] = await run(
       Effect.gen(function* () {
-        const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
+        const asked = yield* runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
         const saved = git(where.origin, 'show', `${kept}:hello.txt`);
         return [
           asked,
@@ -359,7 +360,7 @@ describe('tick', () => {
       reason: 'Search issues?',
     };
     await run(Effect.flatMap(Store, s => s.put(before)));
-    await run(drive(router, begin(router, { id: 'router-7', issue: 7, started: fresh().started }), kit));
+    await run(runWorkflow(router, begin(router, { id: 'router-7', issue: 7, started: fresh().started }), kit));
     expect(readTrace(where.data, 'run-7').flatMap(t => ('told' in t ? [t.told] : []))).toEqual([
       { text, by: 'router-7' },
     ]);
@@ -398,7 +399,9 @@ describe('tick', () => {
         ? [[start('d'), wrote('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })]]
         : []),
     ]);
-    const parked = await first.run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit));
+    const parked = await first.run(
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit)
+    );
     const seed = join(where.root, 'seed');
     git(seed, 'fetch', '-q', where.origin, 'agentgraph/7');
     git(seed, 'checkout', '-q', '--detach', 'FETCH_HEAD');
@@ -432,7 +435,7 @@ describe('tick', () => {
     ]);
     const [done, issue] = await run(
       Effect.gen(function* () {
-        const asked = yield* drive(
+        const asked = yield* runWorkflow(
           flow,
           { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), said: [{ issue: 7 }] },
           small
@@ -550,7 +553,7 @@ describe('tick', () => {
     const flow = merging.workflows.issue;
     const { specs, run } = services(where, []);
     const start = { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), step: 'merge' };
-    const parked = await run(drive(flow, start, merging));
+    const parked = await run(runWorkflow(flow, start, merging));
     expect(parked).toMatchObject({ step: 'merge', status: 'waiting' });
     expect(parked.reason).toMatch(/^No pull request is open for branch /);
     expect(specs).toHaveLength(0);
@@ -576,7 +579,9 @@ describe('tick', () => {
       replaySession([[start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push, pull)]])
     );
     const asked = await Effect.runPromise(
-      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(
+        Effect.provide(layer)
+      )
     );
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'GitHub failed: forbidden' });
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');

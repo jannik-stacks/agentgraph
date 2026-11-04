@@ -43,7 +43,7 @@ Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a
 
 A `run` step that exits 0 passes, and the proposals in a fenced `agentgraph` block it prints apply like an agent's, limited by the step's `returns`. That list defaults to `[run]`, so a repo command such as `npm test` can't push, open a pull request, comment or merge. A script that needs more lists it, as in `gate: { run: node gate.mjs, returns: [run, comment] }`. Unlike an agent, a script gets no `ask` or `back` unless listed. Any other kind fails the try, and nothing it printed applies. <!-- code: src/graph.ts#getStepReturns -->
 
-A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. A `run` step gets the traces only with `reads: traces`, because writing them reads every run on the issue on each try. <!-- code: src/engine.ts#runAttempt src/workflow.ts#compileWorkflow -->
+A script that prints a `run` proposal only when a condition holds sends the run into an extra workflow, and the run waits for it at that step. When the step runs again after the child settles, its run trace holds the applied `run`, so the script can pass. A `run` step gets the traces only with `reads: traces`, because writing them reads every run on the issue on each try. <!-- code: src/run/attempt.ts#runAttempt src/workflow.ts#compileWorkflow -->
 
 `examples/retro-gate` counts the failed tool calls in the run's trace after the implement step. Past five, it starts a `retro` workflow whose agent reads the traces and files a `graph` issue per recurring cause with the edit to a skill, agent prompt or `AGENTS.md` that would have prevented it.
 
@@ -150,7 +150,7 @@ At a human wait step, an aside answers `/agent` comments. It forks the session `
 
 ## Comments while it works
 
-A trusted `/agent` comment reaches a working run by the workflow's `concurrency`: <!-- code: src/engine.ts#runAttempt -->
+A trusted `/agent` comment reaches a working run by the workflow's `concurrency`: <!-- code: src/run/attempt.ts#runAttempt -->
 
 - `steer` (default): the session sees it in its news, and resumes for one more turn before checks if it missed any.
 - `queue`: the try and its checks finish, then the comment applies as an answer.
@@ -200,7 +200,7 @@ With several runs on one issue, a waiting run wins over a working one. After eac
 
 `limits.parallel` caps issues driven at once and `limits.sessions` caps sessions and scripts across the process, judges included. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/engine.ts#tick src/run/execute.ts#getGate -->
 
-Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The sticky says “paused on an agentgraph problem, not this change; reply `/agent` to retry”. No separate runner error comment is posted, including for quiet runs. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs, and clears the pause in the sticky. <!-- code: src/engine.ts#drive -->
+Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The sticky says “paused on an agentgraph problem, not this change; reply `/agent` to retry”. No separate runner error comment is posted, including for quiet runs. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs, and clears the pause in the sticky. <!-- code: src/run/drive.ts#runWorkflow -->
 
 ## Retros
 

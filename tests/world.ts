@@ -2,7 +2,6 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileS
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
-import { drive } from '../src/engine.ts';
 import { folderTracker, Tracker, TrackerError, currentRunLinkRef } from '../src/tracker.ts';
 import type { Event, IssueStatus, RunLink } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -15,6 +14,7 @@ import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, result, seeded, start } from './fixtures.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 export const replyHint = 'Reply `/agent` and your answer, or `/agent stop` to end the run.';
 export const graph = makeTestGraph('kit', {
@@ -139,7 +139,7 @@ export const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comme
 export const driveStored = (flow: typeof w, r: Run, h: Graph) =>
   Effect.andThen(
     Effect.flatMap(Store, s => s.put(r)),
-    drive(flow, r, h)
+    runWorkflow(flow, r, h)
   );
 
 export const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });

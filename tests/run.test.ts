@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox } from '../src/docker.ts';
-import { drive, tick } from '../src/engine.ts';
+import { tick } from '../src/engine.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Sandbox, SandboxError, type Checkout, type Command } from '../src/sandbox.ts';
@@ -32,6 +32,7 @@ import {
   driveStored,
   fresh,
 } from './world.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 describe('drive', () => {
   beforeAll(() => fakeDocker().restore);
@@ -71,7 +72,9 @@ describe('drive', () => {
       replaySession([[start('a'), wrote('pending.txt', 'keep me\n'), reply({ kind: 'ask', question: 'Continue?' })]])
     );
     const exit = await Effect.runPromiseExit(
-      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(
+        Effect.provide(layer)
+      )
     );
     expect(Exit.isFailure(exit)).toBe(true);
     expect(readFileSync(join(work!.dir, 'pending.txt'), 'utf8')).toBe('keep me\n');
@@ -86,7 +89,7 @@ describe('drive', () => {
         replaySession([[start('b'), reply({ kind: 'ask', question: 'Other run' })]])
       );
       await Effect.runPromise(
-        drive(flow, begin(flow, { id: 'other', issue: 7, started: fresh().started }), small).pipe(
+        runWorkflow(flow, begin(flow, { id: 'other', issue: 7, started: fresh().started }), small).pipe(
           Effect.provide(restarted)
         )
       );
@@ -113,7 +116,7 @@ describe('drive', () => {
         }))
       ).pipe(Layer.provide(replaySession([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]])))
     );
-    await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
+    await Effect.runPromise(runWorkflow(w, fresh(), graph).pipe(Effect.provide(layer)));
     expect(specs[0]?.includes('Use /scratch for large temporary files')).toBe(kind === 'docker');
   });
 
@@ -149,7 +152,9 @@ describe('drive', () => {
     ).pipe(Layer.provide(dockerSandbox({ data: where.data, origin: where.origin, cache: '' })));
     const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), sandbox, replaySession([]));
     const done = await Effect.runPromise(
-      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(
+        Effect.provide(layer)
+      )
     );
     expect(done).toMatchObject({ status: 'waiting', retried: true });
     expect(readdirSync(join(where.data, 'cache', 'work')).filter(name => !name.endsWith('.owner'))).toEqual([]);
@@ -187,7 +192,7 @@ describe('drive', () => {
       await Effect.runPromise(
         Effect.gen(function* () {
           const fiber = yield* Effect.forkChild(
-            drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
+            runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
           );
           yield* Effect.gen(function* () {
             while (!existsSync(childFile)) yield* Effect.sleep('10 millis');
@@ -225,7 +230,7 @@ describe('drive', () => {
     writeFileSync(join(where.data, '.locks', 'run-7.lock'), kind === 'empty' ? '' : `${process.pid}:other`);
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
     try {
-      await expect(run(drive(w, fresh(), graph))).rejects.toThrow();
+      await expect(run(runWorkflow(w, fresh(), graph))).rejects.toThrow();
       expect(specs).toEqual([]);
     } finally {
       if (previous === undefined) delete process.env.AGENTGRAPH_STATE;
@@ -239,7 +244,7 @@ describe('drive', () => {
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]], undefined, () => {
       writeFileSync(lock, 'replacement');
     });
-    await run(drive(w, fresh(), graph));
+    await run(runWorkflow(w, fresh(), graph));
     expect(readFileSync(lock, 'utf8')).toBe('replacement');
   });
 
@@ -253,7 +258,7 @@ describe('drive', () => {
     writeFileSync(join(dir, 'plugins', 'a.ts'), hook('a', "throw new Error('board down');"));
     writeFileSync(join(dir, 'plugins', 'b.ts'), hook('b', '(globalThis.statusChanges ??= []).push(change);'));
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
-    const asked = await run(drive(w, fresh(), { ...graph, dir }));
+    const asked = await run(runWorkflow(w, fresh(), { ...graph, dir }));
     expect(asked).toMatchObject({ status: 'waiting', reason: 'Continue?' });
     expect((globalThis as { statusChanges?: unknown[] }).statusChanges?.at(-1)).toEqual({
       issue: 7,
@@ -268,7 +273,7 @@ describe('drive', () => {
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
     const advanced: Run = { ...fresh(), step: 'review', status: 'waiting', reason: 'Ready?' };
     await run(Effect.flatMap(Store, s => s.put(advanced)));
-    const driven = await run(drive(w, fresh(), graph));
+    const driven = await run(runWorkflow(w, fresh(), graph));
     expect(driven).toMatchObject({ step: 'review', status: 'waiting', reason: 'Ready?' });
     expect(specs).toEqual([]);
     expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({ step: 'review', reason: 'Ready?' });
@@ -292,7 +297,7 @@ describe('drive', () => {
       [start('r4'), reply({ kind: 'comment', body: 'Ready to merge.' })],
     ]);
 
-    const asked = await run(drive(w, fresh(), graph));
+    const asked = await run(runWorkflow(w, fresh(), graph));
     expect(asked).toMatchObject({ step: 'review', status: 'waiting', reason: 'still not right' });
     expect(asked.rounds).toEqual({ review: 2 });
     expect(asked.sessions.implement).toMatchObject({ id: 'i1', home: '/homes/i1', seen: { at: expect.any(String) } });
@@ -401,7 +406,7 @@ describe('drive', () => {
       judged,
       [start('r1'), reply({ kind: 'back', why: 'say hello world' })],
     ]);
-    await run(drive(w, fresh(), graph));
+    await run(runWorkflow(w, fresh(), graph));
     const at = (step: string, session?: string) => ({ run: 'run-7', step, ...(session && { session }) });
     const landed = (step: string, session: string) => ({ ...at(step, session), operation: expect.any(String) });
     expect(marks).toEqual([
@@ -429,7 +434,7 @@ describe('drive', () => {
       [start('s1'), { type: 'end', final: table + '\n\n```agentgraph\n[]\n```', ended: 'stop', exit: 0 }],
       [start('d1'), reply()],
     ]);
-    const done = await run(drive(flow, begin(flow, fresh()), graph));
+    const done = await run(runWorkflow(flow, begin(flow, fresh()), graph));
     expect(done).toMatchObject({ step: 'merge', status: 'waiting' });
     expect(specs[1]!.prompt.includes(table)).toBe(carry === true);
     expect(specs[1]!.prompt.includes(`## What the screenshots step reported\n\n${table}`)).toBe(carry === true);
@@ -448,7 +453,7 @@ describe('drive', () => {
       [start('r1'), reply({ kind: 'comment', body: 'Looks right.' })],
       [start('d1'), reply({ ...pull, title: 'feat: greet', body: 'Adds `hello.txt`.' })],
     ]);
-    expect(await run(drive(describing, fresh(), graph))).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(await run(runWorkflow(describing, fresh(), graph))).toMatchObject({ step: 'merge', status: 'waiting' });
     expect(await run(Effect.flatMap(Tracker, f => f.issue(8)))).toMatchObject({
       title: 'feat: greet',
       body: 'Adds `hello.txt`.',
@@ -458,7 +463,7 @@ describe('drive', () => {
   it('shows how to reply under a review comment', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);
-    await run(drive(w, begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph));
+    await run(runWorkflow(w, begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph));
     expect(specs[0]!.prompt).toContain('"under":"<id of the review comment you answer>"');
   });
 
@@ -470,7 +475,7 @@ describe('drive', () => {
       steps: [{ name: 'review', does: { agent: 'reviewer' }, checks: [], tries: 1, each: { run: 'seq 21' } }],
     };
     const done = await run(
-      drive(fan, begin(fan, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph)
+      runWorkflow(fan, begin(fan, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph)
     );
     expect(done.status).toBe('done');
     expect(specs).toHaveLength(1);
@@ -486,7 +491,7 @@ describe('drive', () => {
       judged,
       [start('r1'), reply({ kind: 'ask', question: 'Done?' })],
     ]);
-    await run(drive(w, fresh(), graph));
+    await run(runWorkflow(w, fresh(), graph));
     expect(specs[2]!.agent).toBe('claim-checker');
     expect(specs[2]!.prompt).toContain('+hello');
     expect(specs[2]!.prompt).not.toContain('Binary files');
@@ -499,7 +504,7 @@ describe('drive', () => {
       [start('i1'), wrote('hello.txt', 'hello\n'), wrote('secret.txt', 'key\n'), reply(push, pull)],
       judged,
     ]);
-    const stopped = await run(drive(w, fresh(), graph));
+    const stopped = await run(runWorkflow(w, fresh(), graph));
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', tries: 0 });
     expect(stopped.reason).toMatch(/^safety: /);
     expect(specs).toHaveLength(3);
@@ -525,7 +530,7 @@ describe('drive', () => {
       undefined,
       to => to === 'stopped' && refusals-- > 0
     );
-    const stopped = await run(drive(w, fresh(), graph));
+    const stopped = await run(runWorkflow(w, fresh(), graph));
     const labels = async () => (await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels;
     expect(await labels()).toEqual(['agentgraph:working']);
     expect((await run(Effect.flatMap(Store, s => s.get(stopped.id))))?.unshown).toBe(true);
@@ -544,7 +549,7 @@ describe('drive', () => {
       [start('i1'), wrote('secret.txt', 'key\n'), reply(push, pull)],
       judged,
     ]);
-    await run(drive(w, fresh(), { ...graph, status }));
+    await run(runWorkflow(w, fresh(), { ...graph, status }));
     expect((await run(Effect.flatMap(Tracker, f => f.issue(7)))).labels).toEqual(labels);
   });
 
@@ -560,7 +565,7 @@ describe('drive', () => {
       safety: { run: 'echo secret.txt found; exit 1' },
       claims: { agent: 'claim-checker' },
     });
-    await run(drive(w, fresh(), loud));
+    await run(runWorkflow(w, fresh(), loud));
     const logged = readChecks(where.data, 'run-7').filter(t => t.log);
     const texts = await run(Effect.forEach(logged, t => Effect.flatMap(Store, s => s.readLog(t.log!.hash))));
     const byName = logged.map((t, i) => [t.check.check, t.check.pass, texts[i]] as const);
@@ -597,7 +602,7 @@ describe('drive', () => {
     const scoped = makeTestGraph('kit', {
       safety: { run: '! git diff --name-only $AGENTGRAPH_BASE | grep -qx CHAT.md' },
     });
-    const stopped = await run(drive(w, begin(w, { id: 'run-8', issue: 8, started: fresh().started }), scoped));
+    const stopped = await run(runWorkflow(w, begin(w, { id: 'run-8', issue: 8, started: fresh().started }), scoped));
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped' });
     expect(stopped.reason).toMatch(/^safety: /);
   });
@@ -611,7 +616,7 @@ describe('drive', () => {
     const reads = makeTestGraph('kit', {
       safety: { run: 'cat "$AGENTGRAPH_CONTEXT"; echo "issue $AGENTGRAPH_ISSUE"; cat "$AGENTGRAPH_REPLY"; exit 1' },
     });
-    const stopped = await run(drive(w, fresh(), reads));
+    const stopped = await run(runWorkflow(w, fresh(), reads));
     expect(stopped.reason).toContain('## #7 Add a greeting\n\nAdd hello.txt.');
     expect(stopped.reason).toContain(': Brief: add hello.txt');
     expect(stopped.reason).toContain('issue 7\nDone.');
@@ -626,7 +631,7 @@ describe('drive', () => {
     const uses = { ...graph.skills.triage!, uses: ['rules', 'implement'] };
     const triage = { ...graph.agents.triager!, tools: ['inspect'] };
     await run(
-      drive(w, fresh(), {
+      runWorkflow(w, fresh(), {
         ...graph,
         agents: { ...graph.agents, triager: triage },
         skills: { ...graph.skills, rules, triage: uses },
@@ -645,7 +650,7 @@ describe('drive', () => {
       [start('i1'), reply({ kind: 'comment', body: 'This already appears to be implemented.' })],
       [start('i1'), reply({ kind: 'ask', question: 'Is it done already?' })],
     ]);
-    const asked = await run(drive(w, fresh(), graph));
+    const asked = await run(runWorkflow(w, fresh(), graph));
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Is it done already?' });
     expect(specs[2]!.prompt).toContain('no change was made');
     const outcomes = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
@@ -660,7 +665,7 @@ describe('drive', () => {
       [start('t1'), { type: 'usage', input: 1, output: 1, usd: 0.5 }, reply({ kind: 'comment', body: 'Brief' })],
     ]);
     const capped = { ...graph, limits: { ...graph.limits, usdPerRun: 0.1 } };
-    const stopped = await run(drive(w, fresh(), capped));
+    const stopped = await run(runWorkflow(w, fresh(), capped));
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped' });
     expect(stopped.reason).toBe("Spent $0.50, over the graph's usd-per-run of 0.1.");
     expect(specs).toHaveLength(1);
@@ -678,7 +683,7 @@ describe('drive', () => {
       }))
     ).pipe(Layer.provide(hostSandbox(where.origin)));
     const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), missing, replaySession([]));
-    const parked = await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
+    const parked = await Effect.runPromise(runWorkflow(w, fresh(), graph).pipe(Effect.provide(layer)));
     expect(parked).toMatchObject({
       status: 'waiting',
       reason: 'Stopped by a runner error.',
@@ -689,7 +694,7 @@ describe('drive', () => {
   it('parks the run at its step when a session cannot run, and an answer tries that step again', async () => {
     const where = world();
     const { run } = services(where, []);
-    const parked = await run(drive(w, { ...fresh(), feedback: 'fix the typo' }, graph));
+    const parked = await run(runWorkflow(w, { ...fresh(), feedback: 'fix the typo' }, graph));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', feedback: 'fix the typo' });
     expect(parked.reason).toBe('Stopped by a runner error.');
     const stops = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
@@ -710,7 +715,7 @@ describe('drive', () => {
   ])('stops at once when the provider rejects the login: %s', async final => {
     const where = world();
     const { run } = services(where, [[start('t1'), { type: 'end', final, ended: 'error', exit: 1 }]]);
-    const stopped = await run(drive(w, fresh(), graph));
+    const stopped = await run(runWorkflow(w, fresh(), graph));
     expect(stopped).toMatchObject({ status: 'stopped', reason: expect.stringContaining('rejected the key or login') });
     expect(readTrace(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session.ended] : []))).toContain('login');
     expect(
@@ -751,7 +756,7 @@ describe('drive', () => {
       Layer.provide(sandbox)
     );
     const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), sandbox, session);
-    await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
+    await Effect.runPromise(runWorkflow(w, fresh(), graph).pipe(Effect.provide(layer)));
     const text = readFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'utf8');
     expect(text).toContain('"prompt"');
     expect(text).toContain('AGENTGRAPH_LLM_API_KEY=[redacted]');
@@ -768,7 +773,7 @@ describe('setup', () => {
   it('runs once per checkout with network before the first step', async () => {
     const where = world();
     const { order, commands, run } = services(where, stopping());
-    await run(drive(w, fresh(), { ...graph, setup: 'test -e README.md' }));
+    await run(runWorkflow(w, fresh(), { ...graph, setup: 'test -e README.md' }));
     const setups = commands.filter(c => c.args.includes('test -e README.md'));
     expect(setups).toHaveLength(1);
     expect(order[0]).toBe(setups[0]);
@@ -796,7 +801,9 @@ describe('setup', () => {
       harnesses,
     }).pipe(Layer.provide(sandbox));
     const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), sandbox, session);
-    await Effect.runPromise(drive(w, fresh(), { ...graph, setup: 'test -e README.md' }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(
+      runWorkflow(w, fresh(), { ...graph, setup: 'test -e README.md' }).pipe(Effect.provide(layer))
+    );
     const trace = readTrace(where.data, 'run-7');
     expect(trace.flatMap(t => ('setup' in t ? [t.setup.used] : []))).toContainEqual(used);
     expect(trace.flatMap(t => ('session' in t ? [t.session.used] : []))).toContainEqual(used);
@@ -818,7 +825,7 @@ describe('setup', () => {
       sandbox,
       replaySession(stopping())
     );
-    await Effect.runPromise(drive(w, fresh(), graph).pipe(Effect.provide(layer)));
+    await Effect.runPromise(runWorkflow(w, fresh(), graph).pipe(Effect.provide(layer)));
     const cache = readTrace(where.data, 'run-7').flatMap(t => ('cache' in t ? [t.cache] : []));
     expect(cache).toEqual([{ files: 2 }]);
   });
@@ -827,7 +834,7 @@ describe('setup', () => {
     const where = world();
     const { specs, run } = services(where, []);
     const failing = { ...graph, setup: 'echo registry unreachable; exit 3' };
-    const parked = await run(Effect.flatMap(drive(w, fresh(), failing), r => drive(w, r, failing)));
+    const parked = await run(Effect.flatMap(runWorkflow(w, fresh(), failing), r => runWorkflow(w, r, failing)));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', tries: 0 });
     expect(specs).toHaveLength(0);
     const stops = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
@@ -838,7 +845,7 @@ describe('setup', () => {
   it('runs nothing with network when the graph has no setup', async () => {
     const where = world();
     const { commands, run } = services(where, stopping());
-    await run(drive(w, fresh(), graph));
+    await run(runWorkflow(w, fresh(), graph));
     expect(commands.length).toBeGreaterThan(0);
     expect(commands.some(c => c.network === 'proxy')).toBe(false);
   });

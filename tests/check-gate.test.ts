@@ -2,7 +2,6 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Deferred, Effect, Layer, Stream } from 'effect';
 import { expect, it } from 'vitest';
-import { drive } from '../src/engine.ts';
 import type { Graph } from '../src/folder.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -11,6 +10,7 @@ import { makeTestGraph, reply, result, start, stop } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
 import { fresh, readChecks, removeAfter, services, world } from './world.ts';
 import { runStepChecks } from '../src/run/check.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 const measureChecks = async (sessions: number, judged = false) => {
   const root = tmp('check-gate');
@@ -158,7 +158,7 @@ it('caps checks across runs and repositories without changing results or deadloc
     [start('implementor'), reply({ kind: 'comment', body: 'Checked.' })],
     [result({ pass: true }), stop],
   ]);
-  const ended = await run(drive(graph.workflows.issue!, { ...fresh(), step: 'implement' }, graph));
+  const ended = await run(runWorkflow(graph.workflows.issue!, { ...fresh(), step: 'implement' }, graph));
   expect(ended).toMatchObject({ status: 'done' });
   expect(specs.map(spec => spec.agent)).toEqual(['implementor', 'reviewer']);
   expect(

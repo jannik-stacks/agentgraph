@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { stoppedByRunner } from '../src/context.ts';
-import { drive, instruct, tick } from '../src/engine.ts';
+import { instruct, tick } from '../src/engine.ts';
 import { Tracker } from '../src/tracker.ts';
 import { isOnIssue } from '../src/graph.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
@@ -11,6 +11,7 @@ import { Store } from '../src/store.ts';
 import { begin, type Run } from '../src/workflow.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { bodies, services, world } from './world.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 const small = makeTestGraph('graph');
 const { branch: _branch, ...unbranched } = small.workflows.issue!;
@@ -48,7 +49,7 @@ describe('resume', () => {
       expect(resumed[0]!.reason).toBeUndefined();
       expect(resumed[0]!.retried).toBeUndefined();
       const back = resumed.filter(isOnIssue)[0]!;
-      expect((await run(drive(flow, back, graph))).status).toBe('done');
+      expect((await run(runWorkflow(flow, back, graph))).status).toBe('done');
       expect(specs).toHaveLength(1);
       expect(specs[0]!.resume).toEqual(original.sessions.implement);
       expect(marks.map(([kind]) => kind)).toEqual(['comment', 'comment']);
@@ -70,10 +71,14 @@ describe('resume', () => {
       const parentFlow = { ...flow, name: 'issue', on: { issue_comment: {} } };
       const combined = { ...graph, workflows: { ...graph.workflows, issue: parentFlow } };
       const parent = await services(where, [[start('i'), reply()]]).run(
-        drive(parentFlow, begin(parentFlow, { id: 'issue-7', issue: 7, started: '2026-10-16T00:00:00.000Z' }), combined)
+        runWorkflow(
+          parentFlow,
+          begin(parentFlow, { id: 'issue-7', issue: 7, started: '2026-10-16T00:00:00.000Z' }),
+          combined
+        )
       );
       const { reason: _reason, ...working } = parked('retro-7');
-      const paused = await run(drive(flow, { ...working, status: 'running' }, combined));
+      const paused = await run(runWorkflow(flow, { ...working, status: 'running' }, combined));
       const before = await run(Effect.flatMap(Tracker, f => f.issue(7)));
       const sticky = before.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))!.comment!;
       expect(bodies(before)).toEqual([

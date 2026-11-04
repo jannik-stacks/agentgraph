@@ -1,11 +1,11 @@
 import { Effect, Redacted } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { drive } from '../src/engine.ts';
 import { Tracker } from '../src/tracker.ts';
 import { githubTracker } from '../src/github.ts';
 import { reply, start } from './fixtures.ts';
 import { git } from './kit.ts';
 import { fresh, graph, services, w, world } from './world.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 
 describe('workflow base', () => {
   it('starts from the repository default branch even when a tag shares its name', async () => {
@@ -18,7 +18,7 @@ describe('workflow base', () => {
       checks: [],
     };
     const { run, specs } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Ready?' })]]);
-    const stored = await run(drive(workflow, { ...fresh(), step: 'implement' }, graph));
+    const stored = await run(runWorkflow(workflow, { ...fresh(), step: 'implement' }, graph));
     expect(stored.status).toBe('waiting');
     expect(specs).toHaveLength(1);
     expect(specs[0]!.prompt).toContain('pull requests go into develop.');
