@@ -11,7 +11,8 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { issuePath, writeIssueAt } from './kit.ts';
-import { comment, say, world } from './world.ts';
+import type { Graph } from '../src/folder.ts';
+import { comment, readChecks, say, world } from './world.ts';
 
 const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 const flow = {
@@ -44,12 +45,12 @@ const setup = (parallel: number) => {
   ).pipe(Layer.provide(replaySession([asks, asks])));
   const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session);
   const drives = startLoopDrives();
-  const pass = () =>
+  const pass = (g: Graph = graph) =>
     Effect.runPromise(
-      runPass(drives, fork => scanIssuesAndRunningRuns(graph, 0, undefined, fork)).pipe(Effect.provide(layer))
+      runPass(drives, fork => scanIssuesAndRunningRuns(g, 0, undefined, fork)).pipe(Effect.provide(layer))
     );
-  const status = (id: string) =>
-    Effect.runPromise(Effect.flatMap(Store, s => s.get(id)).pipe(Effect.provide(layer))).then(r => r?.status);
+  const read = (id: string) => Effect.runPromise(Effect.flatMap(Store, s => s.get(id)).pipe(Effect.provide(layer)));
+  const status = (id: string) => read(id).then(r => r?.status);
   const ask = () => {
     writeIssueAt(
       issuePath(where.tracker, 9),
@@ -57,7 +58,7 @@ const setup = (parallel: number) => {
     );
     say(where, comment(9, 'morgan', true, '/agent', '2026-10-16T00:01:00.000Z'));
   };
-  return { where, opened, release, drives, pass, status, ask };
+  return { where, graph, opened, release, drives, pass, read, status, ask };
 };
 
 const locks = (data: string) =>
@@ -118,6 +119,66 @@ describe('loop drives', () => {
       await vi.waitFor(async () => expect(await loop.status(first!.id)).not.toBe('running'), { timeout: 20_000 });
       await loop.pass();
       expect([during, await loop.status(first!.id)]).toEqual(['running', 'stopped']);
+    } finally {
+      loop.release();
+      await loop.drives.stop();
+    }
+  });
+
+  it('stops a queued run on a stop said while it waited for a permit, before any session', async () => {
+    const loop = setup(1);
+    try {
+      await loop.pass();
+      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+      loop.ask();
+      const [second] = await loop.pass();
+      say(loop.where, comment(9, 'morgan', true, '/agent stop', '2026-10-16T00:03:00.000Z'));
+      loop.release();
+      await vi.waitFor(() => expect(loop.drives.driving.size).toBe(0), { timeout: 20_000 });
+      expect([await loop.status(second!.id), loop.opened.length]).toEqual(['stopped', 1]);
+    } finally {
+      loop.release();
+      await loop.drives.stop();
+    }
+  });
+
+  it('leaves the end checks a later graph owes to a pass with that graph', async () => {
+    const loop = setup(1);
+    const later: Graph = {
+      ...loop.graph,
+      sha: 'g2',
+      checks: {
+        ...loop.graph.checks,
+        present: {
+          name: 'present',
+          path: 'checks/present.md',
+          body: '',
+          mode: 'warn',
+          version: 'v2',
+          run: 'echo present',
+        },
+      },
+      workflows: { issue: { ...flow, checks: ['present'] } },
+    };
+    try {
+      await loop.pass();
+      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+      loop.ask();
+      const [second] = await loop.pass();
+      say(loop.where, comment(9, 'morgan', true, '/agent stop', '2026-10-16T00:03:00.000Z'));
+      await loop.pass(later);
+      const owed = (await loop.read(second!.id))?.owed;
+      loop.release();
+      await vi.waitFor(() => expect(loop.drives.driving.size).toBe(0), { timeout: 20_000 });
+      const kept = (await loop.read(second!.id))?.owed;
+      await loop.pass(later);
+      await vi.waitFor(() => expect(loop.drives.driving.size).toBe(0), { timeout: 20_000 });
+      expect([
+        owed,
+        kept,
+        (await loop.read(second!.id))?.owed,
+        readChecks(loop.where.data, second!.id).map(e => [e.check.check, e.version]),
+      ]).toEqual([['present'], ['present'], undefined, [['present', 'v2']]]);
     } finally {
       loop.release();
       await loop.drives.stop();

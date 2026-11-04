@@ -211,6 +211,8 @@ const feedback = (m: Event) =>
 /** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
 export const issueDebounceMs = 30_000;
 
+const logged = (r: Run) => (e: StoreError) => Effect.as(Effect.logError(`run ${r.id}`, e), r);
+
 const runnerRetry = 'Tried again after a runner error. Go on from where the run was.';
 
 const isRunnerRetryDue = (id: string) =>
@@ -716,27 +718,17 @@ export const tick = (
       .filter(mine)
       .filter(r => graph.workflows[r.workflow] && pending(graph.workflows[r.workflow]!, r.issue, issues).length === 0)
       .toSorted((a, b) => a.started.localeCompare(b.started));
-    const each = <E>(runs: Run[], f: (r: Run) => Effect.Effect<Run | undefined, E, Services>) =>
-      fork
-        ? Effect.as(
-            Effect.forEach(runs, r =>
-              fork(
-                r.id,
-                graph.limits.parallel,
-                f(r).pipe(Effect.catch(e => Effect.as(Effect.logError(`run ${r.id}`, e), undefined)))
-              )
-            ),
-            []
-          )
-        : Effect.map(Effect.forEach(runs, f, { concurrency: graph.limits.parallel }), done =>
-            done.filter(r => r !== undefined)
-          );
-    const driven = yield* each(running, r =>
-      runWorkflow(graph.workflows[r.workflow]!, r, graph).pipe(
-        Effect.flatMap(done => Effect.map(runEndChecks(graph, done.id), e => e ?? done)),
-        Effect.catch(e => Effect.as(Effect.logError(`run ${r.id}`, e), r))
-      )
-    );
+    const forkAll = (runs: Run[], f: (r: Run) => Effect.Effect<Run | undefined, StoreError, Services>) =>
+      Effect.as(
+        Effect.forEach(runs, r => fork!(r.id, graph.limits.parallel, f(r).pipe(Effect.catch(logged(r))))),
+        []
+      );
+    const drive = (r: Run) => runWorkflow(graph.workflows[r.workflow]!, r, graph);
+    const driven = fork
+      ? yield* forkAll(running, drive)
+      : yield* Effect.forEach(running, r => drive(r).pipe(Effect.catch(logged(r))), {
+          concurrency: graph.limits.parallel,
+        });
     const looked = [...touched, ...running];
     yield* Effect.forEach(
       (yield* store.list()).filter(
@@ -750,7 +742,11 @@ export const tick = (
         }).pipe(Effect.scoped)
     );
     const owing = (yield* store.list()).filter(r => r.owed && mine(r));
-    const ended = yield* each(owing, r => runEndChecks(graph, r.id));
+    const ended = fork
+      ? yield* forkAll(owing, r => runEndChecks(graph, r.id))
+      : (yield* Effect.forEach(owing, r => runEndChecks(graph, r.id), { concurrency: graph.limits.parallel })).filter(
+          r => r !== undefined
+        );
     const moved = [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
     return [...moved.filter(r => !ended.some(e => e.id === r.id)), ...ended];
   });

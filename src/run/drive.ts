@@ -11,7 +11,7 @@ import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout
 import { findPullNumber, formatTemplate, readIssueWithPull, readHeardOutcome, readContinuedRun } from './hear.ts';
 import { type Services, formatFailure } from './execute.ts';
 import { formatWaitingOn } from './start.ts';
-import { writeAppliedTrace, writeProposals, removeThreads, writeStatus, readRunSpend } from './settle.ts';
+import { writeAppliedTrace, writeProposals, removeThreads, writeStatus, readRunSpend, runEndChecks } from './settle.ts';
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
@@ -33,7 +33,8 @@ const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] =>
 const rejected = 'the model provider rejected the key or login. Fix it, then start a new run.';
 
 /**
- * Runs the graph's setup, then tries until the run stops running. A runner error is retried once, then parks the run at its step, so an
+ * Hears what was said while the run waited, runs the graph's setup, tries until the run stops running, then runs the end
+ * checks it left owed. A runner error is retried once, then parks the run at its step, so an
  * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
  */
 export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Services> =>
@@ -52,6 +53,16 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
         current = yield* writeStatus(w, next, graph);
         yield* store.put(current);
+      });
+    const hear = (all: boolean) =>
+      Effect.gen(function* () {
+        const t = yield* Effect.option(readIssueWithPull(w, current));
+        const queued = Option.isSome(t) ? yield* readHeardOutcome(graph, w, current, t.value) : undefined;
+        if (queued && (all || queued.outcome.kind !== 'answer' || w.concurrency === 'cancel'))
+          yield* settle(
+            queued.outcome,
+            yield* readContinuedRun({ ...transition(w, current, queued.outcome), seen: queued.at }, queued.events)
+          );
       });
     const walk = Effect.gen(function* () {
       const base = w.base ?? (yield* tracker.base);
@@ -137,13 +148,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
           const why = `Spent $${usd.toFixed(2)}, over the graph's usd-per-run of ${graph.limits.usdPerRun}.`;
           yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
         }
-        const t = !isRunDone(current) ? yield* Effect.option(readIssueWithPull(w, current)) : Option.none();
-        const queued = Option.isSome(t) ? yield* readHeardOutcome(graph, w, current, t.value) : undefined;
-        if (queued)
-          yield* settle(
-            queued.outcome,
-            yield* readContinuedRun({ ...transition(w, current, queued.outcome), seen: queued.at }, queued.events)
-          );
+        if (!isRunDone(current)) yield* hear(true);
       }
       const files = made.written && (yield* Effect.promise(made.written));
       if (files !== undefined)
@@ -165,8 +170,9 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     };
     yield* store.lock(run.id);
     current = (yield* store.get(run.id)) ?? run;
-    if (current.status !== 'running') return current;
-    do {
+    if (current.status !== 'running') return { run: current, drove: false };
+    yield* hear(false);
+    while (current.status === 'running')
       yield* walk.pipe(
         Effect.catchDefect(defect =>
           Effect.andThen(
@@ -181,6 +187,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
           TrackerError: halt,
         })
       );
-    } while (current.status === 'running');
-    return current;
-  }).pipe(Effect.scoped);
+    return { run: current, drove: true };
+  }).pipe(
+    Effect.scoped,
+    Effect.flatMap(({ run, drove }) =>
+      drove && run.owed ? Effect.map(runEndChecks(graph, run.id), ended => ended ?? run) : Effect.succeed(run)
+    )
+  );
