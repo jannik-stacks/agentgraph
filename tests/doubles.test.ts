@@ -19,8 +19,8 @@ import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
-import { fixture, plant } from './fixtures.ts';
-import { git } from './kit.ts';
+import { fixture, plant, seeded } from './fixtures.ts';
+import { commit, git } from './kit.ts';
 
 const dirs: string[] = [];
 const temp = () => {
@@ -496,5 +496,20 @@ describe('hostSandbox', () => {
     expect(out).toEqual(Array(2).fill(['timeout', 'sh ran past 0.005 minutes']));
     await killed('exec');
     await killed('lines');
+  });
+});
+
+describe('seeded', () => {
+  it('points a copied origin at its own seed, not the template', () => {
+    const files = { 'README.md': 'hi\n' };
+    const first = seeded('remote', files, 'origin.git');
+    const second = seeded('remote', files, 'origin.git');
+    dirs.push(first.root, second.root);
+    const origin = join(second.root, 'origin.git');
+    expect(git(origin, 'config', 'remote.origin.url')).toBe(second.seed);
+    const ahead = commit(second.seed, { 'more.txt': 'more\n' });
+    git(origin, 'fetch', '-q', 'origin', 'main:main');
+    expect(git(origin, 'rev-parse', 'main')).toBe(ahead);
+    expect(git(join(first.root, 'origin.git'), 'rev-parse', 'main')).not.toBe(ahead);
   });
 });

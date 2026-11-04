@@ -6,7 +6,7 @@ import type { Check, Graph } from '../src/folder.ts';
 import type { Result } from '../src/result.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { compileWorkflow, type Problem, type Workflow } from '../src/workflow.ts';
-import { git, tmp, write } from './kit.ts';
+import { commit, git, tmp } from './kit.ts';
 
 export const { harnesses } = settings;
 
@@ -159,14 +159,16 @@ export const seeded = (name: string, files: Record<string, string>, origin?: str
     template = tmp(`${name}-template`);
     const seed = join(template, 'seed');
     git(template, 'init', '-q', '-b', 'main', seed);
-    write(seed, files);
-    git(seed, 'add', '-A');
-    git(seed, 'commit', '-q', '-m', 'init');
+    commit(seed, files);
     if (origin) git(template, 'clone', '-q', '--bare', seed, join(template, origin));
     templates.set(key, template);
   }
   const root = tmp(name);
   cpSync(template, root, { recursive: true });
+  if (origin) {
+    const config = join(root, origin, 'config');
+    writeFileSync(config, readFileSync(config, 'utf8').replaceAll(join(template, 'seed'), join(root, 'seed')));
+  }
   return { root, seed: join(root, 'seed'), data: join(root, 'data') };
 };
 
