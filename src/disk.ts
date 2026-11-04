@@ -279,7 +279,7 @@ export const inventory = async (
       used: existsSync(stamp) ? statSync(stamp).mtimeMs : 0,
       ...(needed.has(v.name) && { held: 'environment' }),
       ...(mounted.has(v.name) ? { held: 'container' } : overlaid(v.name) && { held: 'live checkout' }),
-      ...(held(v.name, false) && { held: 'recent use' }),
+      ...(held(v.name) && { held: 'recent use' }),
     });
   }
   for (const path of (o.roots ?? []).flatMap(root => findBuildDirs(root))) {
