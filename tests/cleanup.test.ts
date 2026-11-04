@@ -189,6 +189,39 @@ describe('landed checkout cleanup', () => {
     expect(messages.some(m => m.level === 'Error')).toBe(false);
   });
 
+  it.each(['detached', 'committed'])('keeps a %s HEAD changed after enumeration reachable', async kind => {
+    const run = setup();
+    const original = host.readGit;
+    let current = run.head;
+    const spy = vi.spyOn(host, 'readGit').mockImplementation((env, args, options) => {
+      const read = original(env, args, options);
+      if (args[0] !== 'worktree' || args[1] !== 'list') return read;
+      return read.pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            git(run.path, 'checkout', '--detach', '-q');
+            if (kind === 'committed') current = commit(run.path, { 'unlanded.txt': 'only in this checkout' });
+          })
+        )
+      );
+    });
+    const messages: string[] = [];
+    try {
+      await Effect.runPromise(
+        removeBranch(run.origin, 'agentgraph/7', 'main', run.head).pipe(
+          Effect.provide(Logger.layer([Logger.make(({ message }) => messages.push(String(message)))]))
+        )
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(existsSync(run.path)).toBe(true);
+    expect(git(run.path, 'rev-parse', 'HEAD')).toBe(current);
+    expect(git(run.path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD');
+    expect(git(run.origin, 'rev-parse', 'agentgraph/7')).toBe(run.head);
+    expect(messages.some(m => m.includes('1 skipped removal') && m.includes('HEAD changed'))).toBe(true);
+  });
+
   it('skips symbolic agent refs and preserves their main target', async () => {
     const run = world();
     const main = git(run.origin, 'rev-parse', 'main');

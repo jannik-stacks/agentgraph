@@ -2,7 +2,7 @@ import { getSha } from './hash.ts';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { copyFile, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Cache, Cause, Duration, Effect, Layer, Queue, Redacted, Schema, Semaphore, Stream } from 'effect';
@@ -29,7 +29,15 @@ import {
 import { ensureFreeDisk, readEnvRefs, writeEnvRefs, removeBranch } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { commitCheckout, commitCheckoutOnce, hostGit, makeHostEnv, readGit, readBranches } from './git.ts';
+import {
+  commitCheckout,
+  commitCheckoutOnce,
+  hostGit,
+  makeHostEnv,
+  readGit,
+  readBranches,
+  readWorktreeAdmin,
+} from './git.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
@@ -54,11 +62,9 @@ type Mount = { src: string; dst: string; readonly?: boolean };
  * The admin dir git just made for the worktree `dir` of `mirror`, read before any container ran in `dir`. It must be
  * `<mirror>/worktrees/<name of dir>`.
  */
-const worktreeAdmin = async (mirror: string, dir: string) => {
-  const admin = /^gitdir: (.+)$/m.exec(await readFile(join(dir, '.git'), 'utf8'))?.[1]?.trim() ?? '';
-  const expected = await realpath(join(mirror, 'worktrees', basename(dir)));
-  if (!admin.startsWith('/') || (await realpath(admin)) !== expected)
-    throw new Error(`worktree admin dir ${admin} is not ${expected}`);
+const worktreeAdmin = (mirror: string, dir: string) => {
+  const admin = readWorktreeAdmin(mirror, dir);
+  if (basename(admin) !== basename(dir)) throw new Error(`worktree admin dir ${admin} does not name ${dir}`);
   return admin;
 };
 
@@ -841,7 +847,7 @@ export const dockerSandbox = (o: {
           const add = Effect.gen(function* () {
             yield* Effect.try({ try: () => writeCheckoutOwner(dir), catch: e => infra((e as Error).message) });
             yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
-            admin = yield* Effect.tryPromise({
+            admin = yield* Effect.try({
               try: () => worktreeAdmin(mirror, dir),
               catch: e => infra((e as Error).message),
             });

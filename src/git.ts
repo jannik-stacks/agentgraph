@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { Effect, Semaphore } from 'effect';
 import { SandboxError, type Checkout } from './sandbox.ts';
 
@@ -136,6 +136,17 @@ export const gitIdentity = ['-c', 'user.name=agentgraph', '-c', 'user.email=agen
 
 export const readGit = (...args: Parameters<typeof hostGit>) =>
   Effect.map(hostGit(...args), out => out.toString('utf8').trim());
+
+export const readWorktreeAdmin = (mirror: string, dir: string) => {
+  const file = join(dir, '.git');
+  if (!lstatSync(file).isFile()) throw new Error('unsafe checkout pointer');
+  const pointer = readFileSync(file, 'utf8');
+  const admin = resolve(dir, pointer.slice('gitdir: '.length).trim());
+  const expected = join(realpathSync(mirror), 'worktrees', basename(admin));
+  if (!pointer.startsWith('gitdir: ') || realpathSync(admin) !== expected)
+    throw new Error(`worktree admin dir ${admin} is not ${expected}`);
+  return admin;
+};
 
 export const readBranches = (git: string) =>
   Effect.suspend(() =>
