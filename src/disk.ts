@@ -1,7 +1,7 @@
 import { readDirOrEmpty, readOrUndefined } from './read.ts';
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { makeHostEnv, hostGit, readGit } from './git.ts';
+import { makeHostEnv, hostGit, readGit, readWorktreeAdmin } from './git.ts';
 import { Effect } from 'effect';
 import {
   appendFileSync,
@@ -191,14 +191,10 @@ export const removeBranch = (git: string, branch: string, base: string | undefin
         Effect.try(() => {
           if (!existsSync(path)) return '';
           const file = join(path, '.git');
-          if (realpathSync(path) !== path || !lstatSync(file).isFile()) throw new Error('unsafe checkout metadata');
-          const pointer = readFileSync(file, 'utf8');
-          const admin = resolve(path, pointer.slice('gitdir: '.length).trim());
-          const expected = join(realpathSync(git), 'worktrees', basename(admin));
+          if (realpathSync(path) !== path) throw new Error('unsafe checkout path');
+          const admin = readWorktreeAdmin(git, path);
           if (
-            !pointer.startsWith('gitdir: ') ||
-            admin !== expected ||
-            realpathSync(admin) !== expected ||
+            realpathSync(admin) !== admin ||
             existsSync(join(admin, 'config.worktree')) ||
             resolve(admin, readFileSync(join(admin, 'commondir'), 'utf8').trim()) !== realpathSync(git) ||
             !lstatSync(join(admin, 'gitdir')).isFile() ||
@@ -234,7 +230,7 @@ export const removeBranch = (git: string, branch: string, base: string | undefin
         .split('\0')
         .filter(Boolean)
         .flatMap(key => ['-c', `${key}=${key.endsWith('.required') ? 'false' : ''}`]);
-      args.push('-c', 'core.fsmonitor=', '-c', 'extensions.worktreeConfig=false');
+      args.push('-c', 'extensions.worktreeConfig=false');
       const dirty = (yield* readGit(trusted, [...args, 'status', '--porcelain', '-uall', '-z', '--no-renames']))
         .split('\0')
         .filter(Boolean);
@@ -256,8 +252,16 @@ export const removeBranch = (git: string, branch: string, base: string | undefin
           unlinkSync(file);
         }
       }).pipe(
-        Effect.andThen(hostGit(trusted, [...args, 'worktree', 'remove', path])),
-        Effect.as(true),
+        Effect.andThen(
+          Effect.gen(function* () {
+            const now = yield* readGit(trusted, ['rev-parse', '--verify', 'HEAD']);
+            const named = yield* readGit(trusted, ['symbolic-ref', '--quiet', 'HEAD'], { codes: [1] });
+            if (now !== sha || named !== ref)
+              return yield* Effect.as(Effect.logWarning(`1 skipped removal ${path}: HEAD changed`), false);
+            yield* hostGit(trusted, [...args, 'worktree', 'remove', path]);
+            return true;
+          })
+        ),
         Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped removal ${path} ${branch}`, e), false))
       );
       if (!removed) return;
