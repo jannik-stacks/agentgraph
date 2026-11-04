@@ -7,7 +7,7 @@
  * Exits 1 while runs are left, so a queue tries again later.
  */
 import { spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -26,30 +26,69 @@ export const nodePath = (fallback = process.execPath) =>
  * Runs `args` with node into `logFile` in its own process group; a spawn or log write error ends it with exit 1
  * instead of the driver.
  */
-export const runLogged = (
+export const runLogged = async (
   args: string[],
   logFile: string,
   env: NodeJS.ProcessEnv,
   log: (message: string) => void = console.error
-) =>
-  new Promise<number>(done => {
-    let failed = false;
-    const stream = createWriteStream(logFile, { flags: 'a' });
-    stream.on('error', e => {
-      failed = true;
-      log(`log ${logFile}: ${e.message}`);
-      child.kill('SIGTERM');
-    });
-    stream.write(`\n### ${new Date().toISOString()} ${args.slice(1, 3).join(' ')}\n`);
-    const child = startChildProcess(nodePath(), args, { env });
-    child.stdout?.pipe(stream, { end: false });
-    child.stderr?.pipe(stream, { end: false });
-    child.on('error', e => {
+) => {
+  let fd: number;
+  try {
+    fd = openSync(logFile, 'a');
+    writeSync(fd, `\n### ${new Date().toISOString()} ${args.slice(1, 3).join(' ')}\n`);
+  } catch (e) {
+    log(`log ${logFile}: ${(e as Error).message}`);
+    return 1;
+  }
+  return new Promise<number>(done => {
+    const end = (code: number) => {
+      closeSync(fd);
+      done(code);
+    };
+    const child = startChildProcess(nodePath(), args, { env, stdio: ['ignore', fd, fd] });
+    child.once('error', e => {
       log(`spawn: ${e.message}`);
-      stream.end(() => done(1));
+      child.removeAllListeners('close');
+      end(1);
     });
-    child.on('close', code => stream.end(() => done(failed ? 1 : (code ?? 1))));
+    child.once('close', code => end(code ?? 1));
   });
+};
+
+export const runQueue = async <T>(
+  items: T[],
+  parallel: number,
+  run: (item: T) => Promise<void>,
+  why: (active: number) => Promise<string | undefined> = async () => undefined
+) => {
+  let active = 0;
+  let stopped: string | undefined;
+  let turn = Promise.resolve();
+  const take = () => {
+    const next = turn.then(async () => {
+      if (stopped || !items.length) return [];
+      stopped = await why(active);
+      if (stopped) return [];
+      active++;
+      return [items.shift()!];
+    });
+    turn = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
+  };
+  const work = async () => {
+    for (let [item] = await take(); item !== undefined; [item] = await take())
+      try {
+        await run(item);
+      } finally {
+        active--;
+      }
+  };
+  await Promise.all(Array.from({ length: parallel }, work));
+  return stopped;
+};
 
 /**
  * Takes this run's baseline from `usage`. `check` says why no new job may start: a failed or over two minutes old
@@ -212,33 +251,21 @@ if (import.meta.main) {
       const judging = await step('judge', '--judges', values.judges);
       return judging ? `judge exit ${judging}` : undefined;
     };
-    let active = 0;
     const failed: string[] = [];
-    let stopped: string | undefined;
-    await new Promise<void>(finish => {
-      const next = async () => {
-        while (!stopped && active < parallel && queue.length) {
-          stopped = await spend?.check(active);
-          if (stopped) log(`stop: ${stopped}`);
-          if (stopped) break;
-          const u = queue.shift()!;
-          active++;
-          const name = `${u.c.id}/${u.arm}/${u.point}/r${u.repeat}`;
-          log(`start ${name} (active ${active}, queued ${queue.length})`);
-          void runOne(u)
-            .catch((e: unknown) => `error ${String(e).slice(0, 300)}`)
-            .then(why => {
-              active--;
-              if (why) failed.push(name);
-              else spend?.finished();
-              log(why ? `${name} not done: ${why}` : `done ${name}`);
-              void next();
-            });
-        }
-        if (active === 0 && (stopped || !queue.length)) finish();
-      };
-      void next();
-    });
+    const stopped = await runQueue(
+      queue,
+      parallel,
+      async u => {
+        const name = `${u.c.id}/${u.arm}/${u.point}/r${u.repeat}`;
+        log(`start ${name} (queued ${queue.length})`);
+        const why = await runOne(u).catch((e: unknown) => `error ${String(e).slice(0, 300)}`);
+        if (why) failed.push(name);
+        else spend?.finished();
+        log(why ? `${name} not done: ${why}` : `done ${name}`);
+      },
+      async active => spend?.check(active)
+    );
+    if (stopped) log(`stop: ${stopped}`);
     const left = wanted.filter(u => !done(u)).length;
     log(
       `finished: ${wanted.length - left}/${wanted.length} done${failed.length ? `, failed: ${failed.join(', ')}` : ''}`

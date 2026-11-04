@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { appendBenchResults, makeBenchInput, readSlotRun } from '../bin/bench.ts';
-import { nodePath, runLogged, spendGuard } from '../bench/start-runs.ts';
+import { nodePath, runLogged, runQueue, spendGuard } from '../bench/start-runs.ts';
 import { type BenchInput, getBenchSlot, isBenchRunDone } from '../bench/runs.ts';
 import { writeImportedRun } from '../src/instance.ts';
 import { git, tmp } from './kit.ts';
@@ -190,5 +190,49 @@ describe('start-runs', () => {
     const r = start(s.set);
     expect(r.status).toBe(1);
     expect(r.stdout).toContain(`another start-runs works on ${s.set} as pid ${process.pid}`);
+  });
+});
+
+describe('runQueue', () => {
+  it('takes each item once and never more than the parallel limit while a spend check is slow', async () => {
+    let active = 0;
+    let most = 0;
+    const ran: number[] = [];
+    const stopped = await runQueue(
+      [1, 2, 3, 4, 5],
+      2,
+      async n => {
+        active++;
+        most = Math.max(most, active);
+        await new Promise(r => setTimeout(r, 40));
+        ran.push(n);
+        active--;
+      },
+      () => new Promise(r => setTimeout(() => r(undefined), 10))
+    );
+    expect([stopped, most, ran.toSorted()]).toEqual([undefined, 2, [1, 2, 3, 4, 5]]);
+  });
+
+  it('stops taking items once the check gives a reason and lets the running ones finish', async () => {
+    const ran: number[] = [];
+    const answers = [undefined, undefined, 'cap'];
+    const stopped = await runQueue(
+      [1, 2, 3, 4],
+      2,
+      async n => {
+        await new Promise(r => setTimeout(r, 5));
+        ran.push(n);
+      },
+      async () => answers.shift()
+    );
+    expect([stopped, ran.toSorted()]).toEqual(['cap', [1, 2]]);
+  });
+
+  it('passes a failed item on to the caller', async () => {
+    await expect(
+      runQueue([1], 1, async () => {
+        throw new Error('boom');
+      })
+    ).rejects.toThrow('boom');
   });
 });
