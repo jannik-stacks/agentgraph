@@ -112,7 +112,7 @@ An agent that may return `run` can start a workflow with `on: dispatch`:
 { "kind": "run", "workflow": "triage", "issue": 12, "step": "implement" }
 ```
 
-`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/engine.ts#findUndispatchable src/engine.ts#startProposedRun src/engine.ts#settled -->
+`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/run/start.ts#findUndispatchable src/run/start.ts#startProposedRun src/engine.ts#settled -->
 
 ### Routing
 
@@ -122,7 +122,7 @@ An `issue_comment` workflow whose agent may `tell` is a router and runs beside o
 { "kind": "tell", "issue": 12, "text": "stop" }
 ```
 
-The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/engine.ts#findRecipient src/run/hear.ts#readRunEvents src/engine.ts#tick -->
+The live run on that issue hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. Work runs take priority over retros. At a human wait step with `back`, feedback sends the run back directly. Without a live run the proposal is refused. The trace records `told` with the router's id. <!-- code: src/run/start.ts#findRecipient src/run/hear.ts#readRunEvents src/engine.ts#tick -->
 
 ## The session
 

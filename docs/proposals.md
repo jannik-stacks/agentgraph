@@ -63,11 +63,11 @@ Every `issue` body ends with a `## Done when` section of one to three observable
 | `follow-up` | Work outside the issue, ending with `Found while working on #n`; it runs only once someone adds a trigger label | `follow-up` |
 | `graph` | A recurring miss and the check or prompt that would catch it | `graph` |
 
-<!-- code: src/engine.ts#createIssues -->
+<!-- code: src/run/start.ts#createIssues -->
 
-The parent gets a `Split into:` comment with a task list. Each `XL` part starts the same workflow again. A follow-up or graph issue whose title matches an open one becomes a comment there. Filing uses a token limited to `issues: write`. <!-- code: src/engine.ts#readFiledIssues src/github.ts#scopes -->
+The parent gets a `Split into:` comment with a task list. Each `XL` part starts the same workflow again. A follow-up or graph issue whose title matches an open one becomes a comment there. Filing uses a token limited to `issues: write`. <!-- code: src/run/start.ts#readFiledIssues src/github.ts#scopes -->
 
-One refused filing fails the try and files nothing. The engine refuses a body without `## Done when`, any filing while an outsider's issue text is withheld, a part whose title matches an open issue, a reference to anything but an earlier part, and parts of an issue already three levels deep (`deepest`). <!-- code: src/engine.ts#deepest -->
+One refused filing fails the try and files nothing. The engine refuses a body without `## Done when`, any filing while an outsider's issue text is withheld, a part whose title matches an open issue, a reference to anything but an earlier part, and parts of an issue already three levels deep (`deepest`). <!-- code: src/run/start.ts#deepest -->
 
 ### Stacks on and Depends on
 
