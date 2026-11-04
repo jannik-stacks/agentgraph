@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { issueDebounceMs, scanIssuesAndRunningRuns, startLoopDrives, tick } from '../src/run/trigger.ts';
-import { readEngineEnv, start as main, temporary } from '../src/main.ts';
+import { readEngineEnv, readInstanceEnv, start as main, temporary } from '../src/main.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { removeRunLink, type Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -436,6 +436,35 @@ describe('start with one issue', () => {
 });
 
 describe('the loop', () => {
+  it('waits out the quiet period on a hosted loop pass and not on a folder loop pass', async () => {
+    const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');
+    const env = { AGENTGRAPH_REPO: 'acme/sandbox', AGENTGRAPH_PROXY_KEYS: '*=k', AGENTGRAPH_DIR: sandbox };
+    const pass = async (local: boolean) => {
+      const where = world();
+      const doubles = (s: Settings) =>
+        Layer.mergeAll(folderTracker(where.tracker), fileStore(s.data), hostSandbox(where.origin), replaySession([]));
+      writeIssueAt(issuePath(where.tracker, 7, 'events.jsonl'), '');
+      say(where, {
+        issue: 7,
+        kind: 'label',
+        label: 'triage',
+        actor: 'morgan',
+        trusted: true,
+        at: new Date().toISOString(),
+      });
+      const drives = startLoopDrives();
+      const setup = { ...(await readInstanceEnv(undefined, {}, env)), tracker: { origin: { local } } };
+      try {
+        await main({ graph: sandbox, issue: 'all', data: where.data, drives, setup: setup as never }, doubles, env);
+        return Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
+      } finally {
+        await drives.stop();
+      }
+    };
+    expect((await pass(false)).length).toBe(0);
+    expect((await pass(true)).length).toBe(1);
+  });
+
   it('polls tracker events with the drives cursor and drives the issues they name', async () => {
     const where = world();
     const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');

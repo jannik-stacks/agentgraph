@@ -235,7 +235,13 @@ export const start = (
                   Effect.map(next => ((drives.cursor = next), []))
                 )
               : one.issue === 'all'
-                ? scanIssuesAndRunningRuns(graph, 0, one.meta, fork, drives?.gates)
+                ? scanIssuesAndRunningRuns(
+                    graph,
+                    drives && one.setup?.tracker.origin.local === false ? issueDebounceMs : 0,
+                    one.meta,
+                    fork,
+                    drives?.gates
+                  )
                 : tick(graph, one.issue, one.marked, 0, one.meta, fork);
           return provided(
             !Object.keys(labels).length
