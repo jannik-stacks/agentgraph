@@ -129,14 +129,14 @@ export function proposeStatusUpdates(
   quiet = false
 ): { to?: IssueStatus; from?: IssueStatus; proposals: Proposal[] } {
   const rows = [...others, { run, t, usd }].toSorted((a, b) => a.run.started.localeCompare(b.run.started));
-  const states = rows.map(({ run }): [IssueStatus, string] =>
+  const states = rows.map(({ run, t }): [IssueStatus, string] =>
     run.reason?.startsWith(stoppedByRunner)
       ? ['needs-answer', 'paused on an agentgraph problem, not this change; reply `/agent` to retry']
       : run.status === 'running' ||
           (run.status === 'waiting' && rows.some(r => r.run.by === run.id && run.reason === `waiting on ${r.run.id}`))
         ? ['working', 'working']
         : run.status === 'waiting'
-          ? run.reason
+          ? run.reason || !(t.pull ?? t.issue.pull)
             ? ['needs-answer', `waiting for your answer below. ${answerWith}`]
             : ['needs-review', 'waiting for you']
           : [run.status, run.status === 'stopped' && run.reason ? `stopped: ${run.reason}` : run.status]

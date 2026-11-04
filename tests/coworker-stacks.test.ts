@@ -200,7 +200,7 @@ describe('stacks', () => {
     );
   });
 
-  it('retries a refused stack follow from its last successful base', async () => {
+  it('retries a refused stack follow from its last successful base, keeping the question it waits on', async () => {
     const where = world();
     const { move } = parent(where);
     let refused = true;
@@ -221,12 +221,15 @@ describe('stacks', () => {
     const run = <A, E>(effect: Effect.Effect<A, E, Tracker | Store | Sandbox | Session>) =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)));
     await run(runWorkflow(flow, run9(), merging));
+    await run(Effect.flatMap(Store, s => s.put({ ...saved(where), reason: 'Which one?' })));
     const before = git(where.origin, 'rev-parse', 'agentgraph/9');
     const moved = move('more.txt', 'more\n');
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
+    expect(saved(where).reason).toMatch(/^Which one\?\n\n#8 moved and agentgraph\/9 could not follow/);
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9^')).toBe(moved);
+    expect(saved(where).reason).toBe('Which one?');
     expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(9)))).join('\n')).not.toContain('could not follow');
   });
 
