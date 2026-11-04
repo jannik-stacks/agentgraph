@@ -94,7 +94,8 @@ export const createLoopLock = async (data: string) => {
     await Effect.runPromise(Scope.close(scope, Exit.void));
     failLoopLock(e);
   });
-  return () => Effect.runPromise(Scope.close(scope, Exit.void));
+  let released: Promise<void> | undefined;
+  return () => (released ??= Effect.runPromise(Scope.close(scope, Exit.void)));
 };
 
 export const isLoopHeld = (data: string) =>

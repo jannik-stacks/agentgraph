@@ -258,12 +258,18 @@ const prepare = async (i: Instance, graph: string, after: string) => {
 };
 
 const stopping = new AbortController();
-const trapInterrupt = () =>
-  process.on('SIGINT', () => {
-    if (stopping.signal.aborted) process.exit(130);
+const trapInterrupt = (release?: () => Promise<void>) => {
+  const stop = async (signal: NodeJS.Signals) => {
+    if (signal === 'SIGTERM' || stopping.signal.aborted) {
+      await release?.();
+      process.exit(signal === 'SIGTERM' ? 143 : 130);
+    }
     console.error('stopping; runs resume where they were on the next drive (Ctrl-C again quits now)');
     stopping.abort();
-  });
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+};
 
 const host = await readHostSettings(values).catch((e: Error) => fail(e.message));
 const { tracker: selection, data: root } = host;
@@ -661,7 +667,7 @@ async function loop(i: Instance) {
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(failLoopLock);
   const drives = values.once ? undefined : startLoopDrives();
-  trapInterrupt();
+  trapInterrupt(release);
   try {
     while (!stopping.signal.aborted) {
       let graph = '';

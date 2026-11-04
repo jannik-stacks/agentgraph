@@ -822,6 +822,45 @@ const BAD_FLAGS = [
 ] as const;
 
 describe('the CLI flags', () => {
+  it.each(['SIGTERM', 'SIGINT'] as const)('releases the loop lock before exiting on %s', async signal => {
+    const w = world();
+    const root = join(w.root, 'loop-data');
+    const i = await ensureInstance(root, w.seed);
+    const child = spawn(
+      process.execPath,
+      [runTs, 'loop', '--data', root, '--dir', sandboxGraph, '--provider', 'litellm'],
+      {
+        cwd: w.seed,
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '',
+          AGENTGRAPH_STATE: join(w.root, 'state'),
+          AGENTGRAPH_TRACKER: '',
+          AGENTGRAPH_APP_ENV: '',
+          AGENTGRAPH_PROXY_KEYS: 'implementor=test,reviewer=test',
+          AGENTGRAPH_SANDBOX_URL: 'http://unused.invalid',
+        },
+      }
+    );
+    const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
+    let output = '';
+    child.stdout.on('data', chunk => (output += chunk));
+    child.stderr.on('data', chunk => (output += chunk));
+    try {
+      await expect.poll(() => output, { timeout: 10_000 }).toContain('under a temp dir');
+      expect(existsSync(join(i.data, '.locks', 'loop.lock'))).toBe(true);
+      child.kill(signal);
+      await exited;
+      expect(existsSync(join(i.data, '.locks', 'loop.lock'))).toBe(false);
+      const release = await createLoopLock(i.data);
+      await release();
+      await release();
+    } finally {
+      child.kill('SIGKILL');
+      await exited;
+    }
+  });
+
   it('rejects an explicit missing repo instead of showing all instances', () => {
     const dir = tmp('missing-repo');
     dirs.push(dir);
