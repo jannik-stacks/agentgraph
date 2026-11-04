@@ -162,6 +162,24 @@ it('prints the chosen name for both instances of one checkout', async () => {
   expect([result.status, result.stdout]).toEqual([0, expect.stringMatching(/--instance bench[\s\S]*--instance live/)]);
 });
 
+it('refuses an unknown --instance name unless --repo creates it', async () => {
+  const w = await makeInstance('live');
+  const show = (...args: string[]) =>
+    spawnSync(process.execPath, [cli, 'show', '--instance', 'lvie', '--data', w.root, ...args], {
+      cwd: w.seed,
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, NODE_OPTIONS: '', AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE },
+    });
+  const typo = show();
+  expect([typo.status, typo.stderr]).toEqual([
+    2,
+    expect.stringContaining(`no instance lvie under ${w.root}; it holds live`),
+  ]);
+  expect(existsSync(join(w.root, 'lvie'))).toBe(false);
+  expect(show('--repo', w.seed).status).toBe(0);
+  expect(readInstance(w.root, 'lvie')?.checkout).toBe(realpathSync(w.seed));
+});
+
 it('shares scoped provider and config across check, studio reloads and execution', async () => {
   const w = await makeInstance('config');
   const config = join(w.root, 'config.ts');

@@ -85,9 +85,10 @@ An instance binds one checkout to one graph in one data root. `--instance <name>
 An explicit name can select a saved checkout from outside its repo. Use two names for a
 live instance and a bench instance of the same checkout. Every lookup uses the selected
 `--data` root. Names are single path components; reusing one for another checkout fails.
-Without `--instance`, a missing record is made only when every other folder in the root is an
-instance of another checkout. Otherwise the command stops and names the folders: pass
-`--instance <name>` to use one, or to make the new record. `agi show` outside a repo skips a
+An unknown `--instance <name>` stops and lists the instances in the root; add `--repo <dir>`
+to make the new record. Without `--instance`, a missing record is made only when every other
+folder in the root is an instance of another checkout. Otherwise the command stops and names
+the folders: pass `--instance <name>` to use one. `agi show` outside a repo skips a
 record it cannot read with a one-line warning. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
 
 The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),

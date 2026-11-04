@@ -18,6 +18,7 @@ import {
   writePullToRepo,
   findInstances,
   readInstance,
+  readPickedInstance,
   findPull,
   findRepo,
   mergePull,
@@ -281,7 +282,9 @@ const instruction =
   (verb === 'check' && values.runs) || verb === 'resume' || verb === 'dispatch' ? instructed() : undefined;
 let host = await readHostSettings({ data: values.data }).catch((e: Error) => fail(e.message));
 const root = host.data;
-const saved = values.instance !== undefined ? readInstance(root, values.instance) : undefined;
+const saved = await readPickedInstance(root, values.instance, values.repo !== undefined).catch((e: Error) =>
+  fail(e.message)
+);
 const checkout = saved && !values.repo ? saved.checkout : await findRepo(resolve(values.repo ?? '.'));
 if (values.repo && !checkout) fail('--repo must name a readable git repo');
 const isGraphCheck = verb === 'check' && values.dir !== undefined && !values.runs;
@@ -292,7 +295,6 @@ const i = isGraphCheck
         fail(e.message)
       )
     : undefined;
-if (values.instance && !i) fail(`no instance ${values.instance} under ${root}; pass --repo <dir> to create it`);
 const defaults = {
   ...(host.config && { AGENTGRAPH_CONFIG: host.config }),
 };
