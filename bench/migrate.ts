@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { constants, cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import {
@@ -224,6 +224,7 @@ const migrateArm = async (
     point: `${p.harness}:${p.model}`,
     ...(p.graphs[arm] && { graph: p.graphs[arm] }),
   };
+  const saved = readJson<{ attempts?: { dir: string; ms?: number }[] }>(join(final, 'usage.json'));
   await writeSlot(set, input, hasEngine(p.engine), async draft => {
     const slot = getBenchSlot(draft, input);
     for (const [n, from] of [...findEarlierAttempts(final), final].entries()) {
@@ -255,7 +256,11 @@ const migrateArm = async (
       );
       const m = from === final ? meta : (readJson<typeof meta>(join(from, 'meta.json')) ?? {});
       const why = whyInfra(m);
-      const usage = (imported && readJson<{ ms?: number }>(join(from, 'usage.json'))) || {};
+      const usage =
+        (imported &&
+          (saved?.attempts?.find(a => a.dir === relative(root, from)) ??
+            readJson<{ ms?: number }>(join(from, 'usage.json')))) ||
+        {};
       const ms = usage.ms ?? m.ms;
       await appendBenchResults(
         readSlotRun(slot)!,
