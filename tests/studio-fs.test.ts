@@ -1,23 +1,17 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { studioDir } from './studio.ts';
+import { createStudioServer, studioDir } from './studio.ts';
 
 const root = join(studioDir, '..');
 
 describe('studio dev server', () => {
   it('serves files from the studio, src and node_modules only, and no env or key file there', async () => {
-    const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
-    const planted = mkdtempSync(join(studioDir, 'src', '.probe-'));
+    // UNEXPECTED: a probe under the studio root reloads the studio servers of tests running alongside.
+    const planted = mkdtempSync(join(root, 'node_modules', '.probe-'));
     writeFileSync(join(planted, '.keys.env'), 'AGENTGRAPH_LLM_API_KEY_SCOUT=FAKE-canary\n');
     writeFileSync(join(planted, 'app.env'), 'AGENTGRAPH_APP_ID=FAKE-canary\n');
-    const server = await createServer({
-      configFile: join(studioDir, 'vite.config.ts'),
-      root: studioDir,
-      server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
-      logLevel: 'silent',
-    });
+    const server = await createStudioServer();
     try {
       await server.listen();
       const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');

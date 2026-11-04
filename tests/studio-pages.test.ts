@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, it, vi } from 'vitest';
-import { studioDir } from './studio.ts';
+import { createStudioServer, studioDir } from './studio.ts';
 
 it('encodes page data, hides reader failures and sends change topics per watch root', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-pages-'));
@@ -50,13 +50,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
   vi.stubEnv('AGI_STUDIO_DIR', graph);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
   vi.stubEnv('AGI_STUDIO_BENCH', external);
-  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
-  const server = await createServer({
-    configFile: join(studioDir, 'vite.config.ts'),
-    root: studioDir,
-    server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
-    logLevel: 'silent',
-  });
+  const server = await createStudioServer();
   try {
     await server.listen();
     const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
@@ -130,13 +124,7 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
   vi.stubEnv('AGI_STUDIO_DATA', data);
   vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
-  const server = await createServer({
-    configFile: join(studioDir, 'vite.config.ts'),
-    root: studioDir,
-    server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
-    logLevel: 'silent',
-  });
+  const server = await createStudioServer();
   try {
     await server.listen();
     const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
@@ -176,13 +164,7 @@ it('reloads the served graph and its problems when a graph file changes', async 
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
   vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
-  const server = await createServer({
-    configFile: join(studioDir, 'vite.config.ts'),
-    root: studioDir,
-    server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
-    logLevel: 'silent',
-  });
+  const server = await createStudioServer();
   try {
     await server.listen();
     const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
@@ -226,13 +208,7 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
   vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
-  const server = await createServer({
-    configFile: join(studioDir, 'vite.config.ts'),
-    root: studioDir,
-    server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
-    logLevel: 'silent',
-  });
+  const server = await createStudioServer();
   try {
     await server.listen();
     const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
@@ -273,16 +249,10 @@ dataSchema: Schema.String, read: () => Effect.succeed('') } });
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
   vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
   try {
-    await expect(
-      createServer({
-        configFile: join(studioDir, 'vite.config.ts'),
-        root: studioDir,
-        server: { port: 0, strictPort: false, warmup: { clientFiles: [] } },
-        logLevel: 'silent',
-      })
-    ).rejects.toThrow(`plugins/${name}.ts: plugin ${name} already defined in the built-in plugins`);
+    await expect(createStudioServer()).rejects.toThrow(
+      `plugins/${name}.ts: plugin ${name} already defined in the built-in plugins`
+    );
   } finally {
     vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });
