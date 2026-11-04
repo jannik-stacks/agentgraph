@@ -641,7 +641,8 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           try: f,
           catch: e => (e instanceof TrackerError ? e : new TrackerError({ message: (e as Error).message })),
         });
-      const locked = <A>(f: () => Promise<A>) => lock.withPermits(1)(io(() => runLocked(dir, f)));
+      const locked = <A>(f: () => Promise<A>) =>
+        lock.withPermits(1)(Effect.uninterruptible(io(() => runLocked(dir, f))));
 
       return {
         searchIssues: (query, options) =>

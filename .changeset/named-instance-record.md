@@ -8,4 +8,4 @@ Rename the instance checkout field to `checkout`, move graph `repo` and `trust` 
 
 Use the selected graph snapshot for tracker setup and execution, honor scoped preflight and explicit log flags, retain loop compression, and refresh studio graph paths on reload.
 
-Hosted entrypoints select a provisioned named instance. Preserve committed graphs without a local tracker, prepare providers for dispatched work, release loop locks on service shutdown, and refresh cached studio pages. Instance loops on hosted trackers keep polling tracker events between full passes.
+Hosted entrypoints select a provisioned named instance. Preserve committed graphs without a local tracker, prepare providers for dispatched work, release loop locks on service shutdown, and refresh cached studio pages. Instance loops on hosted trackers keep polling tracker events between full passes. Hosted loop passes keep the quiet period, a failed settings refresh keeps the last settings, and SIGTERM drains the loop before it exits.

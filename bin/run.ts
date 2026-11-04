@@ -685,7 +685,8 @@ async function loop(i: Instance, first: string) {
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(failLoopLock);
   const drives = values.once ? undefined : startLoopDrives();
-  trapInterrupt(release);
+  const ended = Promise.withResolvers<void>();
+  trapInterrupt(() => (stopping.abort(), ended.promise));
   let why = '';
   const drive = (poll?: true) =>
     start(
@@ -750,12 +751,14 @@ async function loop(i: Instance, first: string) {
       ]).catch(() => {});
       woken.abort();
       if (stopping.signal.aborted) break;
-      scope = await readInstanceEnv(i, makeHarnessChoice(connection.provider.name), defaults, commandEnv);
-      await applySettings(connection.provider).catch((e: Error) =>
-        console.error(
-          `${connection.provider.name} settings did not refresh, the next pass keeps the last: ${e.message}`
-        )
-      );
+      const last = scope;
+      try {
+        scope = await readInstanceEnv(i, makeHarnessChoice(connection.provider.name), defaults, commandEnv);
+        await applySettings(connection.provider);
+      } catch (e) {
+        scope = last;
+        console.error(`the settings did not refresh, the next pass keeps the last: ${(e as Error).message}`);
+      }
       try {
         const moved = trackerSetup.origin.local && (await ensureBase(i));
         if (moved) throw new Error(moved);
@@ -769,11 +772,13 @@ async function loop(i: Instance, first: string) {
       }
     }
   } finally {
+    stopping.abort();
     try {
       await polling;
       await drives?.stop();
     } finally {
       await release();
+      ended.resolve();
     }
   }
 }

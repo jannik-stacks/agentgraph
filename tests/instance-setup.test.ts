@@ -656,7 +656,56 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   }
-}, 30_000);
+});
+
+it('keeps the last settings when the instance env vanishes between passes, then still releases its lock', async () => {
+  const w = await makeInstance('rotate');
+  const env = join(w.root, 'model.env');
+  writeFileSync(env, 'ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_EVERY=0.002\n');
+  w.save({ env, provider: 'anthropic' });
+  const ready = join(w.root, 'loop-ready');
+  mkdirSync(join(w.graph, 'plugins'));
+  writeFileSync(
+    join(w.graph, 'plugins/ready.ts'),
+    `
+import { writeFileSync } from 'node:fs';
+import { folder } from ${JSON.stringify(new URL('../src/tracker.ts', import.meta.url).href)};
+export default { name: 'ready', tracker: host => { const setup = folder.tracker(host); return { ...setup,
+layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return setup.layer(trust, as); }
+}; } };`
+  );
+  const child = spawn(process.execPath, [cli, 'loop', '--instance', 'rotate', '--data', w.root, '--tracker', 'ready'], {
+    cwd: w.root,
+    stdio: 'pipe',
+    env: {
+      PATH: process.env.PATH,
+      NODE_OPTIONS: '',
+      AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+      AGENTGRAPH_SANDBOX_URL: 'http://unused',
+    },
+  });
+  let output = '';
+  child.stderr.on('data', chunk => (output += chunk));
+  let exited: [typeof child.exitCode, typeof child.signalCode] | undefined;
+  child.once('exit', (code, signal) => {
+    exited = [code, signal];
+  });
+  try {
+    await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 20_000 });
+    rmSync(env);
+    await vi.waitFor(() => expect(output).toContain('the settings did not refresh, the next pass keeps the last'), {
+      timeout: 20_000,
+    });
+    expect(exited).toBeUndefined();
+    child.kill('SIGTERM');
+    await vi.waitFor(() => expect(exited).toEqual([143, null]), { timeout: 5000 });
+    await (
+      await createLoopLock(w.instance.data)
+    )();
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
+});
 
 it('invalidates loaded virtual pages when switching graphs and removing a plugin', async () => {
   const w = await makeInstance('pages');
