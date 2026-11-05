@@ -127,7 +127,7 @@ no-comment tests/skill.test.ts 2
 no-comment tests/status.test.ts 1
 no-comment tests/studio-graph.test.ts 1
 no-comment tests/studio-markdown.test.ts 1
-no-comment tests/studio-nav.test.ts 3
+no-comment tests/studio-nav.test.ts 2
 no-comment tests/studio-rows.test.ts 2
 no-comment tests/studio-tooltip.test.ts 1
 no-comment tests/studio.ts 3

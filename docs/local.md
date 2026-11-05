@@ -67,14 +67,18 @@ The base is the branch checked out on first use, or `origin`'s default on a deta
 
 ## The studio
 
-The studio shows the graph, every run and the Results tab. It only reads. Inside a repo, `agi studio` starts it for that repo; it needs a clone of agentgraph and installs the studio's dependencies on first use. By hand, from a clone:
+The studio shows the graph, every run and the Results tab. It only reads. Inside a repo, `agi studio` starts it for that repo's instance; it needs a clone of agentgraph and installs the studio's dependencies on first use. By hand, from a clone:
 
 ```sh
 cd studio && npm install
-npm run dev -- --repo ~/code/left-pad
+npm run dev -- --instance left-pad --instance right-pad
 ```
 
-It serves on port 5182, or `AGI_PORT`, and restarts when engine code under `src` or `bin` changes. `--repo` reads that repo's instance; `--dir <dir> --data <dir>` pick the inputs instead, and `--tracker <dir>` makes the Inbox show local commands. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the [Results](checks.md#the-results-tab) tab's tunes.
+It serves on port 5182, or `AGI_PORT`, and restarts when engine code under `src` or `bin` changes. One studio serves several instances of one data root: each `--instance <name>` adds one, and with none of `--instance`, `--repo` and `--dir` it serves every instance under the root. Each instance's pages live under its name, as `/<name>/runs` and `/<name>/graph`, and the header switches between instances. Graph, Runs, Inbox and Results read only that instance. An address that names no served instance lists the ones served. An instance that fails to load shows why on its pages, and the others keep working. <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown -->
+
+`--repo <dir>` reads or makes that repo's instance. `--dir <graph>` picks the graph of a single instance; when serving several, set `graph` in each `instance.yaml`. `--dir <dir> --data <dir>` without an instance shows that graph and run store at `/runs`, and `--tracker <dir>` then makes the Inbox show local commands. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab of every instance, and `npm run dev -- --tune <dir>` the [Results](checks.md#the-results-tab) tab's tunes.
+
+Set `AGENTGRAPH_STUDIO_URL` to the studio's address once, in the shell or an instance `env` file. An instance's posts link to `<address>/<name>/runs/<id>`, so a loop that drives several instances links each to its own runs. <!-- code: src/main.ts#readInstanceEnv -->
 
 The Inbox lists runs that wait for a person, with the commands `agi show` prints. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->
 
@@ -159,10 +163,10 @@ basename. Folder migration is manual. Tracker flags and App variables select a b
 instance; every command keeps its data directory and trust. GitHub instances use their
 `env` file for App credentials. Local origin confinement and branch export apply to local
 trackers. Provider callbacks, validation and studio reloads read the same scoped environment.
-<!-- code: src/main.ts#readInstanceEnv src/services.ts#makeTrackerSetup src/status.ts#formatInstanceFlags studio/served.ts#readServedGraph -->
+<!-- code: src/main.ts#readInstanceEnv src/services.ts#makeTrackerSetup src/status.ts#formatInstanceFlags studio/served.ts#readInstanceServed -->
 
 Studio reloads resolve the instance graph and env file again and refresh their watch roots.
 An explicit `--dir` keeps selecting that graph until the studio exits. CLI tracker setup and execution
 use the same selected graph snapshot; stored-data commands do not discover graph plugins.
 CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
-<!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readServedGraph studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->
+<!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->

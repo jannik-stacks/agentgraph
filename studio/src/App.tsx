@@ -1,9 +1,9 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { connectedAtom, navigateAtom, pageAtom } from './state.ts';
+import { connectedAtom, instances, navigateAtom, pageAtom, shown } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
-import { accent, Button, cx, Link, Loading } from './ui.tsx';
+import { accent, Button, cx, Link, Loading, Muted, Select } from './ui.tsx';
 
 const pages = {
   inbox: lazy(() => import('./runs/InboxPage.tsx').then(m => ({ default: m.InboxPage }))),
@@ -12,13 +12,30 @@ const pages = {
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
 };
 
+const own = declared.filter(page => page.instance === undefined || page.instance === shown?.name);
+
 const nav = [
   ...(['inbox', 'graph', 'runs'] as const).map(r => ({ href: `/${r}`, title: r })),
-  ...declared,
+  ...own,
   { href: '/docs', title: 'docs' },
 ];
 
-const plugins = new Map(declared.map(page => [page.href, lazy(page.load)]));
+const plugins = new Map(own.map(page => [page.href, lazy(page.load)]));
+
+const Unknown = () => (
+  <Muted>
+    This studio serves no instance named {location.pathname.split('/')[1]}. Open{' '}
+    {instances.map(({ name }, i) => (
+      <span key={name}>
+        {i > 0 && ', '}
+        <a className="underline" href={`/${name}/runs`}>
+          {name}
+        </a>
+      </span>
+    ))}
+    .
+  </Muted>
+);
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error | undefined }> {
   override state: { error?: Error | undefined } = {};
@@ -45,9 +62,11 @@ export const App = () => {
     plugins.get(here) ?? (route && Object.hasOwn(pages, route) ? pages[route as keyof typeof pages] : undefined);
   const navigate = useSetAtom(navigateAtom);
   const connected = useAtomValue(connectedAtom);
+  const unknown = instances.length > 0 && !shown;
   useEffect(() => {
-    if (!route) navigate({ href: '/runs', replace: true });
-  }, [route, navigate]);
+    if (unknown && location.pathname === '/') location.replace(`/${instances[0]!.name}/runs`);
+    else if (!route && !unknown) navigate({ href: '/runs', replace: true });
+  }, [route, navigate, unknown]);
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-zinc-200 px-3 sm:gap-5 sm:px-4 dark:border-zinc-800">
@@ -72,6 +91,14 @@ export const App = () => {
             </Link>
           ))}
         </nav>
+        {instances.length > 1 && shown && (
+          <Select
+            label="Instance"
+            value={shown.name}
+            options={instances.map(({ name }) => ({ value: name, label: name }))}
+            onChange={name => location.assign(`/${name}/${route === 'plugins' ? 'runs' : (route ?? 'runs')}`)}
+          />
+        )}
         {!connected && (
           <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs text-zinc-500" role="status">
             <span className={cx('size-2 rounded-full bg-current', accent.text)} />
@@ -81,7 +108,9 @@ export const App = () => {
       </header>
       <main className="min-h-0 flex-1">
         <Boundary key={`${route}/${id ?? ''}`}>
-          <Suspense fallback={<Loading />}>{Page ? <Page /> : <p className="p-4">Page not found.</p>}</Suspense>
+          <Suspense fallback={<Loading />}>
+            {unknown ? <Unknown /> : Page ? <Page /> : <p className="p-4">Page not found.</p>}
+          </Suspense>
         </Boundary>
       </main>
     </div>

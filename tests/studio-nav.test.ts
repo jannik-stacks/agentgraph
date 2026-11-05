@@ -1,16 +1,9 @@
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { studioDir, studioModule } from './studio.ts';
+import { studioDependency, studioModule } from './studio.ts';
 
 type Atom = object;
 type Store = { get: (atom: Atom) => unknown; set: (atom: Atom, value: unknown) => void };
 type CreateElement = (type: unknown, props?: object | null, ...children: unknown[]) => unknown;
-
-const studioRequire = createRequire(join(studioDir, 'package.json'));
-const dependency = <T>(name: string) =>
-  import(/* @vite-ignore */ pathToFileURL(studioRequire.resolve(name)).href) as Promise<T>;
 
 let render: (path: string) => string;
 let renderInbox: (runs: object[]) => string;
@@ -29,9 +22,9 @@ beforeAll(async () => {
       setItem: (k: string, v: string) => stored.set(k, v),
     },
   });
-  const { createElement } = await dependency<{ createElement: CreateElement }>('react');
-  const { renderToString } = await dependency<{ renderToString: (node: unknown) => string }>('react-dom/server');
-  const jotai = await dependency<{ createStore: () => Store; Provider: unknown }>('jotai');
+  const { createElement } = await studioDependency<{ createElement: CreateElement }>('react');
+  const { renderToString } = await studioDependency<{ renderToString: (node: unknown) => string }>('react-dom/server');
+  const jotai = await studioDependency<{ createStore: () => Store; Provider: unknown }>('jotai');
   const { App } = await studioModule<{ App: () => unknown }>('App.tsx');
   const state = await studioModule<{ locationAtom: Atom }>('state.ts');
   render = path => {

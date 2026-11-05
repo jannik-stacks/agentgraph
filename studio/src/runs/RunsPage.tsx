@@ -1,6 +1,6 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useEffect, useMemo, useState } from 'react';
-import { pageAtom, navigateAtom, queryParam, runResultsAtom, runsAtom } from '../state.ts';
+import { pageAtom, navigateAtom, queryParam, runResultsAtom, runsAtom, shown } from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { Combobox, KeyPicker, Live, makeHiddenKeysAtom, Loading, Muted } from '../ui.tsx';
 import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
@@ -21,12 +21,13 @@ const Locate = ({ gh }: { gh: string }) => {
   useEffect(() => {
     let current = true;
     fetch(`/api/locate?gh=${encodeURIComponent(gh)}`)
-      .then(r => r.json() as Promise<Located | { error: string } | null>)
+      .then(r => r.json() as Promise<(Located & { instance: string }) | { error: string } | null>)
       .then(
         found => {
           if (!current) return;
           if (!found) setFailure(`No run wrote ${gh}.`);
           else if ('error' in found) setFailure(found.error);
+          else if (found.instance !== (shown?.name ?? '')) location.replace(`/${found.instance}${locatedLink(found)}`);
           else navigate({ href: locatedLink(found), replace: true });
         },
         (e: Error) => current && setFailure(e.message)

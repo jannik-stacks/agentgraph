@@ -78,6 +78,10 @@ export const readInstanceEnv = async (
       ...(resolved.image !== undefined && { AGENTGRAPH_IMAGE: resolved.image }),
       AGENTGRAPH_TRACKER_DIR: instance.tracker ?? '',
       ...(instance.data && { AGENTGRAPH_DATA: instance.data }),
+      ...(env.AGENTGRAPH_STUDIO_URL &&
+        instance.dir && {
+          AGENTGRAPH_STUDIO_URL: `${env.AGENTGRAPH_STUDIO_URL.replace(/\/+$/, '')}/${basename(instance.dir)}`,
+        }),
     });
   }
   const named = await Effect.runPromise(

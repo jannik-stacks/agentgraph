@@ -4,8 +4,13 @@ declare module 'virtual:fixtures' {
 }
 
 declare module 'virtual:served' {
-  /** The served graph, with the problems that stop the engine loading it. */
-  export const served: { name: string; problems: import('../../src/workflow.ts').Problem[] } | null;
+  /** Each served graph by its instance name, empty for a studio of one `--dir`, with what stops the engine loading it. */
+  export const served: {
+    name: string;
+    title: string;
+    local: boolean;
+    problems: import('../../src/workflow.ts').Problem[];
+  }[];
 }
 
 declare module 'virtual:agentgraph-pages' {
@@ -13,6 +18,7 @@ declare module 'virtual:agentgraph-pages' {
     name: string;
     title: string;
     href: string;
+    instance?: string;
     load: () => Promise<{ default: import('react').ComponentType }>;
   }[];
 }

@@ -113,7 +113,7 @@ The runner reads these. Instance defaults and command overrides follow the [sett
 | `AGENTGRAPH_CACHE_VOLUME` | Name prefix of the per-repo [toolchain cache](sandbox.md#toolchains) volumes, `agentgraph-cache` |
 | `AGENTGRAPH_IMAGE` | Sandbox image override; default `agentgraph-sandbox:local` |
 | `AGENTGRAPH_SANDBOX_URL` | A box server that runs commands instead of docker; see [Hosting](hosting.md) |
-| `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links) |
+| `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links); an instance's links add `/<name>` |
 
 A setting in both the shell and the App env file takes the env file's value. Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the names in `AGENTGRAPH_SESSION_ENV` may come from a file named by the setting plus `_FILE`. <!-- code: src/main.ts#readEngineEnv -->
 

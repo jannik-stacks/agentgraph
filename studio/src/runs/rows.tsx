@@ -6,7 +6,7 @@ import type { RunRecord } from '../../../src/workflow.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultLines } from '../results/ResultTable.tsx';
-import { dataParam, runAtom, runResultsAtom } from '../state.ts';
+import { dataParam, makeApiHref, makeInstanceHref, runAtom, runResultsAtom } from '../state.ts';
 import { accent, Badge, cx, Disclosure, Link, Live, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
@@ -76,7 +76,7 @@ const CopyLink = ({ href }: { href: string }) => {
       type="button"
       className="text-zinc-400 underline hover:text-zinc-900 dark:hover:text-zinc-100"
       onClick={() =>
-        navigator.clipboard.writeText(new URL(href, location.origin).href).then(
+        navigator.clipboard.writeText(new URL(makeInstanceHref(href), location.origin).href).then(
           () => setCopied(true),
           () => undefined
         )
@@ -115,7 +115,7 @@ const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }
       type="button"
       className="font-sans text-[10px] text-sky-600 underline"
       onClick={() =>
-        fetch(makeDataHref(`/api/logs/${log.hash}`, data))
+        fetch(makeApiHref(makeDataHref(`/api/logs/${log.hash}`, data)))
           .then(r => (r.ok ? r.text() : `not in the data dir (${r.status})`))
           .then(setText, (e: Error) => setText(e.message))
       }

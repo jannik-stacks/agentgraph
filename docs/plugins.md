@@ -179,7 +179,8 @@ Pass its plugin name and a browser-safe data schema shared with the host reader.
 exports its UI, query/navigation atoms and results components through that browser entry.
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 
-Pages appear at `/plugins/<name>`. HTTP snapshots come from `/api/plugins/<name>/data`; one SSE
+Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named
+instances they sit under `/<instance>`, and each reads its own instance's plugin with `?instance=<instance>`. One SSE
 connection invalidates all mounted readers when main data or declared roots change. A failed
 refresh keeps the last good data and shows an error. Snapshots are capped at 16 MiB.
 Host readers, settings and data roots never enter the page manifest. Pages share the studio origin

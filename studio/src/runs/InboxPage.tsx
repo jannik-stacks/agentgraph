@@ -1,13 +1,13 @@
 import { useAtomValue } from 'jotai';
 import { isOnIssue } from '../../../src/graph.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../../../src/status.ts';
-import { runsAtom } from '../state.ts';
+import { runsAtom, shown } from '../state.ts';
 import type { ServedRun } from './trace.ts';
 import { Live, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 
-const env = import.meta.env as Record<string, string | undefined>;
-const local = env.VITE_AGI_LOCAL === '1';
+const local = !!shown?.local;
+const flags = shown?.name ? ` --instance ${shown.name}` : '';
 
 export const InboxPage = () => <Live state={useAtomValue(runsAtom)}>{runs => <Inbox runs={runs} />}</Live>;
 
@@ -26,7 +26,7 @@ const Inbox = ({ runs }: { runs: ServedRun[] }) => {
           children: [],
           body: (
             <pre className="py-1 whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
-              {[r.run.reason, ...formatNextSteps(r.run, local ? undefined : r.repo || '<owner>/<repo>').slice(1)]
+              {[r.run.reason, ...formatNextSteps(r.run, local ? undefined : r.repo || '<owner>/<repo>', flags).slice(1)]
                 .filter(Boolean)
                 .join('\n')}
             </pre>
