@@ -47,7 +47,7 @@ Without a graph, commands that need one stop with a copy command. An `.agentgrap
 
 ## Who drives
 
-`start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends. While an `agi loop` holds the instance's lock, they only post and the loop picks the issue up. Only one loop runs per instance. <!-- code: src/main.ts#createLoopLock src/main.ts#isLoopHeld -->
+`start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends. While an `agi loop` holds the instance's lock, they only post and the loop picks the issue up. Only one loop runs per instance; one loop can serve several, see [below](#one-loop-for-several-instances). <!-- code: src/main.ts#createLoopLock src/main.ts#isLoopHeld -->
 
 After a drive the CLI prints why the run waits or stopped and the next commands. A runner error, such as a harness that cannot reach its model, makes the run wait; the drive and `agi show <n>` print its cause and trace path. A login the provider rejects stops the run, and for `claude` the CLI says how to drop the saved token. <!-- code: src/status.ts#formatRunnerError -->
 
@@ -96,8 +96,8 @@ The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),
 `graph`, `tracker` (plugin name), `trust` (logins), `env` (secrets/env file), `provider`,
 `readonly`, `image`, and `limits.parallel`. Relative `checkout`, `graph`, and `env` paths resolve
 against the instance folder. Omitted `graph` means the checkout's `.agentgraph/`.
-Edit the record to change saved defaults; flags apply to one command. `loop` records intent
-for a later engine scheduler; F1 still starts loops explicitly. Unknown fields fail.
+Edit the record to change saved defaults; flags apply to one command. `loop: true` puts the
+instance in `agi loop` run outside a repo without `--instance`. Unknown fields fail.
 <!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph src/instance.ts#ensureInstanceGraph -->
 
 Highest priority comes first in this single precedence table.
@@ -128,6 +128,17 @@ file; explicit command flags win. It never changes `process.env`. Explicit `--lo
 both env files and the process environment.
 <!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/main.ts#start -->
 
+### One loop for several instances
+
+`agi loop --instance a --instance b` drives both in one process. Outside a repo and without
+`--instance`, it drives every instance whose record says `loop: true`. Each instance keeps its own
+graph, data, lock, tracker, trust, env file, provider and session permits, and its output lines start
+with its name. `--repo`, `--dir`, `--base`, `--tracker` and `--read-only` select one instance, so
+they fail here; put them in each `instance.yaml`. `--parallel <n>` caps drives across all of them.
+An instance that fails to start, or stops on an error, prints `<name>: stopped: <why>` and the others go on;
+the process then exits 1. Ctrl-C or SIGTERM stops every instance and releases each lock.
+<!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives src/main.ts#start -->
+
 ### Migrating an existing instance
 
 Stop its loop before moving its folder. Choose a plain name, then run:
@@ -154,4 +165,4 @@ Studio reloads resolve the instance graph and env file again and refresh their w
 An explicit `--dir` keeps selecting that graph until the studio exits. CLI tracker setup and execution
 use the same selected graph snapshot; stored-data commands do not discover graph plugins.
 CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
-<!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readServedGraph studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#loop -->
+<!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readServedGraph studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->

@@ -19,7 +19,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | `close <n>` | Closes the issue and its open pull request; a live run stops on its next look | |
 | `show [n]`, `show graph` | What needs you, one issue's timeline and diff, or the graph in use; outside a repo, every instance | yes |
 | `studio` | Starts the [studio](local.md#the-studio) for this repo and prints its URL | |
-| `loop` | Drives open issues in the background and polls new tracker events every `AGENTGRAPH_EVERY` minutes, including during a full pass | yes |
+| `loop` | Drives open issues in the background and polls new tracker events every `AGENTGRAPH_EVERY` minutes, including during a full pass; serves [several instances](local.md#one-loop-for-several-instances) in one process | yes |
 | `check` | Validates a graph without a model or container; prints each problem or `ok` | yes |
 | `check <name>... --runs` | Runs the named checks on ended runs; see [Checks](checks.md#end-checks) | yes |
 | `resume <run id>` or `resume --parked` | Queues one or all runs parked by a runner error for the next loop pass | yes |
@@ -65,6 +65,7 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--patch <file>` | `export` | Write a patch file instead; it must not exist yet |
 | `--read-only` | all | Never write to this repo from now on, kept in `instance.yaml` |
 | `--once` | `loop` | Make one pass |
+| `--parallel <n>` | `loop` | Drives at once across every served instance, on top of each instance's `limits.parallel`; not with `--once` |
 | `--apply` | `prune-logs` | Delete the logs |
 | `--from <commit>` | `import` | The commit the change is measured from; default the commit's parent, or `HEAD` for a patch |
 | `--meta <file>` | `import` | JSON kept as the run's `meta.engine.origin.input` |
@@ -83,7 +84,7 @@ agi start --provider anthropic --save "Add a greet function"
 agi loop --tracker github --dir .agentgraph --data ~/agentgraph-data
 ```
 
-The shared `--instance <name>` flag chooses the named instance. See the [settings table](local.md#named-instances-and-settings).
+The shared `--instance <name>` flag chooses the named instance; only `loop` takes it more than once. See the [settings table](local.md#named-instances-and-settings).
 
 ## Environment
 

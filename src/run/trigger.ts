@@ -1,5 +1,5 @@
 import { matchesGlob } from 'node:path';
-import { Deferred, Duration, Effect, Exit, FiberSet, Option, Schema, Scope, Semaphore, Stream } from 'effect';
+import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine, stoppedByRunner } from '../context.ts';
 import { Tracker, TrackerError, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
@@ -973,9 +973,10 @@ export const scanTrackerEvents = (
     return pickNewest(cursor, ...events.map(m => m.at)) ?? cursor;
   });
 
-export const startLoopDrives = () => {
+export const startLoopDrives = (host?: Semaphore.Semaphore) => {
   const scope = Scope.makeUnsafe();
   return {
+    host,
     passes: Effect.runSync(Scope.provide(FiberSet.make(), scope)),
     driving: new Set<string>(),
     gates: new Map<number, Semaphore.Semaphore>(),
@@ -1006,6 +1007,7 @@ export const runPass = <A, E, R>(
               return FiberSet.run(
                 own,
                 effect.pipe(
+                  drives.host ? drives.host.withPermits(1) : identity,
                   drives.permits.withPermits(1),
                   Effect.tap(r => Effect.sync(() => r && drives.settled.push(r))),
                   Effect.ensuring(Effect.sync(() => drives.driving.delete(id)))

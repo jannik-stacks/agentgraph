@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Effect, Semaphore, Stream, Option } from 'effect';
+import { Context, Effect, Semaphore, Stream, Option } from 'effect';
 import { type TrackerError, Tracker } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { Session } from '../session.ts';
@@ -52,22 +52,21 @@ export const runShell = (
         network,
         minutes,
       })
-    ).pipe(getGate(graph).withPermits(1))
+    ).pipe(withSessionPermit(graph))
   );
 
 type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit' | 'used'>;
 
-let gate: { size: number; permits: Semaphore.Semaphore } | undefined;
+export const sessionPermitsRef = Context.Reference<Semaphore.Semaphore>('agentgraph/sessionPermits', {
+  defaultValue: () => Semaphore.makeUnsafe(1),
+});
 
-const getGate = (graph: Graph) => {
-  const size = Math.min(graph.limits.sessions, gate?.size ?? Infinity);
-  if (!gate) gate = { size, permits: Semaphore.makeUnsafe(size) };
-  else if (gate.size !== size) {
-    Effect.runSync(gate.permits.resize(size));
-    gate.size = size;
-  }
-  return gate.permits;
-};
+const withSessionPermit =
+  (graph: Graph) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.flatMap(sessionPermitsRef, permits =>
+      Effect.andThen(permits.resize(graph.limits.sessions), permits.withPermits(1)(effect))
+    );
 
 /**
  * One harness session: what it was opened with, every event and how it ended become lines of the trace of the run
@@ -167,7 +166,7 @@ export const runSession = <A = never, R = never>(
           return write({ at: new Date().toISOString(), step, event, key });
         }),
         Effect.scoped,
-        getGate(graph).withPermits(1),
+        withSessionPermit(graph),
         Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
         Effect.as(undefined)
       );
