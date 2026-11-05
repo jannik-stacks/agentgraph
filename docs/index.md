@@ -56,6 +56,7 @@ Working on agentgraph: [Engine and code](patterns.md), [Bench](bench.md).
 | **try** | One attempt at a step; a retry resumes its session |
 | **proposal** | A write an agent asks the engine to make, such as a comment or a push |
 | **run** | One workflow on one issue, until it is done or stopped |
+| **retro** | A workflow started by the [`feedback` trigger](workflows.md#retros) <!-- code: src/run/hear.ts#isRetro --> |
 | **trace** | A run's event log |
 
 "Agent" is the role file, "agentgraph" the system, and "bot" the GitHub account that posts its writes. Issue, pull request, label, review and base keep their GitHub meanings; a run label is a `key=value` pair on a run.

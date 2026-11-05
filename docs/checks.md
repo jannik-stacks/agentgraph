@@ -76,7 +76,7 @@ A run's page shows the gates that failed, with the fields past their limit, then
 
 ## Reading traces
 
-`reads: traces` gives an agent a read-only `traces.md` with the issue's other runs, oldest first, retros left out: prompts, thinking, tool calls and results, replies, checks, proposals and outcomes, with trace line numbers to cite. Long text is cut in the middle, secrets are redacted, and past about 60,000 characters the oldest runs keep only endings and outcomes. <!-- code: src/context.ts#transcript -->
+`reads: traces` gives an agent a read-only `traces.md` with the issue's other runs, oldest first, [retros](workflows.md#retros) left out: prompts, thinking, tool calls and results, replies, checks, proposals and outcomes, with trace line numbers to cite. Long text is cut in the middle, secrets are redacted, and past about 60,000 characters the oldest runs keep only endings and outcomes. <!-- code: src/context.ts#transcript -->
 
 Scripts get the same file as `AGENTGRAPH_TRACES`, so a script can check, for example, that tests ran after the last edit. <!-- code: src/run/check.ts#writeTraces -->
 

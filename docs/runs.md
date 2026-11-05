@@ -102,7 +102,7 @@ Every run is saved first under a lock on its id, and only when no run has that i
 | `step`, `status` | Current step and status |
 | `tries`, `rounds` | Attempts at this step, and returns per step |
 | `sessions` | The kept session of each step |
-| `feedback`, `reason` | Feedback for the next try, and why the run waits or stopped |
+| `feedback`, `reason` | Context for the next try or a [retro](workflows.md#retros), and why the run waits or stopped |
 | `answers` | Human answers, each with its question |
 | `comment`, `said` | The status comment, and where people last spoke |
 | `base`, `onto` | The stacked parent's pull request, and where a conflicted follow lands |
