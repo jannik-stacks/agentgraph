@@ -136,7 +136,7 @@ export function proposeStatusUpdates(
       ? ['needs-answer', 'paused on an agentgraph problem, not this change; reply `/agent` to retry']
       : run.status === 'running' ||
           (run.status === 'waiting' && rows.some(r => r.run.by === run.id && run.reason === `waiting on ${r.run.id}`))
-        ? ['working', 'working']
+        ? ['working', run.status === 'running' && run.reason ? 'held' : 'working']
         : run.status === 'waiting'
           ? run.reason || !(t.pull ?? t.issue.pull)
             ? ['needs-answer', `waiting for your answer below. ${answerWith}`]

@@ -334,9 +334,11 @@ describe('ordering', () => {
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
     const { value } = await run(where, [], tick(graph, 2, true));
     expect(value).toEqual([]);
-    expect((await runs(where)).map(r => [r.id, r.step, r.status, r.tries])).toEqual([
-      ['issue-2', 'implement', 'running', 0],
+    expect((await runs(where)).map(r => [r.id, r.step, r.status, r.reason, r.tries])).toEqual([
+      ['issue-2', 'implement', 'running', 'until #1 has a pull request', 0],
     ]);
+    const sticky = (await issue(where, 2)).events.find(m => m.comment?.body.startsWith('Agentgraph status: '));
+    expect(sticky?.comment?.body).toMatch(/^Agentgraph status: held\n[\s\S]*\| held until #1 has a pull request \|/);
 
     writeIssueAt(issuePath(where.tracker, 1), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
     const question = 'The dependency is closed; which implementation should I use?';
@@ -366,6 +368,55 @@ describe('ordering', () => {
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
     const { value } = await run(where, [], tick(graph, 2, true));
     expect(value).toEqual([]);
+    expect((await runs(where)).map(r => r.reason)).toEqual(['until #1 closes']);
+  });
+
+  it('keeps driving the other runs while many runs wait on open issues, and drives each once it is free', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+      [3, 'morgan'],
+      [4, 'morgan'],
+      [5, 'morgan'],
+    ]);
+    for (const n of [2, 3, 4]) appendIssueAt(issuePath(where.tracker, n), '\nDepends on #1\nDepends on #5\n');
+    const implement = graph.workflows.issue!;
+    const held = [2, 3, 4].map(n => begin(implement, { id: `issue-${n}`, issue: n, started: at(n) }));
+    const free = begin(implement, { id: 'issue-5', issue: 5, started: at(9) });
+    await Effect.runPromise(
+      Effect.forEach([...held, free], r => Effect.flatMap(Store, s => s.put(r))).pipe(
+        Effect.provide(fileStore(where.data))
+      )
+    );
+    const question = 'Which way?';
+    const first = await run(
+      where,
+      [turn({ kind: 'ask', question })],
+      scanIssuesAndRunningRuns({ ...graph, limits: { ...graph.limits, parallel: 1 } })
+    );
+    expect(first.value.map(r => [r.id, r.status])).toEqual([['issue-5', 'waiting']]);
+    expect((await runs(where)).map(r => [r.id, r.status, r.reason])).toEqual([
+      ['issue-2', 'running', 'until #1, #5 close'],
+      ['issue-3', 'running', 'until #1, #5 close'],
+      ['issue-4', 'running', 'until #1, #5 close'],
+      ['issue-5', 'waiting', question],
+    ]);
+
+    for (const n of [1, 5])
+      writeIssueAt(
+        issuePath(where.tracker, n),
+        `---\ntitle: Issue ${n}\nstate: closed\nauthor: morgan\n---\n\nDone.\n`
+      );
+    const after = await run(
+      where,
+      Array(3).fill(turn({ kind: 'ask', question })),
+      scanIssuesAndRunningRuns({ ...graph, limits: { ...graph.limits, parallel: 1 } })
+    );
+    expect(after.value.map(r => [r.id, r.status, r.reason])).toEqual([
+      ['issue-2', 'waiting', question],
+      ['issue-3', 'waiting', question],
+      ['issue-4', 'waiting', question],
+    ]);
   });
 });
 
