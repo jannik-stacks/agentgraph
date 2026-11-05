@@ -37,7 +37,7 @@ export type Workflow = Doc<{
     Record<
       'issues' | 'issue_comment' | 'pull_request' | 'dispatch' | 'feedback' | 'conflict',
       { label?: string; column?: string; project?: string; branches?: string[] }
-    >
+    > & { feedback: { restarts?: boolean } }
   >;
   branch?: string;
   base?: string;
@@ -73,7 +73,7 @@ export type Outcome =
   | { kind: 'back'; why: string }
   | { kind: 'ask'; question: string }
   | { kind: 'answer'; text: string }
-  | { kind: 'stop'; why: string };
+  | { kind: 'stop'; why: string; restarted?: true };
 
 /** How far a session has read its issues: the time of the last event it saw and the base its pull request was on. */
 export type Seen = { at: string; base?: string };
@@ -96,6 +96,7 @@ export type Run = {
   /** What a human answered or said to the run, with the question each answer settled. */
   answers?: { asked: string; said: string }[];
   reason?: string;
+  restarted?: true;
   /** A runner error has already been retried at this step. */
   retried?: true;
   /** The time of the newest event the run has taken in: its start, answers, and everything its sessions were shown. */
@@ -181,7 +182,7 @@ const Front = Schema.Struct({
       issue_comment: Schema.optionalKey(Trigger),
       pull_request: Schema.optionalKey(Trigger),
       dispatch: Schema.optionalKey(Schema.Null),
-      feedback: Schema.optionalKey(Schema.Null),
+      feedback: Schema.optionalKey(Schema.NullOr(Schema.Struct({ restarts: Schema.optionalKey(Schema.Boolean) }))),
       conflict: Schema.optionalKey(Schema.Null),
     }),
   ]),
@@ -376,7 +377,13 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const step = w.steps[i];
   if (!step) return run;
   const owed = w.checks.length > 0 && { owed: w.checks };
-  const stop = (why: string): Run => ({ ...fresh(run), status: 'stopped', reason: why, ...owed });
+  const stop = (why: string): Run => ({
+    ...fresh(run),
+    status: 'stopped',
+    reason: why,
+    ...owed,
+    ...(o.kind === 'stop' && o.restarted && { restarted: o.restarted }),
+  });
   const ask = (question: string): Run =>
     isQuiet(w) ? stop(question) : { ...fresh(run), status: 'waiting', reason: question };
 
@@ -594,7 +601,8 @@ export function getEventOutcome(
   const command = target && !('why' in target) && target.run?.id === run.id ? target : undefined;
   if (said?.startsWith(':') && !command) return undefined;
   if (command?.verb === 'stop' && !isRunDone(run)) return { kind: 'stop', why: command.text || 'a human said stop' };
-  if (command?.verb === 'restart' && !isRunDone(run)) return { kind: 'stop', why: 'a human restarted it' };
+  if (command?.verb === 'restart' && !isRunDone(run))
+    return { kind: 'stop', why: 'a human restarted it', restarted: true };
   if (command?.verb === 'cancel') return run.status === 'running' ? { kind: 'ask', question: cancelled } : undefined;
   const step = w.steps.find(s => s.name === run.step);
   if (waiting && step && isHumanWaitStep(step)) {

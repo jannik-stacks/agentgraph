@@ -86,7 +86,7 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 | `project` | `owner/number` | The one board `column` reads; any board of the repo owner when unset |
 | `branches` | list of names | Accepted, starts nothing yet |
 
-`dispatch` and `feedback` take no fields: `on: { issues: { label: triage }, dispatch }`. `dispatch` lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. `feedback` starts on what people say or push where a run worked and on each run that ends. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/run/trigger.ts#feedback -->
+`dispatch` takes no fields: `on: { issues: { label: triage }, dispatch }`. It lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. `feedback` starts on comments, reviews and pushes where a run worked, and on each run that ends, except retros, the router's runs and runs that ended over a day ago. Its one field, `restarts: true`, also starts it on runs that `/agent:restart` stopped. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/run/trigger.ts#feedback -->
 
 ## Steps
 
