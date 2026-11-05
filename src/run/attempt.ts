@@ -29,6 +29,7 @@ import {
   makeToldEvent,
   readContinuedRun,
   readEarlierBranch,
+  findRouter,
 } from './hear.ts';
 import {
   isPart,
@@ -554,7 +555,7 @@ export const runAttempt = (
           const stored = prior?.id ? yield* store.get(prior.id) : undefined;
           const others = (yield* store.list({ issue: p.issue })).filter(r => r.id !== run.id);
           const told = makeToldEvent(p.issue, { text: p.text, by: run.id }, new Date().toISOString());
-          const target = pickCommandTarget(graph, others, told, stored);
+          const target = pickCommandTarget(graph, others, told, findRouter(graph)?.name, stored);
           if (target && 'why' in target) return { p, key, to: undefined, why: target.why };
           return { p, key, to: target ? target.run : (stored ?? (yield* findRecipient(graph, p.issue, run.id))) };
         })

@@ -5,31 +5,31 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   cheaper,
   decide,
-  type Flip,
   flipsOf,
   guard,
   init,
   paired,
   propose,
+  readVariantDiff,
   run,
   status,
   step,
   tuneRows,
 } from '../bin/tune.ts';
 import { readJsonl } from '../bin/resume.ts';
-import type { readRunResults } from '../bin/results.ts';
-import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
+import { readRunResults } from '../bin/results.ts';
+import { readRunLabels } from '../src/labels.ts';
+import type { Flip } from '../tune/runs.ts';
 import { git, tmp } from './kit.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   delete process.env.AGENTGRAPH_TUNE;
-  delete process.env.AGI_STUDIO_TUNE;
 });
 
 const evalOf = (flips: Record<string, Flip> = {}): Parameters<typeof decide>[1] => ({
-  candidate: 'c',
+  variant: 'c',
   split: 'fit',
   cases: [],
   quality: 0,
@@ -290,7 +290,7 @@ describe('tune loop', () => {
     spawnSync('cp', ['-R', join(dir, 'cands/i000-init/graph'), fromGraph]);
     mkdirSync(join(fromGraph, 'skills'));
     writeFileSync(join(fromGraph, 'skills', 'f1.md'), 'Mind f1.\n');
-    expect(propose(dir, fromGraph, 'f1 needs care').id).toBe('i001-manual');
+    expect((await propose(dir, fromGraph, 'f1 needs care')).id).toBe('i001-manual');
     await step(dir, { k: 1, proposers: ['manual'] }, io);
     expect(tuneRows(dir).steps.map(s => [s.id, s.verdict])).toEqual([
       ['i000-init', 'kept'],
@@ -315,13 +315,13 @@ describe('tune loop', () => {
       ['fit', 4, 0.75],
       ['validate', 2, 1],
     ]);
-    expect(retro.diff).toContain('skills/all.md');
+    expect(readVariantDiff(dir, retro)).toContain('skills/all.md');
     expect(retro.why).toMatch(/won f2, f3, f4, v1, v2, lost none, delta 0.833 over 6 cases/);
     expect(made[1]!.why).toMatch(/won none, lost none, delta 0 over 6 cases, usd 0 .*, below the bar/);
     expect(JSON.parse(readFileSync(join(dir, 'budget.json'), 'utf8')).claude.week).toEqual({ now: 50, used: 0 });
 
     mkdirSync(join(dir, 'manual'));
-    const patch = spawnSync('git', ['--git-dir', join(dir, 'graph.git'), 'diff', retro.graph, retro.parent], {
+    const patch = spawnSync('git', ['--git-dir', join(dir, 'graph.git'), 'diff', retro.graph, retro.base], {
       encoding: 'utf8',
     }).stdout;
     writeFileSync(join(dir, 'manual', 'undo.patch'), `Undo the all skill.\n\n${patch}`);
@@ -333,7 +333,7 @@ describe('tune loop', () => {
     const refs = spawnSync('git', ['--git-dir', join(dir, 'graph.git'), 'for-each-ref', '--format=%(refname)'], {
       encoding: 'utf8',
     }).stdout;
-    for (const s of tuneRows(dir).steps) expect(refs).toContain(`refs/cand/${s.id}`);
+    expect(tuneRows(dir).steps.filter(s => !refs.includes(`refs/variant/${s.id}`))).toEqual([]);
     const main = spawnSync('git', ['--git-dir', join(dir, 'graph.git'), 'rev-parse', 'main'], { encoding: 'utf8' });
     expect(main.stdout.trim()).toBe(retro.graph);
 
@@ -365,7 +365,7 @@ describe('tune loop', () => {
     await step(dir, { k: 1, proposers: ['retro'], model: 'gpt-6.1-sol' }, watched);
     expect(models).toEqual(['gpt-6.1-sol']);
 
-    propose(dir, fromGraph, 'f1 needs care, on a broken bench');
+    await propose(dir, fromGraph, 'f1 needs care, on a broken bench');
     const broken = {
       ...silent,
       rows: (d: string, id: string) =>
@@ -418,46 +418,68 @@ describe('usage', () => {
     spawnSync('cp', ['-R', join(dir, 'cands/i000-init/graph'), graph]);
     mkdirSync(join(graph, 'skills'));
     writeFileSync(join(graph, 'skills', 'f1.md'), 'Mind f1.\n');
-    propose(dir, graph, 'f1 needs care');
+    await propose(dir, graph, 'f1 needs care');
     const limits = { codex: 100, claude5h: 100, claudeWeek: 100 };
     await step(dir, { k: 1, proposers: ['manual'], limits }, io);
     expect(spent('i001-manual')).toBe(12);
   });
 });
 
-describe('status', () => {
-  it('sums a tune up on one screen', () => {
-    const text = status(join(import.meta.dirname, 'fixtures/tune/clarinet/skill@0.1.0'));
-    expect(text).toContain('incumbent i006-skill-1');
-    expect(text).toContain('quality, human = 1: select 0.655 on 14, validate 0.657 on 4, test 0.924 on 5');
-    expect(text).toContain('points used: Codex - of 25, Claude 5h - of 40, Claude week - of 12');
-    expect(text).toContain('no log yet');
-  });
-});
-
 const tuneRoot = (dir: string) => join(dir, '..', '..');
 
-describe('/api/results', () => {
-  it('answers every tune candidate under AGI_STUDIO_TUNE as results', async () => {
-    const routes: Record<string, (req: unknown, res: unknown) => Promise<void>> = {};
-    const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
-    plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
-    process.env.AGI_STUDIO_TUNE = join(import.meta.dirname, 'fixtures/tune');
-    const ask = (url: string) =>
-      new Promise<{ status: number; body: string }>(done => {
-        const res = {
-          statusCode: 200,
-          setHeader: () => {},
-          end: (body: string) => done({ status: res.statusCode, body }),
-        };
-        void routes['/api/results']!({ url }, res);
-      });
-    const { fields, runs } = JSON.parse((await ask('/?from=tune')).body) as ReturnType<typeof readRunResults>;
-    expect(fields.map(f => f.field)).toEqual(['quality', 'usd', 'minutes']);
-    expect(runs).toHaveLength(75);
-    expect(runs[0]).toMatchObject({
-      axes: { tune: 'acme/clarinet/skill@0.1.0', repo: 'acme/clarinet', verdict: 'kept' },
+const keptOne = async () => {
+  const ran: Parameters<typeof fakeBench>[0] = [];
+  const io = fakeBench(ran) as unknown as Parameters<typeof step>[2];
+  const dir = await init('demo', setup(), io);
+  const graph = join(tuneRoot(dir), 'draft');
+  spawnSync('cp', ['-R', join(dir, 'cands/i000-init/graph'), graph]);
+  mkdirSync(join(graph, 'skills'));
+  writeFileSync(join(graph, 'skills', 'f1.md'), 'Mind f1.\n');
+  await propose(dir, graph, 'f1 needs care');
+  return { dir, io };
+};
+
+describe('control runs', () => {
+  it('keeps a variant pending as a running control run and decides it on the next step', async () => {
+    const { dir, io } = await keptOne();
+    expect(tuneRows(dir).pending.map(v => v.id)).toEqual(['i001-manual']);
+    const pendingRun = JSON.parse(readFileSync(join(dir, 'data/tune-i001-manual/run.json'), 'utf8'));
+    expect(pendingRun).toMatchObject({ workflow: 'tune', status: 'running', body: 'f1 needs care' });
+    expect(status(dir)).toContain('evaluating i001-manual');
+    await step(dir, { k: 1, proposers: ['manual'] }, io);
+    expect(tuneRows(dir).pending).toEqual([]);
+    const text = status(dir);
+    expect(text).toContain('incumbent i001-manual');
+    expect(text).toContain('quality, human = 1: select 0.167 on 6, validate 0 on 2, test -');
+    expect(text).toContain('i001-manual kept: select won f1, lost none');
+    expect(readRunLabels(join(dir, 'data'), 'tune-i001-manual')).toEqual({
+      tune: 'demo/t1',
+      iteration: '1',
+      variant: 'i001-manual',
+      proposer: 'manual',
+      verdict: 'kept',
     });
-    expect((await ask('/?from=nope')).status).toBe(400);
+    const checks = readJsonl<{ check: { check: string; findings?: string } }>(
+      join(dir, 'data/tune-i001-manual/checks.jsonl')
+    );
+    expect(checks.map(e => e.check.check)).toEqual(['tune/proposal', 'tune/decision']);
+    expect(checks[0]!.check.findings).toContain('+Mind f1.');
+  });
+
+  it('shows control runs in the results with their labels as axes and the decision as fields', async () => {
+    const { dir, io } = await keptOne();
+    await step(dir, { k: 1, proposers: ['manual'] }, io);
+    const { fields, runs } = readRunResults(join(dir, 'data'));
+    expect(runs.map(r => [r.key, r.axes.workflow, r.axes.variant, r.axes.verdict]).toSorted()).toEqual([
+      ['tune-i000-init', 'tune', 'i000-init', 'kept'],
+      ['tune-i001-manual', 'tune', 'i001-manual', 'kept'],
+    ]);
+    expect(fields.filter(f => f.check === 'tune/decision').map(f => f.field)).toEqual([
+      'verdict',
+      'why',
+      'quality',
+      'usd',
+      'minutes',
+    ]);
   });
 });

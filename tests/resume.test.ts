@@ -6,7 +6,6 @@ import { harnessError, runnerError } from '../bin/bench.ts';
 import { appendJsonl, claim, readJsonl, probeUrl, release, waitWhileServicesDown } from '../bin/resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
 import { writeFileAtomic } from '../src/store.ts';
-import { tuneRows } from '../bin/tune.ts';
 import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
@@ -47,13 +46,6 @@ describe('crash-safe files', () => {
     appendJsonl(file, { c: 3 });
     appendJsonl(file, { d: 4 });
     expect(readJsonl(file)).toEqual([{ a: 1 }, { c: 3 }, { d: 4 }]);
-  });
-
-  it('reads a tune whose last step line was torn', () => {
-    const dir = root();
-    writeFileSync(join(dir, 'tune.json'), '{"repo":"me/demo"}');
-    writeFileSync(join(dir, 'iterations.jsonl'), '{"id":"i000-init","verdict":"kept"}\n{"id":"i001');
-    expect(tuneRows(dir).steps.map(s => s.id)).toEqual(['i000-init']);
   });
 });
 

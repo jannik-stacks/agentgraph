@@ -145,7 +145,6 @@ no-of-for bin/tune.ts incumbentOf
 no-of-for bin/tune.ts keepOf
 no-of-for bin/tune.ts overOf
 no-of-for bin/tune.ts qsOf
-no-of-for bin/tune.ts tunesOf
 no-of-for tests/tune.test.ts evalOf
 no-of-for tune/propose.ts answerOf
 no-of-for tune/propose.ts diffOf
@@ -158,9 +157,7 @@ no-of-for tune/skill.ts pluginOf
 no-of-for tune/skill.ts promptOf
 no-of-for tune/skill.ts slotsOf
 no-of-for tune/skill.ts stopOf
-unique-export bin/tune.ts Step
 unique-export bin/tune.ts propose
-unique-export src/workflow.ts Step
 unique-export tune/propose.ts propose
 verb-first bench/start-runs.ts nodePath
 verb-first bench/start-runs.ts spendGuard
@@ -197,7 +194,6 @@ verb-first bin/tune.ts reading
 verb-first bin/tune.ts status
 verb-first bin/tune.ts step
 verb-first bin/tune.ts tuneRows
-verb-first bin/tune.ts tunesOf
 verb-first src/context.ts context
 verb-first src/context.ts news
 verb-first src/context.ts transcript

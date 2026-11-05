@@ -523,6 +523,7 @@ export function pickCommandTarget(
   graph: { workflows: Record<string, Workflow>; commands?: typeof CommandSettings.Type },
   runs: Run[],
   m: Event,
+  router: string | undefined,
   to?: Run
 ) {
   const said = parseAgentRequest(m) ?? '';
@@ -554,9 +555,11 @@ export function pickCommandTarget(
         !graph.workflows[r.workflow]!.on.feedback
     )
     .toSorted((a, b) => a.started.localeCompare(b.started));
+  const work = worked.filter(r => r.workflow !== router || r.workflow === picked?.name);
+  const pool = work.length ? work : worked;
   const run =
-    to ?? worked.findLast(r => (!isRunDone(r) || (r.ended ?? '') >= m.at) && (!picked || r.workflow === picked.name));
-  const workflow = picked ?? graph.workflows[(run ?? worked.at(-1))?.workflow ?? ''] ?? picks[0];
+    to ?? pool.findLast(r => (!isRunDone(r) || (r.ended ?? '') >= m.at) && (!picked || r.workflow === picked.name));
+  const workflow = picked ?? graph.workflows[(run ?? pool.at(-1))?.workflow ?? ''] ?? picks[0];
   if (step !== undefined && !workflow?.steps.some(s => s.name === step))
     return {
       why: `\`/agent${token}\`: ${workflow?.name ?? 'the issue'} has no step ${step}. Its steps are ${

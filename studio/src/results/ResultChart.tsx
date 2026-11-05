@@ -30,7 +30,7 @@ const ResultChart = ({
   const along = x === 'time' || x === 'order' || x === 'iteration';
   const kind = measure ? 'scatter' : along ? 'along' : 'strip';
   const bound = y.limit?.maximum ?? y.limit?.minimum;
-  const staircase = kind === 'along' && runs.some(r => r.axes.kept === 'kept');
+  const staircase = kind === 'along' && runs.some(r => r.axes.verdict === 'kept');
 
   useEffect(() => {
     const el = box.current;
@@ -50,7 +50,7 @@ const ResultChart = ({
           color: color ? (run.axes[color] ?? 'none') : 'all',
           facet: facet ? (run.axes[facet] ?? 'none') : undefined,
           href: run.href,
-          kept: run.axes.kept === 'kept',
+          kept: run.axes.verdict === 'kept',
         },
       ];
     });
@@ -75,7 +75,7 @@ const ResultChart = ({
         ...channels,
         stroke: 'color',
         fill: 'color',
-        fillOpacity: d => (d.run.axes.kept === 'not kept' ? 0 : 1),
+        fillOpacity: d => (d.run.axes.verdict && d.run.axes.verdict !== 'kept' ? 0 : 1),
         r: 3.5,
         href: 'href',
       }),

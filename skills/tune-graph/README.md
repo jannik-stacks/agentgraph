@@ -24,8 +24,8 @@ node tune/skill.ts ~/.agentgraph/tune/stacks.js/t1 --version 1 --rounds 6 --k 4 
 
 `--stop-claude-5h` and `--stop-claude-week` also stop at an absolute reading, in percent.
 
-The Results tab with `from=tune` shows every candidate of every tune. In the chart, put `tune quality` on y,
-`iteration` on x and color by `tune`: the kept candidates draw each tune's staircase. Facet by `repo` to
+The Results tab on a tune's `data/` shows its control runs and bench runs. In the chart, put the
+`tune/decision` quality on y, `iteration` on x and color by `tune`: the kept variants draw the staircase. Facet by `repo` to
 compare per repo, and put `tune usd` on x to compare at equal spend per run.
 
 The skill wins when its test score at the last checkpoint is higher at the same or lower spend. A select

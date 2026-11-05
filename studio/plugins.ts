@@ -9,7 +9,6 @@ import type * as PluginModule from '../src/plugin.ts';
 import type * as BenchModule from './src/bench/plugin.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import { ResultsData } from './src/results/data.ts';
-import { resultSources } from './src/results/result.ts';
 import {
   layouts,
   makeServedGraphs,
@@ -27,48 +26,28 @@ const entry = 'virtual:agentgraph-page/';
 
 const readStudioDirs = () => ({
   bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
-  tune: process.env.AGI_STUDIO_TUNE,
 });
 
 const makeResultsPlugin = async (served: ServedGraph) => {
   const { makePlugin }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
   const { data } = served;
-  const { tune } = readStudioDirs();
   return makePlugin({
     name: 'results',
     studio: {
       title: 'Results',
       page: new URL('./src/results/ResultsPage.tsx', import.meta.url),
       dataSchema: ResultsData,
-      watch: () => [...(data ? [data] : []), ...(tune ? [tune] : [])],
+      watch: () => (data ? [data] : []),
       read: () =>
         Effect.gen(function* () {
           const { readRunResults }: typeof ResultsModule = yield* Effect.promise(
             () => import(new URL('../bin/results.ts', import.meta.url).href)
           );
-          return Object.fromEntries(
-            resultSources.map(from => {
-              try {
-                const sheet =
-                  from === 'tune' && !tune
-                    ? { fields: [], runs: [] }
-                    : readRunResults(
-                        from,
-                        {
-                          ...(data && { data }),
-                          ...(tune && { tune }),
-                        },
-                        served.graph
-                      );
-                const candidates = Object.fromEntries(
-                  sheet.runs.flatMap(row => ('step' in row ? [[row.key, row.step]] : []))
-                );
-                return [from, Schema.decodeUnknownSync(ResultsData.value)({ kind: 'ready', sheet, candidates })];
-              } catch {
-                return [from, { kind: 'failed', why: 'Could not read this result source' }];
-              }
-            })
-          ) as typeof ResultsData.Type;
+          try {
+            return Schema.decodeUnknownSync(ResultsData)({ kind: 'ready', sheet: readRunResults(data, served.graph) });
+          } catch {
+            return { kind: 'failed' as const, why: 'Could not read the results' };
+          }
         }),
     },
   });
@@ -111,13 +90,12 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
 };
 
 const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, served: ServedGraph[]): WatchRoot[] => {
-  const { bench, tune } = readStudioDirs();
-  const rootLayouts = new Map([
-    ...[...served.flatMap(one => one.data ?? []), ...bench.map(set => join(set, 'data'))].map(
+  const { bench } = readStudioDirs();
+  const rootLayouts = new Map(
+    [...served.flatMap(one => one.data ?? []), ...bench.map(set => join(set, 'data'))].map(
       root => [root, layouts.data] as const
-    ),
-    ...(tune ? [[tune, layouts.tune] as const] : []),
-  ]);
+    )
+  );
   return [
     ...served.flatMap(one => [
       ...(one.dir ? [{ root: one.dir, topic: makeServedTopic(one.name, 'graph'), layout: layouts.any }] : []),

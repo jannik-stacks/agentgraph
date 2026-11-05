@@ -191,11 +191,10 @@ The header lists Inbox, Graph and Runs, then every page plugin, then Docs.
 
 Results and Bench are built-in plugins using this same descriptor, data endpoint and hook. They keep
 `/results` and `/bench` and need no graph-local file; both names are reserved. Bench is one page over
-every served instance and every set from `npm run dev -- --bench <sets>` ([Bench](bench.md#cost-against-quality)). The Results
-snapshot keeps each source's sheet and candidate details separate. Failed sources show an error while
-other sources stay readable. Results watches the selected data and tune roots; Bench watches every
-store it reads. Both remain available when the graph cannot load; the Graph page still shows
-configuration problems.
+every served instance and every set from `npm run dev -- --bench <sets>` ([Bench](bench.md#cost-against-quality)). Results
+reads one sheet from the selected data folder and shows an error when it fails. Results watches that
+folder; Bench watches every store it reads. Both remain available when the graph cannot load; the
+Graph page still shows configuration problems.
 <!-- code: studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage studio/src/bench/data.ts#BenchData -->
 
 ## Engine access

@@ -605,9 +605,15 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
         <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, r.run.status === 'running' ? undefined : (run.ended ?? r.lastAt))}
         </Col>
-        {Object.entries(r.labels).map(([key, value]) => (
-          <Badge key={key}>{`${key}=${value}`}</Badge>
-        ))}
+        {Object.entries(r.labels).map(([key, value]) =>
+          r.data ? (
+            <Badge key={key}>{`${key}=${value}`}</Badge>
+          ) : (
+            <Link key={key} href={`/runs?label=${encodeURIComponent(`${key}=${value}`)}`} title="Runs with this label">
+              <Badge>{`${key}=${value}`}</Badge>
+            </Link>
+          )
+        )}
         {r.pull && <Url url={r.pull} />}
         {r.branch &&
           (r.repo ? (

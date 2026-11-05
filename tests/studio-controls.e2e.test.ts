@@ -130,7 +130,6 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
     vi.stubEnv('AGI_STUDIO_DATA', root);
     vi.stubEnv('AGI_STUDIO_BENCH', root);
-    vi.stubEnv('AGI_STUDIO_TUNE', undefined);
     server = await createStudioServer(['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime']);
     server.middlewares.stack.unshift({
       route: '/api/plugins/bench/data',

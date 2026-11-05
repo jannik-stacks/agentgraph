@@ -42,7 +42,6 @@ it('serves each named instance under its own name, with no run crossing over', a
   vi.stubEnv('AGI_STUDIO_DIR', undefined);
   vi.stubEnv('AGI_STUDIO_DATA', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   const { server, base } = await startStudioServer();
   const get = async (path: string) => {
     const response = await fetch(`${base}${path}`);
@@ -62,7 +61,7 @@ it('serves each named instance under its own name, with no run crossing over', a
       400, 400, 404,
     ]);
     const [, results] = await get('/api/plugins/results/data?instance=bench');
-    expect(results.runs.sheet.runs.map((r: { key: string }) => r.key)).toEqual(['run-bench']);
+    expect(results.sheet.runs.map((r: { key: string }) => r.key)).toEqual(['run-bench']);
     const [, benched] = await get('/api/plugins/bench/data?instance=bench');
     expect(
       benched.rows.map((r: { instance: string; run: string; labels: Record<string, string> }) => [

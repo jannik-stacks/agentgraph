@@ -366,7 +366,10 @@ export const readBenchRows = (host: Pick<EngineHost, 'configs' | 'readRuns'>) =>
   return slots.flatMap(({ found, earlier, key, arm }) => {
     if (invalid.has(key)) return [];
     const [base, human] = [bases.get(key), humans.get(key)];
-    if (arm === 'control' || (found.set && found.run.workflow !== 'import' && !found.latest.has('bench/arm')))
+    if (
+      arm === 'control' ||
+      (found.config.instance === undefined && found.run.workflow !== 'import' && !found.latest.has('bench/arm'))
+    )
       return [];
     const files = [found, ...earlier, ...(base ? [base.found] : []), ...(human ? [human.found] : [])].flatMap(f =>
       ['run.json', 'checks.jsonl', 'labels.jsonl', 'trace.jsonl'].map(
