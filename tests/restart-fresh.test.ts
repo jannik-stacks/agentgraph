@@ -13,6 +13,7 @@ import { small, issue } from './tick-fixtures.ts';
 
 const fresh = { ...push, branch: 'agentgraph/7-2' };
 const reopened = { ...pull, branch: 'agentgraph/7-2' };
+const unchecked = { ...small, workflows: { issue: { ...issue, steps: issue.steps.map(s => ({ ...s, checks: [] })) } } };
 
 describe('restart after a closed pull request', () => {
   it('starts a new branch from the base, keeps the old branch and pull request, and links them', async () => {
@@ -31,7 +32,7 @@ describe('restart after a closed pull request', () => {
     await run(Effect.flatMap(Store, s => s.put(first)));
     where.human('/agent:restart', '2026-10-17T00:00:00.000Z');
 
-    const [second] = await run(tick(small));
+    const [second] = await run(tick(unchecked));
 
     const runs = await run(Effect.flatMap(Store, s => s.list({ issue: 7 })));
     const pulls = await run(Effect.flatMap(Tracker, t => t.issues({})));
