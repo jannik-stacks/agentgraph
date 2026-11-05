@@ -139,7 +139,7 @@ An agent that may return `run` can start a workflow with `on: dispatch`:
 { "kind": "run", "workflow": "triage", "issue": 12, "step": "implement" }
 ```
 
-`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, finishes or stops, the parent resumes with that as an answer. <!-- code: src/run/start.ts#findUndispatchable src/run/start.ts#startProposedRun src/run/start.ts#formatSettled -->
+`step` is optional. The issue must be open, in scope and free, and the try may hold only this one `run`. The child gets `by` set to the parent's id, and the parent waits. When the child asks, waits for review, finishes or stops, the parent resumes with that as an answer. <!-- code: src/run/start.ts#findUndispatchable src/run/start.ts#startProposedRun src/run/start.ts#formatSettled -->
 
 ### Routing
 

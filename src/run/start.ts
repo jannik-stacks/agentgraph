@@ -151,7 +151,13 @@ export const readFiledIssues = () =>
 
 export const formatSettled = (run: Run) =>
   `${run.workflow} on #${run.issue} ${
-    run.status === 'done' ? 'is done' : run.status === 'stopped' ? `stopped: ${run.reason}` : `asks: ${run.reason}`
+    run.status === 'done'
+      ? 'is done'
+      : run.status === 'stopped'
+        ? `stopped: ${run.reason}`
+        : run.reason
+          ? `asks: ${run.reason}`
+          : 'waits for review'
   }`;
 
 /** The reason a run waits while a run it started works. */
