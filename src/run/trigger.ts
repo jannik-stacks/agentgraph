@@ -321,7 +321,7 @@ export const tick = (
       );
     };
     const triggered = Object.values(graph.workflows).filter(w => w.on.issue_comment);
-    const routed = findRouter(graph) !== undefined;
+    const router = findRouter(graph)?.name;
     /** Whether a trusted event on the issue is younger than `debounce`, so a burst still coming starts nothing yet. */
     const young = (issue: number) =>
       debounce > 0 &&
@@ -379,7 +379,7 @@ export const tick = (
               run,
               tells.includes(m) || (isParked(run) && isQuiet(w)) ? m : getHeardEvent(graph, w, m),
               lined,
-              pickCommandTarget(graph, runs, m, tells.includes(m) ? run : undefined)
+              pickCommandTarget(graph, runs, m, router, tells.includes(m) ? run : undefined)
             );
           return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
         };
@@ -510,7 +510,7 @@ export const tick = (
           .at(-1);
         const step = w.steps.find(s => s.name === restart);
         const restarts = events.filter(n => {
-          const t = n.issue === issue && pickCommandTarget(graph, runs, n);
+          const t = n.issue === issue && pickCommandTarget(graph, runs, n, router);
           return restart !== undefined && !!t && !('why' in t) && t.verb === 'restart';
         });
         const seen = pickNewest(...restarts.map(n => n.at));
@@ -553,7 +553,7 @@ export const tick = (
         Effect.catchTag('TrackerError', e => Effect.logWarning(`reply on #${m.issue}`, e))
       );
     for (const m of events) {
-      const target = pickCommandTarget(graph, runs, m);
+      const target = pickCommandTarget(graph, runs, m, router);
       if (target && 'why' in target) {
         if (m.trusted) yield* refuse(m, target.why);
         continue;
@@ -571,7 +571,7 @@ export const tick = (
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !isInScope(graph, yield* tracker.issue(m.issue)))) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
-      const concerns = (name: string) => m.kind !== 'comment' || !routed || !!graph.workflows[name]?.on.issue_comment;
+      const concerns = (name: string) => m.kind !== 'comment' || !router || !!graph.workflows[name]?.on.issue_comment;
       const old =
         restart === undefined &&
         runs.some(
@@ -627,7 +627,7 @@ export const tick = (
       const heardOn = new Map<number, Event[]>();
       for (const m of latest
         .map(onRun)
-        .filter(m => feedback(m) && !('why' in (pickCommandTarget(graph, runs, m) ?? {})))) {
+        .filter(m => feedback(m) && !('why' in (pickCommandTarget(graph, runs, m, router) ?? {})))) {
         const issue = yield* workedOn(m);
         if (issue !== undefined && mine({ issue })) heardOn.set(issue, [...(heardOn.get(issue) ?? []), m]);
       }

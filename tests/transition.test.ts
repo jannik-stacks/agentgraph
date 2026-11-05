@@ -302,7 +302,7 @@ describe('getEventOutcome', () => {
   const asked = at('implement', { status: 'waiting', reason: 'which API?' });
   const kit = fixture('kit');
   const heard = (run: Run, m: Event, commands: Graph['commands'] = {}, runs = [run]) =>
-    getEventOutcome(w, run, m, [], pickCommandTarget({ ...kit, commands }, runs, m));
+    getEventOutcome(w, run, m, [], pickCommandTarget({ ...kit, commands }, runs, m, undefined));
 
   it('changes requested carries the review body and its line comments', () => {
     const line = (path: string, line: number, body: string) =>
@@ -428,7 +428,7 @@ describe('getEventOutcome', () => {
     ['/agent:plan fix it', { plan: false }, '`/agent:plan` is turned off here.'],
     ['/agent:issue:restart', { restart: false }, '`/agent:restart` is turned off here.'],
   ])('picks what %s with %j asks, and of which run', (body, commands, expected) => {
-    const target = pickCommandTarget({ ...kit, commands }, [at('implement')], comment(body));
+    const target = pickCommandTarget({ ...kit, commands }, [at('implement')], comment(body), undefined);
     expect(
       target && ('why' in target ? target.why : { ...target, run: target.run?.id, workflow: target.workflow?.name })
     ).toEqual(expected);
@@ -445,7 +445,7 @@ describe('getEventOutcome', () => {
       },
     };
     const pick = (body: string) => {
-      const target = pickCommandTarget(dotted, [at('implement')], comment(body));
+      const target = pickCommandTarget(dotted, [at('implement')], comment(body), undefined);
       return target && ('why' in target ? target.why : [target.verb, target.step, target.workflow?.name, target.text]);
     };
     const valid =
@@ -480,10 +480,10 @@ describe('getEventOutcome', () => {
     const cli = { ...comment('/agent:restart'), source: 'cli' as const };
     const told = { ...comment('/agent:stop'), actor: 'router-1' };
     const commands = { restart: false, stop: ['morgan'] };
-    expect(pickCommandTarget({ ...kit, commands }, [at('implement')], cli)).toEqual({
+    expect(pickCommandTarget({ ...kit, commands }, [at('implement')], cli, undefined)).toEqual({
       why: '`/agent:restart` is turned off here.',
     });
-    expect(pickCommandTarget({ ...kit, commands }, [at('implement')], told, at('implement'))).toEqual({
+    expect(pickCommandTarget({ ...kit, commands }, [at('implement')], told, undefined, at('implement'))).toEqual({
       why: 'Only morgan may use `/agent:stop`.',
     });
   });
@@ -493,7 +493,9 @@ describe('getEventOutcome', () => {
   it('refuses a command naming a workflow that is told to a run of another one', () => {
     const live = at('implement', { status: 'waiting', reason: 'which API?' });
     expect(
-      ['/agent:plan:restart:implement', '/agent:plan more tests'].map(b => pickCommandTarget(kit, [], told(b), live))
+      ['/agent:plan:restart:implement', '/agent:plan more tests'].map(b =>
+        pickCommandTarget(kit, [], told(b), undefined, live)
+      )
     ).toEqual([
       { why: '`/agent:plan:restart:implement` names plan, but the run it goes to is issue.' },
       { why: '`/agent:plan` names plan, but the run it goes to is issue.' },
@@ -506,7 +508,10 @@ describe('getEventOutcome', () => {
     const finished = begin(kit.workflows.plan!, { id: 'p1', issue: 7, started: '2026-10-16T00:30:00Z' });
     const done = { ...finished, status: 'done' as const };
     const m = comment('/agent:restart:triage');
-    expect(pickCommandTarget(kit, [live, done], m)).toMatchObject({ run: { id: 'r1' }, workflow: { name: 'issue' } });
+    expect(pickCommandTarget(kit, [live, done], m, undefined)).toMatchObject({
+      run: { id: 'r1' },
+      workflow: { name: 'issue' },
+    });
     expect(heard(live, m, {}, [live, done])).toEqual({ kind: 'stop', why: 'a human restarted it', restarted: true });
   });
 
