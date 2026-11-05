@@ -60,6 +60,7 @@ const toolTests = [
   'tests/remote.test.ts',
   'tests/result.test.ts',
   'tests/results.test.ts',
+  'tests/restart-fresh.test.ts',
   'tests/resume.test.ts',
   'tests/retro-gate.test.ts',
   'tests/run.test.ts',
