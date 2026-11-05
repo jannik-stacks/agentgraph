@@ -65,8 +65,8 @@ the starting score from `node bin/tune.ts status T`.
 
 ## 4. One round
 
-Read the incumbent at `T/cands/<id>/graph` (the last `kept` line of `T/iterations.jsonl`), the traces and
-diffs of its fit cases below 1 (the runs under `T/data/` labelled `cand=<id>`), and the mine cases' merged
+Read the incumbent at `T/cands/<id>/graph` (the last `kept` variant in `node bin/tune.ts status T`), the traces and
+diffs of its fit cases below 1 (the runs under `T/data/` labelled `variant=<id>`), and the mine cases' merged
 diffs and `reviews.md`. Then launch 3 to 5 subagents (opus) in one message, each with its own direction:
 
 - **Structure**: add or drop a step, `tries` 2 to 3, a scout before implement, a check from `block` to
@@ -97,8 +97,8 @@ flipped cases. It keeps the best when more cases flip up and hold than down.
 
 ## 5. Read and choose
 
-Run `node bin/tune.ts status T` with the caps from step 1, and read the new lines of `T/iterations.jsonl`:
-verdict, why and delta. Then:
+Run `node bin/tune.ts status T` with the caps from step 1, and read the new variants' `tune/decision`
+checks in `T/data/tune-<id>/`: verdict, why and delta. Then:
 
 - Kept: the next round builds on it; try a neighbour of the winning direction.
 - Close but not kept: try a sharper version once.
@@ -122,8 +122,8 @@ Tell the user, in plain short sentences:
 - The held-out test score with its interval, from the last checkpoint. No score passes 1, the human's
   level; say "as good as the human" only when that interval reaches 1.
 - What it cost: Codex and Claude points, dollars and minutes, from `status`.
-- Where to look: the Results tab (`npm --prefix studio run dev -- --tune ~/.agentgraph/tune`, then
-  `/results?from=tune`).
+- Where to look: the Runs and Results tabs (`npm --prefix studio run dev -- --dir T/cands/<id>/graph
+  --data T/data`); filter by `workflow=tune` for the variants.
 
 If they adopt it, write `T/adopt.patch` against their current `.agentgraph/` and give them the command to
 apply it on a branch of their own. Do not apply it yourself.
