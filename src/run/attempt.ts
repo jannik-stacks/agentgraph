@@ -29,6 +29,7 @@ import {
   makeToldEvent,
   readContinuedRun,
   findPullNumber,
+  readEarlierBranch,
 } from './hear.ts';
 import {
   isPart,
@@ -182,6 +183,7 @@ export const pickTryOutcome = (o: {
   diff: string;
   untouched: boolean;
   dirty: boolean;
+  replaces?: number;
 }) => {
   const { step, proposals, own, run } = o;
   const returns = getStepReturns(step, o.graph.agents);
@@ -204,10 +206,16 @@ export const pickTryOutcome = (o: {
     .map((p): Proposal => {
       if (p.kind === 'push' && run.onto) return { ...p, onto: run.onto.sha, ...(run.onto.merge && { merge: true }) };
       if (p.kind !== 'pull_request') return p;
-      const body = p.body.replace(/^Stacks on #\d+\.?[ \t]*/gim, '').trim();
-      return run.base
-        ? { ...p, base: run.base.branch, body: `${body}\n\nStacks on #${run.base.pull}` }
-        : { ...p, body };
+      const body = [
+        p.body
+          .replace(o.replaces ? /^(Stacks on|Replaces) #\d+\.?[ \t]*/gim : /^Stacks on #\d+\.?[ \t]*/gim, '')
+          .trim(),
+        o.replaces && `Replaces #${o.replaces}`,
+        run.base && `Stacks on #${run.base.pull}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      return run.base ? { ...p, base: run.base.branch, body } : { ...p, body };
     });
   const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
   const answered = commented && o.asked && o.held && o.untouched;
@@ -262,7 +270,7 @@ export const runAttempt = (
         kind: 'ask',
         question: open
           ? `${step.name} waits for a human`
-          : `No pull request is open for branch ${formatTemplate(w.branch!, issue)}. Open one, or say what to do.`,
+          : `No pull request is open for branch ${own ?? formatTemplate(w.branch!, issue)}. Open one, or say what to do.`,
       });
     }
 
@@ -347,7 +355,7 @@ export const runAttempt = (
         context(t),
         diff && `## The change on the branch\n\n\`\`\`\`diff\n${formatSqueezed(diff, 20_000)}\n\`\`\`\``,
         w.branch &&
-          `Work on the branch ${formatTemplate(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? formatTemplate(w.base, issue)}.`,
+          `Work on the branch ${own ?? formatTemplate(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? formatTemplate(w.base, issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         step.checks.length > 0 &&
           `When you stop, the runner checks the change: ${step.checks
@@ -470,7 +478,12 @@ export const runAttempt = (
     tree = yield* writeCheckoutTree(work);
     const diff = yield* readCheckoutDiff(work);
     const published = yield* readGit(work.git, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]);
+    const earlier =
+      own && w.branch && proposals.some(p => p.kind === 'pull_request')
+        ? yield* readEarlierBranch(w, run, formatTemplate(w.branch, t.issue))
+        : undefined;
     const verdict = pickTryOutcome({
+      ...(earlier?.branch !== own && earlier?.pull?.state === 'closed' && { replaces: earlier.pull.number }),
       step,
       graph,
       run,
@@ -520,7 +533,7 @@ export const runAttempt = (
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
     const to = world.some(p => p.kind === 'comment' && (!run.said || p.under !== undefined))
-      ? findPullNumber(w, run.issue, yield* Effect.flatMap(Tracker, f => f.issues({ state: 'open' })))
+      ? findPullNumber(w, run, yield* Effect.flatMap(Tracker, f => f.issues({ state: 'open' })))
       : undefined;
     const runs = world.filter(p => p.kind === 'run');
     const tells = yield* Effect.forEach(

@@ -56,7 +56,7 @@ export const runFollow = (
     const base = run.base ?? known;
     if (base.sha === head && (!base.from || (tip !== undefined && base.tip === tip))) return;
     const from = base.from ?? base.sha;
-    const branch = formatTemplate(w.branch!, yield* tracker.issue(run.issue));
+    const branch = run.checkout?.branch ?? formatTemplate(w.branch!, yield* tracker.issue(run.issue));
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
     const applied = work.head && (yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work));
     if (applied) yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
