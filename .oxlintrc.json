@@ -224,7 +224,7 @@
       }
     },
     {
-      "files": ["src/services.ts", "src/main.ts", "src/instance.ts", "src/status.ts"],
+      "files": ["src/services.ts", "src/main.ts", "src/instance.ts", "src/status.ts", "src/engine.ts"],
       "rules": {
         "no-restricted-imports": "off"
       }

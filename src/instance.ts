@@ -463,7 +463,7 @@ const commitPatch = async (i: Pick<Instance, 'tracker'>, base: string, patch: st
 export const writeImportedRun = async (
   i: Pick<Instance, 'checkout' | 'tracker' | 'data'>,
   change: string,
-  o: { version: string; from?: string; issue?: string; input?: JsonValue }
+  o: { version: string; from?: string; issue?: string; input?: JsonValue; plugin?: string; job?: string }
 ) => {
   const at = new Date().toISOString();
   const id = `import-${at.replace(/\D/g, '')}-${randomUUID().slice(0, 4)}`;
@@ -487,7 +487,11 @@ export const writeImportedRun = async (
     startCommit: base,
     started: at,
     ended: at,
-    meta: { engine: { origin: { plugin: 'agi', version: o.version, job: 'import', input: o.input ?? null } } },
+    meta: {
+      engine: {
+        origin: { plugin: o.plugin ?? 'agi', version: o.version, job: o.job ?? 'import', input: o.input ?? null },
+      },
+    },
   };
   await Effect.runPromise(startRun(run).pipe(Effect.provide(fileStore(i.data))));
   return id;
