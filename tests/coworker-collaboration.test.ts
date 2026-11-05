@@ -77,9 +77,19 @@ describe('coworker', () => {
     });
     await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
     expect(specs[1]!.resume?.id).toBe('a');
-    expect(specs[1]!.prompt.split('\n\nEnd your reply')[0]).toBe(
+    expect(specs[1]!.prompt.split('\n\nPeople may comment')[0]).toBe(
       'hello\n\n## New since you last looked\n\n#7 @morgan: /agent hello\n\n#8 @ana pushed abcdef1 Tweak the greeting'
     );
+  });
+
+  it('names the news file of the current checkout to a resumed session, not the reaped one it first read', async () => {
+    const where = world();
+    const { specs, run, asked } = await parked(where, [[start('a'), reply({ kind: 'comment', body: 'ok' })]]);
+    await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
+    const file = /(\S+) holds what is new/.exec(specs[1]!.prompt)?.[1];
+    expect(file).toBeDefined();
+    expect(specs[1]!.read).toEqual([dirname(file!)]);
+    expect(specs[1]!.read).not.toEqual(specs[0]!.read);
   });
 
   it('resumes with only the feedback when nothing is new, and names a moved base and a flipped check', async () => {
@@ -90,11 +100,11 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'comment', body: 'ok' })],
     ]);
     const again = await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
-    expect(specs[1]!.prompt.split('\n\nEnd your reply')[0]).toBe('hello');
+    expect(specs[1]!.prompt.split('\n\nPeople may comment')[0]).toBe('hello');
     pullRequest(where, 'b2');
     say(where, check(8, 'test', 'success', later(3)));
     await run(driveStored(flow, transition(flow, again, { kind: 'answer', text: 'go on' }), small));
-    expect(specs[2]!.prompt.split('\n\nEnd your reply')[0]).toBe(
+    expect(specs[2]!.prompt.split('\n\nPeople may comment')[0]).toBe(
       'go on\n\n## New since you last looked\n\nThe base main moved to b2.\n\n#8 check test: success'
     );
   });
