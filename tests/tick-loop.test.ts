@@ -18,7 +18,7 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git, issuePath, writeIssueAt } from './kit.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
-import { graph, removeAfter, world, push, pull, services, reactions, bodies, fresh, say, comment } from './world.ts';
+import { graph, w, removeAfter, world, push, pull, services, reactions, bodies, fresh, say, comment } from './world.ts';
 
 import { small, issue, merging, waiting } from './tick-fixtures.ts';
 const card = (project: string, name: string, trusted: boolean): Event => ({
@@ -273,6 +273,18 @@ describe('tick', () => {
       ['issue-7-20261016000100000', 'implement', 'waiting', answers],
     ]);
     expect(specs.map(s => s.agent)).toEqual(['implementor']);
+  });
+
+  it('restarts at a step with what the earlier steps reported', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('i'), reply({ kind: 'ask', question: 'Which file?' })]]);
+    await run(
+      Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped', reported: { triage: 'Edit hello.txt' } }))
+    );
+    where.human('/agent:restart:implement', '2026-10-16T00:01:00.000Z');
+    const carrying = { ...w, steps: w.steps.map(s => ({ ...s, carry: s.name === 'triage' })) };
+    await run(tick({ ...graph, workflows: { issue: carrying } }));
+    expect(specs[0]!.prompt).toContain('## What the triage step reported\n\nEdit hello.txt');
   });
 
   it('restarts a waiting run from the first step: the old run stops and a new one begins', async () => {

@@ -93,6 +93,7 @@ export type Run = {
   rounds: Record<string, number>;
   sessions: Record<string, { id: string; home: string; seen?: Seen }>;
   feedback?: string;
+  reported?: Record<string, string>;
   /** What a human answered or said to the run, with the question each answer settled. */
   answers?: { asked: string; said: string }[];
   reason?: string;
@@ -358,8 +359,12 @@ const readable = (findings: string) =>
     })
     .join('\n');
 
-/** The run at the first step of a workflow, or at `first`. */
-export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started'>, first = w.steps[0]!): Run {
+const formatReport = (step: string, text: string) => `## What the ${step} step reported\n\n${text}`;
+
+/** The run at the first step of a workflow, or at `first` with what the step before it reported. */
+export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started' | 'reported'>, first = w.steps[0]!): Run {
+  const before = w.steps[w.steps.findIndex(s => s.name === first.name) - 1]?.name;
+  const report = before && run.reported?.[before];
   return {
     ...run,
     workflow: w.name,
@@ -368,6 +373,7 @@ export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started'>, f
     tries: 0,
     rounds: {},
     sessions: {},
+    ...(report && { feedback: formatReport(before, report) }),
   };
 }
 
@@ -400,7 +406,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
       ...(step.carry &&
         o.kind === 'pass' &&
         o.text && {
-          feedback: `## What the ${step.name} step reported\n\n${o.text}`,
+          feedback: formatReport(step.name, o.text),
+          reported: { ...run.reported, [step.name]: o.text },
         }),
     };
   };
