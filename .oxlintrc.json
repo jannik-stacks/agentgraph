@@ -246,7 +246,7 @@
       }
     },
     {
-      "files": ["bench/start-runs.ts", "bench/migrate.ts"],
+      "files": ["bench/start-runs.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -254,7 +254,7 @@
             "patterns": [
               {
                 "group": ["../bin/**", "!../bin/bench.ts", "!../bin/resume.ts", "../studio/**"],
-                "message": "start-runs and migrate drive bin/bench.ts; other bin and studio code stays out"
+                "message": "start-runs drives bin/bench.ts; other bin and studio code stays out"
               }
             ]
           }

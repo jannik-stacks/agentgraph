@@ -101,7 +101,8 @@ const readServedGraphs = async (): Promise<ServedGraph[]> => {
 export const makeServedTopic = (name: string, topic: string) => (name ? `${name}:${topic}` : topic);
 
 const dataInfra = /^(cache|homes|logs|\.attic|\.locks|\.envs|.+\.git)$/;
-const benchInfra = /^(homes|work|tree|engine|logs|target|node_modules|\.attic|\.cache|\.locks|\.envs|.+\.git)$/;
+const benchInfra =
+  /^(attempts|cache|locks|homes|work|tree|engine|logs|target|node_modules|\.attic|\.cache|\.locks|\.envs|.+\.git)$/;
 const neverServed = /\.lockb?$|^(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|[jt]sconfig.*\.json)$/;
 
 export const layouts = {

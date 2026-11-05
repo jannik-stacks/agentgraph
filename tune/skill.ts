@@ -9,7 +9,7 @@
 import { getSha } from '../src/hash.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { codexUsed } from '../bin/bench.ts';
 import {
@@ -35,7 +35,7 @@ import {
   readCandidateRows,
   type Usage,
 } from './propose.ts';
-import { readAttemptRun, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
+import { findAttemptDir, readBenchRun, readBenchSlots, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
 
 type Io = Parameters<typeof step>[2];
 type Limits = { codex: number; claude5h: number; claudeWeek: number };
@@ -82,8 +82,12 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
     cpSync(join(like, 'cases'), join(dir, 'cases'), { recursive: true });
     cpSync(join(like, 'cands', first.id, 'graph'), join(dir, 'cands/i000-init/graph'), { recursive: true });
     const reused = idsOf(t.cases, 'fit', 'validate');
+    const slots = readBenchSlots(like);
     for (const row of (io?.rows ?? readCandidateRows)(like, first.id).filter(r => reused.includes(r.case))) {
-      cpSync(dirname(row.at), join(dir, 'runs', basename(dirname(row.at))), { recursive: true });
+      for (const a of [...slots.values()].find(attempts => attempts.some(a => a.at === row.at)) ?? []) {
+        cpSync(a.at, findAttemptDir(dir, a.attempt), { recursive: true });
+        if (a.run) cpSync(join(a.data, a.run.id), join(dir, 'data', a.run.id), { recursive: true });
+      }
     }
     spawnSync('git', ['init', '-q', '--bare', join(dir, 'graph.git')]);
     writeFileAtomic(join(dir, 'tune.json'), t);
@@ -106,8 +110,6 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
   return dir;
 };
 
-const skipped = new Set(['tree', 'tracker', 'homes', 'mirror.git', 'work', 'index', '.locks', 'news', 'logs']);
-
 /** The round's workspace: the incumbent graph, fit and mine cases, the incumbent's fit runs, the history and `k` slots. */
 const workspace = (dir: string, w: string, k: number, io?: Io) => {
   const { tune: t, steps } = tuneRows(dir);
@@ -121,9 +123,9 @@ const workspace = (dir: string, w: string, k: number, io?: Io) => {
   const fit = idsOf(t.cases, 'fit');
   for (const row of (io?.rows ?? readCandidateRows)(dir, inc.id).filter(r => fit.includes(r.case))) {
     const to = join(w, 'runs', row.case, `r${row.repeat}`);
-    cpSync(row.data, join(to, 'data'), { recursive: true, filter: src => !skipped.has(basename(src)) });
-    const found = readAttemptRun(row.at);
-    writeFileAtomic(join(to, 'change.diff'), found ? readRunChange(row.at, found.run) : '');
+    cpSync(join(row.data, row.run), join(to, 'data', row.run), { recursive: true });
+    const found = readBenchRun(row.data, row.run);
+    writeFileAtomic(join(to, 'change.diff'), found ? readRunChange(row.at, found) : '');
     writeFileAtomic(
       join(to, 'hidden.txt'),
       readLatestRunChecks(row.data, row.run).get('bench/hidden')?.check.findings ?? ''

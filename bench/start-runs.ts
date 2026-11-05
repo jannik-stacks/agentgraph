@@ -14,7 +14,7 @@ import { parseArgs } from 'node:util';
 import { claim, onStop, readFileOrEmpty, release, startChildProcess } from '../bin/resume.ts';
 import type * as BenchModule from '../bin/bench.ts';
 import { parseLabelPatch, parseLabels } from '../src/labels.ts';
-import { isBenchCaseValid, isBenchRunDone } from './runs.ts';
+import { isBenchCaseValid, isBenchRunDone, readBenchSlots } from './runs.ts';
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
@@ -175,9 +175,17 @@ if (import.meta.main) {
   );
   const judged = values.judges !== 'none';
   const labels = parseLabels(parseLabelPatch(values.label));
-  const done = (u: (typeof wanted)[number]) =>
-    isBenchRunDone(set, bench.makeBenchInput(u.c, u.arm, u.repeat, { point: u.point, graph, labels }), judged);
-  const queue = wanted.filter(u => !done(u));
+  const findLeft = (slots = readBenchSlots(set)) =>
+    wanted.filter(
+      u =>
+        !isBenchRunDone(
+          set,
+          bench.makeBenchInput(u.c, u.arm, u.repeat, { point: u.point, graph, labels }),
+          judged,
+          slots
+        )
+    );
+  const queue = findLeft();
   log(`planned ${wanted.length}, on disk ${wanted.length - queue.length}, starting ${queue.length}`);
   if (values.dry) process.exit(0);
   const lock = join(set, 'start-runs');
@@ -266,7 +274,7 @@ if (import.meta.main) {
       async active => spend?.check(active)
     );
     if (stopped) log(`stop: ${stopped}`);
-    const left = wanted.filter(u => !done(u)).length;
+    const left = findLeft().length;
     log(
       `finished: ${wanted.length - left}/${wanted.length} done${failed.length ? `, failed: ${failed.join(', ')}` : ''}`
     );
