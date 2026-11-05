@@ -33,6 +33,7 @@ import {
   isInScope,
   isBoardGraph,
   isRetro,
+  findSettledRuns,
   findRouter,
   pickNewest,
   formatTemplate,
@@ -633,7 +634,8 @@ export const tick = (
         const issue = yield* workedOn(m);
         if (issue !== undefined && mine({ issue })) heardOn.set(issue, [...(heardOn.get(issue) ?? []), m]);
       }
-      for (const [issue, said] of heardOn) {
+      const ends = findSettledRuns(graph, w, all).filter(mine);
+      for (const issue of new Set([...heardOn.keys(), ...ends.map(r => r.issue)])) {
         const before = all.filter(r => r.issue === issue && r.workflow === w.name);
         if (young(issue)) continue;
         const first = all
@@ -641,14 +643,20 @@ export const tick = (
           .map(r => r.started)
           .sort()[0];
         const since = pickNewest(first, ...before.map(r => r.started))!;
-        const fresh = said.filter(
+        const fresh = (heardOn.get(issue) ?? []).filter(
           m => m.at > since && !touched.some(r => r.issue === issue && r.workflow === w.name && r.seen === m.at)
         );
-        if (fresh.length === 0) continue;
-        const at = pickNewest(...fresh.map(m => m.at))!;
+        const ended = ends.filter(r => r.issue === issue);
+        if (fresh.length + ended.length === 0) continue;
+        const at = pickNewest(...fresh.map(m => m.at), ...ended.map(r => r.ended))!;
         const begun: Run = {
           ...begin(w, { id: makeRunId(w, issue, at), issue, started: at }),
-          feedback: `## What a person said or pushed\n\n${fresh.map(formatEventLine).join('\n\n')}`,
+          feedback: [
+            fresh.length > 0 && `## What a person said or pushed\n\n${fresh.map(formatEventLine).join('\n\n')}`,
+            ended.length > 0 && `## How the runs ended\n\n${ended.map(r => `${r.id}: ${settled(r)}`).join('\n\n')}`,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
         };
         if (yield* startRun(begun)) touched.push(begun);
       }
@@ -852,7 +860,12 @@ export const scanIssuesAndRunningRuns = (
     const open = listed.filter(t => !t.pull && isInScope(graph, t));
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
     const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
-    const issues = [...new Set([...runs.map(r => r.issue), ...asked, ...open.map(t => t.number)])];
+    const ended = Object.values(graph.workflows)
+      .filter(w => w.on.feedback)
+      .flatMap(w => findSettledRuns(graph, w, all));
+    const issues = [
+      ...new Set([...runs.map(r => r.issue), ...ended.map(r => r.issue), ...asked, ...open.map(t => t.number)]),
+    ];
     const changed = (yield* Effect.forEach(issues, n => getGate(gates, n).withPermits(1)(look(n, meta)), {
       concurrency: graph.limits.parallel,
     })).flat();

@@ -146,6 +146,9 @@ export const driveStored = (flow: typeof w, r: Run, h: Graph) =>
     runWorkflow(flow, r, h)
   );
 
+export const settleLongAgo = (id: string) =>
+  Effect.flatMap(Store, s => Effect.flatMap(s.get(id), r => s.put({ ...r!, ended: '2026-10-16T00:00:02.000Z' })));
+
 export const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
 export const say = (where: ReturnType<typeof world>, m: Event) =>

@@ -21,7 +21,7 @@ describe('makeWorkflowGraph', () => {
     const { workflows, checks } = fixture('kit');
     const issue = workflows.issue!;
     expect(makeWorkflowGraph({ ...issue, on: { feedback: {} } }, checks).trigger).toBe(
-      "a person's review, comment or push"
+      "a person's review, comment or push, or a run that ends"
     );
     const agents = {
       implementor: { returns: ['push' as const], reads: 'traces' as const },

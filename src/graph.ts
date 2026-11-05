@@ -47,7 +47,7 @@ const formatTrigger = (w: Workflow) =>
         : event === 'dispatch'
           ? 'dispatched'
           : event === 'feedback'
-            ? "a person's review, comment or push"
+            ? "a person's review, comment or push, or a run that ends"
             : `${event.replace('_', ' ')}${t?.branches ? ` on ${t.branches.join(', ')}` : ''}`
     )
     .join(', ');

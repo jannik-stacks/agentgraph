@@ -146,3 +146,21 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
 
 /** Whether a run is a retro, a run of a workflow that feedback starts. */
 export const isRetro = (graph: Graph, r: Pick<Run, 'workflow'>) => !!graph.workflows[r.workflow]?.on.feedback;
+
+const settledLookbackMs = 86_400_000;
+
+export const findSettledRuns = (graph: Graph, w: Pick<Workflow, 'name'>, all: Run[]) => {
+  const router = findRouter(graph)?.name;
+  return all.filter(r => {
+    const since = pickNewest(...all.filter(o => o.issue === r.issue && o.workflow === w.name).map(o => o.started));
+    return (
+      !!graph.workflows[r.workflow] &&
+      !isRetro(graph, r) &&
+      r.workflow !== router &&
+      isRunDone(r) &&
+      r.ended !== undefined &&
+      r.ended > (since ?? '') &&
+      Date.parse(r.ended) > Date.now() - settledLookbackMs
+    );
+  });
+};

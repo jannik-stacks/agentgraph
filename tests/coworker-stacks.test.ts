@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { tick } from '../src/run/trigger.ts';
+import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -356,7 +356,11 @@ describe('compound engineering', () => {
   });
   const done = () =>
     Effect.flatMap(Store, s =>
-      s.put({ ...begin(small.workflows.issue!, { id: 'run-7', issue: 7, started: fresh().started }), status: 'done' })
+      s.put({
+        ...begin(small.workflows.issue!, { id: 'run-7', issue: 7, started: fresh().started }),
+        status: 'done',
+        ended: '2026-10-16T00:00:02.000Z',
+      })
     );
   const retros = Effect.map(
     Effect.flatMap(Store, s => s.list({ issue: 7 })),
@@ -399,6 +403,72 @@ describe('compound engineering', () => {
       /## What a person said or pushed\n\n@morgan pushed abcdef0 Document the field\n\n(?!@morgan approved)/
     );
     expect((await run(retros)).map(r => r.workflow)).toEqual(['retro', 'retro']);
+  });
+
+  const settle = (id: string, issue: number, status: 'done' | 'stopped', ended?: string) =>
+    Effect.flatMap(Store, s =>
+      s.put({
+        ...begin(small.workflows.issue!, { id, issue, started: fresh().started }),
+        status,
+        ...(status === 'stopped' && { reason: 'a human stopped it' }),
+        ...(ended && { ended }),
+      })
+    );
+
+  it('starts one retro when a run settles, and none when that retro or an old run settles', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('r'), reply()],
+      [start('s'), reply()],
+    ]);
+    await run(settle('run-7', 7, 'done'));
+    await run(settle('run-8', 8, 'stopped', '2026-10-16T00:00:02.000Z'));
+    const touched = await run(tick(looking));
+    expect(touched.map(r => [r.workflow, r.issue, r.status])).toEqual([['retro', 7, 'done']]);
+    expect(specs[0]!.prompt).toContain('## How the runs ended\n\nrun-7: issue on #7 is done');
+    expect(await run(tick(looking))).toEqual([]);
+    await run(settle('run-7b', 7, 'stopped'));
+    await run(tick(looking));
+    expect(specs.at(-1)!.prompt).toContain('run-7b: issue on #7 stopped: a human stopped it');
+    expect((await run(retros)).map(r => r.status)).toEqual(['done', 'done']);
+    expect(await run(tick(looking))).toEqual([]);
+  });
+
+  it('looks at a closed issue whose run settled, so a merge still gets its retro', async () => {
+    const where = world();
+    writeIssueAt(
+      issuePath(where.tracker, 7),
+      '---\ntitle: Add a greeting\nstate: closed\nauthor: morgan\nlabels: []\n---\n\nAdd hello.txt.\n'
+    );
+    const { run } = services(where, [[start('r'), reply()]]);
+    await run(settle('run-7', 7, 'done'));
+    const touched = await run(scanIssuesAndRunningRuns(looking));
+    expect(touched.map(r => [r.workflow, r.issue])).toEqual([['retro', 7]]);
+  });
+
+  it('folds a settling and what was said in the same look into one retro, and skips the router', async () => {
+    const where = world();
+    const step = { ...unbranched.steps[0]!, does: { agent: 'router' } };
+    const router = { ...unbranched, name: 'router', on: { issue_comment: {} }, steps: [step] };
+    const routed = {
+      ...looking,
+      workflows: { ...looking.workflows, router },
+      agents: { ...looking.agents, router: { ...looking.agents.implementor!, returns: ['tell' as const] } },
+    };
+    const { specs, run } = services(where, [[start('r'), reply()]]);
+    await run(
+      Effect.flatMap(Store, s =>
+        s.put({ ...begin(router, { id: 'router-7', issue: 7, started: fresh().started }), status: 'done' })
+      )
+    );
+    await run(settle('run-7b', 7, 'done'));
+    say(where, pushed(7, '2026-10-16T00:00:05.000Z'));
+    expect((await run(tick(routed))).map(r => r.workflow)).toEqual(['retro']);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.prompt).toMatch(
+      /said or pushed\n\n@morgan pushed abcdef0 Document the field\n\n## How the runs ended\n\nrun-7b: issue on #7 is done\n/
+    );
+    expect(specs[0]!.prompt).not.toContain('router-7:');
   });
 
   it('a live retro holds neither the issue nor its answers', async () => {

@@ -26,6 +26,7 @@ import {
   say,
   comment,
   pullRequest,
+  settleLongAgo,
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 
@@ -307,6 +308,7 @@ describe('tick', () => {
     };
     await run(Effect.flatMap(Store, s => s.put(before)));
     await run(runWorkflow(router, begin(router, { id: 'router-7', issue: 7, started: fresh().started }), kit));
+    await run(settleLongAgo('router-7'));
     expect(readTrace(where.data, 'run-7').flatMap(t => ('told' in t ? [t.told] : []))).toEqual([
       { text, by: 'router-7' },
     ]);

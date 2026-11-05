@@ -29,8 +29,8 @@ export type Problem = { path: string; message: string };
 
 /**
  * An ordered list of steps; the body is the description, or the prompt when there are no steps. `dispatch` starts it
- * only from a `run` proposal, `feedback` on what a trusted person says or pushes where another run worked, `conflict`
- * when the pull request of a run waiting on a human conflicts with its base.
+ * only from a `run` proposal, `feedback` on what a trusted person says or pushes where another run worked and on each
+ * run that ends, `conflict` when the pull request of a run waiting on a human conflicts with its base.
  */
 export type Workflow = Doc<{
   on: Partial<
