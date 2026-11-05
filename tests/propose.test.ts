@@ -5,6 +5,7 @@ import { Effect, Result } from 'effect';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadGraph } from '../src/folder.ts';
 import { claudeUsed, fitting, propose, type Proposer } from '../tune/propose.ts';
+import { writeVariantDecision, writeVariantRun } from '../tune/runs.ts';
 import { git, tmp } from './kit.ts';
 import { makeBenchAttempt } from '../bench/runs.ts';
 import { writeAttemptImport } from '../bin/bench.ts';
@@ -125,7 +126,7 @@ beforeEach(async () => {
       base,
       change: git(repo, 'rev-parse', 'HEAD').trim(),
     });
-    await Effect.runPromise(writeRunLabels(data, run, { cand: 'inc' }));
+    await Effect.runPromise(writeRunLabels(data, run, { variant: 'inc' }));
     save(join(data, run, 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
     runs[id] = join(data, run, 'checks.jsonl');
     setHidden(id, id === 'a-3', 'bench/arm');
@@ -166,7 +167,7 @@ afterEach(() => {
 });
 
 const run = (proposer: Proposer, id = `i1-${proposer}`) =>
-  propose({ tune, id, proposer, from: join(dir, 'graph'), cand: 'inc', iteration: 2 });
+  propose({ tune, id, proposer, from: join(dir, 'graph'), variant: 'inc', iteration: 2 });
 const graphOk = (graph: string) => Effect.runPromise(Effect.result(loadGraph(graph, harnesses))).then(Result.isSuccess);
 
 describe('propose', () => {
@@ -240,12 +241,17 @@ describe('propose', () => {
     expect((await run('structure', 'i1-d')).rationale).toBe('no cases to learn from');
   });
 
-  it('lists earlier candidates with their verdicts', async () => {
-    save(
-      join(tune, 'cands', 'i1-retro', 'candidate.json'),
-      JSON.stringify({ proposer: 'retro', rationale: 'Run it. More.' })
-    );
-    save(join(tune, 'iterations.jsonl'), `${JSON.stringify({ id: 'i1-retro', verdict: 'discarded' })}\n`);
+  it('lists earlier variants with their verdicts', async () => {
+    const v = { id: 'i1-retro', iteration: 1, parent: 'inc', base: '', graph: 'g', proposer: 'retro' as const };
+    await writeVariantRun(tune, 't', { ...v, rationale: 'Run it. More.' }, '');
+    await writeVariantDecision(tune, 't', {
+      ...v,
+      rationale: 'Run it. More.',
+      evals: [],
+      verdict: 'discarded',
+      why: 'below the bar',
+      at: new Date().toISOString(),
+    });
     const p = await run('history', 'i2-history');
     const prompt = readFileSync(join(tune, 'cands', p.id, 'input', 'prompt.md'), 'utf8');
     expect(prompt).toContain('## Tried before\n\n- i1-retro, retro, discarded: Run it.');

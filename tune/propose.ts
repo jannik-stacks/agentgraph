@@ -1,7 +1,7 @@
 /**
  * Proposers: turn a tune's failing fit cases or its mined history into one candidate graph.
  *
- *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--cand <id>] [--iteration n]
+ *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--variant <id>] [--iteration n]
  */
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -26,6 +26,7 @@ import type { Graph } from '../src/folder.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import type { CheckEntry, Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
+import { readTuneSteps } from './runs.ts';
 
 export type Proposer = 'retro' | 'history' | 'structure';
 /** One file edit: `content` writes the file, `old` with `new` replaces one unique snippet, `delete` removes it. */
@@ -142,8 +143,8 @@ const traces = (row: Pick<BenchRow, 'data' | 'run'>, budget: number) => {
   return transcript(run.issue ?? 1, [{ run, lines, checks }], budget);
 };
 
-export const readCandidateRows = (tune: string, cand: string) =>
-  readBenchRows([join(tune, 'data')]).filter(r => r.labels.cand === cand);
+export const readVariantRows = (tune: string, variant: string) =>
+  readBenchRows([join(tune, 'data')]).filter(r => r.labels.variant === variant);
 
 /** Failing fit cases with their diffs, hidden test output and run transcripts; `small` for the structure proposer. */
 const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean): Material[] =>
@@ -197,27 +198,18 @@ const unseen = (rows: BenchRow[], ids: string[]) => {
   return `${classes.length} of ${ran.length} fail the hidden tests${by ? `: ${by}` : ''}.`;
 };
 
-/** What earlier candidates of this tune tried and how each ended, one line each. */
-const tried = (tune: string) => {
-  const verdicts = new Map(
-    readJsonl<{ id: string; verdict: string }>(join(tune, 'iterations.jsonl')).map(s => [s.id, s.verdict])
-  );
-  const cands = join(tune, 'cands');
-  return (existsSync(cands) ? readdirSync(cands) : [])
-    .filter(id => verdicts.has(id) && !id.endsWith('-init'))
-    .sort()
-    .map(id => {
-      const c = JSON.parse(readFileOrEmpty(join(cands, id, 'candidate.json')) || '{}') as {
-        proposer?: string;
-        rationale?: string;
-      };
-      const first = (c.rationale ?? '')
+/** What earlier variants of this tune tried and how each ended, one line each. */
+const tried = (tune: string) =>
+  readTuneSteps(tune)
+    .steps.filter(s => s.iteration > 0)
+    .toSorted((a, b) => a.id.localeCompare(b.id))
+    .map(s => {
+      const first = s.rationale
         .replace(/^#.*\n+/, '')
         .split(/(?<=\.)\s/)[0]!
         .trim();
-      return `- ${id}, ${c.proposer ?? '?'}, ${verdicts.get(id)}: ${head(first, 300)}`;
+      return `- ${s.id}, ${s.proposer}, ${s.verdict}: ${head(first, 300)}`;
     });
-};
 
 /** Eight mine cases, those with review comments that ask for something first. */
 const history = (cases: string, ids: string[], seed: number): Material[] => {
@@ -406,14 +398,14 @@ const diffOf = (cwd: string) =>
 
 /**
  * Runs one proposer on a tune dir and writes `cands/<id>/graph` (when valid), `proposal.md`, the prompt and the raw
- * stream. `from` is the incumbent graph, `cand` the incumbent whose bench runs on the fit cases it learns from.
+ * stream. `from` is the incumbent graph, `variant` the incumbent whose bench runs on the fit cases it learns from.
  */
 export const propose = async (o: {
   tune: string;
   id: string;
   proposer: Proposer;
   from: string;
-  cand?: string;
+  variant?: string;
   iteration?: number;
   cases?: string;
   model?: string;
@@ -425,8 +417,8 @@ export const propose = async (o: {
   if (!cases) throw new Error(`no cases dir beside ${o.tune}`);
   const split = (s: string) => Object.keys(tune.cases).filter(id => tune.cases[id] === s);
   const iteration = o.iteration ?? 0;
-  if (o.proposer !== 'history' && !o.cand) throw new Error(`${o.proposer} needs the incumbent candidate`);
-  const rows = o.cand ? readCandidateRows(o.tune, o.cand) : [];
+  if (o.proposer !== 'history' && !o.variant) throw new Error(`${o.proposer} needs the incumbent variant`);
+  const rows = o.variant ? readVariantRows(o.tune, o.variant) : [];
   const material =
     o.proposer === 'history'
       ? history(cases, split('mine'), iteration)
@@ -569,7 +561,7 @@ if (import.meta.main) {
     options: {
       id: { type: 'string' },
       from: { type: 'string' },
-      cand: { type: 'string' },
+      variant: { type: 'string' },
       iteration: { type: 'string', default: '0' },
       cases: { type: 'string' },
       model: { type: 'string' },
@@ -578,7 +570,7 @@ if (import.meta.main) {
   const [tune, proposer] = positionals;
   if (!tune || !['retro', 'history', 'structure'].includes(proposer ?? '') || !values.id || !values.from) {
     console.error(
-      'usage: node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--cand <id>]'
+      'usage: node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--variant <id>]'
     );
     process.exit(2);
   }
@@ -588,7 +580,7 @@ if (import.meta.main) {
     proposer: proposer as Proposer,
     from: resolve(values.from),
     iteration: Number(values.iteration),
-    ...(values.cand && { cand: values.cand }),
+    ...(values.variant && { variant: values.variant }),
     ...(values.cases && { cases: resolve(values.cases) }),
     ...(values.model && { model: values.model }),
   });

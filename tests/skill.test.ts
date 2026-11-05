@@ -6,7 +6,7 @@ import { appendBenchResults, writeAttemptImport } from '../bin/bench.ts';
 import { init, makeJobInput, type step, tuneRows } from '../bin/tune.ts';
 import { isBenchRunDone, makeBenchAttempt, readSlotRun } from '../bench/runs.ts';
 import { writeRunLabels } from '../src/labels.ts';
-import { readCandidateRows } from '../tune/propose.ts';
+import { readVariantRows } from '../tune/propose.ts';
 import { skill } from '../tune/skill.ts';
 import { git, tmp } from './kit.ts';
 
@@ -94,7 +94,7 @@ const addBaseline = async (like: string, root: string, cases: string[], hidden: 
   for (const c of cases) {
     const made = makeBenchAttempt(like, makeJobInput(like, t, job(c)));
     ids[c] = await writeAttemptImport(like, made.at, made.input, { repo, base, change: base });
-    await Effect.runPromise(writeRunLabels(join(like, 'data'), ids[c], { case: c, cand: 'i000-init' }));
+    await Effect.runPromise(writeRunLabels(join(like, 'data'), ids[c], { case: c, variant: 'i000-init' }));
     const run = readSlotRun(like, made.input)!;
     await appendBenchResults(run, [{ check: 'bench/arm', pass: true } as never], 't');
     await appendBenchResults(run, [{ check: 'bench/hidden', pass: hidden } as never], 't');
@@ -105,7 +105,7 @@ const addBaseline = async (like: string, root: string, cases: string[], hidden: 
 const preferRealRows = (io: NonNullable<ReturnType<typeof fakeBench>>) => {
   const rows = io.rows;
   io.rows = (d, id) => {
-    const real = readCandidateRows(d, id);
+    const real = readVariantRows(d, id);
     return [...real, ...rows(d, id).filter(r => !real.some(x => x.case === r.case && x.repeat === r.repeat))];
   };
 };
@@ -230,12 +230,12 @@ describe('skill benchmark', () => {
     const t = tuneRows(like).tune;
     const fake = io!;
     const rows = fake.rows;
-    fake.rows = (d, id) => (d === like ? readCandidateRows(d, id) : rows(d, id));
+    fake.rows = (d, id) => (d === like ? readVariantRows(d, id) : rows(d, id));
 
     const dir = await skill(like, options(1), io);
 
     expect(['f1', 'v1'].map(c => isBenchRunDone(dir, makeJobInput(dir, t, job(c)), false))).toEqual([true, true]);
-    const reused = readCandidateRows(dir, 'i000-init');
+    const reused = readVariantRows(dir, 'i000-init');
     expect(reused.map(r => [r.case, r.repeat]).toSorted()).toEqual([
       ['f1', 1],
       ['v1', 1],

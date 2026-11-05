@@ -15,7 +15,6 @@ const { values, positionals } = parseArgs({
     tracker: { type: 'string' },
     repo: { type: 'string' },
     bench: { type: 'string', multiple: true },
-    tune: { type: 'string' },
   },
 });
 const quit = (e: Error) => {
@@ -48,7 +47,6 @@ if (names.length) {
   if (values.tracker) process.env.AGI_STUDIO_TRACKER = resolve(values.tracker);
 }
 if (values.bench) process.env.AGI_STUDIO_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
-if (values.tune) process.env.AGI_STUDIO_TUNE = resolve(values.tune);
 
 for (const one of await makeServedGraphs().read()) {
   if ((named.length || repo) && one.problems.some(p => p.path === 'instance.yaml'))

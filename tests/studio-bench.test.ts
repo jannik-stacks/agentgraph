@@ -441,7 +441,7 @@ describe('a bench data dir', () => {
       };
       expect([one.data, one.trace.find(l => l.event)?.event?.text]).toEqual([data, 'from the bench']);
       expect(await ask('/api/logs', `/${hash}${q(data)}`)).toEqual({ status: 200, body: 'full output' });
-      const results = await ask('/api/results', `/?from=runs&data=${encodeURIComponent(data)}`);
+      const results = await ask('/api/results', `/?data=${encodeURIComponent(data)}`);
       expect((JSON.parse(results.body) as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
     } finally {
       vi.unstubAllEnvs();

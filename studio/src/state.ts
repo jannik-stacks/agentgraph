@@ -1,7 +1,5 @@
 import { atom } from 'jotai';
 import type { readRunResults } from '../../bin/results.ts';
-import type { Step } from '../../bin/tune.ts';
-import type { RunResults } from './results/result.ts';
 import type { RunRecord } from '../../src/workflow.ts';
 import type { findCheckVerdicts } from './graph/trail.ts';
 import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
@@ -127,8 +125,6 @@ export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof mak
   ['data']
 );
 
-type ServedResults = Omit<ReturnType<typeof readRunResults>, 'runs'> & { runs: (RunResults & { step?: Step })[] };
-
 const opened = new Map<string, object>();
 const openOnce = <T>(url: string, data?: string | null) => {
   if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<T>(url, [data ? 'bench' : 'data']));
@@ -138,7 +134,7 @@ const openOnce = <T>(url: string, data?: string | null) => {
 export const dataParam = queryParam('data');
 
 export const runResultsAtom = (data?: string | null) =>
-  openOnce<ServedResults>(makeDataHref('/api/results?from=runs', data), data);
+  openOnce<ReturnType<typeof readRunResults>>(makeDataHref('/api/results', data), data);
 
 export const runAtom = (id: string, data?: string | null) =>
   openOnce<(ServedRun & { run: RunRecord }) | null>(makeDataHref(`/api/runs/${encodeURIComponent(id)}`, data), data);

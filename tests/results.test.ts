@@ -90,16 +90,12 @@ describe('results', () => {
     );
     const na = { ...entry('2', 0), check: { check: 'judge', pass: false, empty: true, na: true as const, ms: 0 } };
     writeFileSync(join(data, 'import-1', 'checks.jsonl'), [entry('2', 1), na].map(e => JSON.stringify(e)).join('\n'));
-    const { fields, runs } = readRunResults(
-      'runs',
-      { data },
-      {
-        checks: {
-          'run-stats': { ...checks['run-stats'], version: 'v1' },
-          judge: { mode: 'warn', version: 'v1' },
-        } as never,
-      }
-    );
+    const { fields, runs } = readRunResults(data, {
+      checks: {
+        'run-stats': { ...checks['run-stats'], version: 'v1' },
+        judge: { mode: 'warn', version: 'v1' },
+      } as never,
+    });
     expect(runs[0]).not.toHaveProperty('dead');
     expect(runs[0]!.axes).not.toHaveProperty('issue');
     expect(runs[0]!.results.judge).toMatchObject({ pass: false, na: true });
@@ -132,11 +128,9 @@ describe('results', () => {
     };
     put('r1', 'done', [{ at: '1', step: 'code', event: { type: 'start' } }], [entry('2', 1), entry('3', 2, 'v0')]);
     put('r2', 'stopped', [], []);
-    const { fields, runs } = readRunResults(
-      'runs',
-      { data },
-      { checks: { 'run-stats': { ...checks['run-stats'], version: 'v1' } } as never }
-    );
+    const { fields, runs } = readRunResults(data, {
+      checks: { 'run-stats': { ...checks['run-stats'], version: 'v1' } } as never,
+    });
     expect(fields.map(f => f.field)).toEqual(['usd']);
     expect(Schema.decodeUnknownSync(ResultSheet)({ fields, runs })).toEqual({ fields, runs });
     expect(runs[0]).toMatchObject({
