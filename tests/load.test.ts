@@ -64,6 +64,18 @@ describe('compileWorkflow', () => {
     expect(workflow!.steps[0]!.carry).toBe(carry);
   });
 
+  it.each([
+    ['feedback:', {}],
+    ['feedback: { restarts: true }', { restarts: true }],
+  ])('reads on: { %s }', (feedback, trigger) => {
+    const { workflow, problems } = compileWorkflow('workflows/retro.md', file(`on:\n  ${feedback}`), {
+      ...names,
+      agents: ['helper'],
+    });
+    expect(problems).toEqual([]);
+    expect(workflow!.on).toEqual({ feedback: trigger });
+  });
+
   it('gives a step with checks three tries and an agent way back three rounds', () => {
     const w = fixture('loop').workflows.align!;
     expect(w.steps.find(s => s.name === 'write')!.tries).toBe(3);

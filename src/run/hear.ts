@@ -149,7 +149,7 @@ export const isRetro = (graph: Graph, r: Pick<Run, 'workflow'>) => !!graph.workf
 
 const settledLookbackMs = 86_400_000;
 
-export const findSettledRuns = (graph: Graph, w: Pick<Workflow, 'name'>, all: Run[]) => {
+export const findSettledRuns = (graph: Graph, w: Pick<Workflow, 'name' | 'on'>, all: Run[]) => {
   const router = findRouter(graph)?.name;
   return all.filter(r => {
     const since = pickNewest(...all.filter(o => o.issue === r.issue && o.workflow === w.name).map(o => o.started));
@@ -158,6 +158,7 @@ export const findSettledRuns = (graph: Graph, w: Pick<Workflow, 'name'>, all: Ru
       !isRetro(graph, r) &&
       r.workflow !== router &&
       isRunDone(r) &&
+      (!r.restarted || !!w.on.feedback?.restarts) &&
       r.ended !== undefined &&
       r.ended > (since ?? '') &&
       Date.parse(r.ended) > Date.now() - settledLookbackMs

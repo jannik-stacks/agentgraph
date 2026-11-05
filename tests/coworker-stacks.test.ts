@@ -434,6 +434,26 @@ describe('compound engineering', () => {
     expect(await run(tick(looking))).toEqual([]);
   });
 
+  it('starts no retro for a restarted run, unless the retro asks for restarts', async () => {
+    const restarted = Effect.flatMap(Store, s =>
+      s.put({
+        ...begin(small.workflows.issue!, { id: 'run-7', issue: 7, started: fresh().started }),
+        status: 'stopped',
+        reason: 'a human restarted it',
+        restarted: true,
+      })
+    );
+    const skipping = services(world(), []);
+    await skipping.run(restarted);
+    expect(await skipping.run(tick(looking))).toEqual([]);
+    const retro = { ...looking.workflows.retro, on: { feedback: { restarts: true } } };
+    const asking = services(world(), [[start('r'), reply()]]);
+    await asking.run(restarted);
+    const touched = await asking.run(tick({ ...looking, workflows: { ...looking.workflows, retro } }));
+    expect(touched.map(r => [r.workflow, r.issue])).toEqual([['retro', 7]]);
+    expect(asking.specs[0]!.prompt).toContain('run-7: issue on #7 stopped: a human restarted it');
+  });
+
   it('looks at a closed issue whose run settled, so a merge still gets its retro', async () => {
     const where = world();
     writeIssueAt(

@@ -357,6 +357,7 @@ describe('getEventOutcome', () => {
     expect(heard(running, comment('/agent:restart'))).toEqual({
       kind: 'stop',
       why: 'a human restarted it',
+      restarted: true,
     });
     expect(heard(asked, comment('/agent:cancel'))).toBeUndefined();
     expect(getEventOutcome(w, running, comment('/agent:stop'))).toBeUndefined();
@@ -378,9 +379,9 @@ describe('getEventOutcome', () => {
     ['/agent:stop wrong issue', 'implement', { kind: 'stop', why: 'wrong issue' }],
     ['Thanks. /agent:stop', 'implement', { kind: 'stop', why: 'Thanks.' }],
     ['/agent:cancel', 'implement', { kind: 'ask', question: cancelled }],
-    ['/agent:restart', 'implement', { kind: 'stop', why: 'a human restarted it' }],
-    ['/agent:restart:review', 'implement', { kind: 'stop', why: 'a human restarted it' }],
-    ['/agent:issue:restart:triage', 'implement', { kind: 'stop', why: 'a human restarted it' }],
+    ['/agent:restart', 'implement', { kind: 'stop', why: 'a human restarted it', restarted: true }],
+    ['/agent:restart:review', 'implement', { kind: 'stop', why: 'a human restarted it', restarted: true }],
+    ['/agent:issue:restart:triage', 'implement', { kind: 'stop', why: 'a human restarted it', restarted: true }],
     ['/agent:issue use v2', 'implement', { kind: 'answer', text: 'use v2' }],
     ['/agent:restart:nope', 'implement', undefined],
     ['/agent:plan use v2', 'implement', undefined],
@@ -506,7 +507,7 @@ describe('getEventOutcome', () => {
     const done = { ...finished, status: 'done' as const };
     const m = comment('/agent:restart:triage');
     expect(pickCommandTarget(kit, [live, done], m)).toMatchObject({ run: { id: 'r1' }, workflow: { name: 'issue' } });
-    expect(heard(live, m, {}, [live, done])).toEqual({ kind: 'stop', why: 'a human restarted it' });
+    expect(heard(live, m, {}, [live, done])).toEqual({ kind: 'stop', why: 'a human restarted it', restarted: true });
   });
 
   it('gives a command to the newest live run only', () => {
