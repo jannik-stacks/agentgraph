@@ -155,7 +155,7 @@ The live run on that issue hears the text as a maintainer comment: feedback, an 
 
 The agent's body becomes the system prompt; opencode uses it in place of its base prompt, the others append it. The prompt holds the skill and its `uses`, the workflow body, the issue, the pull request and reviews, the target branch, `until`, the step's checks, feedback and the allowed proposals. A fresh session of a step with `back` also sees the branch diff. <!-- code: src/context.ts#context -->
 
-Every minute the engine writes new issue activity to a news file, which agents with `read` read before finishing. A resumed session gets only feedback and new context. <!-- code: src/context.ts#news -->
+Every minute the engine writes new issue activity to a news file, which agents with `read` read before finishing. A resumed session gets only feedback, new context and the path of its current news file, since each attempt checks out afresh. <!-- code: src/context.ts#news -->
 
 ## Tries and going back
 

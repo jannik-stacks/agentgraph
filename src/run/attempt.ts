@@ -354,6 +354,10 @@ export const runAttempt = (
         ...kinds.map(k => shapes[k as keyof typeof shapes]),
       ].join('\n');
       const scratch = (yield* Sandbox).scratch;
+      const outside = [
+        `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
+        agent.reads && formatTracesPrompt(work),
+      ];
       const prompt = [
         formatRequest(t, run.started),
         ...[step.does.skill, ...(graph.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && graph.skills[s]?.body),
@@ -369,10 +373,9 @@ export const runAttempt = (
             .join(', ')}.`,
         answering &&
           'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run.',
-        `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
         scratch &&
           `Use ${scratch} for large temporary files, isolated source trees and build outputs outside the checkout. It is disk-backed, writable and removed when the checkout ends. /tmp is a small memory-backed filesystem.`,
-        agent.reads && formatTracesPrompt(work),
+        ...outside,
         agent.returns.includes('issue') && (yield* readFiledIssues()),
         run.feedback,
         ending,
@@ -432,7 +435,7 @@ export const runAttempt = (
         yield* writeNews(run, work, caught.seen, t);
         const r = yield* talk(
           kept
-            ? [run.feedback ?? 'Continue.', caught.text, ending].filter(Boolean).join('\n\n')
+            ? [run.feedback ?? 'Continue.', caught.text, ...outside, ending].filter(Boolean).join('\n\n')
             : item === undefined
               ? prompt
               : `${prompt}\n\n## Item\n\n${item}`,
