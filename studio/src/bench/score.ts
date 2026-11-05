@@ -68,7 +68,7 @@ export const random = (seed: number) => {
   };
 };
 
-export const getRowKey = (row: Row) => row.run;
+export const getRowKey = (row: Row) => `${row.data}/${row.run}`;
 
 const getSpread = (xs: number[]) => ({
   median: getQuantile(xs, 0.5),

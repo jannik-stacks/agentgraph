@@ -65,7 +65,7 @@ it('counts graph text and scripts, recovers a tree, and writes labels once', asy
       'graph-script-lines': '2',
     });
     renameSync(graph, join(dir, 'saved-graph'));
-    expect(await writeGraphSizeLabels([run], join(dir, 'saved-graph', '.git'))).toEqual({
+    expect(await writeGraphSizeLabels([dir], join(dir, 'saved-graph', '.git'))).toEqual({
       written: 0,
       unchanged: 1,
       skipped: 0,
@@ -152,7 +152,7 @@ it.each(['tree', 'blob'])('skips a missing promised %s without starting a transp
     git(repository, 'config', 'core.sshCommand', `sh '${transport}'`);
     const run = join(dir, 'attempt', 'data', 'run-1');
     write(run, { 'run.json': JSON.stringify({ id: 'run-1', workflow: 'issue', started: '', graphTree: tree }) });
-    expect(await writeGraphSizeLabels([run], join(repository, '.git'))).toEqual({
+    expect(await writeGraphSizeLabels([join(dir, 'attempt')], join(repository, '.git'))).toEqual({
       written: 0,
       unchanged: 0,
       skipped: 1,

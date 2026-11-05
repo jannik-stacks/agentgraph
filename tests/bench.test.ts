@@ -45,6 +45,7 @@ import {
   getBenchUsageCost,
   isBenchRunDone,
   makeBenchAttempt,
+  makeSetHost,
   readBenchRows,
   readBenchSlots,
   readLatestRunChecks,
@@ -400,7 +401,7 @@ describe('bin/bench.ts score and judge', () => {
     const valid = readSlotResults(set, { case: 'demo', arm: 'human', repeat: 1 })['bench/valid']!;
     expect(valid.check).toMatchObject({ pass: false, findings: expect.stringContaining('set case.test') });
     expect(valid.later).toBe(true);
-    expect(readBenchRows([set])).toEqual([]);
+    expect(readBenchRows(makeSetHost([set]))).toEqual([]);
   });
 
   it('scores the references and an agent run as later results, skips current ones, and judges against the human', async () => {
@@ -505,7 +506,7 @@ describe('bin/bench.ts score and judge', () => {
       )
     ).toHaveLength(2);
 
-    const rows = readBenchRows([set]);
+    const rows = readBenchRows(makeSetHost([set]));
     expect(rows.map(r => r.labels.arm).toSorted()).toEqual(['base', 'floor', 'human', 'v2']);
     const row = (arm: string) => rows.find(r => r.labels.arm === arm)!;
     expect(row('v2')).toMatchObject({

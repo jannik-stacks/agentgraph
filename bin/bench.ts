@@ -30,9 +30,10 @@ import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/tracker.ts';
 import { addGraphArgs } from '../src/git.ts';
 import { ConfigProvider, Effect } from 'effect';
-import { writeComment, writeImportedRun } from '../src/instance.ts';
+import { writeComment } from '../src/instance.ts';
+import { makeEngineHost, type Submission } from '../src/engine.ts';
 import { appendJsonlRows, readJsonlRows, writeFileAtomic } from '../src/store.ts';
-import { parseLabelPatch, parseLabels, writeRunLabels } from '../src/labels.ts';
+import { parseLabelPatch, parseLabels } from '../src/labels.ts';
 import { parseNamePairs } from '../src/harnesses.ts';
 import {
   agentgraphDir,
@@ -505,16 +506,17 @@ const makeArmRunLabels = (set: string, input: BenchInput) => {
   });
 };
 
-const makeBenchMeta = (set: string, input: BenchInput) => ({
-  engine: {
-    origin: {
-      plugin: 'bench',
-      version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
+const submitBenchRun = (set: string, input: BenchInput, submission: Submission) =>
+  makeEngineHost('bench', [{ name: basename(set), data: join(set, 'data') }], true).submit(
+    basename(set),
+    {
       job: basename(set),
+      version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
       input,
+      labels: makeArmRunLabels(set, input),
     },
-  },
-});
+    submission
+  );
 
 /** A case's scoring dir in its set: its image pin, environment refs and score tree. */
 const findCaseWorkDir = (set: string, c: Pick<Case, 'id'>) => join(set, 'work', c.id);
@@ -597,7 +599,7 @@ export const writeArmGraph = (c: Case & Commands, arm: string, at: string) => {
 };
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string, set: string, input: BenchInput) => {
-  const { start, readInstanceEnv } = (await import(join(agentgraphDir, 'src/main.ts'))) as typeof MainModule;
+  const { readInstanceEnv } = (await import(join(agentgraphDir, 'src/main.ts'))) as typeof MainModule;
   const graph = writeArmGraph(c, arm, at);
   const dir = join(at, 'tracker');
   sh('git', ['init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git')]);
@@ -622,14 +624,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   let status: string | undefined;
   let reason: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
-    const [run] = await start({
-      graph,
-      issue,
-      data: join(set, 'data'),
-      meta: makeBenchMeta(set, input),
-      labels: makeArmRunLabels(set, input),
-      setup,
-    });
+    const [run] = await submitBenchRun(set, input, { graph, issue, setup });
     status = run?.status;
     reason = run?.reason;
     if (!run || run.status === 'done' || run.status === 'stopped') break;
@@ -695,15 +690,10 @@ export const writeAttemptImport = async (
   const tracker = join(at, 'tracker');
   if (!existsSync(join(tracker, 'origin.git')))
     sh('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
-  const data = join(set, 'data');
-  const id = await writeImportedRun({ checkout: resolve(o.repo), tracker, data }, o.change, {
-    version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
-    from: o.base,
-    ...(o.issue && { issue: o.issue }),
-    input,
+  const [run] = await submitBenchRun(set, input, {
+    import: { checkout: resolve(o.repo), tracker, change: o.change, from: o.base, ...(o.issue && { issue: o.issue }) },
   });
-  await Effect.runPromise(writeRunLabels(data, id, makeArmRunLabels(set, input)));
-  return id;
+  return run!.id;
 };
 
 /**

@@ -135,7 +135,7 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
       route: '/api/plugins/bench/data',
       handle: (_req: unknown, res: ServerResponse) => {
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ rows }));
+        res.end(JSON.stringify({ rows, fields: [], conflicts: [] }));
       },
     });
     await server.listen();

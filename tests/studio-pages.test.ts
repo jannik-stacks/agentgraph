@@ -60,7 +60,11 @@ export default function Page() { const { value } = usePluginData('count', Schema
     expect(manifest).toContain('/@id/__x00__virtual:agentgraph-page/count');
     expect(manifest).toContain('href:"/results"');
     expect(manifest).toContain('href:"/bench"');
-    expect(await (await fetch(`${base}/api/plugins/bench/data`)).json()).toEqual({ rows: [] });
+    expect(await (await fetch(`${base}/api/plugins/bench/data`)).json()).toEqual({
+      rows: [],
+      fields: [],
+      conflicts: [],
+    });
     expect(manifest).not.toContain(external);
     expect(manifest).not.toContain(graph);
     expect((await fetch(`${base}/@fs${realpathSync(join(graph, 'plugins/pages/Page.tsx'))}`)).status).toBe(200);
@@ -84,10 +88,10 @@ export default function Page() { const { value } = usePluginData('count', Schema
     writeFileSync(join(external, 'value'), '8');
     await vi.waitFor(() => expect(sent).toHaveBeenCalledOnce());
     expect(sent.mock.calls[0]![0]).toBe('agi:changed');
-    expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'count']);
+    expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['count']);
     writeFileSync(join(dir, 'data', 'new'), '');
     await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(2));
-    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['data', 'results']);
+    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'data', 'results']);
     expect(server.watcher.listenerCount('all')).toBe(listeners);
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('8');
   } finally {
@@ -132,7 +136,7 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
     expect(text).not.toContain('FAKE-private-results-value');
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     expect(manifest).toContain('href:"/results"');
-    expect(manifest).not.toContain('bench');
+    expect(manifest).toContain('href:"/bench"');
     expect(manifest).not.toContain(dir);
     expect((await fetch(`${base}/@id/__x00__virtual:agentgraph-page/results`)).status).toBe(200);
   } finally {
