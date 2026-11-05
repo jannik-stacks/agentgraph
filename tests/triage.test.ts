@@ -507,6 +507,30 @@ describe('dispatch', () => {
     ]);
   });
 
+  it('restarts the waiting triage, not a newer waiting router', async () => {
+    const where = world();
+    const put = (r: Run) =>
+      Effect.runPromise(Effect.flatMap(Store, s => s.put(r)).pipe(Effect.provide(fileStore(where.data))));
+    await put({
+      ...begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: at(0) }),
+      status: 'waiting',
+      reason: 'Which size?',
+    });
+    await put({
+      ...begin(graph.workflows.router!, { id: 'router-1', issue: 1, started: at(1) }),
+      status: 'waiting',
+      reason: 'Which size?',
+    });
+    sayOn(where, command(1, '/agent:restart', 2));
+    await run(where, [turn({ kind: 'label', add: ['size/S'] })], tick(graph));
+    const after = (await runs(where)).toSorted((a, b) => a.started.localeCompare(b.started));
+    expect(after.map(r => [r.id === 'router-1' || r.id === 'triage-1' ? r.id : r.workflow, r.status])).toEqual([
+      ['triage-1', 'stopped'],
+      ['router-1', 'waiting'],
+      ['triage', 'done'],
+    ]);
+  });
+
   const tell = async (
     commands: NonNullable<Graph['commands']>,
     status: 'waiting' | 'running',

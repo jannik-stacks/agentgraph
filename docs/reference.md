@@ -56,7 +56,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `cpus` | number | 1.5 | CPUs per Docker command, from 0.01 to 64 |
 | `minutes` | number | 30 | Deadline per session, script or setup |
 | `usd-per-run` | number | 10 | Spend cap per run |
-| `parallel` | integer | 2 | Concurrent runs |
+| `parallel` | integer | 2 | Concurrent runs; router runs take no slot |
 | `sessions` | integer | 4 | Concurrent sessions and scripts of one instance, judges included <!-- code: src/run/execute.ts#sessionPermitsRef --> |
 
 Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). Remote boxes reject resource overrides. Step `limits` override only the named fields; other steps keep the graph limits.

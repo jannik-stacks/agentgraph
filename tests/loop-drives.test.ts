@@ -380,6 +380,33 @@ describe('loop drives', () => {
     }
   });
 
+  it('routes a comment while every limits.parallel slot is held', async () => {
+    const loop = setup(1);
+    const router = {
+      ...flow,
+      name: 'router',
+      on: { issue_comment: {} },
+      steps: [{ ...flow.steps[0]!, name: 'route', does: { agent: 'reviewer' } }],
+    };
+    const reviewer = loop.graph.agents.reviewer!;
+    const routed = {
+      ...loop.graph,
+      workflows: { router, issue: flow },
+      agents: { ...loop.graph.agents, reviewer: { ...reviewer, returns: [...reviewer.returns, 'tell' as const] } },
+    };
+    try {
+      const [first] = await loop.pass();
+      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
+      loop.ask();
+      const [second] = await loop.pass(routed);
+      await vi.waitFor(async () => expect(await loop.status(second!.id)).toBe('waiting'), { timeout: 10_000 });
+      expect([second!.workflow, await loop.status(first!.id), loop.opened.length]).toEqual(['router', 'running', 2]);
+    } finally {
+      loop.release();
+      await loop.drives.stop();
+    }
+  });
+
   it('hears a stop posted during a foreground scan before applying the session reply', async () => {
     const where = world();
     const engine = services(

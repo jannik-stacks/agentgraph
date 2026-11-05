@@ -149,7 +149,7 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
           run,
           heard,
           [],
-          pickCommandTarget(graph, runs, heard, tells.includes(m) ? run : undefined)
+          pickCommandTarget(graph, runs, heard, findRouter(graph)?.name, tells.includes(m) ? run : undefined)
         );
         return o ? [{ o, at: m.at, event: m }] : [];
       });
