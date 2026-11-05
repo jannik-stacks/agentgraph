@@ -537,6 +537,14 @@ describe('drive', () => {
     );
   });
 
+  it('forbids committing and pushing in the prompt but leaves reading with git to the agent', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);
+    await run(runWorkflow(w, begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph));
+    expect(specs[0]!.prompt).toContain('so do not commit, push or run gh yourself');
+    expect(specs[0]!.prompt).not.toContain('do not run git');
+  });
+
   it('takes an ask about the runner as a runner error: retried, then parked, with no question posted', async () => {
     const where = world();
     const stuck = [start('t'), reply({ kind: 'ask', runner: 'the npm registry is blocked' })];

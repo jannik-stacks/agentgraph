@@ -340,12 +340,39 @@ describe('runStepChecks', () => {
     ]);
   });
 
+  it('lists every failing item in full when their findings together are long', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    const small = makeTestGraph('graph', {
+      types: { each: 'seq -f %0200g 12', run: 'echo "bad $AGENTGRAPH_ITEM"; exit 1' },
+    });
+    const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
+    const { run } = services(where, []);
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: where.origin, GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const { outcome } = await run(runStepChecks(step, left, small));
+    const findings = outcome.kind === 'failed' ? outcome.checks[0]!.findings : undefined;
+    const items = Array.from({ length: 12 }, (_, i) => `${i + 1}`.padStart(200, '0'));
+    expect(findings).toBe(items.map(i => `${i}\nbad ${i}`).join('\n'));
+  });
+
   it('fails a check without max as one finding past 20 items, opening no session', async () => {
     const where = world();
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = makeTestGraph('kit', { claims: { each: 'seq 21', agent: 'claim-checker' } });
+    const small = makeTestGraph('kit', { claims: { each: 'seq -f %0200g 21', agent: 'claim-checker' } });
     const kit = { ...small, checks: { ...small.checks, claims: { ...small.checks.claims!, mode: 'block' as const } } };
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const { specs, run } = services(where, []);
@@ -366,7 +393,10 @@ describe('runStepChecks', () => {
       checks: [
         {
           check: 'claims',
-          findings: ['21 items, more than 20:', ...Array.from({ length: 21 }, (_, i) => `${i + 1}`)].join('\n'),
+          findings: [
+            '21 items, more than 20:',
+            ...Array.from({ length: 21 }, (_, i) => `${i + 1}`.padStart(200, '0')),
+          ].join('\n'),
         },
       ],
     });

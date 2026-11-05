@@ -350,7 +350,7 @@ export const runAttempt = (
       if (agent.reads) yield* writeTraces(graph, run.issue, run.id, work);
       const ending = [
         'End your reply with a fenced agentgraph block holding a JSON array of proposals. The runner commits, pushes,',
-        'opens pull requests and posts comments from them, so do not run git or gh yourself. The shape of each kind:',
+        'opens pull requests and posts comments from them, so do not commit, push or run gh yourself. The shape of each kind:',
         ...kinds.map(k => shapes[k as keyof typeof shapes]),
       ].join('\n');
       const scratch = (yield* Sandbox).scratch;
