@@ -205,7 +205,7 @@ const refPath = (branch: string) =>
 /**
  * A GitHub REST call with `auth` as the bearer; GETs are polled with ETags, so an unchanged answer is a free 304. A call
  * that may be sent twice, any but a POST or a token to mint, is retried with backoff when the network fails or GitHub
- * answers 502 to 504.
+ * answers 502 to 504. A rate-limited call waits for the limit to reset and is sent again; every call waits with it.
  */
 const requester = (fetch: Fetch) => {
   const etags = new Map<string, { auth: string; version: string; etag: string; data: unknown; next?: string }>();
@@ -216,7 +216,7 @@ const requester = (fetch: Fetch) => {
       const entry = method === 'GET' ? etags.get(url) : undefined;
       const cached = entry?.auth === auth && entry.version === version ? entry : undefined;
       const again = method !== 'POST' || path.endsWith('/access_tokens');
-      const res = yield* Effect.gen(function* () {
+      const send = Effect.gen(function* () {
         while (reset > (yield* Clock.currentTimeMillis)) yield* Effect.sleep(reset - (yield* Clock.currentTimeMillis));
         return yield* Effect.tryPromise({
           try: async signal => {
@@ -244,20 +244,25 @@ const requester = (fetch: Fetch) => {
           })
         );
       }).pipe(Effect.retry({ schedule: Schedule.exponential('1 second'), times: again ? 4 : 0 }));
+      let res = yield* send;
+      while (
+        res.status === 429 ||
+        (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || /rate limit/i.test(res.text)))
+      ) {
+        const now = yield* Clock.currentTimeMillis;
+        const retry = Number(res.headers.get('retry-after')) || 0;
+        const until = Math.max(
+          Number(res.headers.get('x-ratelimit-reset')) * 1000 || now + (retry > 0 ? retry * 1000 : 60_000),
+          now + Math.max(retry * 1000, 1000)
+        );
+        if (until > reset) {
+          reset = until;
+          yield* Effect.logWarning(`GitHub rate limit reached; calls wait until ${new Date(until).toISOString()}`);
+        }
+        res = yield* send;
+      }
       if (res.status === 304 && cached) return cached as { data: T; next?: string };
       if (!res.ok) {
-        if (
-          res.status === 429 ||
-          (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || /rate limit/i.test(res.text)))
-        ) {
-          const now = yield* Clock.currentTimeMillis;
-          const retry = Number(res.headers.get('retry-after')) || 0;
-          reset = Math.max(
-            reset,
-            Number(res.headers.get('x-ratelimit-reset')) * 1000 || now + (retry > 0 ? retry * 1000 : 60_000),
-            now + retry * 1000
-          );
-        }
         const message = `GitHub ${method} ${path} failed with ${res.status}: ${res.text.slice(0, 200)}`;
         return yield* new TrackerError({ status: res.status, message });
       }
@@ -287,6 +292,7 @@ const scopes = {
 type TokenScope = keyof typeof scopes;
 type AppToken = (scope: TokenScope, refused?: string) => Effect.Effect<string, TrackerError>;
 const freshMs = 5_000;
+const roleMs = 600_000;
 
 /** Mints installation tokens for the App, one per scope, reusing a token until a minute before it expires. */
 const appToken = (
@@ -366,6 +372,7 @@ export const githubTracker = (
       ),
       Effect.map(({ data }) => data.data!)
     );
+  const roles = new Map<string, { until: number; read: Effect.Effect<boolean, TrackerError> }>();
   return Layer.sync(Tracker, () => {
     const listed = (user: User, association = '') => (trust ? trust.includes(login(user)) : members.has(association));
     const repo = `/repos/${app.repo}`;
@@ -465,7 +472,7 @@ export const githubTracker = (
       unlabeled: 'unlabel',
     };
     /** An issue event in our shape, trusted when `may` says its actor may write; undefined for events that say nothing here. */
-    const evented = (issue: number, e: RestEvent, merged: boolean, may: ReturnType<typeof writer>) =>
+    const evented = (issue: number, e: RestEvent, merged: boolean) =>
       Effect.gen(function* () {
         const kind = kinds[e.event];
         if (!kind || (kind === 'closed' && merged) || ((kind === 'label' || kind === 'unlabel') && !e.label))
@@ -586,7 +593,6 @@ export const githubTracker = (
         const merged = events.some(e => e.event === 'merged');
         // A fork's commits name their author by email alone, which anyone can claim.
         const own = pull?.head.repo?.full_name === app.repo;
-        const may = writer();
         const timeline: Event[] = [
           ...[...said, ...lined].map(c => heard(number, c, self)),
           ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
@@ -608,7 +614,7 @@ export const githubTracker = (
               })
             )
           )),
-          ...(yield* Effect.forEach(events, e => evented(number, e, merged, may))).flatMap(m => m ?? []),
+          ...(yield* Effect.forEach(events, e => evented(number, e, merged))).flatMap(m => m ?? []),
           ...(pull ? yield* checked(number, pull.head.sha) : []),
         ];
         return {
@@ -617,26 +623,29 @@ export const githubTracker = (
         };
       });
 
-    const permitted = (user: User) =>
-      isBot(user)
-        ? Effect.succeed(false)
-        : missing(
-            gh<{ permission?: string; role_name?: string }>(
-              'GET',
-              `${repo}/collaborators/${encodeURIComponent(login(user))}/permission`
+    /** Whether a person may write to the repo, asked once per login for ten minutes. */
+    const may = (user: User) =>
+      Effect.suspend(() => {
+        const name = login(user);
+        const known = roles.get(name);
+        if (isBot(user)) return Effect.succeed(false);
+        if (known && known.until > Date.now()) return known.read;
+        const read = Effect.runSync(
+          Effect.cached(
+            missing(
+              gh<{ permission: string; role_name: string }>(
+                'GET',
+                `${repo}/collaborators/${encodeURIComponent(name)}/permission`
+              )
+            ).pipe(
+              Effect.map(found => !!found && (writers.has(found.role_name) || writers.has(found.permission))),
+              Effect.tapError(() => Effect.sync(() => roles.delete(name)))
             )
-          ).pipe(
-            Effect.map(found => [found?.role_name, found?.permission].some(r => r !== undefined && writers.has(r)))
-          );
-
-    /** `permitted`, asked once per login for the life of the returned function. */
-    const writer = () => {
-      const asked = new Map<string, boolean>();
-      return (user: User) =>
-        asked.has(login(user))
-          ? Effect.succeed(asked.get(login(user))!)
-          : Effect.tap(permitted(user), ok => Effect.sync(() => asked.set(login(user), ok)));
-    };
+          )
+        );
+        roles.set(name, { until: Date.now() + roleMs, read });
+        return read;
+      });
 
     const columns = Effect.runSync(
       Effect.cached(
@@ -687,7 +696,6 @@ export const githubTracker = (
       Stream.fromIterableEffect(
         Effect.gen(function* () {
           const self = yield* me;
-          const may = writer();
           const after = (at?: string | null): at is string => !!at && at > cursor;
           const from = cursor ? `since=${encodeURIComponent(cursor)}&` : '';
           const window = `${from}sort=updated&direction=asc&per_page=100`;
@@ -743,7 +751,7 @@ export const githubTracker = (
           for (const e of events) {
             const m =
               after(e.created_at) && e.issue
-                ? yield* evented(e.issue.number, e, merged.has(e.issue.number), may)
+                ? yield* evented(e.issue.number, e, merged.has(e.issue.number))
                 : undefined;
             if (m) found.push(m);
           }
@@ -1222,6 +1230,9 @@ export const readInstallationReach = (
     return lines;
   });
 
+const setups = new Map<string, TrackerSetup>();
+const currentFetch: Fetch = (url, init) => globalThis.fetch(url, init);
+
 export const github = makePlugin({
   name: 'github',
   tracker: (host): TrackerSetup => {
@@ -1232,16 +1243,21 @@ export const github = makePlugin({
         () => new Error('the github tracker needs AGENTGRAPH_APP_ID and AGENTGRAPH_APP_KEY')
       ),
     };
-    const token = appToken(app);
+    const key = JSON.stringify([app.repo, app.id, Redacted.value(app.key), host.studio]);
+    const known = setups.get(key);
+    if (known) return known;
+    const token = appToken(app, currentFetch);
     const layers = new Map<string, Layer.Layer<Tracker>>();
-    return {
+    const setup: TrackerSetup = {
       layer: trust => {
         const key = JSON.stringify(trust) ?? '';
-        const layer = layers.get(key) ?? githubTracker(app, globalThis.fetch, token, trust, host.studio);
+        const layer = layers.get(key) ?? githubTracker(app, currentFetch, token, trust, host.studio);
         layers.set(key, layer);
         return layer;
       },
       origin: { origin: `https://github.com/${app.repo}.git`, token: token('read') },
     };
+    setups.set(key, setup);
+    return setup;
   },
 });

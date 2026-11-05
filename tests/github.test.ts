@@ -312,7 +312,7 @@ describe('githubTracker', () => {
     expect(reads.every(c => c.headers.get('authorization') === 'Bearer tok')).toBe(true);
   });
 
-  it('keeps tokens and conditional reads across passes and renewed session credentials', async () => {
+  it('keeps tokens and conditional reads across passes, renewed session credentials and setups', async () => {
     let served = 0;
     const f = fake({
       'GET /repos/o/r/issues': (_: Body, headers: Headers) =>
@@ -353,6 +353,7 @@ describe('githubTracker', () => {
       await Effect.runPromise(
         Effect.provide(list, make({ ...configured, app: Option.some({ id: '43', key: app.key }) }))
       );
+      await Effect.runPromise(Effect.provide(list, makeProductionLayers()(configured)));
       expect(second).toEqual(first);
       expect(served).toBe(2);
       expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(2);
@@ -406,27 +407,34 @@ describe('githubTracker', () => {
   it.each([
     [403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '10' }],
     [429, { 'retry-after': '10' }],
-  ] as const)('holds concurrent reads until reset after %s', async (status, headers) => {
+  ] as const)('holds the limited read and concurrent reads until reset after %s', async (status, headers) => {
     let reads = 0;
     const f = fake({
       'GET /repos/o/r/issues': () =>
         ++reads === 1 ? { status, headers, body: { message: 'API rate limit exceeded' } } : { body: [] },
     });
+    const warnings: unknown[] = [];
     const counts = await Effect.runPromise(
       Effect.gen(function* () {
         const tracker = yield* Tracker;
-        yield* Effect.result(tracker.issues());
+        const limited = yield* Effect.forkChild(tracker.issues());
+        yield* TestClock.adjust('0 seconds');
         const pending = yield* Effect.forkChild(
           Effect.all([tracker.issues(), tracker.issues({ state: 'open' })], { concurrency: 2 })
         );
         yield* TestClock.adjust('9 seconds');
         const before = reads;
         yield* TestClock.adjust('1 second');
+        yield* Fiber.join(limited);
         yield* Fiber.join(pending);
         return [before, reads];
-      }).pipe(Effect.provide(githubTracker(app, f.fetch)), Effect.provide(TestClock.layer()))
+      }).pipe(
+        Effect.provide(githubTracker(app, f.fetch)),
+        Effect.provide(TestClock.layer()),
+        Effect.provide(Logger.layer([Logger.make(({ message }) => void warnings.push(message))]))
+      )
     );
-    expect(counts).toEqual([1, 3]);
+    expect([counts, warnings.length]).toEqual([[1, 4], 1]);
   });
 
   it('holds a pending network retry when another request exhausts the budget', async () => {
@@ -446,15 +454,16 @@ describe('githubTracker', () => {
         const tracker = yield* Tracker;
         const pending = yield* Effect.forkChild(tracker.issues());
         yield* TestClock.adjust('0 seconds');
-        yield* Effect.result(tracker.issues());
+        const limited = yield* Effect.forkChild(tracker.issues());
         yield* TestClock.adjust('1 second');
         const before = reads;
         yield* TestClock.adjust('9 seconds');
         yield* Fiber.join(pending);
+        yield* Fiber.join(limited);
         return [before, reads];
       }).pipe(Effect.provide(githubTracker(app, f.fetch)), Effect.provide(TestClock.layer()))
     );
-    expect(counts).toEqual([2, 3]);
+    expect(counts).toEqual([2, 4]);
   });
 
   it('reads the milestone title of an issue', async () => {
@@ -820,6 +829,37 @@ describe('githubTracker', () => {
       'Bot fix',
       '(commit title by @mallory withheld: not a collaborator)',
     ]);
+  });
+
+  it('asks for the permission of a login once per ten minutes, across concurrent reads and passes', async () => {
+    const at = '2026-10-16T10:00:00Z';
+    const f = fake({
+      'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
+      'GET /repos/o/r/pulls/8': pull(8),
+      'GET /repos/o/r/issues/8/comments': [],
+      'GET /repos/o/r/pulls/8/comments': [],
+      'GET /repos/o/r/pulls/8/reviews': [],
+      'GET /repos/o/r/pulls/8/commits': [
+        { sha: 'a1', author: { login: 'ana' }, commit: { message: 'Fix it', author: { date: at } } },
+      ],
+      'GET /repos/o/r/issues/8/events': [
+        { event: 'labeled', actor: { login: 'ana' }, created_at: at, label: { name: 'x' } },
+      ],
+      'GET /repos/o/r/collaborators/ana/permission': { permission: 'write' },
+    });
+    const layer = githubTracker(app, f.fetch);
+    const read = Effect.flatMap(Tracker, tracker => tracker.issue(8));
+    const now = vi.spyOn(Date, 'now');
+    const initial = Date.now();
+    try {
+      await Effect.runPromise(Effect.provide(Effect.all([read, read], { concurrency: 2 }), layer));
+      await Effect.runPromise(Effect.provide(read, layer));
+      now.mockReturnValue(initial + 700_000);
+      await Effect.runPromise(Effect.provide(read, layer));
+    } finally {
+      now.mockRestore();
+    }
+    expect(f.calls.filter(c => c.path === '/repos/o/r/collaborators/ana/permission')).toHaveLength(2);
   });
 
   it('reads an issue without its checks when the installation may not read them', async () => {
