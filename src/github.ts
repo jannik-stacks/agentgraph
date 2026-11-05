@@ -626,9 +626,9 @@ export const githubTracker = (
     /** Whether a person may write to the repo, asked once per login for ten minutes. */
     const may = (user: User) =>
       Effect.suspend(() => {
+        if (isBot(user)) return Effect.succeed(false);
         const name = login(user);
         const known = roles.get(name);
-        if (isBot(user)) return Effect.succeed(false);
         if (known && known.until > Date.now()) return known.read;
         const read = Effect.runSync(
           Effect.cached(
