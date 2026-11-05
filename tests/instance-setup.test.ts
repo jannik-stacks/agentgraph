@@ -768,6 +768,116 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
   }
 });
 
+const makeInstances = async (names: string[]) => {
+  const w = await makeInstance(names[0]!);
+  const env = join(w.root, 'model.env');
+  writeFileSync(env, 'ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_EVERY=60\n');
+  const graphs = await Promise.all(
+    names.map(async name => {
+      const graph = join(w.root, `graph-${name}`);
+      const ready = join(w.root, `ready-${name}`);
+      mkdirSync(join(graph, 'plugins'), { recursive: true });
+      writeFileSync(join(graph, 'settings.yaml'), '{}');
+      writeFileSync(
+        join(graph, 'plugins/ready.ts'),
+        `
+import { writeFileSync } from 'node:fs';
+import { folder } from ${JSON.stringify(new URL('../src/tracker.ts', import.meta.url).href)};
+export default { name: 'ready', tracker: host => { const setup = folder.tracker(host); return { ...setup,
+layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return setup.layer(trust, as); }
+}; } };`
+      );
+      const instance = await ensureInstance(w.root, name, w.seed);
+      writeFileSync(
+        join(instance.dir, 'instance.yaml'),
+        stringify({
+          checkout: w.seed,
+          base: 'main',
+          owner: 'owner',
+          exported: {},
+          loop: true,
+          graph,
+          env,
+          provider: 'anthropic',
+          tracker: 'ready',
+        })
+      );
+      return { name, graph, ready, data: instance.data };
+    })
+  );
+  const spawnLoop = (...args: string[]) =>
+    spawn(process.execPath, [cli, 'loop', '--data', w.root, ...args], {
+      cwd: w.root,
+      stdio: 'pipe',
+      env: {
+        PATH: process.env.PATH,
+        NODE_OPTIONS: '',
+        AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+        AGENTGRAPH_SANDBOX_URL: 'http://unused',
+      },
+    });
+  return { ...w, graphs, spawnLoop };
+};
+
+it('serves every loop instance in one process and keeps going when one fails to start', async () => {
+  const w = await makeInstances(['first', 'second', 'broken']);
+  rmSync(w.graphs[2]!.graph, { recursive: true });
+  const result = spawnSync(process.execPath, [cli, 'loop', '--once', '--data', w.root], {
+    cwd: w.root,
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH,
+      NODE_OPTIONS: '',
+      AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+      AGENTGRAPH_SANDBOX_URL: 'http://unused',
+    },
+  });
+  expect([
+    result.status,
+    result.stdout,
+    result.stderr,
+    w.graphs.map(g => existsSync(g.ready)),
+    w.graphs.map(g => existsSync(join(g.data, '.locks', 'loop.lock'))),
+  ]).toEqual([
+    1,
+    expect.stringMatching(/^(?=[^]*^first: agentgraph )(?=[^]*^second: agentgraph )/m),
+    expect.stringContaining('broken: stopped: no graph found'),
+    [true, true, false],
+    [false, false, false],
+  ]);
+  const flags = ['repo', 'dir', 'base', 'tracker'];
+  const refused = flags.map(flag =>
+    spawnSync(
+      process.execPath,
+      [cli, 'loop', '--data', w.root, '--instance', 'first', '--instance', 'second', `--${flag}`, w.seed],
+      {
+        encoding: 'utf8',
+        cwd: w.root,
+      }
+    )
+  );
+  expect(refused.map(r => [r.status, r.stderr.trim()])).toEqual(
+    flags.map(flag => [2, `--${flag} applies to one instance; set it in each instance.yaml`])
+  );
+});
+
+it('releases the lock of every served instance on SIGTERM', async () => {
+  const w = await makeInstances(['left', 'right']);
+  const child = w.spawnLoop('--instance', 'left', '--instance', 'right', '--parallel', '1');
+  let exited: [typeof child.exitCode, typeof child.signalCode] | undefined;
+  child.once('exit', (code, signal) => {
+    exited = [code, signal];
+  });
+  try {
+    await vi.waitFor(() => expect(w.graphs.map(g => existsSync(g.ready))).toEqual([true, true]), { timeout: 20_000 });
+    child.kill('SIGTERM');
+    await vi.waitFor(() => expect(exited).toEqual([143, null]), { timeout: 5000 });
+    for (const release of await Promise.all(w.graphs.map(g => createLoopLock(g.data)))) await release();
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
+});
+
 it('invalidates loaded virtual pages when switching graphs and removing a plugin', async () => {
   const w = await makeInstance('pages');
   const other = join(w.root, 'other-pages');

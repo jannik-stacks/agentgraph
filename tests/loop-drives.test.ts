@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect, Layer, Stream } from 'effect';
+import { Effect, Layer, Semaphore, Stream } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { runPass, scanIssuesAndRunningRuns, scanTrackerEvents, startLoopDrives } from '../src/run/trigger.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
@@ -487,5 +487,47 @@ describe('loop drives', () => {
       'running',
       0,
     ]);
+  });
+
+  it.each([
+    [undefined, 4],
+    [2, 2],
+  ])('caps drives of two instances under a host limit of %s, each under its own', async (cap, peak) => {
+    const host = cap === undefined ? undefined : Semaphore.makeUnsafe(cap);
+    const live = { all: 0, first: 0 };
+    const peaks = { all: 0, first: 0 };
+    const ended: string[] = [];
+    const work = (id: string) =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => {
+          live.all++;
+          if (id.startsWith('0')) live.first++;
+          peaks.all = Math.max(peaks.all, live.all);
+          peaks.first = Math.max(peaks.first, live.first);
+        }),
+        () => Effect.sleep(20),
+        () =>
+          Effect.sync(() => {
+            live.all--;
+            if (id.startsWith('0')) live.first--;
+            ended.push(id);
+          })
+      ).pipe(Effect.as(undefined));
+    const instances = [startLoopDrives(host), startLoopDrives(host)];
+    try {
+      await Promise.all(
+        instances.map((drives, k) =>
+          Effect.runPromise(
+            runPass(drives, fork =>
+              Effect.forEach(['a', 'b', 'c'], id => fork(`${k}${id}`, k === 0 ? 1 : 3, work(`${k}${id}`)))
+            ) as Effect.Effect<unknown>
+          )
+        )
+      );
+      await vi.waitFor(() => expect(ended).toHaveLength(6));
+      expect(peaks).toEqual({ all: peak, first: 1 });
+    } finally {
+      await Promise.all(instances.map(drives => drives.stop()));
+    }
   });
 });

@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
-import { ConfigProvider, Effect, Exit, Layer, Scope, Schema } from 'effect';
+import { ConfigProvider, Effect, Exit, identity, Layer, Scope, Schema, type Semaphore } from 'effect';
 import {
   instruct,
   issueDebounceMs,
@@ -30,7 +30,7 @@ import { fileStore, Store, StoreError } from './store.ts';
 import { LockHeldError } from './owner.ts';
 import { parseLabels, writeRunLabels } from './labels.ts';
 import type { Run, RunRecord } from './workflow.ts';
-import type { Services } from './run/execute.ts';
+import { sessionPermitsRef, type Services } from './run/execute.ts';
 
 export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
 const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()), 'utf8');
@@ -180,6 +180,7 @@ export const start = (
     };
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
     drives?: ReturnType<typeof startLoopDrives>;
+    sessions?: Semaphore.Semaphore;
     poll?: true;
   },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(one.setup?.tracker),
@@ -251,5 +252,11 @@ export const start = (
     };
     return yield* one.drives ? runPass(one.drives, look) : look();
   });
-  return Effect.runPromise(program, { signal }).catch(failLoopLock);
+  return Effect.runPromise(
+    program.pipe(
+      one.sessions ? Effect.provideService(sessionPermitsRef, one.sessions) : identity,
+      one.instance ? Effect.annotateLogs('instance', basename(one.instance.dir)) : identity
+    ),
+    { signal }
+  ).catch(failLoopLock);
 };

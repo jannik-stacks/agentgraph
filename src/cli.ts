@@ -19,7 +19,7 @@ const flag = (name: string) => {
 };
 const shared = {
   data: text(Flag.String('data')),
-  instance: text(Flag.String('instance')),
+  instance: many(Flag.String('instance')),
   repo: text(Flag.String('repo')),
   base: text(Flag.String('base')),
   dir: text(Flag.String('dir')),
@@ -41,6 +41,7 @@ const own = {
   from: text(Flag.String('from').pipe(Flag.withDescription('<commit>'))),
   meta: text(Flag.String('meta').pipe(Flag.withDescription('<json file>'))),
   once: flag('once'),
+  parallel: text(Flag.String('parallel').pipe(Flag.withDescription('<n>'))),
   apply: flag('apply'),
   runs: flag('runs'),
   parked: flag('parked'),
@@ -50,7 +51,12 @@ const own = {
 const table: [verb: string, args: string | undefined, flags: (keyof typeof own)[], what: string][] = [
   ['start', 'text', ['workflow', 'label', 'run-label'], 'files an issue and drives it until it waits or ends'],
   ['label', 'run key=value|key-', [], 'sets or removes labels on a run and prints them'],
-  ['loop', undefined, ['once'], 'drives every open issue, again every AGENTGRAPH_EVERY minutes'],
+  [
+    'loop',
+    undefined,
+    ['once', 'parallel'],
+    'drives every open issue of one or more instances, again every AGENTGRAPH_EVERY minutes',
+  ],
   ['show', 'n|graph', [], 'what needs you and every issue, one issue in full, or the graph'],
   [
     'say',
