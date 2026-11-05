@@ -47,17 +47,23 @@ import { findUndispatchable, startProposedRun, formatWaitingOn, makeRunId, start
 import { runAside, runFollow, runCatchUp } from './follow.ts';
 import { runWorkflow } from './drive.ts';
 
-/** What a run still waits for: a "Stacks on" issue without a pull request, or a "Depends on" issue not yet closed. */
-const pending = (w: Workflow, issue: number, open: Issue[]) =>
-  w.branch === undefined
-    ? []
-    : [...(open.find(t => t.number === issue)?.body ?? '').matchAll(/^\s*(stacks|depends) on #(\d+)\s*$/gim)]
-        .filter(
-          ([, how, n]) =>
-            open.some(t => t.number === Number(n) && (how!.toLowerCase() === 'depends' || !t.pull)) &&
-            (how!.toLowerCase() === 'depends' || findPullNumber(w, Number(n), open) === undefined)
-        )
-        .map(([, , n]) => Number(n));
+/** Why a run is held: "Depends on" issues not yet closed and "Stacks on" issues without a pull request. */
+const findHold = (w: Workflow, issue: number, open: Issue[]) => {
+  if (w.branch === undefined) return undefined;
+  const on = [...(open.find(t => t.number === issue)?.body ?? '').matchAll(/^\s*(stacks|depends) on #(\d+)\s*$/gim)]
+    .map(([, how, n]) => ({ depends: how!.toLowerCase() === 'depends', n: Number(n) }))
+    .filter(
+      ({ depends, n }) =>
+        open.some(t => t.number === n && (depends || !t.pull)) && (depends || findPullNumber(w, n, open) === undefined)
+    );
+  const closes = on.filter(d => d.depends).map(d => `#${d.n}`);
+  const pulls = on.filter(d => !d.depends).map(d => `#${d.n}`);
+  const parts = [
+    closes.length && `${closes.join(', ')} ${closes.length > 1 ? 'close' : 'closes'}`,
+    pulls.length && `${pulls.join(', ')} ${pulls.length > 1 ? 'have pull requests' : 'has a pull request'}`,
+  ].filter(Boolean);
+  return parts.length ? `until ${parts.join(' and ')}` : undefined;
+};
 
 const spokenByCli = (issue: number, text: string, at: string, parent?: Comment): Event => ({
   issue,
@@ -726,10 +732,23 @@ export const tick = (
         Effect.catch(e => (e._tag === 'StoreError' ? Effect.fail(e) : Effect.logError(`catch up run ${before.id}`, e)))
       );
 
-    const running = (yield* store.list({ status: 'running' }))
-      .filter(mine)
-      .filter(r => graph.workflows[r.workflow] && pending(graph.workflows[r.workflow]!, r.issue, issues).length === 0)
-      .toSorted((a, b) => a.started.localeCompare(b.started));
+    const live = (yield* store.list({ status: 'running' })).filter(mine).filter(r => graph.workflows[r.workflow]);
+    const hold = (r: Run) => findHold(graph.workflows[r.workflow]!, r.issue, issues);
+    yield* Effect.forEach(
+      live.filter(r => r.reason !== hold(r)),
+      before =>
+        Effect.gen(function* () {
+          if (!(yield* Effect.isSuccess(store.lock(before.id)))) return;
+          const r = yield* store.get(before.id);
+          if (r?.status !== 'running') return;
+          const { reason: _, ...rest } = r;
+          const why = hold(r);
+          const next = { ...rest, ...(why && { reason: why }) };
+          yield* store.put(next);
+          yield* writeStatus(graph.workflows[r.workflow]!, next, graph);
+        }).pipe(Effect.scoped)
+    );
+    const running = live.filter(r => !hold(r)).toSorted((a, b) => a.started.localeCompare(b.started));
     const forkAll = (runs: Run[], f: (r: Run) => Effect.Effect<Run | undefined, StoreError, Services>) =>
       Effect.as(
         Effect.forEach(runs, r => fork!(r.id, graph.limits.parallel, f(r).pipe(Effect.catch(logged(r))))),

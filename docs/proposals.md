@@ -9,18 +9,18 @@ Agents have no GitHub token. They ask the engine for writes with proposals: a re
 
 ## Kinds
 
-| Kind | Fields | Effect |
-| --- | --- | --- |
-| `comment` | `body`, optional `under` | [Reply](#comments) where a person spoke |
-| `label` | `add`, `remove` | Change labels, except trigger labels |
-| `push` | `branch`, `message` | [Commit and push](#pushes) the checkout |
-| `pull_request` | `branch`, `base`, `title`, `body` | Open a pull request, or update the open one for that branch |
-| `merge` | `number`, `head` | Merge the run's pull request if its head still matches |
-| `issue` | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues) |
-| `ask` | `question` | Post a question and wait |
-| `back` | `why` | [Return to an earlier step](workflows.md#tries-and-going-back) |
-| `run` | `workflow`, `issue`, optional `step` | [Dispatch](workflows.md#dispatch) a workflow and wait |
-| `tell` | `issue`, `text` | [Forward text](workflows.md#routing) to a live run |
+| Kind           | Fields                                                                            | Effect                                                         |
+| -------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `comment`      | `body`, optional `under`                                                          | [Reply](#comments) where a person spoke                        |
+| `label`        | `add`, `remove`                                                                   | Change labels, except trigger labels                           |
+| `push`         | `branch`, `message`                                                               | [Commit and push](#pushes) the checkout                        |
+| `pull_request` | `branch`, `base`, `title`, `body`                                                 | Open a pull request, or update the open one for that branch    |
+| `merge`        | `number`, `head`                                                                  | Merge the run's pull request if its head still matches         |
+| `issue`        | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues)                                |
+| `ask`          | `question`                                                                        | Post a question and wait                                       |
+| `back`         | `why`                                                                             | [Return to an earlier step](workflows.md#tries-and-going-back) |
+| `run`          | `workflow`, `issue`, optional `step`                                              | [Dispatch](workflows.md#dispatch) a workflow and wait          |
+| `tell`         | `issue`, `text`                                                                   | [Forward text](workflows.md#routing) to a live run             |
 
 An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, `ask` and `back` included, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
 
@@ -57,11 +57,11 @@ Both trackers report held paths in the push result's `held` list, recorded in th
 
 Every `issue` body ends with a `## Done when` section of one to three observable checks.
 
-| `relation` | Files | Label |
-| --- | --- | --- |
-| `part` | A sub-issue in landing order, with a `size`: `XS`, `S`, `M`, `L` or `XL` | `size/<size>` |
-| `follow-up` | Work outside the issue, ending with `Found while working on #n`; it runs only once someone adds a trigger label | `follow-up` |
-| `graph` | A recurring miss and the check or prompt that would catch it | `graph` |
+| `relation`  | Files                                                                                                           | Label         |
+| ----------- | --------------------------------------------------------------------------------------------------------------- | ------------- |
+| `part`      | A sub-issue in landing order, with a `size`: `XS`, `S`, `M`, `L` or `XL`                                        | `size/<size>` |
+| `follow-up` | Work outside the issue, ending with `Found while working on #n`; it runs only once someone adds a trigger label | `follow-up`   |
+| `graph`     | A recurring miss and the check or prompt that would catch it                                                    | `graph`       |
 
 <!-- code: src/run/start.ts#createIssues -->
 
@@ -75,7 +75,7 @@ One refused filing fails the try and files nothing. The engine refuses a body wi
 
 With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/run/drive.ts#findStackBase src/github.ts#githubTracker -->
 
-A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/run/trigger.ts#pending src/run/follow.ts#runFollow -->
+A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. A held run says what it waits for as its reason, such as `until #24 closes`, which run lists print and the sticky shows as `held`. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/run/trigger.ts#findHold src/run/follow.ts#runFollow -->
 
 ### The triage example
 
