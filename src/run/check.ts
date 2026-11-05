@@ -273,7 +273,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
                 pass: info,
                 findings: [
                   `${items.length} items, more than ${max}:`,
-                  ...items.map(i => (i ?? '').split('\n')[0]),
+                  ...items.map(i => formatSqueezed((i ?? '').split('\n')[0]!)),
                 ].join('\n'),
                 unread: true,
                 usd: 0,
@@ -297,9 +297,11 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
       ...((none || unread) && { empty: true as const }),
       ...(none && { findings: 'Judged nothing: each found no items.' }),
       ...(noted.length > 0 && {
-        findings: formatSqueezed(
-          noted.map(r => (r.item ? `${r.item.split('\n')[0]}\n${r.findings}` : r.findings)).join('\n')
-        ),
+        findings: noted
+          .map(r =>
+            over ? r.findings : formatSqueezed(r.item ? `${r.item.split('\n')[0]}\n${r.findings}` : r.findings)
+          )
+          .join('\n'),
       }),
       ms: Date.now() - started,
     };
