@@ -42,6 +42,7 @@ const Filed = Schema.Struct({
   labels: Names,
 });
 const Ask = Schema.Struct({ kind: Schema.Literal('ask'), question: Schema.String });
+const Stuck = Schema.Struct({ kind: Schema.Literal('ask'), runner: Schema.String });
 const Back = Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String });
 const Run = Schema.Struct({
   kind: Schema.Literal('run'),
@@ -97,6 +98,7 @@ export const Said = Schema.Union([
   }),
   Schema.Struct({ kind, relation: Schema.Literals(['follow-up', 'graph']), title, body }),
   Ask,
+  Stuck,
   Back,
   Run,
   Tell,

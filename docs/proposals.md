@@ -9,18 +9,19 @@ Agents have no GitHub token. They ask the engine for writes with proposals: a re
 
 ## Kinds
 
-| Kind | Fields | Effect |
-| --- | --- | --- |
-| `comment` | `body`, optional `under` | [Reply](#comments) where a person spoke |
-| `label` | `add`, `remove` | Change labels, except trigger labels |
-| `push` | `branch`, `message` | [Commit and push](#pushes) the checkout |
-| `pull_request` | `branch`, `base`, `title`, `body` | Open a pull request, or update the open one for that branch |
-| `merge` | `number`, `head` | Merge the run's pull request if its head still matches |
-| `issue` | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues) |
-| `ask` | `question` | Post a question and wait |
-| `back` | `why` | [Return to an earlier step](workflows.md#tries-and-going-back) |
-| `run` | `workflow`, `issue`, optional `step` | [Dispatch](workflows.md#dispatch) a workflow and wait |
-| `tell` | `issue`, `text` | [Forward text](workflows.md#routing) to a live run |
+| Kind           | Fields                                                                            | Effect                                                                                                                                        |
+| -------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `comment`      | `body`, optional `under`                                                          | [Reply](#comments) where a person spoke                                                                                                       |
+| `label`        | `add`, `remove`                                                                   | Change labels, except trigger labels                                                                                                          |
+| `push`         | `branch`, `message`                                                               | [Commit and push](#pushes) the checkout                                                                                                       |
+| `pull_request` | `branch`, `base`, `title`, `body`                                                 | Open a pull request, or update the open one for that branch                                                                                   |
+| `merge`        | `number`, `head`                                                                  | Merge the run's pull request if its head still matches                                                                                        |
+| `issue`        | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues)                                                                                                               |
+| `ask`          | `question`                                                                        | Post a question and wait                                                                                                                      |
+| `ask`          | `runner`                                                                          | Report a sandbox, checkout, network or tool problem; the engine handles it as a [runner error](workflows.md#order-and-limits) and asks no one |
+| `back`         | `why`                                                                             | [Return to an earlier step](workflows.md#tries-and-going-back)                                                                                |
+| `run`          | `workflow`, `issue`, optional `step`                                              | [Dispatch](workflows.md#dispatch) a workflow and wait                                                                                         |
+| `tell`         | `issue`, `text`                                                                   | [Forward text](workflows.md#routing) to a live run                                                                                            |
 
 An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, `ask` and `back` included, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
 
@@ -39,7 +40,7 @@ A refused write fails the try. Any other GitHub error is a [runner error](workfl
 
 An agent posts only the kinds its `returns` lists, so a reviewer that returns `[back]` keeps its findings in the run: a pass leaves its reply in the trace, and `back` passes its findings to the step it returns to. This stays within the run; see [Retros](workflows.md#retros) for the `feedback` trigger. <!-- code: src/workflow.ts#transition -->
 
-A comment goes where a person started or woke the run, else to the branch's open pull request, else the issue. `under` names a review comment to reply under, on the pull request that holds it. When people spoke in several places, a comment without `under` posts once, at top level if one of them was. <!-- code: src/run/settle.ts#writeProposals -->
+A comment goes where a person started or woke the run, else to the branch's open pull request, else the issue. `under` names a review comment to reply under, on the pull request that holds it. Timelines and change requests show each review comment with the id of its thread's first comment, the one to reply under. A top-level comment that answers a review comment links it. When people spoke in several places, a comment without `under` posts once, at top level if one of them was. <!-- code: src/run/settle.ts#writeProposals -->
 
 ## Pushes
 
@@ -57,11 +58,11 @@ Both trackers report held paths in the push result's `held` list, recorded in th
 
 Every `issue` body ends with a `## Done when` section of one to three observable checks.
 
-| `relation` | Files | Label |
-| --- | --- | --- |
-| `part` | A sub-issue in landing order, with a `size`: `XS`, `S`, `M`, `L` or `XL` | `size/<size>` |
-| `follow-up` | Work outside the issue, ending with `Found while working on #n`; it runs only once someone adds a trigger label | `follow-up` |
-| `graph` | A recurring miss and the check or prompt that would catch it | `graph` |
+| `relation`  | Files                                                                                                           | Label         |
+| ----------- | --------------------------------------------------------------------------------------------------------------- | ------------- |
+| `part`      | A sub-issue in landing order, with a `size`: `XS`, `S`, `M`, `L` or `XL`                                        | `size/<size>` |
+| `follow-up` | Work outside the issue, ending with `Found while working on #n`; it runs only once someone adds a trigger label | `follow-up`   |
+| `graph`     | A recurring miss and the check or prompt that would catch it                                                    | `graph`       |
 
 <!-- code: src/run/start.ts#createIssues -->
 

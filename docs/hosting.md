@@ -2,12 +2,12 @@
 
 Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: a named instance in the data root, environment overrides, commands through docker or a box server named by `AGENTGRAPH_SANDBOX_URL`. <!-- code: src/services.ts#makeProductionLayers -->
 
-| Folder | Runs on | Sandbox | Tested |
-| --- | --- | --- | --- |
-| `vps` | any Linux host with Docker | docker on the host | compose config validates |
-| `engine` | one `docker run` | docker on the host | builds from the `vps` Dockerfile |
-| `k8s` | a cluster that allows a privileged pod | docker in a sidecar | manifests written, not applied |
-| `aws` | one EC2 instance | the `vps` folder on it | Terraform written, not applied |
+| Folder       | Runs on                                     | Sandbox                        | Tested                                     |
+| ------------ | ------------------------------------------- | ------------------------------ | ------------------------------------------ |
+| `vps`        | any Linux host with Docker                  | docker on the host             | compose config validates                   |
+| `engine`     | one `docker run`                            | docker on the host             | builds from the `vps` Dockerfile           |
+| `k8s`        | a cluster that allows a privileged pod      | docker in a sidecar            | manifests written, not applied             |
+| `aws`        | one EC2 instance                            | the `vps` folder on it         | Terraform written, not applied             |
 | `cloudflare` | Workers, Durable Objects, Containers and R2 | one box container per checkout | type check and `wrangler deploy --dry-run` |
 
 None has run on a real account yet. The folders share the engine image (`examples/deploy/engine/Dockerfile`), `start.sh`, which brings up the gateway relay, egress proxy and networks from `sidecars.yaml` when there is no box server, and the relay in `examples/deploy/gateway/`, which sandboxes reach as `gateway`.
@@ -103,11 +103,11 @@ examples/deploy/cloudflare/up
 
 `up` logs wrangler in, creates the R2 bucket `agentgraph-data`, and asks for what is not deployed yet:
 
-| Secret | What it is |
-| --- | --- |
-| `AGENTGRAPH_APP_ENV` | Path to the App's `app.env`; empty creates the App with `node bin/setup-app.ts` |
-| `AGENTGRAPH_REPO` | `owner/name` of the repo |
-| `GATEWAY_URL` | Your model gateway's base; the request path is appended, `/v1` included |
+| Secret                                                                                       | What it is                                                                                                                       |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENTGRAPH_APP_ENV`                                                                         | Path to the App's `app.env`; empty creates the App with `node bin/setup-app.ts`                                                  |
+| `AGENTGRAPH_REPO`                                                                            | `owner/name` of the repo                                                                                                         |
+| `GATEWAY_URL`                                                                                | Your model gateway's base; the request path is appended, `/v1` included                                                          |
 | `AGENTGRAPH_PROXY_KEYS`, `GATEWAY_HEADERS`, `AGENTGRAPH_PROXY_URL`, `AGENTGRAPH_SESSION_ENV` | Optional, read from the environment only; only the model login names allowed by `AGENTGRAPH_SESSION_ENV` are sent as secrets too |
 
 Before the first successful engine start, provision the same `live` folder locally and archive the data

@@ -642,7 +642,7 @@ describe('router input', () => {
     );
     const prompt = trace.flatMap(t => ('prompt' in t ? [t.prompt.prompt] : []))[0]!;
     expect(prompt).toMatch(
-      /^## What you were asked\n\n@morgan on docs\/x.md:8, id r1: \/agent handle all five review comments\n\nEarlier in its review thread:\n\n@morgan on docs\/x.md:8, id r0: what is slot\?\n\n@agentgraph\[bot\] on docs\/x.md:8, id b1: Slot is the index.\n\n/
+      /^## What you were asked\n\n@morgan on docs\/x.md:8, id r0: \/agent handle all five review comments\n\nEarlier in its review thread:\n\n@morgan on docs\/x.md:8, id r0: what is slot\?\n\n@agentgraph\[bot\] on docs\/x.md:8, id r0: Slot is the index.\n\n/
     );
     expect(prompt).not.toContain('agentgraph:needs-review');
     expect(prompt).not.toContain('Waiting for a human at merge.');

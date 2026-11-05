@@ -1,7 +1,7 @@
 import { Effect, Stream } from 'effect';
 import { type Checkout, Sandbox } from '../sandbox.ts';
 import { readGit, gitIdentity, writeCheckoutTree, hostGit, mergeTreeOnto } from '../git.ts';
-import { type Workflow, type Run, isRunDone, formatFailedTryFeedback } from '../workflow.ts';
+import { type Workflow, type Run, isRunDone, isHumanWaitStep, formatFailedTryFeedback } from '../workflow.ts';
 import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
 import { Tracker } from '../tracker.ts';
@@ -56,7 +56,7 @@ export const runFollow = (
     const base = run.base ?? known;
     if (base.sha === head && (!base.from || (tip !== undefined && base.tip === tip))) return;
     const from = base.from ?? base.sha;
-    const branch = formatTemplate(w.branch!, yield* tracker.issue(run.issue));
+    const branch = run.checkout?.branch ?? formatTemplate(w.branch!, yield* tracker.issue(run.issue));
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
     const applied = work.head && (yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work));
     if (applied) yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
@@ -85,7 +85,8 @@ export const runFollow = (
   }).pipe(Effect.scoped);
 
 /**
- * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the graph. A branch
+ * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the graph. A done run,
+ * or one waiting at another step, only follows its base as its workflow's last human step would. A branch
  * behind its base follows it with no model, by a merge or a rebase as the step's `follow` says, or stays where it is
  * when that says none. When the change stays the same, the step's own checks run again, scripts first and judged ones
  * only once those pass; a changed change or a new graph runs every check of the step it goes back to. A failed check
@@ -97,7 +98,9 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
   Effect.gen(function* () {
     const store = yield* Store;
     const tracker = yield* Tracker;
-    const step = w.steps.find(s => s.name === run.step)!;
+    const at = w.steps.find(s => s.name === run.step)!;
+    const waits = run.status === 'waiting' && isHumanWaitStep(at);
+    const step = waits ? at : w.steps.findLast(isHumanWaitStep)!;
     const to = w.steps.find(s => s.name === step.back?.to);
     const { ready: _, ...made } = yield* Effect.flatMap(Sandbox, s =>
       s.checkout(pull.base, undefined, undefined, graph)
@@ -106,8 +109,9 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
     const onto = work.base;
     const from = yield* readGit(work.git, ['merge-base', pull.head, onto]);
     const moved = step.follow !== 'none' && !run.base && from !== onto;
-    const renewed = run.blocked !== undefined || (run.graph ?? graph.sha) !== graph.sha;
+    const renewed = waits && (run.blocked !== undefined || (run.graph ?? graph.sha) !== graph.sha);
     const { blocked: _blocked, ...current } = { ...removeThreads(run), graph: graph.sha };
+    const reopened = waits ? current : { ...current, step: step.name, status: 'waiting' as const };
     if (!moved && !renewed) return run.graph ? undefined : { run: current };
     let same = false;
     if (moved) {
@@ -136,13 +140,15 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
           'Resolve each conflict so both sides keep working, remove every marker, and push.',
         ].join(' ');
         const seed = { onto: { sha: onto, ...(merge && { merge: true as const }) }, feedback: why };
-        if (!resolver) return { run: { ...current, onto: seed.onto }, outcome: { kind: 'back', why } as const };
-        if (yield* startProposedRun(graph, run, { kind: 'run', workflow: resolver.name, issue: run.issue }, seed))
+        if (!resolver) return { run: { ...reopened, onto: seed.onto }, outcome: { kind: 'back', why } as const };
+        const proposed = { kind: 'run', workflow: resolver.name, issue: run.issue } as const;
+        if (yield* startProposedRun(graph, run, proposed, { ...seed, ...(run.checkout && { checkout: run.checkout }) }))
           return { run: current };
       }
       if (!applied.ok) {
         const body = `${branch} no longer ${verb} ${pull.base}: ${applied.reason}. Update it by hand.`;
-        return { run: yield* writeStatus(w, { ...current, reason: body }, graph) };
+        const reason = waits ? body : [current.reason, body].filter(Boolean).join('\n\n');
+        return { run: yield* writeStatus(w, { ...current, reason }, graph) };
       }
       const patch = (diff: Buffer) =>
         Effect.map(
@@ -153,7 +159,7 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
       const after = yield* patch(yield* hostGit(work.git, ['diff', onto, yield* writeCheckoutTree(work)]));
       same = before === after;
     } else yield* hostGit(work.git, ['read-tree', '-u', '--reset', pull.head]);
-    if (!to) return { run: current };
+    if (!to || !waits) return { run: current };
     yield* runSetup(graph, work, run);
     const t = yield* readIssueWithPull(w, run);
     const left = {

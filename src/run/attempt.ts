@@ -28,7 +28,7 @@ import {
   readHeardOutcome,
   makeToldEvent,
   readContinuedRun,
-  findPullNumber,
+  readEarlierBranch,
 } from './hear.ts';
 import {
   isPart,
@@ -64,7 +64,7 @@ const posted =
 export const shapes: Record<Said['kind'], string> = {
   comment: [
     `{"kind":"comment",${posted}}`,
-    `{"kind":"comment",${posted},"under":"<id of the review comment you answer>"}`,
+    `{"kind":"comment",${posted},"under":"<id of the review comment you answer; a reply to a review comment goes under it, a top-level comment that answers one links it>"}`,
   ].join('\n'),
   label: '{"kind":"label","add":["..."],"remove":["..."]}',
   push: '{"kind":"push","branch":"...","message":"..."}',
@@ -75,7 +75,10 @@ export const shapes: Record<Said['kind'], string> = {
     '{"kind":"issue","relation":"follow-up","title":"...","body":"...\\n\\n## Done when\\n..."}',
     '{"kind":"issue","relation":"graph","title":"...","body":"<the class of miss and what it costs; a check that would catch it is an idea, not a requirement>\\n\\n## Done when\\n..."}',
   ].join('\n'),
-  ask: '{"kind":"ask","question":"..."}',
+  ask: [
+    '{"kind":"ask","question":"<for the maintainer, about the change: a decision only they can make>"}',
+    '{"kind":"ask","runner":"<what in the sandbox, checkout, network or tools blocks you; the runner retries it, no person is asked>"}',
+  ].join('\n'),
   back: '{"kind":"back","why":"..."}',
   run: '{"kind":"run","workflow":"<name of a agentgraph workflow to start; run a command with your shell tool instead>","issue":1,"step":"<optional: the step to start at>"}',
   tell: '{"kind":"tell","issue":1,"text":"<what the live run on that issue hears, as if a maintainer said it: feedback or an answer, or stop or cancel>"}',
@@ -182,6 +185,7 @@ export const pickTryOutcome = (o: {
   diff: string;
   untouched: boolean;
   dirty: boolean;
+  replaces?: number;
 }) => {
   const { step, proposals, own, run } = o;
   const returns = getStepReturns(step, o.graph.agents);
@@ -197,17 +201,26 @@ export const pickTryOutcome = (o: {
   const marked = proposals.some(p => p.kind === 'push') ? findMarkedFiles(o.diff) : [];
   if (marked.length > 0) problems.push(`conflict markers left in ${marked.join(', ')}`);
   const ask = proposals.find(p => p.kind === 'ask');
-  if (ask) return { outcome: { kind: 'ask', question: ask.question } satisfies Outcome };
+  if (ask)
+    return 'runner' in ask
+      ? { runner: ask.runner }
+      : { outcome: { kind: 'ask', question: ask.question } satisfies Outcome };
   const back = proposals.find(p => p.kind === 'back');
   const world = proposals
     .filter(p => p.kind !== 'ask' && p.kind !== 'back')
     .map((p): Proposal => {
       if (p.kind === 'push' && run.onto) return { ...p, onto: run.onto.sha, ...(run.onto.merge && { merge: true }) };
       if (p.kind !== 'pull_request') return p;
-      const body = p.body.replace(/^Stacks on #\d+\.?[ \t]*/gim, '').trim();
-      return run.base
-        ? { ...p, base: run.base.branch, body: `${body}\n\nStacks on #${run.base.pull}` }
-        : { ...p, body };
+      const body = [
+        p.body
+          .replace(o.replaces ? /^(Stacks on|Replaces) #\d+\.?[ \t]*/gim : /^Stacks on #\d+\.?[ \t]*/gim, '')
+          .trim(),
+        o.replaces && `Replaces #${o.replaces}`,
+        run.base && `Stacks on #${run.base.pull}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      return run.base ? { ...p, base: run.base.branch, body } : { ...p, body };
     });
   const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
   const answered = commented && o.asked && o.held && o.untouched;
@@ -240,7 +253,7 @@ export const runAttempt = (
   work: Checkout,
   own?: string
 ): Effect.Effect<
-  { outcome: Outcome; run: Run; tree?: string } | { failure: TrackerError; run: Run; tree?: string },
+  { outcome: Outcome; run: Run; tree?: string } | { failure: TrackerError | SandboxError; run: Run; tree?: string },
   SandboxError | SessionStop | TrackerError | StoreError,
   Services
 > =>
@@ -262,7 +275,7 @@ export const runAttempt = (
         kind: 'ask',
         question: open
           ? `${step.name} waits for a human`
-          : `No pull request is open for branch ${formatTemplate(w.branch!, issue)}. Open one, or say what to do.`,
+          : `No pull request is open for branch ${own ?? formatTemplate(w.branch!, issue)}. Open one, or say what to do.`,
       });
     }
 
@@ -347,7 +360,7 @@ export const runAttempt = (
         context(t),
         diff && `## The change on the branch\n\n\`\`\`\`diff\n${formatSqueezed(diff, 20_000)}\n\`\`\`\``,
         w.branch &&
-          `Work on the branch ${formatTemplate(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? formatTemplate(w.base, issue)}.`,
+          `Work on the branch ${own ?? formatTemplate(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? formatTemplate(w.base, issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         step.checks.length > 0 &&
           `When you stop, the runner checks the change: ${step.checks
@@ -470,7 +483,12 @@ export const runAttempt = (
     tree = yield* writeCheckoutTree(work);
     const diff = yield* readCheckoutDiff(work);
     const published = yield* readGit(work.git, ['rev-parse', `${work.published ?? work.head ?? work.base}^{tree}`]);
+    const earlier =
+      own && w.branch && proposals.some(p => p.kind === 'pull_request')
+        ? yield* readEarlierBranch(w, run, formatTemplate(w.branch, t.issue))
+        : undefined;
     const verdict = pickTryOutcome({
+      ...(earlier?.branch !== own && earlier?.pull?.state === 'closed' && { replaces: earlier.pull.number }),
       step,
       graph,
       run,
@@ -485,6 +503,12 @@ export const runAttempt = (
       untouched: tree === before,
       dirty: tree !== published,
     });
+    if ('runner' in verdict)
+      return {
+        failure: new SandboxError({ reason: 'infra', detail: `the agent is blocked: ${verdict.runner}` }),
+        run: tried,
+        tree,
+      };
     if ('outcome' in verdict) return done(verdict.outcome, tried);
     const { world, back, problems, answered } = verdict;
     const checked = answered
@@ -519,9 +543,7 @@ export const runAttempt = (
     if (gated.kind !== 'pass') return done(gated, tried);
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
-    const to = world.some(p => p.kind === 'comment' && (!run.said || p.under !== undefined))
-      ? findPullNumber(w, run.issue, yield* Effect.flatMap(Tracker, f => f.issues({ state: 'open' })))
-      : undefined;
+    const to = t.pull?.number;
     const runs = world.filter(p => p.kind === 'run');
     const tells = yield* Effect.forEach(
       world.filter(p => p.kind === 'tell'),

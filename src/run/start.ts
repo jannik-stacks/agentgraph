@@ -149,6 +149,11 @@ export const readFiledIssues = () =>
     }
   );
 
+export const formatSettled = (run: Run) =>
+  `${run.workflow} on #${run.issue} ${
+    run.status === 'done' ? 'is done' : run.status === 'stopped' ? `stopped: ${run.reason}` : `asks: ${run.reason}`
+  }`;
+
 /** The reason a run waits while a run it started works. */
 export const formatWaitingOn = (child: Run) => `waiting on ${child.id}`;
 
@@ -192,7 +197,7 @@ export const startProposedRun = (
   graph: Graph,
   run: Pick<Run, 'id'>,
   p: Extract<Proposal, { kind: 'run' }>,
-  seed?: Pick<Run, 'onto' | 'feedback' | 'said' | 'meta'>
+  seed?: Pick<Run, 'onto' | 'feedback' | 'said' | 'meta' | 'checkout'>
 ) =>
   Effect.gen(function* () {
     const w = graph.workflows[p.workflow]!;

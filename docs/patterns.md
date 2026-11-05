@@ -44,12 +44,12 @@ The engine reaches the outside only through four services, each with a test stan
 
 ## Engine code and model judgment
 
-| Engine code | Model judgment |
-| --- | --- |
-| Step transitions, tries and rounds | Edits and proposals |
-| Script checks and failure modes | Judge results |
+| Engine code                         | Model judgment        |
+| ----------------------------------- | --------------------- |
+| Step transitions, tries and rounds  | Edits and proposals   |
+| Script checks and failure modes     | Judge results         |
 | Proposal validation and application | Whether `until` holds |
-| Push safety, triggers and trust | Questions for people |
+| Push safety, triggers and trust     | Questions for people  |
 
 A malformed reply fails the try. `transition` maps a workflow, a run and an outcome to the next run, with no clock or I/O; `runWorkflow` does the reads and writes around it. Proposals are the only write path. <!-- code: src/workflow.ts#transition src/run/settle.ts#writeProposals src/run/trigger.ts#tick src/run/drive.ts#runWorkflow -->
 

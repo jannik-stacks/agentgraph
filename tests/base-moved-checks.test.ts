@@ -106,6 +106,35 @@ describe('a base that moved', () => {
     expect(said(where)).not.toContain('by hand');
   });
 
+  it.each([
+    ['done', { status: 'done' as const }],
+    ['waiting on a question at review', { step: 'review', status: 'waiting' as const, reason: 'Which tone?' }],
+  ])('follows the base for a run %s while its pull request is open, and leaves it as it was', async (_, at) => {
+    const where = await moved('other.txt');
+    const { specs, run } = services(where, []);
+    await run(Effect.flatMap(Store, s => Effect.flatMap(s.get('run-7'), r => s.put({ ...r!, ...at }))));
+    await run(tick(graph));
+    expect(behind(where)).toBe('0');
+    expect(specs).toHaveLength(0);
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject(at);
+  });
+
+  it('sends a conflict of a done run back to implement, its setup run before the markers land', async () => {
+    const where = await moved('hello.txt', 'other.txt');
+    const { specs, run } = services(where, [
+      [start('i1'), wrote('hello.txt', 'hello upstream\n'), reply(push)],
+      judged,
+      [start('r2'), reply({ kind: 'comment', body: 'Fine.' })],
+    ]);
+    await run(Effect.flatMap(Store, s => Effect.flatMap(s.get('run-7'), r => s.put({ ...r!, status: 'done' }))));
+    await run(tick({ ...graph, setup: '! grep -q "<<<<<<<" hello.txt' }));
+    expect(specs[0]!.prompt).toMatch(/^the merge step sent this back: agentgraph\/7 no longer rebases onto main/);
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello upstream');
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
+  });
+
   it('starts the conflict workflow on a conflict, which resolves it while the run stays at merge', async () => {
     const where = await moved('hello.txt', 'other.txt');
     const conflict: typeof w = {

@@ -611,7 +611,7 @@ export function getEventOutcome(
     if (m.kind === 'changes_requested') {
       const notes = lined.flatMap(l =>
         l.comment?.path
-          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}: ${l.comment.agentRequest ?? l.comment.body}`
+          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}, id ${l.comment.under ?? l.comment.id}: ${l.comment.agentRequest ?? l.comment.body}`
           : []
       );
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };

@@ -113,4 +113,21 @@ describe('pickTryOutcome', () => {
       ],
     });
   });
+
+  it('names the closed pull request a fresh branch replaces, once, ahead of the stack line', () => {
+    const verdict = pickTryOutcome({
+      ...facts,
+      replaces: 5,
+      run: { base: { branch: 'agent/2', pull: 3, sha: 'def' } },
+      proposals: [{ kind: 'pull_request', branch: 'agent/1', base: 'main', title: 't', body: 'Replaces #5\nBody' }],
+    });
+    expect(verdict).toMatchObject({
+      world: [{ kind: 'pull_request', body: 'Body\n\nReplaces #5\n\nStacks on #3' }],
+    });
+  });
+
+  it('turns an ask about the runner into a runner problem, not a question', () => {
+    const proposals = [push, { kind: 'ask', runner: 'no network' }] as Said[];
+    expect(pickTryOutcome({ ...facts, proposals })).toEqual({ runner: 'no network' });
+  });
 });

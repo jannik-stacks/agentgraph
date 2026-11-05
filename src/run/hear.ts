@@ -17,15 +17,28 @@ export const isInScope = (graph: Graph, issue?: Issue) =>
 
 export const isBoardGraph = (graph: Graph) => Object.values(graph.workflows).some(w => w.on.issues?.column);
 
-/** The open pull request on the branch a run of `w` on `issue` works on. */
-export const findPullNumber = (w: Workflow, issue: number, open: Issue[]) =>
-  w.branch === undefined
-    ? undefined
-    : open.find(
-        t =>
-          t.pull?.branch.replace(/^bothub\//, 'agentgraph/') ===
-          formatTemplate(w.branch!, open.find(t => t.number === issue) ?? { number: issue })
-      )?.number;
+const normal = (branch: string) => branch.replace(/^bothub\//, 'agentgraph/');
+
+/** The open pull request on the branch a run of `w` works on: its checkout branch, else the workflow's branch for its issue. */
+export const findPullNumber = (w: Workflow, run: Pick<Run, 'issue' | 'checkout'>, open: Issue[]) => {
+  const branch =
+    run.checkout?.branch ??
+    (w.branch === undefined
+      ? undefined
+      : formatTemplate(w.branch, open.find(t => t.number === run.issue) ?? { number: run.issue }));
+  return branch === undefined ? undefined : open.find(t => t.pull && normal(t.pull.branch) === normal(branch))?.number;
+};
+
+export const readEarlierBranch = (w: Workflow, run: Run, named: string) =>
+  Effect.gen(function* () {
+    const before = (yield* (yield* Store).list({ issue: run.issue }))
+      .filter(r => r.workflow === w.name && r.id !== run.id && r.started < run.started && r.checkout?.branch)
+      .toSorted((a, b) => a.started.localeCompare(b.started))
+      .at(-1);
+    const branch = before?.checkout?.branch ?? named;
+    const pull = (yield* (yield* Tracker).issues({ branch })).toSorted((a, b) => b.number - a.number)[0];
+    return { before, branch, pull };
+  });
 
 /** The run's issue and the pull request on its branch, or for a run with no branch the one it was asked on, fetched before every session. */
 export const readIssueWithPull = (
@@ -39,7 +52,7 @@ export const readIssueWithPull = (
       ? undefined
       : w.branch === undefined
         ? run.said?.find(s => s.issue !== run.issue)?.issue
-        : findPullNumber(w, run.issue, yield* tracker.issues(isRunDone(run) ? {} : { state: 'open' }));
+        : findPullNumber(w, run, yield* tracker.issues(isRunDone(run) ? {} : { state: 'open' }));
     const spoken = (yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
       'spoken' in t ? [t.spoken] : []
     );

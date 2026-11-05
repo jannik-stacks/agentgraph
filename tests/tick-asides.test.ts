@@ -130,6 +130,33 @@ describe('tick', () => {
     expect(withheld.agentRequest).toBeUndefined();
   });
 
+  it('answers the line comments of a change request in their threads', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    const note = comment(8, 'morgan', true, 'why hello?', '2026-10-16T00:00:03.000Z');
+    say(where, { ...note, comment: { ...note.comment!, id: 'r1', path: 'hello.txt', line: 1 } });
+    const again = comment(8, 'morgan', true, 'say hi instead', '2026-10-16T00:00:04.000Z');
+    say(where, { ...again, comment: { ...again.comment!, id: 'r2', under: 'r1', path: 'hello.txt', line: 1 } });
+    say(where, {
+      issue: 8,
+      kind: 'changes_requested',
+      actor: 'morgan',
+      trusted: true,
+      at: '2026-10-16T00:00:05.000Z',
+      comment: { id: 'review', author: 'morgan', body: 'see notes', at: '2026-10-16T00:00:05.000Z' },
+    });
+    const answer = { kind: 'comment', body: 'Says hi now.', under: 'r1' } as const;
+    const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hi\n'), reply(push, answer)]]);
+    await run(waiting(where));
+    await run(tick(merging, 7));
+    expect(specs[0]!.prompt).toContain('hello.txt:1, id r1: say hi instead');
+    expect(specs[0]!.prompt).not.toContain('id r2');
+    const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under])).toEqual([
+      ['Says hi now.', 'r1'],
+    ]);
+  });
+
   it('sends a run parked at merge with its rounds spent back on a new change request', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');

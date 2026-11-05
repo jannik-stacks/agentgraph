@@ -20,11 +20,11 @@ node bin/setup-app.ts --org acme     # the App belongs to the organization
 
 Who must approve the install:
 
-| App owner | Repo owner | Install |
-| --- | --- | --- |
-| your account | your account | you install it |
-| the organization | the organization | an organization owner installs it, or a repo admin requests it |
-| your account | an organization | a repo admin requests it, and an organization owner approves it under the organization's GitHub Apps settings |
+| App owner        | Repo owner       | Install                                                                                                       |
+| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| your account     | your account     | you install it                                                                                                |
+| the organization | the organization | an organization owner installs it, or a repo admin requests it                                                |
+| your account     | an organization  | a repo admin requests it, and an organization owner approves it under the organization's GitHub Apps settings |
 
 Each loop pass shares one open-issue listing and shared event polls across issue ticks. Issues with no prior run share a separate history poll, so their catch-up keeps live runs first. The process keeps scoped installation tokens, ETags and write permissions per App and repo, so they last across passes, refreshed session credentials and rebuilt tracker setups. Conditional requests reuse an ETag only with the token and API version that received it. Whether a login may write is asked once per ten minutes. A rate-limit response holds every request, the limited one included, until GitHub's reset time or retry delay, and logs one warning. <!-- code: src/run/trigger.ts#scanIssuesAndRunningRuns src/services.ts#makeProductionLayers src/github.ts#requester src/github.ts#github -->
 
@@ -58,7 +58,6 @@ The board plugin also writes card fields, which needs the `project` scope on the
 ```sh
 gh auth refresh -s project
 ```
-
 
 ## Start the runner
 

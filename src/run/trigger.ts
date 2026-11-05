@@ -43,7 +43,7 @@ import {
 } from './hear.ts';
 import { runLaterChecks } from './evaluate.ts';
 import { isParked, writeMovedStatus, writeStatus, runEndChecks } from './settle.ts';
-import { findUndispatchable, startProposedRun, formatWaitingOn, makeRunId, startRun } from './start.ts';
+import { findUndispatchable, startProposedRun, formatWaitingOn, formatSettled, makeRunId, startRun } from './start.ts';
 import { runAside, runFollow, runCatchUp } from './follow.ts';
 import { runWorkflow } from './drive.ts';
 
@@ -55,7 +55,7 @@ const pending = (w: Workflow, issue: number, open: Issue[]) =>
         .filter(
           ([, how, n]) =>
             open.some(t => t.number === Number(n) && (how!.toLowerCase() === 'depends' || !t.pull)) &&
-            (how!.toLowerCase() === 'depends' || findPullNumber(w, Number(n), open) === undefined)
+            (how!.toLowerCase() === 'depends' || findPullNumber(w, { issue: Number(n) }, open) === undefined)
         )
         .map(([, , n]) => Number(n));
 
@@ -171,7 +171,7 @@ export const instruct = (
     const runs = yield* Effect.flatMap(Store, s => s.list());
     const open = yield* tracker.issues({ state: 'open' });
     const owner = runs.find(
-      r => graph.workflows[r.workflow] && findPullNumber(graph.workflows[r.workflow]!, r.issue, open) === issue.number
+      r => graph.workflows[r.workflow] && findPullNumber(graph.workflows[r.workflow]!, r, open) === issue.number
     );
     const target = runs
       .filter(
@@ -193,15 +193,6 @@ export const instruct = (
   });
 
 /** What a parent hears when the run it started settles. */
-const settled = (child: Run) =>
-  `${child.workflow} on #${child.issue} ${
-    child.status === 'done'
-      ? 'is done'
-      : child.status === 'stopped'
-        ? `stopped: ${child.reason}`
-        : `asks: ${child.reason}`
-  }`;
-
 /** A trusted person's comment, review or pushed commit; a bare `/agent:` command is not feedback. */
 const feedback = (m: Event) =>
   m.trusted &&
@@ -273,11 +264,8 @@ export const tick = (
           r.issue !== m.issue &&
           graph.workflows[r.workflow] &&
           !isRetro(graph, r) &&
-          findPullNumber(
-            graph.workflows[r.workflow]!,
-            r.issue,
-            m.kind === 'comment' ? issues : [...issues, ...merged]
-          ) === m.issue
+          findPullNumber(graph.workflows[r.workflow]!, r, m.kind === 'comment' ? issues : [...issues, ...merged]) ===
+            m.issue
       );
       if (!r) return m;
       const moved = { ...m, issue: r.issue };
@@ -415,7 +403,7 @@ export const tick = (
           said: heard([m, ...took.filter(a => a !== m)]),
         });
         const step = w.steps.find(s => s.name === run.step);
-        const pr = issues.find(t => t.number === findPullNumber(w, run.issue, issues));
+        const pr = issues.find(t => t.number === findPullNumber(w, run, issues));
         const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
           outcome.kind !== 'answer' || !step || !isHumanWaitStep(step)
             ? undefined
@@ -483,7 +471,7 @@ export const tick = (
         );
         const due = !child && parent.reason?.startsWith(stoppedByRunner) && (yield* isRunnerRetryDue(parent.id));
         if (!w || (!child && !due)) return;
-        const outcome: Outcome = { kind: 'answer', text: child ? settled(child) : runnerRetry };
+        const outcome: Outcome = { kind: 'answer', text: child ? formatSettled(child) : runnerRetry };
         const next = transition(w, parent, outcome);
         yield* record(parent, outcome, child ? next : yield* writeMovedStatus(w, parent, next, graph));
       }).pipe(Effect.scoped);
@@ -619,7 +607,9 @@ export const tick = (
           const by = all.find(r => {
             const w = graph.workflows[r.workflow];
             return (
-              !isRetro(graph, r) && w?.branch !== undefined && branch === formatTemplate(w.branch, { number: r.issue })
+              !isRetro(graph, r) &&
+              w?.branch !== undefined &&
+              branch === (r.checkout?.branch ?? formatTemplate(w.branch, { number: r.issue }))
             );
           });
           pulls.set(m.issue, by?.issue);
@@ -653,7 +643,8 @@ export const tick = (
           ...begin(w, { id: makeRunId(w, issue, at), issue, started: at }),
           feedback: [
             fresh.length > 0 && `## What a person said or pushed\n\n${fresh.map(formatEventLine).join('\n\n')}`,
-            ended.length > 0 && `## How the runs ended\n\n${ended.map(r => `${r.id}: ${settled(r)}`).join('\n\n')}`,
+            ended.length > 0 &&
+              `## How the runs ended\n\n${ended.map(r => `${r.id}: ${formatSettled(r)}`).join('\n\n')}`,
           ]
             .filter(Boolean)
             .join('\n\n'),
@@ -666,7 +657,7 @@ export const tick = (
       const w = graph.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
       if (!r.base || !head || !w) continue;
-      const tip = issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull?.head;
+      const tip = issues.find(t => t.number === findPullNumber(w, r, issues))?.pull?.head;
       yield* runFollow(w, r, r.base, head, tip, graph).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
@@ -683,15 +674,16 @@ export const tick = (
       );
     }
 
-    for (const before of runs.map(current).filter(r => r.status === 'waiting'))
+    const newest = (r: Run) =>
+      ![...all, ...touched].some(o => o.issue === r.issue && o.workflow === r.workflow && o.started > r.started);
+    for (const before of runs.map(current).filter(r => r.status === 'waiting' || r.status === 'done'))
       yield* Effect.gen(function* () {
         if (!(yield* Effect.isSuccess(store.lock(before.id)))) return;
         const r = yield* store.get(before.id);
-        if (!r || r.status !== 'waiting') return;
+        if (!r || (r.status !== 'waiting' && r.status !== 'done') || r.onto || isParked(r) || !newest(r)) return;
         const w = graph.workflows[r.workflow];
-        const step = w?.steps.find(s => s.name === r.step);
-        const pull = w && issues.find(t => t.number === findPullNumber(w, r.issue, issues))?.pull;
-        if (!w || !step || !isHumanWaitStep(step) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
+        const pull = w && issues.find(t => t.number === findPullNumber(w, r, issues))?.pull;
+        if (!w?.steps.some(isHumanWaitStep) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
         const sandbox = yield* Sandbox;
         const base = yield* sandbox.readHead(pull.base);
         if (r.blocked?.base === base && r.blocked.head === pull.head && r.blocked.graph === graph.sha) return;
@@ -944,7 +936,7 @@ export const scanTrackerEvents = (
         );
         for (const r of all) {
           const w = graph.workflows[r.workflow];
-          const pull = w && findPullNumber(w, r.issue, fetched);
+          const pull = w && findPullNumber(w, r, fetched);
           if (pull !== undefined && issues.has(pull)) issues.add(r.issue);
         }
       }

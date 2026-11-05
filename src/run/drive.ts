@@ -5,12 +5,19 @@ import type { Graph } from '../folder.ts';
 import { type StoreError, Store } from '../store.ts';
 import { type TrackerError, Tracker } from '../tracker.ts';
 import { type SessionStop, makeOutcomeLine } from '../trace.ts';
-import { stoppedByRunner } from '../context.ts';
+import { stoppedByRunner, context } from '../context.ts';
 import { Sandbox, SandboxError, formatCause } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout } from '../git.ts';
-import { findPullNumber, formatTemplate, readIssueWithPull, readHeardOutcome, readContinuedRun } from './hear.ts';
+import {
+  findPullNumber,
+  formatTemplate,
+  readIssueWithPull,
+  readHeardOutcome,
+  readContinuedRun,
+  readEarlierBranch,
+} from './hear.ts';
 import { type Services, formatFailure } from './execute.ts';
-import { formatWaitingOn } from './start.ts';
+import { formatWaitingOn, formatSettled } from './start.ts';
 import { writeAppliedTrace, writeProposals, removeThreads, writeStatus, readRunSpend, runEndChecks } from './settle.ts';
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
@@ -20,7 +27,7 @@ import { runAttempt } from './attempt.ts';
 const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
   const n = Number(/^\s*stacks on #(\d+)\s*$/im.exec(issue.body)?.[1]);
   const on = open.find(t => t.number === n);
-  const pull = on?.pull ? on : open.find(t => t.number === findPullNumber(w, n, open));
+  const pull = on?.pull ? on : open.find(t => t.number === findPullNumber(w, { issue: n }, open));
   return (
     pull?.pull && {
       pull: pull.number,
@@ -29,6 +36,36 @@ const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] =>
     }
   );
 };
+
+const findFreeBranch = (named: string) =>
+  Effect.gen(function* () {
+    const runs = yield* (yield* Store).list();
+    const tracker = yield* Tracker;
+    const sandbox = yield* Sandbox;
+    for (let n = 2; ; n++) {
+      const branch = `${named}-${n}`;
+      if (runs.some(r => r.checkout?.branch === branch)) continue;
+      if ((yield* tracker.issues({ branch })).length > 0) continue;
+      if (yield* Effect.isSuccess(sandbox.readHead(branch))) continue;
+      return branch;
+    }
+  });
+
+const formatClosedAttempt = (
+  earlier: Effect.Success<ReturnType<typeof readEarlierBranch>> & { pull: Issue },
+  feedback?: string
+) =>
+  Effect.gen(function* () {
+    const pull = yield* (yield* Tracker).issue(earlier.pull.number);
+    return [
+      `## The earlier attempt\n\nPull request #${pull.number} from ${earlier.branch} was closed without merging: ${pull.url}. This run starts over on a new branch from the current base. Learn from it; do not copy it blindly.`,
+      earlier.before && `Its run: ${formatSettled(earlier.before)}.`,
+      context({ issue: pull }),
+      feedback,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+  });
 
 const rejected = 'the model provider rejected the key or login. Fix it, then start a new run.';
 
@@ -83,10 +120,15 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const named = w.branch && formatTemplate(w.branch, issue);
       const old = named && named.replace(/^agentgraph\//, 'bothub/');
-      const own =
+      const legacy =
         old && old !== named && (yield* tracker.issues({ state: 'open' })).some(t => t.pull?.branch === old)
           ? old
           : named;
+      const earlier = !current.checkout && legacy ? yield* readEarlierBranch(w, current, legacy) : undefined;
+      const closed = earlier?.pull?.state === 'closed' ? { ...earlier, pull: earlier.pull } : undefined;
+      const own =
+        current.checkout?.branch ?? (closed && named ? yield* findFreeBranch(named) : earlier?.branch) ?? legacy;
+      if (closed) current = { ...current, feedback: yield* formatClosedAttempt(closed, current.feedback) };
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
         ((issue.state === 'open' ? issue.pull?.branch : undefined) ??
@@ -121,11 +163,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
       }
 
+      if (!w.on.feedback) yield* runSetup(graph, made, current);
       const onto = current.onto?.sha ?? (made.saved && !made.head ? current.base?.sha : undefined);
       const work = onto ? yield* moveCheckoutOnto(made, onto, !current.onto || current.tries === 0) : made;
       current = { ...current, startCommit: work.base };
-
-      if (!w.on.feedback) yield* runSetup(graph, work, current);
       const attempts = `refs/agentgraph/attempts/${run.id}/`;
       let count = (yield* readGit(work.git, ['rev-parse', `--glob=${attempts}*`])).split('\n').filter(Boolean).length;
       while (current.status === 'running') {

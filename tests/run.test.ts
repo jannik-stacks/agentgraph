@@ -532,7 +532,21 @@ describe('drive', () => {
     const where = world();
     const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);
     await run(runWorkflow(w, begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph));
-    expect(specs[0]!.prompt).toContain('"under":"<id of the review comment you answer>"');
+    expect(specs[0]!.prompt).toContain(
+      '"under":"<id of the review comment you answer; a reply to a review comment goes under it, a top-level comment that answers one links it>"'
+    );
+  });
+
+  it('takes an ask about the runner as a runner error: retried, then parked, with no question posted', async () => {
+    const where = world();
+    const stuck = [start('t'), reply({ kind: 'ask', runner: 'the npm registry is blocked' })];
+    const { specs, run } = services(where, [stuck, stuck]);
+    const parked = await run(runWorkflow(w, fresh(), graph));
+    expect(specs).toHaveLength(2);
+    expect(parked).toMatchObject({ step: 'triage', status: 'waiting', retried: true });
+    expect(parked.reason).toMatch(/^Stopped by a runner error/);
+    const said = (await run(Effect.flatMap(Tracker, f => f.issue(7)))).events.flatMap(m => m.comment?.body ?? []);
+    expect(said.filter(b => b.includes('npm registry'))).toEqual([]);
   });
 
   it('opens one session over all items when a step fans out past 20', async () => {
