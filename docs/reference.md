@@ -67,15 +67,15 @@ Sessions, script checks, fan-out commands and setup share permits. Each releases
 
 `workflows/<name>.md`, named by its file. The body describes it, or is the prompt of its single step. <!-- code: src/workflow.ts#Front -->
 
-| Field         | Type                           | Default                                       | Meaning                                                                         |
-| ------------- | ------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `on`          | event name, or map of triggers | required                                      | `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback` or `conflict` |
-| `branch`      | template                       | none, a detached checkout                     | Work branch; expands `{issue}` and `{parent}`                                   |
-| `base`        | template                       | instance base, else repository default branch | Pull request base                                                               |
-| `concurrency` | `steer`, `queue` or `cancel`   | `steer`                                       | [Comments while it works](workflows.md#comments-while-it-works)                 |
-| `agent`       | agent name                     | the graph's only agent                        | Agent when there are no `steps`                                                 |
-| `steps`       | map of step name to step       | one agent step named after the file           | Steps in written order                                                          |
-| `checks`      | list of check names            | none                                          | [End checks](checks.md#end-checks)                                              |
+| Field         | Type                           | Default                                       | Meaning                                                                                                          |
+| ------------- | ------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `on`          | event name, or map of triggers | required                                      | `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback` or `conflict`                                  |
+| `branch`      | template                       | none, a detached checkout                     | Work branch; expands `{issue}` and `{parent}`; a [fresh](workflows.md#commands) `-2` after a closed pull request |
+| `base`        | template                       | instance base, else repository default branch | Pull request base                                                                                                |
+| `concurrency` | `steer`, `queue` or `cancel`   | `steer`                                       | [Comments while it works](workflows.md#comments-while-it-works)                                                  |
+| `agent`       | agent name                     | the graph's only agent                        | Agent when there are no `steps`                                                                                  |
+| `steps`       | map of step name to step       | one agent step named after the file           | Steps in written order                                                                                           |
+| `checks`      | list of check names            | none                                          | [End checks](checks.md#end-checks)                                                                               |
 
 The `issues`, `issue_comment` and `pull_request` triggers hold: <!-- code: src/workflow.ts#Trigger -->
 
