@@ -163,11 +163,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
       }
 
+      if (!w.on.feedback) yield* runSetup(graph, made, current);
       const onto = current.onto?.sha ?? (made.saved && !made.head ? current.base?.sha : undefined);
       const work = onto ? yield* moveCheckoutOnto(made, onto, !current.onto || current.tries === 0) : made;
       current = { ...current, startCommit: work.base };
-
-      if (!w.on.feedback) yield* runSetup(graph, work, current);
       const attempts = `refs/agentgraph/attempts/${run.id}/`;
       let count = (yield* readGit(work.git, ['rev-parse', `--glob=${attempts}*`])).split('\n').filter(Boolean).length;
       while (current.status === 'running') {

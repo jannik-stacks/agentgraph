@@ -674,15 +674,16 @@ export const tick = (
       );
     }
 
-    for (const before of runs.map(current).filter(r => r.status === 'waiting'))
+    const newest = (r: Run) =>
+      ![...all, ...touched].some(o => o.issue === r.issue && o.workflow === r.workflow && o.started > r.started);
+    for (const before of runs.map(current).filter(r => r.status === 'waiting' || r.status === 'done'))
       yield* Effect.gen(function* () {
         if (!(yield* Effect.isSuccess(store.lock(before.id)))) return;
         const r = yield* store.get(before.id);
-        if (!r || r.status !== 'waiting') return;
+        if (!r || (r.status !== 'waiting' && r.status !== 'done') || r.onto || isParked(r) || !newest(r)) return;
         const w = graph.workflows[r.workflow];
-        const step = w?.steps.find(s => s.name === r.step);
         const pull = w && issues.find(t => t.number === findPullNumber(w, r, issues))?.pull;
-        if (!w || !step || !isHumanWaitStep(step) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
+        if (!w?.steps.some(isHumanWaitStep) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
         const sandbox = yield* Sandbox;
         const base = yield* sandbox.readHead(pull.base);
         if (r.blocked?.base === base && r.blocked.head === pull.head && r.blocked.graph === graph.sha) return;

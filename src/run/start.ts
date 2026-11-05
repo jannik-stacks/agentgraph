@@ -197,7 +197,7 @@ export const startProposedRun = (
   graph: Graph,
   run: Pick<Run, 'id'>,
   p: Extract<Proposal, { kind: 'run' }>,
-  seed?: Pick<Run, 'onto' | 'feedback' | 'said' | 'meta'>
+  seed?: Pick<Run, 'onto' | 'feedback' | 'said' | 'meta' | 'checkout'>
 ) =>
   Effect.gen(function* () {
     const w = graph.workflows[p.workflow]!;
