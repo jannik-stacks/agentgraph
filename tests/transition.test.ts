@@ -311,7 +311,7 @@ describe('getEventOutcome', () => {
     const lined = [line('a.ts', 3, 'rename'), line('b.ts', 9, 'drop')];
     expect(getEventOutcome(w, waiting, review, lined)).toEqual({
       kind: 'back',
-      why: 'fix these\na.ts:3: rename\nb.ts:9: drop',
+      why: 'fix these\na.ts:3, id l: rename\nb.ts:9, id l: drop',
     });
   });
 

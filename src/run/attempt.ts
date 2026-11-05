@@ -64,7 +64,7 @@ const posted =
 export const shapes: Record<Said['kind'], string> = {
   comment: [
     `{"kind":"comment",${posted}}`,
-    `{"kind":"comment",${posted},"under":"<id of the review comment you answer>"}`,
+    `{"kind":"comment",${posted},"under":"<id of the review comment you answer; a reply to a review comment goes under it, a top-level comment that answers one links it>"}`,
   ].join('\n'),
   label: '{"kind":"label","add":["..."],"remove":["..."]}',
   push: '{"kind":"push","branch":"...","message":"..."}',

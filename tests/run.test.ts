@@ -532,7 +532,9 @@ describe('drive', () => {
     const where = world();
     const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);
     await run(runWorkflow(w, begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph));
-    expect(specs[0]!.prompt).toContain('"under":"<id of the review comment you answer>"');
+    expect(specs[0]!.prompt).toContain(
+      '"under":"<id of the review comment you answer; a reply to a review comment goes under it, a top-level comment that answers one links it>"'
+    );
   });
 
   it('opens one session over all items when a step fans out past 20', async () => {
