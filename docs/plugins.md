@@ -190,10 +190,22 @@ studio after registrations change. Preview needs a host API for live data.
 The header lists Inbox, Graph and Runs, then every page plugin, then Docs.
 
 Results and Bench are built-in plugins using this same descriptor, data endpoint and hook. They keep
-`/results` and `/bench` and need no graph-local file. The `results` plugin name is reserved; `bench` is
-taken when the studio starts with bench dirs (`npm run dev -- --bench <dirs>`), and the Bench page is
-only registered then ([Bench](bench.md#cost-against-quality)). Its snapshot keeps each
-source's sheet and candidate details separate. Failed sources show an error while other sources stay
-readable. Results watches the selected data and tune roots; Bench watches the bench roots.
-It remains available when the graph cannot load; the Graph page still shows configuration problems.
+`/results` and `/bench` and need no graph-local file; both names are reserved. Bench is one page over
+every served instance and every set from `npm run dev -- --bench <sets>` ([Bench](bench.md#cost-against-quality)). The Results
+snapshot keeps each source's sheet and candidate details separate. Failed sources show an error while
+other sources stay readable. Results watches the selected data and tune roots; Bench watches every
+store it reads. Both remain available when the graph cannot load; the Graph page still shows
+configuration problems.
 <!-- code: studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage studio/src/bench/data.ts#BenchData -->
+
+## Engine access
+
+A plugin the operator registers in host code, such as Bench, can declare `engine(host, settings)`. The
+host lists the run stores it may read (`configs`, each a name, a data dir and an optional instance),
+reads a store's runs with their labels and latest checks (`readRuns`), and starts or imports a run
+(`submit`). Submit checks the labels and stamps the run's origin with the plugin's own name, so a
+plugin cannot pose as another. Whatever `engine` returns is passed to the studio page's `read` and
+`watch`. The studio's host only reads; submitting works where the operator's command builds a
+submitting host, as `bin/bench.ts` does. A graph plugin file that declares `engine` is refused, so
+graph tools never get access to other instances.
+<!-- code: src/engine.ts#EngineHost src/engine.ts#makeEngineHost -->
