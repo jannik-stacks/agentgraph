@@ -227,7 +227,7 @@ With several runs on one issue, a waiting run wins over a working one. After eac
 
 ## Order and limits
 
-`limits.parallel` caps runs driven at once, end checks included, and `limits.sessions` caps sessions and scripts of one instance, judges included. `agi loop --parallel <n>` adds a cap on drives across every instance it serves. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/run/trigger.ts#tick src/run/trigger.ts#runPass src/run/execute.ts#sessionPermitsRef -->
+`limits.parallel` caps runs driven at once, end checks included, and `limits.sessions` caps sessions and scripts of one instance, judges included. `agi loop --parallel <n>` adds a cap on drives across every instance it serves. Router runs take neither slot, so a comment is routed while long runs hold them all. Runs go oldest first. `minutes` is a deadline per session, script or setup. A run that spent more than `usd-per-run` stops after its try. <!-- code: src/run/trigger.ts#tick src/run/trigger.ts#runPass src/run/execute.ts#sessionPermitsRef -->
 
 Alongside full passes, `agi loop` on a hosted tracker polls tracker events every `AGENTGRAPH_EVERY` minutes from the newest event seen; on a tracker folder it passes again on each edit instead. The first cursor overlaps loop startup by five minutes. Quiet polls read only events since that cursor. Trusted events tick their issues and the runs whose pull requests got events, after the same quiet period as a full pass. <!-- code: bin/run.ts#serve src/main.ts#start src/run/trigger.ts#scanTrackerEvents -->
 

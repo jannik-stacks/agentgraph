@@ -239,7 +239,7 @@ export const tick = (
   meta?: Run['meta'],
   fork?: (
     id: string,
-    parallel: number,
+    parallel: number | undefined,
     effect: Effect.Effect<Run | undefined, never, Services>
   ) => Effect.Effect<void, never, Services>,
   defer: ((issue: number) => void) | undefined = undefined
@@ -744,7 +744,9 @@ export const tick = (
     const running = live.filter(r => !hold(r)).toSorted((a, b) => a.started.localeCompare(b.started));
     const forkAll = (runs: Run[], f: (r: Run) => Effect.Effect<Run | undefined, StoreError, Services>) =>
       Effect.as(
-        Effect.forEach(runs, r => fork!(r.id, graph.limits.parallel, f(r).pipe(Effect.catch(logged(r))))),
+        Effect.forEach(runs, r =>
+          fork!(r.id, r.workflow === router ? undefined : graph.limits.parallel, f(r).pipe(Effect.catch(logged(r))))
+        ),
         []
       );
     const drive = (r: Run) => runWorkflow(graph.workflows[r.workflow]!, r, graph);
@@ -1012,15 +1014,15 @@ export const runPass = <A, E, R>(
         const own = yield* FiberSet.make<Run | undefined>();
         const fork: Parameters<typeof pass>[0] = (id, parallel, effect) =>
           Effect.andThen(
-            drives.permits.resize(parallel),
+            parallel === undefined ? Effect.void : drives.permits.resize(parallel),
             Effect.suspend(() => {
               if (drives.driving.has(id)) return Effect.void;
               drives.driving.add(id);
               return FiberSet.run(
                 own,
                 effect.pipe(
-                  drives.host ? drives.host.withPermits(1) : identity,
-                  drives.permits.withPermits(1),
+                  drives.host && parallel !== undefined ? drives.host.withPermits(1) : identity,
+                  parallel === undefined ? identity : drives.permits.withPermits(1),
                   Effect.tap(r => Effect.sync(() => r && drives.settled.push(r))),
                   Effect.ensuring(Effect.sync(() => drives.driving.delete(id)))
                 )
