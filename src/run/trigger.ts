@@ -783,7 +783,14 @@ const readIssueScan = (
     );
     const listed = yield* listing;
     const fetched = [...listed];
-    const prefetched = new Map<number, Effect.Success<ReturnType<Tracker['Service']['issue']>>>();
+    const readFresh = (n: number) => tracker.issue(n).pipe(Effect.tap(t => Effect.sync(() => fetched.push(t))));
+    const closed = new Map<number, ReturnType<typeof readFresh>>();
+    const read = (n: number) => {
+      if (listed.some(t => t.number === n)) return readFresh(n);
+      const once = closed.get(n) ?? Effect.runSync(Effect.cached(readFresh(n)));
+      closed.set(n, once);
+      return once;
+    };
     const all = yield* Effect.flatMap(Store, s => s.list());
     const cursor =
       poll?.cursor ??
@@ -808,13 +815,7 @@ const readIssueScan = (
       ).pipe(
         Effect.provideService(Tracker, {
           ...tracker,
-          issue: n => {
-            const found = prefetched.get(n);
-            prefetched.delete(n);
-            return found
-              ? Effect.succeed(found)
-              : tracker.issue(n).pipe(Effect.tap(t => Effect.sync(() => fetched.push(t))));
-          },
+          issue: read,
           issues: filter =>
             filter?.state === 'open' &&
             !filter.labels?.length &&
@@ -824,19 +825,20 @@ const readIssueScan = (
               : tracker.issues(filter),
           since: at => Stream.fromIterableEffect(at < cursor ? history : latest).pipe(Stream.filter(m => m.at > at)),
           apply: (...args) =>
-            tracker
-              .apply(...args)
-              .pipe(
-                Effect.tap(a =>
-                  a.ok && ['issue', 'pull_request', 'merge', 'label', 'push', 'rebase'].includes(a.proposal.kind)
-                    ? invalidate
-                    : Effect.void
-                )
-              ),
+            tracker.apply(...args).pipe(
+              Effect.tap(a =>
+                a.ok && ['issue', 'pull_request', 'merge', 'label', 'push', 'rebase'].includes(a.proposal.kind)
+                  ? Effect.andThen(
+                      invalidate,
+                      Effect.sync(() => closed.clear())
+                    )
+                  : Effect.void
+              )
+            ),
         }),
         Effect.catchTag('TrackerError', e => Effect.as(Effect.logError(`look at #${n}`, e), []))
       );
-    return { all, listed, latest, fetched, look, deferred, prefetched };
+    return { all, listed, latest, fetched, look, deferred, read };
   });
 
 /**
@@ -934,14 +936,12 @@ export const scanTrackerEvents = (
       const scan = yield* Effect.cached(readIssueScan(graph, issueDebounceMs, fork, { cursor: lower, latest }));
       const issues = new Set([...trusted.map(m => m.issue), ...due.keys()]);
       if (trusted.length) {
-        const { all, listed, fetched, prefetched } = yield* scan;
-        const missing = yield* Effect.forEach(
+        const { all, listed, fetched, read } = yield* scan;
+        yield* Effect.forEach(
           [...issues].filter(n => !listed.some(t => t.number === n)),
-          n => tracker.issue(n),
+          read,
           { concurrency: graph.limits.parallel }
         );
-        fetched.push(...missing);
-        for (const t of missing) prefetched.set(t.number, t);
         for (const r of all) {
           const w = graph.workflows[r.workflow];
           const pull = w && findPullNumber(w, r.issue, fetched);
