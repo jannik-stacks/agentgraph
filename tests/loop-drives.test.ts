@@ -247,6 +247,34 @@ describe('loop drives', () => {
     }
   });
 
+  it('reads each landed pull request once per pass, however many issues it looks at', async () => {
+    const loop = setup(4);
+    const landed = [20, 21, 22, 23, 24, 25];
+    try {
+      for (const n of landed) {
+        writeIssueAt(
+          issuePath(loop.where.tracker, n),
+          `---\ntitle: Landed ${n}\nstate: merged\nauthor: morgan\nlabels: []\n---\n`
+        );
+        write(loop.where.tracker, {
+          [`${n}/pull.json`]: JSON.stringify({ branch: `agentgraph/${n - 10}`, base: 'main', head: `h${n}` }),
+        });
+        say(loop.where, { issue: n, kind: 'merged', actor: 'morgan', trusted: true, at: '2026-10-15T00:00:00.000Z' });
+      }
+      for (const n of [30, 31, 32, 33, 34, 35, 36, 37])
+        writeIssueAt(
+          issuePath(loop.where.tracker, n),
+          `---\ntitle: Open ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n`
+        );
+      await loop.pass();
+      const pass = loop.looked.filter(n => landed.includes(n)).length;
+      expect(pass).toBe(landed.length);
+    } finally {
+      loop.release();
+      await loop.drives.stop();
+    }
+  });
+
   it('ticks the waiting run issue when its merged PR is missing from the open listing', async () => {
     const loop = setup(2);
     loop.graph.workflows.issue = {
@@ -269,7 +297,7 @@ describe('loop drives', () => {
         loop.looked.filter(n => n === 8).length,
         loop.drives.gates.has(7),
         (await loop.read(run.id))?.seen,
-      ]).toEqual([3, true, '2026-10-16T00:01:00.000Z']);
+      ]).toEqual([1, true, '2026-10-16T00:01:00.000Z']);
     } finally {
       loop.release();
       await loop.drives.stop();
