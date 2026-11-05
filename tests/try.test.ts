@@ -113,4 +113,9 @@ describe('pickTryOutcome', () => {
       ],
     });
   });
+
+  it('turns an ask about the runner into a runner problem, not a question', () => {
+    const proposals = [push, { kind: 'ask', runner: 'no network' }] as Said[];
+    expect(pickTryOutcome({ ...facts, proposals })).toEqual({ runner: 'no network' });
+  });
 });

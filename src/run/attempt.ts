@@ -75,7 +75,10 @@ export const shapes: Record<Said['kind'], string> = {
     '{"kind":"issue","relation":"follow-up","title":"...","body":"...\\n\\n## Done when\\n..."}',
     '{"kind":"issue","relation":"graph","title":"...","body":"<the class of miss and what it costs; a check that would catch it is an idea, not a requirement>\\n\\n## Done when\\n..."}',
   ].join('\n'),
-  ask: '{"kind":"ask","question":"..."}',
+  ask: [
+    '{"kind":"ask","question":"<for the maintainer, about the change: a decision only they can make>"}',
+    '{"kind":"ask","runner":"<what in the sandbox, checkout, network or tools blocks you; the runner retries it, no person is asked>"}',
+  ].join('\n'),
   back: '{"kind":"back","why":"..."}',
   run: '{"kind":"run","workflow":"<name of a agentgraph workflow to start; run a command with your shell tool instead>","issue":1,"step":"<optional: the step to start at>"}',
   tell: '{"kind":"tell","issue":1,"text":"<what the live run on that issue hears, as if a maintainer said it: feedback or an answer, or stop or cancel>"}',
@@ -198,7 +201,10 @@ export const pickTryOutcome = (o: {
   const marked = proposals.some(p => p.kind === 'push') ? findMarkedFiles(o.diff) : [];
   if (marked.length > 0) problems.push(`conflict markers left in ${marked.join(', ')}`);
   const ask = proposals.find(p => p.kind === 'ask');
-  if (ask) return { outcome: { kind: 'ask', question: ask.question } satisfies Outcome };
+  if (ask)
+    return 'runner' in ask
+      ? { runner: ask.runner }
+      : { outcome: { kind: 'ask', question: ask.question } satisfies Outcome };
   const back = proposals.find(p => p.kind === 'back');
   const world = proposals
     .filter(p => p.kind !== 'ask' && p.kind !== 'back')
@@ -247,7 +253,7 @@ export const runAttempt = (
   work: Checkout,
   own?: string
 ): Effect.Effect<
-  { outcome: Outcome; run: Run; tree?: string } | { failure: TrackerError; run: Run; tree?: string },
+  { outcome: Outcome; run: Run; tree?: string } | { failure: TrackerError | SandboxError; run: Run; tree?: string },
   SandboxError | SessionStop | TrackerError | StoreError,
   Services
 > =>
@@ -497,6 +503,12 @@ export const runAttempt = (
       untouched: tree === before,
       dirty: tree !== published,
     });
+    if ('runner' in verdict)
+      return {
+        failure: new SandboxError({ reason: 'infra', detail: `the agent is blocked: ${verdict.runner}` }),
+        run: tried,
+        tree,
+      };
     if ('outcome' in verdict) return done(verdict.outcome, tried);
     const { world, back, problems, answered } = verdict;
     const checked = answered
