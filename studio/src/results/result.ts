@@ -2,9 +2,6 @@ import type { BenchRow } from '../../../bench/runs.ts';
 import type { ResultSheet } from '../../../src/results.ts';
 import { formatNumber } from '../runs/trace.ts';
 
-export const resultSources = ['runs', 'tune'] as const;
-export type ResultSource = (typeof resultSources)[number];
-
 export type CheckField = (typeof ResultSheet.Type.fields)[number];
 export type RunResults = (typeof ResultSheet.Type.runs)[number];
 export type RunResult = RunResults['results'][string];

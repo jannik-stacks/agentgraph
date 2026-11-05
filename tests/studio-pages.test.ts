@@ -46,7 +46,6 @@ import { Schema } from 'effect';
 export default function Page() { const { value } = usePluginData('count', Schema.NumberFromString); return <p className="text-[27px]">{value}</p>; }`
   );
   vi.stubEnv('VITE_PRIVATE_CANARY', 'FAKE-private-plugin-value');
-  vi.stubEnv('AGI_STUDIO_TUNE', join(import.meta.dirname, 'fixtures/tune'));
   vi.stubEnv('AGI_STUDIO_DIR', graph);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
   vi.stubEnv('AGI_STUDIO_BENCH', external);
@@ -55,9 +54,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('7');
     expect(await (await fetch(`${base}/src/runs/InboxPage.tsx`)).text()).not.toContain('FAKE-private-plugin-value');
     const snapshot = await (await fetch(`${base}/api/plugins/results/data`)).json();
-    expect(snapshot.tune.sheet.runs).toHaveLength(75);
-    expect(Object.keys(snapshot.tune.candidates)).toHaveLength(75);
-    expect(snapshot.tune.sheet.runs[0]).not.toHaveProperty('step');
+    expect(snapshot.kind).toBe('ready');
     expect(JSON.stringify(snapshot)).not.toContain(external);
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     expect(manifest).toContain('/@id/__x00__virtual:agentgraph-page/count');
@@ -120,14 +117,13 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
   );
   vi.stubEnv('AGI_STUDIO_DIR', mode ? dir : undefined);
   vi.stubEnv('AGI_STUDIO_DATA', data);
-  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     const response = await fetch(`${base}/api/plugins/results/data`);
     const text = await response.text();
     expect(response.status).toBe(200);
-    expect(JSON.parse(text).runs.sheet.runs[0]).toMatchObject({
+    expect(JSON.parse(text).sheet.runs[0]).toMatchObject({
       key: 'r1',
       axes: { plugin: 'bench', job: 'smoke' },
       meta: { engine: { origin: { input: { arm: 'candidate' } } } },
@@ -151,7 +147,6 @@ it('reloads the served graph and its problems when a graph file changes', async 
   writeFileSync(join(dir, 'settings.yaml'), 'unknown: true\n');
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
-  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
@@ -193,14 +188,13 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   }
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
-  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     const described = async () => {
       const page = await (await fetch(`${base}/api/plugins/results/data`)).json();
-      const runs = await (await fetch(`${base}/api/results?from=runs`)).json();
-      return [page.runs.sheet.fields, runs.fields].map(
+      const runs = await (await fetch(`${base}/api/results`)).json();
+      return [page.sheet.fields, runs.fields].map(
         (fields: { check?: string; description?: string }[]) => fields.find(f => f.check === 'lines')?.description
       );
     };
@@ -232,7 +226,6 @@ dataSchema: Schema.String, read: () => Effect.succeed('') } });
   );
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
-  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   try {
     await expect(createStudioServer()).rejects.toThrow(

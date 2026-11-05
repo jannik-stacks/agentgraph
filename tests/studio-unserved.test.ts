@@ -15,19 +15,15 @@ symlinkSync(join(dir, 'data'), join(dir, 'link'));
 const unserved = makeUnservedFilter([
   { root: join(dir, 'link'), topic: 'data', layout: layouts.data },
   { root: join(dir, 'bench'), topic: 'bench', layout: layouts.bench },
-  { root: join(dir, 'tune'), topic: 'results', layout: layouts.tune },
 ]);
 
 const PATHS = [
   ['data/run-1/run.json', false],
   ['link/run-1/trace.jsonl', false],
-  ['tune/repo/work/tune.json', false],
-  ['tune/repo/work/iterations.jsonl', false],
   ['link/stacks-kit/data/run-1/run.json', true],
   ['data/run-1/tsconfig.json', true],
   ['link/homes/uuid', true],
   ['link/cache/work', true],
-  ['tune/repo/target-shared/debug/deps', true],
   ['bench/set/hash/arm/case/r1/data/run-1/run.json', false],
   ['bench/set/hash/arm/case/checkout', true],
   ['bench/set/hash/engine/src/a.ts', true],
@@ -55,7 +51,6 @@ it('sends a change for a run record but not for a run checkout', async () => {
   mkdirSync(join(data, 'cache/work/abc/.git'), { recursive: true });
   vi.stubEnv('AGI_STUDIO_DIR', undefined);
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
-  vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   vi.stubEnv('AGI_STUDIO_DATA', data);
   const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
   const server = await createServer({

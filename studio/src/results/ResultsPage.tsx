@@ -3,40 +3,25 @@ import { Suspense, useMemo } from 'react';
 import { queryParam } from '../state.ts';
 import { usePluginData, ResultChart, ResultTable } from '../plugins.ts';
 import { ResultsData } from './data.ts';
-import { Button, cx, Help, Live, Loading, Muted, Select } from '../ui.tsx';
-import { Candidate, tuneHelp } from './Candidate.tsx';
-import { type ResultSource, resultSources } from './result.ts';
+import { Button, Help, Live, Loading, Muted, Select } from '../ui.tsx';
 
 const params = Object.fromEntries(
-  ['from', 'view', 'by', 'trend', 'dead', 'y', 'x', 'color', 'facet', 'run', 'pick'].map(k => [k, queryParam(k)])
-) as Record<
-  'from' | 'view' | 'by' | 'trend' | 'dead' | 'y' | 'x' | 'color' | 'facet' | 'run' | 'pick',
-  ReturnType<typeof queryParam>
->;
-
-const defaults: Record<ResultSource, { x: string; color: string }> = {
-  runs: { x: 'time', color: 'workflow' },
-  tune: { x: 'iteration', color: 'tune' },
-};
-
-const sourceLabels: Record<ResultSource, string> = {
-  runs: 'Runs',
-  tune: 'Tunes',
-};
+  ['view', 'by', 'trend', 'dead', 'y', 'x', 'color', 'facet', 'run'].map(k => [k, queryParam(k)])
+) as Record<'view' | 'by' | 'trend' | 'dead' | 'y' | 'x' | 'color' | 'facet' | 'run', ReturnType<typeof queryParam>>;
 
 const optionHints: Record<string, string> = {
   none: 'All runs together.',
   time: 'When the run happened.',
   order: 'Runs one after another, oldest first.',
-  iteration: tuneHelp.iteration,
-  kept: tuneHelp.kept,
+  iteration: 'The tune iteration that proposed the variant.',
   issue: 'The issue the run worked on.',
   workflow: 'The workflow that ran.',
   status: 'How the run ended.',
   tune: 'The tune loop, as repo and name.',
   repo: 'The repo the case comes from.',
-  candidate: 'One candidate graph a proposer wrote.',
-  proposer: 'What wrote the candidate graph.',
+  variant: 'One graph a tune evaluates.',
+  verdict: 'Whether the tune kept the variant.',
+  proposer: 'What wrote the variant graph.',
   harness: 'The agent CLI that ran the model.',
   model: 'The model the agents used.',
   graph: 'The graph version that ran.',
@@ -46,27 +31,7 @@ const makeHintedOption = (value: string, label = value) => ({ value, label, titl
 
 const key = (f: { check: string; field: string }) => `${f.check} ${f.field}`;
 
-const Data = ({ from }: { from: ResultSource }) => (
-  <Live state={usePluginData('results', ResultsData)}>
-    {data => {
-      const source = data[from];
-      return source?.kind === 'ready' ? (
-        <Sheet from={from} source={source} />
-      ) : (
-        <Muted>{source?.why ?? 'No results.'}</Muted>
-      );
-    }}
-  </Live>
-);
-
-const Sheet = ({
-  from,
-  source,
-}: {
-  from: ResultSource;
-  source: Extract<(typeof ResultsData.Type)[ResultSource], { kind: 'ready' }>;
-}) => {
-  const value = source.sheet;
+const Sheet = ({ value }: { value: Extract<typeof ResultsData.Type, { kind: 'ready' }>['sheet'] }) => {
   const [view, setView] = useAtom(params.view);
   const [by, setBy] = useAtom(params.by);
   const [trend, setTrend] = useAtom(params.trend);
@@ -76,21 +41,9 @@ const Sheet = ({
   const [color, setColor] = useAtom(params.color);
   const [facet, setFacet] = useAtom(params.facet);
   const [only, setOnly] = useAtom(params.run);
-  const [pick, setPick] = useAtom(params.pick);
   const runs = useMemo(
-    () =>
-      value.runs
-        .filter(r => (!only || r.key === only) && (dead === '1' || !r.dead || only))
-        .map(({ axes: { verdict, ...axes }, ...r }) => ({
-          ...r,
-          axes:
-            from === 'tune'
-              ? verdict && !r.dead
-                ? { ...axes, kept: verdict === 'kept' ? 'kept' : 'not kept' }
-                : axes
-              : { ...axes, ...(verdict && { verdict }) },
-        })),
-    [value, only, dead, from]
+    () => value.runs.filter(r => (!only || r.key === only) && (dead === '1' || !r.dead || only)),
+    [value, only, dead]
   );
   const dimensions = useMemo(
     () => [...new Set(runs.flatMap(r => Object.keys(r.axes)))].filter(k => new Set(runs.map(r => r.axes[k])).size > 1),
@@ -98,12 +51,10 @@ const Sheet = ({
   );
   const measures = value.fields.filter(f => f.type !== 'string');
   const field = measures.find(f => key(f) === y) ?? measures.find(f => f.limit) ?? measures[0];
-  const picked = value.runs.find(r => r.key === pick);
-  const candidate = pick && Object.hasOwn(source.candidates, pick) ? source.candidates[pick] : undefined;
   const none = makeHintedOption('', '-');
   const measureOptions = measures.map(f => ({ value: key(f), label: key(f), title: f.description }));
-  const xAxis = x ?? defaults[from].x;
-  const colorBy = color === '' ? undefined : (color ?? dimensions.find(d => d === defaults[from].color));
+  const xAxis = x ?? 'time';
+  const colorBy = color === '' ? undefined : (color ?? dimensions.find(d => d === 'workflow'));
   const dims = dimensions.map(d => makeHintedOption(d));
   const deadCount = value.runs.filter(r => r.dead).length;
   return (
@@ -129,13 +80,7 @@ const Sheet = ({
               <Select
                 label="x"
                 value={xAxis}
-                options={[
-                  ...(defaults[from].x === 'time' ? [] : [makeHintedOption(defaults[from].x)]),
-                  makeHintedOption('time'),
-                  makeHintedOption('order'),
-                  ...dims.filter(d => d.value !== defaults[from].x),
-                  ...measureOptions,
-                ]}
+                options={[makeHintedOption('time'), makeHintedOption('order'), ...dims, ...measureOptions]}
                 onChange={setX}
               />
               <Select
@@ -161,7 +106,7 @@ const Sheet = ({
                 options={[
                   makeHintedOption('time', 'time, by day'),
                   makeHintedOption('order', 'order, by tens'),
-                  ...(from === 'tune' ? [makeHintedOption('iteration')] : []),
+                  ...(dimensions.includes('iteration') ? [makeHintedOption('iteration')] : []),
                 ]}
                 onChange={v => setTrend(v === 'time' ? null : v)}
               />
@@ -233,37 +178,16 @@ const Sheet = ({
           />
         )}
       </div>
-      {picked && candidate && (
-        <Candidate tune={picked.axes.tune ?? ''} step={candidate} onClose={() => setPick(null)} />
-      )}
     </div>
   );
 };
 
-const ResultsPage = () => {
-  const [picked, setPicked] = useAtom(params.from);
-  const source = resultSources.find(s => s === picked) ?? 'runs';
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-zinc-200 px-4 py-2 text-xs dark:border-zinc-800">
-        {resultSources.map(s => (
-          <button
-            key={s}
-            type="button"
-            aria-pressed={s === source}
-            onClick={() => setPicked(s === 'runs' ? null : s)}
-            className={cx(
-              'rounded px-2 py-0.5',
-              s === source ? 'bg-zinc-100 font-medium dark:bg-zinc-800' : 'text-zinc-500'
-            )}
-          >
-            {sourceLabels[s]}
-          </button>
-        ))}
-      </div>
-      <Data key={source} from={source} />
-    </div>
-  );
-};
+const ResultsPage = () => (
+  <div className="flex h-full min-h-0 flex-col">
+    <Live state={usePluginData('results', ResultsData)}>
+      {data => (data.kind === 'ready' ? <Sheet value={data.sheet} /> : <Muted>{data.why}</Muted>)}
+    </Live>
+  </div>
+);
 
 export default ResultsPage;

@@ -68,7 +68,7 @@ A `reads: traces` check gets an empty folder beside the run's traces, so it work
 
 ## The Results tab
 
-The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs or every tune's candidates, depending on how the [studio](local.md#the-studio) started. Each run counts with each check's latest result. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage -->
+The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result, and its labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage -->
 
 The table has one row per result field: runs that gave it, failed results, values outside `pass`, the median, one dot per run, and a trend. `by` splits a field by workflow, model, tune or another dimension, and a field's `unit` sets how it reads. Runs that ended before any step passed or session started are dead and hidden by default. The chart draws a field against time, order, a dimension or another field, one dot per run.
 
@@ -91,10 +91,3 @@ Did the implementor do what its reply says it did?
 ```
 
 The studio marks checks and steps that read traces. <!-- code: src/graph.ts#makeWorkflowGraph -->
-
-## Candidate details
-
-The studio's candidate details use the persisted tune step schema. Graph and parent are commit
-identities; public snapshots carry no candidate checkout path. Evaluations retain intervals,
-usage and keep decisions. File readers remain in Tune; studio readers validate at their boundary.
-<!-- code: tune/result.ts#TuneStep -->

@@ -108,7 +108,6 @@ const neverServed = /\.lockb?$|^(package-lock\.json|npm-shrinkwrap\.json|pnpm-lo
 export const layouts = {
   data: (names: string[]) => !dataInfra.test(names[0]!) && names.length <= 2,
   bench: (names: string[]) => !names.some(name => benchInfra.test(name)),
-  tune: (names: string[]) => names.length <= 3,
   any: () => true,
 };
 

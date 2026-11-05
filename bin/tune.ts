@@ -15,11 +15,21 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
+import { Effect } from 'effect';
 import { presets, quality, random } from '../studio/src/bench/score.ts';
 import { getMean, getRounded, sum } from '../src/stats.ts';
-import { propose as proposeWith, readCandidateRows } from '../tune/propose.ts';
+import { propose as proposeWith, readVariantRows } from '../tune/propose.ts';
 import { codexUsed, makeBenchInput, pickBenchTestCommands, readBenchCase } from './bench.ts';
-import { type BenchRow, findSlotLock, isBenchCaseValid, isBenchRunDone } from '../bench/runs.ts';
+import {
+  type BenchRow,
+  findSlotLock,
+  getBenchSlot,
+  isBenchCaseValid,
+  isBenchRunDone,
+  readBenchSlots,
+} from '../bench/runs.ts';
+import { runLogged, runQueue } from '../bench/start-runs.ts';
+import { writeRunLabels } from '../src/labels.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import {
   agentgraphDir,
@@ -29,13 +39,24 @@ import {
   onStop,
   release,
   readFileOrEmpty,
-  startChildProcess,
   waitWhileServicesDown,
 } from './resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
-import type { TuneStep } from '../tune/result.ts';
+import {
+  type Eval,
+  type Flip,
+  getTuneLabel,
+  readTuneSteps,
+  type Split,
+  type TuneStep,
+  type Variant,
+  writeVariantDecision,
+  writeVariantRun,
+  writeVariantTest,
+} from '../tune/runs.ts';
 
-export type Split = Eval['split'];
+type Proposer = Variant['proposer'];
+
 type Tune = {
   repo: string;
   /** The release tag at init, like `agentgraph-v0.2.0`, else the commit; every run needs its `src` tree. */
@@ -46,11 +67,6 @@ type Tune = {
   keep: Partial<{ runs: number; drops: number; save: number }>;
   clone: string;
 };
-export type Step = typeof TuneStep.Type;
-type Eval = Step['evals'][number];
-export type Flip = NonNullable<Eval['flips']>[string];
-type Proposer = Step['proposer'];
-type Candidate = Pick<Step, 'id' | 'iteration' | 'parent' | 'proposer' | 'graph' | 'rationale' | 'diff'>;
 type Row = BenchRow;
 /** The latest reading of a usage window in percent, and the points used since the first, across window resets. */
 type Reading = { now: number; used: number };
@@ -59,11 +75,11 @@ type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading }
 const tuneRoot = () => process.env.AGENTGRAPH_TUNE ?? join(homedir(), '.agentgraph/tune');
 const pad = (n: number) => String(n).padStart(3, '0');
 
-/** The tune's settings and its steps in order, as `iterations.jsonl` holds them. */
+/** The tune's settings, its decided variants in order and the variants under evaluation, read from its control runs. */
 export const tuneRows = (dir: string) => {
   const tune = readFileOrEmpty(join(dir, 'tune.json'));
   if (!tune) throw new Error(`${dir} has no tune.json`);
-  return { tune: JSON.parse(tune) as Tune, steps: readJsonl<Step>(join(dir, 'iterations.jsonl')) };
+  return { tune: JSON.parse(tune) as Tune, ...readTuneSteps(dir) };
 };
 
 const subdirs = (dir: string) =>
@@ -72,14 +88,6 @@ const subdirs = (dir: string) =>
         e.isDirectory() && !e.name.startsWith('.') ? [e.name] : []
       )
     : [];
-
-/** Every tune under `root`, each with its folder name. */
-export const tunesOf = (root = tuneRoot()) =>
-  subdirs(root).flatMap(repo =>
-    subdirs(join(root, repo))
-      .filter(name => existsSync(join(root, repo, name, 'tune.json')))
-      .map(name => ({ name, ...tuneRows(join(root, repo, name)) }))
-  );
 
 /** The mean gain of `b` over `a` case by case, the share of bootstrap draws above 0 and its 95% interval. */
 export const paired = (a: number[], b: number[], n = 2000) => {
@@ -127,7 +135,7 @@ export const cheaper = (t: Pick<Tune, 'keep'>, e: Eval) =>
  * Out when the screen drops `drops` cases and lifts none. Kept when more select cases win than lose, or when no case
  * drops and it costs less in usd or minutes.
  */
-export const decide = (t: Pick<Tune, 'keep'>, screen: Eval, full?: Eval): Step['verdict'] =>
+export const decide = (t: Pick<Tune, 'keep'>, screen: Eval, full?: Eval): TuneStep['verdict'] =>
   count(screen, 'down', 'loss') >= keepOf(t).drops && !count(screen, 'up', 'win')
     ? 'screened-out'
     : full && count(full, 'win') > count(full, 'loss')
@@ -165,7 +173,7 @@ const findUnscoredCases = (cases: string[], mine: Scores, incumbent?: Scores) =>
   cases.filter(c => !mine.get(c)?.qs.length || (incumbent !== undefined && !incumbent.get(c)?.qs.length));
 
 const evalOf = (
-  candidate: string,
+  variant: string,
   split: Split,
   cases: string[],
   mine: Scores,
@@ -192,7 +200,7 @@ const evalOf = (
     flips: flipsOf(qsOf(incumbent, cases), qsOf(mine, cases), runs),
   };
   return {
-    candidate,
+    variant,
     split,
     cases,
     quality: getRounded(getMean(qs)),
@@ -215,65 +223,68 @@ const evalOf = (
   };
 };
 
-type Job = { id: string; case: string; repeat?: number };
-export const makeJobInput = (dir: string, t: Tune, j: Job) =>
+type Job = { id: string; iteration: number; case: string; repeat?: number };
+export const makeJobInput = (dir: string, t: Tune, j: Pick<Job, 'id' | 'case' | 'repeat'>) =>
   makeBenchInput(readBenchCase(join(dir, 'cases', j.case)), 'v2', j.repeat ?? 1, {
     point: t.point,
     graph: join(dir, 'cands', j.id, 'graph'),
-    labels: { cand: j.id },
+    labels: { variant: j.id },
   });
 const tuneLog = (dir: string) => (e: object) =>
   appendJsonl(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
 
+/** Labels every attempt of a job's slot with the tune and the variant's iteration. */
+const labelJobRuns = async (dir: string, t: Tune, j: Job) => {
+  const labels = { tune: getTuneLabel(dir), iteration: String(j.iteration) };
+  for (const a of readBenchSlots(dir).get(getBenchSlot(makeJobInput(dir, t, j))) ?? [])
+    if (a.run) await Effect.runPromise(writeRunLabels(a.data, a.run.id, labels));
+};
+
 /**
- * The bench as the tune drives it: one v2 run and score per job, judged on request, `parallel` at a time. The tune dir
- * is the bench set; each candidate is a graph variant, labelled with the candidate.
+ * The bench as the tune drives it: one v2 run and score per job through bin/bench.ts, judged on request, `parallel` at
+ * a time. The tune dir is the bench set; each variant's runs carry its `variant` label.
  */
 const bench = {
   run: async (dir: string, t: Tune, jobs: Job[], o: { parallel: number; judged?: boolean; keys?: string }) => {
     engineAt(t);
+    mkdirSync(join(dir, 'logs'), { recursive: true });
+    const env = { ...process.env, NODE_OPTIONS: '' };
     const call = (command: string, j: Job) =>
-      new Promise<number>(done => {
-        const child = startChildProcess(
-          process.execPath,
-          [
-            join(agentgraphDir, 'bin/bench.ts'),
-            command,
-            'v2',
-            join(dir, 'cases', j.case),
-            dir,
-            '--repo',
-            t.clone,
-            '--graph',
-            join(dir, 'cands', j.id, 'graph'),
-            '--point',
-            t.point,
-            '--repeat',
-            String(j.repeat ?? 1),
-            '--label',
-            `cand=${j.id}`,
-            ...(o.keys ? ['--keys', o.keys] : []),
-          ],
-          { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, NODE_OPTIONS: '' } }
-        );
-        child.on('close', code => done(code ?? 1));
-      });
-    const finished = (j: Job) => isBenchRunDone(dir, makeJobInput(dir, t, j), Boolean(o.judged));
-    let queue: Job[] = [];
-    const next = async () => {
-      for (let j = queue.shift(); j; j = queue.shift()) {
-        await call('score', j);
-        if (isBenchCaseValid(dir, j.case) === false) continue;
+      runLogged(
+        [
+          join(agentgraphDir, 'bin/bench.ts'),
+          command,
+          'v2',
+          join(dir, 'cases', j.case),
+          dir,
+          '--repo',
+          t.clone,
+          '--graph',
+          join(dir, 'cands', j.id, 'graph'),
+          '--point',
+          t.point,
+          '--repeat',
+          String(j.repeat ?? 1),
+          '--label',
+          `variant=${j.id}`,
+          ...(o.keys ? ['--keys', o.keys] : []),
+        ],
+        join(dir, 'logs', `${j.id}-${j.case}-r${j.repeat ?? 1}.log`),
+        env
+      );
+    const evaluate = async (j: Job) => {
+      await call('score', j);
+      if (isBenchCaseValid(dir, j.case) !== false) {
         await call('run', j);
         await call('score', j);
         if (o.judged) await call('judge', j);
       }
+      await labelJobRuns(dir, t, j);
     };
-    writeFileAtomic(join(dir, 'phase.json'), { at: new Date().toISOString(), parallel: o.parallel, jobs });
+    const finished = (j: Job) => isBenchRunDone(dir, makeJobInput(dir, t, j), Boolean(o.judged));
     const log = tuneLog(dir);
     for (let round = 0, left = jobs; ;) {
-      queue = [...left];
-      await Promise.all(Array.from({ length: o.parallel }, next));
+      await runQueue([...left], o.parallel, evaluate);
       left = jobs.filter(j => !finished(j));
       if (!left.length) return;
       const held = left.some(j => isLockedByOtherProcess(findSlotLock(dir, makeJobInput(dir, t, j))));
@@ -283,8 +294,8 @@ const bench = {
       await sleep(held ? 30_000 : 60_000);
     }
   },
-  /** Rows of every run of a candidate, its repeats included. */
-  rows: readCandidateRows,
+  /** Rows of every run of a variant, its repeats included. */
+  rows: readVariantRows,
   codex: () => codexUsed(),
   propose: (o: Parameters<typeof proposeWith>[0]) => proposeWith(o),
 };
@@ -316,42 +327,50 @@ const git = (dir: string, args: string[], o: { graph?: string; index?: string } 
     },
   }).trim();
 
-/** Commits `cands/<id>/graph` on `parent` as `refs/cand/<id>` and records it as a pending candidate. */
-const enqueue = (dir: string, c: Omit<Candidate, 'graph' | 'diff'>) => {
+export const readVariantDiff = (dir: string, v: Pick<Variant, 'base' | 'graph'>) =>
+  v.base ? git(dir, ['diff', v.base, v.graph]) : '';
+
+/**
+ * Commits `cands/<id>/graph` on the parent's graph as `refs/variant/<id>` and starts the variant's control run, which
+ * keeps it pending until its decision.
+ */
+const enqueue = async (
+  dir: string,
+  c: Pick<Variant, 'id' | 'iteration' | 'proposer' | 'rationale'>,
+  parent?: Pick<Variant, 'id' | 'graph'>
+) => {
   const graph = join(dir, 'cands', c.id, 'graph');
   const index = join(dir, 'graph.git', `index.${c.id}`);
   git(dir, ['add', '-A', '.'], { graph, index });
   const tree = git(dir, ['write-tree'], { graph, index });
   rmSync(index, { force: true });
-  const sha = git(dir, ['commit-tree', tree, ...(c.parent ? ['-p', c.parent] : []), '-m', c.id]);
-  git(dir, ['update-ref', `refs/cand/${c.id}`, sha]);
-  const cand: Candidate = { ...c, graph: sha, diff: c.parent ? git(dir, ['diff', c.parent, sha]) : '' };
-  writeFileAtomic(join(dir, 'cands', c.id, 'candidate.json'), cand);
-  if (!existsSync(join(dir, 'cands', c.id, 'proposal.md')))
-    writeFileAtomic(join(dir, 'cands', c.id, 'proposal.md'), `${c.rationale}\n`);
-  return cand;
+  const sha = git(dir, ['commit-tree', tree, ...(parent ? ['-p', parent.graph] : []), '-m', c.id]);
+  git(dir, ['update-ref', `refs/variant/${c.id}`, sha]);
+  const v: Variant = { ...c, parent: parent?.id ?? '', base: parent?.graph ?? '', graph: sha };
+  await writeVariantRun(dir, tuneRows(dir).tune.engine, v, readVariantDiff(dir, v));
+  return v;
 };
 
-const incumbentOf = (steps: Step[]) => steps.filter(s => s.verdict === 'kept').at(-1);
-const nextIteration = (steps: Step[]) => Math.max(0, ...steps.map(s => s.iteration)) + 1;
+const incumbentOf = (steps: TuneStep[]) => steps.filter(s => s.verdict === 'kept').at(-1);
+const nextIteration = (steps: TuneStep[]) => Math.max(0, ...steps.map(s => s.iteration)) + 1;
 const freeId = (dir: string, iteration: number, proposer: string) => {
   const base = `i${pad(iteration)}-${proposer}`;
   for (let n = 1; ; n++)
     if (!existsSync(join(dir, 'cands', n === 1 ? base : `${base}-${n}`))) return n === 1 ? base : `${base}-${n}`;
 };
 
-/** Queues a graph dir as a candidate on the incumbent; the next step evaluates it. */
-export const propose = (dir: string, from: string, why: string, proposer: Proposer = 'manual') => {
+/** Queues a graph dir as a variant on the incumbent; the next step evaluates it. */
+export const propose = async (dir: string, from: string, why: string, proposer: Proposer = 'manual') => {
   const { steps } = tuneRows(dir);
   const parent = incumbentOf(steps);
   if (!parent) throw new Error(`no incumbent in ${dir} yet: run init first`);
   const id = freeId(dir, nextIteration(steps), proposer);
   cpSync(resolve(from), join(dir, 'cands', id, 'graph'), { recursive: true });
-  return enqueue(dir, { id, iteration: nextIteration(steps), parent: parent.graph, proposer, rationale: why });
+  return enqueue(dir, { id, iteration: nextIteration(steps), proposer, rationale: why }, parent);
 };
 
-/** Candidates written but not evaluated yet, after turning each `manual/*.patch` into one. */
-const pending = (dir: string, steps: Step[]) => {
+/** Variants started but not decided yet, after turning each `manual/*.patch` into one. */
+const pending = async (dir: string, steps: TuneStep[]) => {
   const parent = incumbentOf(steps)!;
   const patches = existsSync(join(dir, 'manual'))
     ? readdirSync(join(dir, 'manual')).filter(n => n.endsWith('.patch'))
@@ -367,21 +386,15 @@ const pending = (dir: string, steps: Step[]) => {
     const rationale = readFileOrEmpty(patch)
       .split(/\n\s*\n/)[0]!
       .trim();
-    enqueue(dir, {
-      id: basename(dirname(graph)),
-      iteration: nextIteration(steps),
-      parent: parent.graph,
-      proposer: 'manual',
-      rationale,
-    });
+    await enqueue(
+      dir,
+      { id: basename(dirname(graph)), iteration: nextIteration(steps), proposer: 'manual', rationale },
+      parent
+    );
     mkdirSync(join(dir, 'manual', 'applied'), { recursive: true });
     renameSync(patch, join(dir, 'manual', 'applied', name));
   }
-  const done = new Set(steps.map(s => s.id));
-  return (existsSync(join(dir, 'cands')) ? readdirSync(join(dir, 'cands')) : [])
-    .filter(id => !done.has(id) && existsSync(join(dir, 'cands', id, 'candidate.json')))
-    .map(id => JSON.parse(readFileOrEmpty(join(dir, 'cands', id, 'candidate.json'))) as Candidate)
-    .sort((a, b) => a.id.localeCompare(b.id));
+  return readTuneSteps(dir).pending;
 };
 
 /** `r` after reading `now`: a drop means the window reset, so everything read since counts as used. */
@@ -428,8 +441,6 @@ const spent = (before: Budget, after: Budget, k: 'codex' | 'fiveHour') => {
   const of = (b: Budget) => (k === 'codex' ? b.codex : b.claude?.fiveHour)?.used ?? 0;
   return getRounded(of(after) - of(before));
 };
-
-const append = (dir: string, s: Step) => appendJsonl(join(dir, 'iterations.jsonl'), s);
 
 /** Writes tune.json, the cases and the minimal graph, then evaluates that graph as the first incumbent. */
 export const init = async (
@@ -496,11 +507,11 @@ export const init = async (
     execFileSync('git', ['init', '-q', '--bare', join(dir, 'graph.git')]);
     writeFileAtomic(join(dir, 'tune.json'), t);
   }
-  const { tune: t, steps } = tuneRows(dir);
+  const { tune: t, steps, pending: started } = tuneRows(dir);
   if (steps.length) return dir;
-  const cand = existsSync(join(dir, 'cands/i000-init/candidate.json'))
-    ? (JSON.parse(readFileOrEmpty(join(dir, 'cands/i000-init/candidate.json'))) as Candidate)
-    : enqueue(dir, { id: 'i000-init', iteration: 0, parent: '', proposer: 'manual', rationale: 'The minimal graph.' });
+  const cand =
+    started.find(v => v.id === 'i000-init') ??
+    (await enqueue(dir, { id: 'i000-init', iteration: 0, proposer: 'manual', rationale: 'The minimal graph.' }));
   git(dir, ['update-ref', 'refs/heads/main', cand.graph]);
   const select = ids(t, 'fit', 'validate');
   if (!select.length) throw new Error('no fit or validate cases to score');
@@ -508,7 +519,7 @@ export const init = async (
   await io.run(
     dir,
     t,
-    select.map(c => ({ id: cand.id, case: c })),
+    select.map(c => ({ id: cand.id, iteration: 0, case: c })),
     { parallel: o.parallel ?? 6, ...(o.keys && { keys: o.keys }) }
   );
   const after = guard(dir, io, o.limits ?? limitsDefault);
@@ -519,7 +530,13 @@ export const init = async (
   const evals = (['fit', 'validate'] as const)
     .filter(s => ids(t, s).length)
     .map((s, i) => evalOf(cand.id, s, ids(t, s), mine, i ? { codex: 0, claude5h: 0 } : usage));
-  append(dir, { ...cand, evals, verdict: 'kept', why: 'the starting graph', at: new Date().toISOString() });
+  await writeVariantDecision(dir, t.engine, {
+    ...cand,
+    evals,
+    verdict: 'kept',
+    why: 'the starting graph',
+    at: new Date().toISOString(),
+  });
   return dir;
 };
 
@@ -593,7 +610,7 @@ export const step = async (
   const limits = o.limits ?? limitsDefault;
   const iteration = nextIteration(steps);
   const claude: Record<string, number> = { ...o.claude };
-  const queued = pending(dir, steps);
+  const queued = await pending(dir, steps);
   const auto = ['retro', 'history', 'structure'] as const;
   const failed: string[] = [];
   for (const proposer of auto.filter(p => (o.proposers ?? ['retro', 'history']).includes(p))) {
@@ -606,7 +623,7 @@ export const step = async (
         id,
         proposer,
         from: join(dir, 'cands', inc.id, 'graph'),
-        cand: inc.id,
+        variant: inc.id,
         iteration,
         ...(o.model && { model: o.model }),
       })
@@ -617,7 +634,7 @@ export const step = async (
     }
     const after = guard(dir, io, limits, made.usage);
     claude[id] = spent(before, after, 'fiveHour');
-    queued.push(enqueue(dir, { id, iteration, parent: inc.graph, proposer, rationale: made.rationale }));
+    queued.push(await enqueue(dir, { id, iteration, proposer, rationale: made.rationale }, inc));
   }
   for (const f of failed) {
     console.error(f);
@@ -638,8 +655,9 @@ export const step = async (
     await io.run(dir, t, jobs, { parallel: o.parallel ?? 6, ...(o.keys && { keys: o.keys }) });
     return getRounded(spent(before, guard(dir, io, limits), 'codex') / Math.max(1, per));
   };
-  const cross = (cands: Candidate[], cases: string[]) => cands.flatMap(c => cases.map(k => ({ id: c.id, case: k })));
-  const usage = (c: Candidate, codex: number) => ({ codex, claude5h: claude[c.id] ?? 0 });
+  const cross = (vs: Variant[], cases: string[]) =>
+    vs.flatMap(v => cases.map(k => ({ id: v.id, iteration: v.iteration, case: k })));
+  const usage = (v: Variant, codex: number) => ({ codex, claude5h: claude[v.id] ?? 0 });
   const screenCodex = await phase(cross(queued, screened), queued.length);
   const before = theirs();
   const results = queued.map(c => {
@@ -656,27 +674,32 @@ export const step = async (
     ),
     survivors.length
   );
-  const repeats = (id: string, s: Scores, cases: string[]) =>
+  const repeats = (v: Pick<Variant, 'id' | 'iteration'>, s: Scores, cases: string[]) =>
     cases.flatMap(k => {
       const { qs = [], runs: n = 0 } = s.get(k) ?? {};
-      return Array.from({ length: Math.max(0, runs - qs.length) }, (_, i) => ({ id, case: k, repeat: n + i + 1 }));
+      return Array.from({ length: Math.max(0, runs - qs.length) }, (_, i) => ({
+        id: v.id,
+        iteration: v.iteration,
+        case: k,
+        repeat: n + i + 1,
+      }));
     });
   const now = theirs();
   const flipped = survivors.flatMap(r => {
     const mine = scores(io.rows(dir, r.c.id), t.preset);
     const f = flipsOf(qsOf(now, select), qsOf(mine, select), runs);
     const open = Object.keys(f).filter(k => f[k] === 'up' || f[k] === 'down');
-    return Object.values(f).includes('up') && open.length ? [{ id: r.c.id, mine, open }] : [];
+    return Object.values(f).includes('up') && open.length ? [{ v: r.c, mine, open }] : [];
   });
   const shared = [...new Set(flipped.flatMap(f => f.open))];
   const confirmCodex = await phase(
-    [...repeats(inc.id, now, shared), ...flipped.flatMap(f => repeats(f.id, f.mine, f.open))],
+    [...repeats(inc, now, shared), ...flipped.flatMap(f => repeats(f.v, f.mine, f.open))],
     flipped.length
   );
   const after = theirs();
   const full = survivors.map(r => {
     const mine = scores(io.rows(dir, r.c.id), t.preset);
-    const codex = fullCodex + (flipped.some(f => f.id === r.c.id) ? confirmCodex : 0);
+    const codex = fullCodex + (flipped.some(f => f.v.id === r.c.id) ? confirmCodex : 0);
     const parts = (['fit', 'validate'] as const)
       .map(s => [s, rest.filter(k => t.cases[k] === s)] as const)
       .filter(([, cases]) => cases.length);
@@ -720,14 +743,14 @@ export const step = async (
     if (r === best) return `select ${on(r.all)}`;
     return r.verdict === 'kept' ? `select ${on(r.all)}, beaten by ${best!.c.id}` : `select ${on(r.all)}, below the bar`;
   };
-  const out: Step[] = [...results.filter(r => r.verdict !== 'discarded'), ...full].map(r => ({
+  const out: TuneStep[] = [...results.filter(r => r.verdict !== 'discarded'), ...full].map(r => ({
     ...r.c,
     evals: r.evals,
     verdict: r === best ? 'kept' : r.verdict === 'kept' ? 'discarded' : r.verdict,
     why: why(r),
     at: new Date().toISOString(),
   }));
-  for (const s of out) append(dir, s);
+  for (const s of out) await writeVariantDecision(dir, t.engine, s);
   if (best) git(dir, ['update-ref', 'refs/heads/main', best.c.graph]);
   return out;
 };
@@ -740,20 +763,19 @@ export const checkpoint = async (dir: string, o: { parallel?: number; keys?: str
   await io.run(
     dir,
     t,
-    test.map(c => ({ id: inc.id, case: c })),
+    test.map(c => ({ id: inc.id, iteration: inc.iteration, case: c })),
     { parallel: o.parallel ?? 6, judged: true, ...(o.keys && { keys: o.keys }) }
   );
   const mine = scores(io.rows(dir, inc.id), 'composite');
   const missing = findUnscoredCases(test, mine);
   if (missing.length) throw new Error(`${missing.length} test cases lack scored runs: ${missing.join(', ')}`);
   const e = evalOf(inc.id, 'test', test, mine, { codex: 0, claude5h: 0 });
-  const lines = steps.map(s => (s === inc ? { ...s, evals: [...s.evals, e] } : s));
-  writeFileAtomic(join(dir, 'iterations.jsonl'), lines.map(s => `${JSON.stringify(s)}\n`).join(''));
+  await writeVariantTest(dir, t.engine, inc.id, e);
   return e;
 };
 
 /** Iterations at the end of the tune in a row that kept nothing. */
-const flatOf = (steps: Step[]) => {
+const flatOf = (steps: TuneStep[]) => {
   const kept = new Set(steps.filter(s => s.verdict === 'kept').map(s => s.iteration));
   const last = nextIteration(steps) - 1;
   let n = 0;
@@ -762,7 +784,7 @@ const flatOf = (steps: Step[]) => {
 };
 
 /** Whether the incumbent is every third keep and has no test eval yet. */
-const due = (steps: Step[]) => {
+const due = (steps: TuneStep[]) => {
   const kept = steps.filter(s => s.verdict === 'kept');
   return kept.length > 1 && kept.length % 3 === 1 && !kept.at(-1)!.evals.some(e => e.split === 'test');
 };
@@ -792,11 +814,11 @@ export const run = async (
 
 /**
  * One screen on a tune: the incumbent's scores, its last steps, the budget used against `limits`, whether a process
- * runs it, and where the current phase of runs stands.
+ * runs it, and the variants under evaluation.
  * @internal
  */
 export const status = (dir: string, limits = limitsDefault) => {
-  const { tune: t, steps } = tuneRows(dir);
+  const { tune: t, steps, pending: open } = tuneRows(dir);
   const inc = incumbentOf(steps);
   const q = (es: Eval[]) => {
     const n = sum(es.map(e => e.cases.length));
@@ -807,17 +829,8 @@ export const status = (dir: string, limits = limitsDefault) => {
   const used = (name: string, r: Reading | undefined, max: number) => `${name} ${r?.used ?? '-'} of ${max}`;
   const live = Boolean(readFileOrEmpty(join(dir, 'tune.lock'))) && isLockedByOtherProcess(join(dir, 'tune'));
   const pid = Number(readFileOrEmpty(join(dir, 'tune.lock')) || 0);
-  const phase = JSON.parse(readFileOrEmpty(join(dir, 'phase.json')) || 'null') as {
-    at: string;
-    parallel: number;
-    jobs: Job[];
-  } | null;
   const last = readJsonl(join(dir, 'log.jsonl')).at(-1);
   const written = statSync(join(dir, 'log.jsonl'), { throwIfNoEntry: false })?.mtimeMs ?? 0;
-  const ofPhase = (p: { jobs: Job[] }) => {
-    const done = p.jobs.filter(j => isBenchRunDone(dir, makeJobInput(dir, t, j), false)).length;
-    return `  ${done} of ${p.jobs.length} runs done`;
-  };
   return [
     `${t.repo} on ${t.point}: ${steps.length} steps over ${nextIteration(steps) - 1} iterations, incumbent ${inc?.id ?? 'none yet'}`,
     `  quality, human = 1: select ${on('fit', 'validate')}, validate ${on('validate')}, test ${on('test')}`,
@@ -827,7 +840,7 @@ export const status = (dir: string, limits = limitsDefault) => {
     live ? `running as pid ${pid}` : 'no live lock',
     written ? `last log write ${Math.round((Date.now() - written) / 60_000)} min ago` : 'no log yet',
     ...(last ? [`last event: ${JSON.stringify(last)}`] : []),
-    ...(phase ? [`phase since ${phase.at}:`, ofPhase(phase)] : []),
+    ...(open.length ? [`evaluating ${open.map(v => v.id).join(', ')}`] : []),
   ].join('\n');
 };
 
@@ -910,7 +923,7 @@ if (import.meta.main) {
     });
   else if (command === 'checkpoint' && target) print(await checkpoint(resolve(target), o));
   else if (command === 'propose' && target && values.from && values.why)
-    console.log(propose(resolve(target), values.from, values.why, values.as as Proposer).id);
+    console.log((await propose(resolve(target), values.from, values.why, values.as as Proposer)).id);
   else {
     console.error(
       'usage: node bin/tune.ts (init <repo> --cases --splits --repos --point | step | run [--until n] | checkpoint | status | propose --from --why) <tune dir>'

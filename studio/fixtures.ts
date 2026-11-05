@@ -6,7 +6,6 @@ import { makeServedGraphs, servedIds } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
-import { resultSources } from './src/results/result.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as StoreModule from '../src/store.ts';
 import type * as LabelsModule from '../src/labels.ts';
@@ -64,15 +63,9 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
           );
         });
       use('/api/results', async (req, res) => {
-        const source = resultSources.find(s => s === readQuery(req).get('from'));
-        if (!source) return json(res, { error: 'bad from' }, 400);
         const { served, data } = await readDataDir(req, reader);
-        const dirs = {
-          ...(data && { data }),
-          ...(process.env.AGI_STUDIO_TUNE && { tune: process.env.AGI_STUDIO_TUNE }),
-        };
         const { readRunResults } = await from<typeof ResultsModule>('bin/results.ts');
-        json(res, readRunResults(source, dirs, served?.graph));
+        json(res, readRunResults(data, served?.graph));
       });
       use('/api/logs', async (req, res) => {
         const { data } = await readDataDir(req, reader);

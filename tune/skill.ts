@@ -12,18 +12,7 @@ import { cpSync, existsSync, readdirSync, renameSync, writeFileSync } from 'node
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { codexUsed } from '../bin/bench.ts';
-import {
-  checkpoint,
-  guard,
-  init,
-  overOf,
-  propose,
-  reading,
-  type Split,
-  type Step,
-  step,
-  tuneRows,
-} from '../bin/tune.ts';
+import { checkpoint, guard, init, overOf, propose, readVariantDiff, reading, step, tuneRows } from '../bin/tune.ts';
 import { agentgraphDir, parseJsonl, readFileOrEmpty } from '../bin/resume.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { getRounded } from '../src/stats.ts';
@@ -32,9 +21,10 @@ import {
   type ClaudeStreamEvent,
   formatCodeFence,
   graphProblems,
-  readCandidateRows,
+  readVariantRows,
   type Usage,
 } from './propose.ts';
+import type { Split, TuneStep } from './runs.ts';
 import { findAttemptDir, readBenchRun, readBenchSlots, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
 
 type Io = Parameters<typeof step>[2];
@@ -83,7 +73,7 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
     cpSync(join(like, 'cands', first.id, 'graph'), join(dir, 'cands/i000-init/graph'), { recursive: true });
     const reused = idsOf(t.cases, 'fit', 'validate');
     const slots = readBenchSlots(like);
-    for (const row of (io?.rows ?? readCandidateRows)(like, first.id).filter(r => reused.includes(r.case))) {
+    for (const row of (io?.rows ?? readVariantRows)(like, first.id).filter(r => reused.includes(r.case))) {
       for (const a of [...slots.values()].find(attempts => attempts.some(a => a.at === row.at)) ?? []) {
         cpSync(a.at, findAttemptDir(dir, a.attempt), { recursive: true });
         if (a.run) cpSync(join(a.data, a.run.id), join(dir, 'data', a.run.id), { recursive: true });
@@ -121,7 +111,7 @@ const workspace = (dir: string, w: string, k: number, io?: Io) => {
   for (const id of seen) cpSync(join(dir, 'cases', id), join(w, 'cases', id), { recursive: true });
   writeFileAtomic(join(w, 'cases.json'), Object.fromEntries(seen.map(id => [id, t.cases[id]])));
   const fit = idsOf(t.cases, 'fit');
-  for (const row of (io?.rows ?? readCandidateRows)(dir, inc.id).filter(r => fit.includes(r.case))) {
+  for (const row of (io?.rows ?? readVariantRows)(dir, inc.id).filter(r => fit.includes(r.case))) {
     const to = join(w, 'runs', row.case, `r${row.repeat}`);
     cpSync(join(row.data, row.run), join(to, 'data', row.run), { recursive: true });
     const found = readBenchRun(row.data, row.run);
@@ -138,7 +128,7 @@ const workspace = (dir: string, w: string, k: number, io?: Io) => {
         `## ${s.id}, ${s.proposer}, ${s.verdict}`,
         redact(s.why),
         redact(s.rationale),
-        ...(s.diff ? [formatCodeFence(s.diff, 'diff')] : []),
+        ...(s.base ? [formatCodeFence(readVariantDiff(dir, s), 'diff')] : []),
       ].join('\n\n')
     );
   writeFileAtomic(
@@ -334,7 +324,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
       r.slots.push({ slot: s.slot, problems: s.problems });
       continue;
     }
-    const c = propose(dir, s.graph, s.why, 'skill');
+    const c = await propose(dir, s.graph, s.why, 'skill');
     r.slots.push({ slot: s.slot, id: c.id });
   }
   if (after) guard(dir, { codex: io?.codex ?? codexUsed }, o.limits, after);
@@ -355,7 +345,7 @@ const rounds = (dir: string) =>
     .filter(n => /^r\d+$/.test(n) && existsSync(join(dir, 'skill', n, 'round.json')))
     .map(n => JSON.parse(readFileOrEmpty(join(dir, 'skill', n, 'round.json'))) as Round);
 
-const flatSince = (steps: Step[]) => {
+const flatSince = (steps: TuneStep[]) => {
   const its = [...new Set(steps.filter(s => s.iteration > 0).map(s => s.iteration))].sort((a, b) => b - a);
   const i = its.findIndex(n => steps.some(s => s.iteration === n && s.verdict === 'kept'));
   return i === -1 ? its.length : i;
