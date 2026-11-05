@@ -42,21 +42,21 @@ Working on agentgraph: [Engine and code](patterns.md), [Bench](bench.md).
 
 ## Terms
 
-| Term | Meaning |
-| --- | --- |
-| **graph** | What a repo keeps in `.agentgraph/`: settings, agents, skills, checks, workflows, scripts and plugins |
-| **agent** | A role file: harness, model, tools, allowed proposals and its system prompt |
-| **skill** | Instructions a step hands to its agent |
-| **harness** | The program that runs a session: Claude Code, Codex, opencode or pi |
-| **session** | One harness conversation and its history |
-| **workflow** | Ordered steps on an issue, started by an `on` trigger |
-| **step** | An agent with a skill, a script, or a wait for a person |
-| **check** | A script or judge agent run on a try or an ended run; its mode says whether a failed result blocks, warns or is only recorded |
-| **result** | What a check gives, a JSON object its `returns` describes, kept in the run's [check record](runs.md#the-check-record) |
-| **try** | One attempt at a step; a retry resumes its session |
-| **proposal** | A write an agent asks the engine to make, such as a comment or a push |
-| **run** | One workflow on one issue, until it is done or stopped |
-| **retro** | A workflow started by the [`feedback` trigger](workflows.md#retros) <!-- code: src/run/hear.ts#isRetro --> |
-| **trace** | A run's event log |
+| Term         | Meaning                                                                                                                       |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| **graph**    | What a repo keeps in `.agentgraph/`: settings, agents, skills, checks, workflows, scripts and plugins                         |
+| **agent**    | A role file: harness, model, tools, allowed proposals and its system prompt                                                   |
+| **skill**    | Instructions a step hands to its agent                                                                                        |
+| **harness**  | The program that runs a session: Claude Code, Codex, opencode or pi                                                           |
+| **session**  | One harness conversation and its history                                                                                      |
+| **workflow** | Ordered steps on an issue, started by an `on` trigger                                                                         |
+| **step**     | An agent with a skill, a script, or a wait for a person                                                                       |
+| **check**    | A script or judge agent run on a try or an ended run; its mode says whether a failed result blocks, warns or is only recorded |
+| **result**   | What a check gives, a JSON object its `returns` describes, kept in the run's [check record](runs.md#the-check-record)         |
+| **try**      | One attempt at a step; a retry resumes its session                                                                            |
+| **proposal** | A write an agent asks the engine to make, such as a comment or a push                                                         |
+| **run**      | One workflow on one issue, until it is done or stopped                                                                        |
+| **retro**    | A workflow started by the [`feedback` trigger](workflows.md#retros) <!-- code: src/run/hear.ts#isRetro -->                    |
+| **trace**    | A run's event log                                                                                                             |
 
 "Agent" is the role file, "agentgraph" the system, and "bot" the GitHub account that posts its writes. Issue, pull request, label, review and base keep their GitHub meanings; a run label is a `key=value` pair on a run.

@@ -52,15 +52,15 @@ A runner's runs folder moves the same way, without `graphs`, then prunes `mirror
 
 Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `repo` | the repo | The checkout the base syncs from and branches go to |
-| `base` | the branch checked out first | The branch agentgraph's base fast-forwards to |
-| `owner` | `git config user.name` at the first command, else your OS user | The author of every local verb and the only trusted login |
-| `tracker` | `folder` | The [tracker plugin](plugins.md#trackers) the instance works on, from the built-ins or its graph's `plugins/`; it keeps its files in the instance's `tracker/`, and a folder path here is refused |
-| `provider` | none | The saved [provider](cli.md#picking-a-provider) |
-| `exported` | none | Where agentgraph last wrote each ref into the repo |
-| `readonly` | off | `true` writes nothing to the repo; `--read-only` sets it |
+| Field      | Default                                                        | Meaning                                                                                                                                                                                           |
+| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`     | the repo                                                       | The checkout the base syncs from and branches go to                                                                                                                                               |
+| `base`     | the branch checked out first                                   | The branch agentgraph's base fast-forwards to                                                                                                                                                     |
+| `owner`    | `git config user.name` at the first command, else your OS user | The author of every local verb and the only trusted login                                                                                                                                         |
+| `tracker`  | `folder`                                                       | The [tracker plugin](plugins.md#trackers) the instance works on, from the built-ins or its graph's `plugins/`; it keeps its files in the instance's `tracker/`, and a folder path here is refused |
+| `provider` | none                                                           | The saved [provider](cli.md#picking-a-provider)                                                                                                                                                   |
+| `exported` | none                                                           | Where agentgraph last wrote each ref into the repo                                                                                                                                                |
+| `readonly` | off                                                            | `true` writes nothing to the repo; `--read-only` sets it                                                                                                                                          |
 
 ## The tracker folder
 
@@ -95,23 +95,23 @@ count(-1) should throw.
 
 Every run is saved first under a lock on its id, and only when no run has that id yet, so two passes that begin the same run save it once. The lock stays held while the engine posts the run's first status and its eyes reaction, so no other pass drives the run until both are saved. A run that begins waiting is saved as `unshown` until its first status lands, so a later pass posts that status when the first try fails. <!-- code: src/run/start.ts#startRun --> A run another run proposes takes a fresh id when its id is taken, and the proposal fails when three ids in a row are taken. <!-- code: src/run/start.ts#startProposedRun -->
 
-| Field | Meaning |
-| --- | --- |
-| `id`, `workflow`, `issue` | The run, its workflow and its issue; an [imported run](#imported-runs) has no issue |
-| `title`, `body` | The issue text as the run last saw it |
-| `step`, `status` | Current step and status |
-| `tries`, `rounds` | Attempts at this step, and returns per step |
-| `sessions` | The kept session of each step |
-| `feedback`, `reason` | Context for the next try or a [retro](workflows.md#retros), and why the run waits or stopped |
-| `answers` | Human answers, each with its question |
-| `comment`, `said` | The status comment, and where people last spoke |
-| `base`, `onto` | The stacked parent's pull request, and where a conflicted follow lands |
-| `graph`, `by` | Graph version last checked, and the run that dispatched this one |
-| `graphTree` | The git tree of the graph folder the run started under, kept at `refs/agentgraph/graphs/<tree>`; set once |
-| `started`, `ended` | When the run started and ended |
-| `startCommit` | The commit the run's change is measured from |
-| `meta` | Public JSON keyed by owner, including engine provenance |
-| `owed` | [End checks](checks.md#end-checks) the ended run still has to run |
+| Field                     | Meaning                                                                                                   |
+| ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `id`, `workflow`, `issue` | The run, its workflow and its issue; an [imported run](#imported-runs) has no issue                       |
+| `title`, `body`           | The issue text as the run last saw it                                                                     |
+| `step`, `status`          | Current step and status                                                                                   |
+| `tries`, `rounds`         | Attempts at this step, and returns per step                                                               |
+| `sessions`                | The kept session of each step                                                                             |
+| `feedback`, `reason`      | Context for the next try or a [retro](workflows.md#retros), and why the run waits or stopped              |
+| `answers`                 | Human answers, each with its question                                                                     |
+| `comment`, `said`         | The status comment, and where people last spoke                                                           |
+| `base`, `onto`            | The stacked parent's pull request, and where a conflicted follow lands                                    |
+| `graph`, `by`             | Graph version last checked, and the run that dispatched this one                                          |
+| `graphTree`               | The git tree of the graph folder the run started under, kept at `refs/agentgraph/graphs/<tree>`; set once |
+| `started`, `ended`        | When the run started and ended                                                                            |
+| `startCommit`             | The commit the run's change is measured from                                                              |
+| `meta`                    | Public JSON keyed by owner, including engine provenance                                                   |
+| `owed`                    | [End checks](checks.md#end-checks) the ended run still has to run                                         |
 
 ## Imported runs
 
@@ -150,18 +150,18 @@ A run label is a `key=value` pair on a run. Labels live in `<run id>/labels.json
 
 Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session share a `key`. <!-- code: src/trace.ts#Trace src/store.ts#fileStore -->
 
-| Kind | Contents |
-| --- | --- |
-| `prompt` | Harness, model, system prompt, prompt and tools |
-| `event` | Harness start (with provider and model), text, tool calls with `ms`, usage and end |
-| `session` | End reason, whether it resumed, cost, and `used` |
-| `setup` | `ms`, `exit` and `used` of setup in a checkout |
-| `env`, `cache` | The [environment](sandbox.md#environments) a checkout used, and files it cached |
-| `applied` | A proposal with its URL or why it failed |
-| `outcome` | Pass, failure, back, ask, answer or stop, and the next state |
-| `saved` | Changed state fields; `cleared` lists removed ones |
-| `spoken` | A CLI command, where it came from and where to reply |
-| `told` | Forwarded text, with the sender in `by`: a router run id or `cli` |
+| Kind           | Contents                                                                           |
+| -------------- | ---------------------------------------------------------------------------------- |
+| `prompt`       | Harness, model, system prompt, prompt and tools                                    |
+| `event`        | Harness start (with provider and model), text, tool calls with `ms`, usage and end |
+| `session`      | End reason, whether it resumed, cost, and `used`                                   |
+| `setup`        | `ms`, `exit` and `used` of setup in a checkout                                     |
+| `env`, `cache` | The [environment](sandbox.md#environments) a checkout used, and files it cached    |
+| `applied`      | A proposal with its URL or why it failed                                           |
+| `outcome`      | Pass, failure, back, ask, answer or stop, and the next state                       |
+| `saved`        | Changed state fields; `cleared` lists removed ones                                 |
+| `spoken`       | A CLI command, where it came from and where to reply                               |
+| `told`         | Forwarded text, with the sender in `by`: a router run id or `cli`                  |
 
 `used` is what the command's container reported from its cgroup as it exited: `peak` memory in bytes, `cpu` time in ms, and `oom` when the kernel killed a process of it for memory. It is missing when the container reported nothing, as on cgroup v1, after a timeout, or from a box server. Studio shows it on the session, setup and check rows. <!-- code: src/docker.ts#dockerArgs src/sandbox.ts#Exit studio/src/runs/rows.tsx -->
 
@@ -187,7 +187,7 @@ Each check's full output, the last 64K characters of a script's output or a judg
 
 A run works in a checkout, a worktree of the tracker's `origin.git` in a local instance, or of `mirror.git` in the runs folder on a runner. Its admin dir stays in that repo and its files in `cache/work/`; neither is in your repo. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. The first time it works, it keeps the graph folder, without `node_modules`, as a tree at `refs/agentgraph/graphs/<tree>` and records it as the run's `graphTree`, which never changes after; a run that cannot keep it fails like any other checkout error. <!-- code: src/git.ts#ensureGraphRef --> After every attempt, failed or empty ones too, it also commits the files at `refs/agentgraph/attempts/<run id>/<n>`, so a retry never overwrites an earlier try. A runner that starts finds the checkouts of runners that died, commits each at `refs/agentgraph/reaped/<checkout id>` and only then removes it with its index, news and scratch dirs. A sweep that repeats keeps the first commit. One it cannot save stays in `cache/work/` with a warning, and the sweep skips a checkout whose engine already failed to save it. <!-- code: src/docker.ts#dockerSandbox src/run/drive.ts#runWorkflow src/git.ts#commitCheckout src/git.ts#commitCheckoutOnce src/env.ts#findDeadCheckouts src/env.ts#removeCheckout -->
 
-A run records the resolved `checkout.branch` and `checkout.base` when it creates its checkout. One cleanup sweep per tracker pass lists local agent branches and matches those records. With a mirror of a remote origin, only branches a checkout uses count, since each fetch restores the rest. A live run or pending end check keeps its branch; a run with no checkout record protects only branches matching its issue or workflow template. Cleanup reuses merged pull request state or reads one bounded page for the remaining branch per pass, falling back to the recorded base. Older runs without a checkout record require a merged PR head that exactly equals the local branch tip. Removed branches cause no tracker lookups. Run records, traces, results, attempt refs and shared caches stay; deleting a checkout removes its own build folders and symlinks without following their targets. Normal session cleanup already removes detached and temporary plain checkouts. <!-- code: src/workflow.ts#Run src/run/drive.ts#runWorkflow src/git.ts#readBranches src/run/trigger.ts#scanIssuesAndRunningRuns src/tracker.ts#matches src/github.ts#githubTracker -->
+A run records the resolved `checkout.branch` and `checkout.base` when it creates its checkout. Its pull request is the one on that branch, and a `conflict` run it starts gets the same record. A fresh branch after a closed pull request is recorded the same way, so cleanup matches both the old and the new branch exactly. One cleanup sweep per tracker pass lists local agent branches and matches those records. With a mirror of a remote origin, only branches a checkout uses count, since each fetch restores the rest. A live run or pending end check keeps its branch; a run with no checkout record protects only branches matching its issue or workflow template. Cleanup reuses merged pull request state or reads one bounded page for the remaining branch per pass, falling back to the recorded base. Older runs without a checkout record require a merged PR head that exactly equals the local branch tip. Removed branches cause no tracker lookups. Run records, traces, results, attempt refs and shared caches stay; deleting a checkout removes its own build folders and symlinks without following their targets. Normal session cleanup already removes detached and temporary plain checkouts. <!-- code: src/workflow.ts#Run src/run/drive.ts#runWorkflow src/git.ts#readBranches src/run/trigger.ts#scanIssuesAndRunningRuns src/tracker.ts#matches src/github.ts#githubTracker -->
 
 Cleanup only removes worktrees under the engine's checkout root; any other worktree keeps its branch. Cleanup validates the checkout's regular `.git` file against its admin directory under the mirror and the admin directory's backlink and common directory. Symbolic branch refs, missing or redirected metadata, worktree config files, symlinked paths and submodule checkouts are skipped with a log. Ref deletion never follows symbolic refs. Status reads the trusted admin directory and index, with hooks and fsmonitor off, system attributes disabled and every configured clean/process filter disabled. Dirty files, assume-unchanged or skip-worktree flags, and commits outside the merged head and base keep the branch. Removal uses the same trusted Git settings without forcing, so Git refuses edits made after inspection. Ignored dependencies and build folders go with the checkout; an untracked `node_modules` symlink is unlinked first and its target stays. <!-- code: src/disk.ts#removeBranch src/git.ts#hostGit src/git.ts#readWorktreeAdmin -->
 

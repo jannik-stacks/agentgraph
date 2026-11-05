@@ -103,17 +103,17 @@ for a later engine scheduler; F1 still starts loops explicitly. Unknown fields f
 Highest priority comes first in this single precedence table.
 <!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#readInstanceEnv src/services.ts#readTrackerName -->
 
-| Value | Precedence |
-| --- | --- |
-| Tracker repository | `AGENTGRAPH_REPO`, instance `repo`, empty |
-| Trust | `AGENTGRAPH_TRUST`, instance `trust`, instance `owner`, tracker collaborators |
-| Image | `AGENTGRAPH_IMAGE`, instance `image`, graph `image`, stock sandbox image |
-| Parallel drives | instance `limits.parallel`, graph `limits.parallel` |
-| Base | `--base`, workflow `base`, instance `base`, tracker default |
-| Tracker | `--tracker`, `AGENTGRAPH_TRACKER`, App env inference, instance `tracker`, folder tracker |
-| Provider | `--provider`, `AGENTGRAPH_PROVIDER`, instance `provider`, harness config |
-| Harness config | `AGENTGRAPH_CONFIG`, data root `config.ts`, engine config |
-| Graph path | `--dir`, `AGENTGRAPH_DIR`, instance `graph`, checkout `.agentgraph/` |
+| Value              | Precedence                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------- |
+| Tracker repository | `AGENTGRAPH_REPO`, instance `repo`, empty                                                |
+| Trust              | `AGENTGRAPH_TRUST`, instance `trust`, instance `owner`, tracker collaborators            |
+| Image              | `AGENTGRAPH_IMAGE`, instance `image`, graph `image`, stock sandbox image                 |
+| Parallel drives    | instance `limits.parallel`, graph `limits.parallel`                                      |
+| Base               | `--base`, workflow `base`, instance `base`, tracker default                              |
+| Tracker            | `--tracker`, `AGENTGRAPH_TRACKER`, App env inference, instance `tracker`, folder tracker |
+| Provider           | `--provider`, `AGENTGRAPH_PROVIDER`, instance `provider`, harness config                 |
+| Harness config     | `AGENTGRAPH_CONFIG`, data root `config.ts`, engine config                                |
+| Graph path         | `--dir`, `AGENTGRAPH_DIR`, instance `graph`, checkout `.agentgraph/`                     |
 
 An explicit empty trust list trusts nobody. The runtime graph carries these resolved values;
 graph `settings.yaml` rejects `repo` and `trust`. Image and parallel remain graph defaults.

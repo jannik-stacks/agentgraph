@@ -4,12 +4,12 @@ A check looks at a try, or at an ended run, and records a result. After a sessio
 
 A check has a `run` script, an `agent` judge, or both; [the graph folder](reference.md#checks) lists the fields.
 
-| Mode | On failure |
-| --- | --- |
-| `info` | Never fails; the result is only recorded |
-| `warn` | Record it and go on |
+| Mode    | On failure                                               |
+| ------- | -------------------------------------------------------- |
+| `info`  | Never fails; the result is only recorded                 |
+| `warn`  | Record it and go on                                      |
 | `block` | Fail the try; the findings are feedback for the next one |
-| `stop` | Stop the run |
+| `stop`  | Stop the run                                             |
 
 ## Results
 
@@ -42,17 +42,17 @@ Judges start fresh. Within a run, a passed item is reused while the diff and pro
 
 Scripts run in the checkout, without network, with these variables: <!-- code: src/run/check.ts#runOneCheck -->
 
-| Variable | Contents | Given to |
-| --- | --- | --- |
-| `AGENTGRAPH_BASE` | The change's starting commit, or the branch fork point | Everything, sessions too |
-| `AGENTGRAPH_DIR` | The graph folder, read only | Everything |
-| `AGENTGRAPH_ISSUE` | Issue number | Checks and `run` steps |
-| `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals | Checks |
-| `AGENTGRAPH_CONTEXT` | Issue, pull request and human answers | Checks |
-| `AGENTGRAPH_REPLY` | The try's reply | Checks |
-| `AGENTGRAPH_TRACES` | The issue's run traces, as in [Reading traces](#reading-traces) | Checks, and `run` steps with `reads: traces` |
-| `AGENTGRAPH_RUN_TRACE` | This run's raw trace, one JSON event per line | Checks, and `run` steps with `reads: traces` |
-| `AGENTGRAPH_ITEM` | The `each` item | Checks |
+| Variable               | Contents                                                        | Given to                                     |
+| ---------------------- | --------------------------------------------------------------- | -------------------------------------------- |
+| `AGENTGRAPH_BASE`      | The change's starting commit, or the branch fork point          | Everything, sessions too                     |
+| `AGENTGRAPH_DIR`       | The graph folder, read only                                     | Everything                                   |
+| `AGENTGRAPH_ISSUE`     | Issue number                                                    | Checks and `run` steps                       |
+| `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals                                  | Checks                                       |
+| `AGENTGRAPH_CONTEXT`   | Issue, pull request and human answers                           | Checks                                       |
+| `AGENTGRAPH_REPLY`     | The try's reply                                                 | Checks                                       |
+| `AGENTGRAPH_TRACES`    | The issue's run traces, as in [Reading traces](#reading-traces) | Checks, and `run` steps with `reads: traces` |
+| `AGENTGRAPH_RUN_TRACE` | This run's raw trace, one JSON event per line                   | Checks, and `run` steps with `reads: traces` |
+| `AGENTGRAPH_ITEM`      | The `each` item                                                 | Checks                                       |
 
 "Everything" means checks, `run` steps, slicer commands and setup.
 

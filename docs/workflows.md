@@ -65,14 +65,14 @@ With several comment workflows, `/agent` starts the first. Comments without the 
 
 `/agent <text>` is always text: a start, an answer or feedback, whatever its first word. A command joins its words to `/agent` with colons and no spaces: <!-- code: src/workflow.ts#pickCommandTarget src/tracker.ts#makeCommentWithAgentRequest -->
 
-| Comment | What it does |
-| --- | --- |
-| `/agent:stop [reason]` | Ends the live run |
-| `/agent:cancel` | Parks the working step and asks how to go on |
-| `/agent:restart` | Starts the issue's newest workflow again, with its human answers |
-| `/agent:restart:<step>` | The same, from that step |
-| `/agent:<workflow> [text]` | Starts that comment workflow, or answers its live run |
-| `/agent:<workflow>:restart[:<step>]` | Starts that comment workflow again |
+| Comment                              | What it does                                                     |
+| ------------------------------------ | ---------------------------------------------------------------- |
+| `/agent:stop [reason]`               | Ends the live run                                                |
+| `/agent:cancel`                      | Parks the working step and asks how to go on                     |
+| `/agent:restart`                     | Starts the issue's newest workflow again, with its human answers |
+| `/agent:restart:<step>`              | The same, from that step                                         |
+| `/agent:<workflow> [text]`           | Starts that comment workflow, or answers its live run            |
+| `/agent:<workflow>:restart[:<step>]` | Starts that comment workflow again                               |
 
 `commands` in `settings.yaml` says who may use each command; a workflow pick counts under the workflow's name. `true` or no entry lets everyone in `trust` use it, `false` turns it off, and a list of logins keeps it to those trusted logins. The gate holds for every command, from a comment, `agi say` or a router `tell`. A command the router passes on counts as said by the router run, so a list of logins keeps it from the router. <!-- code: src/folder.ts#Graph -->
 
@@ -82,7 +82,7 @@ commands:
   stop: true
 ```
 
-A command goes to one run, even beside a router: the newest run that was live when it was said, or the live run of the workflow it names. A restart starts that run's workflow again once no run of it is live, or the issue's newest workflow when none was live.
+A command goes to one run, even beside a router: the newest run that was live when it was said, or the live run of the workflow it names. A restart starts that run's workflow again once no run of it is live, or the issue's newest workflow when none was live. When the newest pull request of the last run's branch was closed without merging, the new run works on a fresh branch from the base: the template name with the first free `-2`, `-3` suffix. The old branch and pull request stay as they are. The first session sees the closed pull request and how its run ended, and the new pull request says `Replaces #n`. Otherwise a new run keeps the branch of the last run. <!-- code: src/run/drive.ts#runWorkflow src/run/hear.ts#readEarlierBranch src/run/attempt.ts#pickTryOutcome -->
 
 A command that is unknown, names an unknown step, or is turned off or kept from its author does nothing and is not feedback. The engine answers it once on the issue with why, and with the valid commands for an unknown one. A refused `tell` fails the router's proposal with the same reason, and so does a `tell` that names a workflow with no live run. `agi check` fails a workflow named `stop`, `cancel` or `restart`, and a `commands` entry that names neither a command nor a comment workflow. <!-- code: src/run/trigger.ts#tick src/workflow.ts#compileWorkflow -->
 
@@ -191,13 +191,13 @@ A catch-up error is recorded once in the run trace. The run stays waiting and re
 
 A stacked run records its parent pull request in `base`. After a refused follow, `from` keeps the last successful base and `tip` records the branch head that failed. It retries when either head moves. An unknown tip is not recorded and does not block a retry. A refused follow adds its question after the one the run already waits on, and a later follow drops only its own. <!-- code: src/run/follow.ts#runFollow src/workflow.ts#Run -->
 
-Runs waiting at a human step are compared with their base and the graph version. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp -->
+Runs waiting at a human step are compared with their base and the graph version. A run with an open pull request that is done, or waits at another step, follows its base too, by the `follow` of its workflow's last human step. It runs no checks, keeps its state on a clean follow, and on a conflict goes back from that step. A parked run, a run already sent back onto a new base, and a run of an older restart do not catch up. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp -->
 
 If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts.
 
-A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. A second conflict at the same base asks for a manual update. <!-- code: src/run/follow.ts#moveCheckoutOnto -->
+A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. Setup runs before the markers land. A second conflict at the same base asks for a manual update. <!-- code: src/run/follow.ts#moveCheckoutOnto src/run/drive.ts#runWorkflow -->
 
-A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the same branch, so give it the same `branch`. Like a retro it shares the issue’s sticky status, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/run/follow.ts#runCatchUp src/workflow.ts#isQuiet -->
+A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the waiting run's branch. Like a retro it shares the issue’s sticky status, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/run/follow.ts#runCatchUp src/workflow.ts#isQuiet -->
 
 ## Status on the issue
 
@@ -215,13 +215,13 @@ status:
   needs-review: review-me
 ```
 
-| Label                     | When                                                                               |
-| --- | --- |
-| `agentgraph:working`      | A step runs, or a run waits on a run it started                                    |
-| `agentgraph:needs-review` | A run waits at a `wait: human` step with a pull request to review and merge        |
-| `agentgraph:needs-answer` | A run asked a question, waits with no pull request, or paused on a runner error    |
-| `agentgraph:done`         | The latest run finished                                                            |
-| `agentgraph:stopped`      | The latest run stopped                                                             |
+| Label                     | When                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `agentgraph:working`      | A step runs, or a run waits on a run it started                                 |
+| `agentgraph:needs-review` | A run waits at a `wait: human` step with a pull request to review and merge     |
+| `agentgraph:needs-answer` | A run asked a question, waits with no pull request, or paused on a runner error |
+| `agentgraph:done`         | The latest run finished                                                         |
+| `agentgraph:stopped`      | The latest run stopped                                                          |
 
 With several runs on one issue, a waiting run wins over a working one. After each change, [status hooks](plugins.md#status-hooks) hear about it. <!-- code: src/context.ts#proposeStatusUpdates src/run/settle.ts#announce -->
 

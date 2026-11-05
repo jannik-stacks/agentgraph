@@ -85,7 +85,8 @@ export const runFollow = (
   }).pipe(Effect.scoped);
 
 /**
- * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the graph. A branch
+ * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the graph. A done run,
+ * or one waiting at another step, only follows its base as its workflow's last human step would. A branch
  * behind its base follows it with no model, by a merge or a rebase as the step's `follow` says, or stays where it is
  * when that says none. When the change stays the same, the step's own checks run again, scripts first and judged ones
  * only once those pass; a changed change or a new graph runs every check of the step it goes back to. A failed check
