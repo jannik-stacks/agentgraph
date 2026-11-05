@@ -66,7 +66,7 @@ the starting score from `node bin/tune.ts status T`.
 ## 4. One round
 
 Read the incumbent at `T/cands/<id>/graph` (the last `kept` line of `T/iterations.jsonl`), the traces and
-diffs of its fit cases below 1 (the runs under `T/runs/` labelled `cand=<id>`), and the mine cases' merged
+diffs of its fit cases below 1 (the runs under `T/data/` labelled `cand=<id>`), and the mine cases' merged
 diffs and `reviews.md`. Then launch 3 to 5 subagents (opus) in one message, each with its own direction:
 
 - **Structure**: add or drop a step, `tries` 2 to 3, a scout before implement, a check from `block` to
