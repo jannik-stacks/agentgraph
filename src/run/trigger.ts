@@ -501,7 +501,7 @@ export const tick = (
           return last?.kind === 'label' && last.trusted;
         })
       );
-    /** Begins `w` on `issue`. A restart begins at the step it names, else the first, with the answers of the last run there. */
+    /** Begins `w` on `issue`. A restart begins at the step it names, else the first, with the answers and reports of the last run there. */
     const start = (w: Workflow, issue: number, at: string, m?: Event, restart?: string) =>
       Effect.gen(function* () {
         const last = all
@@ -515,7 +515,16 @@ export const tick = (
         });
         const seen = pickNewest(...restarts.map(n => n.at));
         const begun = {
-          ...begin(w, { id: makeRunId(w, issue, at), issue, started: at }, step),
+          ...begin(
+            w,
+            {
+              id: makeRunId(w, issue, at),
+              issue,
+              started: at,
+              ...(restart !== undefined && last?.reported && { reported: last.reported }),
+            },
+            step
+          ),
           ...supplied,
           ...(seen && seen > at && { seen }),
           ...(m?.kind === 'comment' && { said: heard([m]) }),

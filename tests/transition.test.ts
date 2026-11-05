@@ -72,6 +72,16 @@ describe('transition, running', () => {
     expect(transition(w, at('review'), { kind: 'back', why: 'capture again' }).feedback).not.toContain(text);
   });
 
+  it('keeps carried reply text on the run, so a restart at a later step gets it again', () => {
+    const flow = { ...w, steps: w.steps.map(s => ({ ...s, carry: s.name === 'triage' })) };
+    const next = transition(flow, at('triage'), { kind: 'pass', text: 'summary' });
+    const stopped = transition(flow, transition(flow, next, { kind: 'pass' }), { kind: 'stop', why: 'restarted' });
+    expect(stopped.reported).toEqual({ triage: 'summary' });
+    const again = { id: 'r2', issue: 7, started: '2026-10-16T00:01:00Z', reported: { triage: 'summary' } };
+    expect(begin(flow, again, flow.steps[1]).feedback).toBe('## What the triage step reported\n\nsummary');
+    expect(begin(flow, again).feedback).toBeUndefined();
+  });
+
   it('pass into a wait step: waiting', () => {
     expect(transition(w, at('review'), { kind: 'pass' })).toMatchObject({ step: 'merge', status: 'waiting' });
   });
