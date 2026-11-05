@@ -454,6 +454,25 @@ describe('dispatch', () => {
     });
   });
 
+  it('tells the router a run it started waits for review when that run waits without a question', async () => {
+    const where = world();
+    mention(where, '/agent size this');
+    const first = await run(where, [turn({ kind: 'run', workflow: 'triage', issue: 1 })], tick(graph));
+    const router = first.value[0]!;
+    const child = (await runs(where)).find(r => r.workflow === 'triage')!;
+    await Effect.runPromise(
+      Effect.flatMap(Store, s => s.put({ ...child, status: 'waiting' })).pipe(Effect.provide(fileStore(where.data)))
+    );
+    await run(where, [turn({ kind: 'comment', body: 'Sized; over to you.' })], tick(graph));
+    const trace = await Effect.runPromise(
+      Effect.flatMap(Store, s => Stream.runCollect(s.read(router.id))).pipe(Effect.provide(fileStore(where.data)))
+    );
+    expect(trace.flatMap(t => ('outcome' in t ? [t.outcome] : []))).toContainEqual({
+      kind: 'answer',
+      text: 'triage on #1 waits for review',
+    });
+  });
+
   it('hands /agent beside a live triage to the router, which tells the triage to stop', async () => {
     const where = world();
     const triage = {
