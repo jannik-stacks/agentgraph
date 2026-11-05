@@ -334,7 +334,12 @@ describe('runStepChecks', () => {
     const { outcome } = await run(runStepChecks(step, left, kit));
     expect(outcome).toMatchObject({
       kind: 'failed',
-      checks: [{ check: 'claims', findings: '21 items, more than 20' }],
+      checks: [
+        {
+          check: 'claims',
+          findings: ['21 items, more than 20:', ...Array.from({ length: 21 }, (_, i) => `${i + 1}`)].join('\n'),
+        },
+      ],
     });
     expect(specs).toHaveLength(0);
   });

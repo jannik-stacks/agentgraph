@@ -4,12 +4,12 @@ A check looks at a try, or at an ended run, and records a result. After a sessio
 
 A check has a `run` script, an `agent` judge, or both; [the graph folder](reference.md#checks) lists the fields.
 
-| Mode | On failure |
-| --- | --- |
-| `info` | Never fails; the result is only recorded |
-| `warn` | Record it and go on |
+| Mode    | On failure                                               |
+| ------- | -------------------------------------------------------- |
+| `info`  | Never fails; the result is only recorded                 |
+| `warn`  | Record it and go on                                      |
 | `block` | Fail the try; the findings are feedback for the next one |
-| `stop` | Stop the run |
+| `stop`  | Stop the run                                             |
 
 ## Results
 
@@ -34,7 +34,7 @@ A result that cannot be read or does not match `returns` fails the check, except
 
 A judge reads the diff, the item or the script's output, and calls the `result` tool, whose input is `returns`; a call that does not match is refused with the reason. A judge that stops without a result is asked once more, and one that crashes is retried once. If none comes, a `block` or `stop` check parks the run as a runner error, and an `info` or `warn` check records it. <!-- code: src/run/execute.ts#runJudge src/result.ts#makeResultServer -->
 
-With `each`, a judge answers every item on its own, and any failed item fails the check. No items passes; more than `max` fail as one finding; a failing slicer command fails with its output.
+With `each`, a judge answers every item on its own, and any failed item fails the check. No items passes; more than `max` fail as one finding that lists the first line of each item; a failing slicer command fails with its output.
 
 Judges start fresh. Within a run, a passed item is reused while the diff and prompt stay the same; failed items, changed checks, new answers and restarts judge again. Judges that read traces or have their own `returns` are never reused. <!-- code: src/run/check.ts#passes src/graph.ts#makeWorkflowGraph -->
 
@@ -42,17 +42,17 @@ Judges start fresh. Within a run, a passed item is reused while the diff and pro
 
 Scripts run in the checkout, without network, with these variables: <!-- code: src/run/check.ts#runOneCheck -->
 
-| Variable | Contents | Given to |
-| --- | --- | --- |
-| `AGENTGRAPH_BASE` | The change's starting commit, or the branch fork point | Everything, sessions too |
-| `AGENTGRAPH_DIR` | The graph folder, read only | Everything |
-| `AGENTGRAPH_ISSUE` | Issue number | Checks and `run` steps |
-| `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals | Checks |
-| `AGENTGRAPH_CONTEXT` | Issue, pull request and human answers | Checks |
-| `AGENTGRAPH_REPLY` | The try's reply | Checks |
-| `AGENTGRAPH_TRACES` | The issue's run traces, as in [Reading traces](#reading-traces) | Checks, and `run` steps with `reads: traces` |
-| `AGENTGRAPH_RUN_TRACE` | This run's raw trace, one JSON event per line | Checks, and `run` steps with `reads: traces` |
-| `AGENTGRAPH_ITEM` | The `each` item | Checks |
+| Variable               | Contents                                                        | Given to                                     |
+| ---------------------- | --------------------------------------------------------------- | -------------------------------------------- |
+| `AGENTGRAPH_BASE`      | The change's starting commit, or the branch fork point          | Everything, sessions too                     |
+| `AGENTGRAPH_DIR`       | The graph folder, read only                                     | Everything                                   |
+| `AGENTGRAPH_ISSUE`     | Issue number                                                    | Checks and `run` steps                       |
+| `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals                                  | Checks                                       |
+| `AGENTGRAPH_CONTEXT`   | Issue, pull request and human answers                           | Checks                                       |
+| `AGENTGRAPH_REPLY`     | The try's reply                                                 | Checks                                       |
+| `AGENTGRAPH_TRACES`    | The issue's run traces, as in [Reading traces](#reading-traces) | Checks, and `run` steps with `reads: traces` |
+| `AGENTGRAPH_RUN_TRACE` | This run's raw trace, one JSON event per line                   | Checks, and `run` steps with `reads: traces` |
+| `AGENTGRAPH_ITEM`      | The `each` item                                                 | Checks                                       |
 
 "Everything" means checks, `run` steps, slicer commands and setup.
 

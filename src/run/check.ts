@@ -267,7 +267,18 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
       listed instanceof EachFailed
         ? [{ item: undefined, pass: info, findings: `each failed: ${listed.detail}`, unread: true, usd: 0 }]
         : over
-          ? [{ item: undefined, pass: info, findings: `${items.length} items, more than ${max}`, unread: true, usd: 0 }]
+          ? [
+              {
+                item: undefined,
+                pass: info,
+                findings: [
+                  `${items.length} items, more than ${max}:`,
+                  ...items.map(i => (i ?? '').split('\n')[0]),
+                ].join('\n'),
+                unread: true,
+                usd: 0,
+              },
+            ]
           : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
     const usd = results.reduce((sum, r) => sum + r.usd, 0);
     const noted = results.filter(r => !r.pass || r.unread);
