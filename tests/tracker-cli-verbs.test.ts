@@ -185,7 +185,7 @@ describe('the human verbs on a tracker folder', () => {
       .filter(Boolean)
       .map(l => JSON.parse(l) as { outcome?: { kind: string; why?: string } })
       .flatMap(l => (l.outcome?.kind === 'back' ? [l.outcome.why] : []));
-    expect(backs).toEqual(['see the line note\nhello.txt:1: say hello world']);
+    expect(backs).toEqual([expect.stringMatching(/^see the line note\nhello.txt:1, id \S+: say hello world$/)]);
   });
 
   it('runs a stacked issue on the pull request of the one it stacks on', async () => {
