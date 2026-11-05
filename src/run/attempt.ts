@@ -28,7 +28,6 @@ import {
   readHeardOutcome,
   makeToldEvent,
   readContinuedRun,
-  findPullNumber,
   readEarlierBranch,
 } from './hear.ts';
 import {
@@ -532,9 +531,7 @@ export const runAttempt = (
     if (gated.kind !== 'pass') return done(gated, tried);
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
-    const to = world.some(p => p.kind === 'comment' && (!run.said || p.under !== undefined))
-      ? findPullNumber(w, run, yield* Effect.flatMap(Tracker, f => f.issues({ state: 'open' })))
-      : undefined;
+    const to = t.pull?.number;
     const runs = world.filter(p => p.kind === 'run');
     const tells = yield* Effect.forEach(
       world.filter(p => p.kind === 'tell'),
