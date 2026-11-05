@@ -77,7 +77,7 @@ Sessions, script checks, fan-out commands and setup share permits. Each releases
 | `steps` | map of step name to step | one agent step named after the file | Steps in written order |
 | `checks` | list of check names | none | [End checks](checks.md#end-checks) |
 
-A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
+The `issues`, `issue_comment` and `pull_request` triggers hold: <!-- code: src/workflow.ts#Trigger -->
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -86,7 +86,9 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 | `project` | `owner/number` | The one board `column` reads; any board of the repo owner when unset |
 | `branches` | list of names | Accepted, starts nothing yet |
 
-`dispatch` takes no fields: `on: { issues: { label: triage }, dispatch }`. It lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. `feedback` starts on comments, reviews and pushes where a run worked, and on each run that ends, except retros, the router's runs and runs that ended over a day ago. Its one field, `restarts: true`, also starts it on runs that `/agent:restart` stopped. See [Dispatch](workflows.md#dispatch) and [Retros](workflows.md#retros). <!-- code: src/run/trigger.ts#feedback -->
+`dispatch` takes no fields: `on: { issues: { label: triage }, dispatch }`. It lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. See [Dispatch](workflows.md#dispatch).
+
+`feedback` starts a [retro](workflows.md#retros). Its optional `restarts` field defaults to `false`; set it to `true` to include runs stopped by `/agent:restart`: `on: { feedback: { restarts: true } }`. <!-- code: src/run/trigger.ts#feedback src/run/hear.ts#findSettledRuns src/workflow.ts#Front -->
 
 ## Steps
 

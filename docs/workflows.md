@@ -243,8 +243,12 @@ Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, th
 
 ## Retros
 
-`on: feedback` starts a retro on trusted comments, change requests, approvals with a comment, and commits people push where a run worked, also after merge. A command without text, such as `/agent:stop`, is not feedback. Feedback is batched after 30 seconds of quiet. <!-- code: src/run/trigger.ts#feedback -->
+Feedback is what people say about work and how runs end. The `feedback` trigger starts a workflow, usually called a retro, so the graph can learn from both. <!-- code: src/run/trigger.ts#feedback src/run/hear.ts#findSettledRuns -->
 
-A run that ends is feedback too: when a run is done or stopped, after a merge, a stop or a closed pull request, one retro reads how it went. The router's runs, retros and runs that ended over a day ago start none. A run stopped by `/agent:restart` goes on as a new run, so it starts none unless the retro asks for restarts: `on: { feedback: { restarts: true } }`. What is said and what ended in the same look share one retro. A run that waits on a question starts none until a person answers or stops it. <!-- code: src/run/hear.ts#findSettledRuns -->
+`on: feedback` starts a retro on trusted comments, change requests, approvals with a comment, and commits people push where a run worked, also after merge. A command without text, such as `/agent:stop`, is not feedback. Feedback is batched after 30 seconds of quiet. <!-- code: src/run/trigger.ts#feedback src/run/trigger.ts#issueDebounceMs -->
+
+A run that ends is feedback too. When a run is done or stopped, including after a merge, a stop or a closed pull request, a retro reads how it went. Retros, the router's runs and runs that ended over a day ago start none. A run stopped by `/agent:restart` goes on as a new run, so it starts none unless the workflow sets `on: { feedback: { restarts: true } }`. <!-- code: src/run/hear.ts#findSettledRuns -->
+
+What is said and what ended on the same issue in one look share one retro. Waiting on a question alone starts none; a person must answer or stop the run. <!-- code: src/run/trigger.ts#tick src/workflow.ts#isRunDone -->
 
 A retro never holds an issue, shares its sticky status without changing labels, skips setup, and stops where another workflow would wait. Its problems remain visible in the sticky and `show`. It ends with nothing, a [graph change](proposals.md#filing-issues) for a recurring miss, or a follow-up issue. <!-- code: src/workflow.ts#transition -->

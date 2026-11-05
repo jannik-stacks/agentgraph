@@ -11,7 +11,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | Verb | What it does | As a runner |
 | --- | --- | --- |
 | `start "<text>"` | Files the text as an issue and drives it. The first line is the title. <!-- code: src/main.ts#writeTriggeringIssue --> | |
-| `say <n> "<text>"` | Comments `/agent <text>` on issue n and drives it: an answer or feedback. Text that starts with a colon is a [command](workflows.md#commands): `say 12 ":restart:implement"` comments `/agent:restart:implement` <!-- code: src/tracker.ts#formatAgentComment --> | |
+| `say <n> "<text>"` | Comments `/agent <text>` on issue n and drives it: an answer or [feedback](workflows.md#retros). Text that starts with a colon is a [command](workflows.md#commands): `say 12 ":restart:implement"` comments `/agent:restart:implement` <!-- code: src/tracker.ts#formatAgentComment --> | |
 | `review <n> approve` | Approves the pull request of issue n | |
 | `review <n> changes "<why>"` | Requests changes, with any line comments made before, and drives the issue | |
 | `merge <n>` | Moves the base to the pull request's head, retargets stacked pull requests, closes the issue and writes the branch into your repo; fails if the base moved past it <!-- code: src/instance.ts#mergePull --> | |
@@ -28,7 +28,7 @@ The issue number is the handle; a pull request's own number works too. <!-- code
 | `label <run id> [k=v\|k-]...` | Sets or removes [run labels](runs.md#run-labels), then prints them <!-- code: src/labels.ts#parseLabelPatch --> | yes |
 | `import <commit>\|<patch> [<issue file>]` | Keeps a change made elsewhere as an [imported run](runs.md#imported-runs) and prints its ID | |
 
-`resume` keeps the run ID, step, saved files, sessions and feedback. It clears the runner error and records a retry locally; it posts no comment. Human questions, cancelled runs and ended runs are excluded. A running `loop` picks it up on its next pass; `loop --once` makes one pass. Retros remain quiet when they run again. As a GitHub runner, use the same graph and runs folder as the loop:
+`resume` keeps the run ID, step, saved files, sessions and feedback. It clears the runner error and records a retry locally; it posts no comment. Human questions, cancelled runs and ended runs are excluded. A running `loop` picks it up on its next pass; `loop --once` makes one pass. [Retros](workflows.md#retros) remain quiet when they run again. As a GitHub runner, use the same graph and runs folder as the loop:
 
 ```sh
 agi resume --parked --tracker github --dir <graph> --data <runs>
