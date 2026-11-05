@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { readRunLabels } from '../src/labels.ts';
 import { getRunOrigin } from '../src/meta.ts';
@@ -8,7 +8,7 @@ import { getRounded } from '../src/stats.ts';
 import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
 import type { RunRecord } from '../src/workflow.ts';
 import type { ResultSheet } from '../src/results.ts';
-import { readJsonlRows, readRecordSync } from '../src/store.ts';
+import { readJsonlRows, readRecordSync, writeFileAtomic } from '../src/store.ts';
 import { getSha } from '../src/hash.ts';
 
 export type BenchInput = {
@@ -18,36 +18,81 @@ export type BenchInput = {
   point?: string;
   graph?: string;
   labels?: Record<string, string>;
+  attempt?: number;
 };
 
 export const referenceArms = ['base', 'human'];
 
-export const getBenchSlot = (set: string, input: BenchInput) =>
-  join(
-    set,
-    'runs',
-    `${input.case}-${input.arm}-r${input.repeat}-${getSha(JSON.stringify([input.case, input.arm, input.repeat, input.point ?? '', input.graph ?? '', ...(input.labels ? [Object.entries(input.labels).toSorted()] : [])]), 8)}`
-  );
+export const getBenchSlot = (input: BenchInput) =>
+  `${input.case}-${input.arm}-r${input.repeat}-${getSha(JSON.stringify([input.case, input.arm, input.repeat, input.point ?? '', input.graph ?? '', ...(input.labels ? [Object.entries(input.labels).toSorted()] : [])]), 8)}`;
 
-export const readBenchAttempts = (slot: string) =>
-  (existsSync(slot) ? readdirSync(slot) : [])
-    .filter(name => /^\d+$/.test(name))
+export const findAttemptDir = (set: string, attempt: number) => join(set, 'attempts', String(attempt));
+
+export const findSlotLock = (set: string, input: BenchInput) => join(set, 'locks', getBenchSlot(input));
+
+const readBenchInput = (run: Pick<RunRecord, 'meta'>) =>
+  (getRunOrigin(run.meta)?.input ?? undefined) as Partial<BenchInput> | undefined;
+
+export const makeBenchAttempt = (set: string, input: BenchInput) => {
+  const root = join(set, 'attempts');
+  mkdirSync(root, { recursive: true });
+  for (;;) {
+    const attempt =
+      Math.max(
+        0,
+        ...readdirSync(root)
+          .filter(n => /^\d+$/.test(n))
+          .map(Number)
+      ) + 1;
+    const at = findAttemptDir(set, attempt);
+    try {
+      mkdirSync(at);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw e;
+    }
+    const pinned = { ...input, attempt };
+    writeFileAtomic(join(at, 'input.json'), pinned);
+    return { at, input: pinned };
+  }
+};
+
+export const readBenchSlots = (set: string) => {
+  const data = join(set, 'data');
+  const runs = new Map<number, RunRecord>();
+  for (const id of existsSync(data) ? readdirSync(data) : []) {
+    const json = readRecordSync(join(data, id, 'run.json'));
+    const run = json ? (JSON.parse(json) as RunRecord) : undefined;
+    const attempt = run && readBenchInput(run)?.attempt;
+    const was = attempt === undefined ? undefined : runs.get(attempt);
+    if (run && attempt !== undefined && (!was || was.started.localeCompare(run.started) <= 0)) runs.set(attempt, run);
+  }
+  const root = join(set, 'attempts');
+  const attempts = (existsSync(root) ? readdirSync(root) : [])
+    .filter(n => /^\d+$/.test(n))
     .map(Number)
     .toSorted((a, b) => a - b)
-    .map(n => join(slot, String(n)));
-
-export const makeNextAttempt = (slot: string) =>
-  join(slot, String(Number(basename(readBenchAttempts(slot).at(-1) ?? '0')) + 1));
-
-export const readAttemptRun = (at: string) => {
-  const data = join(at, 'data');
-  const runs = (existsSync(data) ? readdirSync(data) : []).flatMap(id => {
-    const json = readRecordSync(join(data, id, 'run.json'));
-    return json ? [JSON.parse(json) as RunRecord] : [];
-  });
-  const run = runs.toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
-  return run && { run, data };
+    .flatMap(attempt => {
+      const input = JSON.parse(
+        readRecordSync(join(root, String(attempt), 'input.json')) || 'null'
+      ) as BenchInput | null;
+      const run = runs.get(attempt);
+      return input
+        ? [{ slot: getBenchSlot(input), attempt, at: findAttemptDir(set, attempt), data, ...(run && { run }) }]
+        : [];
+    });
+  return Map.groupBy(attempts, a => a.slot);
 };
+
+type BenchSlots = ReturnType<typeof readBenchSlots>;
+
+export const readSlotRun = (set: string, input: BenchInput, slots: BenchSlots = readBenchSlots(set)) => {
+  const last = slots.get(getBenchSlot(input))?.at(-1);
+  return last?.run && { run: last.run, data: last.data, at: last.at };
+};
+
+export const readBenchRun = (data: string, id: string) =>
+  JSON.parse(readRecordSync(join(data, id, 'run.json')) || 'null') as RunRecord | null;
 
 export const readRunChange = (at: string, run: Pick<RunRecord, 'id' | 'startCommit'>) => {
   const r =
@@ -63,27 +108,30 @@ export const readRunChange = (at: string, run: Pick<RunRecord, 'id' | 'startComm
 export const readLatestRunChecks = (data: string, id: string) =>
   new Map(findLatestChecks(readJsonlRows(join(data, id, 'checks.jsonl')) as CheckEntry[]).map(e => [e.check.check, e]));
 
-const readSlotChecks = (slot: string) => {
-  const at = readBenchAttempts(slot).at(-1);
-  const found = at && readAttemptRun(at);
+const readSlotChecks = (set: string, input: BenchInput, slots: BenchSlots) => {
+  const found = readSlotRun(set, input, slots);
   return found ? readLatestRunChecks(found.data, found.run.id) : new Map<string, CheckEntry>();
 };
 
-export const isBenchCaseValid = (set: string, id: string) =>
-  readSlotChecks(getBenchSlot(set, { case: id, arm: 'human', repeat: 1 })).get('bench/valid')?.check.pass;
+export const isBenchCaseValid = (set: string, id: string, slots: BenchSlots = readBenchSlots(set)) =>
+  readSlotChecks(set, { case: id, arm: 'human', repeat: 1 }, slots).get('bench/valid')?.check.pass;
 
-export const isBenchRunDone = (set: string, input: BenchInput, judged: boolean) => {
-  if (isBenchCaseValid(set, input.case) === false) return true;
-  const checks = readSlotChecks(getBenchSlot(set, input));
+export const isBenchRunDone = (
+  set: string,
+  input: BenchInput,
+  judged: boolean,
+  slots: BenchSlots = readBenchSlots(set)
+) => {
+  if (isBenchCaseValid(set, input.case, slots) === false) return true;
+  const checks = readSlotChecks(set, input, slots);
   const armed = checks.get('bench/arm');
   if (!armed) return false;
   return !armed.check.pass || (checks.has('bench/hidden') && (!judged || checks.has('bench/judge')));
 };
 
-export const readDataUsage = (data: string) => {
-  const ids = existsSync(data) ? readdirSync(data) : [];
-  const traces = ids.flatMap(id => readJsonlRows(join(data, id, 'trace.jsonl')) as Record<string, unknown>[]);
-  const checks = ids.flatMap(id => readJsonlRows(join(data, id, 'checks.jsonl')) as CheckEntry[]);
+export const readRunUsage = (data: string, id: string) => {
+  const traces = readJsonlRows(join(data, id, 'trace.jsonl')) as Record<string, unknown>[];
+  const checks = readJsonlRows(join(data, id, 'checks.jsonl')) as CheckEntry[];
   const sessions = traces.flatMap(t => (t.session ? [t.session as { usd: number }] : []));
   const models: Record<string, string> = {};
   const tokens: Record<string, TokenCounts> = {};
@@ -134,6 +182,8 @@ export const getBenchUsageCost = (u: { usd?: number; tokens?: Record<string, Tok
 };
 
 const skippedDirs = new Set([
+  'attempts',
+  'cache',
   'cases',
   'graph',
   'homes',
@@ -142,6 +192,7 @@ const skippedDirs = new Set([
   'news',
   'node_modules',
   'repos',
+  'runs',
   'scratch',
   'tracker',
   'tree',
@@ -162,17 +213,16 @@ export const findBenchRuns = (roots: readonly string[]) =>
   [...new Set(roots.flatMap(root => (existsSync(root) ? findRunFiles(root, 9) : [])))].flatMap(file => {
     const run = JSON.parse(readRecordSync(file)) as RunRecord;
     const data = dirname(dirname(file));
-    const at = dirname(data);
-    const slotted =
-      basename(data) === 'data' && /^\d+$/.test(basename(at)) && basename(dirname(dirname(at))) === 'runs';
+    const input = readBenchInput(run);
+    const set = input?.attempt !== undefined && basename(data) === 'data' ? dirname(data) : undefined;
     return [
       {
         run,
         data,
-        at,
-        slot: slotted ? dirname(at) : file,
-        attempt: slotted ? Number(basename(at)) : 0,
-        set: slotted ? dirname(dirname(dirname(at))) : undefined,
+        at: set ? findAttemptDir(set, input!.attempt!) : dirname(data),
+        slot: set ? join(set, getBenchSlot(input as BenchInput)) : file,
+        attempt: input?.attempt ?? 0,
+        set,
         latest: readLatestRunChecks(data, run.id),
       },
     ];
@@ -242,9 +292,9 @@ const readRow = (
     | undefined;
   const usage = [found, ...earlier].map(f => {
     const value = f.latest.get('bench/arm')?.check.value as
-      | { ms?: number; usage?: Partial<ReturnType<typeof readDataUsage>> }
+      | { ms?: number; usage?: Partial<ReturnType<typeof readRunUsage>> }
       | undefined;
-    const u = { ...readDataUsage(f.data), ...value?.usage };
+    const u = { ...readRunUsage(f.data, f.run.id), ...value?.usage };
     return { ...u, ms: value?.ms ?? u.ms, split: { infra: 0, ...u.split } };
   });
   const tokens: Record<string, TokenCounts> = {};

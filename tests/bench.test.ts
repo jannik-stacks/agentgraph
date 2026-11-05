@@ -35,18 +35,21 @@ import {
   writeArmGraph,
   makeBenchInput,
   readBenchCase,
+  writeAttemptImport,
 } from '../bin/bench.ts';
 import { faked } from './fixtures.ts';
 import {
   type BenchInput,
+  findAttemptDir,
   getBenchSlot,
   getBenchUsageCost,
   isBenchRunDone,
-  readAttemptRun,
+  makeBenchAttempt,
   readBenchRows,
+  readBenchSlots,
   readLatestRunChecks,
+  readSlotRun,
 } from '../bench/runs.ts';
-import { writeImportedRun } from '../src/instance.ts';
 import { git, tmp } from './kit.ts';
 import { getRounded } from '../src/stats.ts';
 
@@ -354,20 +357,15 @@ const makeSumCase = (root: string, fields: object = {}) => {
 };
 
 const addArmRun = async (set: string, repo: string, base: string, input: BenchInput, patch: string) => {
-  const at = join(getBenchSlot(set, input), '1');
-  mkdirSync(at, { recursive: true });
-  git(at, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
+  const made = makeBenchAttempt(set, input);
+  const { at } = made;
   writeFileSync(join(at, 'change.patch'), `${patch}\n`);
-  const data = join(at, 'data');
-  const id = await writeImportedRun(
-    { checkout: repo, tracker: join(at, 'tracker'), data },
-    patch ? join(at, 'change.patch') : base,
-    {
-      version: 't',
-      from: base,
-      input,
-    }
-  );
+  const data = join(set, 'data');
+  const id = await writeAttemptImport(set, at, made.input, {
+    repo,
+    base,
+    change: patch ? join(at, 'change.patch') : base,
+  });
   const trace = [
     { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', harness: 'opencode', model: 'smart' } },
     { at: '2026-10-22T10:00:30.000Z', key: 'k', event: { type: 'usage', input: 100, cacheRead: 90, output: 5 } },
@@ -383,8 +381,7 @@ const addArmRun = async (set: string, repo: string, base: string, input: BenchIn
 };
 
 const readSlotResults = (set: string, input: BenchInput) => {
-  const at = join(getBenchSlot(set, input), '1');
-  const found = readAttemptRun(at)!;
+  const found = readSlotRun(set, input)!;
   return Object.fromEntries([...readLatestRunChecks(found.data, found.run.id)].map(([k, e]) => [k, e]));
 };
 
@@ -461,6 +458,13 @@ describe('bin/bench.ts score and judge', () => {
       'bench/size': { value: { testsAdded: 1, overlap: 1 } },
       'bench/valid': { pass: true },
     });
+    const attempts = [...readBenchSlots(set).values()].flat();
+    expect(attempts.map(a => a.attempt).toSorted((a, b) => a - b)).toEqual(attempts.map((_, i) => i + 1));
+    expect(
+      attempts.map(a =>
+        git(join(a.at, 'tracker', 'origin.git'), 'for-each-ref', '--format=%(refname)', 'refs/agentgraph/runs')
+      )
+    ).toEqual(attempts.map(a => `refs/agentgraph/runs/${a.run!.id}`));
     const ends = () =>
       readFileSync(join(set, 'log.jsonl'), 'utf8')
         .split('\n')
@@ -577,7 +581,7 @@ describe('bin/bench.ts score and judge', () => {
     writeFileSync(join(root, 'keys.env'), 'AGENTGRAPH_PROXY_KEYS=implementor=k\n');
     writeFileSync(join(set, 'budget.json'), JSON.stringify({ now: 0, at: Date.now() }));
     const input = makeBenchInput(readBenchCase(kase), 'v2', 1, { graph });
-    for (const n of [1, 2, 3, 4, 5]) mkdirSync(join(getBenchSlot(set, input), String(n)), { recursive: true });
+    for (const _ of [1, 2, 3, 4, 5]) makeBenchAttempt(set, input);
     const run = () =>
       spawnSync(
         process.execPath,
@@ -589,11 +593,12 @@ describe('bin/bench.ts score and judge', () => {
       );
     const first = run();
     expect(first.status, first.stderr).toBe(0);
-    const found = readAttemptRun(join(getBenchSlot(set, input), '6'))!;
+    const found = readSlotRun(set, input)!;
+    expect(found.at).toBe(findAttemptDir(set, 6));
     expect(readLatestRunChecks(found.data, found.run.id).get('bench/arm')!.check).toMatchObject({ pass: false });
     expect(isBenchRunDone(set, input, true)).toBe(true);
     expect(run().status).toBe(0);
-    expect(existsSync(join(getBenchSlot(set, input), '7'))).toBe(false);
+    expect(existsSync(findAttemptDir(set, 7))).toBe(false);
   });
 
   it('typechecks a case without hidden tests and calls it invalid when the human fails it', () => {
@@ -674,7 +679,7 @@ describe('arm graphs', () => {
     const before = makeBenchInput(c, 'v2', 1, { point: 'opencode:luna', graph });
     writeFileSync(join(graph, 'settings.yaml'), 'image: b\n');
     const after = makeBenchInput(c, 'v2', 1, { point: 'opencode:luna', graph });
-    expect(getBenchSlot('set', before)).not.toBe(getBenchSlot('set', after));
+    expect(getBenchSlot(before)).not.toBe(getBenchSlot(after));
     expect(makeBenchInput(c, 'v2', 1).graph).toMatch(/^[0-9a-f]{40}$/);
     git(graph, 'init', '-q');
     git(graph, 'add', '-A');
@@ -685,8 +690,8 @@ describe('arm graphs', () => {
     const alpha = makeBenchInput(c, 'v2', 1, { graph }).graph;
     renameSync(join(graph, 'skills', 'alpha'), join(graph, 'skills', 'beta'));
     expect(makeBenchInput(c, 'v2', 1, { graph }).graph).not.toBe(alpha);
-    expect(getBenchSlot('set', makeBenchInput(c, 'v2', 1, { graph, labels: { cand: 'a' } }))).not.toBe(
-      getBenchSlot('set', makeBenchInput(c, 'v2', 1, { graph, labels: { cand: 'b' } }))
+    expect(getBenchSlot(makeBenchInput(c, 'v2', 1, { graph, labels: { cand: 'a' } }))).not.toBe(
+      getBenchSlot(makeBenchInput(c, 'v2', 1, { graph, labels: { cand: 'b' } }))
     );
     expect(makeBenchInput(c, 'human', 1, { point: 'opencode:luna', graph })).toEqual({
       case: 'demo',

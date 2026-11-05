@@ -272,12 +272,12 @@ export const findIssueDir = (dir: string, n: number) => {
   );
 };
 
-const fileIssue = async (dir: string, front: IssueFront, body: string): Promise<number> => {
+const fileIssue = async (dir: string, front: IssueFront, body: string, first = 1): Promise<number> => {
   const draft = join(dir, `.new-${randomUUID()}`);
   await mkdir(draft, { recursive: true });
   await writeFile(join(draft, 'issue.md'), formatIssueFile({ state: 'open', ...front }, body));
   for (;;) {
-    const number = Math.max(0, ...findIssueNumbers(dir)) + 1;
+    const number = Math.max(first - 1, ...findIssueNumbers(dir)) + 1;
     const made = await rename(draft, join(dir, String(number))).then(
       () => true,
       (e: NodeJS.ErrnoException) => (['EEXIST', 'ENOTEMPTY'].includes(e.code ?? '') ? false : Promise.reject(e))
@@ -286,8 +286,8 @@ const fileIssue = async (dir: string, front: IssueFront, body: string): Promise<
   }
 };
 
-export const writeIssueFile = (dir: string, front: IssueFront, body: string) =>
-  runLocked(dir, () => fileIssue(dir, front, body));
+export const writeIssueFile = (dir: string, front: IssueFront, body: string, first?: number) =>
+  runLocked(dir, () => fileIssue(dir, front, body, first));
 
 const me = 'agentgraph[bot]';
 

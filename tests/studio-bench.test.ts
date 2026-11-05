@@ -13,7 +13,6 @@ import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
 import { getQuantile, readBenchRowResults } from '../studio/src/results/result.ts';
 import { studioDir, studioModule } from './studio.ts';
 import { tmp } from './kit.ts';
-import { getBenchSlot } from '../bench/runs.ts';
 import {
   bootstrap,
   getBenchNumbers,
@@ -293,8 +292,8 @@ describe('bench score', () => {
 describe('the bench page data', () => {
   it('rejects a failed scan and lists each ended run of a slot once, linked to its run', async () => {
     const out = tmp('bench-api');
-    const input = { case: 'c', arm: 'v2', repeat: 1 };
-    const data = join(getBenchSlot(out, input), '1', 'data');
+    const input = { case: 'c', arm: 'v2', repeat: 1, attempt: 1 };
+    const data = join(out, 'data');
     mkdirSync(join(data, 'issue-1'), { recursive: true });
     const origin = { plugin: 'bench', version: 'v', job: 'set', input };
     const run = { id: 'issue-1', started: at, workflow: 'issue', meta: { engine: { origin } } };

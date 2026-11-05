@@ -2,10 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { appendBenchResults, makeBenchInput, readSlotRun } from '../bin/bench.ts';
+import { appendBenchResults, makeBenchInput, writeAttemptImport } from '../bin/bench.ts';
 import { nodePath, runLogged, runQueue, spendGuard } from '../bench/start-runs.ts';
-import { type BenchInput, getBenchSlot, isBenchRunDone } from '../bench/runs.ts';
-import { writeImportedRun } from '../src/instance.ts';
+import { type BenchInput, isBenchRunDone, makeBenchAttempt, readSlotRun } from '../bench/runs.ts';
 import { git, tmp } from './kit.ts';
 
 const dirs: string[] = [];
@@ -121,14 +120,9 @@ const makeSet = () => {
 };
 
 const addRun = async (s: ReturnType<typeof makeSet>, input: BenchInput, ...checks: object[]) => {
-  const at = join(getBenchSlot(s.set, input), '1');
-  git(s.repo, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
-  await writeImportedRun({ checkout: s.repo, tracker: join(at, 'tracker'), data: join(at, 'data') }, s.base, {
-    version: 't',
-    from: s.base,
-    input,
-  });
-  for (const check of checks) await appendBenchResults(readSlotRun(getBenchSlot(s.set, input))!, [check as never], 't');
+  const made = makeBenchAttempt(s.set, input);
+  await writeAttemptImport(s.set, made.at, made.input, { repo: s.repo, base: s.base, change: s.base });
+  for (const check of checks) await appendBenchResults(readSlotRun(s.set, input)!, [check as never], 't');
 };
 
 const arm = (pass: boolean) => ({ check: 'bench/arm', pass, ...(!pass && { findings: 'docker down' }) });
@@ -149,7 +143,7 @@ describe('isBenchRunDone', () => {
     expect(isBenchRunDone(s.set, v2, false)).toBe(true);
     expect(isBenchRunDone(s.set, v2, true)).toBe(false);
     await appendBenchResults(
-      readSlotRun(getBenchSlot(s.set, v2))!,
+      readSlotRun(s.set, v2)!,
       [{ check: 'bench/judge', pass: false, na: true, findings: 'no change to judge' }],
       't'
     );

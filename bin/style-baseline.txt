@@ -1,5 +1,5 @@
 no-comment bench/start-runs.ts 4
-no-comment bin/bench.ts 57
+no-comment bin/bench.ts 56
 no-comment bin/commands.mjs 3
 no-comment bin/commit-msg.mjs 1
 no-comment bin/diagrams.mjs 8

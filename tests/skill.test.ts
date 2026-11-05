@@ -2,10 +2,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { appendBenchResults, readSlotRun } from '../bin/bench.ts';
+import { appendBenchResults, writeAttemptImport } from '../bin/bench.ts';
 import { init, makeJobInput, type step, tuneRows } from '../bin/tune.ts';
-import { getBenchSlot, isBenchRunDone } from '../bench/runs.ts';
-import { writeImportedRun } from '../src/instance.ts';
+import { isBenchRunDone, makeBenchAttempt, readSlotRun } from '../bench/runs.ts';
 import { writeRunLabels } from '../src/labels.ts';
 import { readCandidateRows } from '../tune/propose.ts';
 import { skill } from '../tune/skill.ts';
@@ -25,8 +24,7 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) =>
   ({
     run: async (dir: string, _t: unknown, jobs: typeof ran) => {
       ran.push(...jobs);
-      for (const j of jobs)
-        mkdirSync(join(dir, 'runs', `${j.case}-v2-r${j.repeat ?? 1}-${j.id}`, '1', 'data'), { recursive: true });
+      for (const j of jobs) mkdirSync(join(dir, 'data', `${j.case}-r${j.repeat ?? 1}-${j.id}`), { recursive: true });
     },
     rows: (dir: string, id: string): ReturnType<NonNullable<Parameters<typeof step>[2]>['rows']> =>
       ran
@@ -35,9 +33,9 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) =>
           labels: { harness: 'opencode', model: 'luna', arm: 'v2', engine: 'e', graph: 'h', set: 's' },
           case: j.case,
           repeat: j.repeat ?? 1,
-          run: 'imp',
-          at: join(dir, 'runs', `${j.case}-v2-r${j.repeat ?? 1}-${id}`, '1'),
-          data: join(dir, 'runs', `${j.case}-v2-r${j.repeat ?? 1}-${id}`, '1', 'data'),
+          run: `${j.case}-r${j.repeat ?? 1}-${id}`,
+          at: join(dir, 'attempts', '0'),
+          data: join(dir, 'data'),
           split: { agent: 0, tools: 0, setup: 0, checks: 0, infra: 0 },
           results: {},
           hidden: +readFileSync(join(dir, 'cands', id, 'graph/agents/implementor.md'), 'utf8').includes(
@@ -83,6 +81,35 @@ process.stdin.on('end', () => {
 
 const job = (c: string) => ({ id: 'i000-init', case: c, repeat: 1 });
 
+const addBaseline = async (like: string, root: string, cases: string[], hidden: boolean) => {
+  const repo = join(root, 'repo');
+  mkdirSync(repo);
+  git(repo, 'init', '-q', '-b', 'main');
+  writeFileSync(join(repo, 'a.txt'), 'a\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'base');
+  const base = git(repo, 'rev-parse', 'HEAD').trim();
+  const t = tuneRows(like).tune;
+  const ids: Record<string, string> = {};
+  for (const c of cases) {
+    const made = makeBenchAttempt(like, makeJobInput(like, t, job(c)));
+    ids[c] = await writeAttemptImport(like, made.at, made.input, { repo, base, change: base });
+    await Effect.runPromise(writeRunLabels(join(like, 'data'), ids[c], { case: c, cand: 'i000-init' }));
+    const run = readSlotRun(like, made.input)!;
+    await appendBenchResults(run, [{ check: 'bench/arm', pass: true } as never], 't');
+    await appendBenchResults(run, [{ check: 'bench/hidden', pass: hidden } as never], 't');
+  }
+  return ids;
+};
+
+const preferRealRows = (io: NonNullable<ReturnType<typeof fakeBench>>) => {
+  const rows = io.rows;
+  io.rows = (d, id) => {
+    const real = readCandidateRows(d, id);
+    return [...real, ...rows(d, id).filter(r => !real.some(x => x.case === r.case && x.repeat === r.repeat))];
+  };
+};
+
 const setup = () => {
   const root = tmp('skill');
   dirs.push(root);
@@ -123,17 +150,16 @@ describe('skill benchmark', () => {
     const ran: Parameters<typeof fakeBench>[0] = [];
     const io = fakeBench(ran);
     const like = await init('demo', s, io);
-    for (const id of ['f1', 'v1']) {
-      mkdirSync(join(like, 'runs', `${id}-v2-r1-i000-init`, '1/data/issue-1'), { recursive: true });
-      writeFileSync(join(like, 'runs', `${id}-v2-r1-i000-init`, '1/data/issue-1/trace.jsonl'), '{}\n');
-    }
+    const ids = await addBaseline(like, s.root, ['f1', 'v1'], false);
+    for (const id of Object.values(ids)) writeFileSync(join(like, 'data', id, 'trace.jsonl'), '{}\n');
+    preferRealRows(io!);
     const dir = await skill(like, options(1), io);
 
     expect(dir).toBe(join(s.root, 'tune', 'demo', 'skill@t'));
     expect(tuneRows(dir).tune).toEqual(tuneRows(like).tune);
     const w = join(dir, 'skill', 'r001');
     expect(readdirSync(join(w, 'cases')).sort()).toEqual(['f1', 'f2', 'f3', 'f4', 'm1', 'm2', 'm3', 'm4']);
-    expect(existsSync(join(w, 'runs/f1/r1/data/issue-1/trace.jsonl'))).toBe(true);
+    expect(existsSync(join(w, 'runs/f1/r1/data', ids.f1!, 'trace.jsonl'))).toBe(true);
     expect(existsSync(join(w, 'runs/v1'))).toBe(false);
     expect(Object.keys(JSON.parse(readFileSync(join(w, 'cases.json'), 'utf8')))).not.toContain('v1');
     const calls = readFileSync(s.root + '/calls.jsonl', 'utf8')
@@ -200,32 +226,8 @@ describe('skill benchmark', () => {
     const s = setup();
     const io = fakeBench([]);
     const like = await init('demo', s, io);
-    const repo = join(s.root, 'repo');
-    mkdirSync(repo);
-    git(repo, 'init', '-q', '-b', 'main');
-    writeFileSync(join(repo, 'a.txt'), 'a\n');
-    git(repo, 'add', '-A');
-    git(repo, 'commit', '-q', '-m', 'base');
-    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    await addBaseline(like, s.root, ['f1', 'v1'], true);
     const t = tuneRows(like).tune;
-    for (const c of ['f1', 'v1']) {
-      const input = makeJobInput(like, t, job(c));
-      const at = join(getBenchSlot(like, input), '1');
-      git(repo, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
-      const id = await writeImportedRun(
-        { checkout: repo, tracker: join(at, 'tracker'), data: join(at, 'data') },
-        base,
-        {
-          version: 't',
-          from: base,
-          input,
-        }
-      );
-      const run = readSlotRun(getBenchSlot(like, input))!;
-      await Effect.runPromise(writeRunLabels(join(at, 'data'), id, { case: c, cand: 'i000-init' }));
-      await appendBenchResults(run, [{ check: 'bench/arm', pass: true } as never], 't');
-      await appendBenchResults(run, [{ check: 'bench/hidden', pass: true } as never], 't');
-    }
     const fake = io!;
     const rows = fake.rows;
     fake.rows = (d, id) => (d === like ? readCandidateRows(d, id) : rows(d, id));

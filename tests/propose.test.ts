@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadGraph } from '../src/folder.ts';
 import { claudeUsed, fitting, propose, type Proposer } from '../tune/propose.ts';
 import { git, tmp } from './kit.ts';
-import { getBenchSlot } from '../bench/runs.ts';
-import { writeImportedRun } from '../src/instance.ts';
+import { makeBenchAttempt } from '../bench/runs.ts';
+import { writeAttemptImport } from '../bin/bench.ts';
 import { writeRunLabels } from '../src/labels.ts';
 import { harnesses } from './fixtures.ts';
 
@@ -118,30 +118,15 @@ beforeEach(async () => {
     save(join(repo, 'src/x.ts'), `bot ${id}\n`);
     git(repo, 'commit', '-qam', id);
     const input = { case: id, arm: 'v2', repeat: 1 };
-    const at = join(getBenchSlot(tune, input), '1');
-    git(dir, 'init', '-q', '--bare', join(at, 'tracker', 'origin.git'));
-    const data = join(at, 'data');
-    const run = await writeImportedRun(
-      { checkout: repo, tracker: join(at, 'tracker'), data },
-      git(repo, 'rev-parse', 'HEAD').trim(),
-      {
-        version: 't',
-        from: base,
-        input,
-      }
-    );
+    const made = makeBenchAttempt(tune, input);
+    const data = join(tune, 'data');
+    const run = await writeAttemptImport(tune, made.at, made.input, {
+      repo,
+      base,
+      change: git(repo, 'rev-parse', 'HEAD').trim(),
+    });
     await Effect.runPromise(writeRunLabels(data, run, { cand: 'inc' }));
-    save(
-      join(data, 'issue-1-1', 'run.json'),
-      JSON.stringify({
-        id: 'issue-1-1',
-        workflow: 'issue',
-        status: 'waiting',
-        usd: 0.1,
-        started: '2000-01-01T00:00:00.000Z',
-      })
-    );
-    save(join(data, 'issue-1-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
+    save(join(data, run, 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
     runs[id] = join(data, run, 'checks.jsonl');
     setHidden(id, id === 'a-3', 'bench/arm');
     setHidden(id, id === 'a-3');
@@ -186,7 +171,7 @@ const graphOk = (graph: string) => Effect.runPromise(Effect.result(loadGraph(gra
 
 describe('propose', () => {
   it('rejects missing case results instead of treating them as passing cases', async () => {
-    rmSync(dirname(dirname(dirname(dirname(runs['a-1']!)))), { recursive: true });
+    rmSync(dirname(runs['a-1']!), { recursive: true });
     await expect(run('retro')).rejects.toThrow('a-1: no scored run');
   });
 

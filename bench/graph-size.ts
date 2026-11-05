@@ -55,7 +55,9 @@ export const writeGraphSizeLabels = async (roots: string[], gitDir?: string) => 
       }
       size = cache.get(run.graphTree);
       if (!size) {
-        const repository = gitDir ?? [join(data, 'mirror.git'), join(at, 'tracker', 'origin.git')].find(existsSync);
+        const repository =
+          gitDir ??
+          [join(at, 'mirror.git'), join(data, 'mirror.git'), join(at, 'tracker', 'origin.git')].find(existsSync);
         if (!repository) {
           console.log(`skip ${run.id}: no graph copy or git repository`);
           skipped++;

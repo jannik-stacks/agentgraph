@@ -108,10 +108,10 @@ describe('environment', () => {
       join(data, 'issue-1/trace.jsonl'),
       `${end('stop', 'done')}\n${end('error', 'Cannot connect to API')}\n`
     );
-    expect(harnessError(data)).toBe('harness error: Cannot connect to API');
+    expect(harnessError(data, 'issue-1')).toBe('harness error: Cannot connect to API');
     writeFileSync(join(data, 'issue-1/trace.jsonl'), `${end('error', 'x')}\n${end('stop', 'done')}\n`);
-    expect(harnessError(data)).toBeUndefined();
-    expect(harnessError(join(data, 'none'))).toBeUndefined();
+    expect(harnessError(data, 'issue-1')).toBeUndefined();
+    expect(harnessError(data, 'none')).toBeUndefined();
   });
 
   it('calls a stop on a runner error infra, and an agent outcome not', () => {

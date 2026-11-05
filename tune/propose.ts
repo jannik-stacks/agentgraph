@@ -18,7 +18,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { failureClass } from '../bin/bench.ts';
-import { type BenchRow, readAttemptRun, readBenchRows, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
+import { type BenchRow, readBenchRows, readBenchRun, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
 import { parseJsonl, readFileOrEmpty, readJsonl } from '../bin/resume.ts';
 import { transcript } from '../src/context.ts';
 import { readConfiguredGraph } from '../src/harnesses.ts';
@@ -134,20 +134,16 @@ const failing = (rows: BenchRow[], id: string) => {
     });
 };
 
-const traces = (data: string, budget: number) => {
-  const runs = (existsSync(data) ? readdirSync(data) : [])
-    .filter(n => n.startsWith('issue-') && existsSync(join(data, n, 'run.json')))
-    .sort()
-    .map(n => ({
-      run: JSON.parse(readFileOrEmpty(join(data, n, 'run.json'))) as Run,
-      lines: readJsonl<Trace>(join(data, n, 'trace.jsonl')),
-      checks: readJsonl<CheckEntry>(join(data, n, 'checks.jsonl')),
-    }));
-  return transcript(1, runs, budget);
+const traces = (row: Pick<BenchRow, 'data' | 'run'>, budget: number) => {
+  const run = readBenchRun(row.data, row.run) as Run | null;
+  if (!run) return '';
+  const lines = readJsonl<Trace>(join(row.data, row.run, 'trace.jsonl'));
+  const checks = readJsonl<CheckEntry>(join(row.data, row.run, 'checks.jsonl'));
+  return transcript(run.issue ?? 1, [{ run, lines, checks }], budget);
 };
 
 export const readCandidateRows = (tune: string, cand: string) =>
-  readBenchRows([join(tune, 'runs')]).filter(r => r.labels.cand === cand);
+  readBenchRows([join(tune, 'data')]).filter(r => r.labels.cand === cand);
 
 /** Failing fit cases with their diffs, hidden test output and run transcripts; `small` for the structure proposer. */
 const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean): Material[] =>
@@ -157,10 +153,10 @@ const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean
     .map(({ id, row, hidden }) => {
       const issue = readFileSync(join(cases, id, 'issue.md'), 'utf8');
       const human = readFileSync(join(cases, id, 'merged.diff'), 'utf8');
-      const found = readAttemptRun(row.at);
-      const bot = found ? readRunChange(row.at, found.run) : '';
+      const found = readBenchRun(row.data, row.run);
+      const bot = found ? readRunChange(row.at, found) : '';
       const out = hidden.tail.replace(ansi, '').replace(noise, '');
-      const full = traces(row.data, 60_000);
+      const full = traces(row, 60_000);
       const text = [
         `### ${id}: ${titleOf(join(cases, id))}`,
         `Issue:\n\n${head(issue, small ? 800 : 2000)}`,
@@ -171,7 +167,7 @@ const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean
               `Bot diff:\n\n${formatCodeFence(head(bot, 3000), 'diff')}`,
               `Human diff:\n\n${formatCodeFence(head(human, 3000), 'diff')}`,
             ]),
-        `Transcript:\n\n${traces(row.data, small ? 4000 : 10_000)}`,
+        `Transcript:\n\n${traces(row, small ? 4000 : 10_000)}`,
       ].join('\n\n');
       return {
         id,

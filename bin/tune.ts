@@ -19,7 +19,7 @@ import { presets, quality, random } from '../studio/src/bench/score.ts';
 import { getMean, getRounded, sum } from '../src/stats.ts';
 import { propose as proposeWith, readCandidateRows } from '../tune/propose.ts';
 import { codexUsed, makeBenchInput, pickBenchTestCommands, readBenchCase } from './bench.ts';
-import { type BenchRow, getBenchSlot, isBenchCaseValid, isBenchRunDone } from '../bench/runs.ts';
+import { type BenchRow, findSlotLock, isBenchCaseValid, isBenchRunDone } from '../bench/runs.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import {
   agentgraphDir,
@@ -276,7 +276,7 @@ const bench = {
       await Promise.all(Array.from({ length: o.parallel }, next));
       left = jobs.filter(j => !finished(j));
       if (!left.length) return;
-      const held = left.some(j => isLockedByOtherProcess(getBenchSlot(dir, makeJobInput(dir, t, j))));
+      const held = left.some(j => isLockedByOtherProcess(findSlotLock(dir, makeJobInput(dir, t, j))));
       log({ event: 'unfinished', jobs: left.length, held, round });
       if (!held && ++round >= 3) throw new Error(`${left.length} runs unfinished after 3 rounds; rerun to resume`);
       await waitWhileServicesDown(log);
@@ -813,13 +813,7 @@ export const status = (dir: string, limits = limitsDefault) => {
     jobs: Job[];
   } | null;
   const last = readJsonl(join(dir, 'log.jsonl')).at(-1);
-  const written = Math.max(
-    0,
-    ...[dir, ...subdirs(join(dir, 'runs')).map(n => join(dir, 'runs', n))]
-      .map(d => join(d, 'log.jsonl'))
-      .filter(existsSync)
-      .map(f => statSync(f).mtimeMs)
-  );
+  const written = statSync(join(dir, 'log.jsonl'), { throwIfNoEntry: false })?.mtimeMs ?? 0;
   const ofPhase = (p: { jobs: Job[] }) => {
     const done = p.jobs.filter(j => isBenchRunDone(dir, makeJobInput(dir, t, j), false)).length;
     return `  ${done} of ${p.jobs.length} runs done`;

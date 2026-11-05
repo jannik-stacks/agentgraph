@@ -1,6 +1,7 @@
 /**
  * Replays merged pull requests as bench runs and scores them. Each command works on one slot of a set: the case, arm,
- * repeat, point and graph pick it, and every try of it is a numbered attempt dir with its own graph, tracker and data.
+ * repeat, point and graph pick it. Every try of it is an attempt with a private graph and tracker under
+ * `<set>/attempts/<n>`, and its run is an ordinary run in the set's store, `<set>/data`.
  * Usage: node bin/bench.ts run (v2|floor) <case dir> <set> --repo <clone> [--point harness:model] [--repeat k] [--graph dir]
  *        node bin/bench.ts import (human|base|control) <case dir> <set> --repo <clone> [--repeat k]
  *        node bin/bench.ts score <arm> <case dir> <set> --repo <clone> [same slot flags]
@@ -10,14 +11,13 @@
  * keys come from --keys, infra/local/.keys.env by default.
  */
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { getSha } from '../src/hash.ts';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
-import { Effect } from 'effect';
 import { dockerArgs, readImage, type CheckoutContainerSpec } from '../src/docker.ts';
 import { isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import { dependencyDirs, discard, readSandboxSetup, createSharedMounts, manifest, written } from '../src/env.ts';
@@ -29,6 +29,7 @@ import type { CheckEntry } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/tracker.ts';
 import { addGraphArgs } from '../src/git.ts';
+import { ConfigProvider, Effect } from 'effect';
 import { writeComment, writeImportedRun } from '../src/instance.ts';
 import { appendJsonlRows, readJsonlRows, writeFileAtomic } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeRunLabels } from '../src/labels.ts';
@@ -50,16 +51,17 @@ import {
 import { waitForLock } from '../src/owner.ts';
 import { parseGraphSettings } from '../src/folder.ts';
 import { parse, stringify } from 'yaml';
-import { hostSettings } from '../src/services.ts';
+import { hostSettings, makeTrackerSetup, settings } from '../src/services.ts';
 import {
   type BenchInput,
+  findSlotLock,
   getBenchSlot,
   getBenchUsageCost,
-  makeNextAttempt,
-  readAttemptRun,
-  readBenchAttempts,
+  makeBenchAttempt,
+  readBenchSlots,
   readLatestRunChecks,
   readRunChange,
+  readSlotRun,
   referenceArms,
 } from '../bench/runs.ts';
 
@@ -487,16 +489,17 @@ const readInput = (c: Pick<Case, 'id' | 'repo'>, arm: string, repeat = options.r
   makeBenchInput(c, arm, repeat, options);
 
 /** The first repeat of a reference arm, which gates the case and is what agent runs are judged against. */
-const readGateSlot = (set: string, c: Pick<Case, 'id'>, arm: string) =>
-  getBenchSlot(set, { case: c.id, arm, repeat: 1 });
+const readGateRun = (set: string, c: Pick<Case, 'id'>, arm: string) => readSlotRun(set, { case: c.id, arm, repeat: 1 });
 
-const makeArmRunLabels = (input: BenchInput) => {
+const makeArmRunLabels = (set: string, input: BenchInput) => {
   const [harness, model] = input.point?.split(':') ?? [];
   return parseLabels({
+    set: basename(set),
     case: input.case,
     arm: input.arm,
     ...(harness && model && { harness, model }),
     repeat: String(input.repeat),
+    ...(input.attempt !== undefined && { attempt: String(input.attempt) }),
     engine: sh('git', ['-C', agentgraphDir, 'rev-parse', 'HEAD']).trim(),
     ...options.labels,
   });
@@ -515,13 +518,6 @@ const makeBenchMeta = (set: string, input: BenchInput) => ({
 
 /** A case's scoring dir in its set: its image pin, environment refs and score tree. */
 const findCaseWorkDir = (set: string, c: Pick<Case, 'id'>) => join(set, 'work', c.id);
-
-/** The newest attempt's run of a slot, with its attempt dir. */
-export const readSlotRun = (slot: string) => {
-  const at = readBenchAttempts(slot).at(-1);
-  const found = at && readAttemptRun(at);
-  return found ? { ...found, at } : undefined;
-};
 
 type SlotRun = NonNullable<ReturnType<typeof readSlotRun>>;
 
@@ -601,29 +597,45 @@ export const writeArmGraph = (c: Case & Commands, arm: string, at: string) => {
 };
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string, set: string, input: BenchInput) => {
-  const { start } = (await import(join(agentgraphDir, 'src/main.ts'))) as typeof MainModule;
+  const { start, readInstanceEnv } = (await import(join(agentgraphDir, 'src/main.ts'))) as typeof MainModule;
   const graph = writeArmGraph(c, arm, at);
   const dir = join(at, 'tracker');
   sh('git', ['init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git')]);
   sh('git', ['-C', repo, 'push', '-q', join(dir, 'origin.git'), `${c.base}:refs/heads/main`]);
-  await writeIssueFile(dir, { title: c.title, author: 'maintainer', labels: [] }, c.body.trim());
-  await writeComment(dir, 'maintainer', 1, '/agent');
-  process.env.AGENTGRAPH_TRACKER = dir;
+  const issue = await writeIssueFile(
+    dir,
+    { title: c.title, author: 'maintainer', labels: [] },
+    c.body.trim(),
+    input.attempt
+  );
+  await writeComment(dir, 'maintainer', issue, '/agent');
+  const scope = await readInstanceEnv(undefined, {}, keys, {
+    AGENTGRAPH_REPO: c.repo,
+    AGENTGRAPH_TRACKER: dir,
+    AGENTGRAPH_DIR: graph,
+  });
+  const current = await Effect.runPromise(
+    settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+  );
+  const setup = { ...scope, tracker: await makeTrackerSetup(current) };
   let answers = 0;
   let status: string | undefined;
   let reason: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
-    const [run] = await start(
-      { graph, issue: 1, data: join(at, 'data'), meta: makeBenchMeta(set, input), labels: makeArmRunLabels(input) },
-      undefined,
-      { ...keys, AGENTGRAPH_REPO: c.repo }
-    );
+    const [run] = await start({
+      graph,
+      issue,
+      data: join(set, 'data'),
+      meta: makeBenchMeta(set, input),
+      labels: makeArmRunLabels(set, input),
+      setup,
+    });
     status = run?.status;
     reason = run?.reason;
     if (!run || run.status === 'done' || run.status === 'stopped') break;
     if (run.status !== 'waiting') continue;
     if (!run.reason || answers) break;
-    await writeComment(dir, 'maintainer', 1, answer);
+    await writeComment(dir, 'maintainer', issue, answer);
     answers++;
   }
   return { answers, status, ...(reason && { reason: reason.slice(0, 500) }) };
@@ -662,13 +674,11 @@ export const readCaseImage = async (c: Case & Commands, set: string, graph = fin
 };
 
 /** The harness's last words when the run's last session ended in an error, as when it cannot reach the proxy. */
-export const harnessError = (data: string) => {
-  const ends = (existsSync(data) ? readdirSync(data) : [])
-    .flatMap(id => readJsonl(join(data, id, 'trace.jsonl')))
-    .flatMap(t => {
-      const e = t.event as { type?: string; ended?: string; final?: string } | undefined;
-      return e?.type === 'end' ? [e] : [];
-    });
+export const harnessError = (data: string, id: string) => {
+  const ends = readJsonl(join(data, id, 'trace.jsonl')).flatMap(t => {
+    const e = t.event as { type?: string; ended?: string; final?: string } | undefined;
+    return e?.type === 'end' ? [e] : [];
+  });
   const last = ends.at(-1);
   return last?.ended === 'error' ? `harness error: ${String(last.final ?? '').slice(0, 160)}` : undefined;
 };
@@ -676,81 +686,97 @@ export const harnessError = (data: string) => {
 /** Environment failures an arm may have before it counts as infra. */
 const patience = 6;
 
+export const writeAttemptImport = async (
+  set: string,
+  at: string,
+  input: BenchInput,
+  o: { repo: string; base: string; change: string; issue?: string }
+) => {
+  const tracker = join(at, 'tracker');
+  if (!existsSync(join(tracker, 'origin.git')))
+    sh('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
+  const data = join(set, 'data');
+  const id = await writeImportedRun({ checkout: resolve(o.repo), tracker, data }, o.change, {
+    version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
+    from: o.base,
+    ...(o.issue && { issue: o.issue }),
+    input,
+  });
+  await Effect.runPromise(writeRunLabels(data, id, makeArmRunLabels(set, input)));
+  return id;
+};
+
 /**
  * Runs one arm of a case into its slot, each try in a new attempt dir, until an attempt ends with a `bench/arm` result.
  * A run that never finished is tried twice, then ends as infra; a run that changed nothing is the agent's result. A run
  * its environment broke (proxy, docker, a runner error, the machine asleep) waits for the environment and is tried
  * again, up to `patience` attempts, then ends as infra.
  */
-const writeEmptyRun = async (c: Case, at: string, repo: string, input: BenchInput) => {
-  const tracker = join(at, 'tracker');
-  if (!existsSync(join(tracker, 'origin.git')))
-    sh('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
-  await writeImportedRun({ checkout: resolve(repo), tracker, data: join(at, 'data') }, c.base, {
-    version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
-    from: c.base,
-    input,
-  });
-};
-
 const runArm = async (arm: string, caseDir: string, set: string, repo: string) => {
   const c = await readCaseImage(readBenchCase(caseDir), set);
   const input = readInput(c, arm);
-  const slot = getBenchSlot(set, input);
   const ended = () => {
-    const found = readSlotRun(slot);
+    const found = readSlotRun(set, input);
     return found && readLatestRunChecks(found.data, found.run.id).has('bench/arm');
   };
   if (ended()) return;
   const missing = unpriced(arm, findCaseGraphDir(c));
   if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to infra/local/aliases.json`);
   if (!keys.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
-  const log = logger(set, { case: c.id, arm, slot: basename(slot) });
-  if (!claim(slot)) return log({ event: 'busy' });
+  const slot = getBenchSlot(input);
+  const lock = findSlotLock(set, input);
+  const log = logger(set, { case: c.id, arm, slot });
+  if (!claim(lock)) return log({ event: 'busy' });
+  const attempts = () => readBenchSlots(set).get(slot) ?? [];
+  const removeStray = () => {
+    for (const a of attempts()) removeSandboxContainersMountingDir(a.at);
+  };
   onStop(signal => {
     log({ event: 'paused', signal });
-    removeSandboxContainersMountingDir(slot);
-    release(slot);
+    removeStray();
+    release(lock);
   });
   const work = findCaseWorkDir(set, c);
   try {
-    removeSandboxContainersMountingDir(slot);
+    removeStray();
     for (let empty = 0; ;) {
       await waitWhileServicesDown(log, false, net =>
         down(net, { dir: work, eligible: readEnvRefs(work), ...(cache && { image: c.image }) })
       );
       guard(set, false);
-      const at = makeNextAttempt(slot);
-      mkdirSync(at, { recursive: true });
+      const { at, input: pinned } = makeBenchAttempt(set, input);
       const started = Date.now();
       const time = clock();
       let ran: Awaited<ReturnType<typeof engineArm>> | undefined;
       let broke: string | undefined;
       try {
-        ran = await step(set, { step: 'run', case: c.id, arm }, () => engineArm(c, arm, at, resolve(repo), set, input));
+        ran = await step(set, { step: 'run', case: c.id, arm }, () =>
+          engineArm(c, arm, at, resolve(repo), set, pinned)
+        );
       } catch (e) {
         broke = String(e).slice(0, 200);
       }
       time.stop();
-      const found = readSlotRun(slot);
-      const change = found?.at === at ? readRunChange(at, found.run) : '';
+      const found = readSlotRun(set, input);
+      const mine = found?.at === at ? found : undefined;
+      const change = mine ? readRunChange(at, mine.run) : '';
       const nothing = ran?.status === 'running' ? 'run did not finish' : undefined;
       const env =
         broke ??
-        (found?.at === at ? undefined : 'the attempt started no run') ??
+        (mine ? undefined : 'the attempt started no run') ??
         runnerError(ran?.reason) ??
-        harnessError(join(at, 'data')) ??
+        (mine && harnessError(mine.data, mine.run.id)) ??
         (nothing || !change.trim() ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
-      if (env) log({ event: 'infra', why: env, attempt: basename(at) });
-      if (env && readBenchAttempts(slot).length < patience) {
-        await sleep(Math.min(60_000 * 2 ** readBenchAttempts(slot).length, 900_000));
+      if (env) log({ event: 'infra', why: env, attempt: pinned.attempt });
+      if (env && attempts().length < patience) {
+        await sleep(Math.min(60_000 * 2 ** attempts().length, 900_000));
         continue;
       }
       if (!env && nothing && ++empty < 2) continue;
-      if (found?.at !== at) await writeEmptyRun(c, at, repo, input);
+      if (!mine) await writeAttemptImport(set, at, pinned, { repo, base: c.base, change: c.base });
       const why = env ?? nothing;
       return await appendBenchResults(
-        readSlotRun(slot)!,
+        readSlotRun(set, input)!,
         [
           {
             check: 'bench/arm',
@@ -767,7 +793,7 @@ const runArm = async (arm: string, caseDir: string, set: string, repo: string) =
       );
     }
   } finally {
-    release(slot);
+    release(lock);
   }
 };
 
@@ -781,13 +807,11 @@ export const writeReferenceRun = async (
 ) => {
   const c = readBenchCase(caseDir);
   const input = readInput(c, arm, repeat);
-  const slot = getBenchSlot(set, input);
-  while (!claim(slot)) await sleep(5000);
+  const lock = findSlotLock(set, input);
+  while (!claim(lock)) await sleep(5000);
   try {
-    if (readSlotRun(slot)) return;
-    const at = makeNextAttempt(slot);
-    const tracker = join(at, 'tracker');
-    sh('git', ['init', '-q', '--bare', '-b', 'main', join(tracker, 'origin.git')]);
+    if (readSlotRun(set, input)) return;
+    const { at, input: pinned } = makeBenchAttempt(set, input);
     writeFileAtomic(join(at, 'issue.md'), `${c.title}\n\n${c.body}\n`);
     const human = readFileOrEmpty(join(c.dir, 'merged.diff'));
     const change =
@@ -800,20 +824,14 @@ export const writeReferenceRun = async (
             : c.control && pad(human);
     if (change === undefined && arm !== 'base') throw new Error(`${c.id}: no ${arm} change for this case`);
     if (change !== undefined) writeFileAtomic(join(at, 'change.patch'), change.endsWith('\n') ? change : `${change}\n`);
-    const data = join(at, 'data');
-    const id = await writeImportedRun(
-      { checkout: resolve(repo), tracker, data },
-      change === undefined ? c.base : join(at, 'change.patch'),
-      {
-        version: hash(readFileSync(new URL(import.meta.url), 'utf8')),
-        from: c.base,
-        issue: join(at, 'issue.md'),
-        input,
-      }
-    );
-    await Effect.runPromise(writeRunLabels(data, id, makeArmRunLabels(input)));
+    await writeAttemptImport(set, at, pinned, {
+      repo,
+      base: c.base,
+      change: change === undefined ? c.base : join(at, 'change.patch'),
+      issue: join(at, 'issue.md'),
+    });
   } finally {
-    release(slot);
+    release(lock);
   }
 };
 
@@ -1257,26 +1275,26 @@ const readTests = (found: SlotRun): Tests => {
   };
 };
 
-/** Scores the runs of `slots` in the case's scoring tree, each once per scorer version. */
-const scoreRuns = async (c: Case & Commands, set: string, repo: string, slots: string[]) => {
+/** Scores the slot runs of `inputs` in the case's scoring tree, each once per scorer version. */
+const scoreRuns = async (c: Case & Commands, set: string, repo: string, inputs: BenchInput[]) => {
   const version = scorer(c);
   const work = findCaseWorkDir(set, c);
   const tree = join(work, 'tree');
   const labels = readBenchSetupLabels(repo, c.base);
   while (!claim(tree)) await sleep(5000);
   try {
-    for (const slot of slots) {
-      const found = readSlotRun(slot);
+    for (const wanted of inputs) {
+      const found = readSlotRun(set, wanted);
       if (!found || isCurrent(found, wantedResults(c), version)) continue;
       const diff = readRunChange(found.at, found.run);
       const input = getRunOrigin(found.run.meta)?.input as BenchInput;
       if (!existsSync(tree)) sh('git', ['clone', '-q', '--shared', '--no-checkout', resolve(repo), tree]);
-      const tests = await step(set, { step: 'score', case: c.id, arm: input.arm, slot: basename(slot) }, () =>
+      const tests = await step(set, { step: 'score', case: c.id, arm: input.arm, slot: getBenchSlot(input) }, () =>
         c.test || c.suite || c.typecheck ? check(c, tree, diff, findHiddenTests(c), resolve(repo)) : {}
       );
       const offline = (tests as Tests).setup?.ok === false && (await down(true));
-      if (offline) throw new Error(`infra: setup failed while ${offline}, ${basename(slot)} stays unscored`);
-      const base = readSlotRun(readGateSlot(set, c, 'base'));
+      if (offline) throw new Error(`infra: setup failed while ${offline}, ${getBenchSlot(input)} stays unscored`);
+      const base = readGateRun(set, c, 'base');
       const results = makeBenchResults(
         c,
         tests,
@@ -1297,7 +1315,7 @@ const scoreRuns = async (c: Case & Commands, set: string, repo: string, slots: s
  * human's change, and the issue must name what the hidden tests call.
  */
 const writeCaseValid = async (c: Case & Commands, set: string, repo: string) => {
-  const [base, human] = referenceArms.map(arm => readSlotRun(readGateSlot(set, c, arm)));
+  const [base, human] = referenceArms.map(arm => readGateRun(set, c, arm));
   if (!base || !human) throw new Error(`${c.id}: reference runs are missing`);
   const version = scorer(c);
   if (!isCurrent(human, ['bench/valid'], version)) {
@@ -1348,12 +1366,12 @@ const score = async (arm: string, caseDir: string, set: string, repo: string, dr
       c,
       set,
       repo,
-      referenceArms.map(ref => readGateSlot(set, c, ref))
+      referenceArms.map(arm => ({ case: c.id, arm, repeat: 1 }))
     );
   if ((await writeCaseValid(c, set, repo)) && arm !== 'control') {
-    const slot = getBenchSlot(set, readInput(c, arm));
-    const found = readSlotRun(slot);
-    if (found && isArmScorable(found)) await scoreRuns(c, set, repo, [slot]);
+    const input = readInput(c, arm);
+    const found = readSlotRun(set, input);
+    if (found && isArmScorable(found)) await scoreRuns(c, set, repo, [input]);
   }
   if (cache) await collect({ eligible: readEnvRefs(findCaseWorkDir(set, c)), ...(drop && { limit: 0 }) });
 };
@@ -1577,10 +1595,10 @@ export const makeBenchJudgeResult = (verdicts: JudgedVerdict[], arm: string, hum
 
 const judge = async (arm: string, caseDir: string, set: string) => {
   const c = await readCaseImage(readBenchCase(caseDir), set);
-  const human = readSlotRun(readGateSlot(set, c, 'human'));
+  const human = readGateRun(set, c, 'human');
   const valid = human && readLatestRunChecks(human.data, human.run.id).get('bench/valid');
   if (!human || !valid?.check.pass) return;
-  const found = readSlotRun(getBenchSlot(set, readInput(c, arm)));
+  const found = readSlotRun(set, readInput(c, arm));
   if (!found) throw new Error(`${c.id}/${arm}: no run to judge`);
   if (!isArmScorable(found)) return;
   const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
