@@ -13,7 +13,7 @@ import {
 } from 'react';
 import { useSetAtom } from 'jotai';
 import { atomWithStorage, createJSONStorage } from 'jotai/utils';
-import { navigateAtom } from './state.ts';
+import { makeInstanceHref, navigateAtom } from './state.ts';
 
 export const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ');
 
@@ -34,7 +34,7 @@ export const Link = ({ href, onClick, ...props }: ComponentProps<'a'>) => {
   const navigate = useSetAtom(navigateAtom);
   return (
     <a
-      href={href}
+      href={isInternal(href) ? makeInstanceHref(href) : href}
       {...props}
       onClick={e => {
         onClick?.(e);

@@ -6,7 +6,7 @@ import { useMemo } from 'react';
 import { fixtures } from 'virtual:fixtures';
 import { served } from 'virtual:served';
 import { isOnIssue, makeWorkflowGraph } from '../../../src/graph.ts';
-import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
+import { queryParam, runsAtom, selectedStepAtom, shown } from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { accent, AutoHeight, Combobox, Muted, Select } from '../ui.tsx';
 import { layout, type Start } from './layout.ts';
@@ -289,16 +289,17 @@ const Canvas = ({
   );
 };
 
-/** The graphs the Graph page can show: the live graph first, then every example graph the fixtures carry. */
+/** The graphs the Graph page can show: the shown instance's graph first, then every example graph the fixtures carry. */
 const graphs = (() => {
+  const others = new Set(served.filter(one => one !== shown).map(one => one.title));
   const groups = new Map<string, Fixture[]>();
   for (const f of fixtures) {
     const key = f.id.slice(0, f.id.indexOf('/'));
-    groups.set(key, [...(groups.get(key) ?? []), f]);
+    if (!others.has(key)) groups.set(key, [...(groups.get(key) ?? []), f]);
   }
   return [...groups].map(([key, list]) => ({
     key,
-    label: key === served?.name ? `${key}, live` : `${key}, example`,
+    label: key === shown?.title ? `${key}, live` : `${key}, example`,
     fixtures: list,
   }));
 })();
@@ -384,7 +385,7 @@ export const GraphPage = () => {
                 )
               )}
             </>
-          ) : graph.key === served?.name ? (
+          ) : graph.key === shown?.title ? (
             'The workflows as written. A blue step holds runs that are running now.'
           ) : (
             'The workflows as written. An example graph, with no runs of its own.'

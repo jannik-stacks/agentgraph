@@ -9,25 +9,31 @@ import { ResultsData } from './src/results/data.ts';
 import { resultSources } from './src/results/result.ts';
 import { BenchData } from './src/bench/data.ts';
 import { readBench } from './src/bench/read.ts';
-import { layouts, makeServedGraph, makeUnservedFilter, servedIds, startWatch, type WatchRoot } from './served.ts';
+import {
+  layouts,
+  makeServedGraphs,
+  makeServedTopic,
+  makeUnservedFilter,
+  servedIds,
+  startWatch,
+  type ServedGraph,
+  type WatchRoot,
+} from './served.ts';
 
 const manifest = 'virtual:agentgraph-pages';
 
 const entry = 'virtual:agentgraph-page/';
 
 const readStudioDirs = () => ({
-  data: process.env.AGI_STUDIO_DATA,
   bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
   tune: process.env.AGI_STUDIO_TUNE,
 });
 
-const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
-  const graph = (await served.read())?.graph;
-  const { readPlugins, makePlugin }: typeof PluginModule = await import(
-    new URL('../src/plugin.ts', import.meta.url).href
-  );
-  const { data, bench, tune } = readStudioDirs();
-  const results = makePlugin({
+const makeResultsPlugin = async (served: ServedGraph) => {
+  const { makePlugin }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
+  const { data } = served;
+  const { tune } = readStudioDirs();
+  return makePlugin({
     name: 'results',
     studio: {
       title: 'Results',
@@ -39,7 +45,6 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
           const { readRunResults }: typeof ResultsModule = yield* Effect.promise(
             () => import(new URL('../bin/results.ts', import.meta.url).href)
           );
-          const current = (yield* Effect.promise(served.read))?.graph;
           return Object.fromEntries(
             resultSources.map(from => {
               try {
@@ -52,7 +57,7 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
                           ...(data && { data }),
                           ...(tune && { tune }),
                         },
-                        current
+                        served.graph
                       );
                 const candidates = Object.fromEntries(
                   sheet.runs.flatMap(row => ('step' in row ? [[row.key, row.step]] : []))
@@ -66,53 +71,65 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraph>) => {
         }),
     },
   });
-  const builtins = [
-    results,
-    makePlugin({
-      name: 'bench',
-      studio: {
-        title: 'Bench',
-        page: new URL('./src/bench/BenchPage.tsx', import.meta.url),
-        dataSchema: BenchData,
-        watch: () => bench,
-        read: () => Effect.promise(() => readBench(bench)),
-      },
-    }),
-  ];
-  const { pages } = await readPlugins(graph?.dir, graph?.plugins, undefined, builtins);
-  return pages
-    .filter(page => page.name !== 'bench' || bench.length)
-    .map(page => ({
-      ...page,
-      href: builtins.some(b => b.name === page.name) ? `/${page.name}` : `/plugins/${page.name}`,
-    }));
 };
 
-const readWatchRoots = (
-  pages: Awaited<ReturnType<typeof readStudioPages>>,
-  served: Awaited<ReturnType<ReturnType<typeof makeServedGraph>['read']>>
-): WatchRoot[] => {
-  const { data, bench, tune } = readStudioDirs();
+const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
+  const { readPlugins, makePlugin }: typeof PluginModule = await import(
+    new URL('../src/plugin.ts', import.meta.url).href
+  );
+  const { bench } = readStudioDirs();
+  const benchPlugin = makePlugin({
+    name: 'bench',
+    studio: {
+      title: 'Bench',
+      page: new URL('./src/bench/BenchPage.tsx', import.meta.url),
+      dataSchema: BenchData,
+      watch: () => bench,
+      read: () => Effect.promise(() => readBench(bench)),
+    },
+  });
+  const builtins = new Set(['results', 'bench']);
+  const scoped = await Promise.all(
+    (await served.read()).map(async one => {
+      const { pages } = await readPlugins(one.graph?.dir, one.graph?.plugins, undefined, [
+        await makeResultsPlugin(one),
+        benchPlugin,
+      ]);
+      return pages.filter(page => page.name !== 'bench').map(page => ({ ...page, instance: one.name }));
+    })
+  );
+  const shared = bench.length ? (await readPlugins(undefined, undefined, undefined, [benchPlugin])).pages : [];
+  return [...scoped.flat(), ...shared.map(page => ({ ...page, instance: undefined }))].map(page => ({
+    ...page,
+    key: page.instance ? `${page.instance}/${page.name}` : page.name,
+    href: builtins.has(page.name) ? `/${page.name}` : `/plugins/${page.name}`,
+  }));
+};
+
+const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, served: ServedGraph[]): WatchRoot[] => {
+  const { bench, tune } = readStudioDirs();
   const rootLayouts = new Map([
-    ...(data ? [[data, layouts.data] as const] : []),
+    ...served.flatMap(one => (one.data ? [[one.data, layouts.data] as const] : [])),
     ...bench.map(root => [root, layouts.bench] as const),
     ...(tune ? [[tune, layouts.tune] as const] : []),
   ]);
   return [
-    ...(served
-      ? [
-          { root: served.dir, topic: 'graph', layout: layouts.any },
-          ...served.files.map(root => ({ root, topic: 'graph', layout: () => false })),
-        ]
-      : []),
-    ...(data ? [{ root: data, topic: 'data', layout: layouts.data }] : []),
+    ...served.flatMap(one => [
+      ...(one.dir ? [{ root: one.dir, topic: makeServedTopic(one.name, 'graph'), layout: layouts.any }] : []),
+      ...one.files.map(root => ({ root, topic: makeServedTopic(one.name, 'graph'), layout: () => false })),
+      ...(one.data ? [{ root: one.data, topic: makeServedTopic(one.name, 'data'), layout: layouts.data }] : []),
+    ]),
     ...pages.flatMap(page =>
-      page.watch.map(root => ({ root, topic: page.name, layout: rootLayouts.get(root) ?? layouts.any }))
+      page.watch.map(root => ({
+        root,
+        topic: makeServedTopic(page.instance ?? '', page.name),
+        layout: rootLayouts.get(root) ?? layouts.any,
+      }))
     ),
   ];
 };
 
-export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
+export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
   let pages = readStudioPages(served);
   let roots: WatchRoot[] = [];
   let unserved = makeUnservedFilter(roots);
@@ -145,10 +162,10 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
         return `export const pages = [${loaded
           .map(
             page =>
-              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.href)},load:()=>import(${JSON.stringify(entry + page.name)})}`
+              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.href)},instance:${JSON.stringify(page.instance)},load:()=>import(${JSON.stringify(entry + page.key)})}`
           )
           .join(',')}];`;
-      const page = id.startsWith(`\0${entry}`) && loaded.find(page => page.name === id.slice(entry.length + 1));
+      const page = id.startsWith(`\0${entry}`) && loaded.find(page => page.key === id.slice(entry.length + 1));
       if (page) return `export { default } from ${JSON.stringify(fileURLToPath(page.page))};`;
     },
     async transform(code, id) {
@@ -167,7 +184,8 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
       const watch = async () => {
         await dispose?.();
         dispose = startWatch(server, roots, topics => {
-          if (!topics.includes('graph')) return server.ws.send('agi:changed', { topics });
+          if (!topics.some(topic => topic.split(':').at(-1) === 'graph'))
+            return server.ws.send('agi:changed', { topics });
           served.forget();
           pages = readStudioPages(served);
           void pages
@@ -194,7 +212,8 @@ export const makeStudioPagesPlugin = (served = makeServedGraph()): Plugin => {
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
-        const page = loaded.find(page => page.name === name);
+        const instance = new URL(req.url ?? '/', 'http://studio').searchParams.get('instance') ?? '';
+        const page = loaded.find(page => page.name === name && (page.instance ?? instance) === instance);
         if (!page) {
           res.statusCode = 404;
           return res.end('{"error":"Unknown plugin page"}');

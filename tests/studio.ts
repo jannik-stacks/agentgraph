@@ -1,4 +1,5 @@
 import { mkdtempSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -6,9 +7,13 @@ import { pathToFileURL } from 'node:url';
 /** The studio sources, which the root typecheck leaves to the studio's own tsconfig. */
 export const studioDir = join(import.meta.dirname, '..', 'studio');
 
+const importFile = <T>(file: string): Promise<T> => import(/* @vite-ignore */ pathToFileURL(file).href) as Promise<T>;
+
 /** Imports a module under `studio/src` without pulling it into the root typecheck. */
-export const studioModule = <T>(path: string): Promise<T> =>
-  import(/* @vite-ignore */ pathToFileURL(join(studioDir, 'src', path)).href) as Promise<T>;
+export const studioModule = <T>(path: string) => importFile<T>(join(studioDir, 'src', path));
+
+export const studioDependency = <T>(name: string) =>
+  importFile<T>(createRequire(join(studioDir, 'package.json')).resolve(name));
 
 // UNEXPECTED: servers sharing the config's cache folder rewrite each other's prebundled deps and send reloads.
 export const createStudioServer = async (include: string[] = []) => {

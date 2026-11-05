@@ -94,7 +94,7 @@ export default defineConfig({
         id === '\0virtual:agentgraph-pages'
           ? 'export const pages = [{ name: "count", title: "Count", href: "/plugins/count", load: async () => ({ default: () => null }) }];'
           : id === '\0virtual:served'
-            ? 'export const served = null;'
+            ? 'export const served = globalThis.studioServed ?? [];'
             : undefined,
     },
   ],

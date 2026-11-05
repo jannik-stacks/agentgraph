@@ -19,7 +19,7 @@ import { ensureInstance, formatGraphName, readInstance } from '../src/instance.t
 import { getCachePath } from '../src/env.ts';
 import { readInstanceEnv, start, createLoopLock } from '../src/main.ts';
 import { settings, makeTrackerSetup, whyModelHostsMissing } from '../src/services.ts';
-import { makeServedGraph } from '../studio/served.ts';
+import { makeServedGraphs } from '../studio/served.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { folderTracker, writeIssueFile } from '../src/tracker.ts';
 import { makeTestGraph, seeded } from './fixtures.ts';
@@ -227,14 +227,13 @@ export default { harnesses: [{ ...opencode(), name: 'scoped' }, { ...opencode(),
   expect([validated.status, validated.stdout.trim(), existsSync(unbound)]).toEqual([0, 'ok', false]);
   const checked = w.run('check');
   expect([checked.status, checked.stdout.trim(), checked.stderr]).toEqual([0, 'ok', '']);
-  vi.stubEnv('AGI_STUDIO_DIR', w.graph);
-  vi.stubEnv('AGI_STUDIO_INSTANCE', JSON.stringify({ root: w.root, name: 'config' }));
-  const reader = makeServedGraph();
+  vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root: w.root, names: ['config'] }));
+  const reader = makeServedGraphs();
   try {
-    expect((await reader.read())?.graph?.agents.a?.harness).toBe('scoped');
+    expect((await reader.read())[0]?.graph?.agents.a?.harness).toBe('scoped');
     writeFileSync(env, `AGENTGRAPH_CONFIG=${config}\nAGENTGRAPH_PROVIDER=other\n`);
     reader.forget();
-    expect((await reader.read())?.graph?.agents.a?.harness).toBe('other');
+    expect((await reader.read())[0]?.graph?.agents.a?.harness).toBe('other');
     expect(w.run('check').status).toBe(0);
     const instance = readInstance(w.root, 'config')!;
     const result = await start({ graph: w.graph, issue: 'all', data: instance.data, instance }, s =>
@@ -471,13 +470,13 @@ it.each(STUDIO_PATHS)(
     const env = join(w.root, 'studio.env');
     writeFileSync(env, '');
     w.save({ env });
-    vi.stubEnv('AGI_STUDIO_DIR', w.graph);
-    vi.stubEnv('AGI_STUDIO_INSTANCE', JSON.stringify({ root: w.root, name: 'studio-path' }));
-    vi.stubEnv('AGI_STUDIO_GRAPH', from === 'explicit' ? w.graph : undefined);
-    vi.stubEnv('AGI_STUDIO_DATA', w.instance.data);
+    vi.stubEnv(
+      'AGI_STUDIO_INSTANCES',
+      JSON.stringify({ root: w.root, names: ['studio-path'], ...(from === 'explicit' && { graph: w.graph }) })
+    );
     vi.stubEnv('AGI_STUDIO_BENCH', undefined);
     vi.stubEnv('AGI_STUDIO_TUNE', undefined);
-    const served = makeServedGraph();
+    const served = makeServedGraphs();
     const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
     const server = await createServer({
       configFile: false,
@@ -491,7 +490,7 @@ it.each(STUDIO_PATHS)(
     const sent: unknown[] = [];
     server.ws.send = (...args: unknown[]) => void sent.push(args);
     try {
-      expect((await served.read())?.dir).toBe(w.graph);
+      expect((await served.read())[0]?.dir).toBe(w.graph);
       await vi.waitFor(
         async () => {
           if (from === 'env') writeFileSync(env, `AGENTGRAPH_DIR=${other}\n`);
@@ -502,7 +501,7 @@ it.each(STUDIO_PATHS)(
             realpathSync(from === 'env' ? env : join(w.instance.dir, 'instance.yaml'))
           );
           expect(sent).toContainEqual([{ type: 'full-reload' }]);
-          expect((await served.read())?.dir).toBe(from === 'explicit' ? w.graph : other);
+          expect((await served.read())[0]?.dir).toBe(from === 'explicit' ? w.graph : other);
         },
         { timeout: 5000, interval: 350 }
       );
@@ -512,7 +511,7 @@ it.each(STUDIO_PATHS)(
         async () => {
           writeFileSync(join(watched, 'settings.yaml'), 'image: sandbox:changed\n');
           server.watcher.emit('all', 'change', realpathSync(join(watched, 'settings.yaml')));
-          expect((await served.read())?.graph?.image).toBe('sandbox:changed');
+          expect((await served.read())[0]?.graph?.image).toBe('sandbox:changed');
           expect(sent).toContainEqual([{ type: 'full-reload' }]);
         },
         { timeout: 5000, interval: 250 }
@@ -900,10 +899,7 @@ export default makePlugin({ name: 'count', studio: { title: 'Count',
   read: () => Effect.succeed('${name}') } });`
     );
   }
-  vi.stubEnv('AGI_STUDIO_DIR', w.graph);
-  vi.stubEnv('AGI_STUDIO_INSTANCE', JSON.stringify({ root: w.root, name: 'pages' }));
-  vi.stubEnv('AGI_STUDIO_GRAPH', undefined);
-  vi.stubEnv('AGI_STUDIO_DATA', w.instance.data);
+  vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root: w.root, names: ['pages'] }));
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   vi.stubEnv('AGI_STUDIO_TUNE', undefined);
   const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
@@ -918,7 +914,7 @@ export default makePlugin({ name: 'count', studio: { title: 'Count',
   });
   const sent: unknown[] = [];
   server.ws.send = (...args: unknown[]) => void sent.push(args);
-  const page = 'virtual:agentgraph-page/count';
+  const page = 'virtual:agentgraph-page/pages/count';
   try {
     expect((await server.transformRequest(page))?.code).toContain('/A.tsx');
     w.save({ graph: other });
@@ -929,7 +925,7 @@ export default makePlugin({ name: 'count', studio: { title: 'Count',
     rmSync(join(other, 'plugins/count.ts'));
     server.watcher.emit('all', 'unlink', realpathSync(other) + '/plugins/count.ts');
     await vi.waitFor(() => expect(sent).toContainEqual([{ type: 'full-reload' }]), { timeout: 5000 });
-    expect(server.moduleGraph.getModuleById('\0virtual:agentgraph-page/count')?.transformResult).toBeNull();
+    expect(server.moduleGraph.getModuleById('\0virtual:agentgraph-page/pages/count')?.transformResult).toBeNull();
     await expect(server.transformRequest(page)).rejects.toThrow();
   } finally {
     await server.close();

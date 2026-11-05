@@ -648,14 +648,7 @@ function openStudio(i: Instance) {
     if (spawnSync('npm', ['ci', '--prefix', dir, '--no-audit', '--no-fund'], { stdio: 'inherit' }).status !== 0)
       fail('the studio install failed', 1);
   }
-  const flags = [
-    '--instance',
-    basename(i.dir),
-    '--data',
-    root,
-    ...(values.dir ? ['--dir', resolve(values.dir)] : []),
-    ...(values.tracker ? ['--tracker', values.tracker] : []),
-  ];
+  const flags = ['--instance', basename(i.dir), '--data', root, ...(values.dir ? ['--dir', resolve(values.dir)] : [])];
   const { status } = spawnSync(process.execPath, [join(dir, 'watch.ts'), '--repo', i.checkout, ...flags], {
     cwd: dir,
     stdio: 'inherit',

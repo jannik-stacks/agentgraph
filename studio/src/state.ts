@@ -5,8 +5,23 @@ import type { RunResults } from './results/result.ts';
 import type { RunRecord } from '../../src/workflow.ts';
 import type { findCheckVerdicts } from './graph/trail.ts';
 import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
+import { served } from 'virtual:served';
 
-const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
+export const instances = served.filter(one => one.name);
+
+export const shown = instances.length ? instances.find(one => one.name === location.pathname.split('/')[1]) : served[0];
+
+const prefix = shown?.name ? `/${shown.name}` : '';
+
+export const makeInstanceHref = (href: string) => prefix + href;
+
+export const makeApiHref = (href: string) =>
+  shown?.name ? `${href}${href.includes('?') ? '&' : '?'}instance=${shown.name}` : href;
+
+const readLocation = () => ({
+  path: location.pathname.slice(prefix.length) || '/',
+  query: new URLSearchParams(location.search),
+});
 
 /** The current location; tests set it. @public */
 export const locationAtom = atom(readLocation());
@@ -18,7 +33,7 @@ locationAtom.onMount = set => {
 
 /** Pushes or replaces a history entry. */
 export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?: boolean }) => {
-  history[to.replace ? 'replaceState' : 'pushState'](null, '', to.href);
+  history[to.replace ? 'replaceState' : 'pushState'](null, '', makeInstanceHref(to.href));
   set(locationAtom, readLocation());
 });
 
@@ -45,7 +60,11 @@ export const selectedStepAtom = queryParam('step');
 
 const loads = new Map<() => void, readonly string[]>();
 
-export const readChanged = (topics?: readonly string[]) => {
+export const readChanged = (changed?: readonly string[]) => {
+  const topics = changed?.flatMap(topic => {
+    const [own, scoped] = topic.split(':');
+    return scoped === undefined ? [own!] : own === shown?.name ? [scoped] : [];
+  });
   for (const [load, follows] of loads) if (!topics || follows.some(topic => topics.includes(topic))) load();
 };
 
@@ -69,7 +88,7 @@ export const makeLiveJsonAtom = <T>(
     const load = () => {
       if (busy) return void (again = true);
       busy = true;
-      void fetch(path)
+      void fetch(makeApiHref(path))
         .then(async r => {
           if (r.ok) return read(await r.json());
           const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
