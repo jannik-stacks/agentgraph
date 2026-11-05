@@ -5,7 +5,7 @@ import { getMean } from '../../../src/stats.ts';
 import { queryParam } from '../state.ts';
 import { usePluginData } from '../plugins.ts';
 import { BenchData, type BenchRow as Row } from './data.ts';
-import { Button, cx, Disclosure, Live, Link, MultiSelect, Muted, Select, Tooltip, useScrollFade } from '../ui.tsx';
+import { Button, cx, Disclosure, Live, MultiSelect, Muted, Select, Tooltip, useScrollFade } from '../ui.tsx';
 import {
   cost,
   getBenchNumbers,
@@ -21,11 +21,9 @@ import {
   summarise,
   isBenchMatch,
 } from './score.ts';
-import { atLink } from '../runs/trace.ts';
-import { Forest } from './Forest.tsx';
+import { Forest, BenchRunLink } from './Forest.tsx';
 import { Scatter } from './Scatter.tsx';
 import { readBenchRowResults, type RunResults } from '../results/result.ts';
-import { findCheckFields } from '../../../src/results.ts';
 import { ResultTable } from '../results/ResultTable.tsx';
 
 const params = {
@@ -69,12 +67,14 @@ const presetHelp: Record<string, string> = {
   'hidden tests only': 'Only hidden tests count.',
   'judges only': 'Only judges count.',
 };
-const BenchResults = ({ runs }: { runs: RunResults[] }) => {
-  const fields = findCheckFields(runs);
-  if (!fields.length) return null;
+const BenchResults = ({ runs, value }: { runs: RunResults[]; value: BenchData }) => {
+  const fields = value.fields.filter(f => runs.some(run => run.results[f.check]));
   return (
-    <section>
-      <ResultTable runs={runs} fields={fields} by="point" />
+    <section className="space-y-2">
+      {value.conflicts.map(conflict => (
+        <Muted key={conflict}>{conflict}</Muted>
+      ))}
+      {fields.length > 0 && <ResultTable runs={runs} fields={fields} by="point" />}
     </section>
   );
 };
@@ -163,7 +163,7 @@ const Bench = ({ value }: { value: BenchData }) => {
   }, [value, scoring, groupKeys, color, isCost, xAxis, cache]);
 
   if (!value.rows.length)
-    return <Muted>No bench runs. Start the studio with --bench and one or more bench set dirs.</Muted>;
+    return <Muted>No runs. Add an instance, or start the studio with --bench and one or more bench set dirs.</Muted>;
 
   const oneSet = new Set(points.map(p => p.labels.set)).size === 1;
   const front = oneSet ? frontier(points) : [];
@@ -319,10 +319,10 @@ const Bench = ({ value }: { value: BenchData }) => {
           <Disclosure summary={`Inspect infra runs (${matchingInfraRows.length})`}>
             <ul className="mt-2 space-y-2">
               {matchingInfraRows.map(row => (
-                <li key={row.run} className="space-y-0.5 break-words">
-                  <Link href={atLink(row.run, undefined, row.data)} className="underline underline-offset-2">
+                <li key={`${row.data}/${row.run}`} className="space-y-0.5 break-words">
+                  <BenchRunLink row={row} className="underline underline-offset-2">
                     {row.labels.model} / {row.labels.harness} / {row.case} / repeat {row.repeat}
-                  </Link>
+                  </BenchRunLink>
                   <p className="text-zinc-500 [overflow-wrap:anywhere]">{row.infra}</p>
                 </li>
               ))}
@@ -425,7 +425,7 @@ const Bench = ({ value }: { value: BenchData }) => {
             onPick={setPicked}
           />
         </div>
-        <BenchResults runs={points.flatMap(p => p.perCase.map(({ row }) => readBenchRowResults(row)))} />
+        <BenchResults runs={rows.filter(row => isBenchMatch(row, where)).map(readBenchRowResults)} value={value} />
       </div>
     </div>
   );

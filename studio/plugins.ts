@@ -1,14 +1,15 @@
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { Effect, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
+import { readRealPath } from '../src/instance.ts';
+import type * as EngineModule from '../src/engine.ts';
 import type * as PluginModule from '../src/plugin.ts';
+import type * as BenchModule from './src/bench/plugin.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import { ResultsData } from './src/results/data.ts';
 import { resultSources } from './src/results/result.ts';
-import { BenchData } from './src/bench/data.ts';
-import { readBench } from './src/bench/read.ts';
 import {
   layouts,
   makeServedGraphs,
@@ -73,32 +74,35 @@ const makeResultsPlugin = async (served: ServedGraph) => {
   });
 };
 
+const readBenchConfigs = (served: ServedGraph[]) => {
+  const seen = new Set<string>();
+  return [
+    ...served.flatMap(({ name, title, data, graph }) =>
+      data ? [{ name: name || title, data, instance: name, ...(graph && { checks: graph.checks }) }] : []
+    ),
+    ...readStudioDirs().bench.map(set => ({ name: set, data: join(set, 'data') })),
+  ].filter(({ data }) => !seen.has(readRealPath(data)) && !!seen.add(readRealPath(data)));
+};
+
 const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
-  const { readPlugins, makePlugin }: typeof PluginModule = await import(
-    new URL('../src/plugin.ts', import.meta.url).href
-  );
-  const { bench } = readStudioDirs();
-  const benchPlugin = makePlugin({
-    name: 'bench',
-    studio: {
-      title: 'Bench',
-      page: new URL('./src/bench/BenchPage.tsx', import.meta.url),
-      dataSchema: BenchData,
-      watch: () => bench,
-      read: () => Effect.promise(() => readBench(bench)),
-    },
-  });
+  const { readPlugins }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
+  const { makeEngineHost }: typeof EngineModule = await import(new URL('../src/engine.ts', import.meta.url).href);
+  const { default: bench }: typeof BenchModule = await import(new URL('./src/bench/plugin.ts', import.meta.url).href);
   const builtins = new Set(['results', 'bench']);
+  const all = await served.read();
   const scoped = await Promise.all(
-    (await served.read()).map(async one => {
+    all.map(async one => {
       const { pages } = await readPlugins(one.graph?.dir, one.graph?.plugins, undefined, [
         await makeResultsPlugin(one),
-        benchPlugin,
+        bench,
       ]);
-      return pages.filter(page => page.name !== 'bench').map(page => ({ ...page, instance: one.name }));
+      return pages.map(page => ({ ...page, instance: one.name }));
     })
   );
-  const shared = bench.length ? (await readPlugins(undefined, undefined, undefined, [benchPlugin])).pages : [];
+  const configs = readBenchConfigs(all);
+  const { pages: shared } = await readPlugins(undefined, undefined, undefined, [bench], name =>
+    makeEngineHost(name, configs)
+  );
   return [...scoped.flat(), ...shared.map(page => ({ ...page, instance: undefined }))].map(page => ({
     ...page,
     key: page.instance ? `${page.instance}/${page.name}` : page.name,
@@ -109,8 +113,9 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
 const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, served: ServedGraph[]): WatchRoot[] => {
   const { bench, tune } = readStudioDirs();
   const rootLayouts = new Map([
-    ...served.flatMap(one => (one.data ? [[one.data, layouts.data] as const] : [])),
-    ...bench.map(root => [root, layouts.bench] as const),
+    ...[...served.flatMap(one => one.data ?? []), ...bench.map(set => join(set, 'data'))].map(
+      root => [root, layouts.data] as const
+    ),
     ...(tune ? [[tune, layouts.tune] as const] : []),
   ]);
   return [

@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { hostGit } from '../src/git.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
-import { findBenchRuns } from './runs.ts';
+import { findBenchRuns, makeSetHost } from './runs.ts';
 
 export const readGraphSize = async (dir: string, tree?: string) => {
   const files = tree
@@ -32,12 +32,12 @@ export const readGraphSize = async (dir: string, tree?: string) => {
 };
 
 export const writeGraphSizeLabels = async (roots: string[], gitDir?: string) => {
-  for (const root of roots) if (!existsSync(root)) throw new Error(`${root}: no such set or run dir`);
+  for (const root of roots) if (!existsSync(root)) throw new Error(`${root}: no such set`);
   const cache = new Map<string, Awaited<ReturnType<typeof readGraphSize>>>();
   let written = 0;
   let unchanged = 0;
   let skipped = 0;
-  for (const { run, data, at } of findBenchRuns(roots)) {
+  for (const { run, data, at } of findBenchRuns(makeSetHost(roots))) {
     if (run.workflow === 'import') {
       console.log(`skip ${run.id}: imported reference has no graph`);
       skipped++;
@@ -89,7 +89,7 @@ export const writeGraphSizeLabels = async (roots: string[], gitDir?: string) => 
 
 if (import.meta.main) {
   const { positionals, values } = parseArgs({ options: { 'git-dir': { type: 'string' } }, allowPositionals: true });
-  if (!positionals.length) throw new Error('Usage: node bench/graph-size.ts <set or run dir>... [--git-dir <repo>]');
+  if (!positionals.length) throw new Error('Usage: node bench/graph-size.ts <set>... [--git-dir <repo>]');
   console.log(
     await writeGraphSizeLabels(
       positionals.map(dir => resolve(dir)),

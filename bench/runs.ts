@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { readRunLabels } from '../src/labels.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import { getRounded } from '../src/stats.ts';
@@ -10,6 +9,7 @@ import type { RunRecord } from '../src/workflow.ts';
 import type { ResultSheet } from '../src/results.ts';
 import { readJsonlRows, readRecordSync, writeFileAtomic } from '../src/store.ts';
 import { getSha } from '../src/hash.ts';
+import { type EngineHost, makeEngineHost } from '../src/engine.ts';
 
 export type BenchInput = {
   case: string;
@@ -60,12 +60,10 @@ export const makeBenchAttempt = (set: string, input: BenchInput) => {
 export const readBenchSlots = (set: string) => {
   const data = join(set, 'data');
   const runs = new Map<number, RunRecord>();
-  for (const id of existsSync(data) ? readdirSync(data) : []) {
-    const json = readRecordSync(join(data, id, 'run.json'));
-    const run = json ? (JSON.parse(json) as RunRecord) : undefined;
-    const attempt = run && readBenchInput(run)?.attempt;
+  for (const { run } of makeSetHost([set]).readRuns(set)) {
+    const attempt = readBenchInput(run)?.attempt;
     const was = attempt === undefined ? undefined : runs.get(attempt);
-    if (run && attempt !== undefined && (!was || was.started.localeCompare(run.started) <= 0)) runs.set(attempt, run);
+    if (attempt !== undefined && (!was || was.started.localeCompare(run.started) <= 0)) runs.set(attempt, run);
   }
   const root = join(set, 'attempts');
   const attempts = (existsSync(root) ? readdirSync(root) : [])
@@ -181,52 +179,30 @@ export const getBenchUsageCost = (u: { usd?: number; tokens?: Record<string, Tok
   return { usd: at(false), usdUncached: at(true), ...(unpriced.length > 0 && { unpriced }) };
 };
 
-const skippedDirs = new Set([
-  'attempts',
-  'cache',
-  'cases',
-  'graph',
-  'homes',
-  'index',
-  'logs',
-  'news',
-  'node_modules',
-  'repos',
-  'runs',
-  'scratch',
-  'tracker',
-  'tree',
-  'work',
-]);
-
-const findRunFiles = (dir: string, depth: number): string[] => {
-  if (existsSync(join(dir, 'run.json'))) return [join(dir, 'run.json')];
-  if (!depth) return [];
-  return readdirSync(dir, { withFileTypes: true }).flatMap(e =>
-    e.isDirectory() && !e.name.startsWith('.') && !skippedDirs.has(e.name)
-      ? findRunFiles(join(dir, e.name), depth - 1)
-      : []
+export const makeSetHost = (sets: readonly string[]) =>
+  makeEngineHost(
+    'bench',
+    sets.map(set => ({ name: set, data: join(set, 'data') }))
   );
-};
 
-export const findBenchRuns = (roots: readonly string[]) =>
-  [...new Set(roots.flatMap(root => (existsSync(root) ? findRunFiles(root, 9) : [])))].flatMap(file => {
-    const run = JSON.parse(readRecordSync(file)) as RunRecord;
-    const data = dirname(dirname(file));
-    const input = readBenchInput(run);
-    const set = input?.attempt !== undefined && basename(data) === 'data' ? dirname(data) : undefined;
-    return [
-      {
+export const findBenchRuns = (host: Pick<EngineHost, 'configs' | 'readRuns'>) =>
+  host.configs.flatMap(config =>
+    host.readRuns(config.name).map(({ run, data, labels, latest }) => {
+      const input = readBenchInput(run);
+      const set = input?.attempt !== undefined && basename(data) === 'data' ? dirname(data) : undefined;
+      return {
         run,
         data,
+        config,
+        labels,
         at: set ? findAttemptDir(set, input!.attempt!) : dirname(data),
-        slot: set ? join(set, getBenchSlot(input as BenchInput)) : file,
+        slot: set ? join(set, getBenchSlot(input as BenchInput)) : `${config.name}/${run.id}`,
         attempt: input?.attempt ?? 0,
         set,
-        latest: readLatestRunChecks(data, run.id),
-      },
-    ];
-  });
+        latest: new Map(latest.map(e => [e.check.check, e])),
+      };
+    })
+  );
 
 type FoundRun = ReturnType<typeof findBenchRuns>[number];
 
@@ -275,9 +251,8 @@ const readRow = (
   base?: Map<string, CheckEntry>,
   human?: Map<string, CheckEntry>
 ) => {
-  const { run, data, set, latest } = found;
+  const { run, data, set, latest, labels, config } = found;
   const input = (getRunOrigin(run.meta)?.input ?? {}) as Partial<BenchInput>;
-  const labels = readRunLabels(data, run.id);
   const id = input.case ?? labels.case ?? run.id;
   const arm = input.arm ?? labels.arm ?? run.workflow;
   const [harness, model] = input.point?.split(':') ?? [];
@@ -325,11 +300,15 @@ const readRow = (
       arm,
       ...(run.graph && { graph: labels.graph ?? run.graph.slice(0, 12) }),
       set: labels.set ?? (set ? basename(set) : ''),
-      tests:
-        (human ?? latest).get('bench/hidden') && !(human ?? latest).get('bench/hidden')!.check.na
-          ? 'hidden'
-          : 'judge-only',
+      ...(config.instance !== undefined && { instance: config.instance || config.name }),
+      ...(input.case !== undefined && {
+        tests:
+          (human ?? latest).get('bench/hidden') && !(human ?? latest).get('bench/hidden')!.check.na
+            ? 'hidden'
+            : 'judge-only',
+      }),
     } as Record<string, string>,
+    ...(config.instance !== undefined && { instance: config.instance }),
     case: id,
     repeat: input.repeat ?? 1,
     run: run.id,
@@ -364,8 +343,8 @@ const splitFinishedRuns = (fs: FoundRun[]) => {
   return groups as [FoundRun, ...FoundRun[]][];
 };
 
-export const readBenchRows = (roots: readonly string[]) => {
-  const slots = [...Map.groupBy(findBenchRuns(roots), f => f.slot).values()]
+export const readBenchRows = (host: Pick<EngineHost, 'configs' | 'readRuns'>) => {
+  const slots = [...Map.groupBy(findBenchRuns(host), f => f.slot).values()]
     .flatMap(fs =>
       splitFinishedRuns(fs.toSorted((a, b) => a.attempt - b.attempt || a.run.started.localeCompare(b.run.started)))
     )
@@ -387,7 +366,8 @@ export const readBenchRows = (roots: readonly string[]) => {
   return slots.flatMap(({ found, earlier, key, arm }) => {
     if (invalid.has(key)) return [];
     const [base, human] = [bases.get(key), humans.get(key)];
-    if (arm === 'control' || (found.run.workflow !== 'import' && !found.latest.has('bench/arm'))) return [];
+    if (arm === 'control' || (found.set && found.run.workflow !== 'import' && !found.latest.has('bench/arm')))
+      return [];
     const files = [found, ...earlier, ...(base ? [base.found] : []), ...(human ? [human.found] : [])].flatMap(f =>
       ['run.json', 'checks.jsonl', 'labels.jsonl', 'trace.jsonl'].map(
         n => statSync(join(f.data, f.run.id, n), { throwIfNoEntry: false })?.mtimeMs ?? 0

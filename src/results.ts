@@ -44,7 +44,7 @@ const isScalar = (value: unknown): value is number | boolean | string =>
   typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string';
 
 export const findCheckFields = (
-  runs: RunResults[],
+  runs: readonly Pick<RunResults, 'results'>[],
   checks: Record<string, Pick<Check, 'mode' | 'returns' | 'pass'>> = {}
 ): CheckField[] => {
   const seen = new Map<string, CheckField>();
@@ -69,4 +69,19 @@ export const findCheckFields = (
       }
     }
   return [...seen.values()];
+};
+
+export const mergeCheckFields = (lists: readonly CheckField[][]) => {
+  const seen = new Map<string, CheckField>();
+  const conflicts = new Set<string>();
+  for (const f of lists.flat()) {
+    const key = `${f.check} ${f.field}`;
+    const was = seen.get(key);
+    if (!was) seen.set(key, f);
+    else if (was.type !== f.type || was.unit !== f.unit) conflicts.add(key);
+  }
+  return {
+    fields: [...seen].flatMap(([key, f]) => (conflicts.has(key) ? [] : [f])),
+    conflicts: [...conflicts].map(key => `${key.replace(' ', ' field ')} has different types or units across configs`),
+  };
 };

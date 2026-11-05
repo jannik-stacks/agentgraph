@@ -3,9 +3,30 @@ import { Fragment, type ReactNode } from 'react';
 import { getMean } from '../../../src/stats.ts';
 import { cx, Link, Tooltip } from '../ui.tsx';
 import { atLink } from '../runs/trace.ts';
+import { shown } from '../state.ts';
+import type { BenchRow } from './data.ts';
 import { formatLabel, formatMinutes, getQualitySpread, getRowKey, roughBelow, type summarise } from './score.ts';
 
 type Point = ReturnType<typeof summarise>[number];
+
+export const BenchRunLink = ({
+  row,
+  children,
+  className,
+}: {
+  row: BenchRow;
+  children: ReactNode;
+  className?: string;
+}) =>
+  row.instance === undefined || row.instance === (shown?.name ?? '') ? (
+    <Link href={atLink(row.run, undefined, row.instance === undefined ? row.data : undefined)} className={className}>
+      {children}
+    </Link>
+  ) : (
+    <a href={`/${row.instance}${atLink(row.run)}`} className={className}>
+      {children}
+    </a>
+  );
 
 const [width, height, pad] = [280, 20, 14];
 const fmt = (v: number) => v.toFixed(2);
@@ -226,13 +247,13 @@ const Runs = ({ point }: { point: Point }) => (
               .join(', '),
             usd(row.usd),
             formatMinutes(row.minutes),
-            <Link
+            <BenchRunLink
               key={row.run}
-              href={atLink(row.run, undefined, row.data)}
+              row={row}
               className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
             >
               run
-            </Link>,
+            </BenchRunLink>,
           ];
           return (
             <tr key={getRowKey(row)} className="text-zinc-600 dark:text-zinc-400">

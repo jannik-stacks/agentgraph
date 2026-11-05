@@ -10,11 +10,11 @@ import { studioDir } from './studio.ts';
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'agi-unserved-')));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 mkdirSync(join(dir, 'data/stacks-kit/data/cache/work/abc/.git'), { recursive: true });
-mkdirSync(join(dir, 'bench/set/hash/arm/case/checkout/.git'), { recursive: true });
+mkdirSync(join(dir, 'bench/set/data/cache/work/abc/.git'), { recursive: true });
 symlinkSync(join(dir, 'data'), join(dir, 'link'));
 const unserved = makeUnservedFilter([
   { root: join(dir, 'link'), topic: 'data', layout: layouts.data },
-  { root: join(dir, 'bench'), topic: 'bench', layout: layouts.bench },
+  { root: join(dir, 'bench/set/data'), topic: 'bench', layout: layouts.data },
   { root: join(dir, 'tune'), topic: 'results', layout: layouts.tune },
 ]);
 
@@ -28,9 +28,8 @@ const PATHS = [
   ['link/homes/uuid', true],
   ['link/cache/work', true],
   ['tune/repo/target-shared/debug/deps', true],
-  ['bench/set/hash/arm/case/r1/data/run-1/run.json', false],
-  ['bench/set/hash/arm/case/checkout', true],
-  ['bench/set/hash/engine/src/a.ts', true],
+  ['bench/set/data/run-1/run.json', false],
+  ['bench/set/data/cache/work/abc', true],
   ['elsewhere/tsconfig.json', false],
 ] as const;
 
@@ -42,11 +41,11 @@ it.each(PATHS)('%s is unwatched: %s', (path, skipped) => {
 });
 
 it.each(SERVED)('watches %s in a bench run', name => {
-  expect(unserved(join(dir, 'bench/set/case/data/run-1', name))).toBe(false);
+  expect(unserved(join(dir, 'bench/set/data/run-1', name))).toBe(false);
 });
 
 it.each(LOCKFILES)('skips the lockfile %s', name => {
-  expect(unserved(join(dir, 'bench/set/case/graph', name))).toBe(true);
+  expect(unserved(join(dir, 'bench/set/data/run-1', name))).toBe(true);
 });
 
 it('sends a change for a run record but not for a run checkout', async () => {
@@ -76,7 +75,7 @@ it('sends a change for a run record but not for a run checkout', async () => {
       () => {
         writeFileSync(join(data, 'cache/work/abc/tsconfig.json'), '{}');
         writeFileSync(join(data, 'run-1/run.json'), '{}');
-        expect(sent).toContainEqual(['agi:changed', { topics: ['data', 'results'] }]);
+        expect(sent).toContainEqual(['agi:changed', { topics: ['data', 'results', 'bench'] }]);
       },
       { timeout: 4000, interval: 200 }
     );

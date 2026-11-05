@@ -102,7 +102,7 @@ export const getFieldSummary = (runs: RunResults[], field: CheckField, trend = '
 export const readBenchRowResults = (row: BenchRow): RunResults => {
   const at = Object.values(row.results)[0]?.at ?? '';
   return {
-    key: row.run,
+    key: `${row.data}/${row.run}`,
     at,
     ...(row.infra && { dead: row.infra }),
     axes: {

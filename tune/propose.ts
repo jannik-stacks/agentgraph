@@ -18,7 +18,14 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { failureClass } from '../bin/bench.ts';
-import { type BenchRow, readBenchRows, readBenchRun, readLatestRunChecks, readRunChange } from '../bench/runs.ts';
+import {
+  type BenchRow,
+  makeSetHost,
+  readBenchRows,
+  readBenchRun,
+  readLatestRunChecks,
+  readRunChange,
+} from '../bench/runs.ts';
 import { parseJsonl, readFileOrEmpty, readJsonl } from '../bin/resume.ts';
 import { transcript } from '../src/context.ts';
 import { readConfiguredGraph } from '../src/harnesses.ts';
@@ -143,7 +150,7 @@ const traces = (row: Pick<BenchRow, 'data' | 'run'>, budget: number) => {
 };
 
 export const readCandidateRows = (tune: string, cand: string) =>
-  readBenchRows([join(tune, 'data')]).filter(r => r.labels.cand === cand);
+  readBenchRows(makeSetHost([tune])).filter(r => r.labels.cand === cand);
 
 /** Failing fit cases with their diffs, hidden test output and run transcripts; `small` for the structure proposer. */
 const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean): Material[] =>
