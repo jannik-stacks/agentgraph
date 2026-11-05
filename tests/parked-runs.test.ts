@@ -10,7 +10,7 @@ import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
 import { Store } from '../src/store.ts';
 import { begin, type Run } from '../src/workflow.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
-import { bodies, services, world } from './world.ts';
+import { bodies, services, settleLongAgo, world } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { findStatus, issuePath } from './kit.ts';
 
@@ -78,6 +78,7 @@ describe('resume', () => {
           combined
         )
       );
+      await run(settleLongAgo('issue-7'));
       const { reason: _reason, ...working } = parked('retro-7');
       const paused = await run(runWorkflow(flow, { ...working, status: 'running' }, combined));
       const before = await run(Effect.flatMap(Tracker, f => f.issue(7)));
