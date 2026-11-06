@@ -3,7 +3,7 @@ import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { hostGit } from '../src/git.ts';
-import { readRunLabels, writeRunLabels } from '../src/labels.ts';
+import { writeRunLabels } from '../src/labels.ts';
 import { findBenchRuns, makeSetHost } from './runs.ts';
 
 export const readGraphSize = async (dir: string, tree?: string) => {
@@ -37,7 +37,7 @@ export const writeGraphSizeLabels = async (roots: string[], gitDir?: string) => 
   let written = 0;
   let unchanged = 0;
   let skipped = 0;
-  for (const { run, data, at } of findBenchRuns(makeSetHost(roots))) {
+  for (const { run, data, at, labels } of findBenchRuns(makeSetHost(roots))) {
     if (run.workflow === 'import') {
       console.log(`skip ${run.id}: imported reference has no graph`);
       skipped++;
@@ -73,7 +73,6 @@ export const writeGraphSizeLabels = async (roots: string[], gitDir?: string) => 
         cache.set(run.graphTree, size);
       }
     }
-    const labels = readRunLabels(data, run.id);
     const patch = Object.fromEntries(
       Object.entries(size)
         .map(([key, value]) => [key, String(value)])
