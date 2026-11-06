@@ -123,8 +123,9 @@ export default makePlugin({
 ## Trackers
 
 A plugin can provide `tracker` instead of tools. It receives `{ repo, studio, app, dir }` and returns `layer(trust)`, a
-layer that provides the `Tracker`, and `origin`, the git remote sandboxes mirror. `--tracker <value>`, else the
-instance's `tracker`, else `AGENTGRAPH_TRACKER`, else `github` when the App env is set, picks one: a value that names a plugin selects it, and any
+layer that provides the `Tracker`, and `origin`, the git remote sandboxes mirror. `--tracker <value>`, else
+`AGENTGRAPH_TRACKER` in the instance's env file, else the instance's `tracker`, else `AGENTGRAPH_TRACKER` in the shell,
+else `github` when App credentials are set, picks one: a value that names a plugin selects it, and any
 other value is the path of a folder for the built-in `folder` tracker, relative to the working directory. A plugin
 picked by name gets `AGENTGRAPH_TRACKER_DIR` as its `dir`, and a local instance picks the `tracker` its
 [instance.yaml](runs.md#instanceyaml) names, `folder` by default, with its `tracker/` as the folder. Plugins of
