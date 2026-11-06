@@ -269,14 +269,14 @@ export const runAttempt = (
     /** The first session of a run a comment started, which may answer that comment. */
     const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
     const before = asked ? yield* writeCheckoutTree(work) : undefined;
+    const t = yield* readIssueWithPull(w, run);
     if ('wait' in step.does) {
-      const { issue, pull } = yield* readIssueWithPull(w, run);
-      const open = w.branch === undefined || issue.pull !== undefined || pull !== undefined;
+      const open = w.branch === undefined || t.issue.pull !== undefined || t.pull !== undefined;
       return done({
         kind: 'ask',
         question: open
           ? `${step.name} waits for a human`
-          : `No pull request is open for branch ${own ?? formatTemplate(w.branch!, issue)}. Open one, or say what to do.`,
+          : `No pull request is open for branch ${own ?? formatTemplate(w.branch!, t.issue)}. Open one, or say what to do.`,
       });
     }
 
@@ -300,7 +300,6 @@ export const runAttempt = (
           if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
         }
       });
-    const t = yield* readIssueWithPull(w, run);
     /** Whether the work a comment-only reply answers exists: no branch, a pull request, or a finished run. */
     const held =
       w.branch === undefined ||
