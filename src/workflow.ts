@@ -102,7 +102,6 @@ export type Run = {
   retried?: true;
   /** The time of the newest event the run has taken in: its start, answers, and everything its sessions were shown. */
   seen?: string;
-  comment?: string;
   /** Where humans last spoke to the run: the issue, and each review thread it has yet to answer. */
   said?: { issue: number; under?: string }[];
   /** The 👀 the run gave where it was woken, as the proposal that takes it back once the run has replied. */

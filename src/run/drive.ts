@@ -82,16 +82,6 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     const settle = (outcome: Outcome, next: Run, failure?: SessionStop['reason']) =>
       Effect.gen(function* () {
         yield* store.trace(next.id, makeOutcomeLine(current.step, outcome, next, failure));
-        if (
-          next.status === 'waiting' &&
-          next.reason &&
-          !next.reason.startsWith(stoppedByRunner) &&
-          !(yield* store.list()).some(r => r.by === next.id && next.reason === formatWaitingOn(r))
-        ) {
-          const body = outcome.kind === 'failed' ? 'How should I proceed?' : next.reason;
-          const said = yield* Effect.result(writeProposals(removeThreads(next), [{ kind: 'comment', body }]));
-          if (Result.isSuccess(said)) yield* writeAppliedTrace(next.id, next.step, said.success);
-        }
         current = yield* writeStatus(w, next, graph);
         yield* store.put(current);
       });

@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { Schema, Result, Effect, Option } from 'effect';
 import { Said, type Proposal } from '../proposal.ts';
-import { type IssueWithPull, news, formatSqueezed, formatRequest, context } from '../context.ts';
+import { type IssueWithPull, news, formatSqueezed, formatRequest, context, formatUpdate } from '../context.ts';
 import {
   type Outcome,
   type Run,
@@ -593,6 +593,26 @@ export const runAttempt = (
       Effect.catchTag('TrackerError', failure => Effect.succeed({ failure }))
     );
     if ('failure' in landed) return { failure: landed.failure, run: tried, tree };
+    const opened = landed.find(a => a.ok && a.proposal.kind === 'pull_request');
+    const tracker = yield* Tracker;
+    const said = opened && {
+      kind: 'comment' as const,
+      body: formatUpdate('Opened a pull request.', tried, opened.url, tracker.studio),
+    };
+    const announced = said
+      ? [
+          yield* writeOnce(
+            tried,
+            run.issue,
+            getOperationKey(tried, run.issue, said, 'opened'),
+            tracker.apply(run.issue, said),
+            said
+          ).pipe(
+            useRunLink(tried, spoke),
+            Effect.catchTag('TrackerError', e => Effect.succeed<Applied>({ proposal: said, ok: false, reason: e.message }))
+          ),
+        ]
+      : [];
     if (landed.some(a => a.ok)) tried = removeThreads(tried);
     if (tried.onto && landed.some(a => a.ok && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;
@@ -605,7 +625,7 @@ export const runAttempt = (
       : child
         ? [{ proposal: proposed, ok: true, id: child.id }]
         : [{ proposal: proposed, ok: false, reason: 'its run id was taken' }];
-    const applied = [...landed, ...delivered, ...dispatched];
+    const applied = [...landed, ...announced, ...delivered, ...dispatched];
     const failed = [...landed, ...dispatched].filter(a => !a.ok);
     yield* writeAppliedTrace(run.id, step.name, applied);
     return done(

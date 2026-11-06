@@ -1,12 +1,4 @@
-import {
-  formatFooter,
-  issueStatuses,
-  makeStudioRunUrl,
-  removeRunLink,
-  type Event,
-  type Issue,
-  type IssueStatus,
-} from './event.ts';
+import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { CheckEntry, Trace } from './trace.ts';
 import { formatFailedTryFeedback, type Run, type Seen } from './workflow.ts';
@@ -75,11 +67,10 @@ export function context(t: IssueWithPull): string {
 const bot = (m: Event) => m.actor.endsWith('[bot]');
 const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined ? m.comment.id : undefined);
 
-const status =
-  /^(Agentgraph status: |Working on |Waiting for |Done\.$|Stopped at |Asked the question below at |Stopped by a runner error at )/;
+const update = /^(Opened a pull request|Done|Stopped)\.$/;
 
 const isRunnerStatus = (m: Event) =>
-  bot(m) && (m.kind === 'label' || m.kind === 'unlabel' || status.test(m.comment?.body.split('\n')[0] ?? ''));
+  bot(m) && (m.kind === 'label' || m.kind === 'unlabel' || update.test(m.comment?.body.split('\n')[0] ?? ''));
 
 export function formatRequest(t: IssueWithPull, started: string): string {
   const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
@@ -119,76 +110,64 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
   };
 }
 
-const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
-
 export const stoppedByRunner = 'Stopped by a runner error';
 
 const answerWith = 'Reply `/agent` and your answer, or `/agent:stop` to end the run.';
 
-export function proposeStatusUpdates(
+const paused = 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.';
+
+/** What one run asks of the issue: work, a review, an answer, or nothing more. */
+export const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
+  run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)
+    ? 'working'
+    : run.status === 'waiting'
+      ? run.reason || !pulled
+        ? 'needs-answer'
+        : 'needs-review'
+      : run.status;
+
+/** The status the issue shows for its runs: a question, then a review, then work, else how the newest run ended. */
+export const findIssueStatus = (runs: Run[], pulled: boolean): IssueStatus | undefined => {
+  const all = runs.toSorted((a, b) => a.started.localeCompare(b.started)).map(r => findRunStatus(r, runs, pulled));
+  return (['needs-answer', 'needs-review', 'working'] as const).find(s => all.includes(s)) ?? all.at(-1);
+};
+
+/** An update: its text, then the pull request and the studio run when there are. */
+export const formatUpdate = (text: string, run: Run, pull?: string, studio?: string) =>
+  [
+    text,
+    [pull && `Pull request: ${pull}`, studio && `Run: ${makeStudioRunUrl(studio, run.id)}`].filter(Boolean).join('\n'),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+/**
+ * New comments for what changed since `before`: a question the run now waits on, mentioning the trusted person who
+ * spoke last, and, for a workflow with a branch, that it is done or stopped.
+ */
+export function proposeUpdates(
+  before: Run | undefined,
   run: Run,
   t: IssueWithPull,
-  studio?: string,
-  usd = 0,
-  others: { run: Run; t: IssueWithPull; usd: number }[] = [],
-  quiet = false
-): { to?: IssueStatus; from?: IssueStatus; proposals: Proposal[] } {
-  const rows = [...others, { run, t, usd }].toSorted((a, b) => a.run.started.localeCompare(b.run.started));
-  const states = rows.map(({ run, t }): [IssueStatus, string] =>
-    run.reason?.startsWith(stoppedByRunner)
-      ? ['needs-answer', 'paused on an agentgraph problem, not this change; reply `/agent` to retry']
-      : run.status === 'running' ||
-          (run.status === 'waiting' && rows.some(r => r.run.by === run.id && run.reason === `waiting on ${r.run.id}`))
-        ? ['working', run.status === 'running' && run.reason ? 'held' : 'working']
-        : run.status === 'waiting'
-          ? run.reason || !(t.pull ?? t.issue.pull)
-            ? ['needs-answer', `waiting for your answer below. ${answerWith}`]
-            : ['needs-review', 'waiting for you']
-          : [run.status, run.status === 'stopped' && run.reason ? `stopped: ${run.reason}` : run.status]
-  );
-  const [status, active] = states.find(([, s]) => s.startsWith('paused')) ??
-    states.find(([s]) => s.startsWith('needs')) ??
-    states.find(([s]) => s === 'working') ?? [states.at(-1)![0], states.at(-1)![0]];
-  const table = [
-    '| Workflow / step | State | Cost | Pull request | Failing checks | Studio |',
-    '| --- | --- | --- | --- | --- | --- |',
-    ...rows.map(({ run, t, usd }, i) => {
-      const pull = t.pull ?? (t.issue.pull ? t.issue : rows.findLast(r => r.t.pull)?.t.pull);
-      const checks = new Map((pull?.events ?? []).flatMap(m => (m.check ? [[m.check.name, m.check.conclusion]] : [])));
-      const failing = [...checks].filter(([, c]) => failures.has(c)).map(([name]) => name);
-      return `| ${[
-        `${run.workflow} / ${run.step}`,
-        [
-          states[i]![1],
-          run.status !== 'stopped' &&
-            run.reason &&
-            !run.reason.startsWith(stoppedByRunner) &&
-            (states[i]![1] !== 'working' || run.status === 'running') &&
-            run.reason,
-        ]
-          .filter(Boolean)
-          .join(' '),
-        `$${usd.toFixed(2)}`,
-        pull?.url ?? '',
-        failing.join(', '),
-        studio ? `[Open](${makeStudioRunUrl(studio, run.id)})` : '',
-      ]
-        .map(text => text.replaceAll('|', '&#124;').replaceAll('\n', ' '))
-        .join(' | ')} |`;
-    }),
-  ].join('\n');
-  const comment =
-    t.issue.events.find(m => bot(m) && m.comment?.body.startsWith('Agentgraph status: '))?.comment ??
-    t.issue.events.find(m => m.comment && rows.some(r => r.run.comment === m.comment?.id))?.comment;
-  const from = issueStatuses.find(s => comment?.body.includes(`<!-- status: ${s} -->`));
-  const shown = quiet ? from : status;
-  const body = `Agentgraph status: ${active}\n\n${shown ? `<!-- status: ${shown} -->\n\n` : ''}${formatFooter(table)}`;
-  const same = comment !== undefined && removeRunLink(comment.body) === removeRunLink(body);
-  return {
-    ...(shown !== from && { to: status }),
-    ...(from && { from }),
-    proposals: same ? [] : [{ kind: 'comment', body, ...(comment && { edit: comment.id }) }],
-  };
+  runs: Run[],
+  branch: boolean,
+  studio?: string
+): Proposal[] {
+  const events = [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.trusted && !bot(m));
+  const pull = (t.pull ?? (t.issue.pull ? t.issue : undefined))?.url;
+  const who = events.toSorted((a, b) => a.at.localeCompare(b.at)).at(-1)?.actor ?? t.issue.author;
+  const asked =
+    run.status === 'waiting' &&
+    run.reason !== undefined &&
+    findRunStatus(run, runs, true) === 'needs-answer' &&
+    (before?.status !== 'waiting' || before.reason !== run.reason) &&
+    `@${who} ${run.reason.startsWith(stoppedByRunner) ? paused : `${run.reason}\n\n${answerWith}`}`;
+  const ended = (status: Run['status']) => branch && run.status === status && before?.status !== status;
+  return [
+    asked,
+    ended('done') && 'Done.',
+    ended('stopped') && !run.restarted && ['Stopped.', run.reason].filter(Boolean).join('\n\n'),
+  ].flatMap(text => (text ? [{ kind: 'comment' as const, body: formatUpdate(text, run, pull, studio) }] : []));
 }
 
 /** Tokens, keys and secret assignments a transcript never shows. */
