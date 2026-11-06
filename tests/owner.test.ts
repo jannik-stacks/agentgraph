@@ -55,10 +55,6 @@ describe('isOwnerRunning', () => {
     }
   });
 
-  it('drops a holder that names this pid under another owner, an earlier process given the same pid', () => {
-    expect(isOwnerRunning(`${process.pid}:earlier:${hostname()}`)).toBe(false);
-  });
-
   it('trusts a running pid only when its label was written since boot', () => {
     expect(isOwnerRunning(String(process.ppid))).toBe(true);
     expect(isOwnerRunning(String(process.ppid), Date.now() - uptime() * 1000 - 3_600_000)).toBe(false);

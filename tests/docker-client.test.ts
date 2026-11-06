@@ -943,7 +943,7 @@ describe('disk lifecycle', () => {
         { name: 'agentgraph-layer-own-1', dst: '/work/packages/a/node_modules' },
       ]);
       expect(log()).toMatch(
-        /volume create --label agentgraph\.layer=\d+:[0-9a-f]{12} --label agentgraph\.owner=own agentgraph-layer-own-1/
+        /volume create --label agentgraph\.layer=\d+:[0-9a-f]{12}:\S+ --label agentgraph\.owner=own agentgraph-layer-own-1/
       );
       expect(log()).toContain(
         'o=lowerdir=/lower/.agentgraph-env/data/0,upperdir=/u0/upper,workdir=/u0/work agentgraph-layer-own-0-o'

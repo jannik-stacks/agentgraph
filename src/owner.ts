@@ -40,7 +40,6 @@ export const isOwnerRunning = (label: string, writtenAt = Date.now()) => {
   if (!label) throw new Error('owner record is empty');
   const [pid, owner, host] = label.split(':');
   if (owner === ownerId) return true;
-  if (owner && Number(pid) === process.pid) return false;
   const running = writtenAt > bootedAt() - 60_000 && Number(pid) > 0 && isPidRunning(Number(pid));
   if (host === hostname()) return running;
   try {
