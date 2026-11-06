@@ -859,6 +859,73 @@ it('serves every loop instance in one process and keeps going when one fails to 
   );
 });
 
+it('resolves each loop instance from its own files, whatever the shell sets', async () => {
+  const w = await makeInstances(['left', 'right']);
+  const scoped = 'ANTHROPIC_API_KEY=scoped\nAGENTGRAPH_EVERY=60\n';
+  const files: Record<string, string> = {
+    left: `${scoped}AGENTGRAPH_APP_ID=left-app\nAGENTGRAPH_APP_KEY=left-key\nAGENTGRAPH_STUDIO_URL=http://left.example/\n`,
+    right: scoped,
+  };
+  for (const { name, graph } of w.graphs) {
+    const env = join(w.root, `${name}.env`);
+    writeFileSync(env, files[name]!);
+    writeFileSync(
+      join(w.root, name, 'instance.yaml'),
+      stringify({
+        checkout: w.seed,
+        base: 'main',
+        owner: 'owner',
+        exported: {},
+        loop: true,
+        graph,
+        env,
+        provider: 'anthropic',
+        tracker: 'ready',
+      })
+    );
+    writeFileSync(
+      join(graph, 'plugins/ready.ts'),
+      `
+import { writeFileSync } from 'node:fs';
+import { Effect, Layer, Option } from ${JSON.stringify(import.meta.resolve('effect'))};
+import { settings } from ${JSON.stringify(new URL('../src/services.ts', import.meta.url).href)};
+import { readHarnessSettings } from ${JSON.stringify(new URL('../src/harnesses.ts', import.meta.url).href)};
+import { folder } from ${JSON.stringify(new URL('../src/tracker.ts', import.meta.url).href)};
+export default { name: 'ready', tracker: host => { const setup = folder.tracker(host); return { ...setup,
+layer: (trust, as) => Layer.unwrap(Effect.map(Effect.all({ settings, harness: readHarnessSettings }), ({ settings: s, harness }) => {
+  writeFileSync(${JSON.stringify(join(w.root, `captured-${name}`))}, JSON.stringify({ studio: s.studio, app: Option.getOrUndefined(s.app)?.id, provider: harness.provider }));
+  return setup.layer(trust, as);
+})) }; } };`
+    );
+  }
+  const result = spawnSync(
+    process.execPath,
+    [cli, 'loop', '--once', '--data', w.root, '--instance', 'left', '--instance', 'right'],
+    {
+      cwd: w.root,
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        NODE_OPTIONS: '',
+        AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+        AGENTGRAPH_SANDBOX_URL: 'http://unused',
+        AGENTGRAPH_APP_ID: 'shell-app',
+        AGENTGRAPH_APP_KEY: 'shell-key',
+        AGENTGRAPH_PROVIDER: 'litellm',
+        AGENTGRAPH_STUDIO_URL: 'http://shell.example',
+      },
+    }
+  );
+  expect([result.status, result.stderr]).toEqual([
+    0,
+    expect.stringContaining('ignoring AGENTGRAPH_APP_ID, AGENTGRAPH_APP_KEY, AGENTGRAPH_PROVIDER from the shell'),
+  ]);
+  expect(w.graphs.map(g => JSON.parse(readFileSync(join(w.root, `captured-${g.name}`), 'utf8')))).toEqual([
+    { studio: 'http://left.example/left', app: 'left-app', provider: 'anthropic' },
+    { studio: 'http://shell.example/right', provider: 'anthropic' },
+  ]);
+});
+
 it('releases the lock of every served instance on SIGTERM', async () => {
   const w = await makeInstances(['left', 'right']);
   const child = w.spawnLoop('--instance', 'left', '--instance', 'right', '--parallel', '1');

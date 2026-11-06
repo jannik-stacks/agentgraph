@@ -35,8 +35,8 @@ import {
 import type { JsonValue } from '../src/meta.ts';
 import {
   createLoopLock,
+  instanceSettings,
   isLoopHeld,
-  readEngineEnv,
   readInstanceEnv,
   start,
   writeTriggeringIssue,
@@ -204,11 +204,13 @@ const readProviderHost = async (scope: InstanceEnv) => ({
   env: scope.env,
 });
 
-const applySettings = async (provider: Provider, scope: InstanceEnv) => {
-  const { AGENTGRAPH_TRACKER } = scope.env;
-  Object.assign(scope.env, await provider.settings?.(await readProviderHost(scope)));
-  Object.assign(scope.env, await readEngineEnv(scope.env), commandEnv, { AGENTGRAPH_TRACKER });
-};
+const applySettings = async (provider: Provider, i: Instance, scope: InstanceEnv) =>
+  readInstanceEnv(
+    i,
+    makeHarnessChoice(provider.name),
+    { ...defaults, ...(await provider.settings?.(await readProviderHost(scope))) },
+    commandEnv
+  );
 
 const findUnserved = (provider: Provider, graph: Graph) =>
   Object.values(graph.agents)
@@ -220,7 +222,7 @@ const findUnserved = (provider: Provider, graph: Graph) =>
 
 const connect = async (i: Instance, graph: string, after: string, local: boolean, first: InstanceEnv, tag = '') => {
   const { provider, ready } = await pickProvider(i, after, first);
-  const scope = await readInstanceEnv(i, makeHarnessChoice(provider.name), defaults, commandEnv);
+  let scope = await readInstanceEnv(i, makeHarnessChoice(provider.name), defaults, commandEnv);
   scope.env.AGENTGRAPH_DIR = graph;
   if (values.save && values.provider) writeInstanceProvider(i, provider.name);
   const harness = values.harness ?? provider.harnesses[0]!;
@@ -235,7 +237,7 @@ const connect = async (i: Instance, graph: string, after: string, local: boolean
       provider.login ??
       (() => Promise.reject(new Error([`${provider.name} is not ready`, provider.setup].filter(Boolean).join('\n'))))
     )(at).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
-  await applySettings(provider, scope).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
+  scope = await applySettings(provider, i, scope).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   scope.env.AGENTGRAPH_DIR = graph;
   const resolved = await Effect.runPromise(
     Effect.all({ host: Config.all(hostSettings), graph: readConfiguredGraph(graph, i, overrides) }).pipe(
@@ -721,6 +723,12 @@ async function loop(instances: Instance[]) {
   const served: Promise<void>[] = [];
   trapInterrupt(() => (stopping.abort(), Promise.allSettled(served).then(() => {})));
   const several = instances.length > 1;
+  const ignored = several ? instanceSettings.filter(name => process.env[name] !== undefined) : [];
+  for (const name of ignored) delete process.env[name];
+  if (ignored.length)
+    console.error(
+      `several instances: ignoring ${ignored.join(', ')} from the shell; set them in each instance's env file or instance.yaml`
+    );
   let failed = 0;
   await Promise.all(
     instances.map(i =>
@@ -834,8 +842,11 @@ async function serve(
       if (stopping.signal.aborted) break;
       const last = scope;
       try {
-        scope = await readInstanceEnv(i, makeHarnessChoice(connection.provider.name), defaults, commandEnv);
-        await applySettings(connection.provider, scope);
+        scope = await applySettings(
+          connection.provider,
+          i,
+          await readInstanceEnv(i, makeHarnessChoice(connection.provider.name), defaults, commandEnv)
+        );
       } catch (e) {
         scope = last;
         console.error(`${tag}the settings did not refresh, the next pass keeps the last: ${(e as Error).message}`);

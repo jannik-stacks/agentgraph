@@ -134,3 +134,58 @@ it('lets an instance tracker beat the tracker env and the App env, below the --t
     vi.unstubAllEnvs();
   }
 });
+
+it('reads the flags, then the instance env file, then instance.yaml, then the shell', async () => {
+  const { root } = seeded('instance-layers', { 'file.txt': 'content' });
+  const env = join(root, 'one.env');
+  writeFileSync(
+    env,
+    'AGENTGRAPH_PROVIDER=file\nAGENTGRAPH_REPO=file/repo\nAGENTGRAPH_STUDIO_URL=http://file.example/\n'
+  );
+  const shell = {
+    AGENTGRAPH_PROVIDER: 'shell',
+    AGENTGRAPH_REPO: 'shell/repo',
+    AGENTGRAPH_IMAGE: 'shell:image',
+    AGENTGRAPH_TRUST: 'shell-login',
+    AGENTGRAPH_STUDIO_URL: 'http://shell.example',
+  };
+  for (const [name, value] of Object.entries(shell)) vi.stubEnv(name, value);
+  const instance = {
+    data: '/unused',
+    dir: '/x/one',
+    owner: 'o',
+    provider: 'yaml',
+    repo: 'yaml/repo',
+    image: 'yaml:image',
+  };
+  const read = async (more: object, flags = {}) => {
+    const scope = await readInstanceEnv({ ...instance, ...more }, {}, {}, flags);
+    const provider = await Effect.runPromise(
+      Config.String('AGENTGRAPH_PROVIDER').pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
+    );
+    const { AGENTGRAPH_REPO, AGENTGRAPH_IMAGE, AGENTGRAPH_TRUST, AGENTGRAPH_STUDIO_URL } = scope.env;
+    return { provider, AGENTGRAPH_REPO, AGENTGRAPH_IMAGE, AGENTGRAPH_TRUST, AGENTGRAPH_STUDIO_URL };
+  };
+  try {
+    expect(await read({ env })).toEqual({
+      provider: 'file',
+      AGENTGRAPH_REPO: 'file/repo',
+      AGENTGRAPH_IMAGE: 'yaml:image',
+      AGENTGRAPH_TRUST: 'shell-login',
+      AGENTGRAPH_STUDIO_URL: 'http://file.example/one',
+    });
+    expect(await read({ env, trust: [] }, { AGENTGRAPH_REPO: 'flag/repo' })).toMatchObject({
+      AGENTGRAPH_REPO: 'flag/repo',
+      AGENTGRAPH_TRUST: '',
+    });
+    expect(await read({})).toEqual({
+      provider: 'yaml',
+      AGENTGRAPH_REPO: 'yaml/repo',
+      AGENTGRAPH_IMAGE: 'yaml:image',
+      AGENTGRAPH_TRUST: 'shell-login',
+      AGENTGRAPH_STUDIO_URL: 'http://shell.example/one',
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

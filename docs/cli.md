@@ -74,7 +74,7 @@ Printed commands carry the `--repo` and `--data` given. Inside a repo, `check --
 
 ## Picking a provider
 
-A provider is where model calls go and how they log in; [Sandbox and models](sandbox.md#providers) lists them. The CLI takes `--provider`, then a non-empty `AGENTGRAPH_PROVIDER`, then `provider` in `instance.yaml`, then the only ready one, which it saves. It picks before it sets up Docker, so a missing model fails before the image build. With several ready it asks, or fails without a terminal. With none, or an agent whose harness the provider does not serve, it says why and files nothing. <!-- code: bin/run.ts#pickProvider -->
+A provider is where model calls go and how they log in; [Sandbox and models](sandbox.md#providers) lists them. The CLI takes `--provider`, then `AGENTGRAPH_PROVIDER` in the instance's env file, then `provider` in `instance.yaml`, then a non-empty `AGENTGRAPH_PROVIDER` in the shell, then the only ready one, which it saves. It picks before it sets up Docker, so a missing model fails before the image build. With several ready it asks, or fails without a terminal. With none, or an agent whose harness the provider does not serve, it says why and files nothing. <!-- code: bin/run.ts#pickProvider -->
 
 ## Examples
 
@@ -115,6 +115,6 @@ The runner reads these. Instance defaults and command overrides follow the [sett
 | `AGENTGRAPH_SANDBOX_URL` | A box server that runs commands instead of docker; see [Hosting](hosting.md) |
 | `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links); an instance's links add `/<name>` |
 
-A setting in both the shell and the App env file takes the env file's value. Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the names in `AGENTGRAPH_SESSION_ENV` may come from a file named by the setting plus `_FILE`. <!-- code: src/main.ts#readEngineEnv -->
+An instance's settings come from [its files first](local.md#named-instances-and-settings). A setting in both the shell and the App env file takes the env file's value. Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the names in `AGENTGRAPH_SESSION_ENV` may come from a file named by the setting plus `_FILE`. <!-- code: src/main.ts#readEngineEnv -->
 
 Script variables are in [Checks](checks.md#script-variables), and disk settings in [Sandbox and models](sandbox.md#disk).

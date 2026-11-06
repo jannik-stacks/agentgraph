@@ -104,35 +104,29 @@ Edit the record to change saved defaults; flags apply to one command. `loop: tru
 instance in `agi loop` run outside a repo without `--instance`. Unknown fields fail.
 <!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph src/instance.ts#ensureInstanceGraph -->
 
-Highest priority comes first in this single precedence table.
-<!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#readInstanceEnv src/services.ts#readTrackerName -->
+Each setting of an instance comes from the first of these that sets it: a command flag, the
+instance's `env` file (and the App env file it names), `instance.yaml`, the shell environment
+(and the App env file it names), the provider's defaults. The shell is a default for every instance.
+<!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/services.ts#readTrackerName -->
 
-| Value              | Precedence                                                                               |
-| ------------------ | ---------------------------------------------------------------------------------------- |
-| Tracker repository | `AGENTGRAPH_REPO`, instance `repo`, empty                                                |
-| Trust              | `AGENTGRAPH_TRUST`, instance `trust`, instance `owner`, tracker collaborators            |
-| Image              | `AGENTGRAPH_IMAGE`, instance `image`, graph `image`, stock sandbox image                 |
-| Parallel drives    | instance `limits.parallel`, graph `limits.parallel`                                      |
-| Base               | `--base`, workflow `base`, instance `base`, tracker default                              |
-| Tracker            | `--tracker`, instance `tracker`, `AGENTGRAPH_TRACKER`, App env inference, folder tracker |
-| Provider           | `--provider`, `AGENTGRAPH_PROVIDER`, instance `provider`, harness config                 |
-| Harness config     | `AGENTGRAPH_CONFIG`, data root `config.ts`, engine config                                |
-| Graph path         | `--dir`, `AGENTGRAPH_DIR`, instance `graph`, checkout `.agentgraph/`                     |
+| Value              | Flag         | `instance.yaml` field | Env name              | When none sets it                                              |
+| ------------------ | ------------ | --------------------- | --------------------- | -------------------------------------------------------------- |
+| Tracker repository |              | `repo`                | `AGENTGRAPH_REPO`     | empty                                                          |
+| Trust              |              | `trust`               | `AGENTGRAPH_TRUST`    | instance `owner`, tracker collaborators                        |
+| Image              |              | `image`               | `AGENTGRAPH_IMAGE`    | graph `image`, stock sandbox image                             |
+| Tracker            | `--tracker`  | `tracker`             | `AGENTGRAPH_TRACKER`  | `github` with App credentials, folder                          |
+| Provider           | `--provider` | `provider`            | `AGENTGRAPH_PROVIDER` | harness config                                                 |
+| Graph path         | `--dir`      | `graph`               | `AGENTGRAPH_DIR`      | checkout `.agentgraph/`                                        |
+| Harness config     |              |                       | `AGENTGRAPH_CONFIG`   | data root `config.ts`, engine config                           |
+| Parallel drives    |              | `limits.parallel`     |                       | graph `limits.parallel`                                        |
+| Base               | `--base`     | `base`                |                       | tracker default; a workflow `base` comes before the instance's |
 
 An explicit empty trust list trusts nobody. The runtime graph carries these resolved values;
 graph `settings.yaml` rejects `repo` and `trust`. Image and parallel remain graph defaults.
-`AGENTGRAPH_PROVIDER` and `AGENTGRAPH_DIR` remain command overrides
-of their instance fields (an empty `AGENTGRAPH_PROVIDER` counts as unset), with their CLI flags taking priority.
-`AGENTGRAPH_TRACKER` and the App env pick a tracker only for an instance without `tracker`, so a loop over
-several instances never moves one off the tracker it names. `AGENTGRAPH_APP_ENV` remains
-the App env-file override. `AGENTGRAPH_DATA` still selects the root. There is no engine
-`AGENTGRAPH_PARALLEL`; `AGENTGRAPH_BASE` remains a check-script input. Host resources and
-secret variables keep their existing meanings.
-
-The instance `env` file supplies scoped values before the process environment and App env
-file; explicit command flags win. It never changes `process.env`. Explicit `--logs` overrides
-both env files and the process environment.
-<!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/main.ts#start -->
+`AGENTGRAPH_APP_ENV` names an env file with App credentials; an instance names its own in its `env`
+file. `AGENTGRAPH_DATA` selects the root. There is no engine `AGENTGRAPH_PARALLEL`;
+`AGENTGRAPH_BASE` remains a check-script input. `--logs` beats `AGENTGRAPH_CHECK_LOGS` everywhere.
+<!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#start -->
 
 ### One loop for several instances
 
@@ -141,9 +135,13 @@ both env files and the process environment.
 graph, data, lock, tracker, trust, env file, provider and session permits, and its output lines start
 with its name. `--repo`, `--dir`, `--base`, `--tracker` and `--read-only` select one instance, so
 they fail here; put them in each `instance.yaml`. `--parallel <n>` caps drives across all of them.
+The App settings (`AGENTGRAPH_APP_ENV`, `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_APP_KEY_FILE`),
+`AGENTGRAPH_TRACKER`, `AGENTGRAPH_REPO`, `AGENTGRAPH_TRUST`, `AGENTGRAPH_DIR` and `AGENTGRAPH_PROVIDER` belong to one
+instance, so a loop of several ignores them in the shell and says which it ignored; put them in each instance's `env`
+file or `instance.yaml`, or pass `--provider` for all. Other settings, such as `AGENTGRAPH_STUDIO_URL`, stay shared.
 An instance that fails to start, or stops on an error, prints `<name>: stopped: <why>` and the others go on;
 the process then exits 1. Ctrl-C or SIGTERM stops every instance and releases each lock.
-<!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives src/main.ts#start -->
+<!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives src/main.ts#start src/main.ts#instanceSettings -->
 
 ### Migrating an existing instance
 

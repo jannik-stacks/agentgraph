@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
-import { ConfigProvider, Effect, Exit, identity, Layer, Scope, Schema, type Semaphore } from 'effect';
+import { ConfigProvider, Effect, Exit, identity, Layer, Scope, type Semaphore } from 'effect';
 import {
   instruct,
   issueDebounceMs,
@@ -15,16 +15,9 @@ import {
   type Instruction,
 } from './run/trigger.ts';
 import { Tracker } from './tracker.ts';
-import {
-  makeEnvProvider,
-  makeHarnessConfigProvider,
-  splitNames,
-  readOverrides,
-  readConfiguredGraph,
-} from './harnesses.ts';
+import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { type Instance, readRealPath } from './instance.ts';
-import { GraphSettings, type Graph } from './folder.ts';
-import { getSettings } from './settings.ts';
+import type { Graph } from './folder.ts';
 import { makeProductionLayers, type makeTrackerSetup, readTrackerName, settings, type Settings } from './services.ts';
 import { fileStore, Store, StoreError } from './store.ts';
 import { LockHeldError } from './owner.ts';
@@ -38,22 +31,41 @@ const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()
 export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
   file ? (parseEnv(await readText(file)) as Record<string, string>) : {};
 
-export const readEngineEnv = async (
-  defaults: Record<string, string> = {},
-  file?: string
-): Promise<Record<string, string>> => {
-  const instance = await readEnvFile(file);
-  const app = await readEnvFile(
-    process.env.AGENTGRAPH_APP_ENV ?? instance.AGENTGRAPH_APP_ENV ?? defaults.AGENTGRAPH_APP_ENV
-  );
-  const layers: Record<string, string | undefined>[] = [defaults, instance, process.env, app];
-  const merged = Object.assign({}, ...layers);
+export const instanceSettings = [
+  'AGENTGRAPH_APP_ENV',
+  'AGENTGRAPH_APP_ID',
+  'AGENTGRAPH_APP_KEY',
+  'AGENTGRAPH_APP_KEY_FILE',
+  'AGENTGRAPH_TRACKER',
+  'AGENTGRAPH_REPO',
+  'AGENTGRAPH_TRUST',
+  'AGENTGRAPH_DIR',
+  'AGENTGRAPH_PROVIDER',
+];
+
+type Vars = Record<string, string | undefined>;
+
+export const readEngineEnv = async (layers: Vars[]): Promise<Record<string, string>> => {
+  const expanded: Vars[] = [];
+  for (const vars of layers) expanded.push(vars, await readEnvFile(vars.AGENTGRAPH_APP_ENV));
+  const merged: Record<string, string> = {};
+  for (const vars of expanded)
+    for (const [name, value] of Object.entries(vars)) if (value !== undefined) merged[name] = value;
   for (const name of [...secretSettings, ...splitNames(merged.AGENTGRAPH_SESSION_ENV ?? '')]) {
-    const file = layers.findLast(vars => vars[name] ?? vars[`${name}_FILE`])?.[`${name}_FILE`];
+    const file = expanded.findLast(vars => vars[name] ?? vars[`${name}_FILE`])?.[`${name}_FILE`];
     if (file) merged[name] = await readText(file);
   }
-  return Object.fromEntries(Object.entries(merged).filter((e): e is [string, string] => e[1] !== undefined));
+  return merged;
 };
+
+const readInstanceVars = (i: Partial<Instance>): Vars => ({
+  AGENTGRAPH_REPO: i.repo,
+  AGENTGRAPH_TRUST: i.trust?.join(','),
+  AGENTGRAPH_IMAGE: i.image,
+  AGENTGRAPH_PROVIDER: i.provider,
+  AGENTGRAPH_TRACKER: i.trackerName,
+  AGENTGRAPH_DIR: i.graph,
+});
 
 export const readInstanceEnv = async (
   instance?: Partial<Instance>,
@@ -62,20 +74,17 @@ export const readInstanceEnv = async (
   flags: Record<string, string> = {}
 ) => {
   const file = instance?.dir && join(dirname(instance.dir), 'config.ts');
-  const env = await readEngineEnv(
+  const env = await readEngineEnv([
     { ...(file && existsSync(file) && { AGENTGRAPH_CONFIG: file }), ...defaults },
-    instance?.env
-  );
-  Object.assign(env, flags);
-  if (instance) {
-    const overrides = await Effect.runPromise(
-      readOverrides.pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider(env)))
-    );
-    const resolved = getSettings(Schema.decodeUnknownSync(GraphSettings)({}), instance, undefined, overrides);
+    process.env,
+    instance ? readInstanceVars(instance) : {},
+    await readEnvFile(instance?.env),
+    flags,
+  ]);
+  if (instance)
     Object.assign(env, {
-      AGENTGRAPH_REPO: resolved.repo,
-      ...(resolved.trust !== undefined && { AGENTGRAPH_TRUST: resolved.trust.join(',') }),
-      ...(resolved.image !== undefined && { AGENTGRAPH_IMAGE: resolved.image }),
+      AGENTGRAPH_REPO: env.AGENTGRAPH_REPO ?? '',
+      ...(env.AGENTGRAPH_TRUST === undefined && instance.owner !== undefined && { AGENTGRAPH_TRUST: instance.owner }),
       AGENTGRAPH_TRACKER_DIR: instance.tracker ?? '',
       ...(instance.data && { AGENTGRAPH_DATA: instance.data }),
       ...(env.AGENTGRAPH_STUDIO_URL &&
@@ -83,18 +92,14 @@ export const readInstanceEnv = async (
           AGENTGRAPH_STUDIO_URL: `${env.AGENTGRAPH_STUDIO_URL.replace(/\/+$/, '')}/${basename(instance.dir)}`,
         }),
     });
-  }
   const named = await Effect.runPromise(
     readTrackerName.pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider(env)))
   );
-  env.AGENTGRAPH_TRACKER = flags.AGENTGRAPH_TRACKER || instance?.trackerName || named || (instance ? 'folder' : '');
+  env.AGENTGRAPH_TRACKER = named || (instance ? 'folder' : '');
   return {
     env,
     config: makeHarnessConfigProvider(
-      {
-        ...choice,
-        provider: choice.provider || env.AGENTGRAPH_PROVIDER || instance?.provider,
-      },
+      { ...choice, provider: choice.provider || env.AGENTGRAPH_PROVIDER },
       makeEnvProvider(env)
     ),
   };
