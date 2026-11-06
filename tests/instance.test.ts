@@ -116,3 +116,21 @@ it('treats an empty AGENTGRAPH_PROVIDER as unset so the record provider wins', a
     vi.unstubAllEnvs();
   }
 });
+
+const readTracker = async (instance: object, flags = {}) =>
+  (await readInstanceEnv({ data: '/unused', ...instance }, {}, {}, flags)).env.AGENTGRAPH_TRACKER;
+
+it('lets an instance tracker beat the tracker env and the App env, below the --tracker flag', async () => {
+  for (const name of ['AGENTGRAPH_TRACKER', 'AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'])
+    vi.stubEnv(name, '');
+  vi.stubEnv('AGENTGRAPH_APP_ID', '42');
+  try {
+    expect(await readTracker({})).toBe('github');
+    expect(await readTracker({ trackerName: 'folder' })).toBe('folder');
+    vi.stubEnv('AGENTGRAPH_TRACKER', 'github');
+    expect(await readTracker({ trackerName: 'folder' })).toBe('folder');
+    expect(await readTracker({ trackerName: 'folder' }, { AGENTGRAPH_TRACKER: 'github' })).toBe('github');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

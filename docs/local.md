@@ -114,15 +114,17 @@ Highest priority comes first in this single precedence table.
 | Image              | `AGENTGRAPH_IMAGE`, instance `image`, graph `image`, stock sandbox image                 |
 | Parallel drives    | instance `limits.parallel`, graph `limits.parallel`                                      |
 | Base               | `--base`, workflow `base`, instance `base`, tracker default                              |
-| Tracker            | `--tracker`, `AGENTGRAPH_TRACKER`, App env inference, instance `tracker`, folder tracker |
+| Tracker            | `--tracker`, instance `tracker`, `AGENTGRAPH_TRACKER`, App env inference, folder tracker |
 | Provider           | `--provider`, `AGENTGRAPH_PROVIDER`, instance `provider`, harness config                 |
 | Harness config     | `AGENTGRAPH_CONFIG`, data root `config.ts`, engine config                                |
 | Graph path         | `--dir`, `AGENTGRAPH_DIR`, instance `graph`, checkout `.agentgraph/`                     |
 
 An explicit empty trust list trusts nobody. The runtime graph carries these resolved values;
 graph `settings.yaml` rejects `repo` and `trust`. Image and parallel remain graph defaults.
-`AGENTGRAPH_PROVIDER`, `AGENTGRAPH_DIR`, and `AGENTGRAPH_TRACKER` remain command overrides
-of their instance fields (an empty `AGENTGRAPH_PROVIDER` counts as unset), with their CLI flags taking priority. `AGENTGRAPH_APP_ENV` remains
+`AGENTGRAPH_PROVIDER` and `AGENTGRAPH_DIR` remain command overrides
+of their instance fields (an empty `AGENTGRAPH_PROVIDER` counts as unset), with their CLI flags taking priority.
+`AGENTGRAPH_TRACKER` and the App env pick a tracker only for an instance without `tracker`, so a loop over
+several instances never moves one off the tracker it names. `AGENTGRAPH_APP_ENV` remains
 the App env-file override. `AGENTGRAPH_DATA` still selects the root. There is no engine
 `AGENTGRAPH_PARALLEL`; `AGENTGRAPH_BASE` remains a check-script input. Host resources and
 secret variables keep their existing meanings.
