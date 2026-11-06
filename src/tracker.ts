@@ -22,7 +22,7 @@ import {
 } from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { Checkout } from './sandbox.ts';
-import { hostGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
+import { readGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
 import { waitForLock } from './owner.ts';
 import { writeFileAtomic } from './store.ts';
 
@@ -323,7 +323,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       const git = (work: Checkout, ...args: string[]) =>
         Effect.runPromise(
           Effect.mapError(
-            hostGit(work.git, [
+            readGit(work.git, [
               '-c',
               `user.name=${who}`,
               '-c',
@@ -334,7 +334,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             ]),
             e => new TrackerError({ message: e.detail })
           )
-        ).then(out => out.toString('utf8').trim());
+        );
       const findPushProblem = async (work: Checkout, from: string, to: string) => {
         const fields = (await git(work, 'diff-tree', '-r', '-z', '--no-renames', from, to)).split('\0');
         if ((fields.length - 1) / 2 > pushLimits.files) return `at most ${pushLimits.files} files can be pushed`;
@@ -658,13 +658,8 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
                 .map(shown)
             )
           ),
-        base: hostGit({ GIT_DIR: join(dir, 'origin.git') }, ['symbolic-ref', 'HEAD']).pipe(
-          Effect.map(out =>
-            out
-              .toString('utf8')
-              .trim()
-              .replace(/^refs\/heads\//, '')
-          ),
+        base: readGit({ GIT_DIR: join(dir, 'origin.git') }, ['symbolic-ref', 'HEAD']).pipe(
+          Effect.map(out => out.replace(/^refs\/heads\//, '')),
           Effect.mapError(e => new TrackerError({ message: e.detail }))
         ),
         issues: filter =>
