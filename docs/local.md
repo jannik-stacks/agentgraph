@@ -47,7 +47,7 @@ Without a graph, commands that need one stop with a copy command. An `.agentgrap
 
 ## Who drives
 
-`start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends. While an `agi loop` holds the instance's lock, they only post and the loop picks the issue up. Only one loop runs per instance; one loop can serve several, see [below](#one-loop-for-several-instances). <!-- code: src/main.ts#createLoopLock src/main.ts#isLoopHeld -->
+`start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends. While an `agi loop` holds the checkout's lock, they only post and the loop picks the issue up. Only one loop runs per checkout; one loop can serve several, see [below](#one-loop-for-several-instances). <!-- code: src/owner.ts#createLoopLock src/owner.ts#readLoopHolder -->
 
 After a drive the CLI prints why the run waits or stopped and the next commands. A runner error, such as a harness that cannot reach its model, makes the run wait; the drive and `agi show <n>` print its cause and trace path. A login the provider rejects stops the run, and for `claude` the CLI says how to drop the saved token. <!-- code: src/status.ts#formatRunnerError -->
 
@@ -142,6 +142,35 @@ file or `instance.yaml`, or pass `--provider` for all. Other settings, such as `
 An instance that fails to start, or stops on an error, prints `<name>: stopped: <why>` and the others go on;
 the process then exits 1. Ctrl-C or SIGTERM stops every instance and releases each lock.
 <!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives src/main.ts#start src/main.ts#instanceSettings -->
+
+### Starting and stopping a loop
+
+```sh
+agi loop --detach --instance a --instance b
+agi stop --instance a --instance b
+agi restart --instance a --instance b
+```
+
+`agi loop` runs in the foreground; Ctrl-C lets running drives wind down, and a second Ctrl-C quits.
+With `--detach` it runs in the background and appends its output to
+`<data root>/logs/loop-<names>-<date>.log`, named for its instances and the day it started. The
+command returns once the loop holds every checkout and prints its pid and log, or prints the log and
+fails if the loop exits first.
+
+`agi stop` sends the loop SIGINT and returns once the loop has let go of the checkout; `--force`
+sends SIGTERM, which ends it at once. Without `--instance` it stops the loop of the repo you are in,
+or outside a repo every loop under the data root. When a loop also serves instances you did not
+name, it refuses and prints the command that names them all. `agi restart` stops, then starts the
+loop again with `--detach`; outside a repo without `--instance` it restarts the `loop: true`
+instances.
+
+A loop holds one lock per checkout, kept under `AGENTGRAPH_STATE`, so two instances or two data
+roots never loop on one checkout. Two worktrees of a repo are two checkouts; give each its own
+instance with `--instance <name> --repo <worktree>`. A second loop on a checkout fails with the
+`stop` and `restart` commands to run, and waits instead while the holder is stopping. A lock whose
+holder died is taken over at once on the same host, and after its two-minute heartbeat from another
+host; runs go on where they were.
+<!-- code: bin/run.ts#stopLoops bin/run.ts#detach src/owner.ts#createLoopLock src/owner.ts#isOwnerRunning -->
 
 ### Migrating an existing instance
 

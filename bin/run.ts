@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 import { readInstallationReach } from '../src/github.ts';
-import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
+import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -19,6 +29,7 @@ import {
   findInstances,
   readInstance,
   readPickedInstance,
+  readRealPath,
   findPull,
   findRepo,
   mergePull,
@@ -33,15 +44,8 @@ import {
   type Instance,
 } from '../src/instance.ts';
 import type { JsonValue } from '../src/meta.ts';
-import {
-  createLoopLock,
-  instanceSettings,
-  isLoopHeld,
-  readInstanceEnv,
-  start,
-  writeTriggeringIssue,
-} from '../src/main.ts';
-import { LockHeldError } from '../src/owner.ts';
+import { instanceSettings, readInstanceEnv, start, writeTriggeringIssue } from '../src/main.ts';
+import { createLoopLock, LockHeldError, readLoopHolder } from '../src/owner.ts';
 import {
   findLoginProvider,
   findRunsWaitingOnPeople,
@@ -69,7 +73,8 @@ const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.
   .version;
 const parsed = await readArgs(process.argv.slice(2), version);
 if (typeof parsed === 'number') process.exit(parsed);
-const { verb, values, rest } = parsed;
+const { values, rest } = parsed;
+let { verb } = parsed;
 const overrides = values.base === undefined ? {} : { base: values.base };
 const usage = `see agi ${verb} --help`;
 class Failure extends Error {
@@ -86,11 +91,8 @@ process.on('uncaughtException', e => {
 const fail = (message: string, code = 2): never => {
   throw new Failure(message, code);
 };
-const failLoopLock = (error: unknown): never => {
-  if (error instanceof LockHeldError)
-    fail(`another loop holds this data dir, try again in ${error.seconds} seconds`, 1);
-  throw error;
-};
+const formatLoopFlags = (names: string[]) =>
+  `${names.map(name => ` --instance ${formatShellWord(name)}`).join('')} --data ${formatShellWord(root)}`;
 type InstanceEnv = Awaited<ReturnType<typeof readInstanceEnv>>;
 const isIssueNumber = (k: number) => Number.isInteger(k) && k > 0;
 const n = Number(rest[0]);
@@ -321,6 +323,22 @@ const commandEnv = {
   ...(values.tracker !== undefined && { AGENTGRAPH_TRACKER: values.tracker }),
 };
 const named = values.instance ?? [];
+if (verb === 'stop' || verb === 'restart') {
+  const repo = named.length ? undefined : await findRepo(resolve(values.repo ?? '.'));
+  const all = findInstances(root);
+  const picked = named.length
+    ? await Promise.all(named.map(name => readPickedInstance(root, name, false))).catch((e: Error) => fail(e.message))
+    : repo
+      ? all.filter(i => i.checkout === readRealPath(repo))
+      : all.filter(i => verb === 'stop' || i.loop);
+  await stopLoops(
+    picked.filter(i => i !== undefined),
+    all
+  );
+  if (verb === 'stop') process.exit(0);
+  verb = 'loop';
+  values.detach = true;
+}
 if (named.length > 1 && verb !== 'loop') fail(`${verb} takes one --instance\n${usage}`);
 if (verb === 'loop' && (named.length > 1 || (!named.length && !values.repo && !(await findRepo(resolve('.')))))) {
   for (const flag of ['repo', 'dir', 'base', 'tracker', 'read-only'] as const)
@@ -456,7 +474,7 @@ async function runOnInstance(
       if (!text) fail(`start takes the issue text\n${usage}`);
       const graph = await synced();
       const { loaded, provider } = await prepare(i, graph, 'Nothing was filed.');
-      if (values['run-label'] && (await isLoopHeld(i.data)))
+      if (values['run-label'] && readLoopHolder(i.checkout))
         fail(
           `a loop drives this repo, so the run is not started here: start without --run-label, then agi label <run id>${selected}`
         );
@@ -609,7 +627,7 @@ async function findPullIssue(i: Instance, n: number) {
 
 async function drive(i: Instance, issue: number, graph: string, provider: string) {
   trapInterrupt();
-  if (await isLoopHeld(i.data)) {
+  if (readLoopHolder(i.checkout)) {
     console.log(`a loop drives this repo and takes #${issue} on its next pass; agi show ${issue}${selected}`);
     return;
   }
@@ -715,6 +733,7 @@ async function report(
 
 async function loop(instances: Instance[]) {
   if (!instances.length) fail(`no instance under ${root} has loop: true; set it in instance.yaml or pass --instance`);
+  if (values.detach) return detach(instances);
   const parallel = values.parallel === undefined ? undefined : Number(values.parallel);
   if (parallel !== undefined && !(Number.isInteger(parallel) && parallel > 0))
     fail(`--parallel takes a whole number above 0\n${usage}`);
@@ -742,12 +761,92 @@ async function loop(instances: Instance[]) {
   if (failed) process.exit(1);
 }
 
+async function stopLoops(picked: Instance[], all: Instance[]) {
+  const checkouts = new Set(picked.map(i => i.checkout));
+  const held = new Map<number, string[]>();
+  for (const i of picked) {
+    const holder = readLoopHolder(i.checkout);
+    if (!holder) console.log(`no loop on ${basename(i.dir)}`);
+    else if (holder.host !== hostname())
+      fail(`pid ${holder.pid} on ${holder.host} loops on ${basename(i.dir)}; stop it there`, 1);
+    else held.set(holder.pid, [...(held.get(holder.pid) ?? []), basename(i.dir)]);
+  }
+  for (const [pid, names] of held) {
+    const also = all.filter(i => !checkouts.has(i.checkout) && readLoopHolder(i.checkout)?.pid === pid);
+    if (also.length)
+      fail(
+        `pid ${pid} also loops on ${also.map(i => basename(i.dir)).join(', ')}; name every instance it serves: agi ${verb}${formatLoopFlags([...names, ...also.map(i => basename(i.dir))])}`
+      );
+  }
+  for (const [pid, names] of held) {
+    process.kill(pid, values.force ? 'SIGTERM' : 'SIGINT');
+    console.log(`stopping pid ${pid} (${names.join(', ')})${values.force ? '' : '; agi stop --force ends it now'}`);
+  }
+  while (picked.some(i => held.has(readLoopHolder(i.checkout)?.pid ?? 0))) await sleep(200);
+}
+
+async function detach(instances: Instance[]) {
+  const names = instances.map(i => basename(i.dir));
+  const log = join(root, 'logs', `loop-${names.join('+')}-${new Date().toISOString().slice(0, 10)}.log`);
+  const args = process.argv
+    .slice(2)
+    .map(arg => (arg === 'restart' ? 'loop' : arg))
+    .filter(arg => !/^--(detach|force)(=|$)/.test(arg));
+  mkdirSync(dirname(log), { recursive: true });
+  appendFileSync(log, `== ${new Date().toISOString()} agi ${args.join(' ')}\n`);
+  const from = statSync(log).size;
+  const out = openSync(log, 'a');
+  const child = spawn(process.execPath, [...process.execArgv, process.argv[1]!, ...args], {
+    detached: true,
+    stdio: ['ignore', out, out],
+  });
+  closeSync(out);
+  child.unref();
+  let code: number | undefined;
+  child.once('exit', exit => (code = exit ?? 1));
+  while (code === undefined && !instances.every(i => readLoopHolder(i.checkout)?.pid === child.pid)) await sleep(200);
+  if (code !== undefined) {
+    process.stderr.write(readFileSync(log).subarray(from));
+    process.exit(code);
+  }
+  console.log(`loop pid ${child.pid} on ${names.join(', ')}; log ${log}`);
+  process.exit(0);
+}
+
 async function serve(
   instance: Instance,
   tag: string,
   shared: Semaphore.Semaphore | undefined,
   served: Promise<void>[]
 ) {
+  const lock = await createLoopLock(
+    instance.checkout,
+    pid => console.error(`${tag}waiting for the stopping loop (pid ${pid}) to exit`),
+    stopping.signal
+  ).catch((e: unknown) => {
+    const holder = e instanceof LockHeldError && readLoopHolder(instance.checkout);
+    if (stopping.signal.aborted) return undefined;
+    if (!holder) throw e;
+    const flags = formatLoopFlags([basename(instance.dir)]);
+    const where = holder.host === hostname() ? '' : ` on ${holder.host}`;
+    return fail(
+      `pid ${holder.pid}${where} already loops on ${instance.checkout}; agi stop${flags}, or agi restart${flags}`,
+      1
+    );
+  });
+  if (!lock) return;
+  stopping.signal.addEventListener('abort', () => void lock.stop(), { once: true });
+  const ended = Promise.withResolvers<void>();
+  served.push(ended.promise);
+  try {
+    await serveLocked(instance, tag, shared);
+  } finally {
+    await lock.release();
+    ended.resolve();
+  }
+}
+
+async function serveLocked(instance: Instance, tag: string, shared: Semaphore.Semaphore | undefined) {
   let scope = await readInstanceEnv(instance, makeHarnessChoice(values.provider), defaults, commandEnv);
   scope.env.AGENTGRAPH_DIR = await ensureInstanceGraph(instance, values.dir ?? scope.env.AGENTGRAPH_DIR);
   const opened = await openTracker(instance, scope);
@@ -766,11 +865,8 @@ async function serve(
     tag
   );
   scope = connection.scope;
-  const release = await createLoopLock(i.data).catch(failLoopLock);
   const drives = values.once ? undefined : startLoopDrives(shared);
   const sessions = Semaphore.makeUnsafe(1);
-  const ended = Promise.withResolvers<void>();
-  served.push(ended.promise);
   const done = new AbortController();
   const halted = AbortSignal.any([stopping.signal, done.signal]);
   const selected = formatInstanceFlags(i.checkout, root, basename(i.dir));
@@ -863,13 +959,8 @@ async function serve(
     }
   } finally {
     done.abort();
-    try {
-      await polling;
-      await drives?.stop();
-    } finally {
-      await release();
-      ended.resolve();
-    }
+    await polling;
+    await drives?.stop();
   }
 }
 

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
-import { ConfigProvider, Effect, Exit, identity, Layer, Scope, type Semaphore } from 'effect';
+import { ConfigProvider, Effect, identity, Layer, type Semaphore } from 'effect';
 import {
   instruct,
   issueDebounceMs,
@@ -19,7 +19,7 @@ import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredG
 import { type Instance, readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
 import { makeProductionLayers, type makeTrackerSetup, readTrackerName, settings, type Settings } from './services.ts';
-import { fileStore, Store, StoreError } from './store.ts';
+import { Store, StoreError } from './store.ts';
 import { LockHeldError } from './owner.ts';
 import { parseLabels, writeRunLabels } from './labels.ts';
 import type { Run, RunRecord } from './workflow.ts';
@@ -154,24 +154,6 @@ const failLoopLock = (error: unknown): never => {
   const cause = error instanceof StoreError ? error.cause : undefined;
   throw cause instanceof LockHeldError ? cause : error;
 };
-
-export const createLoopLock = async (data: string) => {
-  const scope = Effect.runSync(Scope.make());
-  await Effect.runPromise(
-    Effect.flatMap(Store, s => s.lock('loop')).pipe(Effect.provide(fileStore(data)), Scope.provide(scope))
-  ).catch(async (e: unknown) => {
-    await Effect.runPromise(Scope.close(scope, Exit.void));
-    failLoopLock(e);
-  });
-  let released: Promise<void> | undefined;
-  return () => (released ??= Effect.runPromise(Scope.close(scope, Exit.void)));
-};
-
-export const isLoopHeld = (data: string) =>
-  createLoopLock(data).then(
-    release => release().then(() => false),
-    () => true
-  );
 
 export const start = (
   one: {

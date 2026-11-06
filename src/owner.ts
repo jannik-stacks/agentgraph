@@ -3,7 +3,7 @@ import { readOrUndefined } from './read.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { link, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { homedir, uptime } from 'node:os';
+import { homedir, hostname, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 
@@ -21,7 +21,7 @@ const beat = () => {
 export const startHeartbeat = () => {
   beat();
   if (!beating) (beating = setInterval(beat, 30_000)).unref();
-  return `${process.pid}:${ownerId}`;
+  return `${process.pid}:${ownerId}:${hostname()}`;
 };
 
 /** @internal */
@@ -38,14 +38,16 @@ const bootedAt = () => Date.now() - uptime() * 1000;
 
 export const isOwnerRunning = (label: string, writtenAt = Date.now()) => {
   if (!label) throw new Error('owner record is empty');
-  const [pid, owner] = label.split(':');
+  const [pid, owner, host] = label.split(':');
   if (owner === ownerId) return true;
+  const running = writtenAt > bootedAt() - 60_000 && Number(pid) > 0 && isPidRunning(Number(pid));
+  if (host === hostname()) return running;
   try {
     if (owner && Date.now() - statSync(join(heartbeats(), owner)).mtimeMs < 120_000) return true;
   } catch (e) {
     readOrUndefined(e);
   }
-  return writtenAt > bootedAt() - 60_000 && Number(pid) > 0 && isPidRunning(Number(pid));
+  return running;
 };
 
 export const isLockedByOtherProcess = (path: string) => {
@@ -63,18 +65,8 @@ const release = (path: string, holder: string) => async () => {
 const exists = (e: unknown) => (e as NodeJS.ErrnoException).code === 'EEXIST';
 
 export class LockHeldError extends Error {
-  readonly seconds: number;
-
-  constructor(holder: string, writtenAt: number) {
+  constructor(holder: string) {
     super(`held by ${holder || 'an initializing owner'}`);
-    let until = writtenAt + 120_000;
-    try {
-      const owner = holder.split(':')[1];
-      if (owner) until = statSync(join(heartbeats(), owner)).mtimeMs + 120_000;
-    } catch (e) {
-      readOrUndefined(e);
-    }
-    this.seconds = Math.max(1, Math.ceil((until - Date.now()) / 1000));
   }
 }
 
@@ -113,13 +105,12 @@ export const createLock = async (path: string) => {
         const before = await readFile(path, 'utf8').catch(readOrUndefined);
         if (before === undefined) continue;
         const writtenAt = before ? Date.now() : (await stat(path)).mtimeMs;
-        if (before ? isOwnerRunning(before) : Date.now() - writtenAt < 120_000)
-          throw new LockHeldError(before, writtenAt);
+        if (before ? isOwnerRunning(before) : Date.now() - writtenAt < 120_000) throw new LockHeldError(before);
         if (await succeed(path, before, candidate)) return release(path, holder);
         break;
       }
     }
-    throw new LockHeldError('', Date.now());
+    throw new LockHeldError('');
   } finally {
     await rm(candidate, { force: true });
   }
@@ -132,5 +123,57 @@ export const waitForLock = async (name: string, dir = join(readStateDir(), 'lock
     const taken = await createLock(path).catch(e => (e instanceof LockHeldError ? undefined : Promise.reject(e)));
     if (taken) return taken;
     await setTimeout(500);
+  }
+};
+
+/** @internal */
+export const findLoopLock = (checkout: string) => join(readStateDir(), 'loops', `${getSha(checkout, 16)}.lock`);
+
+const readTextSync = (path: string) => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (e) {
+    return readOrUndefined(e);
+  }
+};
+
+export const readLoopHolder = (checkout: string) => {
+  const path = findLoopLock(checkout);
+  const holder = readTextSync(path);
+  if (!holder || !isOwnerRunning(holder)) return undefined;
+  const [pid, , host = ''] = holder.split(':');
+  return { pid: Number(pid), host, stopping: readTextSync(`${path}.stopping`) === holder };
+};
+
+export const createLoopLock = async (checkout: string, onWait = (_pid: number) => {}, signal?: AbortSignal) => {
+  const path = findLoopLock(checkout);
+  const marker = `${path}.stopping`;
+  await mkdir(dirname(path), { recursive: true });
+  let told = false;
+  for (;;) {
+    const release = await createLock(path).catch((e: unknown) => {
+      if (!(e instanceof LockHeldError)) throw e;
+      const holder = readLoopHolder(checkout);
+      if (holder && !holder.stopping) throw e;
+      if (holder && !told) {
+        told = true;
+        onWait(holder.pid);
+      }
+    });
+    if (release) {
+      const holder = await readFile(path, 'utf8');
+      return {
+        stop: async () => {
+          const next = `${marker}.${randomUUID()}`;
+          await writeFile(next, holder);
+          await rename(next, marker);
+        },
+        release: async () => {
+          await release();
+          if ((await readFile(marker, 'utf8').catch(readOrUndefined)) === holder) await rm(marker, { force: true });
+        },
+      };
+    }
+    await setTimeout(500, undefined, { signal });
   }
 };

@@ -1,18 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process';
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  symlinkSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, join } from 'node:path';
 import { Effect, Layer } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { findIssueNumbers, folderTracker, Tracker, runLocked, writeIssueFile } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import {
@@ -34,7 +24,8 @@ import { stoppedByRunner } from '../src/context.ts';
 import { begin } from '../src/workflow.ts';
 import { loadGraph } from '../src/folder.ts';
 import { fileStore, Store } from '../src/store.ts';
-import { createLoopLock, isLoopHeld, start as main, writeTriggeringIssue } from '../src/main.ts';
+import { start as main, writeTriggeringIssue } from '../src/main.ts';
+import { createLoopLock, findLoopLock, readLoopHolder } from '../src/owner.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
@@ -844,11 +835,13 @@ export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: 
     await ensureBase(i);
     await expect(ensureGraph(i)).rejects.toThrow('.agentgraph holds links or submodules: agents/leak.md');
 
-    const release = await createLoopLock(i.data);
-    expect(await isLoopHeld(i.data)).toBe(true);
-    await expect(createLoopLock(i.data)).rejects.toThrow();
-    await release();
-    expect(await isLoopHeld(i.data)).toBe(false);
+    vi.stubEnv('AGENTGRAPH_STATE', tmp('state'));
+    const lock = await createLoopLock(i.checkout);
+    expect(readLoopHolder(i.checkout)?.pid).toBe(process.pid);
+    await expect(createLoopLock(i.checkout)).rejects.toThrow();
+    await lock.release();
+    expect(readLoopHolder(i.checkout)).toBe(undefined);
+    vi.unstubAllEnvs();
   });
 });
 
@@ -872,7 +865,8 @@ describe('the CLI flags', () => {
   ] as const)('releases the %s loop lock before exiting on %s', async (kind, signal) => {
     const w = world();
     const root = join(w.root, 'loop-data');
-    const { data } = await ensureInstance(root, 'seed', w.seed);
+    const { checkout } = await ensureInstance(root, 'seed', w.seed);
+    vi.stubEnv('AGENTGRAPH_STATE', join(w.root, 'state'));
     if (kind === 'tracker') await w.tracker('init', w.seed);
     const child = spawn(
       process.execPath,
@@ -906,16 +900,17 @@ describe('the CLI flags', () => {
     child.stderr.on('data', chunk => (output += chunk));
     try {
       await expect.poll(() => output, { timeout: 10_000 }).toContain('under a temp dir');
-      expect(existsSync(join(data, '.locks', 'loop.lock'))).toBe(true);
+      expect(existsSync(findLoopLock(checkout))).toBe(true);
       child.kill(signal);
       expect(await exited).toBe(signal === 'SIGTERM' ? 143 : 0);
-      expect(existsSync(join(data, '.locks', 'loop.lock'))).toBe(false);
-      const release = await createLoopLock(data);
-      await release();
-      await release();
+      expect(existsSync(findLoopLock(checkout))).toBe(false);
+      const lock = await createLoopLock(checkout);
+      await lock.release();
+      await lock.release();
     } finally {
       child.kill('SIGKILL');
       await exited;
+      vi.unstubAllEnvs();
     }
   });
 
@@ -931,20 +926,18 @@ describe('the CLI flags', () => {
     expect(result.stderr).toContain('--repo must name a readable git repo');
   });
 
-  it.each(['tracker', 'instance'])('prints the remaining heartbeat wait when a %s loop restarts', async kind => {
+  it.each(['tracker', 'instance'])('refuses a %s loop while another host holds the checkout', async kind => {
     const w = world();
     const root = join(w.root, 'loop-data');
     const instance = await ensureInstance(root, 'seed', w.seed);
-    const data = instance.data;
     const state = join(w.root, 'state');
-    const heartbeat = join(state, 'owners', 'old-owner');
     mkdirSync(join(state, 'owners'), { recursive: true });
-    writeFileSync(heartbeat, '');
-    const at = new Date(Date.now() - 45_000);
-    utimesSync(heartbeat, at, at);
-    mkdirSync(join(data, '.locks'), { recursive: true });
-    const dead = spawnSync(process.execPath, ['-e', ''], { env: { ...process.env, NODE_OPTIONS: '' } });
-    writeFileSync(join(data, '.locks', 'loop.lock'), `${dead.pid}:old-owner:lease`);
+    writeFileSync(join(state, 'owners', 'other-owner'), '');
+    vi.stubEnv('AGENTGRAPH_STATE', state);
+    const path = findLoopLock(instance.checkout);
+    vi.unstubAllEnvs();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, '4242:other-owner:elsewhere:lease');
     const ran = spawnSync(
       process.execPath,
       [
@@ -971,8 +964,10 @@ describe('the CLI flags', () => {
         timeout: 10_000,
       }
     );
-    expect(ran.status, ran.stderr).toBe(1);
-    expect(ran.stderr).toMatch(/^another loop holds this data dir, try again in (?:6[5-9]|7[0-5]) seconds\n$/);
+    expect([ran.status, ran.stderr]).toEqual([
+      1,
+      `pid 4242 on elsewhere already loops on ${instance.checkout}; agi stop --instance seed --data ${root}, or agi restart --instance seed --data ${root}\n`,
+    ]);
   });
 
   it.each(BAD_FLAGS)('fails %o %o before it runs anything', (env, args, message) => {

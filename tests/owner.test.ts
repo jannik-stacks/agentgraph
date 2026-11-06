@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
-import { uptime } from 'node:os';
+import { hostname, uptime } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isLockedByOtherProcess, isOwnerRunning, waitForLock } from '../src/owner.ts';
@@ -38,6 +38,23 @@ describe('isLockedByOtherProcess', () => {
 });
 
 describe('isOwnerRunning', () => {
+  it('drops a holder on this host once its pid exits, even with a fresh heartbeat', () => {
+    const previous = process.env.AGENTGRAPH_STATE;
+    process.env.AGENTGRAPH_STATE = tmp('state');
+    try {
+      mkdirSync(join(process.env.AGENTGRAPH_STATE, 'owners'));
+      writeFileSync(join(process.env.AGENTGRAPH_STATE, 'owners', 'beat'), '');
+      const dead = spawnSync('true').pid!;
+      expect([isOwnerRunning(`${dead}:beat:${hostname()}`), isOwnerRunning(`${dead}:beat:elsewhere`)]).toEqual([
+        false,
+        true,
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.AGENTGRAPH_STATE;
+      else process.env.AGENTGRAPH_STATE = previous;
+    }
+  });
+
   it('trusts a running pid only when its label was written since boot', () => {
     expect(isOwnerRunning(String(process.ppid))).toBe(true);
     expect(isOwnerRunning(String(process.ppid), Date.now() - uptime() * 1000 - 3_600_000)).toBe(false);
