@@ -93,18 +93,6 @@ const fail = (message: string, code = 2): never => {
 };
 const formatLoopFlags = (names: string[]) =>
   `${names.map(name => ` --instance ${formatShellWord(name)}`).join('')} --data ${formatShellWord(root)}`;
-const failLoopLock =
-  (i: Instance) =>
-  (error: unknown): never => {
-    const holder = error instanceof LockHeldError && readLoopHolder(i.checkout);
-    if (!holder) throw error;
-    const flags = formatLoopFlags([basename(i.dir)]);
-    const where = holder.host === hostname() ? '' : ` on ${holder.host}`;
-    return fail(
-      `pid ${holder.pid}${where} already loops on ${i.checkout}; agi stop${flags}, or agi restart${flags}`,
-      1
-    );
-  };
 type InstanceEnv = Awaited<ReturnType<typeof readInstanceEnv>>;
 const isIssueNumber = (k: number) => Number.isInteger(k) && k > 0;
 const n = Number(rest[0]);
@@ -814,9 +802,8 @@ async function detach(instances: Instance[]) {
   });
   closeSync(out);
   child.unref();
-  const exited = new Promise<number>(done => child.once('exit', code => done(code ?? 1)));
   let code: number | undefined;
-  void exited.then(c => (code = c));
+  child.once('exit', exit => (code = exit ?? 1));
   while (code === undefined && !instances.every(i => readLoopHolder(i.checkout)?.pid === child.pid)) await sleep(200);
   if (code !== undefined) {
     process.stderr.write(readFileSync(log).subarray(from));
@@ -836,7 +823,17 @@ async function serve(
     instance.checkout,
     pid => console.error(`${tag}waiting for the stopping loop (pid ${pid}) to exit`),
     stopping.signal
-  ).catch((e: unknown) => (stopping.signal.aborted ? undefined : failLoopLock(instance)(e)));
+  ).catch((e: unknown) => {
+    const holder = e instanceof LockHeldError && readLoopHolder(instance.checkout);
+    if (stopping.signal.aborted) return undefined;
+    if (!holder) throw e;
+    const flags = formatLoopFlags([basename(instance.dir)]);
+    const where = holder.host === hostname() ? '' : ` on ${holder.host}`;
+    return fail(
+      `pid ${holder.pid}${where} already loops on ${instance.checkout}; agi stop${flags}, or agi restart${flags}`,
+      1
+    );
+  });
   if (!lock) return;
   stopping.signal.addEventListener('abort', () => void lock.stop(), { once: true });
   const ended = Promise.withResolvers<void>();

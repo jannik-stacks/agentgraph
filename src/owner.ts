@@ -66,18 +66,8 @@ const release = (path: string, holder: string) => async () => {
 const exists = (e: unknown) => (e as NodeJS.ErrnoException).code === 'EEXIST';
 
 export class LockHeldError extends Error {
-  readonly seconds: number;
-
-  constructor(holder: string, writtenAt: number) {
+  constructor(holder: string) {
     super(`held by ${holder || 'an initializing owner'}`);
-    let until = writtenAt + 120_000;
-    try {
-      const owner = holder.split(':')[1];
-      if (owner) until = statSync(join(heartbeats(), owner)).mtimeMs + 120_000;
-    } catch (e) {
-      readOrUndefined(e);
-    }
-    this.seconds = Math.max(1, Math.ceil((until - Date.now()) / 1000));
   }
 }
 
@@ -116,13 +106,12 @@ export const createLock = async (path: string) => {
         const before = await readFile(path, 'utf8').catch(readOrUndefined);
         if (before === undefined) continue;
         const writtenAt = before ? Date.now() : (await stat(path)).mtimeMs;
-        if (before ? isOwnerRunning(before) : Date.now() - writtenAt < 120_000)
-          throw new LockHeldError(before, writtenAt);
+        if (before ? isOwnerRunning(before) : Date.now() - writtenAt < 120_000) throw new LockHeldError(before);
         if (await succeed(path, before, candidate)) return release(path, holder);
         break;
       }
     }
-    throw new LockHeldError('', Date.now());
+    throw new LockHeldError('');
   } finally {
     await rm(candidate, { force: true });
   }
@@ -167,8 +156,10 @@ export const createLoopLock = async (checkout: string, onWait = (_pid: number) =
       if (!(e instanceof LockHeldError)) throw e;
       const holder = readLoopHolder(checkout);
       if (holder && !holder.stopping) throw e;
-      if (holder && !told) onWait(holder.pid);
-      told ||= !!holder;
+      if (holder && !told) {
+        told = true;
+        onWait(holder.pid);
+      }
     });
     if (release) {
       const holder = await readFile(path, 'utf8');
