@@ -142,12 +142,11 @@ const failing = (rows: BenchRow[], id: string) => {
     });
 };
 
-const traces = (row: Pick<BenchRow, 'data' | 'run'>, budget: number) => {
-  const run = readBenchRun(row.data, row.run) as Run | null;
-  if (!run) return '';
+const readTraces = (row: Pick<BenchRow, 'data' | 'run'>, run: Run | null) => {
+  if (!run) return () => '';
   const lines = readJsonl<Trace>(join(row.data, row.run, 'trace.jsonl'));
   const checks = readJsonl<CheckEntry>(join(row.data, row.run, 'checks.jsonl'));
-  return transcript(run.issue ?? 1, [{ run, lines, checks }], budget);
+  return (budget: number) => transcript(run.issue ?? 1, [{ run, lines, checks }], budget);
 };
 
 export const readVariantRows = (tune: string, variant: string) =>
@@ -164,7 +163,8 @@ const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean
       const found = readBenchRun(row.data, row.run);
       const bot = found ? readRunChange(row.at, found) : '';
       const out = hidden.tail.replace(ansi, '').replace(noise, '');
-      const full = traces(row, 60_000);
+      const traces = readTraces(row, found as Run | null);
+      const full = traces(60_000);
       const text = [
         `### ${id}: ${titleOf(join(cases, id))}`,
         `Issue:\n\n${head(issue, small ? 800 : 2000)}`,
@@ -175,7 +175,7 @@ const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean
               `Bot diff:\n\n${formatCodeFence(head(bot, 3000), 'diff')}`,
               `Human diff:\n\n${formatCodeFence(head(human, 3000), 'diff')}`,
             ]),
-        `Transcript:\n\n${traces(row, small ? 4000 : 10_000)}`,
+        `Transcript:\n\n${traces(small ? 4000 : 10_000)}`,
       ].join('\n\n');
       return {
         id,
