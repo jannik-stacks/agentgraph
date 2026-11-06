@@ -261,12 +261,20 @@ describe('drive', () => {
       join(dir, 'plugins', 'b.ts'),
       hook(
         'b',
-        "(globalThis.statusChanges ??= []).push(change); globalThis.found = await ctx.tracker.searchIssues('hello');"
+        "(globalThis.statusChanges ??= []).push(change); globalThis.found = await ctx.tracker.searchIssues('hello'); await ctx.tracker.writeField(change.issue, { project: 'acme/3', field: 'Status', value: change.to });"
       )
     );
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
-    const asked = await run(runWorkflow(w, fresh(), { ...graph, dir }));
+    const fields: unknown[] = [];
+    const asked = await run(
+      Effect.flatMap(Tracker, f =>
+        runWorkflow(w, fresh(), { ...graph, dir }).pipe(
+          Effect.provideService(Tracker, { ...f, writeField: (...args) => Effect.sync(() => void fields.push(args)) })
+        )
+      )
+    );
     expect(asked).toMatchObject({ status: 'waiting', reason: 'Continue?' });
+    expect(fields.at(-1)).toEqual([7, { project: 'acme/3', field: 'Status', value: 'needs-answer' }]);
     expect((globalThis as { statusChanges?: unknown[] }).statusChanges?.at(-1)).toEqual({
       issue: 7,
       repo: graph.repo,
