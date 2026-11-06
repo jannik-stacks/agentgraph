@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
 import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
-import { getQuantile, readBenchRowResults } from '../studio/src/results/result.ts';
+import { getQuantile } from '../studio/src/results/result.ts';
 import { studioDir, studioModule } from './studio.ts';
 import { tmp } from './kit.ts';
 import {
@@ -25,6 +25,7 @@ import {
   getRowKey,
   presets,
   quality,
+  readBenchRowResults,
   summarise,
 } from '../studio/src/bench/score.ts';
 

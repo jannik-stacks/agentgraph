@@ -1,5 +1,5 @@
 import { getMean } from '../../../src/stats.ts';
-import { getQuantile } from '../results/result.ts';
+import { getQuantile, type RunResults } from '../results/result.ts';
 import type { BenchRow as Row } from './data.ts';
 
 export const roughBelow = 10;
@@ -163,4 +163,20 @@ export const frontier = (points: { key: string; x: number; y: number; judgeOnly?
     .filter(p => !p.judgeOnly)
     .toSorted((a, b) => a.x - b.x || b.y - a.y)
     .flatMap(p => (p.y > best ? ((best = p.y), [p.key]) : []));
+};
+
+export const readBenchRowResults = (row: Row): RunResults => {
+  const at = Object.values(row.results)[0]?.at ?? '';
+  return {
+    key: getRowKey(row),
+    at,
+    ...(row.infra && { dead: row.infra }),
+    axes: {
+      point: defaultBenchBy.map(k => `${k}=${row.labels[k] ?? ''}`).join(', '),
+      case: row.case,
+      ...(row.skipped && { hiddenTests: `skipped: ${row.skipped}` }),
+      ...row.labels,
+    },
+    results: row.results,
+  };
 };

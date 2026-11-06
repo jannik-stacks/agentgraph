@@ -1,4 +1,3 @@
-import type { BenchRow } from '../../../bench/runs.ts';
 import type { ResultSheet } from '../../../src/results.ts';
 import { formatNumber } from '../runs/trace.ts';
 
@@ -93,21 +92,5 @@ export const getFieldSummary = (runs: RunResults[], field: CheckField, trend = '
     outside: outside.map(p => p.run),
     dead: runs.length - live.length,
     trend: steps,
-  };
-};
-
-export const readBenchRowResults = (row: BenchRow): RunResults => {
-  const at = Object.values(row.results)[0]?.at ?? '';
-  return {
-    key: `${row.data}/${row.run}`,
-    at,
-    ...(row.infra && { dead: row.infra }),
-    axes: {
-      point: ['harness', 'model', 'arm', 'engine', 'graph', 'set'].map(k => `${k}=${row.labels[k] ?? ''}`).join(', '),
-      case: row.case,
-      ...(row.skipped && { hiddenTests: `skipped: ${row.skipped}` }),
-      ...row.labels,
-    },
-    results: row.results,
   };
 };

@@ -22,10 +22,11 @@ import {
   formatLabel,
   summarise,
   isBenchMatch,
+  readBenchRowResults,
 } from './score.ts';
 import { Forest, BenchRunLink } from './Forest.tsx';
 import { Scatter } from './Scatter.tsx';
-import { readBenchRowResults, type RunResults } from '../results/result.ts';
+import type { RunResults } from '../results/result.ts';
 import { ResultTable } from '../results/ResultTable.tsx';
 
 const params = {
