@@ -175,7 +175,7 @@ The version hashes the check's file, its judge's file, its judge's harness and m
 
 ## Run links
 
-Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. A collapsed ⁂ footer sits before the marker, even with no extra content. With `AGENTGRAPH_STUDIO_URL` set, the ⁂ links to the run in the studio, at `/<instance>/runs/<id>`, and `/<instance>/runs?gh=<link or comment id>` finds the run behind a write in any instance the studio serves. <!-- code: src/tracker.ts#formatBodyWithRunLink src/store.ts#locate src/main.ts#readInstanceEnv -->
+Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. Its text ends with ⁂ on the line of its last sentence, or on a line of its own after a code block, table or HTML. With `AGENTGRAPH_STUDIO_URL` set, the ⁂ links to the trace entry in the studio that wrote the text, at `/<instance>/runs/<id>?at=<time>`, the same for a comment and a pull request description, and `/<instance>/runs?gh=<link or comment id>` finds the run behind a write in any instance the studio serves. <!-- code: src/tracker.ts#formatBodyWithRunLink src/event.ts#formatRunMark src/store.ts#locate src/main.ts#readInstanceEnv -->
 
 A runner that stops between posting and recording finds the post by its operation key and does not post again. <!-- code: src/run/settle.ts#findAppliedBefore -->
 
