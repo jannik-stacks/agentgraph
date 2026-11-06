@@ -223,8 +223,9 @@ export const pickTryOutcome = (o: {
         .join('\n\n');
       return run.base ? { ...p, base: run.base.branch, body } : { ...p, body };
     });
-  const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
-  const answered = commented && o.asked && o.held && o.untouched;
+  const talk = !back && world.every(p => p.kind === 'comment');
+  const commented = talk && world.length > 0;
+  const answered = talk && o.asked && o.held && o.untouched;
   const unpushed = !answered && !back && returns.includes('push') && !world.some(p => p.kind === 'push') && o.dirty;
   if (unpushed || (o.asked && commented && !o.held && (returns.includes('push') || returns.includes('pull_request'))))
     return fail([
@@ -371,7 +372,7 @@ export const runAttempt = (
             .map(n => (graph.checks[n]?.run ? `${n} runs \`${graph.checks[n].run}\`` : n))
             .join(', ')}.`,
         answering &&
-          'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run.',
+          'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run. When a later reply already settles it, propose nothing.',
         scratch &&
           `Use ${scratch} for large temporary files, isolated source trees and build outputs outside the checkout. It is disk-backed, writable and removed when the checkout ends. /tmp is a small memory-backed filesystem.`,
         ...outside,

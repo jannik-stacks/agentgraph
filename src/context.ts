@@ -86,10 +86,13 @@ export function formatRequest(t: IssueWithPull, started: string): string {
   const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
   if (said.length === 0) return '';
   const threads = new Set(said.map(thread).filter(Boolean));
-  const before = events.filter(m => !said.includes(m) && threads.has(thread(m)) && m.at < started);
+  const around = events.filter(m => !said.includes(m) && threads.has(thread(m)) && !isRunnerStatus(m));
+  const before = around.filter(m => m.at < started);
+  const after = around.filter(m => m.at > started);
   return [
     `## What you were asked\n\n${said.map(formatEventLine).join('\n\n')}`,
     before.length > 0 && `Earlier in its review thread:\n\n${before.map(formatEventLine).join('\n\n')}`,
+    after.length > 0 && `Later in its review thread:\n\n${after.map(formatEventLine).join('\n\n')}`,
   ]
     .filter(Boolean)
     .join('\n\n');
