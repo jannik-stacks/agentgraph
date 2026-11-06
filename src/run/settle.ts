@@ -218,9 +218,7 @@ export const writeProposals = (
             ? [[run.issue, p]]
             : p.under !== undefined
               ? [[run.said?.find(s => s.under === p.under)?.issue ?? to ?? run.issue, p]]
-              : p.edit !== undefined
-                ? [[places[0]!.issue, p]]
-                : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
+              : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
         );
       const applied: Applied[] = [];
       let refused = false;

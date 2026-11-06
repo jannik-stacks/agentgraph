@@ -474,16 +474,6 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         switch (p.kind) {
           case 'comment': {
             const all = await readEvents(n);
-            if (p.edit !== undefined) {
-              const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === who);
-              if (at < 0) return no(`no comment ${p.edit} of ours on #${n}`);
-              all[at] = {
-                ...all[at]!,
-                comment: { ...all[at]!.comment!, body: p.body, edited: new Date().toISOString() },
-              };
-              writeFileAtomic(timelinePath(dir, n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
-              return { proposal: p, ok: true, id: p.edit, url: `${md(n)}#${p.edit}` };
-            }
             const parent = p.under === undefined ? undefined : all.find(m => m.comment?.id === p.under)?.comment;
             if (p.under !== undefined && !parent) return no(`no review comment ${p.under} on #${n}`);
             const { path, line } = parent ?? {};
@@ -704,7 +694,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           }),
         findPost: (n, p, operation) =>
           locked(async (): Promise<Applied | undefined> => {
-            if (p.kind === 'comment' && p.edit === undefined) {
+            if (p.kind === 'comment') {
               const c = (await readTimeline(n)).find(m => m.comment && isPostedBy(m.comment.body, operation))?.comment;
               return c && { proposal: p, ok: true, id: c.id, url: `${md(n)}#${c.id}` };
             }

@@ -3,7 +3,7 @@ import { Schema, Struct } from 'effect';
 const Text = Schema.optionalKey(Schema.String);
 const Names = Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String)));
 
-const Comment = Schema.Struct({ kind: Schema.Literal('comment'), body: Schema.String, edit: Text, under: Text });
+const Comment = Schema.Struct({ kind: Schema.Literal('comment'), body: Schema.String, under: Text });
 const React = Schema.Struct({
   kind: Schema.Literal('react'),
   comment: Text,
@@ -82,7 +82,7 @@ const { kind, title, body } = Filed.fields;
  * issues in the same block by position, from 1.
  */
 export const Said = Schema.Union([
-  Comment.mapFields(Struct.omit(['edit'])),
+  Comment,
   Label,
   Push.mapFields(Struct.omit(['onto', 'merge'])),
   PullRequest,

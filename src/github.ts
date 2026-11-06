@@ -998,11 +998,9 @@ export const githubTracker = (
         );
       });
 
-    const comment = (number: number, body: string, edit?: string) =>
+    const comment = (number: number, body: string) =>
       Effect.map(
-        edit === undefined
-          ? gh<{ id: number; html_url: string }>('POST', `${repo}/issues/${number}/comments`, { body }, 'comment')
-          : gh<{ id: number; html_url: string }>('PATCH', `${repo}/issues/comments/${edit}`, { body }, 'comment'),
+        gh<{ id: number; html_url: string }>('POST', `${repo}/issues/${number}/comments`, { body }, 'comment'),
         c => ({ url: c.html_url, id: String(c.id) })
       );
 
@@ -1014,7 +1012,7 @@ export const githubTracker = (
       switch (p.kind) {
         case 'comment':
           return p.under === undefined
-            ? comment(number, p.body, p.edit)
+            ? comment(number, p.body)
             : Effect.map(
                 gh<{ id: number; html_url: string }>(
                   'POST',
@@ -1145,7 +1143,7 @@ export const githubTracker = (
         return Effect.map(gh<Posted[]>('GET', `${repo}/issues?state=all&sort=created&direction=desc&per_page=100`), i =>
           find(i, post => post.number)
         );
-      if (p.kind !== 'comment' || p.edit !== undefined) return Effect.succeed(undefined);
+      if (p.kind !== 'comment') return Effect.succeed(undefined);
       const thread = p.under === undefined ? `issues/${number}` : `pulls/${number}`;
       return Effect.map(all<Posted>(`${repo}/${thread}/comments?per_page=100`), c => find(c, post => post.id));
     };

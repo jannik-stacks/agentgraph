@@ -357,10 +357,6 @@ describe('coworker', () => {
     expect(asked).toMatchObject({ status: 'waiting', tries: 1 });
     expect(findStatus(where.tracker, 7)).toBe('needs-answer');
     expect(bodies(issue)).toEqual(['/agent', `@morgan Hello or hi?\n\n${replyHint}`]);
-    const edits = readTrace(where.data, 'run-7').filter(
-      t => 'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit
-    );
-    expect(edits).toEqual([]);
   });
 
   it.each([false, true])('uses every check retry before asking a human (fixed: %s)', async fixed => {
