@@ -739,11 +739,14 @@ export const dockerSandbox = (o: {
           verify
         );
       };
+      const verifyBranch = (ref: string) =>
+        Effect.gen(function* () {
+          return (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
+        });
       const readHead = (ref: string) =>
         Effect.gen(function* () {
           yield* fetch;
-          const sha = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
-          return sha || (yield* infra(`no commit for ${ref}`));
+          return (yield* verifyBranch(ref)) || (yield* infra(`no commit for ${ref}`));
         });
 
       const checkoutGit = ({ dir, index }: ReturnType<typeof getCheckoutPaths>) => ({
@@ -773,10 +776,9 @@ export const dockerSandbox = (o: {
           yield* fetch;
           const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
-          const rev =
-            own || (saved ? yield* verify(`${saved}^`) : (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`)));
+          const onto = yield* verifyBranch(ref);
+          const rev = own || (saved ? yield* verify(`${saved}^`) : onto);
           if (!rev) return yield* infra(`no commit for ${ref}`);
-          const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
           const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
           yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
