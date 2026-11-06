@@ -169,7 +169,7 @@ At a `wait: human` step with `back`, a review requesting changes goes back with 
 
 ## Waiting
 
-A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The question is its own comment; answer with `/agent` to resume the step. Out of rounds, the next review or `/agent` comment grants one more. Answers stay paired with their questions for every later step and check. `/agent:stop` or closing the issue ends the run. <!-- code: src/run/check.ts#formatAnswers src/context.ts#answerWith -->
+A run waits at `wait: human`, on `ask`, or when tries or rounds run out. Its question is one new comment that mentions the trusted person who spoke last, or the issue's author, and ends with how to answer. A run has one question block: a second question while it waits, such as a base it could not follow, joins the first, and the whole block is posted again. A run waiting on a run it started asks nothing. Answer with `/agent` on the issue or its pull request to resume the step. Out of rounds, the next review or `/agent` comment grants one more. Answers stay paired with their questions for every later step and check. `/agent:stop` or closing the issue ends the run. <!-- code: src/run/check.ts#formatAnswers src/context.ts#proposeUpdates -->
 
 ## Asides
 
@@ -197,15 +197,19 @@ If `git patch-id` shows the same change, the wait step's `checks` run again, wit
 
 A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. Setup runs before the markers land. A second conflict at the same base asks for a manual update. <!-- code: src/run/follow.ts#moveCheckoutOnto src/run/drive.ts#runWorkflow -->
 
-A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the waiting run's branch. Like a retro it shares the issue’s sticky status, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/run/follow.ts#runCatchUp src/workflow.ts#isQuiet -->
+A graph with an `on: conflict` workflow sends conflicts there instead. The waiting run stays where it is, and a new run of that workflow, `by` the waiting one, starts on the new base with the change applied, the markers left and the conflict as its feedback. It has a budget of its own and pushes to the waiting run's branch. Like a retro it posts nothing and changes no label, hears no comments while working and stops where it would ask; while it is live, the waiting run does not catch up. `examples/conflicts` resolves conflicts this way with a small model. <!-- code: src/run/follow.ts#runCatchUp src/workflow.ts#isQuiet -->
 
 ## Status on the issue
 
-One sticky comment on the issue covers every run, including retros and conflict runs. Its visible line shows the current state. The collapsed ⁂ footer holds one table row per run: workflow, step, state, cost so far, pull request, failing checks and studio link when configured. Cost updates at the existing status update points. Every engine comment and PR body uses that footer, linked to the studio when configured and plain ⁂ otherwise, followed by its hidden marker.
+The status comes from the runs on the issue. On GitHub the issue carries exactly one status label, so a label filter shows what needs you; a [tracker folder](runs.md#the-tracker-folder) moves the issue into a folder of that name instead. Each time a run changes, the engine works out the status from the run records and swaps the label only when it differs from the status before that change; GitHub creates a missing label on first use. A label the tracker refuses is shown again on the next pass. Quiet workflows (feedback and conflict runs) neither change the status nor count toward it. The tracker shows the status, so a tracker plugin can show it its own way. <!-- code: src/event.ts#issueStatuses src/context.ts#findIssueStatus src/run/settle.ts#writeStatus src/tracker.ts#makeStatusLabel -->
 
-The sticky stays on the issue because the PR description already links there. Conflict notices and exhausted-check details stay in the sticky. Questions stay separate plain comments, with the shared ⁂ footer; the sticky says “waiting for your answer below”. Resuming edits the same sticky. <!-- code: src/context.ts#proposeStatusUpdates -->
+The engine never edits a comment to show progress, since an edit notifies no one. It posts a new comment at a big moment, with the pull request and the studio run when there are: <!-- code: src/context.ts#proposeUpdates src/context.ts#formatUpdate src/run/attempt.ts#runAttempt -->
 
-On GitHub the issue also carries exactly one status label, so a label filter shows what needs you; a [tracker folder](runs.md#the-tracker-folder) moves the issue into a folder of that name instead. It follows the sticky's visible line, which keeps the current status in a hidden `<!-- status: ... -->` marker, and replaces the previous status label; GitHub creates a missing label on first use. Quiet workflows (feedback and conflict runs) change none. The tracker shows the status, so a tracker plugin can show it its own way. <!-- code: src/event.ts#issueStatuses src/context.ts#proposeStatusUpdates src/tracker.ts#makeStatusLabel -->
+- `Opened a pull request.` on the issue, when a run opens one.
+- `Done.`, or `Stopped.` with the reason, when a run of a workflow with a `branch` ends. A restart posts nothing.
+- A [question](#waiting), when a run needs someone.
+
+These go on the issue until the run has a pull request, then on the pull request. Steps, tries and checks stay silent; the studio shows them, with the cost. Workflows without a `branch`, such as a router or triage, speak only through their own replies and questions. Every engine comment and PR body ends with the ⁂ footer, linked to the studio when configured and plain ⁂ otherwise, followed by its hidden marker. Status comments an older engine posted stay as they are.
 
 The `status` setting renames the labels, or the folders. A status missing from the map gets no label, and the others are still cleared. `status: false` turns status labels off; status hooks still fire. A folder tracker's default names are the bare statuses, since `:` is not valid in a Windows path.
 
@@ -223,7 +227,7 @@ status:
 | `agentgraph:done`         | The latest run finished                                                         |
 | `agentgraph:stopped`      | The latest run stopped                                                          |
 
-With several runs on one issue, a waiting run wins over a working one. After each change, [status hooks](plugins.md#status-hooks) hear about it. <!-- code: src/context.ts#proposeStatusUpdates src/run/settle.ts#announce -->
+With several runs on one issue, a question wins over a review, a review over work, and otherwise the newest run's end shows. After each change, [status hooks](plugins.md#status-hooks) hear about it. <!-- code: src/context.ts#findIssueStatus src/run/settle.ts#announce -->
 
 ## Order and limits
 
@@ -239,7 +243,7 @@ A pass skips a run that is already driving, and the run's lock keeps it to one d
 
 The driven run hears what people say between tries and through its session's minute watch, which [`concurrency`](#comments-while-it-works) turns into a steer, a queue or a cancel. Stopping the loop interrupts its drives and releases their locks, and each run goes on from where it was on its next drive. `agi start` and `loop --once` still drive in the foreground. <!-- code: src/run/drive.ts#runWorkflow src/run/attempt.ts#runAttempt src/main.ts#start -->
 
-Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The sticky says “paused on an agentgraph problem, not this change; reply `/agent` to retry”. No separate runner error comment is posted, including for quiet runs. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs, and clears the pause in the sticky. <!-- code: src/run/drive.ts#runWorkflow -->
+Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The run's question says “Paused on an agentgraph problem, not this change. Reply `/agent` to retry.”; a quiet run posts nothing. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs. <!-- code: src/run/drive.ts#runWorkflow src/context.ts#proposeUpdates -->
 
 ## Retros
 
@@ -251,4 +255,4 @@ A run that ends is feedback too. When a run is done or stopped, including after 
 
 What is said and what ended on the same issue in one look share one retro. Waiting on a question alone starts none; a person must answer or stop the run. <!-- code: src/run/trigger.ts#tick src/workflow.ts#isRunDone -->
 
-A retro never holds an issue, shares its sticky status without changing labels, skips setup, and stops where another workflow would wait. Its problems remain visible in the sticky and `show`. It ends with nothing, a [graph change](proposals.md#filing-issues) for a recurring miss, or a follow-up issue. <!-- code: src/workflow.ts#transition -->
+A retro never holds an issue, posts nothing on it, changes no label, skips setup, and stops where another workflow would wait. Its problems show in the studio and `show`. It files follow-up issues only: it ends with nothing, a [graph change](proposals.md#filing-issues) for a recurring miss, or a follow-up issue. <!-- code: src/workflow.ts#transition -->

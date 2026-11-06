@@ -76,7 +76,7 @@ One refused filing fails the try and files nothing. The engine refuses a body wi
 
 With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/run/drive.ts#findStackBase src/github.ts#githubTracker -->
 
-A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. A held run says what it waits for as its reason, such as `until #24 closes`, which run lists print and the sticky shows as `held`. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/run/trigger.ts#findHold src/run/follow.ts#runFollow -->
+A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. A held run says what it waits for as its reason, such as `until #24 closes`, which run lists print; the issue shows `working`. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/run/trigger.ts#findHold src/run/follow.ts#runFollow -->
 
 ### The triage example
 

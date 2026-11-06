@@ -116,7 +116,6 @@ const answerWith = 'Reply `/agent` and your answer, or `/agent:stop` to end the 
 
 const paused = 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.';
 
-/** What one run asks of the issue: work, a review, an answer, or nothing more. */
 export const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
   run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)
     ? 'working'
@@ -126,13 +125,11 @@ export const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStat
         : 'needs-review'
       : run.status;
 
-/** The status the issue shows for its runs: a question, then a review, then work, else how the newest run ended. */
 export const findIssueStatus = (runs: Run[], pulled: boolean): IssueStatus | undefined => {
   const all = runs.toSorted((a, b) => a.started.localeCompare(b.started)).map(r => findRunStatus(r, runs, pulled));
   return (['needs-answer', 'needs-review', 'working'] as const).find(s => all.includes(s)) ?? all.at(-1);
 };
 
-/** An update: its text, then the pull request and the studio run when there are. */
 export const formatUpdate = (text: string, run: Run, pull?: string, studio?: string) =>
   [
     text,
@@ -141,10 +138,6 @@ export const formatUpdate = (text: string, run: Run, pull?: string, studio?: str
     .filter(Boolean)
     .join('\n\n');
 
-/**
- * New comments for what changed since `before`: a question the run now waits on, mentioning the trusted person who
- * spoke last, and, for a workflow with a branch, that it is done or stopped.
- */
 export function proposeUpdates(
   before: Run | undefined,
   run: Run,

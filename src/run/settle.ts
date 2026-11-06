@@ -60,10 +60,6 @@ export const runEndChecks = (graph: Graph, id: string): Effect.Effect<Run | unde
     return w ? yield* writeStatus(w, run, graph) : run;
   }).pipe(Effect.scoped);
 
-/**
- * Shows the issue status of every non-quiet run on the issue when it differs from the one before `run` changed, then
- * posts what changed for people: a new question, or that the run is done or stopped.
- */
 export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Tracker | Store> =>
   Effect.gen(function* () {
     const store = yield* Store;
