@@ -850,7 +850,7 @@ export const githubTracker = (
           if (force) yield* rewrite(branch, tip, head);
           else yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
         } else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
-        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new TrackerError({ message: e.detail })));
+        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(toTrackerError));
         pushed.set(work.dir, { sha: head, tree });
         return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left, reported);
       });
@@ -919,7 +919,7 @@ export const githubTracker = (
         if ((yield* readRefTip) !== tip) return yield* refuse(`${branch} moved while it was rebased`, true);
         yield* rewrite(branch, tip, head);
         yield* git(work, ['read-tree', '-u', '--reset', tree]);
-        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new TrackerError({ message: e.detail })));
+        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(toTrackerError));
         pushed.set(work.dir, { sha: head, tree });
         return head;
       });

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { getRunOrigin } from '../src/meta.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
@@ -9,6 +9,7 @@ import type { RunRecord } from '../src/workflow.ts';
 import type { ResultSheet } from '../src/results.ts';
 import { readJsonlRows, readRecordSync, writeFileAtomic } from '../src/store.ts';
 import { getSha } from '../src/hash.ts';
+import { readDirOrEmpty } from '../src/read.ts';
 import { type EngineHost, makeEngineHost } from '../src/engine.ts';
 
 export type BenchInput = {
@@ -33,17 +34,16 @@ export const findSlotLock = (set: string, input: BenchInput) => join(set, 'locks
 const readBenchInput = (run: Pick<RunRecord, 'meta'>) =>
   (getRunOrigin(run.meta)?.input ?? undefined) as Partial<BenchInput> | undefined;
 
+const readAttemptNumbers = (root: string) =>
+  readDirOrEmpty(root)
+    .filter(n => /^\d+$/.test(n))
+    .map(Number);
+
 export const makeBenchAttempt = (set: string, input: BenchInput) => {
   const root = join(set, 'attempts');
   mkdirSync(root, { recursive: true });
   for (;;) {
-    const attempt =
-      Math.max(
-        0,
-        ...readdirSync(root)
-          .filter(n => /^\d+$/.test(n))
-          .map(Number)
-      ) + 1;
+    const attempt = Math.max(0, ...readAttemptNumbers(root)) + 1;
     const at = findAttemptDir(set, attempt);
     try {
       mkdirSync(at);
@@ -66,9 +66,7 @@ export const readBenchSlots = (set: string) => {
     if (attempt !== undefined && (!was || was.started.localeCompare(run.started) <= 0)) runs.set(attempt, run);
   }
   const root = join(set, 'attempts');
-  const attempts = (existsSync(root) ? readdirSync(root) : [])
-    .filter(n => /^\d+$/.test(n))
-    .map(Number)
+  const attempts = readAttemptNumbers(root)
     .toSorted((a, b) => a - b)
     .flatMap(attempt => {
       const input = JSON.parse(
@@ -252,7 +250,7 @@ const readRow = (
   human?: Map<string, CheckEntry>
 ) => {
   const { run, data, set, latest, labels, config } = found;
-  const input = (getRunOrigin(run.meta)?.input ?? {}) as Partial<BenchInput>;
+  const input = readBenchInput(run) ?? {};
   const id = input.case ?? labels.case ?? run.id;
   const arm = input.arm ?? labels.arm ?? run.workflow;
   const [harness, model] = input.point?.split(':') ?? [];
@@ -349,7 +347,7 @@ export const readBenchRows = (host: Pick<EngineHost, 'configs' | 'readRuns'>) =>
       splitFinishedRuns(fs.toSorted((a, b) => a.attempt - b.attempt || a.run.started.localeCompare(b.run.started)))
     )
     .map(([found, ...earlier]) => {
-      const input = (getRunOrigin(found.run.meta)?.input ?? {}) as Partial<BenchInput>;
+      const input = readBenchInput(found.run) ?? {};
       return {
         found,
         earlier,

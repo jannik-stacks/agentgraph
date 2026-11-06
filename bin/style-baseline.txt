@@ -65,9 +65,9 @@ no-comment src/run/drive.ts 2
 no-comment src/run/execute.ts 2
 no-comment src/run/follow.ts 4
 no-comment src/run/hear.ts 8
-no-comment src/run/settle.ts 4
-no-comment src/run/start.ts 8
-no-comment src/run/trigger.ts 17
+no-comment src/run/settle.ts 3
+no-comment src/run/start.ts 10
+no-comment src/run/trigger.ts 16
 no-comment src/sandbox.ts 8
 no-comment src/services.ts 4
 no-comment src/session.ts 1

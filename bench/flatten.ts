@@ -5,19 +5,14 @@ import { Effect } from 'effect';
 import { readEnvRefs, writeEnvRefs } from '../src/disk.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { getRunOrigin } from '../src/meta.ts';
-import { readRecordSync, writeFileAtomic } from '../src/store.ts';
+import { writeFileAtomic } from '../src/store.ts';
 import type { RunRecord } from '../src/workflow.ts';
-import type { BenchInput } from './runs.ts';
+import { readBenchRun, type BenchInput } from './runs.ts';
 
 const clone = { recursive: true, mode: constants.COPYFILE_FICLONE };
 const kept = new Set(['graph', 'tracker', 'issue.md', 'change.patch']);
 
 const readNames = (dir: string) => (existsSync(dir) ? readdirSync(dir).filter(n => !n.startsWith('.')) : []);
-
-const readRun = (dir: string) => {
-  const json = readRecordSync(join(dir, 'run.json'));
-  return json ? (JSON.parse(json) as RunRecord) : undefined;
-};
 
 export const readFlatSetPlan = (set: string) => {
   const problems: string[] = [];
@@ -30,7 +25,7 @@ export const readFlatSetPlan = (set: string) => {
       const found = ks.map(k => {
         const from = join(set, 'runs', slot, k);
         const runs = readNames(join(from, 'data')).flatMap(id => {
-          const run = readRun(join(from, 'data', id));
+          const run = readBenchRun(join(from, 'data'), id);
           return run ? [run] : [];
         });
         return { slot, from, runs };

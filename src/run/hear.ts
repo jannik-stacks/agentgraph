@@ -121,13 +121,8 @@ export const findRouter = (graph: Graph) =>
  * The event as a run of `w` hears it: with a router, only the router hears `/agent` text from people, the others hear
  * what it tells them. Every run hears `/agent:` commands, which reach only the run they pick.
  */
-export const getHeardEvent = (graph: Graph, w: Workflow, m: Event): Event => {
-  if (
-    !findRouter(graph) ||
-    w.on.issue_comment ||
-    m.comment?.agentRequest === undefined ||
-    m.comment.agentRequest.startsWith(':')
-  )
+export const getHeardEvent = (router: string | undefined, w: Workflow, m: Event): Event => {
+  if (!router || w.on.issue_comment || m.comment?.agentRequest === undefined || m.comment.agentRequest.startsWith(':'))
     return m;
   const { agentRequest: _agentRequest, ...comment } = m.comment;
   return { ...m, comment };
@@ -137,10 +132,11 @@ export const getHeardEvent = (graph: Graph, w: Workflow, m: Event): Event => {
 export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWithPull) =>
   Effect.gen(function* () {
     if (isQuiet(w)) return undefined;
+    const router = findRouter(graph)?.name;
     const tells = yield* readRunEvents(run);
     const runs = yield* Effect.flatMap(Store, s => s.list({ issue: run.issue }));
     const since = run.seen ?? run.started;
-    const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => getHeardEvent(graph, w, m)), ...tells]
+    const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => getHeardEvent(router, w, m)), ...tells]
       .filter(m => m.at > since)
       .flatMap(m => {
         const heard = { ...m, issue: run.issue };
@@ -149,7 +145,7 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
           run,
           heard,
           [],
-          pickCommandTarget(graph, runs, heard, findRouter(graph)?.name, tells.includes(m) ? run : undefined)
+          pickCommandTarget(graph, runs, heard, router, tells.includes(m) ? run : undefined)
         );
         return o ? [{ o, at: m.at, event: m }] : [];
       });

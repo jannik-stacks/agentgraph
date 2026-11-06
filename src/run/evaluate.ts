@@ -60,15 +60,10 @@ export const runEndedChecks = (
       traces: yield* Effect.cached(caught(reopen(graph, run, true, reply))),
       files: yield* Effect.cached(caught(reopen(graph, run, false, reply))),
     };
+    const traced = lines.some(t => 'session' in t);
     for (const name of names) {
       const check = graph.checks[name];
-      const na =
-        check &&
-        whyNotApplicable(
-          check,
-          run,
-          lines.some(t => 'session' in t)
-        );
+      const na = check && whyNotApplicable(check, run, traced);
       const got = !check
         ? `the graph has no check ${name}`
         : (na ??

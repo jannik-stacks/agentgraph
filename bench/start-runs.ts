@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { parseArgs } from 'node:util';
+import { parseArgs, parseEnv } from 'node:util';
 import { claim, onStop, readFileOrEmpty, release, startChildProcess } from '../bin/resume.ts';
 import type * as BenchModule from '../bin/bench.ts';
 import { parseLabelPatch, parseLabels } from '../src/labels.ts';
@@ -200,14 +200,7 @@ if (import.meta.main) {
       Boolean
     );
     if (unready.length) throw new Error(`points not ready:\n${unready.join('\n')}`);
-    const orKey = values.orenv
-      ? readFileOrEmpty(values.orenv)
-          .split('\n')
-          .find(l => l.startsWith('OPENROUTER_API_KEY='))
-          ?.slice(19)
-          .trim()
-          .replace(/^"|"$/g, '')
-      : undefined;
+    const orKey = values.orenv ? parseEnv(readFileOrEmpty(values.orenv)).OPENROUTER_API_KEY : undefined;
     const usage = async () => {
       const r = await fetch('https://openrouter.ai/api/v1/credits', {
         headers: { authorization: `Bearer ${orKey}` },

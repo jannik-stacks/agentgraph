@@ -1,11 +1,13 @@
 import { getMean } from '../../../src/stats.ts';
-import { getQuantile } from '../results/result.ts';
+import { getQuantile, type RunResults } from '../results/result.ts';
 import type { BenchRow as Row } from './data.ts';
 
 export const roughBelow = 10;
 
 export const formatMinutes = (m: number) =>
   m < 1 ? `${Math.round(m * 60)} s` : m < 60 ? `${m.toFixed(1)} min` : `${(m / 60).toFixed(1)} h`;
+
+export const formatUsd = (v: number) => `$${v.toFixed(3)}`;
 
 export const formatLabel = (v: string | undefined) =>
   v === undefined ? '(missing)' : /^[0-9a-f]{7,}$/.test(v) ? v.slice(0, 6) : v;
@@ -161,4 +163,20 @@ export const frontier = (points: { key: string; x: number; y: number; judgeOnly?
     .filter(p => !p.judgeOnly)
     .toSorted((a, b) => a.x - b.x || b.y - a.y)
     .flatMap(p => (p.y > best ? ((best = p.y), [p.key]) : []));
+};
+
+export const readBenchRowResults = (row: Row): RunResults => {
+  const at = Object.values(row.results)[0]?.at ?? '';
+  return {
+    key: getRowKey(row),
+    at,
+    ...(row.infra && { dead: row.infra }),
+    axes: {
+      point: defaultBenchBy.map(k => `${k}=${row.labels[k] ?? ''}`).join(', '),
+      case: row.case,
+      ...(row.skipped && { hiddenTests: `skipped: ${row.skipped}` }),
+      ...row.labels,
+    },
+    results: row.results,
+  };
 };

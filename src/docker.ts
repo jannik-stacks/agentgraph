@@ -26,7 +26,7 @@ import {
   unlogged,
   written,
 } from './env.ts';
-import { ensureFreeDisk, readEnvRefs, writeEnvRefs, removeBranch } from './disk.ts';
+import { ensureFreeDisk, writeEnvRefs, removeBranch } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import {
@@ -466,12 +466,7 @@ export const dockerSandbox = (o: {
       const lock = mirrorLocks.get(mirror) ?? mirrorLocks.set(mirror, Semaphore.makeUnsafe(1)).get(mirror)!;
       const roomy = (base: string) =>
         Effect.tryPromise({
-          try: () =>
-            ensureFreeDisk({
-              dir: o.data,
-              ...(cache && { image: base }),
-              eligible: readEnvRefs(o.data),
-            }),
+          try: () => ensureFreeDisk({ dir: o.data, ...(cache && { image: base }) }),
           catch: e => infra((e as Error).message),
         });
       /** Each live checkout as the host made it. */
@@ -744,11 +739,14 @@ export const dockerSandbox = (o: {
           verify
         );
       };
+      const verifyBranch = (ref: string) =>
+        Effect.gen(function* () {
+          return (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
+        });
       const readHead = (ref: string) =>
         Effect.gen(function* () {
           yield* fetch;
-          const sha = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
-          return sha || (yield* infra(`no commit for ${ref}`));
+          return (yield* verifyBranch(ref)) || (yield* infra(`no commit for ${ref}`));
         });
 
       const checkoutGit = ({ dir, index }: ReturnType<typeof getCheckoutPaths>) => ({
@@ -778,10 +776,9 @@ export const dockerSandbox = (o: {
           yield* fetch;
           const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
-          const rev =
-            own || (saved ? yield* verify(`${saved}^`) : (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`)));
+          const onto = yield* verifyBranch(ref);
+          const rev = own || (saved ? yield* verify(`${saved}^`) : onto);
           if (!rev) return yield* infra(`no commit for ${ref}`);
-          const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
           const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
           yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;

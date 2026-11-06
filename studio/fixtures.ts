@@ -2,7 +2,7 @@ import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
-import { makeServedGraphs, servedIds } from './served.ts';
+import { makeServedGraphs, readBenchSets, readQuery, servedIds } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
@@ -28,7 +28,7 @@ const isInside = async (path: string, roots: string[]) => {
 
 class StudioRequestError extends Error {}
 
-const readQuery = (req: IncomingMessage) => new URL(req.url ?? '/', 'http://studio').searchParams;
+const readPath = (req: IncomingMessage) => (req.url ?? '/').split('?')[0]!.slice(1);
 
 const pickServed = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
   const name = readQuery(req).get('instance') ?? '';
@@ -43,8 +43,7 @@ const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeS
   const served = await pickServed(req, reader);
   const bench = readQuery(req).get('data');
   if (!bench) return { served, data: served?.data, bench: undefined };
-  const roots = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
-  if (!(await isInside(bench, roots))) throw new StudioRequestError('data is outside the bench dirs');
+  if (!(await isInside(bench, readBenchSets()))) throw new StudioRequestError('data is outside the bench dirs');
   return { served, data: bench, bench };
 };
 
@@ -71,7 +70,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         const { data } = await readDataDir(req, reader);
         const { Effect } = await import('effect');
         const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
-        const hash = (req.url ?? '/').split('?')[0]!.slice(1);
+        const hash = readPath(req);
         const text =
           data &&
           (await Effect.runPromise(Effect.flatMap(Store, s => s.readLog(hash)).pipe(Effect.provide(fileStore(data)))));
@@ -113,7 +112,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
       });
       use('/api/runs', async (req, res) => {
         const { served, data, bench } = await readDataDir(req, reader);
-        const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
+        const one = decodeURIComponent(readPath(req));
         if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
         const { Effect, Stream } = await import('effect');
         const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');

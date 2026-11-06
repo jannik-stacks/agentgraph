@@ -74,7 +74,7 @@ Each row has one `labels` map containing case attributes, explicit case labels, 
 
 `agents-md`, `claude-md` and `skills` are `true` or `false` from read-only `git ls-tree` at the case base commit. Skills include `.claude/skills`, `.agents/skills`, `.cursor/rules` and `.github/skills`. Scores save them in the `bench/setup` result.
 
-<!-- code: bench/runs.ts#readBenchRows bin/bench.ts#readBenchSetupLabels studio/src/results/result.ts#readBenchRowResults -->
+<!-- code: bench/runs.ts#readBenchRows bin/bench.ts#readBenchSetupLabels studio/src/bench/score.ts#readBenchRowResults -->
 
 The Bench controls discover every label key. URL `where` is a JSON object of label keys to allowed value arrays, `by` is a comma-separated list of grouping keys, and `color` is a label key (empty means no colour). Values within a filter are alternatives; all filtered keys must match. Colour also splits points. For example, `/bench?where=%7B%22repo%22%3A%5B%22stx-labs%2Fexplorer%22%5D%7D&by=model,graph&color=skills` compares model and graph on explorer, coloured by skill presence. Judge-only cases and different sets always stay separate. Omitting `by` groups by harness, model, arm, engine, graph and set; an empty `by` combines them within each set.
 

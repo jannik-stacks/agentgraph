@@ -14,6 +14,8 @@ import {
   makeServedGraphs,
   makeServedTopic,
   makeUnservedFilter,
+  readBenchSets,
+  readQuery,
   servedIds,
   startWatch,
   type ServedGraph,
@@ -23,10 +25,6 @@ import {
 const manifest = 'virtual:agentgraph-pages';
 
 const entry = 'virtual:agentgraph-page/';
-
-const readStudioDirs = () => ({
-  bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
-});
 
 const makeResultsPlugin = async (served: ServedGraph) => {
   const { makePlugin }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
@@ -59,7 +57,7 @@ const readBenchConfigs = (served: ServedGraph[]) => {
     ...served.flatMap(({ name, title, data, graph }) =>
       data ? [{ name: name || title, data, instance: name, ...(graph && { checks: graph.checks }) }] : []
     ),
-    ...readStudioDirs().bench.map(set => ({ name: set, data: join(set, 'data') })),
+    ...readBenchSets().map(set => ({ name: set, data: join(set, 'data') })),
   ].filter(({ data }) => !seen.has(readRealPath(data)) && !!seen.add(readRealPath(data)));
 };
 
@@ -90,7 +88,7 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
 };
 
 const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, served: ServedGraph[]): WatchRoot[] => {
-  const { bench } = readStudioDirs();
+  const bench = readBenchSets();
   const rootLayouts = new Map(
     [...served.flatMap(one => one.data ?? []), ...bench.map(set => join(set, 'data'))].map(
       root => [root, layouts.data] as const
@@ -195,7 +193,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
-        const instance = new URL(req.url ?? '/', 'http://studio').searchParams.get('instance') ?? '';
+        const instance = readQuery(req).get('instance') ?? '';
         const page = loaded.find(page => page.name === name && (page.instance ?? instance) === instance);
         if (!page) {
           res.statusCode = 404;

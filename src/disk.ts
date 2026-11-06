@@ -1,4 +1,4 @@
-import { readDirOrEmpty, readOrUndefined } from './read.ts';
+import { readDirEntriesOrEmpty, readDirOrEmpty } from './read.ts';
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { makeHostEnv, hostGit, readGit, readWorktreeAdmin } from './git.ts';
@@ -9,7 +9,6 @@ import {
   mkdirSync,
   lstatSync,
   realpathSync,
-  readdirSync,
   readFileSync,
   rmSync,
   statfsSync,
@@ -136,13 +135,7 @@ const skipped = new Set(['data', 'tracker', 'graph', 'engine', 'cases', 'done', 
  * @internal
  */
 export const findBuildDirs = (root: string, depth = 5): string[] => {
-  let entries;
-  try {
-    entries = readdirSync(root, { withFileTypes: true });
-  } catch (e) {
-    readOrUndefined(e);
-    return [];
-  }
+  const entries = readDirEntriesOrEmpty(root);
   const here = new Set(entries.map(e => e.name));
   return entries
     .filter(e => e.isDirectory() && !skipped.has(e.name) && !e.name.startsWith('.') && !e.name.endsWith('.git'))

@@ -14,16 +14,19 @@ import {
   defaultBenchBy,
   defaultBenchScoreWeights,
   formatMinutes,
+  formatUsd,
+  getRowKey,
   frontier,
   presets,
   roughBelow,
   formatLabel,
   summarise,
   isBenchMatch,
+  readBenchRowResults,
 } from './score.ts';
 import { Forest, BenchRunLink } from './Forest.tsx';
 import { Scatter } from './Scatter.tsx';
-import { readBenchRowResults, type RunResults } from '../results/result.ts';
+import type { RunResults } from '../results/result.ts';
 import { ResultTable } from '../results/ResultTable.tsx';
 
 const params = {
@@ -86,8 +89,7 @@ const defaultNames = (varying: string[]) => {
   return named.length ? named : varying.slice(0, 1);
 };
 
-const fmt = (v: number | undefined, digits = 2) => (v === undefined || Number.isNaN(v) ? '' : v.toFixed(digits));
-const usd = (v: number) => `$${v.toFixed(3)}`;
+const fmt = (v: number) => (Number.isNaN(v) ? '' : v.toFixed(2));
 const unpricedModels = (rs: Row[]) => {
   const missing = [...new Set(rs.flatMap(r => r.unpriced ?? []))];
   return missing.length ? `no list price for ${missing.join(', ')}, counted as $0` : '';
@@ -153,12 +155,13 @@ const Bench = ({ value }: { value: BenchData }) => {
   const xAxis = getBenchAxis(selectedAxis, numericFields);
   const minutes = xAxis === 'minutes';
   const isCost = xAxis === null || xAxis === 'usd';
+  const rowCost = (r: Row) => cost(r, cache === 'off');
   const points = useMemo(() => {
     return summarise(value.rows, {
       ...scoring,
       by: groupKeys,
       color,
-      x: r => (isCost ? cost(r, cache === 'off') : getBenchNumbers(r)[xAxis]!),
+      x: r => (isCost ? rowCost(r) : getBenchNumbers(r)[xAxis]!),
     }).filter(p => p.n > 0);
   }, [value, scoring, groupKeys, color, isCost, xAxis, cache]);
 
@@ -197,7 +200,7 @@ const Bench = ({ value }: { value: BenchData }) => {
             {Object.entries(presets).map(([name, p]) => (
               <Tooltip key={name} tip={presetHelp[name]}>
                 <Button
-                  aria-pressed={names.every(k => p[k] === weights[k])}
+                  aria-pressed={weighting === name}
                   className="aria-pressed:border-zinc-500 aria-pressed:text-zinc-900 dark:aria-pressed:text-zinc-100"
                   onClick={() => setW(p === defaultBenchScoreWeights ? null : names.map(k => p[k]).join(','))}
                 >
@@ -319,7 +322,7 @@ const Bench = ({ value }: { value: BenchData }) => {
           <Disclosure summary={`Inspect infra runs (${matchingInfraRows.length})`}>
             <ul className="mt-2 space-y-2">
               {matchingInfraRows.map(row => (
-                <li key={`${row.data}/${row.run}`} className="space-y-0.5 break-words">
+                <li key={getRowKey(row)} className="space-y-0.5 break-words">
                   <BenchRunLink row={row} className="underline underline-offset-2">
                     {row.labels.model} / {row.labels.harness} / {row.case} / repeat {row.repeat}
                   </BenchRunLink>
@@ -402,7 +405,7 @@ const Bench = ({ value }: { value: BenchData }) => {
                 tip: [
                   varying.map(k => `${k} ${formatLabel(p.labels[k])}`).join(', '),
                   `quality ${fmt(p.y)} ± ${fmt((p.yCi[1] - p.yCi[0]) / 2)}`,
-                  `${usd(getMean(p.perCase.map(s => cost(s.row, cache === 'off'))))} and ${formatMinutes(p.minutes)} per run`,
+                  `${formatUsd(getMean(p.perCase.map(s => rowCost(s.row))))} and ${formatMinutes(p.minutes)} per run`,
                   `${p.n} cases, ${p.repeats} runs`,
                   unpricedModels(p.perCase.map(s => s.row)),
                   p.judgeOnly ? 'judged only, so off the line' : '',
@@ -420,7 +423,7 @@ const Bench = ({ value }: { value: BenchData }) => {
             keys={varying.filter(k => k !== 'set')}
             weighting={weighting}
             tone={p => tone(p.labels[color])}
-            rowCost={row => cost(row, cache === 'off')}
+            rowCost={rowCost}
             picked={picked}
             onPick={setPicked}
           />

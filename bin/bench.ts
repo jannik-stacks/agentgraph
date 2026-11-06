@@ -747,7 +747,8 @@ const runArm = async (arm: string, caseDir: string, set: string, repo: string) =
         broke = String(e).slice(0, 200);
       }
       time.stop();
-      const found = readSlotRun(set, input);
+      const slots = readBenchSlots(set);
+      const found = readSlotRun(set, input, slots);
       const mine = found?.at === at ? found : undefined;
       const change = mine ? readRunChange(at, mine.run) : '';
       const nothing = ran?.status === 'running' ? 'run did not finish' : undefined;
@@ -758,8 +759,9 @@ const runArm = async (arm: string, caseDir: string, set: string, repo: string) =
         (mine && harnessError(mine.data, mine.run.id)) ??
         (nothing || !change.trim() ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
       if (env) log({ event: 'infra', why: env, attempt: pinned.attempt });
-      if (env && attempts().length < patience) {
-        await sleep(Math.min(60_000 * 2 ** attempts().length, 900_000));
+      const tries = slots.get(slot)?.length ?? 0;
+      if (env && tries < patience) {
+        await sleep(Math.min(60_000 * 2 ** tries, 900_000));
         continue;
       }
       if (!env && nothing && ++empty < 2) continue;
@@ -950,7 +952,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   const found = spawnSync('docker', ['image', 'inspect', start], { encoding: 'utf8' });
   if (found.status !== 0)
     throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
-  if (cache) await ensureFreeDisk({ dir: dirname(tree), image: start, eligible: readEnvRefs(dirname(tree)) });
+  if (cache) await ensureFreeDisk({ dir: dirname(tree), image: start });
   const { cache: repoCache, env } = cache
     ? await readSandboxSetup({
         repo: c.repo,

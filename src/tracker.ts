@@ -22,7 +22,7 @@ import {
 } from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { Checkout } from './sandbox.ts';
-import { hostGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
+import { readGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
 import { waitForLock } from './owner.ts';
 import { writeFileAtomic } from './store.ts';
 
@@ -323,7 +323,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       const git = (work: Checkout, ...args: string[]) =>
         Effect.runPromise(
           Effect.mapError(
-            hostGit(work.git, [
+            readGit(work.git, [
               '-c',
               `user.name=${who}`,
               '-c',
@@ -334,7 +334,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             ]),
             e => new TrackerError({ message: e.detail })
           )
-        ).then(out => out.toString('utf8').trim());
+        );
       const findPushProblem = async (work: Checkout, from: string, to: string) => {
         const fields = (await git(work, 'diff-tree', '-r', '-z', '--no-renames', from, to)).split('\0');
         if ((fields.length - 1) / 2 > pushLimits.files) return `at most ${pushLimits.files} files can be pushed`;
@@ -436,16 +436,18 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         return t;
       };
 
+      const writeDiff = async (work: Checkout, k: number, base: string, head: string) =>
+        writeFile(
+          join(findIssueDir(dir, k), 'diff.patch'),
+          await git(work, 'diff', `${await tip(work, base)}...${head}`)
+        );
       /** Records `head` on the open pull requests of `branch`, with their diffs. */
       const moved = async (work: Checkout, branch: string, head: string) => {
         for (const k of findIssueNumbers(dir)) {
           const pr = await read(k);
           if (pr?.pull?.branch !== branch || pr.state !== 'open') continue;
           await write({ ...pr, pull: { ...pr.pull, head } });
-          await writeFile(
-            join(findIssueDir(dir, k), 'diff.patch'),
-            await git(work, 'diff', `${await tip(work, pr.pull.base)}...${head}`)
-          );
+          await writeDiff(work, k, pr.pull.base, head);
         }
         return head;
       };
@@ -599,11 +601,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             const head = work ? await tip(work, p.branch).catch(() => '') : '';
             if (!head) return no(`branch ${p.branch} is not pushed`);
             const k = await open({ title: p.title, body, pull: { branch: p.branch, base: p.base, head } });
-            if (work)
-              await writeFile(
-                join(findIssueDir(dir, k), 'diff.patch'),
-                await git(work, 'diff', `${await tip(work, p.base)}...${head}`)
-              );
+            if (work) await writeDiff(work, k, p.base, head);
             return { proposal: p, ok: true, url: md(k) };
           }
           case 'merge': {
@@ -658,13 +656,8 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
                 .map(shown)
             )
           ),
-        base: hostGit({ GIT_DIR: join(dir, 'origin.git') }, ['symbolic-ref', 'HEAD']).pipe(
-          Effect.map(out =>
-            out
-              .toString('utf8')
-              .trim()
-              .replace(/^refs\/heads\//, '')
-          ),
+        base: readGit({ GIT_DIR: join(dir, 'origin.git') }, ['symbolic-ref', 'HEAD']).pipe(
+          Effect.map(out => out.replace(/^refs\/heads\//, '')),
           Effect.mapError(e => new TrackerError({ message: e.detail }))
         ),
         issues: filter =>
