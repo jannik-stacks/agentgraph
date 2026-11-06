@@ -3,7 +3,7 @@ import { readOrUndefined } from './read.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { link, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { homedir, uptime } from 'node:os';
+import { homedir, hostname, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 
@@ -21,7 +21,7 @@ const beat = () => {
 export const startHeartbeat = () => {
   beat();
   if (!beating) (beating = setInterval(beat, 30_000)).unref();
-  return `${process.pid}:${ownerId}`;
+  return `${process.pid}:${ownerId}:${hostname()}`;
 };
 
 /** @internal */
@@ -38,14 +38,17 @@ const bootedAt = () => Date.now() - uptime() * 1000;
 
 export const isOwnerRunning = (label: string, writtenAt = Date.now()) => {
   if (!label) throw new Error('owner record is empty');
-  const [pid, owner] = label.split(':');
+  const [pid, owner, host] = label.split(':');
   if (owner === ownerId) return true;
+  if (owner && Number(pid) === process.pid) return false;
+  const running = writtenAt > bootedAt() - 60_000 && Number(pid) > 0 && isPidRunning(Number(pid));
+  if (host === hostname()) return running;
   try {
     if (owner && Date.now() - statSync(join(heartbeats(), owner)).mtimeMs < 120_000) return true;
   } catch (e) {
     readOrUndefined(e);
   }
-  return writtenAt > bootedAt() - 60_000 && Number(pid) > 0 && isPidRunning(Number(pid));
+  return running;
 };
 
 export const isLockedByOtherProcess = (path: string) => {
