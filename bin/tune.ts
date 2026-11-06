@@ -67,7 +67,6 @@ type Tune = {
   keep: Partial<{ runs: number; drops: number; save: number }>;
   clone: string;
 };
-type Row = BenchRow;
 /** The latest reading of a usage window in percent, and the points used since the first, across window resets. */
 type Reading = { now: number; used: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
@@ -149,7 +148,7 @@ const ids = (t: Tune, ...splits: Split[]) =>
     .filter(id => splits.includes(t.cases[id]!))
     .sort();
 
-const scores = (rows: Row[], preset: Tune['preset']) => {
+const scores = (rows: BenchRow[], preset: Tune['preset']) => {
   const w = preset === 'hidden' ? { ...presets['hidden tests only']!, suite: 0.15 } : presets.composite!;
   const out = new Map<
     string,
