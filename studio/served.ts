@@ -20,6 +20,8 @@ export type ServedGraph = {
   problems: Problem[];
 };
 
+export const readBenchSets = () => (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
+
 export type StudioInstances = { root: string; names: string[]; graph?: string };
 
 const loadGraph = async (

@@ -14,6 +14,7 @@ import {
   makeServedGraphs,
   makeServedTopic,
   makeUnservedFilter,
+  readBenchSets,
   servedIds,
   startWatch,
   type ServedGraph,
@@ -23,10 +24,6 @@ import {
 const manifest = 'virtual:agentgraph-pages';
 
 const entry = 'virtual:agentgraph-page/';
-
-const readStudioDirs = () => ({
-  bench: (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean),
-});
 
 const makeResultsPlugin = async (served: ServedGraph) => {
   const { makePlugin }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
@@ -59,7 +56,7 @@ const readBenchConfigs = (served: ServedGraph[]) => {
     ...served.flatMap(({ name, title, data, graph }) =>
       data ? [{ name: name || title, data, instance: name, ...(graph && { checks: graph.checks }) }] : []
     ),
-    ...readStudioDirs().bench.map(set => ({ name: set, data: join(set, 'data') })),
+    ...readBenchSets().map(set => ({ name: set, data: join(set, 'data') })),
   ].filter(({ data }) => !seen.has(readRealPath(data)) && !!seen.add(readRealPath(data)));
 };
 
@@ -90,7 +87,7 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
 };
 
 const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, served: ServedGraph[]): WatchRoot[] => {
-  const { bench } = readStudioDirs();
+  const bench = readBenchSets();
   const rootLayouts = new Map(
     [...served.flatMap(one => one.data ?? []), ...bench.map(set => join(set, 'data'))].map(
       root => [root, layouts.data] as const

@@ -2,7 +2,7 @@ import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
-import { makeServedGraphs, servedIds } from './served.ts';
+import { makeServedGraphs, readBenchSets, servedIds } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
@@ -43,8 +43,7 @@ const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeS
   const served = await pickServed(req, reader);
   const bench = readQuery(req).get('data');
   if (!bench) return { served, data: served?.data, bench: undefined };
-  const roots = (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
-  if (!(await isInside(bench, roots))) throw new StudioRequestError('data is outside the bench dirs');
+  if (!(await isInside(bench, readBenchSets()))) throw new StudioRequestError('data is outside the bench dirs');
   return { served, data: bench, bench };
 };
 
