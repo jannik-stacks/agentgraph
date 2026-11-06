@@ -281,11 +281,11 @@ const bench = {
       }
       await labelJobRuns(dir, t, j);
     };
-    const finished = (j: Job) => isBenchRunDone(dir, makeJobInput(dir, t, j), Boolean(o.judged));
     const log = tuneLog(dir);
     for (let round = 0, left = jobs; ;) {
       await runQueue([...left], o.parallel, evaluate);
-      left = jobs.filter(j => !finished(j));
+      const slots = readBenchSlots(dir);
+      left = jobs.filter(j => !isBenchRunDone(dir, makeJobInput(dir, t, j), Boolean(o.judged), slots));
       if (!left.length) return;
       const held = left.some(j => isLockedByOtherProcess(findSlotLock(dir, makeJobInput(dir, t, j))));
       log({ event: 'unfinished', jobs: left.length, held, round });
