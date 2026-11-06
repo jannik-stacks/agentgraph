@@ -436,16 +436,18 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         return t;
       };
 
+      const writeDiff = async (work: Checkout, k: number, base: string, head: string) =>
+        writeFile(
+          join(findIssueDir(dir, k), 'diff.patch'),
+          await git(work, 'diff', `${await tip(work, base)}...${head}`)
+        );
       /** Records `head` on the open pull requests of `branch`, with their diffs. */
       const moved = async (work: Checkout, branch: string, head: string) => {
         for (const k of findIssueNumbers(dir)) {
           const pr = await read(k);
           if (pr?.pull?.branch !== branch || pr.state !== 'open') continue;
           await write({ ...pr, pull: { ...pr.pull, head } });
-          await writeFile(
-            join(findIssueDir(dir, k), 'diff.patch'),
-            await git(work, 'diff', `${await tip(work, pr.pull.base)}...${head}`)
-          );
+          await writeDiff(work, k, pr.pull.base, head);
         }
         return head;
       };
@@ -599,11 +601,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             const head = work ? await tip(work, p.branch).catch(() => '') : '';
             if (!head) return no(`branch ${p.branch} is not pushed`);
             const k = await open({ title: p.title, body, pull: { branch: p.branch, base: p.base, head } });
-            if (work)
-              await writeFile(
-                join(findIssueDir(dir, k), 'diff.patch'),
-                await git(work, 'diff', `${await tip(work, p.base)}...${head}`)
-              );
+            if (work) await writeDiff(work, k, p.base, head);
             return { proposal: p, ok: true, url: md(k) };
           }
           case 'merge': {
