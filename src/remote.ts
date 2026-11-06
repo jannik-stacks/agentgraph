@@ -298,7 +298,8 @@ export const remoteSandbox = (o: {
         ref: string | undefined,
         branch?: string,
         keep?: string,
-        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo' | 'workflows'>>
+        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> &
+          Partial<Pick<Graph, 'repo' | 'workflows'>> & { readonly?: boolean }
       ) =>
         Effect.gen(function* () {
           if (graph?.image) return yield* infra(`a remote sandbox runs one image; the graph names ${graph.image}`);
@@ -330,7 +331,7 @@ export const remoteSandbox = (o: {
                 );
               })
           );
-          if (!graph || ref === undefined) return work;
+          if (!graph || graph.readonly || ref === undefined) return work;
           const files = yield* hostGit(work.git, ['ls-tree', '--name-only', work.head ?? work.base]);
           const toolchain = [
             ...makeToolchainSetupCommands(files.toString('utf8').split('\n')),

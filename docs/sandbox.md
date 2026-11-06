@@ -53,6 +53,8 @@ An environment caches a repo's dependencies. A container takes the lockfiles and
 
 Bases of one repo that differ only in source share one. Environments of different repos never share a volume. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox -->
 
+A run whose steps all use agents with only read tools, such as a router or triage, starts from the plain image. It skips the environment, the cache volume and `setup`, so its scripts and checks see no installed dependencies. <!-- code: src/folder.ts#loadGraph src/run/drive.ts#runWorkflow src/docker.ts#dockerSandbox -->
+
 `AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. A Docker daemon that does not answer fails as unreachable, not as a missing image. <!-- code: src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
 
 ### Disk

@@ -55,6 +55,19 @@ describe('agent tools', () => {
     expect(check.mock.calls.map(([agent]) => agent.tools)).toEqual([['read'], ['grep']]);
   });
 
+  it('marks an agent whose harness tools only read as readonly', async () => {
+    const dir = await makeGraphDir({
+      ...files(['read', 'issues']),
+      'agents/b.md': '---\nharness: custom\ntools: [read, edit]\n---\n',
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n  y: { agent: b }\n---\n',
+    });
+    const graph = await readGraph(dir, [
+      { name: 'custom', classify: name => (name === 'edit' ? 'write' : name === 'read' ? 'read' : undefined) },
+    ]);
+    expect(graph.agents.a!.readonly).toBe(true);
+    expect(graph.agents.b!.readonly).toBeUndefined();
+  });
+
   it.each(['missing', 'constructor', 'issues(pattern)'])('reports unknown tool %s plainly', async name => {
     const dir = await makeGraphDir(files(['read', name]));
     await expect(

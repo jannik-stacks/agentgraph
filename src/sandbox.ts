@@ -81,7 +81,8 @@ export class Sandbox extends Context.Service<
       ref: string | undefined,
       branch?: string,
       keep?: string,
-      graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo' | 'workflows'>>
+      graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> &
+        Partial<Pick<Graph, 'repo' | 'workflows'>> & { readonly?: boolean }
     ) => Effect.Effect<Checkout, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
     lines: (command: Command) => Stream.Stream<string | Pick<Exit, 'code' | 'used'>, SandboxError, Scope.Scope>;

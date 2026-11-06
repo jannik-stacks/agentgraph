@@ -48,7 +48,7 @@ export type Graph = {
   plugins?: Record<string, unknown>;
   tools?: string[];
   sha: string;
-  agents: Record<string, Doc<Agent>>;
+  agents: Record<string, Doc<Agent> & { readonly?: true }>;
   skills: Record<string, Doc<SkillFile>>;
   checks: Record<string, Doc<Check> & { version: string }>;
   workflows: Record<string, Workflow>;
@@ -389,16 +389,20 @@ export const loadGraph = (
       Object.values(parts.agents).some(agent => agent.tools.some(name => Object.hasOwn(registry.tools, name)))
         ? yield* Effect.orDie(Config.String('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')))
         : '';
+    const agents: Graph['agents'] = { ...parts.agents };
     for (const agent of Object.values(parts.agents)) {
       const harness = harnesses.find(harness => harness.name === agent.harness);
       if (!harness) continue;
       const builtins = agent.tools.filter(name => !registry || !Object.hasOwn(registry.tools, name));
       const checked: Agent['tools'] = [];
+      let reads = true;
       for (const name of builtins) {
         const kind = typeof harness.classify === 'function' ? harness.classify(name) : undefined;
+        reads &&= kind === 'read';
         if (kind === 'read' || kind === 'write') checked.push(name);
         else if (registry) problems.push({ path: agent.path, message: `tools: unknown tool ${name}` });
       }
+      if (reads) agents[agent.name] = { ...agent, readonly: true };
       for (const message of harness.check?.({ ...agent, tools: checked }) ?? [])
         problems.push({ path: agent.path, message: `harness: ${harness.name} ${message}` });
       if (remote && builtins.length !== agent.tools.length)
@@ -449,6 +453,7 @@ export const loadGraph = (
       ...(settings.commands !== undefined && { commands: settings.commands }),
       ...(settings.status !== undefined && { status: settings.status }),
       ...parts,
+      agents,
       checks,
     };
   });
