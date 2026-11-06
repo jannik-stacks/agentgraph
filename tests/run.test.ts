@@ -931,6 +931,33 @@ describe('setup', () => {
     expect(setup).toEqual([expect.objectContaining({ step: 'triage', setup: { ms: expect.any(Number), exit: 0 } })]);
   });
 
+  it('starts a workflow of read-only agents without the sandbox setup', async () => {
+    const where = world();
+    const graphs: unknown[] = [];
+    const commands: Command[] = [];
+    const sandbox = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        checkout: (...args: Parameters<typeof s.checkout>) => (graphs.push(args[3]), s.checkout(...args)),
+        exec: (c: Command) => (commands.push(c), s.exec(c)),
+      }))
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
+    const layer = Layer.mergeAll(
+      folderTracker(where.tracker),
+      fileStore(where.data),
+      sandbox,
+      replaySession(stopping().slice(0, 1))
+    );
+    const triager = { ...graph.agents.triager!, readonly: true as const };
+    const readonly = { ...graph, setup: 'test -e README.md', agents: { ...graph.agents, triager } };
+    await Effect.runPromise(
+      runWorkflow({ ...w, steps: w.steps.slice(0, 1) }, fresh(), readonly).pipe(Effect.provide(layer))
+    );
+    expect(graphs).toEqual([expect.objectContaining({ readonly: true })]);
+    expect(commands.some(c => c.args.includes('test -e README.md'))).toBe(false);
+  });
+
   it('traces the memory and CPU time the setup and session containers reported', async () => {
     const where = world();
     const used = { peak: 2 ** 30, cpu: 1200, oom: true as const };

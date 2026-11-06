@@ -281,6 +281,23 @@ describe('docker with a stand-in docker client', () => {
     for (const run of runs) expect(run).toMatch(/^run --log-driver none /);
   });
 
+  it('starts a readonly checkout from the plain image without the sandbox setup or cache', async () => {
+    const all = `${log}.all`;
+    writeFileSync(all, '');
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main', undefined, undefined, { setup: 'withdeps', readonly: true });
+        yield* s.exec(command(work.dir));
+        return { work, args: logged() };
+      })
+    );
+    const { work, args } = Exit.isSuccess(exit) ? exit.value : { work: undefined, args: [] };
+    expect(work).toMatchObject({ dir: expect.any(String) });
+    expect(work?.env).toBeUndefined();
+    expect(args.some(a => a.includes('dst=/work/node_modules') || a.includes('dst=/cache'))).toBe(false);
+    expect(readFileSync(all, 'utf8')).not.toContain('agentgraph.envbuild');
+  });
+
   it('builds on the whole tree when setup fails on the skeleton, and goes there first for that family after', async () => {
     const saved = process.env.AGENTGRAPH_STATE;
     process.env.AGENTGRAPH_STATE = tmp('state');

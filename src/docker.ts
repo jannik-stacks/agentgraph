@@ -770,7 +770,8 @@ export const dockerSandbox = (o: {
         ref: string | undefined,
         branch?: string,
         keep?: string,
-        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Graph, 'repo' | 'workflows'>>
+        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> &
+          Partial<Pick<Graph, 'repo' | 'workflows'>> & { readonly?: boolean }
       ) =>
         Effect.gen(function* () {
           const box = yield* readImage(graph, image);
@@ -784,9 +785,9 @@ export const dockerSandbox = (o: {
           const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
           yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
-          const trusted = graph && cache ? yield* readTrustedCommits(graph.workflows) : [];
+          const trusted = graph && cache && !graph.readonly ? yield* readTrustedCommits(graph.workflows) : [];
           const { cache: repoCache, env } =
-            graph && cache
+            graph && cache && !graph.readonly
               ? yield* Effect.tryPromise({
                   try: () =>
                     readSandboxSetup({

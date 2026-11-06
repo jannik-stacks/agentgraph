@@ -129,7 +129,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
           current.base?.branch ??
           formatTemplate(base, issue));
       yield* store.put((current = { ...current, checkout: { base: ref, ...(own && { branch: own }) } }));
-      const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, graph));
+      const readonly = w.steps.every(s => 'agent' in s.does && graph.agents[s.does.agent]?.readonly);
+      const made = yield* Effect.flatMap(Sandbox, s =>
+        s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, { ...graph, readonly })
+      );
       if (current.graphTree === undefined)
         yield* store.put((current = { ...current, graphTree: yield* ensureGraphRef(made.git, graph.dir) }));
       if (own && made.saved) {
@@ -157,7 +160,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
       }
 
-      if (!w.on.feedback) yield* runSetup(graph, made, current);
+      if (!w.on.feedback && !readonly) yield* runSetup(graph, made, current);
       const onto = current.onto?.sha ?? (made.saved && !made.head ? current.base?.sha : undefined);
       const work = onto ? yield* moveCheckoutOnto(made, onto, !current.onto || current.tries === 0) : made;
       current = { ...current, startCommit: work.base };
