@@ -32,8 +32,14 @@ const startBrowser = async () => {
   const ended = once(child, 'exit');
   try {
     const portFile = join(profile, 'DevToolsActivePort');
-    await vi.waitFor(() => expect(existsSync(portFile)).toBe(true), { timeout: 15_000 });
-    const port = readFileSync(portFile, 'utf8').split('\n')[0];
+    const port = await vi.waitFor(
+      () => {
+        const port = readFileSync(portFile, 'utf8').split('\n')[0];
+        expect(port).toMatch(/^\d+$/);
+        return port;
+      },
+      { timeout: 15_000 }
+    );
     const pages = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as {
       type: string;
       webSocketDebuggerUrl: string;
