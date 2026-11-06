@@ -1291,7 +1291,7 @@ describe('githubTracker', () => {
     body = body.replace('Human text.', 'Human text, edited.');
     await write('※ done');
     await write('※ done');
-    expect(body).toBe('<!-- agentgraph status -->\n※ done\n<!-- /agentgraph status -->\n\nHuman text, edited.');
+    expect(body).toBe('<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nHuman text, edited.');
     expect(f.calls.filter(c => c.method === 'PATCH')).toHaveLength(2);
     const read = await run(
       f,
@@ -1357,16 +1357,21 @@ describe('githubTracker', () => {
       expect(stackCalls(f).at(-1)).toEqual(['POST', '/repos/o/r/stacks/14/add', { pull_requests: [12] }]);
     });
 
-    it('updates the open pull request of a branch that already has one', async () => {
+    it('updates the open pull request of a branch that already has one, keeping its status header', async () => {
       const f = fake({
         ...chained,
         'POST /repos/o/r/pulls': () => ({ status: 422, body: { message: 'A pull request already exists' } }),
-        'GET /repos/o/r/pulls?state=open&head=o:agentgraph/12': [{ number: 12 }],
+        'GET /repos/o/r/pulls?state=open&head=o:agentgraph/12': [
+          { number: 12, body: '<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nOld.' },
+        ],
         'PATCH /repos/o/r/pulls/12': { number: 12, html_url: 'https://github.com/o/r/pull/12' },
       });
       expect(await open(f)).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/12' });
       const patch = f.calls.find(c => c.method === 'PATCH')!;
-      expect(patch.body).toEqual({ title: 'T', body: 'B' });
+      expect(patch.body).toEqual({
+        title: 'T',
+        body: '<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nB',
+      });
     });
 
     it('keeps the plain chain when the repo has no stacks', async () => {

@@ -12,6 +12,7 @@ import {
   makeStudioRunUrl,
   formatRunMark,
   makeBodyWithStatus,
+  getStatusHeader,
   removeRunLink,
   type Applied,
   type Comment,
@@ -586,7 +587,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             for (const k of findIssueNumbers(dir)) {
               const pr = await read(k);
               if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;
-              await write({ ...pr, title: p.title, body });
+              await write({ ...pr, title: p.title, body: makeBodyWithStatus(body, getStatusHeader(pr.body)) });
               return { proposal: p, ok: true, url: pr.url };
             }
             const head = work ? await tip(work, p.branch).catch(() => '') : '';

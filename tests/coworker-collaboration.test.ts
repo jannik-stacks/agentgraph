@@ -545,7 +545,7 @@ describe('coworker', () => {
       ['Said bye.', review.at, 'hello.txt'],
     ]);
     expect(readFileSync(issuePath(where.tracker, 8), 'utf8')).toMatch(
-      /\n---\n\n<!-- agentgraph status -->\n※ done\n\n<details><summary>Runs<\/summary>\n\n[^]*\| issue \| implement \| done \| \$0\.00 \|[^]*<!-- \/agentgraph status -->\n\nCloses #7\n/
+      /\n---\n\n<!-- agentgraph status -->\n※ done\n\n<details><summary>Runs<\/summary>\n\n[^]*\| issue \| implement \| done \| \$0\.00 \|[^]*<!-- end agentgraph status -->\n\nCloses #7\n/
     );
     expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).not.toContain('agentgraph status');
     expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual(['/agent']);

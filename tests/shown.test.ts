@@ -149,15 +149,15 @@ describe('the status header', () => {
 
   it('replaces only its own section at the top of a body, and removes it when empty', () => {
     const once = makeBodyWithStatus('Human text.\n\nMore.', '※ done');
-    expect(once).toBe('<!-- agentgraph status -->\n※ done\n<!-- /agentgraph status -->\n\nHuman text.\n\nMore.');
+    expect(once).toBe('<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nHuman text.\n\nMore.');
     const edited = once.replace('More.', 'More, edited.');
     expect(makeBodyWithStatus(edited, '※ working on x')).toBe(
-      '<!-- agentgraph status -->\n※ working on x\n<!-- /agentgraph status -->\n\nHuman text.\n\nMore, edited.'
+      '<!-- agentgraph status -->\n※ working on x\n<!-- end agentgraph status -->\n\nHuman text.\n\nMore, edited.'
     );
     expect(makeBodyWithStatus(once, '※ done')).toBe(once);
     expect(makeBodyWithStatus(once, '')).toBe('Human text.\n\nMore.');
     expect(makeBodyWithStatus('', '※ a $& b')).toBe(
-      '<!-- agentgraph status -->\n※ a $& b\n<!-- /agentgraph status -->'
+      '<!-- agentgraph status -->\n※ a $& b\n<!-- end agentgraph status -->'
     );
     expect(removeRunLink(once)).toBe('Human text.\n\nMore.');
   });

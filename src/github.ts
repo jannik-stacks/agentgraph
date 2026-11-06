@@ -18,7 +18,15 @@ import {
   makeStatusLabel,
   type TrackerSetup,
 } from './tracker.ts';
-import { removeRunLink, makeBodyWithStatus, type Applied, type Comment, type Event, type Issue } from './event.ts';
+import {
+  removeRunLink,
+  makeBodyWithStatus,
+  getStatusHeader,
+  type Applied,
+  type Comment,
+  type Event,
+  type Issue,
+} from './event.ts';
 import { makePlugin } from './plugin.ts';
 import type { Proposal } from './proposal.ts';
 import type { Checkout, SandboxError } from './sandbox.ts';
@@ -1070,15 +1078,20 @@ export const githubTracker = (
               Effect.catchIf(
                 e => e.status === 422,
                 e =>
-                  Effect.flatMap(gh<Made[]>('GET', `${repo}/pulls?state=open&head=${owner}:${p.branch}`), ([open]) =>
-                    open
-                      ? gh<Made>(
-                          'PATCH',
-                          `${repo}/pulls/${open.number}`,
-                          { title: p.title, body: body.body },
-                          'pull_request'
-                        )
-                      : Effect.fail(e)
+                  Effect.flatMap(
+                    gh<(Made & { body?: string | null })[]>(
+                      'GET',
+                      `${repo}/pulls?state=open&head=${owner}:${p.branch}`
+                    ),
+                    ([open]) =>
+                      open
+                        ? gh<Made>(
+                            'PATCH',
+                            `${repo}/pulls/${open.number}`,
+                            { title: p.title, body: makeBodyWithStatus(body.body, getStatusHeader(open.body ?? '')) },
+                            'pull_request'
+                          )
+                        : Effect.fail(e)
                   )
               )
             );

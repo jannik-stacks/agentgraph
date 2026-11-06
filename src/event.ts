@@ -90,11 +90,13 @@ export const formatRunMark = (text: string, url?: string) => {
   return !trimmed ? mark : /^\s*(?:```|~~~|\||<)/.test(last) ? `${trimmed}\n\n${mark}` : `${trimmed} ${mark}`;
 };
 
-const statusSection = /<!-- agentgraph status -->[\s\S]*?(?:<!-- \/agentgraph status -->|$)\s*/;
+const statusSection = /<!-- agentgraph status -->\n?([\s\S]*?)\n?(?:<!-- end agentgraph status -->|$)\s*/;
+
+export const getStatusHeader = (body: string) => statusSection.exec(body)?.[1] ?? '';
 
 export const makeBodyWithStatus = (body: string, header: string) => {
   const text = body.replace(statusSection, '').trimStart();
-  return [header && `<!-- agentgraph status -->\n${header}\n<!-- /agentgraph status -->`, text]
+  return [header && `<!-- agentgraph status -->\n${header}\n<!-- end agentgraph status -->`, text]
     .filter(Boolean)
     .join('\n\n');
 };

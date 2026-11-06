@@ -537,6 +537,10 @@ describe('drive', () => {
       title: 'feat: greet',
       body: 'Adds `hello.txt`.',
     });
+    await run(Effect.flatMap(Tracker, f => f.apply(7, { ...pull, title: 'feat: greet', body: 'Rewritten.' })));
+    expect(readFileSync(issuePath(where.tracker, 8), 'utf8')).toMatch(
+      /\n<!-- agentgraph status -->\n※ waiting for review at merge [^]*<!-- end agentgraph status -->\n\nRewritten\.\n$/
+    );
   });
 
   it('shows how to reply under a review comment', async () => {
