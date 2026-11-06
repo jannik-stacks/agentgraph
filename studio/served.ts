@@ -98,6 +98,8 @@ const readServedGraphs = async (): Promise<ServedGraph[]> => {
   const listed = process.env.AGI_STUDIO_INSTANCES;
   if (listed) {
     const instances: StudioInstances = JSON.parse(listed);
+    const { removeShellSettings }: typeof MainModule = await import(new URL('../src/main.ts', import.meta.url).href);
+    removeShellSettings(instances.names.length);
     return Promise.all(instances.names.map(name => readInstanceServed(instances, name)));
   }
   return process.env.AGI_STUDIO_DIR || process.env.AGI_STUDIO_DATA ? [await readPlainServed()] : [];

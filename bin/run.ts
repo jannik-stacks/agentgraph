@@ -44,7 +44,7 @@ import {
   type Instance,
 } from '../src/instance.ts';
 import type { JsonValue } from '../src/meta.ts';
-import { instanceSettings, readInstanceEnv, start, writeTriggeringIssue } from '../src/main.ts';
+import { removeShellSettings, readInstanceEnv, start, writeTriggeringIssue } from '../src/main.ts';
 import { createLoopLock, LockHeldError, readLoopHolder } from '../src/owner.ts';
 import {
   findLoginProvider,
@@ -742,12 +742,7 @@ async function loop(instances: Instance[]) {
   const served: Promise<void>[] = [];
   trapInterrupt(() => (stopping.abort(), Promise.allSettled(served).then(() => {})));
   const several = instances.length > 1;
-  const ignored = several ? instanceSettings.filter(name => process.env[name] !== undefined) : [];
-  for (const name of ignored) delete process.env[name];
-  if (ignored.length)
-    console.error(
-      `several instances: ignoring ${ignored.join(', ')} from the shell; set them in each instance's env file or instance.yaml`
-    );
+  removeShellSettings(instances.length);
   let failed = 0;
   await Promise.all(
     instances.map(i =>
