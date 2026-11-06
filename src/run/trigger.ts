@@ -376,7 +376,7 @@ export const tick = (
             getEventOutcome(
               w,
               run,
-              tells.includes(m) || (isParked(run) && isQuiet(w)) ? m : getHeardEvent(graph, w, m),
+              tells.includes(m) || (isParked(run) && isQuiet(w)) ? m : getHeardEvent(router, w, m),
               lined,
               pickCommandTarget(graph, runs, m, router, tells.includes(m) ? run : undefined)
             );
