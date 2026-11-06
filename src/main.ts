@@ -87,7 +87,7 @@ export const readInstanceEnv = async (
   const named = await Effect.runPromise(
     readTrackerName.pipe(Effect.provideService(ConfigProvider.ConfigProvider, makeEnvProvider(env)))
   );
-  env.AGENTGRAPH_TRACKER = named || instance?.trackerName || (instance ? 'folder' : '');
+  env.AGENTGRAPH_TRACKER = flags.AGENTGRAPH_TRACKER || instance?.trackerName || named || (instance ? 'folder' : '');
   return {
     env,
     config: makeHarnessConfigProvider(

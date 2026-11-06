@@ -205,8 +205,9 @@ const readProviderHost = async (scope: InstanceEnv) => ({
 });
 
 const applySettings = async (provider: Provider, scope: InstanceEnv) => {
+  const { AGENTGRAPH_TRACKER } = scope.env;
   Object.assign(scope.env, await provider.settings?.(await readProviderHost(scope)));
-  Object.assign(scope.env, await readEngineEnv(scope.env), commandEnv);
+  Object.assign(scope.env, await readEngineEnv(scope.env), commandEnv, { AGENTGRAPH_TRACKER });
 };
 
 const findUnserved = (provider: Provider, graph: Graph) =>
