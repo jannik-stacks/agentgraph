@@ -2,10 +2,11 @@ import { existsSync, readdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { Effect } from 'effect';
 import { writeRunLabels } from '../src/labels.ts';
+import { readBenchRun } from '../bench/runs.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { startRun } from '../src/run/start.ts';
 import { getRounded, sum } from '../src/stats.ts';
-import { fileStore, readJsonlRows, readRecordSync, Store } from '../src/store.ts';
+import { fileStore, readJsonlRows, Store } from '../src/store.ts';
 import type { CheckEntry } from '../src/trace.ts';
 import type { CheckResult, RunRecord } from '../src/workflow.ts';
 
@@ -169,8 +170,7 @@ export const readTuneSteps = (dir: string) => {
   const data = join(dir, 'data');
   const found = (existsSync(data) ? readdirSync(data) : []).flatMap(id => {
     if (!id.startsWith('tune-')) return [];
-    const json = readRecordSync(join(data, id, 'run.json'));
-    const run = json ? (JSON.parse(json) as RunRecord) : undefined;
+    const run = readBenchRun(data, id);
     const origin = run && getRunOrigin(run.meta);
     if (!run || run.workflow !== 'tune' || origin?.plugin !== 'tune') return [];
     const { variant, ...input } = origin.input as Omit<Variant, 'id' | 'rationale'> & { variant: string };

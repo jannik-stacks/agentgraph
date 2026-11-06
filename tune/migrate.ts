@@ -4,8 +4,9 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
+import { readBenchRun } from '../bench/runs.ts';
 import { getRunOrigin } from '../src/meta.ts';
-import { readJsonlRows, readRecordSync, writeFileAtomic } from '../src/store.ts';
+import { readJsonlRows, writeFileAtomic } from '../src/store.ts';
 import type { RunRecord } from '../src/workflow.ts';
 import {
   getTuneLabel,
@@ -63,8 +64,7 @@ export const readTuneMigration = (dir: string) => {
     if (c.parent && !byGraph.has(c.parent)) problems.push(`${c.id}: no variant has its parent graph ${c.parent}`);
   const iterations = new Map([...steps, ...pending].map(c => [c.id, c.iteration]));
   const runs = readNames(join(dir, 'data')).flatMap(id => {
-    const json = readRecordSync(join(dir, 'data', id, 'run.json'));
-    const run = json ? (JSON.parse(json) as RunRecord) : undefined;
+    const run = readBenchRun(join(dir, 'data'), id);
     const cand = (getRunOrigin(run?.meta)?.input as Labelled | undefined)?.labels?.cand;
     return run && cand ? [{ run, cand, iteration: iterations.get(cand) }] : [];
   });
