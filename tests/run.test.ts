@@ -33,6 +33,7 @@ import {
   fresh,
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { writeStatus } from '../src/run/settle.ts';
 
 describe('drive', () => {
   beforeAll(() => fakeDocker().restore);
@@ -634,6 +635,26 @@ describe('drive', () => {
     expect(findStatus(where.tracker, 7)).toBe('stopped');
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
+  });
+
+  it('leaves the label and the comments to the loud runs when a quiet run works on the issue', async () => {
+    const where = world();
+    const retro = { ...w, name: 'retro', on: { feedback: {} } };
+    const quiet = { ...graph, workflows: { ...graph.workflows, retro } };
+    const { run } = services(where, []);
+    const comments = async () => bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
+    const settle = async (of: typeof w, r: Run) => {
+      const shown = await run(writeStatus(of, r, quiet));
+      await run(Effect.flatMap(Store, s => s.put(shown)));
+    };
+    await settle(w, { ...fresh(), status: 'waiting', reason: 'Which one?' });
+    const asked = await comments();
+    const working = { ...begin(retro, { id: 'retro-7', issue: 7, started: '2026-10-16T00:00:02.000Z' }), by: 'run-7' };
+    await settle(retro, working);
+    await run(writeStatus(retro, { ...working, status: 'stopped', reason: 'nothing to learn' }, quiet));
+    expect([findStatus(where.tracker, 7), await comments()]).toEqual(['needs-answer', asked]);
+    await settle(w, { ...fresh(), status: 'done' });
+    expect(findStatus(where.tracker, 7)).toBe('done');
   });
 
   it('shows a status the tracker refused on the next pass, with no new transition', async () => {
