@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findIssueStatus, proposeUpdates, stoppedByRunner, type IssueWithPull } from '../src/context.ts';
+import { context, findIssueStatus, proposeUpdates, stoppedByRunner, type IssueWithPull } from '../src/context.ts';
 import { type Issue } from '../src/event.ts';
 import type { Run } from '../src/workflow.ts';
 
@@ -118,5 +118,30 @@ describe('the updates', () => {
     );
     const child = { ...run, id: 'child', by: run.id };
     expect(bodies(run, { ...run, status: 'waiting', reason: 'waiting on child' }, on(), true, [child])).toEqual([]);
+  });
+});
+
+describe('the agent context', () => {
+  it('leaves out the updates and shrinks older entries past its size cap', () => {
+    const said = (actor: string, body: string, at: string) => ({
+      ...spoke(actor),
+      at,
+      comment: { id: at, author: actor, body, at },
+    });
+    const long = `${'a'.repeat(200)}\n${'b'.repeat(30_000)}`;
+    const text = context({
+      issue: {
+        ...issue,
+        events: [
+          said('maintainer', long, '2026-10-22T10:01:00Z'),
+          said('bot[bot]', 'Done.\n\nRun: http://studio:5492/runs/issue-7', '2026-10-22T10:02:00Z'),
+          said('maintainer', 'Thanks', '2026-10-22T10:03:00Z'),
+        ],
+      },
+    });
+    expect(text).not.toContain('Done.');
+    expect(text).not.toContain('b'.repeat(10));
+    expect(text).toContain(`${'a'.repeat(100)}`);
+    expect(text).toContain('Thanks');
   });
 });
