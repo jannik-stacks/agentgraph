@@ -112,10 +112,6 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
 
 export const stoppedByRunner = 'Stopped by a runner error';
 
-const answerWith = 'Reply `/agent` and your answer, or `/agent:stop` to end the run.';
-
-const paused = 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.';
-
 const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
   run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)
     ? 'working'
@@ -154,7 +150,7 @@ export function proposeUpdates(
     run.reason !== undefined &&
     findRunStatus(run, runs, true) === 'needs-answer' &&
     (before?.status !== 'waiting' || before.reason !== run.reason) &&
-    `@${who} ${run.reason.startsWith(stoppedByRunner) ? paused : `${run.reason}\n\n${answerWith}`}`;
+    `@${who} ${run.reason.startsWith(stoppedByRunner) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;
   const ended = (status: Run['status']) => branch && run.status === status && before?.status !== status;
   return [
     asked,
