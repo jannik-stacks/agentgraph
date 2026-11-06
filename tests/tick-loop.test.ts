@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { issueDebounceMs, scanIssuesAndRunningRuns, startLoopDrives, tick } from '../src/run/trigger.ts';
-import { readEngineEnv, readInstanceEnv, start as main, temporary } from '../src/main.ts';
+import { readEngineEnv, readEnvFile, readInstanceEnv, start as main, temporary } from '../src/main.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { removeRunLink, type Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -536,7 +536,7 @@ describe('readEngineEnv', () => {
     const { env } = file(
       '# app\nexport AGENTGRAPH_APP_ID=42\nAGENTGRAPH_REPO="o/r" # inline\nAGENTGRAPH_APP_KEY_FILE=\'$DIR/key.pem\'\n'
     );
-    expect(await withShell({ AGENTGRAPH_APP_ENV: env }, () => readEngineEnv())).toMatchObject({
+    expect(await withShell({ AGENTGRAPH_APP_ENV: env }, () => readEngineEnv([process.env]))).toMatchObject({
       AGENTGRAPH_APP_ID: '42',
       AGENTGRAPH_REPO: 'o/r',
       AGENTGRAPH_APP_KEY: 'PEM',
@@ -551,7 +551,9 @@ describe('readEngineEnv', () => {
       AGENTGRAPH_SESSION_ENV: 'CLAUDE_CODE_OAUTH_TOKEN',
       CLAUDE_CODE_OAUTH_TOKEN_FILE: join(dir, 'keys'),
     };
-    const env = await withShell(shell, () => readEngineEnv({ AGENTGRAPH_PROXY_KEYS_FILE: join(dir, 'keys') }));
+    const env = await withShell(shell, () =>
+      readEngineEnv([{ AGENTGRAPH_PROXY_KEYS_FILE: join(dir, 'keys') }, process.env])
+    );
     expect(env).toMatchObject({
       AGENTGRAPH_APP_KEY: 'PEM',
       AGENTGRAPH_PROXY_KEYS: 'implementor=k1',
@@ -568,7 +570,7 @@ describe('readEngineEnv', () => {
       AGENTGRAPH_PROXY_KEYS_FILE: join(dir, 'keys'),
       AGENTGRAPH_EVERY: '9',
     };
-    expect(await withShell(shell, () => readEngineEnv(defaults))).toMatchObject({
+    expect(await withShell(shell, () => readEngineEnv([defaults, process.env]))).toMatchObject({
       AGENTGRAPH_PROXY_URL: 'from-app',
       AGENTGRAPH_PROXY_KEYS: 'from-shell',
       AGENTGRAPH_EVERY: '9',
@@ -580,29 +582,35 @@ describe('readEngineEnv', () => {
     const pipe = join(dir, 'pipe');
     execFileSync('mkfifo', [pipe]);
     const writer = spawn(process.execPath, ['-e', `require('fs').writeFileSync(${JSON.stringify(pipe)}, 'PEM')`]);
-    expect((await withShell({ AGENTGRAPH_APP_KEY_FILE: pipe }, () => readEngineEnv())).AGENTGRAPH_APP_KEY).toBe('PEM');
+    expect(
+      (await withShell({ AGENTGRAPH_APP_KEY_FILE: pipe }, () => readEngineEnv([process.env]))).AGENTGRAPH_APP_KEY
+    ).toBe('PEM');
     writer.kill();
   });
 
   it('reads only the key file of the source that wins', async () => {
     const env = await withShell({ AGENTGRAPH_APP_KEY: 'from-shell' }, () =>
-      readEngineEnv({ AGENTGRAPH_APP_KEY_FILE: '/nonexistent/key.pem' })
+      readEngineEnv([{ AGENTGRAPH_APP_KEY_FILE: '/nonexistent/key.pem' }, process.env])
     );
     expect(env.AGENTGRAPH_APP_KEY).toBe('from-shell');
   });
 
   it('finds the App env file an instance names', async () => {
     const { env } = file('AGENTGRAPH_APP_ID=42\n');
-    expect(await withShell({}, () => readEngineEnv({ AGENTGRAPH_APP_ENV: env }))).toMatchObject({
+    expect(await withShell({}, () => readEngineEnv([{ AGENTGRAPH_APP_ENV: env }]))).toMatchObject({
       AGENTGRAPH_APP_ID: '42',
     });
   });
 
-  it('reads a scoped instance env file without changing the process and lets the shell override it', async () => {
+  it('reads a scoped instance env file without changing the process and lets it override the shell', async () => {
     const { env } = file('AGENTGRAPH_REPO=instance/repository\nAGENTGRAPH_IMAGE=instance:image\n');
     const before = process.env.AGENTGRAPH_IMAGE;
-    expect(await withShell({ AGENTGRAPH_REPO: 'command/repository' }, () => readEngineEnv({}, env))).toMatchObject({
-      AGENTGRAPH_REPO: 'command/repository',
+    expect(
+      await withShell({ AGENTGRAPH_REPO: 'command/repository' }, async () =>
+        readEngineEnv([process.env, await readEnvFile(env)])
+      )
+    ).toMatchObject({
+      AGENTGRAPH_REPO: 'instance/repository',
       AGENTGRAPH_IMAGE: 'instance:image',
     });
     expect(process.env.AGENTGRAPH_IMAGE).toBe(before);
@@ -610,7 +618,9 @@ describe('readEngineEnv', () => {
 
   it('leaves a missing required setting to fail by name', async () => {
     const { env } = file('AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY_FILE=$DIR/key.pem\n');
-    const { AGENTGRAPH_REPO: _, ...vars } = await withShell({ AGENTGRAPH_APP_ENV: env }, () => readEngineEnv());
+    const { AGENTGRAPH_REPO: _, ...vars } = await withShell({ AGENTGRAPH_APP_ENV: env }, () =>
+      readEngineEnv([process.env])
+    );
     const read = Effect.provideService(settings, ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: vars }));
     await expect(Effect.runPromise(read)).rejects.toThrow(/AGENTGRAPH_REPO/);
   });
