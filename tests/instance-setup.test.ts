@@ -868,13 +868,13 @@ it('resolves each loop instance from its own files, whatever the shell sets', as
     left: `${scoped}AGENTGRAPH_APP_ID=left-app\nAGENTGRAPH_APP_KEY=left-key\nAGENTGRAPH_STUDIO_URL=http://left.example/\n`,
     right: scoped,
   };
-  for (const { name, graph } of w.graphs) {
+  for (const { name, graph, checkout } of w.graphs) {
     const env = join(w.root, `${name}.env`);
     writeFileSync(env, files[name]!);
     writeFileSync(
       join(w.root, name, 'instance.yaml'),
       stringify({
-        checkout: w.seed,
+        checkout,
         base: 'main',
         owner: 'owner',
         exported: {},
