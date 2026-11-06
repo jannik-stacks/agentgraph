@@ -950,7 +950,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   const found = spawnSync('docker', ['image', 'inspect', start], { encoding: 'utf8' });
   if (found.status !== 0)
     throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
-  if (cache) await ensureFreeDisk({ dir: dirname(tree), image: start, eligible: readEnvRefs(dirname(tree)) });
+  if (cache) await ensureFreeDisk({ dir: dirname(tree), image: start });
   const { cache: repoCache, env } = cache
     ? await readSandboxSetup({
         repo: c.repo,

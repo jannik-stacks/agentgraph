@@ -26,7 +26,7 @@ import {
   unlogged,
   written,
 } from './env.ts';
-import { ensureFreeDisk, readEnvRefs, writeEnvRefs, removeBranch } from './disk.ts';
+import { ensureFreeDisk, writeEnvRefs, removeBranch } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import {
@@ -466,12 +466,7 @@ export const dockerSandbox = (o: {
       const lock = mirrorLocks.get(mirror) ?? mirrorLocks.set(mirror, Semaphore.makeUnsafe(1)).get(mirror)!;
       const roomy = (base: string) =>
         Effect.tryPromise({
-          try: () =>
-            ensureFreeDisk({
-              dir: o.data,
-              ...(cache && { image: base }),
-              eligible: readEnvRefs(o.data),
-            }),
+          try: () => ensureFreeDisk({ dir: o.data, ...(cache && { image: base }) }),
           catch: e => infra((e as Error).message),
         });
       /** Each live checkout as the host made it. */
