@@ -122,7 +122,7 @@ describe('a run branch that moved', () => {
         return yield* Effect.flatMap(Tracker, f => f.issue(7));
       })
     );
-    expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'Which?')).toHaveLength(2);
+    expect(bodies(issue).filter(body => /^@\S+ Which\?\n/.test(body))).toHaveLength(2);
   });
 
   it('reuses a created child after a later child proposal fails', async () => {
@@ -404,7 +404,10 @@ describe('a run branch that moved', () => {
     );
     expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped.slice(0, 2), pull, skipped[2]]);
     expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).not.toContain('Changes landed');
-    expect(await replies()).toEqual(answers.map(a => [`${a.body}\n\n${unpushed}`, 'r1']));
+    expect(await replies()).toEqual([
+      ...answers.map(a => [`${a.body}\n\n${unpushed}`, 'r1']),
+      [expect.stringMatching(/^@morgan Retry later\n/), undefined],
+    ]);
   });
 
   it('notes a refused push under a reply routed to the thread that woke the run', async () => {
@@ -415,7 +418,7 @@ describe('a run branch that moved', () => {
     await drive([{ issue: 8, under: 'r1' }]);
     expect(await replies()).toEqual([
       [`Fixed.\n\n${unpushed}`, 'r1'],
-      ['Retry later', undefined],
+      [expect.stringMatching(/^@morgan Retry later\n/), undefined],
     ]);
   });
 
@@ -436,6 +439,9 @@ describe('a run branch that moved', () => {
     const ended = await drive();
     expect(ended.status).toBe(status);
     expect(ended.reason?.startsWith('Stopped by a runner error') ?? false).toBe(status === 'waiting');
-    expect(await replies()).toEqual([[`Socket Firewall.\n\n${unpushed}`, 'r1']]);
+    expect(await replies()).toEqual([
+      [`Socket Firewall.\n\n${unpushed}`, 'r1'],
+      [expect.stringMatching(status === 'done' ? /^Done\.\n/ : /^@morgan Paused on an agentgraph problem/), undefined],
+    ]);
   });
 });

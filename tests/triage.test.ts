@@ -337,8 +337,7 @@ describe('ordering', () => {
     expect((await runs(where)).map(r => [r.id, r.step, r.status, r.reason, r.tries])).toEqual([
       ['issue-2', 'implement', 'running', 'until #1 has a pull request', 0],
     ]);
-    const sticky = (await issue(where, 2)).events.find(m => m.comment?.body.startsWith('Agentgraph status: '));
-    expect(sticky?.comment?.body).toMatch(/^Agentgraph status: held\n[\s\S]*\| held until #1 has a pull request \|/);
+    expect((await issue(where, 2)).events.filter(m => m.actor.endsWith('[bot]'))).toEqual([]);
 
     writeIssueAt(issuePath(where.tracker, 1), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
     const question = 'The dependency is closed; which implementation should I use?';
@@ -726,7 +725,12 @@ describe('router input', () => {
       actor: 'agentgraph[bot]',
       trusted: false,
       at: at(4),
-      comment: { id: 's1', author: 'agentgraph[bot]', body: 'Waiting for a human at merge.', at: at(4) },
+      comment: {
+        id: 's1',
+        author: 'agentgraph[bot]',
+        body: 'Done.\n\nPull request: https://example.test/2',
+        at: at(4),
+      },
     });
     sayOn(where, inline('r1', 'morgan', '/agent handle all five review comments', 5));
     const { value } = await run(where, [filed], scanIssuesAndRunningRuns(graph));
@@ -739,7 +743,7 @@ describe('router input', () => {
       /^## What you were asked\n\n@morgan on docs\/x.md:8, id r0: \/agent handle all five review comments\n\nEarlier in its review thread:\n\n@morgan on docs\/x.md:8, id r0: what is slot\?\n\n@agentgraph\[bot\] on docs\/x.md:8, id r0: Slot is the index.\n\n/
     );
     expect(prompt).not.toContain('agentgraph:needs-review');
-    expect(prompt).not.toContain('Waiting for a human at merge.');
+    expect(prompt).not.toContain('Pull request: https://example.test/2');
   });
 });
 

@@ -285,7 +285,7 @@ await runLocked(dir, async () => {
     ]);
   });
 
-  it('queues parked runs through the CLI and refreshes the sticky', async () => {
+  it('queues parked runs through the CLI and shows them working', async () => {
     const w = world();
     await w.tracker('init', w.seed);
     await w.tracker('issue', 'A task');
@@ -312,7 +312,7 @@ await runLocked(dir, async () => {
     });
     expect(resumed.status, resumed.stderr).toBe(0);
     expect(resumed.stdout).toContain('triage-1 triage running');
-    expect(await w.tracker('show', '1')).toContain('Agentgraph status: working');
+    expect(findStatus(w.dir, 1)).toBe('working');
     const stored = await Effect.runPromise(
       Effect.flatMap(Store, store => store.get('triage-1')).pipe(Effect.provide(fileStore(data)))
     );

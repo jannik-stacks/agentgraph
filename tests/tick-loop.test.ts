@@ -16,7 +16,7 @@ import { begin, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { git, issuePath, writeIssueAt } from './kit.ts';
+import { findStatus, git, issuePath, writeIssueAt } from './kit.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { graph, w, removeAfter, world, push, pull, services, reactions, bodies, fresh, say, comment } from './world.ts';
 
@@ -95,20 +95,18 @@ describe('tick', () => {
     let failures = 1;
     const flaky = Effect.map(Store, s => ({
       ...s,
-      readChecks: (id: string) =>
-        failures-- > 0 ? Effect.fail(new StoreError({ path: id, cause: new Error('busy') })) : s.readChecks(id),
+      get: (id: string) =>
+        failures-- > 0 ? Effect.fail(new StoreError({ path: id, cause: new Error('busy') })) : s.get(id),
     }));
-    const before = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7)))).length;
     await expect(run(tick(hold, 7).pipe(Effect.provideServiceEffect(Store, flaky)))).rejects.toThrow('busy');
+    expect(findStatus(where.tracker, 7)).toBe('');
     await run(tick(hold, 7));
     await run(tick(hold, 7));
     const [saved] = await run(Effect.flatMap(Store, s => s.list({ issue: 7 })));
-    const after = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7)))).length;
-    expect([saved!.status, saved!.unshown, saved!.comment !== undefined, after - before]).toEqual([
+    expect([saved!.status, saved!.unshown, findStatus(where.tracker, 7)]).toEqual([
       'waiting',
       undefined,
-      true,
-      1,
+      'needs-answer',
     ]);
   });
 

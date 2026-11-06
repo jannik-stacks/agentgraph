@@ -609,7 +609,9 @@ export const runAttempt = (
             said
           ).pipe(
             useRunLink(tried, spoke),
-            Effect.catchTag('TrackerError', e => Effect.succeed<Applied>({ proposal: said, ok: false, reason: e.message }))
+            Effect.catchTag('TrackerError', e =>
+              Effect.succeed<Applied>({ proposal: said, ok: false, reason: e.message })
+            )
           ),
         ]
       : [];

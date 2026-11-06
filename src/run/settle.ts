@@ -76,7 +76,9 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     const kept = { ...rest, ...(eyes && !undone.some(a => a.ok) && { eyes }) };
     if (isQuiet(w)) {
       yield* writeAppliedTrace(run.id, run.step, undone);
-      return undone.length === 0 && !run.unshown ? run : kept;
+      if (undone.length === 0 && !run.unshown) return run;
+      yield* store.put(kept);
+      return kept;
     }
     const before = yield* store.get(run.id);
     const t = yield* readIssueWithPull(w, run);
@@ -101,7 +103,9 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     );
     yield* writeAppliedTrace(run.id, run.step, [...said, ...undone]);
     if (undone.length === 0 && shown === !run.unshown) return run;
-    return { ...kept, ...(!shown && { unshown: true as const }) };
+    const next = { ...kept, ...(!shown && { unshown: true as const }) };
+    yield* store.put(next);
+    return next;
   }).pipe(
     Effect.scoped,
     useRunLink(run),

@@ -33,7 +33,7 @@ const parked = (id: string): Run => ({
 
 describe('resume', () => {
   it.each(['id', 'parked'] as const)(
-    'clears a parked retro in the shared sticky by %s',
+    'clears a parked retro without a word on the issue by %s',
     async selection => {
       const where = world();
       const { run, marks, specs } = services(where, [[start('r'), reply()]]);
@@ -53,25 +53,21 @@ describe('resume', () => {
       expect((await run(runWorkflow(flow, back, graph))).status).toBe('done');
       expect(specs).toHaveLength(1);
       expect(specs[0]!.resume).toEqual(original.sessions.implement);
-      expect(marks.map(([kind]) => kind)).toEqual(['comment', 'comment']);
-      const comments = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
-      expect(comments.filter(b => b.startsWith('Agentgraph status: '))).toEqual([
-        expect.stringContaining('| retro / implement | done |'),
-      ]);
-      expect(comments.join('\n')).not.toContain('paused');
+      expect(marks).toEqual([]);
+      expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual(['/agent']);
       expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).toContain('labels: []');
     },
     60_000
   );
 
   it.each(['cli', 'reply'] as const)(
-    'shows a retro problem only in the shared sticky and clears it by %s',
+    'keeps a retro problem off the issue and clears it by %s',
     async via => {
       const where = world();
       const { run } = services(where, []);
       const parentFlow = { ...flow, name: 'issue', on: { issue_comment: {} } };
       const combined = { ...graph, workflows: { ...graph.workflows, issue: parentFlow } };
-      const parent = await services(where, [[start('i'), reply()]]).run(
+      await services(where, [[start('i'), reply()]]).run(
         runWorkflow(
           parentFlow,
           begin(parentFlow, { id: 'issue-7', issue: 7, started: '2026-10-16T00:00:00.000Z' }),
@@ -81,17 +77,9 @@ describe('resume', () => {
       await run(settleLongAgo('issue-7'));
       const { reason: _reason, ...working } = parked('retro-7');
       const paused = await run(runWorkflow(flow, { ...working, status: 'running' }, combined));
-      const before = await run(Effect.flatMap(Tracker, f => f.issue(7)));
-      const sticky = before.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))!.comment!;
-      expect(bodies(before)).toEqual([
-        '/agent',
-        expect.stringContaining('paused on an agentgraph problem, not this change; reply `/agent` to retry'),
-      ]);
-      expect(sticky.id).toBe(parent.comment);
+      expect(paused.reason).toContain(stoppedByRunner);
+      expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual(['/agent']);
       expect(findStatus(where.tracker, 7)).toBe('done');
-      expect(sticky.body).toContain('| issue / implement | done |');
-      expect(sticky.body).toContain('| retro / implement | paused');
-      expect(sticky.body).not.toMatch(/SessionStop|retro-7|runner error/);
       const next = services(where, [[start('r'), reply()]]);
       if (via === 'cli') await next.run(instruct(combined, { kind: 'resume', parked: true }));
       else {
@@ -99,10 +87,8 @@ describe('resume', () => {
         await next.run(tick(combined, 7));
       }
       const after = await next.run(Effect.flatMap(Tracker, f => f.issue(7)));
-      expect(
-        after.events.filter(m => m.comment?.body.startsWith('Agentgraph status: ')).map(m => m.comment?.id)
-      ).toEqual([sticky.id]);
-      expect(bodies(after).join('\n')).not.toContain('paused');
+      expect(bodies(after)).toEqual(['/agent', ...(via === 'reply' ? ['/agent retry'] : [])]);
+      expect(findStatus(where.tracker, 7)).toBe('done');
       expect(
         findRunsWaitingOnPeople([paused])
           .flatMap(r => formatNextSteps(r))

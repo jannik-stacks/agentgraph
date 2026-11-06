@@ -339,14 +339,14 @@ describe('drive', () => {
 
     // the failed try pushed nothing; the passing one did, and opened pull request #8
     const tracker = await run(Effect.flatMap(Tracker, f => f.issue(7)));
+    const pr = await run(Effect.flatMap(Tracker, f => f.issue(8)));
     expect(bodies(tracker)).toEqual([
       '/agent',
-      expect.stringContaining('| issue / review | waiting for your answer below.'),
       'Brief: add hello.txt',
-      'still not right',
+      `Opened a pull request.\n\nPull request: ${pr.url}`,
     ]);
+    expect(bodies(pr).at(-1)).toMatch(/^@\S+ still not right\n\nReply `\/agent` and your answer/);
     expect(findStatus(where.tracker, 7)).toBe('needs-answer');
-    const pr = await run(Effect.flatMap(Tracker, f => f.issue(8)));
     expect(pr.pull).toMatchObject({ branch: 'agentgraph/7', base: 'main' });
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello world');
     expect(pr.pull?.head).toBe(git(where.origin, 'rev-parse', 'agentgraph/7'));
@@ -446,13 +446,10 @@ describe('drive', () => {
     const landed = (step: string, session: string) => ({ ...at(step, session), operation: expect.any(String) });
     expect(marks).toEqual([
       ['label', at('triage')],
-      ['comment', at('triage')],
       ['comment', landed('triage', 't1')],
-      ['comment', at('implement')],
       ['push', landed('implement', 'i1')],
       ['pull_request', landed('implement', 'i1')],
-      ['comment', at('review')],
-      ['comment', at('implement', 'i1')],
+      ['comment', landed('implement', 'i1')],
       ['label', at('implement', 'i1')],
       ['comment', at('implement', 'i1')],
     ]);
@@ -600,7 +597,7 @@ describe('drive', () => {
     expect(specs).toHaveLength(3);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'agentgraph/7')).toThrow();
     const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
-    expect(bodies(issue)[1]).toContain(`| issue / implement | stopped: ${stopped.reason} | $0.25 |`);
+    expect(bodies(issue).at(-1)).toBe(`Stopped.\n\n${stopped.reason}`);
     expect(findStatus(where.tracker, 7)).toBe('stopped');
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
