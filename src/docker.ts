@@ -1,7 +1,7 @@
 import { getSha } from './hash.ts';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -760,7 +760,9 @@ export const dockerSandbox = (o: {
         const paths = getCheckoutPaths(o.data, id);
         yield* commitCheckoutOnce(checkoutGit(paths), `refs/agentgraph/reaped/${id}`, []).pipe(
           Effect.andThen(Effect.promise(() => removeCheckout(o.data, id))),
-          Effect.catch(e => Effect.logWarning(`kept unsaved checkout ${paths.dir}: ${e.detail}`))
+          Effect.catch(e =>
+            existsSync(paths.dir) ? Effect.logWarning(`kept unsaved checkout ${paths.dir}: ${e.detail}`) : Effect.void
+          )
         );
       }
 

@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, join } from 'node:path';
-import { Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
+import { Effect, Exit, Layer, Logger, Redacted, type Scope, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox, dockerArgs, readImage } from '../src/docker.ts';
 import { ensureInstance } from '../src/instance.ts';
@@ -1024,6 +1024,26 @@ describe('disk lifecycle', () => {
       expect(readdirSync(join(data, 'cache', 'scratch'))).toEqual(['mine']);
       expect(git(mirror, 'show', 'refs/agentgraph/reaped/gone:left.txt')).toBe('unfinished');
       expect(isOwnerRunning(startHeartbeat())).toBe(true);
+    });
+  });
+
+  it('reaps a dead checkout once when two sandboxes start together', async () => {
+    await faked({}, async () => {
+      const data = tmp('data');
+      mkdirSync(join(data, 'cache', 'work', 'gone'), { recursive: true });
+      writeFileSync(join(data, 'cache', 'work', 'gone', 'left.txt'), 'unfinished\n');
+      const mirror = join(data, 'mirror.git');
+      git(data, 'init', '-q', '--bare', mirror);
+      const warnings: string[] = [];
+      const logger = Logger.layer([Logger.make(({ message }) => void warnings.push(String(message)))]);
+      const start = () =>
+        Effect.runPromiseExit(
+          Effect.void.pipe(Effect.provide(dockerSandbox({ data, origin: '/nowhere' })), Effect.provide(logger))
+        );
+      expect((await Promise.all([start(), start()])).every(Exit.isSuccess)).toBe(true);
+      expect(warnings).toEqual([]);
+      expect(readdirSync(join(data, 'cache', 'work'))).toEqual([]);
+      expect(git(mirror, 'show', 'refs/agentgraph/reaped/gone:left.txt')).toBe('unfinished');
     });
   });
 
