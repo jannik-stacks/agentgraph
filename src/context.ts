@@ -116,7 +116,7 @@ const answerWith = 'Reply `/agent` and your answer, or `/agent:stop` to end the 
 
 const paused = 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.';
 
-export const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
+const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
   run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)
     ? 'working'
     : run.status === 'waiting'

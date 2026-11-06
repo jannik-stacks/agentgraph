@@ -60,22 +60,10 @@ export const runEndChecks = (graph: Graph, id: string): Effect.Effect<Run | unde
     return w ? yield* writeStatus(w, run, graph) : run;
   }).pipe(Effect.scoped);
 
-export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Tracker | Store> =>
+const showStatus = (w: Workflow, run: Run, graph: Graph) =>
   Effect.gen(function* () {
     const store = yield* Store;
-    yield* store
-      .lock(`status-${run.issue}`)
-      .pipe(Effect.retry({ while: e => e.cause instanceof LockHeldError, schedule: Schedule.spaced('50 millis') }));
     const tracker = yield* Tracker;
-    const undone = run.eyes && run.status !== 'running' ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
-    const { eyes, unshown: _unshown, ...rest } = run;
-    const kept = { ...rest, ...(eyes && !undone.some(a => a.ok) && { eyes }) };
-    if (isQuiet(w)) {
-      yield* writeAppliedTrace(run.id, run.step, undone);
-      if (undone.length === 0 && !run.unshown) return run;
-      yield* store.put(kept);
-      return kept;
-    }
     const before = yield* store.get(run.id);
     const t = yield* readIssueWithPull(w, run);
     const pulled = (t.pull ?? t.issue.pull) !== undefined;
@@ -97,9 +85,27 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       proposeUpdates(before, run, t, [...others, run], w.branch !== undefined, tracker.studio),
       p => tracker.apply((t.pull ?? t.issue).number, p)
     );
-    yield* writeAppliedTrace(run.id, run.step, [...said, ...undone]);
+    yield* writeAppliedTrace(run.id, run.step, said);
+    return shown;
+  });
+
+export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Tracker | Store> =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    yield* store
+      .lock(`status-${run.issue}`)
+      .pipe(Effect.retry({ while: e => e.cause instanceof LockHeldError, schedule: Schedule.spaced('50 millis') }));
+    const tracker = yield* Tracker;
+    const undone = run.eyes && run.status !== 'running' ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
+    yield* writeAppliedTrace(run.id, run.step, undone);
+    const shown = isQuiet(w) || (yield* showStatus(w, run, graph));
     if (undone.length === 0 && shown === !run.unshown) return run;
-    const next = { ...kept, ...(!shown && { unshown: true as const }) };
+    const { eyes, unshown: _unshown, ...rest } = run;
+    const next = {
+      ...rest,
+      ...(eyes && !undone.some(a => a.ok) && { eyes }),
+      ...(!shown && { unshown: true as const }),
+    };
     yield* store.put(next);
     return next;
   }).pipe(

@@ -1,4 +1,4 @@
-import { Effect, Result, Option } from 'effect';
+import { Effect, Option } from 'effect';
 import { type Workflow, type Run, type Outcome, transition, isRunDone } from '../workflow.ts';
 import type { Issue } from '../event.ts';
 import type { Graph } from '../folder.ts';
@@ -17,8 +17,8 @@ import {
   readEarlierBranch,
 } from './hear.ts';
 import { type Services, formatFailure } from './execute.ts';
-import { formatWaitingOn, formatSettled } from './start.ts';
-import { writeAppliedTrace, writeProposals, removeThreads, writeStatus, readRunSpend, runEndChecks } from './settle.ts';
+import { formatSettled } from './start.ts';
+import { removeThreads, writeStatus, readRunSpend, runEndChecks } from './settle.ts';
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';

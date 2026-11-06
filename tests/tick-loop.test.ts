@@ -692,10 +692,10 @@ describe('scanIssuesAndRunningRuns', () => {
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody ${n}.\n`
       );
     const at = '2026-10-16T00:00:00.000Z';
-    const parked = (issue: number, status: Run['status']): Run => ({
-      ...begin(small.workflows.issue!, { id: `run-${issue}`, issue, started: at }),
-      status,
-    });
+    const parked = (issue: number, status: Run['status']): Run => {
+      const { unshown: _unshown, ...shown } = begin(small.workflows.issue!, { id: `run-${issue}`, issue, started: at });
+      return { ...shown, status };
+    };
     const answer = '2026-10-16T00:00:05.000Z';
     say(where, {
       issue: 8,

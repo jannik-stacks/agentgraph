@@ -372,6 +372,7 @@ export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started' | '
     tries: 0,
     rounds: {},
     sessions: {},
+    unshown: true,
     ...(report && { feedback: formatReport(before, report) }),
   };
 }

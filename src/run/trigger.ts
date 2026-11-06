@@ -515,8 +515,7 @@ export const tick = (
           return restart !== undefined && !!t && !('why' in t) && t.verb === 'restart';
         });
         const seen = pickNewest(...restarts.map(n => n.at));
-        const begun: Run = {
-          unshown: true,
+        const begun = {
           ...begin(
             w,
             {

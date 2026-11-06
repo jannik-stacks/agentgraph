@@ -34,7 +34,7 @@ const failed: Outcome = {
 };
 
 describe('begin', () => {
-  it('starts at the first step, running, with no counters', () => {
+  it('starts at the first step, running, unshown, with no counters', () => {
     expect(start).toEqual({
       id: 'r1',
       issue: 7,
@@ -45,6 +45,7 @@ describe('begin', () => {
       tries: 0,
       rounds: {},
       sessions: {},
+      unshown: true,
     });
   });
 });

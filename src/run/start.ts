@@ -137,7 +137,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       const p = children[i]!;
       if (!isPart(p) || p.size !== 'XL' || depth + 1 >= deepest) continue;
       const at = new Date().toISOString();
-      yield* startRun({ unshown: true, ...begin(w, { id: makeRunId(w, n, at), issue: n, started: at }) });
+      yield* startRun(begin(w, { id: makeRunId(w, n, at), issue: n, started: at }));
     }
     return applied;
   }).pipe(useRunLink(run));
@@ -217,7 +217,6 @@ export const startProposedRun = (
     for (let tries = 0; tries < 3; tries++) {
       const at = new Date().toISOString();
       const child: Run = {
-        unshown: true,
         ...begin(
           w,
           { id: makeRunId(w, p.issue, at), issue: p.issue, started: at },

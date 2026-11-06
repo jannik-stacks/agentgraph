@@ -315,7 +315,7 @@ describe('tick', () => {
     expect(readTrace(where.data, id).filter(t => 'told' in t)).toEqual([]);
     const resumed = services(where, [[start('a'), reply({ kind: 'ask', question: 'Which page?' })]]);
     await resumed.run(tick(kit, 7));
-    expect(await run(Effect.flatMap(Store, s => s.get(id)))).toEqual(before);
+    expect(await run(Effect.flatMap(Store, s => s.get(id)))).toEqual({ ...before, unshown: undefined });
     expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({
       step: 'implement',
       status: 'waiting',
