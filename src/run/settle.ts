@@ -60,35 +60,6 @@ export const runEndChecks = (graph: Graph, id: string): Effect.Effect<Run | unde
     return w ? yield* writeStatus(w, run, graph) : run;
   }).pipe(Effect.scoped);
 
-const showStatus = (w: Workflow, run: Run, graph: Graph) =>
-  Effect.gen(function* () {
-    const store = yield* Store;
-    const tracker = yield* Tracker;
-    const before = yield* store.get(run.id);
-    const t = yield* readIssueWithPull(w, run);
-    const pulled = (t.pull ?? t.issue.pull) !== undefined;
-    const others = (yield* store.list({ issue: run.issue })).filter(r => {
-      const of = graph.workflows[r.workflow];
-      return r.id !== run.id && of !== undefined && !isQuiet(of);
-    });
-    const from = findIssueStatus(run.unshown || !before ? others : [...others, before], pulled);
-    const to = findIssueStatus([...others, run], pulled)!;
-    const shown =
-      to === from || graph.status === false || !tracker.status
-        ? true
-        : yield* tracker.status(run.issue, to, graph.status).pipe(
-            Effect.as(true),
-            Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`status of issue ${run.issue}`, e), false))
-          );
-    if (to !== from && shown) yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
-    const said = yield* Effect.forEach(
-      proposeUpdates(before, run, t, [...others, run], w.branch !== undefined, tracker.studio),
-      p => tracker.apply((t.pull ?? t.issue).number, p)
-    );
-    yield* writeAppliedTrace(run.id, run.step, said);
-    return shown;
-  });
-
 export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Tracker | Store> =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -98,7 +69,30 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     const tracker = yield* Tracker;
     const undone = run.eyes && run.status !== 'running' ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* writeAppliedTrace(run.id, run.step, undone);
-    const shown = isQuiet(w) || (yield* showStatus(w, run, graph));
+    let shown = true;
+    if (!isQuiet(w)) {
+      const before = yield* store.get(run.id);
+      const t = yield* readIssueWithPull(w, run);
+      const pulled = (t.pull ?? t.issue.pull) !== undefined;
+      const others = (yield* store.list({ issue: run.issue })).filter(r => {
+        const of = graph.workflows[r.workflow];
+        return r.id !== run.id && of !== undefined && !isQuiet(of);
+      });
+      const from = findIssueStatus(run.unshown || !before ? others : [...others, before], pulled);
+      const to = findIssueStatus([...others, run], pulled)!;
+      if (to !== from && graph.status !== false && tracker.status)
+        shown = yield* tracker.status(run.issue, to, graph.status).pipe(
+          Effect.as(true),
+          Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`status of issue ${run.issue}`, e), false))
+        );
+      if (to !== from && shown)
+        yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
+      const said = yield* Effect.forEach(
+        proposeUpdates(before, run, t, [...others, run], w.branch !== undefined, tracker.studio),
+        p => tracker.apply((t.pull ?? t.issue).number, p)
+      );
+      yield* writeAppliedTrace(run.id, run.step, said);
+    }
     if (undone.length === 0 && shown === !run.unshown) return run;
     const { eyes, unshown: _unshown, ...rest } = run;
     const next = {
