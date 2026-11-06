@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
@@ -312,6 +312,32 @@ describe('drive', () => {
     );
     expect(git(where.origin, 'show', `refs/agentgraph/attempts/run-7/${attempts}:generated.txt`)).toBe('second');
     expect(git(where.origin, 'show', 'agentgraph/7:generated.txt')).toBe('second');
+  });
+
+  it('keeps going when the pull request opens but its update cannot be posted', async () => {
+    const where = world();
+    let sessions = 0;
+    const { run } = services(
+      where,
+      [
+        [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
+        [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
+        judged,
+        [start('r1'), reply({ kind: 'ask', question: 'Merge it?' })],
+      ],
+      undefined,
+      () => {
+        if (++sessions === 3) chmodSync(issuePath(where.tracker, 7, 'events.jsonl'), 0o444);
+      }
+    );
+    const asked = await run(runWorkflow(w, fresh(), graph));
+    chmodSync(issuePath(where.tracker, 7, 'events.jsonl'), 0o644);
+    expect(asked).toMatchObject({ step: 'review', status: 'waiting' });
+    expect(readTrace(where.data, 'run-7')).toContainEqual(
+      expect.objectContaining({
+        applied: expect.objectContaining({ ok: false, proposal: expect.objectContaining({ kind: 'comment' }) }),
+      })
+    );
   });
 
   it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
