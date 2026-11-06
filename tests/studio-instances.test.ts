@@ -6,6 +6,7 @@ import { ensureInstance } from '../src/instance.ts';
 import { seeded } from './fixtures.ts';
 import { removeAfter } from './world.ts';
 import { startStudioServer } from './studio.ts';
+import { makeServedGraphs } from '../studio/served.ts';
 
 const starter = join(import.meta.dirname, '..', 'examples', 'starter');
 
@@ -104,4 +105,31 @@ const readStudioUrl = async (url: string) =>
 it('links an instance run under the studio address plus the instance name', async () => {
   expect(await readStudioUrl('http://127.0.0.1:5600/')).toBe('http://127.0.0.1:5600/stacks-kit');
   expect(await readStudioUrl('')).toBe('');
+});
+
+it('ignores instance settings from the shell when it serves several instances, as the loop does', async () => {
+  const { root: dir, seed } = seeded('studio-shell', { 'README.md': 'hello' });
+  removeAfter(dir);
+  const root = join(dir, 'instances');
+  for (const name of ['left', 'right']) {
+    const i = await ensureInstance(root, name, seed);
+    writeFileSync(
+      join(i.dir, 'instance.yaml'),
+      `checkout: ${seed}\nbase: main\nowner: o\nexported: {}\ngraph: ${starter}\n`
+    );
+  }
+  vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root, names: ['left', 'right'] }));
+  vi.stubEnv('AGENTGRAPH_TRACKER', 'github');
+  const warned = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    const served = await makeServedGraphs().read();
+    expect(served.map(({ name, local, problems }) => ({ name, local, problems }))).toEqual([
+      { name: 'left', local: true, problems: [] },
+      { name: 'right', local: true, problems: [] },
+    ]);
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining('ignoring AGENTGRAPH_TRACKER from the shell'));
+  } finally {
+    warned.mockRestore();
+    vi.unstubAllEnvs();
+  }
 });

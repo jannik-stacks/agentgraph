@@ -31,7 +31,7 @@ const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()
 export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
   file ? (parseEnv(await readText(file)) as Record<string, string>) : {};
 
-export const instanceSettings = [
+const instanceSettings = [
   'AGENTGRAPH_APP_ENV',
   'AGENTGRAPH_APP_ID',
   'AGENTGRAPH_APP_KEY',
@@ -44,6 +44,15 @@ export const instanceSettings = [
 ];
 
 type Vars = Record<string, string | undefined>;
+
+export const removeShellSettings = (instances: number) => {
+  const ignored = instances > 1 ? instanceSettings.filter(name => process.env[name] !== undefined) : [];
+  for (const name of ignored) delete process.env[name];
+  if (ignored.length)
+    console.error(
+      `several instances: ignoring ${ignored.join(', ')} from the shell; set them in each instance's env file or instance.yaml`
+    );
+};
 
 export const readEngineEnv = async (layers: Vars[]): Promise<Record<string, string>> => {
   const expanded: Vars[] = [];

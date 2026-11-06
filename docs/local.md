@@ -74,7 +74,7 @@ cd studio && npm install
 npm run dev -- --instance left-pad --instance right-pad
 ```
 
-It serves on port 5182, or `AGI_PORT`, and restarts when engine code under `src` or `bin` changes. One studio serves several instances of one data root: each `--instance <name>` adds one, and with none of `--instance`, `--repo` and `--dir` it serves every instance under the root. Each instance's pages live under its name, as `/<name>/runs` and `/<name>/graph`, and the header switches between instances. Graph, Runs, Inbox and Results read only that instance. An address that names no served instance lists the ones served. An instance that fails to load shows why on its pages, and the others keep working. <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown -->
+It serves on port 5182, or `AGI_PORT`, and restarts when engine code under `src` or `bin` changes. One studio serves several instances of one data root: each `--instance <name>` adds one, and with none of `--instance`, `--repo` and `--dir` it serves every instance under the root. Each instance's pages live under its name, as `/<name>/runs` and `/<name>/graph`, and the header switches between instances. Graph, Runs, Inbox and Results read only that instance. An address that names no served instance lists the ones served. An instance that fails to load shows why on its pages, and the others keep working. Each instance reads its settings as the loop does, so a studio of several ignores the per-instance settings in the shell, listed under [One loop for several instances](#one-loop-for-several-instances). <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown src/main.ts#removeShellSettings -->
 
 `--repo <dir>` reads or makes that repo's instance. `--dir <graph>` picks the graph of a single instance; when serving several, set `graph` in each `instance.yaml`. `--dir <dir> --data <dir>` without an instance shows that graph and run store at `/runs`, and `--tracker <dir>` then makes the Inbox show local commands. The [Bench](bench.md#cost-against-quality) tab shows the runs of every served instance, `npm run dev -- --bench <sets>` adds bench sets to it and a tune's runs show with `--dir <graph> --data <tune dir>/data`.
 
@@ -137,11 +137,11 @@ with its name. `--repo`, `--dir`, `--base`, `--tracker` and `--read-only` select
 they fail here; put them in each `instance.yaml`. `--parallel <n>` caps drives across all of them.
 The App settings (`AGENTGRAPH_APP_ENV`, `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_APP_KEY_FILE`),
 `AGENTGRAPH_TRACKER`, `AGENTGRAPH_REPO`, `AGENTGRAPH_TRUST`, `AGENTGRAPH_DIR` and `AGENTGRAPH_PROVIDER` belong to one
-instance, so a loop of several ignores them in the shell and says which it ignored; put them in each instance's `env`
+instance, so a loop or studio of several ignores them in the shell and says which it ignored; put them in each instance's `env`
 file or `instance.yaml`, or pass `--provider` for all. Other settings, such as `AGENTGRAPH_STUDIO_URL`, stay shared.
 An instance that fails to start, or stops on an error, prints `<name>: stopped: <why>` and the others go on;
 the process then exits 1. Ctrl-C or SIGTERM stops every instance and releases each lock.
-<!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives src/main.ts#start src/main.ts#instanceSettings -->
+<!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives src/main.ts#start src/main.ts#removeShellSettings -->
 
 ### Starting and stopping a loop
 
