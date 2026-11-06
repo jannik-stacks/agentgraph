@@ -86,7 +86,7 @@ export function formatRequest(t: IssueWithPull, started: string): string {
   const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
   if (said.length === 0) return '';
   const threads = new Set(said.map(thread).filter(Boolean));
-  const around = events.filter(m => !said.includes(m) && threads.has(thread(m)) && !isRunnerStatus(m));
+  const around = events.filter(m => !said.includes(m) && threads.has(thread(m)));
   const before = around.filter(m => m.at < started);
   const after = around.filter(m => m.at > started);
   return [

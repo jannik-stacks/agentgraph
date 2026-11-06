@@ -223,9 +223,9 @@ export const pickTryOutcome = (o: {
         .join('\n\n');
       return run.base ? { ...p, base: run.base.branch, body } : { ...p, body };
     });
-  const talk = !back && world.every(p => p.kind === 'comment');
-  const commented = talk && world.length > 0;
-  const answered = talk && o.asked && o.held && o.untouched;
+  const commentsOnly = !back && world.every(p => p.kind === 'comment');
+  const commented = commentsOnly && world.length > 0;
+  const answered = commentsOnly && o.asked && o.held && o.untouched;
   const unpushed = !answered && !back && returns.includes('push') && !world.some(p => p.kind === 'push') && o.dirty;
   if (unpushed || (o.asked && commented && !o.held && (returns.includes('push') || returns.includes('pull_request'))))
     return fail([
