@@ -253,10 +253,16 @@ describe('drive', () => {
     const dir = join(where.data, 'graph');
     const plugin = pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href;
     const hook = (name: string, body: string) =>
-      `import { makePlugin } from '${plugin}';\nexport default makePlugin({ name: '${name}', on: { status: change => { ${body} } } });\n`;
+      `import { makePlugin } from '${plugin}';\nexport default makePlugin({ name: '${name}', on: { status: async (change, ctx) => { ${body} } } });\n`;
     mkdirSync(join(dir, 'plugins'), { recursive: true });
     writeFileSync(join(dir, 'plugins', 'a.ts'), hook('a', "throw new Error('board down');"));
-    writeFileSync(join(dir, 'plugins', 'b.ts'), hook('b', '(globalThis.statusChanges ??= []).push(change);'));
+    writeFileSync(
+      join(dir, 'plugins', 'b.ts'),
+      hook(
+        'b',
+        "(globalThis.statusChanges ??= []).push(change); globalThis.found = await ctx.tracker.searchIssues('hello');"
+      )
+    );
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
     const asked = await run(runWorkflow(w, fresh(), { ...graph, dir }));
     expect(asked).toMatchObject({ status: 'waiting', reason: 'Continue?' });
@@ -266,6 +272,7 @@ describe('drive', () => {
       from: 'working',
       to: 'needs-answer',
     });
+    expect((globalThis as { found?: unknown }).found).toEqual(expect.any(Array));
   });
 
   it('drives the run as stored once it holds the lock, not the snapshot it was given', async () => {
