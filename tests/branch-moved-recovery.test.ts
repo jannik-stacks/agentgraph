@@ -219,6 +219,19 @@ describe('a run branch that moved', () => {
     ).toBe(false);
   });
 
+  it('refuses a merge proposal for a pull request that does not exist', async () => {
+    const where = world();
+    pullRequest(where);
+    const { specs, run } = services(where, [
+      [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 99, head: 'own' })],
+      [start('a'), reply({ kind: 'ask', question: 'Which pull request?' })],
+    ]);
+    const asked = await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    expect(asked).toMatchObject({ status: 'waiting', reason: 'Which pull request?' });
+    expect(specs[1]!.prompt).toContain("merge #99 is not from this run's branch agentgraph/7");
+    expect(readTrace(where.data, 'run-7').some(t => 'applied' in t && t.applied.proposal.kind === 'merge')).toBe(false);
+  });
+
   it.each(['agentgraph/7', 'bothub/7'])('accepts a merge proposal for its own branch: %s', async branch => {
     const where = world();
     pullRequest(where);
