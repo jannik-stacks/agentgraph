@@ -41,6 +41,8 @@ const own = {
   from: text(Flag.String('from').pipe(Flag.withDescription('<commit>'))),
   meta: text(Flag.String('meta').pipe(Flag.withDescription('<json file>'))),
   once: flag('once'),
+  detach: flag('detach'),
+  force: flag('force'),
   parallel: text(Flag.String('parallel').pipe(Flag.withDescription('<n>'))),
   apply: flag('apply'),
   runs: flag('runs'),
@@ -54,9 +56,11 @@ const table: [verb: string, args: string | undefined, flags: (keyof typeof own)[
   [
     'loop',
     undefined,
-    ['once', 'parallel'],
+    ['once', 'parallel', 'detach'],
     'drives every open issue of one or more instances, again every AGENTGRAPH_EVERY minutes',
   ],
+  ['stop', undefined, ['force'], 'stops the loops of the instances and waits until they let go; --force ends them now'],
+  ['restart', undefined, ['force', 'parallel'], 'stops the loops of the instances, then starts one in the background'],
   ['show', 'n|graph', [], 'what needs you and every issue, one issue in full, or the graph'],
   [
     'say',

@@ -137,3 +137,53 @@ export const waitForLock = async (name: string, dir = join(readStateDir(), 'lock
     await setTimeout(500);
   }
 };
+
+/** @internal */
+export const findLoopLock = (checkout: string) => join(readStateDir(), 'loops', `${getSha(checkout, 16)}.lock`);
+
+const readTextSync = (path: string) => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (e) {
+    return readOrUndefined(e);
+  }
+};
+
+export const readLoopHolder = (checkout: string) => {
+  const path = findLoopLock(checkout);
+  const holder = readTextSync(path);
+  if (!holder || !isOwnerRunning(holder)) return undefined;
+  const [pid, , host = ''] = holder.split(':');
+  return { pid: Number(pid), host, stopping: readTextSync(`${path}.stopping`) === holder };
+};
+
+export const createLoopLock = async (checkout: string, onWait = (_pid: number) => {}, signal?: AbortSignal) => {
+  const path = findLoopLock(checkout);
+  const marker = `${path}.stopping`;
+  await mkdir(dirname(path), { recursive: true });
+  let told = false;
+  for (;;) {
+    const release = await createLock(path).catch((e: unknown) => {
+      if (!(e instanceof LockHeldError)) throw e;
+      const holder = readLoopHolder(checkout);
+      if (holder && !holder.stopping) throw e;
+      if (holder && !told) onWait(holder.pid);
+      told ||= !!holder;
+    });
+    if (release) {
+      const holder = await readFile(path, 'utf8');
+      return {
+        stop: async () => {
+          const next = `${marker}.${randomUUID()}`;
+          await writeFile(next, holder);
+          await rename(next, marker);
+        },
+        release: async () => {
+          await release();
+          if ((await readFile(marker, 'utf8').catch(readOrUndefined)) === holder) await rm(marker, { force: true });
+        },
+      };
+    }
+    await setTimeout(500, undefined, { signal });
+  }
+};

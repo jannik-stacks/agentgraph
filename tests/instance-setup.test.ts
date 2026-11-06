@@ -12,12 +12,13 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { ConfigProvider, Effect, Layer } from 'effect';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { stringify } from 'yaml';
 import type { InstanceFile } from '../src/settings.ts';
 import { ensureInstance, formatGraphName, readInstance } from '../src/instance.ts';
 import { getCachePath } from '../src/env.ts';
-import { readInstanceEnv, start, createLoopLock } from '../src/main.ts';
+import { readInstanceEnv, start } from '../src/main.ts';
+import { createLoopLock, findLoopLock } from '../src/owner.ts';
 import { settings, makeTrackerSetup, whyModelHostsMissing } from '../src/services.ts';
 import { makeServedGraphs } from '../studio/served.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -26,13 +27,15 @@ import { makeTestGraph, seeded } from './fixtures.ts';
 import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { git } from './kit.ts';
+import { git, tmp } from './kit.ts';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
 import { studioDir } from './studio.ts';
 import { pathToFileURL } from 'node:url';
 import { removeAfter } from './world.ts';
 
 const cli = join(import.meta.dirname, '../bin/run.ts');
+beforeEach(() => void vi.stubEnv('AGENTGRAPH_STATE', tmp('state')));
+afterEach(() => void vi.unstubAllEnvs());
 const makeInstance = async (name: string) => {
   const world = seeded('instance-setup', { 'README.md': 'hello' });
   removeAfter(world.root);
@@ -708,10 +711,9 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
     await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 20_000 });
     child.kill('SIGTERM');
     await vi.waitFor(() => expect(exited).toEqual([143, null]), { timeout: 5000 });
-    const release = await createLoopLock(w.instance.data);
-    await release();
+    await (await createLoopLock(w.instance.checkout)).release();
     const replacement = w.run('loop', '--once', '--tracker', 'ready');
-    expect([replacement.status, replacement.stderr]).toEqual([0, expect.not.stringContaining('another loop holds')]);
+    expect([replacement.status, replacement.stderr]).toEqual([0, expect.not.stringContaining('already loops')]);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   }
@@ -758,9 +760,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
     expect(exited).toBeUndefined();
     child.kill('SIGTERM');
     await vi.waitFor(() => expect(exited).toEqual([143, null]), { timeout: 5000 });
-    await (
-      await createLoopLock(w.instance.data)
-    )();
+    await (await createLoopLock(w.instance.checkout)).release();
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   }
@@ -785,11 +785,13 @@ export default { name: 'ready', tracker: host => { const setup = folder.tracker(
 layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return setup.layer(trust, as); }
 }; } };`
       );
-      const instance = await ensureInstance(w.root, name, w.seed);
+      const checkout = name === names[0] ? w.seed : join(w.root, '..', `checkout-${name}`);
+      if (checkout !== w.seed) git(w.root, 'clone', '-q', w.seed, checkout);
+      const instance = await ensureInstance(w.root, name, checkout);
       writeFileSync(
         join(instance.dir, 'instance.yaml'),
         stringify({
-          checkout: w.seed,
+          checkout,
           base: 'main',
           owner: 'owner',
           exported: {},
@@ -800,7 +802,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
           tracker: 'ready',
         })
       );
-      return { name, graph, ready, data: instance.data };
+      return { name, graph, ready, data: instance.data, checkout: instance.checkout };
     })
   );
   const spawnLoop = (...args: string[]) =>
@@ -835,7 +837,7 @@ it('serves every loop instance in one process and keeps going when one fails to 
     result.stdout,
     result.stderr,
     w.graphs.map(g => existsSync(g.ready)),
-    w.graphs.map(g => existsSync(join(g.data, '.locks', 'loop.lock'))),
+    w.graphs.map(g => existsSync(findLoopLock(g.checkout))),
   ]).toEqual([
     1,
     expect.stringMatching(/^(?=[^]*^first: agentgraph )(?=[^]*^second: agentgraph )/m),
@@ -937,7 +939,7 @@ it('releases the lock of every served instance on SIGTERM', async () => {
     await vi.waitFor(() => expect(w.graphs.map(g => existsSync(g.ready))).toEqual([true, true]), { timeout: 20_000 });
     child.kill('SIGTERM');
     await vi.waitFor(() => expect(exited).toEqual([143, null]), { timeout: 5000 });
-    for (const release of await Promise.all(w.graphs.map(g => createLoopLock(g.data)))) await release();
+    for (const lock of await Promise.all(w.graphs.map(g => createLoopLock(g.checkout)))) await lock.release();
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   }

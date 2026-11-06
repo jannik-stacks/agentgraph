@@ -160,7 +160,10 @@ export const ensureInstance = async (
   const found = readInstance(root, name);
   const unknown = (found || picked ? [] : readDirOrEmpty(root)).filter(
     n =>
-      n !== name && statSync(join(root, n), { throwIfNoEntry: false })?.isDirectory() && !isOtherInstance(root, n, real)
+      n !== name &&
+      n !== 'logs' &&
+      statSync(join(root, n), { throwIfNoEntry: false })?.isDirectory() &&
+      !isOtherInstance(root, n, real)
   );
   if (unknown.length)
     throw new Error(
