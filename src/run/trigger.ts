@@ -246,6 +246,13 @@ export const tick = (
   Effect.gen(function* () {
     const supplied = yield* decodeRunMeta(meta);
     const store = yield* Store;
+    const traceAsk = (r: Run, question: string) =>
+      store.trace(r.id, {
+        at: new Date().toISOString(),
+        step: r.step,
+        outcome: { kind: 'ask', question },
+        run: { step: r.step, status: r.status, tries: r.tries, rounds: r.rounds },
+      });
     const tracker = yield* Tracker;
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const all = yield* store.list();
@@ -429,12 +436,7 @@ export const tick = (
                   Effect.gen(function* () {
                     yield* Effect.logError(`aside of run ${run.id}`, e);
                     if (e._tag === 'StoreError') return yield* e;
-                    yield* store.trace(run.id, {
-                      at: new Date().toISOString(),
-                      step: run.step,
-                      outcome: { kind: 'ask', question: formatFailure(e) },
-                      run: { step: run.step, status: run.status, tries: run.tries, rounds: run.rounds },
-                    });
+                    yield* traceAsk(run, formatFailure(e));
                     if (!run.retried)
                       return {
                         run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const },
@@ -677,13 +679,7 @@ export const tick = (
         Effect.catch(e =>
           Effect.gen(function* () {
             yield* Effect.logError(`follow run ${r.id}`, e);
-            if (e._tag === 'SandboxError')
-              yield* store.trace(r.id, {
-                at: new Date().toISOString(),
-                step: r.step,
-                outcome: { kind: 'ask', question: formatFailure(e) },
-                run: { step: r.step, status: r.status, tries: r.tries, rounds: r.rounds },
-              });
+            if (e._tag === 'SandboxError') yield* traceAsk(r, formatFailure(e));
           })
         )
       );
@@ -710,12 +706,7 @@ export const tick = (
               ? Effect.fail(e)
               : Effect.gen(function* () {
                   const head = yield* sandbox.readHead(pull.branch).pipe(Effect.orElseSucceed(() => pull.head));
-                  yield* store.trace(r.id, {
-                    at: new Date().toISOString(),
-                    step: r.step,
-                    outcome: { kind: 'ask', question: `Catch-up failed: ${formatFailure(e)}` },
-                    run: { step: r.step, status: r.status, tries: r.tries, rounds: r.rounds },
-                  });
+                  yield* traceAsk(r, `Catch-up failed: ${formatFailure(e)}`);
                   return { run: { ...ready, blocked: { base, head, graph: graph.sha } }, outcome: undefined };
                 })
           )
