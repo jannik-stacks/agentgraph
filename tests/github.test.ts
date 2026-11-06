@@ -1199,7 +1199,7 @@ describe('githubTracker', () => {
     ]);
   });
 
-  it('stamps every body it posts for a run with a hidden marker and a ⁂ link, and drops one the agent wrote', async () => {
+  it('ends every body it posts for a run with an inline ⁂ link and a hidden marker, and drops one the agent wrote', async () => {
     const f = fake({
       'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' },
       'POST /repos/o/r/pulls/8/comments/5/replies': { id: 32, html_url: 'u32' },
@@ -1227,10 +1227,10 @@ describe('githubTracker', () => {
     expect(applied[2]!.at).toBeUndefined();
     const posted = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
     expect(posted[0]).toBe(
-      `Done.\n\n<details><summary><a href="http://studio:5492/runs/issue-2-1?at=${at}">⁂</a></summary>\n\n</details>\n<!-- agentgraph run=issue-2-1 step=review session=ses_1 at=${at} -->`
+      `Done. [⁂](http://studio:5492/runs/issue-2-1?at=${at})\n<!-- agentgraph run=issue-2-1 step=review session=ses_1 at=${at} -->`
     );
     expect(posted[1]).toMatch(
-      /^Fixed\.\n\n<details><summary><a href="http:\/\/studio:5492\/runs\/issue-2-1\?at=[^"]+">⁂<\/a><\/summary>\n\n<\/details>\n<!-- agentgraph run=issue-2-1 /
+      /^Fixed\. \[⁂\]\(http:\/\/studio:5492\/runs\/issue-2-1\?at=[^)]+\)\n<!-- agentgraph run=issue-2-1 /
     );
   });
 
@@ -1261,16 +1261,55 @@ describe('githubTracker', () => {
     });
   });
 
-  it('keeps the same footer without a studio URL, and nothing extra outside a run', async () => {
+  it('keeps a plain ⁂ without a studio URL, and nothing extra outside a run', async () => {
     const f = fake({ 'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' } });
     const say = (body: string) => Effect.flatMap(Tracker, tracker => tracker.apply(7, { kind: 'comment', body }));
     await run(f, Effect.provideService(say('Hi.'), currentRunLinkRef, { run: 'r', step: 's' }));
     await run(f, say('Plain. <!-- agentgraph run=fake -->'));
     const [marked, plain] = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
-    expect(marked).toMatch(
-      /^Hi\.\n\n<details><summary>⁂<\/summary>\n\n<\/details>\n<!-- agentgraph run=r step=s at=\S+ -->$/
-    );
+    expect(marked).toMatch(/^Hi\. ⁂\n<!-- agentgraph run=r step=s at=\S+ -->$/);
     expect(plain).toBe('Plain.');
+  });
+
+  it('writes the status header at the top of the body it reads just before, only when it changed', async () => {
+    let body = 'Human text.';
+    const f = fake({
+      'GET /repos/o/r/issues/7': () => ({ body: issue(7, { body }) }),
+      'GET /repos/o/r/issues/7/comments': [],
+      'GET /repos/o/r/issues/7/events': [],
+      'PATCH /repos/o/r/issues/7': (next: Body) => {
+        body = next.body ?? '';
+        return { body: {} };
+      },
+    });
+    const write = (header: string) =>
+      run(
+        f,
+        Effect.flatMap(Tracker, t => t.writeStatusHeader!(7, header))
+      );
+    await write('※ working on implement');
+    body = body.replace('Human text.', 'Human text, edited.');
+    await write('※ done');
+    await write('※ done');
+    expect(body).toBe('<!-- agentgraph status -->\n※ done\n<!-- /agentgraph status -->\n\nHuman text, edited.');
+    expect(f.calls.filter(c => c.method === 'PATCH')).toHaveLength(2);
+    const read = await run(
+      f,
+      Effect.flatMap(Tracker, t => t.issue(7))
+    );
+    expect(read.body).toBe('Human text, edited.');
+  });
+
+  it('warns once and leaves a body alone when the App may not edit it', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues/7': { number: 7, body: 'x' },
+      'PATCH /repos/o/r/issues/7': () => ({ status: 403, body: { message: 'Resource not accessible by integration' } }),
+    });
+    const write = Effect.flatMap(Tracker, t =>
+      Effect.andThen(t.writeStatusHeader!(7, '※ done'), t.writeStatusHeader!(7, '※ done'))
+    );
+    await run(f, write);
+    expect(f.calls.filter(c => c.method === 'PATCH')).toHaveLength(1);
   });
 
   describe('stacks', () => {

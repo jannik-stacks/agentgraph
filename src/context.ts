@@ -1,5 +1,4 @@
 import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './event.ts';
-import type { Proposal } from './proposal.ts';
 import type { CheckEntry, Trace } from './trace.ts';
 import { formatFailedTryFeedback, type Run, type Seen } from './workflow.ts';
 
@@ -126,7 +125,7 @@ export const findIssueStatus = (runs: Run[], pulled: boolean): IssueStatus | und
   return (['needs-answer', 'needs-review', 'working'] as const).find(s => all.includes(s)) ?? all.at(-1);
 };
 
-export const formatUpdate = (text: string, run: Run, pull?: string, studio?: string) =>
+const formatUpdate = (text: string, run: Run, pull?: string, studio?: string) =>
   [
     text,
     [pull && `Pull request: ${pull}`, studio && `Run: ${makeStudioRunUrl(studio, run.id)}`].filter(Boolean).join('\n'),
@@ -134,30 +133,69 @@ export const formatUpdate = (text: string, run: Run, pull?: string, studio?: str
     .filter(Boolean)
     .join('\n\n');
 
-export function proposeUpdates(
-  before: Run | undefined,
-  run: Run,
-  t: IssueWithPull,
-  runs: Run[],
-  branch: boolean,
-  studio?: string
-): Proposal[] {
+export function proposeQuestion(before: Run | undefined, run: Run, t: IssueWithPull, runs: Run[], studio?: string) {
+  if (
+    run.status !== 'waiting' ||
+    run.reason === undefined ||
+    findRunStatus(run, runs, true) !== 'needs-answer' ||
+    (before?.status === 'waiting' && before.reason === run.reason)
+  )
+    return [];
   const events = [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.trusted && !bot(m));
   const pull = (t.pull ?? (t.issue.pull ? t.issue : undefined))?.url;
   const who = events.toSorted((a, b) => a.at.localeCompare(b.at)).at(-1)?.actor ?? t.issue.author;
-  const asked =
-    run.status === 'waiting' &&
-    run.reason !== undefined &&
-    findRunStatus(run, runs, true) === 'needs-answer' &&
-    (before?.status !== 'waiting' || before.reason !== run.reason) &&
-    `@${who} ${run.reason.startsWith(stoppedByRunner) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;
-  const ended = (status: Run['status']) => branch && run.status === status && before?.status !== status;
-  return [
-    asked,
-    ended('done') && 'Done.',
-    ended('stopped') && !run.restarted && ['Stopped.', run.reason].filter(Boolean).join('\n\n'),
-  ].flatMap(text => (text ? [{ kind: 'comment' as const, body: formatUpdate(text, run, pull, studio) }] : []));
+  const text = `@${who} ${run.reason.startsWith(stoppedByRunner) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;
+  return [{ kind: 'comment' as const, body: formatUpdate(text, run, pull, studio) }];
 }
+
+const statusWords: Record<IssueStatus, string> = {
+  working: 'working on',
+  'needs-review': 'waiting for review at',
+  'needs-answer': 'waiting for an answer at',
+  done: 'done',
+  stopped: 'stopped at',
+};
+
+export const formatStatusHeader = (
+  runs: Run[],
+  pulled: boolean,
+  steps: (run: Run) => string[],
+  usd: (run: Run) => number,
+  links: { pull?: string; studio?: string } = {}
+) => {
+  const status = findIssueStatus(runs, pulled);
+  if (!status) return '';
+  const sorted = runs.toSorted((a, b) => a.started.localeCompare(b.started));
+  const shown = sorted.findLast(r => findRunStatus(r, runs, pulled) === status)!;
+  const names = steps(shown);
+  const at = names.indexOf(shown.step) + 1;
+  const line =
+    status === 'done'
+      ? names.length > 1
+        ? `${names.length} of ${names.length} steps done`
+        : 'done'
+      : `${statusWords[status]} ${shown.step}${names.length > 1 && at > 0 ? ` (${at} of ${names.length})` : ''}`;
+  const rows = sorted.map(r =>
+    [
+      r.workflow,
+      r.step,
+      r.status,
+      `$${usd(r).toFixed(2)}`,
+      (r.checkout && links.pull) ?? '',
+      links.studio ? `[${r.id}](${makeStudioRunUrl(links.studio, r.id)})` : r.id,
+    ].join(' | ')
+  );
+  return [
+    `※ ${line}`,
+    '<details><summary>Runs</summary>',
+    [
+      '| Workflow | Step | State | Cost | Pull request | Studio |',
+      '| --- | --- | --- | --- | --- | --- |',
+      ...rows.map(r => `| ${r} |`),
+    ].join('\n'),
+    '</details>',
+  ].join('\n\n');
+};
 
 /** Tokens, keys and secret assignments a transcript never shows. */
 const secrets = [
