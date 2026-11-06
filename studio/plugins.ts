@@ -15,6 +15,7 @@ import {
   makeServedTopic,
   makeUnservedFilter,
   readBenchSets,
+  readQuery,
   servedIds,
   startWatch,
   type ServedGraph,
@@ -192,7 +193,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
-        const instance = new URL(req.url ?? '/', 'http://studio').searchParams.get('instance') ?? '';
+        const instance = readQuery(req).get('instance') ?? '';
         const page = loaded.find(page => page.name === name && (page.instance ?? instance) === instance);
         if (!page) {
           res.statusCode = 404;

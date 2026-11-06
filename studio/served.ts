@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
+import type { IncomingMessage } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import { type Instance, readRealPath } from '../src/instance.ts';
 import type * as InstanceModule from '../src/instance.ts';
@@ -19,6 +20,8 @@ export type ServedGraph = {
   graph?: Graph;
   problems: Problem[];
 };
+
+export const readQuery = (req: IncomingMessage) => new URL(req.url ?? '/', 'http://studio').searchParams;
 
 export const readBenchSets = () => (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
 
