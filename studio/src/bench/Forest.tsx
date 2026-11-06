@@ -5,7 +5,15 @@ import { cx, Link, Tooltip } from '../ui.tsx';
 import { atLink } from '../runs/trace.ts';
 import { shown } from '../state.ts';
 import type { BenchRow } from './data.ts';
-import { formatLabel, formatMinutes, getQualitySpread, getRowKey, roughBelow, type summarise } from './score.ts';
+import {
+  formatLabel,
+  formatMinutes,
+  formatUsd,
+  getQualitySpread,
+  getRowKey,
+  roughBelow,
+  type summarise,
+} from './score.ts';
 
 type Point = ReturnType<typeof summarise>[number];
 
@@ -30,7 +38,7 @@ export const BenchRunLink = ({
 
 const [width, height, pad] = [280, 20, 14];
 const fmt = (v: number) => v.toFixed(2);
-const usd = (v: number) => `$${v.toFixed(3)}`;
+const formatSpan = ([lo, hi]: readonly [number, number]) => `${fmt(lo)} to ${fmt(hi)}`;
 
 const heads: [string, string][] = [
   ['cases', 'Cases with at least one scored run.'],
@@ -113,7 +121,6 @@ export const Forest = ({
               const sd = Math.sqrt(getMean(costs.map(c => (c - mean) ** 2)));
               const open = p.key === picked;
               const { caseMeans, cases, runs } = spreads.get(p.key)!;
-              const formatSpan = ([lo, hi]: readonly [number, number]) => `${fmt(lo)} to ${fmt(hi)}`;
               return (
                 <Fragment key={p.key}>
                   <tr
@@ -202,7 +209,7 @@ export const Forest = ({
                         : ''}
                     </td>
                     <td className={cell}>
-                      {usd(mean)} ± {usd(sd)}
+                      {formatUsd(mean)} ± {formatUsd(sd)}
                     </td>
                     <td className={cell}>{formatMinutes(p.minutes)}</td>
                   </tr>
@@ -245,7 +252,7 @@ const Runs = ({ point }: { point: Point }) => (
             Object.entries(row.vsHuman)
               .map(([j, v]) => `${j} ${fmt(v)}`)
               .join(', '),
-            usd(row.usd),
+            formatUsd(row.usd),
             formatMinutes(row.minutes),
             <BenchRunLink
               key={row.run}

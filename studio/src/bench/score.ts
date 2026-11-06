@@ -7,6 +7,8 @@ export const roughBelow = 10;
 export const formatMinutes = (m: number) =>
   m < 1 ? `${Math.round(m * 60)} s` : m < 60 ? `${m.toFixed(1)} min` : `${(m / 60).toFixed(1)} h`;
 
+export const formatUsd = (v: number) => `$${v.toFixed(3)}`;
+
 export const formatLabel = (v: string | undefined) =>
   v === undefined ? '(missing)' : /^[0-9a-f]{7,}$/.test(v) ? v.slice(0, 6) : v;
 
