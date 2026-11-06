@@ -531,7 +531,7 @@ export const tick = (
           ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
-        const run = yield* startRun(begun.status === 'running' ? begun : { ...begun, unshown: true as const }, run =>
+        const run = yield* startRun(begun, run =>
           Effect.flatMap(run.status === 'running' ? Effect.succeed(run) : writeStatus(w, run, graph), r =>
             m ? eyes(r, m) : Effect.succeed(r)
           )

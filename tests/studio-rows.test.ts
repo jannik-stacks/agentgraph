@@ -122,10 +122,10 @@ describe("a run's pull request and branch", () => {
   const wrote = (proposal: object, url?: string) =>
     ({ at, step: 'implement', applied: { proposal, ok: true, ...(url && { url }) } }) as Trace;
 
-  it('is the pull request the run opened, else the one its status comment names, and the branch it last wrote', () => {
+  it('is the pull request the run opened, else the one an update names, and the branch it last wrote', () => {
     const opened = wrote({ kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 't', body: 'b' }, pr);
     expect(findTraceLinks([...trace, opened])).toEqual({ pull: pr, branch: 'agentgraph/1' });
-    const status = wrote({ kind: 'comment', body: `Waiting for a human at merge.\n\nPull request: ${pr}` });
+    const status = wrote({ kind: 'comment', body: `Done.\n\nPull request: ${pr}` });
     const pushed = wrote({ kind: 'push', branch: 'agentgraph/2', message: 'm' }, 'https://github.com/o/r/commit/1');
     expect(findTraceLinks([status, pushed])).toEqual({ pull: pr, branch: 'agentgraph/2' });
     expect(

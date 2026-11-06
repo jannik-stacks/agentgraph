@@ -43,7 +43,7 @@ export const detail = (o: Outcome) =>
           : '';
 
 /**
- * The pull request a run opened, else the one its status comment names, and the branch it last wrote; read from the
+ * The pull request a run opened, else the one an update names, and the branch it last wrote; read from the
  * whole trace, since the run list cuts long texts short.
  */
 export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string } => {

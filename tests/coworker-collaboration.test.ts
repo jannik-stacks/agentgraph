@@ -346,7 +346,7 @@ describe('coworker', () => {
     expect(runs.map(r => [r.issue, r.status])).toEqual([[7, 'waiting']]);
   });
 
-  it('keeps one status comment through two tries and an ask, with the question in its own comment', async () => {
+  it('asks once after two tries, in one new comment that mentions who spoke', async () => {
     const where = world();
     const { run } = services(where, [
       [start('a'), wrote('hello.txt', 'TODO\n'), reply(push, pull)],
@@ -354,16 +354,9 @@ describe('coworker', () => {
     ]);
     const asked = await run(runWorkflow(flow, begun(), small));
     const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
-    const status = issue.events.find(m => m.comment?.body.startsWith('Agentgraph status: '))?.comment?.id;
-    expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: status });
+    expect(asked).toMatchObject({ status: 'waiting', tries: 1 });
     expect(findStatus(where.tracker, 7)).toBe('needs-answer');
-    expect(bodies(issue)).toEqual(['/agent', expect.stringContaining('waiting for your answer below'), 'Hello or hi?']);
-    const edits = readTrace(where.data, 'run-7').flatMap(t =>
-      'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit
-        ? [t.applied.proposal.body]
-        : []
-    );
-    expect(edits.at(-1)).toContain('waiting for your answer below');
+    expect(bodies(issue)).toEqual(['/agent', `@morgan Hello or hi?\n\n${replyHint}`]);
   });
 
   it.each([false, true])('uses every check retry before asking a human (fixed: %s)', async fixed => {
@@ -398,8 +391,7 @@ describe('coworker', () => {
         'implement failed after 3 tries (checks: types).\n\ntypes: hello.txt:1: TODO remains\n\nHow should I proceed?'
       );
     }
-    expect(issue.filter(b => b === 'How should I proceed?')).toHaveLength(fixed ? 0 : 1);
-    expect(issue.filter(b => b.includes('implement failed after'))).toHaveLength(fixed ? 0 : 1);
+    expect(issue.filter(b => b.startsWith('@morgan implement failed after'))).toHaveLength(fixed ? 0 : 1);
     const outcomes = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome.kind] : []));
     expect(outcomes).toEqual(['failed', 'failed', fixed ? 'pass' : 'failed']);
   });
@@ -424,7 +416,7 @@ describe('coworker', () => {
     expect(specs[1]!.prompt).toMatch(/## The change on the branch\n\n````diff\n[\s\S]*\+hello\n````/);
   });
 
-  it('updates cost in the sticky between sessions while the run is working', async () => {
+  it('says nothing on the issue while a run without a branch works through its steps', async () => {
     const where = world();
     const { branch: _branch, ...base } = flow;
     const unbranched = {
@@ -435,30 +427,23 @@ describe('coworker', () => {
       ],
     };
     const { run } = services(where, [
-      [start('a'), { type: 'usage', input: 1, output: 1, usd: 0.12 }, reply()],
-      [start('r'), { type: 'usage', input: 1, output: 1, usd: 0.22 }, reply()],
+      [start('a'), reply()],
+      [start('r'), reply()],
     ]);
     await run(runWorkflow(unbranched, begun(), { ...small, workflows: { issue: unbranched } }));
-    const updates = readTrace(where.data, 'run-7').flatMap(t =>
-      'applied' in t && t.applied.proposal.kind === 'comment' ? [t.applied.proposal.body] : []
-    );
-    expect(updates).toEqual([
-      expect.stringContaining('| issue / implement | working | $0.00 |'),
-      expect.stringContaining('| issue / review | working | $0.12 |'),
-      expect.stringContaining('| issue / review | done | $0.34 |'),
-    ]);
+    expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual(['/agent']);
+    expect(findStatus(where.tracker, 7)).toBe('done');
   });
 
-  it('tells a waiting run how to be answered in its status footer, and posts the question itself plain', async () => {
+  it('tells a waiting run how to be answered under its question', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     await run(runWorkflow(flow, begun(), small));
     const issue = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
-    expect(issue.filter(b => b === 'Hello or hi?')).toEqual(['Hello or hi?']);
-    expect(issue.filter(b => b.includes(replyHint))).toHaveLength(1);
+    expect(issue.filter(b => b.includes(replyHint))).toEqual([`@morgan Hello or hi?\n\n${replyHint}`]);
   });
 
-  it('edits the same sticky after an answered question', async () => {
+  it('asks the next question in a new comment after an answer', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     await run(runWorkflow(flow, begun(), small));
@@ -466,10 +451,9 @@ describe('coworker', () => {
     await services(where, [[start('a'), reply({ kind: 'ask', question: 'Hi with a dot?' })]]).run(tick(small, 7));
     expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual([
       '/agent',
-      expect.stringContaining('waiting for your answer below'),
-      'Hello or hi?',
+      `@morgan Hello or hi?\n\n${replyHint}`,
       '/agent hi',
-      'Hi with a dot?',
+      `@morgan Hi with a dot?\n\n${replyHint}`,
     ]);
   });
 
@@ -485,6 +469,7 @@ describe('coworker', () => {
     const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under, c.path])).toEqual([
       ['Asked for.', 'r1', 'hello.txt'],
+      [expect.stringMatching(/^Done\.\n\nPull request: /), undefined, undefined],
     ]);
   });
 
@@ -531,7 +516,7 @@ describe('coworker', () => {
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under])).toEqual([['Asked for.', 'r1']]);
   });
 
-  it('replies where the human answered: on the pull request, and under a review comment in its issue', async () => {
+  it('asks on the pull request once there is one, and replies under a review comment', async () => {
     const where = world();
     pullRequest(where);
     const { run } = services(where, [
@@ -556,10 +541,11 @@ describe('coworker', () => {
     expect(done).toMatchObject({ status: 'done', said: [{ issue: 8 }] });
     const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([
-      ['And bye?', undefined, undefined],
+      ['@morgan Hello or hi?', undefined, undefined],
+      ['@morgan And bye?', undefined, undefined],
       ['Said bye.', review.at, 'hello.txt'],
+      ['Done.', undefined, undefined],
     ]);
-    const issue = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
-    expect(issue.some(b => b.startsWith('And bye?') || b.startsWith('Said bye.'))).toBe(false);
+    expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual(['/agent']);
   });
 });

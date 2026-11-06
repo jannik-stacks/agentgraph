@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Effect, Stream, Schedule } from 'effect';
 import { type Run, type Workflow, isQuiet } from '../workflow.ts';
 import { currentRunLinkRef, Tracker, type TrackerError } from '../tracker.ts';
-import { stoppedByRunner, proposeStatusUpdates } from '../context.ts';
+import { stoppedByRunner, findIssueStatus, proposeUpdates } from '../context.ts';
 import { type StoreError, Store } from '../store.ts';
 import type { Graph } from '../folder.ts';
 import { LockHeldError } from '../owner.ts';
@@ -67,38 +67,37 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       .lock(`status-${run.issue}`)
       .pipe(Effect.retry({ while: e => e.cause instanceof LockHeldError, schedule: Schedule.spaced('50 millis') }));
     const tracker = yield* Tracker;
-    const t = yield* readIssueWithPull(w, run);
-    const usd = yield* readRunSpend(run.id);
-    const others = yield* Effect.forEach(
-      (yield* store.list({ issue: run.issue })).filter(r => r.id !== run.id),
-      r =>
-        Effect.gen(function* () {
-          const workflow = graph.workflows[r.workflow];
-          return { run: r, t: workflow ? yield* readIssueWithPull(workflow, r) : t, usd: yield* readRunSpend(r.id) };
-        })
-    );
-    const { to, from, proposals } = proposeStatusUpdates(run, t, tracker.studio, usd, others, isQuiet(w));
-    const shown =
-      !to || graph.status === false || !tracker.status
-        ? true
-        : yield* tracker.status(run.issue, to, graph.status).pipe(
-            Effect.as(true),
-            Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`status of issue ${run.issue}`, e), false))
-          );
-    const status = yield* Effect.forEach(
-      shown ? proposals : proposeStatusUpdates(run, t, tracker.studio, usd, others, true).proposals,
-      p => tracker.apply(run.issue, p)
-    );
-    if (to && shown) yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
-    const reply = status.find(a => a.proposal.kind === 'comment');
-    const undone = reply?.ok && run.eyes ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
-    yield* writeAppliedTrace(run.id, run.step, [...status, ...undone]);
-    if (!reply && shown === !run.unshown) return run;
-    const { comment, eyes, unshown: _unshown, ...rest } = run;
+    const undone = run.eyes && run.status !== 'running' ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
+    yield* writeAppliedTrace(run.id, run.step, undone);
+    let shown = true;
+    if (!isQuiet(w)) {
+      const before = yield* store.get(run.id);
+      const t = yield* readIssueWithPull(w, run);
+      const pulled = (t.pull ?? t.issue.pull) !== undefined;
+      const others = (yield* store.list({ issue: run.issue })).filter(r => {
+        const of = graph.workflows[r.workflow];
+        return r.id !== run.id && of !== undefined && !isQuiet(of);
+      });
+      const from = findIssueStatus(run.unshown || !before ? others : [...others, before], pulled);
+      const to = findIssueStatus([...others, run], pulled)!;
+      if (to !== from && graph.status !== false && tracker.status)
+        shown = yield* tracker.status(run.issue, to, graph.status).pipe(
+          Effect.as(true),
+          Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`status of issue ${run.issue}`, e), false))
+        );
+      if (to !== from && shown)
+        yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
+      const said = yield* Effect.forEach(
+        proposeUpdates(before, run, t, [...others, run], w.branch !== undefined, tracker.studio),
+        p => tracker.apply((t.pull ?? t.issue).number, p)
+      );
+      yield* writeAppliedTrace(run.id, run.step, said);
+    }
+    if (undone.length === 0 && shown === !run.unshown) return run;
+    const { eyes, unshown: _unshown, ...rest } = run;
     const next = {
       ...rest,
-      ...(eyes && !undone.length && { eyes }),
-      ...(reply ? reply.ok && reply.id && { comment: reply.id } : comment && { comment }),
+      ...(eyes && !undone.some(a => a.ok) && { eyes }),
       ...(!shown && { unshown: true as const }),
     };
     yield* store.put(next);
@@ -213,9 +212,7 @@ export const writeProposals = (
             ? [[run.issue, p]]
             : p.under !== undefined
               ? [[run.said?.find(s => s.under === p.under)?.issue ?? to ?? run.issue, p]]
-              : p.edit !== undefined
-                ? [[places[0]!.issue, p]]
-                : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
+              : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
         );
       const applied: Applied[] = [];
       let refused = false;

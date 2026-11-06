@@ -32,7 +32,7 @@ const trace: Trace[] = [
     at: '2026-10-19T15:50:00.000Z',
     step: 'review',
     applied: {
-      proposal: { kind: 'comment', body: 'Status.', edit: '62' },
+      proposal: { kind: 'comment', body: 'Status.' },
       ok: true,
       url: 'https://github.com/o/r/issues/2#issuecomment-62',
       id: '62',

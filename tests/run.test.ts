@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
@@ -33,6 +33,7 @@ import {
   fresh,
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { writeStatus } from '../src/run/settle.ts';
 
 describe('drive', () => {
   beforeAll(() => fakeDocker().restore);
@@ -253,19 +254,34 @@ describe('drive', () => {
     const dir = join(where.data, 'graph');
     const plugin = pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href;
     const hook = (name: string, body: string) =>
-      `import { makePlugin } from '${plugin}';\nexport default makePlugin({ name: '${name}', on: { status: change => { ${body} } } });\n`;
+      `import { makePlugin } from '${plugin}';\nexport default makePlugin({ name: '${name}', on: { status: async (change, ctx) => { ${body} } } });\n`;
     mkdirSync(join(dir, 'plugins'), { recursive: true });
     writeFileSync(join(dir, 'plugins', 'a.ts'), hook('a', "throw new Error('board down');"));
-    writeFileSync(join(dir, 'plugins', 'b.ts'), hook('b', '(globalThis.statusChanges ??= []).push(change);'));
+    writeFileSync(
+      join(dir, 'plugins', 'b.ts'),
+      hook(
+        'b',
+        "(globalThis.statusChanges ??= []).push(change); globalThis.found = await ctx.tracker.searchIssues('hello'); await ctx.tracker.writeField(change.issue, { project: 'acme/3', field: 'Status', value: change.to });"
+      )
+    );
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
-    const asked = await run(runWorkflow(w, fresh(), { ...graph, dir }));
+    const fields: unknown[] = [];
+    const asked = await run(
+      Effect.flatMap(Tracker, f =>
+        runWorkflow(w, fresh(), { ...graph, dir }).pipe(
+          Effect.provideService(Tracker, { ...f, writeField: (...args) => Effect.sync(() => void fields.push(args)) })
+        )
+      )
+    );
     expect(asked).toMatchObject({ status: 'waiting', reason: 'Continue?' });
+    expect(fields.at(-1)).toEqual([7, { project: 'acme/3', field: 'Status', value: 'needs-answer' }]);
     expect((globalThis as { statusChanges?: unknown[] }).statusChanges?.at(-1)).toEqual({
       issue: 7,
       repo: graph.repo,
       from: 'working',
       to: 'needs-answer',
     });
+    expect((globalThis as { found?: unknown }).found).toEqual(expect.any(Array));
   });
 
   it('drives the run as stored once it holds the lock, not the snapshot it was given', async () => {
@@ -314,6 +330,32 @@ describe('drive', () => {
     expect(git(where.origin, 'show', 'agentgraph/7:generated.txt')).toBe('second');
   });
 
+  it('keeps going when the pull request opens but its update cannot be posted', async () => {
+    const where = world();
+    let sessions = 0;
+    const { run } = services(
+      where,
+      [
+        [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
+        [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
+        judged,
+        [start('r1'), reply({ kind: 'ask', question: 'Merge it?' })],
+      ],
+      undefined,
+      () => {
+        if (++sessions === 3) chmodSync(issuePath(where.tracker, 7, 'events.jsonl'), 0o444);
+      }
+    );
+    const asked = await run(runWorkflow(w, fresh(), graph));
+    chmodSync(issuePath(where.tracker, 7, 'events.jsonl'), 0o644);
+    expect(asked).toMatchObject({ step: 'review', status: 'waiting' });
+    expect(readTrace(where.data, 'run-7')).toContainEqual(
+      expect.objectContaining({
+        applied: expect.objectContaining({ ok: false, proposal: expect.objectContaining({ kind: 'comment' }) }),
+      })
+    );
+  });
+
   it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
     const where = world();
     const { specs, run } = services(where, [
@@ -339,14 +381,14 @@ describe('drive', () => {
 
     // the failed try pushed nothing; the passing one did, and opened pull request #8
     const tracker = await run(Effect.flatMap(Tracker, f => f.issue(7)));
+    const pr = await run(Effect.flatMap(Tracker, f => f.issue(8)));
     expect(bodies(tracker)).toEqual([
       '/agent',
-      expect.stringContaining('| issue / review | waiting for your answer below.'),
       'Brief: add hello.txt',
-      'still not right',
+      `Opened a pull request.\n\nPull request: ${pr.url}`,
     ]);
+    expect(bodies(pr).at(-1)).toMatch(/^@\S+ still not right\n\nReply `\/agent` and your answer/);
     expect(findStatus(where.tracker, 7)).toBe('needs-answer');
-    const pr = await run(Effect.flatMap(Tracker, f => f.issue(8)));
     expect(pr.pull).toMatchObject({ branch: 'agentgraph/7', base: 'main' });
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello world');
     expect(pr.pull?.head).toBe(git(where.origin, 'rev-parse', 'agentgraph/7'));
@@ -446,13 +488,10 @@ describe('drive', () => {
     const landed = (step: string, session: string) => ({ ...at(step, session), operation: expect.any(String) });
     expect(marks).toEqual([
       ['label', at('triage')],
-      ['comment', at('triage')],
       ['comment', landed('triage', 't1')],
-      ['comment', at('implement')],
       ['push', landed('implement', 'i1')],
       ['pull_request', landed('implement', 'i1')],
-      ['comment', at('review')],
-      ['comment', at('implement', 'i1')],
+      ['comment', landed('implement', 'i1')],
       ['label', at('implement', 'i1')],
       ['comment', at('implement', 'i1')],
     ]);
@@ -600,10 +639,30 @@ describe('drive', () => {
     expect(specs).toHaveLength(3);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'agentgraph/7')).toThrow();
     const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
-    expect(bodies(issue)[1]).toContain(`| issue / implement | stopped: ${stopped.reason} | $0.25 |`);
+    expect(bodies(issue).at(-1)).toBe(`Stopped.\n\n${stopped.reason}`);
     expect(findStatus(where.tracker, 7)).toBe('stopped');
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
+  });
+
+  it('leaves the label and the comments to the loud runs when a quiet run works on the issue', async () => {
+    const where = world();
+    const retro = { ...w, name: 'retro', on: { feedback: {} } };
+    const quiet = { ...graph, workflows: { ...graph.workflows, retro } };
+    const { run } = services(where, []);
+    const comments = async () => bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))));
+    const settle = async (of: typeof w, r: Run) => {
+      const shown = await run(writeStatus(of, r, quiet));
+      await run(Effect.flatMap(Store, s => s.put(shown)));
+    };
+    await settle(w, { ...fresh(), status: 'waiting', reason: 'Which one?' });
+    const asked = await comments();
+    const working = { ...begin(retro, { id: 'retro-7', issue: 7, started: '2026-10-16T00:00:02.000Z' }), by: 'run-7' };
+    await settle(retro, working);
+    await run(writeStatus(retro, { ...working, status: 'stopped', reason: 'nothing to learn' }, quiet));
+    expect([findStatus(where.tracker, 7), await comments()]).toEqual(['needs-answer', asked]);
+    await settle(w, { ...fresh(), status: 'done' });
+    expect(findStatus(where.tracker, 7)).toBe('done');
   });
 
   it('shows a status the tracker refused on the next pass, with no new transition', async () => {

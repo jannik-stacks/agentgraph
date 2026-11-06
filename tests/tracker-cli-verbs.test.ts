@@ -154,7 +154,9 @@ describe('the human verbs on a tracker folder', () => {
     );
     expect(runs.map(r => [r.workflow, r.step, r.status])).toEqual([['issue', 'merge', 'waiting']]);
     expect(await w.tracker('show', '2')).toContain('+hello');
-    expect(await w.tracker('show', '1')).toMatch(/, edited \S+ \S+ comment\nAgentgraph status: waiting for you/);
+    expect(await w.tracker('show', '1')).toMatch(
+      / comment\nOpened a pull request\.\n\nPull request: \S+tracker\/2\/issue\.md$/
+    );
   });
 
   it('sends a pull request back with the line comments posted just before the review in its reason', async () => {

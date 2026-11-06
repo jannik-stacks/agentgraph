@@ -253,7 +253,7 @@ describe('stacks', () => {
     expect(saved(where).base?.sha).toBe(moved);
   });
 
-  it('says on the issue when the branch does not rebase cleanly and leaves it where it was', async () => {
+  it('asks on its pull request when the branch does not rebase cleanly and leaves it where it was', async () => {
     const where = world();
     const { move } = parent(where);
     const { run } = services(where, [child('hello and bye\n', 'hello.txt')]);
@@ -262,8 +262,8 @@ describe('stacks', () => {
     const moved = move('hello.txt', 'hi\n');
     await run(tick(merging, 9));
     expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
-    expect(readFileSync(issuePath(where.tracker, 9, 'events.jsonl'), 'utf8')).toContain(
-      '#8 moved and agentgraph/9 could not follow'
+    expect(readFileSync(issuePath(where.tracker, 10, 'events.jsonl'), 'utf8')).toContain(
+      '@morgan #8 moved and agentgraph/9 could not follow'
     );
     expect(saved(where).base?.sha).toBe(moved);
   });
@@ -388,12 +388,10 @@ describe('compound engineering', () => {
     );
 
     expect(commands.map(c => c.args.join(' ')).join('\n')).not.toContain('setup-ran');
-    const sticky = bodies(await run(Effect.flatMap(Tracker, f => f.issue(7)))).filter(b =>
-      b.startsWith('Agentgraph status: ')
+    const posted = readTrace(where.data, touched[0]!.id).filter(
+      t => 'applied' in t && t.applied.proposal.kind === 'comment'
     );
-    expect(sticky).toHaveLength(1);
-    expect(sticky[0]).toContain('| issue / implement | done |');
-    expect(sticky[0]).toContain('| retro / implement | done |');
+    expect(posted).toEqual([]);
     expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).toContain('labels: []');
     expect(await run(tick(looking))).toEqual([]);
     say(where, pushed(7, '2026-10-16T00:00:08.000Z'));
