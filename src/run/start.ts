@@ -49,6 +49,12 @@ const findIssueDepth = (n: number, above = 0): Effect.Effect<number, TrackerErro
     )
   );
 
+/**
+ * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size label and
+ * its "Stacks on" and "Depends on" lines; the parts are listed on the issue and each XL part begins the workflow
+ * again. A follow-up or a graph change becomes a plain issue labelled with its relation that names the run's issue and
+ * starts nothing; one with the title of an open issue is added there as a comment. One refusal files none.
+ */
 export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
   Effect.gen(function* () {
     if (children.length === 0) return [];
@@ -149,6 +155,7 @@ export const readFiledIssues = () =>
     }
   );
 
+/** What a parent hears when the run it started settles. */
 export const formatSettled = (run: Run) =>
   `${run.workflow} on #${run.issue} ${
     run.status === 'done'

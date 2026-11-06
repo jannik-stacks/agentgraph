@@ -199,7 +199,6 @@ export const instruct = (
     );
   });
 
-/** What a parent hears when the run it started settles. */
 /** A trusted person's comment, review or pushed commit; a bare `/agent:` command is not feedback. */
 const feedback = (m: Event) =>
   m.trusted &&

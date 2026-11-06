@@ -15,12 +15,6 @@ import type { Services } from './execute.ts';
 import { runEndedChecks } from './evaluate.ts';
 import { readIssueWithPull } from './hear.ts';
 
-/**
- * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size label and
- * its "Stacks on" and "Depends on" lines; the parts are listed on the issue and each XL part begins the workflow
- * again. A follow-up or a graph change becomes a plain issue labelled with its relation that names the run's issue and
- * starts nothing; one with the title of an open issue is added there as a comment. One refusal files none.
- */
 /** Tracker writes made for `run` at its step by `session`; a mark set for the same run and step outside is kept. */
 export const useRunLink =
   (run: Run, session = run.sessions[run.step]?.id) =>
@@ -98,16 +92,7 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     if (to && shown) yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
-    yield* Effect.flatMap(Store, s =>
-      s.trace(
-        run.id,
-        ...[...status, ...undone].map(a => ({
-          at: new Date().toISOString(),
-          step: run.step,
-          applied: a,
-        }))
-      )
-    );
+    yield* writeAppliedTrace(run.id, run.step, [...status, ...undone]);
     if (!reply && shown === !run.unshown) return run;
     const { comment, eyes, unshown: _unshown, ...rest } = run;
     const next = {
@@ -147,12 +132,12 @@ export const writeMovedStatus = (w: Workflow, asked: Run, moved: Run, graph: Gra
   return writeStatus(w, isParked(asked) && reason === asked.reason ? rest : moved, graph);
 };
 
-/** The run with no review thread left to answer: what it says next goes to the top of where a human last spoke. */
 export const writeAppliedTrace = (id: string, step: string, applied: Applied[]) =>
   Effect.flatMap(Store, store =>
     store.trace(id, ...applied.filter(a => !a.operation).map(a => ({ at: new Date().toISOString(), step, applied: a })))
   );
 
+/** The run with no review thread left to answer: what it says next goes to the top of where a human last spoke. */
 export const removeThreads = (run: Run): Run =>
   run.said ? { ...run, said: run.said.slice(0, 1).map(s => ({ issue: s.issue })) } : run;
 
