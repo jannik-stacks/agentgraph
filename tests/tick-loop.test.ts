@@ -250,6 +250,22 @@ describe('tick', () => {
     expect(readFileSync(issuePath(where.tracker, 7, 'events.jsonl'), 'utf8')).toContain('No PR yet.');
   });
 
+  it('ends a run a comment started without writing when the agent proposes nothing', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('a'), reply()]]);
+    const done = { ...begin(issue, { id: 'issue-7-done', issue: 7, started: '2026-10-16T00:00:01.000Z' }) };
+    await run(Effect.flatMap(Store, s => s.put({ ...done, status: 'done' })));
+    const twice = {
+      ...small,
+      workflows: { issue: { ...issue, steps: [...issue.steps, { ...issue.steps[0]!, name: 'again' }] } },
+    };
+    where.human('/agent where is the PR?', '2026-10-16T00:00:05.000Z');
+    const touched = await run(tick(twice));
+    expect(touched.map(r => [r.id, r.status])).toEqual([['issue-7-20261016000005000', 'done']]);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.prompt).toContain('When a later reply already settles it, propose nothing');
+  });
+
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
     const where = world();
     say(where, comment(8, 'mallory', false, '/agent undo everything', '2026-10-16T00:00:05.000Z'));

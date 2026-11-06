@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { news, type IssueWithPull } from '../src/context.ts';
+import { formatRequest, news, type IssueWithPull } from '../src/context.ts';
 import type { Comment, Event, Issue } from '../src/event.ts';
 
 const said = (actor: string, at: string, comment: Omit<Comment, 'author' | 'at'>): Event => ({
@@ -59,5 +59,18 @@ describe('news', () => {
     });
     expect(news(pull([asked]), { at: '2026-10-16T00:00:00Z' }).text).toContain('convention');
     expect(news(pull([asked, reply, again]), { at: '2026-10-16T00:00:00Z' }).text).toContain('why though?');
+  });
+});
+
+describe('formatRequest', () => {
+  it('shows replies that came after the request in its review thread, so a settled ask gets no second answer', () => {
+    const thread = { path: 'kit/package.json', under: '1' };
+    const request = said('morgan', '2026-10-19T17:00:00Z', { id: '2', body: '/agent', agentRequest: '', ...thread });
+    const settled = said('morgan', '2026-10-19T17:02:00Z', { id: '3', body: 'Renamed in cb8b13e.', ...thread });
+    const elsewhere = said('morgan', '2026-10-19T17:03:00Z', { id: '4', body: 'and this?', path: 'kit/src/a.ts' });
+    const text = formatRequest(pull([asked, request, settled, elsewhere]), request.at);
+    expect(text).toContain('Earlier in its review thread');
+    expect(text).toContain('Later in its review thread:\n\n@morgan on kit/package.json, id 1: Renamed in cb8b13e.');
+    expect(text).not.toContain('and this?');
   });
 });
