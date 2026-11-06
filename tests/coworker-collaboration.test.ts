@@ -469,7 +469,6 @@ describe('coworker', () => {
     const pr = (await run(Effect.flatMap(Tracker, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under, c.path])).toEqual([
       ['Asked for.', 'r1', 'hello.txt'],
-      [expect.stringMatching(/^Done\.\n\nPull request: /), undefined, undefined],
     ]);
   });
 
@@ -544,8 +543,11 @@ describe('coworker', () => {
       ['@morgan Hello or hi?', undefined, undefined],
       ['@morgan And bye?', undefined, undefined],
       ['Said bye.', review.at, 'hello.txt'],
-      ['Done.', undefined, undefined],
     ]);
+    expect(readFileSync(issuePath(where.tracker, 8), 'utf8')).toMatch(
+      /\n---\n\n<!-- agentgraph status -->\n※ done\n\n<details><summary>Runs<\/summary>\n\n[^]*\| issue \| implement \| done \| \$0\.00 \|[^]*<!-- end agentgraph status -->\n\nCloses #7\n/
+    );
+    expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).not.toContain('agentgraph status');
     expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual(['/agent']);
   });
 });

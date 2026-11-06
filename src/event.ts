@@ -83,17 +83,28 @@ export type RunLink = { run: string; step: string; session?: string; operation?:
 export const makeStudioRunUrl = (studio: string, run: string) =>
   `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}`;
 
-export const formatFooter = (content = '', url?: string) =>
-  `<details><summary>${url ? `<a href="${url.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}">⁂</a>` : '⁂'}</summary>\n\n${content ? `${content}\n\n` : ''}</details>`;
-
-export const splitFooter = (body: string) => {
-  const details = /<details><summary>(?:<a href="[^"]*">⁂<\/a>|⁂)<\/summary>\s*([\s\S]*?)\s*<\/details>/.exec(body);
-  return { text: details ? body.replace(details[0], '') : body, content: details?.[1] ?? '' };
+export const formatRunMark = (text: string, url?: string) => {
+  const mark = url ? `[⁂](${url.replaceAll('(', '%28').replaceAll(')', '%29')})` : '⁂';
+  const trimmed = text.trimEnd();
+  const last = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
+  return !trimmed ? mark : /^\s*(?:```|~~~|\||<)/.test(last) ? `${trimmed}\n\n${mark}` : `${trimmed} ${mark}`;
 };
 
-export const removeRunLink = (body: string) => {
-  const { text, content } = splitFooter(body);
-  return [text.replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd(), content]
+const statusSection = /<!-- agentgraph status -->\n?([\s\S]*?)\n?(?:<!-- end agentgraph status -->|$)\s*/;
+
+export const getStatusHeader = (body: string) => statusSection.exec(body)?.[1] ?? '';
+
+export const makeBodyWithStatus = (body: string, header: string) => {
+  const text = body.replace(statusSection, '').trimStart();
+  return [header && `<!-- agentgraph status -->\n${header}\n<!-- end agentgraph status -->`, text]
     .filter(Boolean)
     .join('\n\n');
 };
+
+export const removeRunLink = (body: string) =>
+  body
+    .replace(statusSection, '')
+    .replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|[ \t]*\[⁂\]\([^)]*\)/g, '')
+    .replace(/<details><summary>(?:<a href="[^"]*">⁂<\/a>|⁂)<\/summary>\s*<\/details>/g, '')
+    .replace(/\s*⁂\s*$/, '')
+    .trimEnd();

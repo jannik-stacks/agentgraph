@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Effect, Stream, Schedule } from 'effect';
 import { type Run, type Workflow, isQuiet } from '../workflow.ts';
 import { currentRunLinkRef, Tracker, type TrackerError } from '../tracker.ts';
-import { stoppedByRunner, findIssueStatus, proposeUpdates } from '../context.ts';
+import { stoppedByRunner, findIssueStatus, formatStatusHeader, proposeQuestion } from '../context.ts';
 import { type StoreError, Store } from '../store.ts';
 import type { Graph } from '../folder.ts';
 import { LockHeldError } from '../owner.ts';
@@ -87,10 +87,30 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         );
       if (to !== from && shown)
         yield* announce(graph, { issue: run.issue, repo: graph.repo, to, ...(from && { from }) });
-      const said = yield* Effect.forEach(
-        proposeUpdates(before, run, t, [...others, run], w.branch !== undefined, tracker.studio),
-        p => tracker.apply((t.pull ?? t.issue).number, p)
+      const said = yield* Effect.forEach(proposeQuestion(before, run, t, [...others, run], tracker.studio), p =>
+        tracker.apply((t.pull ?? t.issue).number, p)
       );
+      if (tracker.writeStatusHeader) {
+        const runs = [...others, run];
+        const spent = new Map(
+          yield* Effect.forEach(runs, r => Effect.map(readRunSpend(r.id), usd => [r.id, usd] as const))
+        );
+        const pull = t.pull ?? (t.issue.pull ? t.issue : undefined);
+        const header = formatStatusHeader(
+          runs,
+          pulled,
+          r => graph.workflows[r.workflow]?.steps.map(s => s.name) ?? [],
+          r => spent.get(r.id) ?? 0,
+          { ...(pull && { pull: pull.url }), ...(tracker.studio && { studio: tracker.studio }) }
+        );
+        const on = pull?.number ?? run.issue;
+        const write = tracker.writeStatusHeader;
+        yield* Effect.forEach(on === run.issue ? [on] : [on, run.issue], n =>
+          write(n, n === on ? header : '').pipe(
+            Effect.catchTag('TrackerError', e => Effect.logWarning(`status header of #${n}`, e))
+          )
+        );
+      }
       yield* writeAppliedTrace(run.id, run.step, said);
     }
     if (undone.length === 0 && shown === !run.unshown) return run;

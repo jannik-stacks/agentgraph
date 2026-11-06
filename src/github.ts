@@ -18,7 +18,15 @@ import {
   makeStatusLabel,
   type TrackerSetup,
 } from './tracker.ts';
-import type { Applied, Comment, Event, Issue } from './event.ts';
+import {
+  removeRunLink,
+  makeBodyWithStatus,
+  getStatusHeader,
+  type Applied,
+  type Comment,
+  type Event,
+  type Issue,
+} from './event.ts';
 import { makePlugin } from './plugin.ts';
 import type { Proposal } from './proposal.ts';
 import type { Checkout, SandboxError } from './sandbox.ts';
@@ -418,7 +426,7 @@ export const githubTracker = (
       return {
         number: i.number,
         title: shown ? visible(i.title) : withheld(author, 'title'),
-        body: shown ? visible(i.body) : withheld(author, 'issue text'),
+        body: shown ? visible(removeRunLink(i.body ?? '')) : withheld(author, 'issue text'),
         state: i.pull_request?.merged_at || pull?.merged_at ? 'merged' : i.state,
         labels: i.labels.map(l => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
         author,
@@ -1070,15 +1078,20 @@ export const githubTracker = (
               Effect.catchIf(
                 e => e.status === 422,
                 e =>
-                  Effect.flatMap(gh<Made[]>('GET', `${repo}/pulls?state=open&head=${owner}:${p.branch}`), ([open]) =>
-                    open
-                      ? gh<Made>(
-                          'PATCH',
-                          `${repo}/pulls/${open.number}`,
-                          { title: p.title, body: body.body },
-                          'pull_request'
-                        )
-                      : Effect.fail(e)
+                  Effect.flatMap(
+                    gh<(Made & { body?: string | null })[]>(
+                      'GET',
+                      `${repo}/pulls?state=open&head=${owner}:${p.branch}`
+                    ),
+                    ([open]) =>
+                      open
+                        ? gh<Made>(
+                            'PATCH',
+                            `${repo}/pulls/${open.number}`,
+                            { title: p.title, body: makeBodyWithStatus(body.body, getStatusHeader(open.body ?? '')) },
+                            'pull_request'
+                          )
+                        : Effect.fail(e)
                   )
               )
             );
@@ -1133,6 +1146,8 @@ export const githubTracker = (
         )
       );
 
+    const refused = new Set<number>();
+
     const findPost: Tracker['Service']['findPost'] = (number, p, operation) => {
       type Posted = { id: number; number: number; html_url: string; body?: string | null };
       const find = (posts: Posted[], id: (post: Posted) => number) => {
@@ -1156,6 +1171,21 @@ export const githubTracker = (
       since,
       apply,
       status: (number, to, names) => Effect.asVoid(act(number, makeStatusLabel(to, names))),
+      writeStatusHeader: (number, header) =>
+        Effect.gen(function* () {
+          if (refused.has(number)) return;
+          const { body } = yield* gh<{ body?: string | null }>('GET', `${repo}/issues/${number}`);
+          const next = makeBodyWithStatus(body ?? '', header);
+          if (next !== (body ?? '')) yield* gh('PATCH', `${repo}/issues/${number}`, { body: next }, 'comment');
+        }).pipe(
+          Effect.catchIf(
+            e => e.status === 403 || (e.status !== undefined && refusals.has(e.status)),
+            e => {
+              refused.add(number);
+              return Effect.logWarning(`cannot edit the body of #${number}; its status header stays as it is`, e);
+            }
+          )
+        ),
       findPost,
       slug: me,
       writeField: (number, { project: where, field, value }) =>

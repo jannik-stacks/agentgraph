@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
@@ -330,32 +330,6 @@ describe('drive', () => {
     expect(git(where.origin, 'show', 'agentgraph/7:generated.txt')).toBe('second');
   });
 
-  it('keeps going when the pull request opens but its update cannot be posted', async () => {
-    const where = world();
-    let sessions = 0;
-    const { run } = services(
-      where,
-      [
-        [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
-        [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
-        judged,
-        [start('r1'), reply({ kind: 'ask', question: 'Merge it?' })],
-      ],
-      undefined,
-      () => {
-        if (++sessions === 3) chmodSync(issuePath(where.tracker, 7, 'events.jsonl'), 0o444);
-      }
-    );
-    const asked = await run(runWorkflow(w, fresh(), graph));
-    chmodSync(issuePath(where.tracker, 7, 'events.jsonl'), 0o644);
-    expect(asked).toMatchObject({ step: 'review', status: 'waiting' });
-    expect(readTrace(where.data, 'run-7')).toContainEqual(
-      expect.objectContaining({
-        applied: expect.objectContaining({ ok: false, proposal: expect.objectContaining({ kind: 'comment' }) }),
-      })
-    );
-  });
-
   it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
     const where = world();
     const { specs, run } = services(where, [
@@ -382,11 +356,10 @@ describe('drive', () => {
     // the failed try pushed nothing; the passing one did, and opened pull request #8
     const tracker = await run(Effect.flatMap(Tracker, f => f.issue(7)));
     const pr = await run(Effect.flatMap(Tracker, f => f.issue(8)));
-    expect(bodies(tracker)).toEqual([
-      '/agent',
-      'Brief: add hello.txt',
-      `Opened a pull request.\n\nPull request: ${pr.url}`,
-    ]);
+    expect(bodies(tracker)).toEqual(['/agent', 'Brief: add hello.txt']);
+    expect(readFileSync(issuePath(where.tracker, 8), 'utf8')).toContain(
+      '<!-- agentgraph status -->\n※ waiting for an answer at review (3 of 4)\n'
+    );
     expect(bodies(pr).at(-1)).toMatch(/^@\S+ still not right\n\nReply `\/agent` and your answer/);
     expect(findStatus(where.tracker, 7)).toBe('needs-answer');
     expect(pr.pull).toMatchObject({ branch: 'agentgraph/7', base: 'main' });
@@ -491,7 +464,6 @@ describe('drive', () => {
       ['comment', landed('triage', 't1')],
       ['push', landed('implement', 'i1')],
       ['pull_request', landed('implement', 'i1')],
-      ['comment', landed('implement', 'i1')],
       ['label', at('implement', 'i1')],
       ['comment', at('implement', 'i1')],
     ]);
@@ -565,6 +537,10 @@ describe('drive', () => {
       title: 'feat: greet',
       body: 'Adds `hello.txt`.',
     });
+    await run(Effect.flatMap(Tracker, f => f.apply(7, { ...pull, title: 'feat: greet', body: 'Rewritten.' })));
+    expect(readFileSync(issuePath(where.tracker, 8), 'utf8')).toMatch(
+      /\n<!-- agentgraph status -->\n※ waiting for review at merge [^]*<!-- end agentgraph status -->\n\nRewritten\.\n$/
+    );
   });
 
   it('shows how to reply under a review comment', async () => {
@@ -639,7 +615,8 @@ describe('drive', () => {
     expect(specs).toHaveLength(3);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'agentgraph/7')).toThrow();
     const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
-    expect(bodies(issue).at(-1)).toBe(`Stopped.\n\n${stopped.reason}`);
+    expect(bodies(issue).at(-1)).toBe('Brief');
+    expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).toContain('\n※ stopped at implement (2 of 4)\n');
     expect(findStatus(where.tracker, 7)).toBe('stopped');
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);

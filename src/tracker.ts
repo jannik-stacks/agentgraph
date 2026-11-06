@@ -10,8 +10,9 @@ import { parse, stringify } from 'yaml';
 import {
   issueStatuses,
   makeStudioRunUrl,
-  formatFooter,
-  splitFooter,
+  formatRunMark,
+  makeBodyWithStatus,
+  getStatusHeader,
   removeRunLink,
   type Applied,
   type Comment,
@@ -38,8 +39,8 @@ const formatBodyWithRunLink = (body: string, mark: RunLink, at: string, studio =
   const fields = Object.entries({ ...mark, at })
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}=${v.replace(/[^\w.:-]/g, '')}`);
-  const { text, content } = splitFooter(body);
-  return `${removeRunLink(text)}\n\n${formatFooter(removeRunLink(content), studio && mark.run ? makeStudioRunUrlAt(studio, mark.run, at) : undefined)}\n<!-- agentgraph ${fields.join(' ')} -->`;
+  const url = studio && mark.run ? makeStudioRunUrlAt(studio, mark.run, at) : undefined;
+  return `${formatRunMark(removeRunLink(body), url)}\n<!-- agentgraph ${fields.join(' ')} -->`;
 };
 
 /** The proposal as posted: its body stamped with `provenance`, and when, if the fiber writes for a run; else unstamped. */
@@ -83,6 +84,7 @@ export class Tracker extends Context.Service<
       to: IssueStatus,
       names?: Partial<Record<IssueStatus, string>>
     ) => Effect.Effect<void, TrackerError>;
+    writeStatusHeader?: (number: number, header: string) => Effect.Effect<void, TrackerError>;
     /** The login people mention to talk to the bot, when the tracker has one. */
     slug?: Effect.Effect<string, TrackerError>;
     writeField?: (
@@ -585,7 +587,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             for (const k of findIssueNumbers(dir)) {
               const pr = await read(k);
               if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;
-              await write({ ...pr, title: p.title, body });
+              await write({ ...pr, title: p.title, body: makeBodyWithStatus(body, getStatusHeader(pr.body)) });
               return { proposal: p, ok: true, url: pr.url };
             }
             const head = work ? await tip(work, p.branch).catch(() => '') : '';
@@ -691,6 +693,13 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             if (from === into) return;
             await mkdir(dirname(into), { recursive: true });
             await rename(from, into);
+          }),
+        writeStatusHeader: (n, header) =>
+          locked(async () => {
+            const t = await read(n);
+            if (!t) throw new TrackerError({ status: 404, message: `no issue #${n}` });
+            const body = makeBodyWithStatus(t.body, header);
+            if (body !== t.body) await write({ ...t, body });
           }),
         findPost: (n, p, operation) =>
           locked(async (): Promise<Applied | undefined> => {
