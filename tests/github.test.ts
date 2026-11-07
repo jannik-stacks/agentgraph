@@ -362,6 +362,39 @@ describe('githubTracker', () => {
     }
   });
 
+  it('signs a new App JWT when a token request resumes after the machine slept', async () => {
+    const now = vi.spyOn(Date, 'now');
+    const initial = Date.now();
+    let elapsed = 0;
+    now.mockImplementation(() => initial + elapsed);
+    const live = (headers: Headers) => {
+      const jwt = headers.get('authorization')!.split('.')[1]!;
+      const { iat, exp } = JSON.parse(Buffer.from(jwt, 'base64url').toString()) as { iat: number; exp: number };
+      return iat * 1000 <= Date.now() && Date.now() < exp * 1000;
+    };
+    const f = fake({
+      'GET /repos/o/r/installation': (_: Body, headers: Headers) => {
+        if (elapsed === 0) {
+          elapsed = 47 * 60_000;
+          throw new TypeError('fetch failed');
+        }
+        return live(headers) ? { body: { id: 9 } } : { status: 401, body: { message: 'Bad credentials' } };
+      },
+      'GET /repos/o/r/issues/7': issue(7),
+      'GET /repos/o/r/issues/7/comments': [],
+      'GET /repos/o/r/issues/7/events': [],
+    });
+    try {
+      const t = await run(
+        f,
+        Effect.flatMap(Tracker, tracker => tracker.issue(7))
+      );
+      expect(t.number).toBe(7);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('does not refresh a read token for an issue without a parent', async () => {
     const f = fake({
       'GET /repos/o/r/issues/7': issue(7),
