@@ -316,22 +316,23 @@ const appToken = (
         const token = tokens.get(scope);
         const kept = token && (token.value !== refused || Date.now() - token.minted < freshMs);
         if (kept && token.expires - 60_000 > Date.now()) return Effect.succeed(token.value);
-        return Effect.gen(function* () {
-          const signed = yield* appSigned(app);
-          const { data: installation } = yield* request<{ id: number }>(
-            'GET',
-            `/repos/${app.repo}/installation`,
-            signed
-          );
-          const { data } = yield* request<{ token: string; expires_at: string }>(
-            'POST',
-            `/app/installations/${installation.id}/access_tokens`,
-            signed,
-            { permissions: scopes[scope], ...(scope !== 'repos' && { repositories: [app.repo.split('/')[1]] }) }
-          );
-          tokens.set(scope, { value: data.token, expires: Date.parse(data.expires_at), minted: Date.now() });
-          return data.token;
-        });
+        return asApp(app, signed =>
+          Effect.gen(function* () {
+            const { data: installation } = yield* request<{ id: number }>(
+              'GET',
+              `/repos/${app.repo}/installation`,
+              signed
+            );
+            const { data } = yield* request<{ token: string; expires_at: string }>(
+              'POST',
+              `/app/installations/${installation.id}/access_tokens`,
+              signed,
+              { permissions: scopes[scope], ...(scope !== 'repos' && { repositories: [app.repo.split('/')[1]] }) }
+            );
+            tokens.set(scope, { value: data.token, expires: Date.parse(data.expires_at), minted: Date.now() });
+            return data.token;
+          })
+        );
       })
     );
 };
@@ -346,11 +347,20 @@ const authed = <T>(token: AppToken, scope: TokenScope, call: (token: string) => 
     )
   );
 
-const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
-  Effect.try({
+const asApp = <T>(
+  app: { id: string; key: Redacted.Redacted },
+  call: (jwt: string) => Effect.Effect<T, TrackerError>
+) => {
+  const signed = Effect.try({
     try: () => appJwt(app.id, Redacted.value(app.key), Date.now()),
     catch: e => new TrackerError({ message: (e as Error).message }),
-  });
+  }).pipe(Effect.flatMap(call));
+  return Effect.catchIf(
+    signed,
+    e => e.status === 401,
+    () => signed
+  );
+};
 
 /**
  * The repo of one GitHub App installation. Reads are ETag-polled, text from non-collaborators (or logins outside `trust`) is withheld, and pushes
@@ -386,12 +396,10 @@ export const githubTracker = (
     const repo = `/repos/${app.repo}`;
     let slug: string | undefined;
 
-    const jwt = appSigned(app);
-
     const me = Effect.suspend(() =>
       slug !== undefined
         ? Effect.succeed(slug)
-        : Effect.flatMap(jwt, signed => request<{ slug: string }>('GET', '/app', signed)).pipe(
+        : asApp(app, signed => request<{ slug: string }>('GET', '/app', signed)).pipe(
             Effect.map(({ data }) => (slug = data.slug))
           )
     );
