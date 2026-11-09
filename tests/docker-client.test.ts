@@ -340,9 +340,7 @@ describe('docker with a stand-in docker client', () => {
     expect(binds).toHaveLength(5);
     expect(binds[1]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror},dst=.*,readonly$`));
     expect(binds[2]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror}/worktrees/\\w+,dst=`));
-    expect(binds[3]).toMatch(
-      new RegExp(`^type=bind,src=${data}/cache/news/(\\w+),dst=${data}/cache/news/\\1,readonly$`)
-    );
+    expect(binds[3]).toMatch(new RegExp(`^type=bind,src=${data}/cache/news/\\w+,dst=/news,readonly$`));
   });
 
   it.each([
@@ -363,7 +361,6 @@ describe('docker with a stand-in docker client', () => {
         yield* s.exec(command(first.dir, { readonly: true }));
         const mounts = logged().filter(a => a.startsWith('type=bind'));
         const result = {
-          path: s.scratch,
           mount: mounts.find(m => m.endsWith('dst=/scratch')),
           work: mounts.find(m => m.includes('dst=/work')),
           separate: readdirSync(join(data, 'cache', 'scratch', basename(second.dir))),
@@ -375,7 +372,6 @@ describe('docker with a stand-in docker client', () => {
     const result = Exit.isSuccess(exit) ? exit.value : Exit.isFailure(exit) && exit.cause;
     expect(JSON.stringify(result)).toContain(`type=bind,src=${scratch},dst=/scratch`);
     expect(JSON.stringify(result)).toContain('dst=/work,readonly');
-    expect(JSON.stringify(result)).toContain('"path":"/scratch"');
     expect(JSON.stringify(result)).toContain('"separate":[]');
     expect(JSON.stringify(result)).not.toContain('capture.png');
     expect(existsSync(scratch)).toBe(false);

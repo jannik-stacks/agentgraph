@@ -11,7 +11,7 @@ import { getCachePath, makeToolchainSetupCommands } from './env.ts';
 import type { TrackerError } from './tracker.ts';
 import { hostGit, indexLock, makeHostEnv } from './git.ts';
 import type { Graph } from './folder.ts';
-import { type Checkout, type Command, type Exit, Sandbox, SandboxError } from './sandbox.ts';
+import { type Checkout, type Command, type Exit, inside, Sandbox, SandboxError } from './sandbox.ts';
 
 const exitFrame = '\u0000agentgraph-exit ';
 const freshHeader = 'agentgraph-box-fresh';
@@ -194,7 +194,7 @@ export const remoteSandbox = (o: {
           })
         );
 
-      const news = (box: BoxEntry) => putDir(box, dirname(box.work.news), dirname(box.work.news));
+      const news = (box: BoxEntry) => putDir(box, dirname(box.work.news), inside.news);
 
       const lines = (c: Command): Stream.Stream<string | Pick<Exit, 'code'>, SandboxError> =>
         Stream.unwrap(

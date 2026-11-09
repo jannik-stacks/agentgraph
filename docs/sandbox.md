@@ -24,11 +24,12 @@ A workflow step can override either field with `limits: { memory: 8g }`. This ap
 | `/home/agent` | The session home                                                           | writable                                                                 |
 | `/graph`      | The graph, `AGENTGRAPH_DIR`; scripts and setup only                        | read only                                                                |
 | `/cache`      | The repo's toolchain cache                                                 | overlay                                                                  |
+| `/news`       | The news file, check inputs and traces the engine writes                   | read only                                                                |
 | the mirror    | The repo's git objects                                                     | read only                                                                |
 
 Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerRunner -->
 
-Docker advertises its `scratch` path in agent prompts. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerRunner src/env.ts#removeCheckout -->
+Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerRunner src/env.ts#removeCheckout -->
 
 A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box server can't enforce that, so it refuses read-only sessions. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#remoteSandbox -->
 

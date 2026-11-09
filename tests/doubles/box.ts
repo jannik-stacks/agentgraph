@@ -59,7 +59,12 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       runs.push({ id, run: url.searchParams.get('id') ?? '', network: url.searchParams.get('network') ?? '', argv });
       const child = spawn(
         'sh',
-        [script, 'run', minutes, ...argv.map(arg => arg.replace(/^(\w+=)(\/(homes|graph)(\/.*)?)$/s, `$1${root}$2`))],
+        [
+          script,
+          'run',
+          minutes,
+          ...argv.map(arg => arg.replace(/^(\w+=)(\/(homes|graph|news)(\/.*)?)$/s, `$1${root}$2`)),
+        ],
         {
           env: { ...env, ...sent.secrets, AGENTGRAPH_RUN: url.searchParams.get('id') ?? '' },
           stdio: ['ignore', 'pipe', 'pipe'],

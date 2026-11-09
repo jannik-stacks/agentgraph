@@ -1,5 +1,4 @@
 import { writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import { Schema, Result, Effect, Option } from 'effect';
 import { Said, type Proposal } from '../proposal.ts';
 import { type IssueWithPull, news, formatSqueezed, formatRequest, context } from '../context.ts';
@@ -13,7 +12,7 @@ import {
   type CheckResult,
   pickCommandTarget,
 } from '../workflow.ts';
-import { type Checkout, SandboxError, Sandbox } from '../sandbox.ts';
+import { type Checkout, inside, SandboxError } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
 import { getStepReturns } from '../graph.ts';
 import { SessionStop, pickUsed } from '../trace.ts';
@@ -43,7 +42,7 @@ import {
   formatWaitingOn,
 } from './start.ts';
 import { type Services, makeAgentSessionSpec, runShell, runSession } from './execute.ts';
-import { writeTraces, makeScriptEnv, getTraceFiles, formatTracesPrompt, runStepChecks } from './check.ts';
+import { writeTraces, makeScriptEnv, getTraceFiles, tracesPrompt, runStepChecks } from './check.ts';
 import { readCheckoutDiff, findFanOutItems, most } from './checkout.ts';
 import {
   getOperationKey,
@@ -312,7 +311,7 @@ export const runAttempt = (
       const started = Date.now();
       const reads = step.does.reads === 'traces';
       if (reads) yield* writeTraces(graph, run.issue, run.id, work);
-      const env = { ...makeScriptEnv(work, run.issue), ...(reads && getTraceFiles(work)) };
+      const env = { ...makeScriptEnv(work, run.issue), ...(reads && getTraceFiles(inside.news)) };
       const out = yield* runShell(step.does.run, graph, work.dir, env, minutes);
       const result: CheckResult = {
         check: step.name,
@@ -353,10 +352,9 @@ export const runAttempt = (
         'opens pull requests and posts comments from them, so do not commit, push or run gh yourself. The shape of each kind:',
         ...kinds.map(k => shapes[k as keyof typeof shapes]),
       ].join('\n');
-      const scratch = (yield* Sandbox).scratch;
       const outside = [
-        `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
-        agent.reads && formatTracesPrompt(work),
+        `People may comment while you work: ${inside.news}/news.md holds what is new, refreshed every minute. Read it before you finish.`,
+        agent.reads && tracesPrompt,
       ];
       const prompt = [
         formatRequest(t, run.started),
@@ -373,8 +371,7 @@ export const runAttempt = (
             .join(', ')}.`,
         answering &&
           'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run. When a later reply already settles it, propose nothing.',
-        scratch &&
-          `Use ${scratch} for large temporary files, isolated source trees and build outputs outside the checkout. It is disk-backed, writable and removed when the checkout ends. /tmp is a small memory-backed filesystem.`,
+        `Use ${inside.scratch} for large temporary files, isolated source trees and build outputs outside the checkout. It is disk-backed, writable and removed when the checkout ends. /tmp is a small memory-backed filesystem.`,
         ...outside,
         agent.returns.includes('issue') && (yield* readFiledIssues()),
         run.feedback,
@@ -406,7 +403,7 @@ export const runAttempt = (
             {
               ...makeAgentSessionSpec(graph, name, work),
               prompt,
-              read: [dirname(work.news)],
+              read: [inside.news],
               ...(resume && { resume }),
             },
             item,

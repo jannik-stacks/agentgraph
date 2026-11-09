@@ -7,7 +7,7 @@ import type { TrackerError } from './tracker.ts';
 import { findDeadCheckouts, getCachePath, getCheckoutPaths, removeCheckout, writeCheckoutOwner } from './env.ts';
 import { removeBranch } from './disk.ts';
 import { commitCheckout, commitCheckoutOnce, hostGit, readGit, readBranches, readWorktreeAdmin } from './git.ts';
-import { type Box, type Checkout, type Command, type Exit, inside, Runner, Sandbox, SandboxError } from './sandbox.ts';
+import { type Box, type Checkout, type Command, type Exit, Runner, Sandbox, SandboxError } from './sandbox.ts';
 
 const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
 const outputLimit = 64 << 10;
@@ -225,7 +225,6 @@ export const makeSandbox = (o: {
           ),
         checkout,
         lines,
-        scratch: inside.scratch,
         tools: dir =>
           Effect.flatMap(find(dir), box => box.tools?.(dir) ?? infra('this runner cannot serve host tools')),
         exec: c =>

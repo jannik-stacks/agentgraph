@@ -69,6 +69,7 @@ export const inside = {
   scratch: '/scratch',
   graph: '/graph',
   cache: '/cache',
+  news: '/news',
 };
 
 /**
@@ -81,7 +82,6 @@ export const inside = {
 export class Sandbox extends Context.Service<
   Sandbox,
   {
-    scratch?: string;
     tools?: (
       dir: string
     ) => Effect.Effect<{ subnet: string } & Pick<NonNullable<Command['tools']>, 'host'>, SandboxError>;

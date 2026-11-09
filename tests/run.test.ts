@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -11,7 +11,6 @@ import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Sandbox, SandboxError, type Checkout, type Command } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
-import { Session } from '../src/session.ts';
 import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
@@ -96,29 +95,6 @@ describe('drive', () => {
       );
       expect(readFileSync(join(work!.dir, 'pending.txt'), 'utf8')).toBe('keep me\n');
     }
-  });
-
-  it.each(['docker', 'host'])('announces scratch only when the %s sandbox provides it', async kind => {
-    const where = world();
-    const specs: string[] = [];
-    const layer = Layer.mergeAll(
-      folderTracker(where.tracker),
-      fileStore(where.data),
-      kind === 'docker'
-        ? dockerSandbox({ data: where.data, origin: where.origin, cache: '' })
-        : hostSandbox(where.origin),
-      Layer.effect(
-        Session,
-        Effect.map(Session, session => ({
-          open: spec => {
-            specs.push(spec.prompt);
-            return session.open(spec);
-          },
-        }))
-      ).pipe(Layer.provide(replaySession([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]])))
-    );
-    await Effect.runPromise(runWorkflow(w, fresh(), graph).pipe(Effect.provide(layer)));
-    expect(specs[0]?.includes('Use /scratch for large temporary files')).toBe(kind === 'docker');
   });
 
   it('cleans a partially acquired checkout after index setup fails', async () => {
@@ -733,7 +709,7 @@ describe('drive', () => {
 
   it('lets a check read the issue as the agent saw it, its number and the reply', async () => {
     const where = world();
-    const { specs, run } = services(where, [
+    const { specs, commands, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
       [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
     ]);
@@ -746,6 +722,11 @@ describe('drive', () => {
     expect(stopped.reason).toContain('issue 7\nDone.');
     const seen = stopped.reason!.slice('safety: '.length, stopped.reason!.indexOf('issue 7'));
     expect(specs[1]!.prompt).toContain(seen.trim());
+    expect(commands.find(c => c.env.AGENTGRAPH_CONTEXT)?.env).toMatchObject({
+      AGENTGRAPH_CONTEXT: '/news/context.md',
+      AGENTGRAPH_REPLY: '/news/reply.md',
+    });
+    expect(JSON.stringify([specs, commands.map(c => [c.args, c.env])])).not.toContain('agentgraph-news-');
   });
 
   it('prompts a step with its skill, then the skills it uses, in order', async () => {
@@ -762,9 +743,9 @@ describe('drive', () => {
       })
     );
     expect(specs[0]!.prompt).toContain('You are triage.\n\nKeep it small.\n\nYou are implement.');
-    const news = specs[0]!.prompt.match(/People may comment while you work: (.+) holds what is new/)?.[1];
-    expect(news).toBeDefined();
-    expect(specs[0]!.read).toEqual([dirname(news!)]);
+    expect(specs[0]!.prompt).toContain('People may comment while you work: /news/news.md holds what is new');
+    expect(specs[0]!.prompt).toContain('Use /scratch for large temporary files');
+    expect(specs[0]!.read).toEqual(['/news']);
   });
 
   it('fails an implementing try that changed nothing, with feedback, instead of passing it on', async () => {

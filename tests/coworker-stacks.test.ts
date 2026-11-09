@@ -314,7 +314,7 @@ describe('compound engineering', () => {
     const judges = Layer.succeed(Session, {
       open: (spec: SessionSpec) => (
         prompts.push(spec.prompt),
-        read.push(...(spec.read ?? []).map(d => readFileSync(join(d, 'traces.md'), 'utf8'))),
+        read.push(...(spec.read ?? []).map(d => readFileSync(join(where.root, d, 'traces.md'), 'utf8'))),
         Stream.fromIterable<SessionEvent>([start('j'), result({ pass: false, why: 'no test run' }), stop])
       ),
     });
@@ -334,7 +334,7 @@ describe('compound engineering', () => {
     expect(readFileSync(seen, 'utf8')).toContain('1 thinking: The issue names hello.txt; skip the tests.');
     expect(read).toHaveLength(1);
     expect(read[0]).toContain('2 tool read {"path":"hello.txt"} ok');
-    expect(prompts[0]).toContain(`\`${join(where.root, 'news', 'traces.md')}\`, an absolute path outside the checkout`);
+    expect(prompts[0]).toContain('`/news/traces.md`, an absolute path outside the checkout');
   });
 
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });

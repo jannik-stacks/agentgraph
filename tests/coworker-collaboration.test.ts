@@ -1,11 +1,12 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { Effect, Layer, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
+import { Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
@@ -82,14 +83,12 @@ describe('coworker', () => {
     );
   });
 
-  it('names the news file of the current checkout to a resumed session, not the reaped one it first read', async () => {
+  it('names the news file inside the sandbox to a resumed session', async () => {
     const where = world();
     const { specs, run, asked } = await parked(where, [[start('a'), reply({ kind: 'comment', body: 'ok' })]]);
     await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
-    const file = /(\S+) holds what is new/.exec(specs[1]!.prompt)?.[1];
-    expect(file).toBeDefined();
-    expect(specs[1]!.read).toEqual([dirname(file!)]);
-    expect(specs[1]!.read).not.toEqual(specs[0]!.read);
+    expect(specs[1]!.prompt).toContain('/news/news.md holds what is new');
+    expect(specs[1]!.read).toEqual(['/news']);
   });
 
   it('resumes with only the feedback when nothing is new, and names a moved base and a flipped check', async () => {
@@ -128,9 +127,9 @@ describe('coworker', () => {
       open: (spec: SessionSpec) =>
         Stream.fromEffect(
           Effect.gen(function* () {
-            file = /(\S+) holds what is new/.exec(spec.prompt)![1]!;
+            expect(/(\S+) holds what is new/.exec(spec.prompt)![1]).toBe('/news/news.md');
+            expect(spec.read).toEqual(['/news']);
             expect(file.startsWith(spec.dir)).toBe(false);
-            expect(spec.read).toEqual([dirname(file)]);
             mkdirSync(join(spec.dir, '.agentgraph'));
             symlinkSync(target, join(spec.dir, '.agentgraph', 'news.md'));
             symlinkSync(where.tracker, join(spec.dir, 'news'));
@@ -150,7 +149,14 @@ describe('coworker', () => {
     const layer = Layer.mergeAll(
       folderTracker(where.tracker),
       fileStore(where.data),
-      hostSandbox(where.origin),
+      Layer.effect(
+        Sandbox,
+        Effect.map(Sandbox, s => ({
+          ...s,
+          checkout: (...args: Parameters<typeof s.checkout>) =>
+            s.checkout(...args).pipe(Effect.tap(work => Effect.sync(() => (file = work.news)))),
+        }))
+      ).pipe(Layer.provide(hostSandbox(where.origin))),
       session
     );
     const agents = Object.fromEntries(Object.entries(small.agents).map(([k, a]) => [k, { ...a, tools: ['read'] }]));

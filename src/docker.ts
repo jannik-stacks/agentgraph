@@ -618,7 +618,7 @@ export const dockerRunner = (o: {
                   ...(graph?.network !== undefined && { network: graph.network }),
                   sharedMounts: [],
                   mounts: [
-                    { src: news, dst: news, readonly: true },
+                    { src: news, dst: inside.news, readonly: true },
                     { src: scratch, dst: inside.scratch },
                   ],
                 })
@@ -694,7 +694,7 @@ export const dockerRunner = (o: {
                 mounts: [
                   { src: mirror, dst: mirror, readonly: true },
                   { src: admin, dst: admin },
-                  { src: news, dst: news, readonly: true },
+                  { src: news, dst: inside.news, readonly: true },
                   { src: scratch, dst: inside.scratch },
                 ],
               })
