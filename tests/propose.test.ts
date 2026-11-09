@@ -106,7 +106,7 @@ const setHidden = (id: string, pass: boolean, check = 'bench/hidden') =>
     runs[id]!,
     `${JSON.stringify({ at: new Date().toISOString(), step: 'bench', check: { check, pass: check === 'bench/arm' || pass, ms: 0, ...(!pass && { findings: `hidden of ${id}` }) }, version: 't', usd: 0, later: true })}\n`
   );
-beforeEach(async () => {
+const writeProposeFixture = async () => {
   dir = tmp('propose');
   const repo = join(dir, 'repo');
   save(join(repo, 'src/x.ts'), 'base\n');
@@ -158,19 +158,22 @@ beforeEach(async () => {
   save(join(dir, 'claude'), stub);
   spawnSync('chmod', ['+x', join(dir, 'claude')]);
   process.env.AGENTGRAPH_CLAUDE = join(dir, 'claude');
-});
-afterEach(() => {
+};
+const removeProposeFixture = () => {
   delete process.env.AGENTGRAPH_CLAUDE;
   delete process.env.STUB_FIRST;
   delete process.env.STUB_ANSWER;
   rmSync(dir, { recursive: true, force: true });
-});
+};
 
 const run = (proposer: Proposer, id = `i1-${proposer}`) =>
   propose({ tune, id, proposer, from: join(dir, 'graph'), variant: 'inc', iteration: 2 });
 const graphOk = (graph: string) => Effect.runPromise(Effect.result(loadGraph(graph, harnesses))).then(Result.isSuccess);
 
 describe('propose', () => {
+  beforeEach(writeProposeFixture);
+  afterEach(removeProposeFixture);
+
   it('rejects missing case results instead of treating them as passing cases', async () => {
     rmSync(dirname(runs['a-1']!), { recursive: true });
     await expect(run('retro')).rejects.toThrow('a-1: no scored run');
@@ -266,7 +269,9 @@ describe('propose', () => {
     await run('history', 'dup');
     await expect(run('history', 'dup')).rejects.toThrow(/already has a proposal/);
   });
+});
 
+describe('claudeUsed', () => {
   it('rejects usage windows without utilization instead of reporting zero', () => {
     expect(() =>
       claudeUsed(
