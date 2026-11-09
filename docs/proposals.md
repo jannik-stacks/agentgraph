@@ -9,75 +9,66 @@ Agents have no GitHub token. They ask the engine for writes with proposals: a re
 
 ## Kinds
 
-| Kind           | Fields                                                                            | Effect                                                                                                                                         |
+| Kind | Fields | Effect |
 | -------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `comment`      | `body`, optional `under`                                                          | [Reply](#comments) where a person spoke                                                                                                        |
-| `label`        | `add`, `remove`                                                                   | Change labels, except trigger labels                                                                                                           |
-| `push`         | `branch`, `message`                                                               | [Commit and push](#pushes) the checkout                                                                                                        |
-| `pull_request` | `branch`, `base`, `title`, `body`                                                 | Open a pull request, or update the open one for that branch                                                                                    |
-| `merge`        | `number`, `head`                                                                  | Merge the run's pull request if its head still matches                                                                                         |
-| `issue`        | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues)                                                                                                                |
-| `ask`          | `question`                                                                        | Post a question and wait                                                                                                                       |
-| `ask`          | `runner`                                                                          | Report a sandbox, checkout, network or tool problem; the engine handles it as an [engine error](workflows.md#order-and-limits) and asks no one |
-| `back`         | `why`                                                                             | [Return to an earlier step](workflows.md#tries-and-going-back)                                                                                 |
-| `run`          | `workflow`, `issue`, optional `step`                                              | [Dispatch](workflows.md#dispatch) a workflow and wait                                                                                          |
-| `tell`         | `issue`, `text`                                                                   | [Forward text](workflows.md#routing) to a live run                                                                                             |
+| `comment` | `body`, optional `under` | [Reply](#comments) where a person spoke |
+| `label` | `add`, `remove` | Change labels, except trigger labels |
+| `push` | `branch`, `message` | [Commit and push](#pushes) the checkout |
+| `pull_request` | `branch`, `base`, `title`, `body` | Open a pull request, or update the open one for that branch |
+| `merge` | `number`, `head` | Merge the run's pull request if its head still matches |
+| `issue` | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues) |
+| `ask` | `question` | Post a question and wait |
+| `ask` | `runner` | Report a sandbox, checkout, network or tool problem; the engine handles it as an [engine error](workflows.md#order-and-limits) and asks no one |
+| `back` | `why` | [Return to an earlier step](workflows.md#tries-and-going-back) |
+| `run` | `workflow`, `issue`, optional `step` | [Dispatch](workflows.md#dispatch) a workflow and wait |
+| `tell` | `issue`, `text` | [Forward text](workflows.md#routing) to a live run |
 
 An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, `ask` and `back` included, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#Kind src/proposal.ts#Proposal src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
 
 ## Applying
 
-1. `ask` waits at once; checks and other proposals are skipped.
-2. Checks run. A blocking failure fails the try.
-3. `back` returns to its step, and nothing else applies.
-4. Otherwise `tell`, then pushes, then the other writes in order, then `issue` filings. A failed push skips the writes after it, except a reply in a review thread: it still answers the person, with a line saying the push failed and its changes are not on the pull request yet. `run` dispatches last, only when nothing failed.
+The engine rejects malformed or ungranted proposals before applying anything. <!-- code: src/run/attempt.ts#runAttempt -->
 
-A missing block, invalid JSON, wrong fields or a kind the step may not use fails the try, with the expected shape as feedback. A kind it may not use fails the try before anything applies, an `ask` included. <!-- code: src/run/attempt.ts#runAttempt -->
-
-A refused write fails the try. Any other GitHub error is an [engine error](workflows.md#order-and-limits), never a question to the person. The try's sessions are kept, so the retry resumes them. A push that hits such an error still lets the thread replies after it post first.
+An `ask` skips checks and other proposals. Otherwise checks run first; a blocking failure retries the step. A `back` then returns to its target without applying other writes. Remaining proposals apply in order: tells, pushes, other writes, issue filings, then dispatch. Refused writes fail the try; tracker errors park it after retry. <!-- code: src/run/attempt.ts#runAttempt src/run/settle.ts#writeProposals -->
 
 ## Comments
 
-An agent posts only the kinds its `returns` lists, so a reviewer that returns `[back]` keeps its findings in the run: a pass leaves its reply in the trace, and `back` passes its findings to the step it returns to. This stays within the run; see [Retros](workflows.md#retros) for the `feedback` trigger. <!-- code: src/workflow.ts#transition -->
+A step speaks on the tracker only through its granted proposal kinds. A reply without a comment proposal stays in the run; a `back` carries feedback to its target step. <!-- code: src/workflow.ts#transition -->
 
-A comment goes where a person started or woke the run, else to the branch's open pull request, else the issue. `under` names a review comment to reply under, on the pull request that holds it. Timelines and change requests show each review comment with the id of its thread's first comment, the one to reply under. A top-level comment that answers a review comment links it. When people spoke in several places, a comment without `under` posts once, at top level if one of them was. <!-- code: src/run/settle.ts#writeProposals -->
+Comments reply where a person woke the run, otherwise on its open pull request, otherwise on the issue. `under` selects a review thread by its first comment's ID. <!-- code: src/run/settle.ts#writeProposals -->
 
 ## Pushes
 
-`push` and `pull_request` must name the run's own `agentgraph/` branch. A push is refused if the branch moved since the checkout last saw it, and never forces except to finish a [rebase](workflows.md#when-the-base-or-the-graph-moves). <!-- code: src/run/attempt.ts#pickTryOutcome src/tracker.ts#folderTracker src/github.ts#githubTracker -->
+`push` and `pull_request` must name the run's own branch under the enforced `agentgraph/` prefix. A moved branch refuses a push; only engine rebases force updates. <!-- code: src/run/attempt.ts#pickTryOutcome src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
-While the branch has no open pull request, an agent that may return `pull_request` must return one, or an `ask`, a `back`, an `issue` part, or comments answering a finished run. <!-- code: src/run/attempt.ts#runAttempt -->
+A step allowed to open a pull request must propose one while none is open, unless it asks, goes back, splits the issue or only answers comments on a finished run. <!-- code: src/run/attempt.ts#runAttempt -->
 
-A `pull_request` on a branch whose pull request is open rewrites its title and body. The description ends with a [⁂ run link](runs.md#run-links) to the trace entry that wrote it, and the engine puts its [status header](workflows.md#status-on-the-issue) back on top after the step. A step of its own after review, with an agent that returns only `pull_request`, keeps the description current each time the change goes round again. <!-- code: src/tracker.ts#folderTracker src/github.ts#githubTracker -->
+A `pull_request` updates the open pull request for its branch or creates one. The engine appends a [run link](runs.md#run-links) and maintains the [status header](workflows.md#status-on-the-issue). <!-- code: src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
-A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/tracker.ts#pushLimits src/tracker.ts#unpushable -->
-
-Both trackers report held paths in the push result's `held` list, recorded in the trace. The first push holding a path on a branch is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. Later pushes still list that held path but succeed unless another failure occurs. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. After a newly held path, later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/tracker.ts#makePushResult src/run/settle.ts#writeProposals -->
+A push accepts at most 200 regular files of 1 MiB each. Paths under `.github/` are held for a maintainer. The trace records them in `held`; the first push holding a path is incomplete even if other files landed. Later pushes can succeed while still listing it. GitHub commits use the Git API. <!-- code: src/tracker.ts#pushLimits src/tracker.ts#unpushable src/event.ts#Applied src/tracker.ts#makePushResult src/run/settle.ts#writeProposals -->
 
 ## Filing issues
 
-Every `issue` body ends with a `## Done when` section of one to three observable checks.
+Issue proposals use these fixed relations and labels:
 
-| `relation`  | Files                                                                                                           | Label         |
-| ----------- | --------------------------------------------------------------------------------------------------------------- | ------------- |
-| `part`      | A sub-issue in landing order, with a `size`: `XS`, `S`, `M`, `L` or `XL`                                        | `size/<size>` |
-| `follow-up` | Work outside the issue, ending with `Found while working on #n`; it runs only once someone adds a trigger label | `follow-up`   |
-| `graph`     | A recurring miss and the check or prompt that would catch it                                                    | `graph`       |
+| `relation` | Effect |
+| --- | --- |
+| `part` | Sub-issue with required `size`: `XS`, `S`, `M`, `L` or `XL`, labelled `size/<size>` |
+| `follow-up` | Separate issue labelled `follow-up` |
+| `graph` | Separate issue labelled `graph` |
 
-<!-- code: src/run/start.ts#createIssues -->
+The engine requires a "Done when" heading in each proposed body. It does not require the heading to end the body or count its checks. These are current filing restrictions, independent of the graph's prompts. <!-- code: src/run/start.ts#createIssues -->
 
-The parent gets a `Split into:` comment with a task list. Each `XL` part starts the same workflow again. A follow-up or graph issue whose title matches an open one becomes a comment there. Filing uses a token limited to `issues: write`. <!-- code: src/run/start.ts#readFiledIssues src/github.ts#scopes -->
+Parts produce a `Split into:` task list on the parent. Eligible `XL` parts start the same workflow again. Other relations append `Found while working on #n`; a matching open title receives a comment instead. Follow-up and graph filings start no runs automatically. Filing uses an issues-write token. <!-- code: src/run/start.ts#createIssues src/run/start.ts#readFiledIssues src/github.ts#scopes -->
 
-One refused filing fails the try and files nothing. The engine refuses a body without `## Done when`, any filing while an outsider's issue text is withheld, a part whose title matches an open issue, a reference to anything but an earlier part, and parts of an issue already three levels deep (`deepest`). <!-- code: src/run/start.ts#deepest -->
+Validation refuses the whole batch if an issue's text is withheld, a part duplicates an open title, a part has an invalid position reference, or the parent is already three levels deep (`deepest`). <!-- code: src/run/start.ts#deepest -->
 
 ### Stacks on and Depends on
 
-`stacks_on` names one earlier part by position, from 1, and `depends_on` lists earlier positions. The engine writes them as `Stacks on #n` and `Depends on #n` lines; on an existing issue, write the line yourself.
+`stacks_on` selects one earlier part by position, counted from 1; `depends_on` lists earlier positions. Filing writes `Stacks on #n` and `Depends on #n` lines into the issues. Existing issues can use those lines directly. <!-- code: src/run/start.ts#createIssues -->
 
-With `stacks: true` in `settings.yaml`, `Stacks on #n` builds on #n's open pull request or workflow branch, targets it, and registers a GitHub stack where the repo supports it. <!-- code: src/run/drive.ts#findStackBase src/github.ts#githubTracker -->
+With `stacks: true`, stacking builds on the parent's open pull request, never a bare workflow branch. The child targets that pull request's branch; GitHub registers a stack where supported. <!-- code: src/run/drive.ts#findStackBase src/github.ts#githubTracker -->
 
-A workflow with a `branch` holds a run, `running` but not driven, until every `Depends on #n` issue is closed and every `Stacks on #n` issue has a pull request. A held run says what it waits for as its reason, such as `until #24 closes`, which run lists print; the issue shows `working`. When a stacked parent's head moves, the child rebases onto it; a conflict asks for a manual rebase. <!-- code: src/run/trigger.ts#findHold src/run/follow.ts#runFollow -->
+For workflows with a `branch`, `Depends on #n` holds the run until that issue closes. `Stacks on #n` holds while the parent is open without a pull request, even when stacking is off. A held run stays `running` and records why it is held. If the parent closes without a pull request, the hold clears and the run silently uses its configured base branch. <!-- code: src/run/trigger.ts#findHold src/run/drive.ts#runWorkflow -->
 
-### The triage example
-
-`examples/sandbox` sizes and splits issues with graph files alone. `workflows/triage.md` starts on the `triage` label or a dispatch. Its triager reads code and returns `label`, `issue` or one `ask` of at most six questions; it never implements, merges or closes. The blocking `checks/sized.md` wants one size label, or a split into smaller parts.
+When a stacked parent's head moves, the child rebases onto it. A conflict asks for a manual rebase. <!-- code: src/run/follow.ts#runFollow -->
