@@ -49,7 +49,7 @@ const find = (gh: string) => {
       const store = yield* Store;
       yield* store.put(run('issue-2-1', 2));
       yield* store.trace('issue-2-1', ...trace);
-      return yield* Effect.result(locate({ gh }));
+      return yield* Effect.result(locate({ gh }, store));
     }).pipe(Effect.provide(fileStore(dir)))
   );
 };
