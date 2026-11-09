@@ -17,7 +17,7 @@ import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Config, ConfigProvider, Effect, Redacted, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
-import { makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
+import { makeInstanceHost, makeLocalActionClient, readRunnerErrors } from '../src/engine.ts';
 import type { Rpc } from 'effect/rpc';
 import type { Action } from '../src/actions.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
@@ -52,7 +52,6 @@ import {
   formatIssueList,
   formatIssueTimeline,
   formatNextSteps,
-  formatRunnerError,
   formatShellWord,
 } from '../src/status.ts';
 import { isOnIssue } from '../src/graph.ts';
@@ -67,7 +66,7 @@ import {
 } from '../src/services.ts';
 import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeStoredRunLabels } from '../src/labels.ts';
-import { type Run, type RunRecord } from '../src/types.ts';
+import { type RunRecord } from '../src/types.ts';
 
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
   .version;
@@ -120,16 +119,6 @@ const printRuns = (runs: readonly RunRecord[], tag = '') => {
   if (verb === 'resume' && !runs.length) console.log('0 runs parked by runner errors');
   for (const run of runs)
     console.log(`${tag}${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
-};
-const formatRunnerErrors = async (data: string, runs: Run[]) => {
-  const lines: string[] = [];
-  for (const run of runs.filter(r => r.status === 'waiting' && r.retried)) {
-    const trace = await Effect.runPromise(
-      Effect.flatMap(Store, s => Stream.runCollect(s.read(run.id))).pipe(Effect.provide(fileStore(data)))
-    );
-    lines.push(...formatRunnerError([...trace], join(data, run.id, 'trace.jsonl')));
-  }
-  return lines;
 };
 const makeHarnessChoice = (provider: string | undefined) => ({
   provider,
@@ -720,7 +709,8 @@ async function report(
       if (why) console.log(why);
     }
   }
-  for (const line of await formatRunnerErrors(i.data, runs)) console.log(line);
+  for (const line of await Effect.runPromise(readRunnerErrors(makeInstanceHost({ data: i.data }).store, i.data, runs)))
+    console.log(line);
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
   const steps = merged
     ? merge

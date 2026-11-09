@@ -290,7 +290,7 @@ it('runs instance actions through the RPC client and refuses foreign requests', 
   const { server, base } = await startStudioServer();
   const act = <A, E>(use: (actions: Effect.Success<ReturnType<typeof makeActionClient>>) => Effect.Effect<A, E>) =>
     Effect.runPromise(
-      Effect.scoped(Effect.flatMap(makeActionClient(`${base}/api/actions`), use)).pipe(
+      Effect.scoped(Effect.flatMap(makeActionClient(`${base}/api/actions`, fetch), use)).pipe(
         Effect.catch(e => Effect.succeed({ error: (e as Error).message }))
       )
     );

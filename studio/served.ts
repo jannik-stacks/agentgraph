@@ -37,19 +37,19 @@ const makeServedHost = async (
   data: string,
   graph?: Graph,
   tracker?: Parameters<typeof EngineModule.makeInstanceHost>[1],
-  driven?: Omit<Parameters<typeof MainModule.start>[0], 'issue' | 'data' | 'instruction'>
+  driven?: { graph: string; instance: Instance }
 ) => {
   const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
-  const drive =
-    driven &&
-    (async (instruction: NonNullable<Parameters<typeof MainModule.start>[0]['instruction']>) => {
-      const { start } = await readModule<typeof MainModule>('src/main.ts');
-      return start({ ...driven, issue: 'all', data, instruction, choice: readChoice() });
-    });
   return makeInstanceHost(
     { data, ...(graph && { checks: graph.checks }) },
     tracker,
-    drive && driven.instance && { instance: driven.instance, drive }
+    driven && {
+      ...driven,
+      drive: async instruction => {
+        const { start } = await readModule<typeof MainModule>('src/main.ts');
+        return start({ ...driven, issue: 'all', data, instruction, choice: readChoice() });
+      },
+    }
   );
 };
 

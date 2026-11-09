@@ -1,8 +1,7 @@
 import { useAtomValue } from 'jotai';
 import { lazy } from 'react';
 import { Effect, Schema } from 'effect';
-import { makeActionClient } from '../../src/actions.ts';
-import { makeApiHref, makeLiveJsonAtom } from './state.ts';
+import { makeLiveJsonAtom } from './state.ts';
 
 export { queryParam, navigateAtom } from './state.ts';
 export {
@@ -44,10 +43,3 @@ export const usePluginData = <D, I>(name: string, schema: Schema.Codec<D, I>) =>
   }
   return useAtomValue(cached.atom) as ReturnType<ReturnType<typeof makeLiveJsonAtom<D>>['read']>;
 };
-
-export const runAction = <A, E>(
-  use: (actions: Effect.Success<ReturnType<typeof makeActionClient>>) => Effect.Effect<A, E>
-) =>
-  Effect.runPromise(
-    Effect.scoped(Effect.flatMap(makeActionClient(new URL(makeApiHref('/api/actions'), location.href).href), use))
-  );

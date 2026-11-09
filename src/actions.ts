@@ -69,14 +69,12 @@ export const Actions = RpcGroup.make(
 
 export type Action = RpcGroup.Rpcs<typeof Actions>;
 
-export const makeActionClient = (url: string, fetch?: typeof globalThis.fetch) =>
+export const makeActionClient = (url: string, fetch: typeof globalThis.fetch) =>
   RpcClient.make(Actions).pipe(
     Effect.provide(
       RpcClient.layerProtocolHttp({ url }).pipe(
         Layer.provide([
-          fetch
-            ? FetchHttpClient.layer.pipe(Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetch)))
-            : FetchHttpClient.layer,
+          FetchHttpClient.layer.pipe(Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetch))),
           RpcSerialization.layerNdjson,
         ])
       )

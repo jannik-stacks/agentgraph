@@ -64,6 +64,18 @@ const readStoredRuns = ({ data, checks = {} }: Pick<EngineConfig, 'data' | 'chec
   return (existsSync(data) ? readdirSync(data) : []).flatMap(id => readStoredRun(data, id, versions) ?? []);
 };
 
+export const readRunnerErrors = (store: Pick<InstanceHost['store'], 'read'>, data: string, runs: readonly Run[]) =>
+  Effect.map(
+    Effect.forEach(
+      runs.filter(run => run.status === 'waiting' && run.retried),
+      run =>
+        Effect.map(Stream.runCollect(store.read(run.id)), trace =>
+          formatRunnerError([...trace], join(data, run.id, 'trace.jsonl'))
+        )
+    ),
+    lines => lines.flat()
+  );
+
 export const makeInstanceHost = (
   config: Pick<EngineConfig, 'data' | 'checks'>,
   tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] },
@@ -87,17 +99,6 @@ export const makeInstanceHost = (
   const attempt = <A>(act: () => Promise<A>) => Effect.tryPromise({ try: act, catch: fail });
   const refuse = Effect.fail(ActionError.make({ message: 'this host serves no instance' }));
   const owned = local && folder ? Effect.succeed(local.instance) : refuse;
-  const readNotes = (runs: readonly Run[]) =>
-    Effect.map(
-      Effect.forEach(
-        runs.filter(run => run.status === 'waiting' && run.retried),
-        run =>
-          Effect.map(Stream.runCollect(store.read(run.id)), trace =>
-            formatRunnerError([...trace], join(data, run.id, 'trace.jsonl'))
-          )
-      ),
-      lines => lines.flat()
-    );
   const readIssue = (n: number) =>
     Effect.map(reads.issue(n), issue => {
       const diff = folder ? join(findIssueDir(folder, n), 'diff.patch') : '';
@@ -112,7 +113,7 @@ export const makeInstanceHost = (
           issue === undefined
             ? yield* reads.issues()
             : yield* Effect.forEach([...new Set([issue, pull?.number ?? issue])], readIssue);
-        return { issues, runs, notes: yield* readNotes(runs) };
+        return { issues, runs, notes: yield* readRunnerErrors(store, data, runs) };
       }).pipe(Effect.mapError(fail)),
     say: ({ issue, text }) =>
       (!tracker || tracker.origin.local
