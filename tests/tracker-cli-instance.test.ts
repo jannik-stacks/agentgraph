@@ -264,6 +264,11 @@ await runLocked(dir, async () => {
       label('triage-1', 'Bad=1'),
       label('missing-1', 'arm=v2'),
       label('import-1', 'arm=v1'),
+      spawnSync(process.execPath, [runTs, 'label', join(data, 'import-1'), 'exclude=flaky docker'], {
+        encoding: 'utf8',
+        cwd: w.root,
+        env: { ...process.env, NODE_OPTIONS: '' },
+      }),
     ];
     expect(runs.map(r => [r.status, r.stdout])).toEqual([
       [0, 'arm=v2\nmodel=gpt 6\n'],
@@ -271,6 +276,7 @@ await runLocked(dir, async () => {
       [2, ''],
       [2, ''],
       [0, 'arm=v1\n'],
+      [0, 'arm=v1\nexclude=flaky docker\n'],
     ]);
     const log = readFileSync(join(data, 'triage-1', 'labels.jsonl'), 'utf8')
       .trim()

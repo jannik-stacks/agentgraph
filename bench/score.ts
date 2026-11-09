@@ -1,5 +1,6 @@
 import { getMean, getQuantile } from '../src/stats.ts';
 import type { ResultSheet } from '../src/results.ts';
+import { formatShellWord } from '../src/status.ts';
 import type { BenchRow as Row } from './runs.ts';
 
 export const roughBelow = 10;
@@ -100,15 +101,19 @@ export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, see
   return { y: point[0], x: point[1], yCi: ci(0), xCi: ci(1) };
 };
 
-export const isBenchMatch = (row: Row, where: Record<string, string[]>) =>
+export const isBenchMatch = (row: Row, o: Pick<Parameters<typeof summarise>[1], 'where' | 'keepExcluded'>) =>
   !['human', 'base'].includes(row.labels.arm ?? '') &&
-  Object.entries(where).every(([key, values]) => values.includes(row.labels[key]!));
+  (o.keepExcluded || row.labels.exclude === undefined) &&
+  Object.entries(o.where ?? {}).every(([key, values]) => values.includes(row.labels[key]!));
+
+export const formatBenchLabelCommand = (row: Pick<Row, 'data' | 'run'>, why: string | null) =>
+  `agi label ${formatShellWord(`${row.data}/${row.run}`)} ${why === null ? 'exclude-' : formatShellWord(`exclude=${why}`)}`;
 
 const getBenchScore = (
   row: Row,
-  o: Pick<Parameters<typeof summarise>[1], 'w' | 'judges' | 'infraZero' | 'where'>
+  o: Pick<Parameters<typeof summarise>[1], 'w' | 'judges' | 'infraZero' | 'where' | 'keepExcluded'>
 ): number | undefined => {
-  if (!isBenchMatch(row, o.where ?? {})) return undefined;
+  if (!isBenchMatch(row, o)) return undefined;
   return row.infra ? (o.infraZero ? 0 : undefined) : quality(row, o.w, o.judges);
 };
 
@@ -120,13 +125,14 @@ export const summarise = (
     judges?: string[];
     infraZero?: boolean;
     where?: Record<string, string[]>;
+    keepExcluded?: boolean;
     by?: string[];
     color?: string;
   }
 ) => {
   const keys = [...new Set([...(o.by ?? defaultBenchBy), ...(o.color ? [o.color] : []), 'set', 'tests'])];
   const byPoint = Map.groupBy(
-    rows.filter(r => isBenchMatch(r, o.where ?? {})),
+    rows.filter(r => isBenchMatch(r, o)),
     r => JSON.stringify(keys.map(k => [k, r.labels[k] ?? null]))
   );
   return [...byPoint].map(([key, all]) => {

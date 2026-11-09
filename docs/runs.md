@@ -149,7 +149,7 @@ A run label is a `key=value` pair on a run. Labels live in `<run id>/labels.json
 
 Readers also derive labels from the run's `versions`: `engine`, `image` (the first 12 hex digits of the ID), `config` and `harnesses`, the sorted `name@version` list such as `opencode@1.19.0,pi@1.1.0`. They are never written to the log, and a written label with the same key wins. <!-- code: src/labels.ts#makeVersionLabels bin/results.ts -->
 
-`agi start --run-label k=v` and programmatic `start({ ..., labels })` label each run the call begins, before its first save. `agi label <run id> k=v old-` sets `k` and removes `old` at any time. The [bench](bench.md#run-a-set) labels every run it starts, and the studio shows a run's labels, filters the Runs page by one, and keeps in the browser which label keys a reader hid. <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
+`agi start --run-label k=v` and programmatic `start({ ..., labels })` label each run the call begins, before its first save. `agi label <run id> k=v old-` sets `k` and removes `old` at any time. Given a path such as `<store>/<run id>`, it labels that run of any store, such as a bench set's `data`. The [bench](bench.md#run-a-set) labels every run it starts, and the studio shows a run's labels, filters the Runs page by one, and keeps in the browser which label keys a reader hid. <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
 
 ## The trace
 
