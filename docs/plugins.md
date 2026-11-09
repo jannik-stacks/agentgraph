@@ -194,7 +194,8 @@ The [dashboard experiment](../examples/dashboard/README.md) uses this same seam 
 run states, check attempts, tokens and reported cost. Its `plugins.dashboard` settings select a
 data folder and a list of counter, line, bar or table widgets with UTC time windows.
 It reads the existing store and refreshes through the studio's existing live connection.
-It adds no storage or chart dependency.
+It adds no storage or dependency. Its charts use d3-scale, which the studio shares with page plugins
+the way it shares React.
 <!-- code: examples/dashboard/plugins/dashboard.ts examples/dashboard/plugins/dashboard/read.ts#readDashboard -->
 
 Results and Bench are built-in plugins using this same descriptor, data endpoint and hook. They keep

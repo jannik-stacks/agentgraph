@@ -125,7 +125,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
       return {
         resolve: {
           alias: { '@jannik-stacks/agi/studio': fileURLToPath(new URL('./src/plugins.ts', import.meta.url)) },
-          dedupe: ['react', 'react-dom', 'jotai', 'effect'],
+          dedupe: ['react', 'react-dom', 'jotai', 'effect', 'd3-scale'],
         },
         server: {
           fs: { allow: loaded.map(page => dirname(fileURLToPath(page.page))) },
