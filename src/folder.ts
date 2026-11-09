@@ -79,6 +79,7 @@ export class GraphError extends Data.TaggedError('GraphError')<{ problems: Probl
 
 export const GraphSettings = Schema.Struct({
   plugins: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+  auth: Schema.optionalKey(Schema.String),
   setup: Schema.optionalKey(Schema.String),
   toolchain: Schema.optionalKey(Schema.String),
   image: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-z0-9][\w./:@-]*$/))),
