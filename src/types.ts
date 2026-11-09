@@ -169,7 +169,10 @@ export type Checkout = {
 
 export const formatCause = (cause: unknown): string => {
   try {
-    return cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : Formatter.format(cause);
+    if (cause instanceof Error) return cause.message;
+    if (typeof cause === 'string') return cause;
+    const util = globalThis.process?.getBuiltinModule?.('node:util');
+    return util ? util.inspect(cause, { depth: 2 }) : Formatter.format(cause);
   } catch {
     return 'an unprintable value';
   }
