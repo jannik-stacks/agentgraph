@@ -101,3 +101,14 @@ Decisions made without being sure. Each names what was picked and what would cha
   middleware is a second gate; dropping it would save about 12 lines.
 - `agi` watch output during a drive resubscribes once a second after a failed store read; no test covers the CLI
   watch output, since it only prints during a live drive.
+- **Conventions S1 skipped two audit items as not bugs today.** `isPostedBy` matches ` operation=<sha> ` in any
+  field order, since the run link always closes with ` -->`, and the writer's character filter never changes a hex
+  sha. The Docker `agentgraph-used` mark and the `agentgraph-<12 hex>` container name agree between writer and
+  reader; one export each is the markers work of S7. The bench and tune YAML prepends only touch
+  `examples/bench/settings.yaml`, which has no `setup:` or `toolchain:`, so no duplicate key is written yet; the
+  data edit belongs to S7's config-regex rule.
+- **A pull request maps to its issue only through run records.** `agi merge` on a pull request no run opened closes
+  no issue, where it used to close the issue in the branch name's trailing digits.
+- **A torn last line in a tracker's `events.jsonl` is skipped on read, not repaired on write.** The next comment
+  appends after it and leaves a broken middle line, which still throws; `appendJsonlRows` repairs, but its lock
+  folder would land in the tracker folder.
