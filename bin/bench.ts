@@ -24,8 +24,6 @@ import { dependencyDirs, discard, readSandboxSetup, createSharedMounts, manifest
 import { collect, ensureFreeDisk, readEnvRefs, writeEnvRefs } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
 import { getRunOrigin } from '../src/meta.ts';
-import type { CheckResult } from '../src/workflow.ts';
-import type { CheckEntry } from '../src/trace.ts';
 import type * as MainModule from '../src/main.ts';
 import { writeIssueFile } from '../src/tracker.ts';
 import { addGraphArgs } from '../src/git.ts';
@@ -65,6 +63,7 @@ import {
   readSlotRun,
   referenceArms,
 } from '../bench/runs.ts';
+import { type CheckEntry, type CheckResult } from '../src/types.ts';
 
 type Case = {
   id: string;

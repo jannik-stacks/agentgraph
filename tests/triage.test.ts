@@ -10,13 +10,13 @@ import type { Proposal } from '../src/proposal.ts';
 import { type Graph, loadGraph } from '../src/folder.ts';
 import type { Sandbox } from '../src/sandbox.ts';
 import type { Session } from '../src/session.ts';
-import type { SessionEvent } from '../src/trace.ts';
 import { fileStore, Store } from '../src/store.ts';
-import { begin, type Run } from '../src/workflow.ts';
+import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start } from './fixtures.ts';
 import { appendIssueAt, findStatus, git, issuePath, writeIssueAt } from './kit.ts';
+import { type Run, type SessionEvent } from '../src/types.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));
 

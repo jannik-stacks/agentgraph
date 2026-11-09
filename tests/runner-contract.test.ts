@@ -7,11 +7,12 @@ import { makeModalRunner } from '../examples/plugins/modal/modal.ts';
 import { sandboxImage } from '../src/docker.ts';
 import { makeSandbox } from '../src/mirror.ts';
 import { boxRunner } from '../src/remote.ts';
-import { type Command, Sandbox } from '../src/sandbox.ts';
+import { Sandbox } from '../src/sandbox.ts';
 import { dockerSandbox } from './docker-fixtures.ts';
 import { startBoxServer } from './doubles/box.ts';
 import { makeFakeModal } from './doubles/modal.ts';
 import { git, tmp } from './kit.ts';
+import { type Command } from '../src/types.ts';
 
 const origin = () => {
   const dir = tmp('origin');

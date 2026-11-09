@@ -2,11 +2,11 @@ import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, wr
 import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
 import settings from '../agentgraph.config.ts';
-import type { Check, Graph } from '../src/folder.ts';
+import type { Graph } from '../src/folder.ts';
 import type { Result } from '../src/result.ts';
-import type { SessionEvent } from '../src/trace.ts';
 import { compileWorkflow, type Problem, type Workflow } from '../src/workflow.ts';
 import { commit, git, tmp } from './kit.ts';
+import { type Check, type SessionEvent } from '../src/types.ts';
 
 export const { harnesses } = settings;
 

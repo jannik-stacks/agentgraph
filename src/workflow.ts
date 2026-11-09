@@ -1,26 +1,9 @@
 import { basename } from 'node:path';
 import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
-import type { Applied, Event } from './event.ts';
-import { Kind, type Proposal } from './proposal.ts';
-import type { Result } from './result.ts';
-import type { PluginMetadata } from './meta.ts';
-
-/**
- * A check's result: whether it passed, the `value` its result held when the check has its own `returns`, and with
- * `each` the `share` of items that passed. `empty` means no evidence: `each` found nothing, or a result could not
- * be read, with the reason in `findings`.
- */
-export type CheckResult = {
-  check: string;
-  pass: boolean;
-  value?: Result;
-  share?: number;
-  empty?: true;
-  na?: true;
-  findings?: string;
-  ms: number;
-};
+import type { Event } from './event.ts';
+import { Kind } from './proposal.ts';
+import { CommandLimits, type Outcome, type Run, type RunRecord } from './types.ts';
 
 /** A graph file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };
@@ -66,69 +49,6 @@ export type Step = {
   each?: 'files' | 'hunks' | { run: string };
 };
 
-/** How one try of a step ended, or what a human said to a waiting run. */
-export type Outcome =
-  | { kind: 'pass'; answered?: true; text?: string }
-  | { kind: 'failed'; checks: CheckResult[]; proposals: Applied[]; problems: string[] }
-  | { kind: 'back'; why: string }
-  | { kind: 'ask'; question: string }
-  | { kind: 'answer'; text: string }
-  | { kind: 'stop'; why: string; restarted?: true };
-
-/** How far a session has read its issues: the time of the last event it saw and the base its pull request was on. */
-export type Seen = { at: string; base?: string };
-
-/** Where one workflow run on one issue stands. */
-export type Run = {
-  meta?: PluginMetadata;
-  id: string;
-  workflow: string;
-  issue: number;
-  /** The issue's title and body as the run last saw them. */
-  title?: string;
-  body?: string;
-  step: string;
-  status: 'running' | 'waiting' | 'done' | 'stopped';
-  tries: number;
-  rounds: Record<string, number>;
-  sessions: Record<string, { id: string; home: string; seen?: Seen }>;
-  feedback?: string;
-  reported?: Record<string, string>;
-  /** What a human answered or said to the run, with the question each answer settled. */
-  answers?: { asked: string; said: string }[];
-  reason?: string;
-  restarted?: true;
-  /** A runner error has already been retried at this step. */
-  retried?: true;
-  /** The time of the newest event the run has taken in: its start, answers, and everything its sessions were shown. */
-  seen?: string;
-  /** Where humans last spoke to the run: the issue, and each review thread it has yet to answer. */
-  said?: { issue: number; under?: string }[];
-  /** The 👀 the run gave where it was woken, as the proposal that takes it back once the run has replied. */
-  eyes?: { issue: number; undo: Extract<Proposal, { kind: 'react' }> };
-  /** The parent pull request and the last attempted follow. */
-  base?: { pull: number; branch: string; sha: string; from?: string; tip?: string };
-  /**
-   * The base head the next push lands on, when following it conflicted: the work tree starts there with the change
-   * applied and conflict markers left, and the push replaces the branch, or merges into it with `merge`.
-   */
-  onto?: { sha: string; merge?: true };
-  /** The version of the graph the run was last checked under. */
-  graph?: string;
-  graphTree?: string;
-  blocked?: { base: string; head: string; graph: string };
-  /** The run whose `run` proposal started this one. */
-  by?: string;
-  checkout?: Pick<Workflow, 'branch'> & Required<Pick<Workflow, 'base'>>;
-  startCommit?: string;
-  owed?: string[];
-  unshown?: true;
-  started: string;
-  ended?: string;
-};
-
-export type RunRecord = Omit<Run, 'issue'> & Partial<Pick<Run, 'issue'>>;
-
 export const isRunDone = (run: RunRecord) => run.status === 'done' || run.status === 'stopped';
 
 const Count = Schema.Int.check(Schema.isGreaterThan(0));
@@ -142,19 +62,6 @@ const Trigger = Schema.NullOr(
   })
 );
 const EventName = Schema.Literals(['issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback', 'conflict']);
-
-export const CommandLimits = Schema.Struct({
-  memory: Schema.optionalKey(
-    Schema.String.check(
-      Schema.makeFilter(value => {
-        const match = /^(\d+)([bkmg]?)$/i.exec(value);
-        const bytes = match ? Number(match[1]) * 1024 ** 'bkmg'.indexOf((match[2] || 'b').toLowerCase()) : 0;
-        return (bytes >= 6 * 1024 ** 2 && bytes <= 64 * 1024 ** 3) || 'expected a Docker size from 6m to 64g';
-      })
-    )
-  ),
-  cpus: Schema.optionalKey(Schema.Finite.check(Schema.isBetween({ minimum: 0.01, maximum: 64 }))),
-});
 
 const StepFile = Schema.Struct({
   agent: Schema.optionalKey(Schema.String),

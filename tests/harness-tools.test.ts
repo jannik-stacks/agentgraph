@@ -3,7 +3,7 @@ import { claude } from '../harnesses/claude.ts';
 import { makeCodexHarness } from '../harnesses/codex.ts';
 import { opencode } from '../harnesses/opencode.ts';
 import { pi } from '../harnesses/pi.ts';
-import type { SessionSpec } from '../src/trace.ts';
+import { type SessionSpec } from '../src/types.ts';
 
 const harnesses = [claude(), makeCodexHarness(), opencode(), pi()];
 const spec: SessionSpec = {

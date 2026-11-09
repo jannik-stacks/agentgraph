@@ -1,6 +1,5 @@
 import type { Event, Issue } from './event.ts';
-import type { Trace } from './trace.ts';
-import type { Run } from './workflow.ts';
+import { type Run, type Trace } from './types.ts';
 
 export const findLoginProvider = (trace: Trace[], step: Run['step']) => {
   const outcome = trace.findLast(line => 'outcome' in line);

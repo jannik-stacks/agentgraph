@@ -11,8 +11,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { formatRedactedText } from './context.ts';
 import { makeFiles } from './files.ts';
-import type { SessionEvent } from './trace.ts';
 import type { readPlugins, ToolContext } from './plugin.ts';
+import { type SessionEvent } from './types.ts';
 
 export const readRequestBody = async (request: AsyncIterable<Buffer>, limit = 65_536) => {
   const chunks: Buffer[] = [];

@@ -1,10 +1,12 @@
 import { useAtomValue } from 'jotai';
 import { lazy } from 'react';
 import { Effect, Schema } from 'effect';
-import type { InstanceHost } from '../../src/engine.ts';
+import type { makeInstanceHost } from '../../src/engine.ts';
 import { makeApiHref, makeLiveJsonAtom } from './state.ts';
 
 export { queryParam, navigateAtom } from './state.ts';
+
+type InstanceHost = ReturnType<typeof makeInstanceHost>;
 export {
   accent,
   Badge,

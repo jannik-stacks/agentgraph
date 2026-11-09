@@ -6,7 +6,6 @@ import { folderTracker, Tracker } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { fileStore } from '../src/store.ts';
-import type { SessionEvent } from '../src/trace.ts';
 import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
@@ -14,6 +13,7 @@ import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { git, issuePath, writeIssueAt } from './kit.ts';
 import { world, push, pull, services, readTrace, driveStored, fresh, pullRequest } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { type SessionEvent } from '../src/types.ts';
 
 describe('a run branch that moved', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });

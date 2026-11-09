@@ -4,10 +4,11 @@ import { ConfigProvider, Effect, Exit, Layer, type Scope } from 'effect';
 import { afterAll, describe, expect, it } from 'vitest';
 import modal, { makeModalRunner, whyModalRefuses } from '../examples/plugins/modal/modal.ts';
 import { makeSandbox } from '../src/mirror.ts';
-import { type Command, Sandbox } from '../src/sandbox.ts';
+import { Sandbox } from '../src/sandbox.ts';
 import { makeFakeModal } from './doubles/modal.ts';
 import { makeTestGraph } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
+import { type Command } from '../src/types.ts';
 
 const fake = makeFakeModal(tmp('modal'));
 afterAll(() => fake.stop());

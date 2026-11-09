@@ -6,11 +6,11 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Config, ConfigProvider, Effect, Layer, Option, Redacted, Stream } from 'effect';
 import { type Graph, type HarnessCheck, GraphError, loadGraph } from './folder.ts';
-import { type Command, type Exit, Sandbox, type SandboxError } from './sandbox.ts';
+import { Sandbox, type SandboxError } from './sandbox.ts';
 import { getListPriceUsd, type Prices, readPrices } from './prices.ts';
 import { Session } from './session.ts';
 import { formatRedactedText } from './context.ts';
-import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
+import { type Command, type Exit, type SessionEvent, type SessionSpec, SessionStop } from './types.ts';
 
 export type Piece =
   | { type: 'session'; id: string; model?: string }

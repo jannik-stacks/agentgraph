@@ -67,7 +67,7 @@ import {
 } from '../src/services.ts';
 import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeStoredRunLabels } from '../src/labels.ts';
-import type { Run, RunRecord } from '../src/workflow.ts';
+import { type Run, type RunRecord } from '../src/types.ts';
 
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
   .version;

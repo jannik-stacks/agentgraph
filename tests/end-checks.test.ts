@@ -4,14 +4,14 @@ import { join } from 'node:path';
 import { Effect, Result } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { instruct, scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
-import type { Check, Graph } from '../src/folder.ts';
+import type { Graph } from '../src/folder.ts';
 import { Store } from '../src/store.ts';
-import type { SessionEvent } from '../src/trace.ts';
-import { transition, type Run } from '../src/workflow.ts';
+import { transition } from '../src/workflow.ts';
 import { result, start } from './fixtures.ts';
 import { fresh, graph, pullRequest, say, services, readChecks, w, world } from './world.ts';
 import { runStepChecks } from '../src/run/check.ts';
 import { issuePath } from './kit.ts';
+import { type Check, type Run, type SessionEvent } from '../src/types.ts';
 
 const ending = (checks: Record<string, Partial<Check>>): Graph => ({
   ...graph,

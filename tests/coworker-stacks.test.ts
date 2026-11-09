@@ -9,8 +9,7 @@ import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
-import { begin, type Run } from '../src/workflow.ts';
+import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
@@ -18,6 +17,7 @@ import { git, issuePath, writeIssueAt } from './kit.ts';
 import { world, services, readTrace, bodies, driveStored, fresh, say, comment } from './world.ts';
 import { runStepChecks } from '../src/run/check.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { type Run, type SessionEvent, type SessionSpec, type Trace } from '../src/types.ts';
 
 describe('stacks', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });

@@ -1,9 +1,9 @@
 import { atom } from 'jotai';
 import type { readRunResults } from '../../bin/results.ts';
-import type { RunRecord } from '../../src/workflow.ts';
 import type { findCheckVerdicts } from './graph/trail.ts';
 import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
 import { served } from 'virtual:served';
+import { type RunRecord } from '../../src/types.ts';
 
 export const instances = served.filter(one => one.name);
 

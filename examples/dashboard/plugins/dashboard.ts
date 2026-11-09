@@ -1,5 +1,5 @@
 import { makePlugin } from '@jannik-stacks/agi/plugins';
-import type { InstanceHost } from '@jannik-stacks/agi/trackers';
+import type { InstanceHost } from '@jannik-stacks/agi/plugins';
 import { DashboardData, DashboardSettings } from './dashboard/data.ts';
 import { readDashboard } from './dashboard/read.ts';
 

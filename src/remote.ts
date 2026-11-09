@@ -8,7 +8,8 @@ import { Duration, Effect, Exit, Layer, Redacted, Schedule, Scope, Semaphore, St
 import { getCachePath, makeToolchainSetupCommands } from './env.ts';
 import { hostGit, indexLock, makeHostEnv } from './git.ts';
 import type { Graph } from './folder.ts';
-import { type Command, type Exit as CommandExit, inside, Runner, SandboxError } from './sandbox.ts';
+import { inside, Runner, SandboxError } from './sandbox.ts';
+import { type Command, type Exit as CommandExit } from './types.ts';
 
 const exitFrame = '\u0000agentgraph-exit ';
 const freshHeader = 'agentgraph-box-fresh';

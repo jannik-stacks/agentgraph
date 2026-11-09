@@ -4,13 +4,13 @@ import { basename, dirname, join } from 'node:path';
 import { getRunOrigin } from '../src/meta.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import { getRounded } from '../src/stats.ts';
-import { type CheckEntry, findLatestChecks } from '../src/trace.ts';
-import type { RunRecord } from '../src/workflow.ts';
+import { findLatestChecks } from '../src/trace.ts';
 import type { ResultSheet } from '../src/results.ts';
 import { readJsonlRows, readRecordSync, writeFileAtomic } from '../src/store.ts';
 import { getSha } from '../src/hash.ts';
 import { readDirOrEmpty } from '../src/read.ts';
 import { type EngineHost, makeEngineHost } from '../src/engine.ts';
+import { type CheckEntry, type RunRecord } from '../src/types.ts';
 
 export type BenchInput = {
   case: string;

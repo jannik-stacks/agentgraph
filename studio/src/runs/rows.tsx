@@ -1,8 +1,6 @@
 import { useAtomValue } from 'jotai';
 import { type ReactNode, useState } from 'react';
 import type { Proposal } from '../../../src/proposal.ts';
-import type { Exit } from '../../../src/sandbox.ts';
-import type { RunRecord } from '../../../src/workflow.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultBadge, RunResultLines } from '../results/ResultTable.tsx';
@@ -21,6 +19,7 @@ import {
   type SessionTraceLines,
   splitTraceIntoVisitedSteps,
 } from './trace.ts';
+import { type Exit, type RunRecord } from '../../../src/types.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {

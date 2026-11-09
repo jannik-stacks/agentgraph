@@ -1,12 +1,13 @@
 import { Effect, Stream } from 'effect';
 import type { Issue, Event } from '../event.ts';
 import type { Graph } from '../folder.ts';
-import { type Workflow, type Run, isRunDone, isQuiet, getEventOutcome, fold, pickCommandTarget } from '../workflow.ts';
+import { type Workflow, isRunDone, isQuiet, getEventOutcome, fold, pickCommandTarget } from '../workflow.ts';
 import type { IssueWithPull } from '../context.ts';
-import { type TrackerError, Tracker } from '../tracker.ts';
-import { type StoreError, Store } from '../store.ts';
+import { Tracker } from '../tracker.ts';
+import { Store } from '../store.ts';
 import { makeContinuedMeta } from '../meta.ts';
 import { getStepReturns } from '../graph.ts';
+import { type Run, type StoreError, type TrackerError } from '../types.ts';
 
 export const formatTemplate = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));

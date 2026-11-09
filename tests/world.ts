@@ -2,20 +2,28 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { onTestFinished } from 'vitest';
-import { folderTracker, Tracker, TrackerError, currentRunLinkRef } from '../src/tracker.ts';
+import { folderTracker, Tracker, currentRunLinkRef } from '../src/tracker.ts';
 import type { Event, IssueStatus, RunLink } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { Sandbox, type Command } from '../src/sandbox.ts';
+import { Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { CheckEntry, Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
 import type { Graph } from '../src/folder.ts';
-import { begin, type Run } from '../src/workflow.ts';
+import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, result, seeded, start } from './fixtures.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { appendIssueAt, issuePath, writeIssueAt } from './kit.ts';
+import {
+  type CheckEntry,
+  type Command,
+  type Run,
+  type SessionEvent,
+  type SessionSpec,
+  type Trace,
+  TrackerError,
+} from '../src/types.ts';
 
 export const replyHint = 'Reply `/agent` and your answer, or `/agent:stop` to end the run.';
 export const graph = makeTestGraph('kit', {

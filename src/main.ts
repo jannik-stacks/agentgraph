@@ -19,11 +19,11 @@ import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredG
 import { type Instance, readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
 import { makeProductionLayers, type makeTrackerSetup, readTrackerName, settings, type Settings } from './services.ts';
-import { Store, StoreError } from './store.ts';
+import { Store } from './store.ts';
 import { LockHeldError } from './owner.ts';
 import { parseLabels, writeRunLabels } from './labels.ts';
-import type { Run, RunRecord } from './workflow.ts';
 import { sessionPermitsRef, type Services } from './run/execute.ts';
+import { type Run, type RunRecord, StoreError } from './types.ts';
 
 export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
 const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()), 'utf8');

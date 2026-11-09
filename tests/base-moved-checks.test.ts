@@ -7,7 +7,6 @@ import { tick } from '../src/run/trigger.ts';
 import { findIssueNumbers, Tracker } from '../src/tracker.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionEvent, SessionSpec, Trace } from '../src/trace.ts';
 import type { Graph } from '../src/folder.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { makeTestGraph, reply, result, start, stop, wrote } from './fixtures.ts';
@@ -16,6 +15,7 @@ import { graph, w, world, push, pull, judged, services, readChecks, say, comment
 import { runStepChecks } from '../src/run/check.ts';
 
 import { parked, moved, behind, rebases, merging } from './base-moved-fixtures.ts';
+import { type SessionEvent, type SessionSpec, type Trace } from '../src/types.ts';
 const readJudgeSessions = (data: string) =>
   readChecks(data, 'run-7').flatMap(e =>
     e.log

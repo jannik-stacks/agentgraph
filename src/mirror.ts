@@ -3,11 +3,11 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { copyFile, mkdir, readFile, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Effect, Layer, Semaphore, Stream } from 'effect';
-import type { TrackerError } from './tracker.ts';
 import { findDeadCheckouts, getCachePath, getCheckoutPaths, removeCheckout, writeCheckoutOwner } from './env.ts';
 import { removeBranch } from './disk.ts';
 import { commitCheckout, commitCheckoutOnce, hostGit, readGit, readBranches, readWorktreeAdmin } from './git.ts';
-import { type Box, type Checkout, type Command, type Exit, Runner, Sandbox, SandboxError } from './sandbox.ts';
+import { type Box, Runner, Sandbox, SandboxError } from './sandbox.ts';
+import { type Checkout, type Command, type Exit, type TrackerError } from './types.ts';
 
 const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
 const outputLimit = 64 << 10;

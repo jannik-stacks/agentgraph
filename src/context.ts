@@ -1,6 +1,6 @@
 import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './event.ts';
-import type { CheckEntry, Trace } from './trace.ts';
-import { formatFailedTryFeedback, type Run, type Seen } from './workflow.ts';
+import { formatFailedTryFeedback } from './workflow.ts';
+import { type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
 export type IssueWithPull = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };

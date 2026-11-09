@@ -113,7 +113,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 ## Agents
 
-`agents/<name>.md`. The body is added to the harness's system prompt. <!-- code: src/folder.ts#Agent -->
+`agents/<name>.md`. The body is added to the harness's system prompt. <!-- code: src/types.ts#Agent -->
 
 | Field     | Type                   | Default                                       | Meaning                                                                              |
 | --------- | ---------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -125,7 +125,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 ## Checks
 
-`checks/<name>.md`, with `run`, `agent` or both. The body is its description; see [Checks and results](checks.md). <!-- code: src/folder.ts#Check -->
+`checks/<name>.md`, with `run`, `agent` or both. The body is its description; see [Checks and results](checks.md). <!-- code: src/types.ts#Check -->
 
 | Field     | Type                              | Default        | Meaning                                               |
 | --------- | --------------------------------- | -------------- | ----------------------------------------------------- |

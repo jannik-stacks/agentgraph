@@ -4,8 +4,9 @@ import { Effect, Layer, Stream } from 'effect';
 import { dockerRunner } from '../src/docker.ts';
 import { makeSandbox } from '../src/mirror.ts';
 import { delimiter, join } from 'node:path';
-import { type Command, type Exit, Runner, Sandbox } from '../src/sandbox.ts';
+import { Runner, Sandbox } from '../src/sandbox.ts';
 import { git, tmp } from './kit.ts';
+import { type Command, type Exit } from '../src/types.ts';
 
 export const dockerSandbox = (o: Parameters<typeof makeSandbox>[0] & Parameters<typeof dockerRunner>[0]) =>
   Layer.effect(

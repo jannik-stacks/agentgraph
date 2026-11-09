@@ -1,5 +1,5 @@
-import type { Agent, Check } from './folder.ts';
-import type { Run, RunRecord, Step, Workflow } from './workflow.ts';
+import type { Step, Workflow } from './workflow.ts';
+import { type Agent, type Check, type Run, type RunRecord } from './types.ts';
 
 export const isOnIssue = <R extends Pick<RunRecord, 'issue'>>(run: R): run is R & Pick<Run, 'issue'> =>
   run.issue !== undefined;

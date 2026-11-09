@@ -8,7 +8,7 @@ import {
   type IssueWithPull,
 } from '../src/context.ts';
 import { formatRunMark, makeBodyWithStatus, removeRunLink, type Issue } from '../src/event.ts';
-import type { Run } from '../src/workflow.ts';
+import { type Run } from '../src/types.ts';
 
 const run: Run = {
   id: 'issue-7',

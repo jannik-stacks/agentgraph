@@ -24,9 +24,10 @@ import {
 } from './env.ts';
 import { ensureFreeDisk, writeEnvRefs } from './disk.ts';
 import { waitForLock } from './owner.ts';
-import { type Checkout, type Command, type Exit, inside, Runner, type Sandbox, SandboxError } from './sandbox.ts';
+import { inside, Runner, type Sandbox, SandboxError } from './sandbox.ts';
 import { makeHostEnv, readGit, readWorktreeAdmin } from './git.ts';
 import type { RunnerHost } from './plugin.ts';
+import { type Checkout, type Command, type Exit } from './types.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;

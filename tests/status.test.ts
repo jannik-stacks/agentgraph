@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Effect, Redacted } from 'effect';
 import { expect, it } from 'vitest';
-import type { Run } from '../src/workflow.ts';
 import { readInstallationReach } from '../src/github.ts';
 import { findRunsWaitingOnPeople, formatNextSteps, formatRunnerError } from '../src/status.ts';
 import { fileStore, Store } from '../src/store.ts';
+import { type Run } from '../src/types.ts';
 
 const { privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,

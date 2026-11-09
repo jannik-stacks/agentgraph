@@ -1,13 +1,14 @@
 import { Effect } from 'effect';
 import type { Said, Proposal } from '../proposal.ts';
-import { type TrackerError, Tracker, withheld } from '../tracker.ts';
-import { type Workflow, type Run, type RunRecord, begin, isRunDone } from '../workflow.ts';
+import { Tracker, withheld } from '../tracker.ts';
+import { type Workflow, begin, isRunDone } from '../workflow.ts';
 import type { Applied } from '../event.ts';
 import { Store } from '../store.ts';
 import { LockHeldError } from '../owner.ts';
 import type { Graph } from '../folder.ts';
 import { findAppliedBefore, getOperationKey, writeOnce, useRunLink } from './settle.ts';
 import { isInScope, isRetro } from './hear.ts';
+import { type Run, type RunRecord, type TrackerError } from '../types.ts';
 
 export const makeRunId = (w: Pick<Workflow, 'name'>, issue: number, at: string) =>
   `${w.name}-${issue}-${at.replace(/\D/g, '')}`;

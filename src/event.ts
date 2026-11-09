@@ -1,62 +1,71 @@
+import { Schema, type Types } from 'effect';
 import type { Proposal } from './proposal.ts';
 
 export const issueStatuses = ['working', 'needs-review', 'needs-answer', 'done', 'stopped'] as const;
 export type IssueStatus = (typeof issueStatuses)[number];
 
+const Text = Schema.optionalKey(Schema.String);
+
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
-export type Issue = {
-  number: number;
-  title: string;
-  body: string;
-  state: 'open' | 'closed' | 'merged';
-  labels: string[];
-  milestone?: string;
-  author: string;
-  parent?: number;
-  pull?: { branch: string; base: string; head: string; baseSha?: string };
-  url: string;
-};
+export const Issue = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
+  body: Schema.String,
+  state: Schema.Literals(['open', 'closed', 'merged']),
+  labels: Schema.mutable(Schema.Array(Schema.String)),
+  milestone: Text,
+  author: Schema.String,
+  parent: Schema.optionalKey(Schema.Number),
+  pull: Schema.optionalKey(
+    Schema.Struct({ branch: Schema.String, base: Schema.String, head: Schema.String, baseSha: Text })
+  ),
+  url: Schema.String,
+});
+export type Issue = Types.Mutable<typeof Issue.Type>;
 
 /**
  * A comment; `path` and `line` place a review comment, `under` is the review comment it answers. `agentRequest` is what
  * it asks the bot: its text without the `/agent` that calls the bot, when it has one.
  */
-export type Comment = {
-  id: string;
-  author: string;
-  body: string;
-  at: string;
-  edited?: string;
-  agentRequest?: string;
-  path?: string;
-  line?: number;
-  under?: string;
-};
+export const Comment = Schema.Struct({
+  id: Schema.String,
+  author: Schema.String,
+  body: Schema.String,
+  at: Schema.String,
+  edited: Text,
+  agentRequest: Text,
+  path: Text,
+  line: Schema.optionalKey(Schema.Number),
+  under: Text,
+});
+export type Comment = Types.Mutable<typeof Comment.Type>;
 
 /** Something a person or a bot said or did on an issue. */
-export type Event = {
-  source?: 'cli';
-  issue: number;
-  kind:
-    | 'comment'
-    | 'approved'
-    | 'changes_requested'
-    | 'merged'
-    | 'closed'
-    | 'label'
-    | 'unlabel'
-    | 'column'
-    | 'commit'
-    | 'check';
-  actor: string;
-  trusted: boolean;
-  at: string;
-  comment?: Comment;
-  label?: string;
-  column?: { project: string; name: string };
-  commit?: { sha: string; title: string };
-  check?: { name: string; conclusion: string };
-};
+export const Event = Schema.Struct({
+  source: Schema.optionalKey(Schema.Literal('cli')),
+  issue: Schema.Number,
+  kind: Schema.Literals([
+    'comment',
+    'approved',
+    'changes_requested',
+    'merged',
+    'closed',
+    'label',
+    'unlabel',
+    'column',
+    'commit',
+    'check',
+  ]),
+  actor: Schema.String,
+  trusted: Schema.Boolean,
+  at: Schema.String,
+  comment: Schema.optionalKey(Comment),
+  label: Text,
+  column: Schema.optionalKey(Schema.Struct({ project: Schema.String, name: Schema.String })),
+  commit: Schema.optionalKey(Schema.Struct({ sha: Schema.String, title: Schema.String })),
+  check: Schema.optionalKey(Schema.Struct({ name: Schema.String, conclusion: Schema.String })),
+});
+export type Event = Types.Mutable<typeof Event.Type>;
 
 /**
  * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction

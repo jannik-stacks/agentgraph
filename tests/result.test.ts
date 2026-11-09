@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { makeCodexHarness } from '../harnesses/codex.ts';
-import type { SessionSpec } from '../src/trace.ts';
 import {
   defaultPass,
   defaultReturns,
@@ -14,6 +13,7 @@ import {
   ResultType,
 } from '../src/result.ts';
 import { harnesses } from './fixtures.ts';
+import { type SessionSpec } from '../src/types.ts';
 
 const talk = (returns: ResultType, ...messages: (object | string)[]) =>
   spawnSync(process.execPath, makeResultServer(returns).args, {

@@ -1,10 +1,9 @@
 import { Struct } from 'effect';
 import type { Located } from '../../../src/store.ts';
 import type { readRunLabels } from '../../../src/labels.ts';
-import type { CheckEntry, Trace } from '../../../src/trace.ts';
-import type { CheckResult, Outcome, RunRecord } from '../../../src/workflow.ts';
 import { isOnIssue } from '../../../src/graph.ts';
 import { makeRunTrail } from '../graph/visits.ts';
+import { type CheckEntry, type CheckResult, type Outcome, type RunRecord, type Trace } from '../../../src/types.ts';
 
 export const formatNumber = (n: number) =>
   Math.abs(n) >= 1e6

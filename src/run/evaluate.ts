@@ -1,14 +1,12 @@
 import { Effect, Stream } from 'effect';
-import type { Check, Graph } from '../folder.ts';
-import type { RunRecord } from '../workflow.ts';
+import type { Graph } from '../folder.ts';
 import { type SandboxError, Sandbox } from '../sandbox.ts';
 import { writeCheckoutTree, readGit } from '../git.ts';
-import { type StoreError, Store } from '../store.ts';
-import type { SessionStop } from '../trace.ts';
-import type { TrackerError } from '../tracker.ts';
+import { Store } from '../store.ts';
 import { runSetup } from './checkout.ts';
 import { type Left, writeCheckFiles, runOneCheck } from './check.ts';
 import { formatFailure } from './execute.ts';
+import { type Check, type RunRecord, type SessionStop, type StoreError, type TrackerError } from '../types.ts';
 
 const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | TrackerError | StoreError, R>) =>
   Effect.catch(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(formatFailure(err))));

@@ -5,11 +5,12 @@ import { Context, Effect, Exit, Fiber, Layer, Redacted, type Scope, Stream } fro
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeSandbox } from '../src/mirror.ts';
 import { boxRunner } from '../src/remote.ts';
-import { type Command, Runner, Sandbox } from '../src/sandbox.ts';
+import { Runner, Sandbox } from '../src/sandbox.ts';
 import { makeTestGraph } from './fixtures.ts';
 import type { Graph } from '../src/folder.ts';
 import { startBoxServer } from './doubles/box.ts';
 import { git, tmp } from './kit.ts';
+import { type Command } from '../src/types.ts';
 
 const origin = () => {
   const dir = tmp('origin');

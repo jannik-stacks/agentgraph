@@ -5,7 +5,7 @@ import { appendFile, link, mkdir, readFile, rename, stat, unlink, watch, writeFi
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename, dirname, join, resolve } from 'node:path';
-import { Context, Data, Effect, Layer, Stream, Semaphore } from 'effect';
+import { Context, Effect, Layer, Stream, Semaphore } from 'effect';
 import { parse, stringify } from 'yaml';
 import {
   issueStatuses,
@@ -22,10 +22,10 @@ import {
   type RunLink,
 } from './event.ts';
 import type { Proposal } from './proposal.ts';
-import type { Checkout } from './sandbox.ts';
 import { readGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
 import { waitForLock } from './owner.ts';
 import { writeFileAtomic } from './store.ts';
+import { type Checkout, TrackerError, type InstanceHost } from './types.ts';
 
 /** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
 export const currentRunLinkRef = Context.Reference<RunLink | undefined>('agentgraph/currentRunLink', {
@@ -54,25 +54,14 @@ export const makePostableProposal = (p: Proposal, studio?: string) =>
 
 export const isPostedBy = (body: string, operation: string) => body.includes(` operation=${operation} `);
 
-export class TrackerError extends Data.TaggedError('TrackerError')<{
-  status?: number;
-  message: string;
-  moved?: true;
-}> {}
-
 /** The repo as the state: GitHub in production, a JSON file in tests. */
 export class Tracker extends Context.Service<
   Tracker,
-  {
+  InstanceHost['tracker'] & {
     base: Effect.Effect<string, TrackerError>;
-    issues: (
-      filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>> & Partial<Pick<NonNullable<Issue['pull']>, 'branch'>>
-    ) => Effect.Effect<Issue[], TrackerError>;
     searchIssues: (
       ...args: Parameters<ToolContext['tracker']['searchIssues']>
     ) => Effect.Effect<Awaited<ReturnType<ToolContext['tracker']['searchIssues']>>, TrackerError>;
-    issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, TrackerError>;
-    since: (cursor: string, columns?: boolean) => Stream.Stream<Event, TrackerError>;
     apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, TrackerError>;
     findPost: (
       number: number,

@@ -6,8 +6,8 @@ import { readEnvRefs, writeEnvRefs } from '../src/disk.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { writeFileAtomic } from '../src/store.ts';
-import type { RunRecord } from '../src/workflow.ts';
 import { readBenchRun, type BenchInput } from './runs.ts';
+import { type RunRecord } from '../src/types.ts';
 
 const clone = { recursive: true, mode: constants.COPYFILE_FICLONE };
 const kept = new Set(['graph', 'tracker', 'issue.md', 'change.patch']);

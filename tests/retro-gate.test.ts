@@ -4,14 +4,14 @@ import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { tick } from '../src/run/trigger.ts';
 import type { Event } from '../src/event.ts';
-import { loadGraph, type Agent } from '../src/folder.ts';
+import { loadGraph } from '../src/folder.ts';
 import { folderTracker } from '../src/tracker.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import { appendIssueAt, issuePath, writeIssueAt } from './kit.ts';
+import { type Agent, type SessionEvent } from '../src/types.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'retro-gate'), harnesses));
 

@@ -3,13 +3,11 @@ import { join } from 'node:path';
 import { Effect, Layer, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { instruct, tick } from '../src/run/trigger.ts';
-import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
-import type { Agent } from '../src/folder.ts';
+import { folderTracker, Tracker } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
@@ -19,6 +17,7 @@ import { world, push, pull, services, readTrace, reactions, bodies, fresh, say, 
 import { runWorkflow } from '../src/run/drive.ts';
 
 import { small, merging, waiting } from './tick-fixtures.ts';
+import { type Agent, type SessionEvent, type SessionSpec, TrackerError } from '../src/types.ts';
 
 describe('tick', () => {
   it('takes an approval that came before a later trace line of the waiting run, such as a rebase', async () => {

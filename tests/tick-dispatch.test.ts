@@ -7,8 +7,7 @@ import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionSpec } from '../src/trace.ts';
-import { begin, transition, type Run } from '../src/workflow.ts';
+import { begin, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { reply, start, wrote } from './fixtures.ts';
@@ -31,6 +30,7 @@ import {
 import { runWorkflow } from '../src/run/drive.ts';
 
 import { small, merging, waiting } from './tick-fixtures.ts';
+import { type Run, type SessionSpec } from '../src/types.ts';
 
 describe('tick', () => {
   it.each(['event', 'cli'])('leaves a locked run to its driver when another tick sees stop: %s', async source => {

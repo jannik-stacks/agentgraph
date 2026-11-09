@@ -213,7 +213,7 @@ reads the studio's own Runs and Graph pages use, scoped to the one instance the 
 for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/trackers`, as in
 `read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations does not execute readers or import TSX. Host code remains trusted; namespaces
 are not isolation.
-<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/engine.ts#InstanceHost src/engine.ts#makeInstanceHost -->
+<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/types.ts#InstanceHost src/engine.ts#makeInstanceHost -->
 
 A page default-exports a React component. Set `page: new URL('./Page.tsx', import.meta.url)`;
 Vite compiles it and its CSS. Import `usePluginData` from `@jannik-stacks/agi/studio` in the page.

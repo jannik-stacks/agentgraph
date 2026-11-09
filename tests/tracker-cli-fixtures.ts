@@ -10,11 +10,11 @@ import { fileStore } from '../src/store.ts';
 import { start as main } from '../src/main.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
-import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { seeded } from './fixtures.ts';
 import { git, issuePath } from './kit.ts';
+import { type SessionEvent } from '../src/types.ts';
 
 const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');
 

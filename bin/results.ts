@@ -1,14 +1,14 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Graph } from '../src/folder.ts';
-import { type CheckEntry, findLatestChecks, type Trace } from '../src/trace.ts';
-import type { RunRecord } from '../src/workflow.ts';
+import { findLatestChecks } from '../src/trace.ts';
 import { isOnIssue } from '../src/graph.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { findCheckFields } from '../src/results.ts';
 import { readRunLabels } from '../src/labels.ts';
 import type { RunResults } from '../studio/src/results/result.ts';
 import { readFileOrEmpty, readJsonl } from './resume.ts';
+import { type CheckEntry, type RunRecord, type Trace } from '../src/types.ts';
 
 const findDeadReason = (run: RunRecord, trace: Trace[]) =>
   run.status === 'done' || run.status === 'stopped'

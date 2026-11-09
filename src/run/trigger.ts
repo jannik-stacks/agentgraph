@@ -1,24 +1,21 @@
 import { matchesGlob } from 'node:path';
 import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine, stoppedByRunner } from '../context.ts';
-import { Tracker, TrackerError, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
+import { Tracker, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
 import type { Graph } from '../folder.ts';
 import { Sandbox } from '../sandbox.ts';
-import { Store, type StoreError } from '../store.ts';
+import { Store } from '../store.ts';
 import { getSha } from '../hash.ts';
-import { SessionStop, makeOutcomeLine } from '../trace.ts';
+import { makeOutcomeLine } from '../trace.ts';
 import {
   begin,
   fold,
   getEventOutcome,
   makeRunWithFreshRound,
   transition,
-  type Outcome,
-  type Run,
-  type RunRecord,
   type Workflow,
   isHumanWaitStep,
   isIssueTriggered,
@@ -46,6 +43,7 @@ import { isParked, writeMovedStatus, writeStatus, runEndChecks } from './settle.
 import { findUndispatchable, startProposedRun, formatWaitingOn, formatSettled, makeRunId, startRun } from './start.ts';
 import { runAside, runFollow, runCatchUp } from './follow.ts';
 import { runWorkflow } from './drive.ts';
+import { type Outcome, type Run, type RunRecord, SessionStop, type StoreError, TrackerError } from '../types.ts';
 
 /** Why a run is held: "Depends on" issues not yet closed and "Stacks on" issues without a pull request. */
 const findHold = (w: Workflow, issue: number, open: Issue[]) => {

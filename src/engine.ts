@@ -8,9 +8,9 @@ import type { Graph } from './folder.ts';
 import type * as MainModule from './main.ts';
 import type { JsonValue } from './meta.ts';
 import { fileStore, readJsonlRows, readRecordSync, Store } from './store.ts';
-import { Tracker, TrackerError, type TrackerSetup, writeAgentComment } from './tracker.ts';
-import { type CheckEntry, findLatestChecks } from './trace.ts';
-import type { RunRecord } from './workflow.ts';
+import { Tracker, type TrackerSetup, writeAgentComment } from './tracker.ts';
+import { findLatestChecks } from './trace.ts';
+import { type CheckEntry, type InstanceHost, type RunRecord, TrackerError } from './types.ts';
 
 type EngineConfig = {
   readonly name: string;
@@ -19,12 +19,7 @@ type EngineConfig = {
   readonly checks?: Graph['checks'];
 };
 
-type StoredRun = {
-  readonly data: string;
-  readonly run: RunRecord;
-  readonly labels: Readonly<Record<string, string>>;
-  readonly latest: readonly CheckEntry[];
-};
+type StoredRun = ReturnType<InstanceHost['readRuns']>[number];
 
 export type Submission =
   | (Required<Pick<Parameters<typeof MainModule.start>[0], 'graph' | 'setup'>> & { issue: number })
@@ -61,30 +56,25 @@ const makeAction = <S extends Schema.Codec<readonly unknown[], unknown>, A, E>(
   run: (...args: S['Type']) => Effect.Effect<A, E>
 ) => ({ args, run });
 
-export type InstanceHost = ReturnType<typeof makeInstanceHost>;
-
 export const makeInstanceHost = (
   config: Pick<EngineConfig, 'data' | 'checks'>,
   tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] }
 ) => {
   const { data } = config;
-  const store: Pick<Store['Service'], 'list' | 'listRecords' | 'getRecord' | 'read' | 'readChecks' | 'readLog'> =
-    Effect.runSync(Store.pipe(Effect.provide(fileStore(data))));
+  const store: InstanceHost['store'] = Effect.runSync(Store.pipe(Effect.provide(fileStore(data))));
   const service = tracker && Effect.runSync(Effect.cached(Effect.provide(Tracker, tracker.layer)));
   const missing = new TrackerError({ message: 'this studio serves no tracker' });
   const provided = <A>(effect: Effect.Effect<A, TrackerError, Tracker>) =>
     service ? Effect.flatMap(service, t => Effect.provideService(effect, Tracker, t)) : Effect.fail(missing);
-  const reads: Pick<Tracker['Service'], 'issues' | 'issue' | 'since'> = {
+  const reads: InstanceHost['tracker'] = {
     issues: filter => provided(Effect.flatMap(Tracker, t => t.issues(filter))),
     issue: n => provided(Effect.flatMap(Tracker, t => t.issue(n))),
     since: (cursor, columns) =>
       service ? Stream.unwrap(Effect.map(service, t => t.since(cursor, columns))) : Stream.fail(missing),
   };
+  const host: InstanceHost = { data, store, tracker: reads, readRuns: () => readStoredRuns(config) };
   return {
-    data,
-    store,
-    tracker: reads,
-    readRuns: () => readStoredRuns(config),
+    ...host,
     actions: {
       say: makeAction(
         Schema.Tuple([Schema.Int.check(Schema.isGreaterThan(0)), Schema.Trimmed.check(Schema.isNonEmpty())]),

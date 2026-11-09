@@ -8,10 +8,9 @@ import { dockerSandbox } from './docker-fixtures.ts';
 import { tick } from '../src/run/trigger.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
-import { Sandbox, SandboxError, type Checkout, type Command } from '../src/sandbox.ts';
+import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionEvent } from '../src/trace.ts';
-import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts';
+import { begin, getEventOutcome, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { fakeDocker, harnesses, makeTestGraph, reply, start, wrote } from './fixtures.ts';
@@ -33,6 +32,7 @@ import {
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { writeStatus } from '../src/run/settle.ts';
+import { type Checkout, type Command, type Run, type SessionEvent } from '../src/types.ts';
 
 describe('drive', () => {
   beforeAll(() => fakeDocker().restore);

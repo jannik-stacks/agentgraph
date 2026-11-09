@@ -1,7 +1,7 @@
 import { Schema, Struct } from 'effect';
-import type { Check } from './folder.ts';
 import { CheckMode, ResultType } from './result.ts';
 import { JsonValue, PluginMetadata } from './meta.ts';
+import { type Check } from './types.ts';
 
 const Field = Schema.Struct({
   check: Schema.String,

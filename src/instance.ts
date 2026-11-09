@@ -26,8 +26,8 @@ import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
 import { formatInstanceFlags, formatShellWord } from './status.ts';
 import { fileStore, writeFileAtomic } from './store.ts';
-import type { RunRecord } from './workflow.ts';
 import { startRun } from './run/start.ts';
+import { type RunRecord } from './types.ts';
 
 export type Instance = Omit<typeof InstanceFile.Type, 'tracker'> & {
   dir: string;

@@ -1,6 +1,5 @@
-import type { CheckEntry } from '../../../src/trace.ts';
-import type { RunRecord } from '../../../src/workflow.ts';
 import type { Fixture } from './scenarios.ts';
+import { type CheckEntry, type RunRecord } from '../../../src/types.ts';
 
 export const splitSelection = (selected: string | null) => {
   const [workflow, step, ...rest] = selected?.split('/') ?? [];

@@ -13,6 +13,7 @@ import type * as EngineModule from '../src/engine.ts';
 import type * as ToolsModule from '../src/tools.ts';
 import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
+import type { RunRecord } from '../src/types.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
 
 const isInside = async (path: string, roots: string[]) => {
@@ -133,7 +134,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data, id), [data]));
         const answer = await Effect.runPromise(
           Effect.gen(function* () {
-            const entry = (run: WorkflowModule.RunRecord, all: boolean, body = false) =>
+            const entry = (run: RunRecord, all: boolean, body = false) =>
               Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
                 const lines = mergeCheckEntries(trace, checks);
                 const summary = makeRunSummary(run, lines);

@@ -1,8 +1,6 @@
 import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Effect } from 'effect';
 import { fileStore, Store } from '../src/store.ts';
-import type { Trace } from '../src/trace.ts';
-import type { Run } from '../src/workflow.ts';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,6 +26,7 @@ import {
   readBenchRowResults,
   summarise,
 } from '../studio/src/bench/score.ts';
+import { type Run, type Trace } from '../src/types.ts';
 
 type Row = BenchRow;
 const at = '2026-10-16T05:00:00.000Z';

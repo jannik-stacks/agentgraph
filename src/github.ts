@@ -9,7 +9,6 @@ import {
   pushLimits,
   unpushable,
   Tracker,
-  TrackerError,
   makePostableProposal,
   matches,
   parseIssueSearch,
@@ -29,7 +28,8 @@ import {
 } from './event.ts';
 import { makePlugin } from './plugin.ts';
 import type { Proposal } from './proposal.ts';
-import type { Checkout, SandboxError } from './sandbox.ts';
+import type { SandboxError } from './sandbox.ts';
+import { type Checkout, TrackerError } from './types.ts';
 import { hostGit, mergeTreeOnto, commitPublishedTree, readGit } from './git.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
