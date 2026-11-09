@@ -89,9 +89,7 @@ it('serves each named instance under its own name, with no run crossing over', a
     await vi.waitFor(() => expect(server.watcher.getWatched()).toHaveProperty(realpathSync(bench!.data)));
     const sent = vi.spyOn(server.ws, 'send');
     writeRun(bench!.data, 'run-later');
-    await vi.waitFor(() =>
-      expect(sent).toHaveBeenCalledWith('agi:changed', { topics: ['bench:data', 'bench:results', 'bench'] })
-    );
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledWith('agi:changed', { topics: ['bench:data', 'bench'] }));
   } finally {
     await server.close();
     vi.unstubAllEnvs();

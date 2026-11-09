@@ -6,6 +6,7 @@ import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
 import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue, SchemaRepresentation } from 'effect';
+import type { InstanceHost } from './engine.ts';
 import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
@@ -115,8 +116,14 @@ export const makePlugin = <S = undefined, D = unknown, I = D, T = unknown, E = u
     engine?: (host: H, settings: S) => E;
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Codec<D, I>;
-      read: (settings: S, engine: E) => Effect.Effect<D, unknown>;
-      watch?: (settings: S, engine: E) => readonly string[];
+      read: (
+        settings: S,
+        host: [E] extends [undefined] ? Omit<InstanceHost, 'say' | 'label'> : E
+      ) => Effect.Effect<D, unknown>;
+      watch?: (
+        settings: S,
+        host: [E] extends [undefined] ? Omit<InstanceHost, 'say' | 'label'> : E
+      ) => readonly string[];
     };
     tools?: Record<string, Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, ToolContext<S>>>;
     on?: { status?: StatusHook<S> };
@@ -175,7 +182,7 @@ export const readPlugins = async (
   settings: Record<string, unknown> = {},
   isReserved: (name: string) => boolean = () => false,
   builtins: readonly unknown[] = [],
-  host?: (plugin: string) => unknown
+  host: { engine?: (plugin: string) => unknown; instance?: InstanceHost } = {}
 ) => {
   const plugins = new Map<string, string>();
   const tools: Record<string, { tool: Tool; settings: unknown; plugin: string }> = {};
@@ -233,8 +240,8 @@ export const readPlugins = async (
     if (plugin.engine && file !== builtin) throw new Error(`${file}: only operator-registered plugins get an engine`);
     if (plugin.tracker) trackers[plugin.name] = plugin.tracker;
     if (plugin.on?.status) hooks.push({ plugin: plugin.name, settings: decoded, status: plugin.on.status });
-    const engine = plugin.engine && host && plugin.engine(host(plugin.name), decoded);
-    if (plugin.studio && (!plugin.engine || host)) {
+    const engine = plugin.engine && host.engine ? plugin.engine(host.engine(plugin.name), decoded) : host.instance;
+    if (plugin.studio && (!plugin.engine || host.engine)) {
       const { title, dataSchema, page, read, watch } = plugin.studio;
       const actual = await realpath(fileURLToPath(page));
       if (extname(actual) !== '.tsx' || !(await lstat(actual)).isFile())

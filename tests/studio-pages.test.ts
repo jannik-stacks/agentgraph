@@ -91,7 +91,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
     expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['count']);
     writeFileSync(join(dir, 'data', 'new'), '');
     await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(2));
-    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'data', 'results']);
+    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'data']);
     expect(server.watcher.listenerCount('all')).toBe(listeners);
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('8');
   } finally {
@@ -261,6 +261,55 @@ dataSchema: Schema.String, read: () => Effect.succeed('${name}') } });
   const { server, base } = await startStudioServer();
   try {
     expect(await (await fetch(`${base}/api/plugins/${name}/data`)).json()).toBe(name);
+  } finally {
+    await server.close();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('runs instance actions only for same-origin JSON and reports refusals', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-actions-'));
+  const dir = join(root, 'graph');
+  mkdirSync(dir);
+  mkdirSync(join(root, 'data', 'r1'), { recursive: true });
+  mkdirSync(join(root, 'tracker'));
+  writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
+  writeFileSync(
+    join(root, 'data', 'r1', 'run.json'),
+    JSON.stringify({ id: 'r1', workflow: 'w', status: 'done', started: 'now' })
+  );
+  vi.stubEnv('AGI_STUDIO_DIR', dir);
+  vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
+  vi.stubEnv('AGI_STUDIO_TRACKER', join(root, 'tracker'));
+  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  const { server, base } = await startStudioServer();
+  const post = async (verb: string, body: unknown, headers: Record<string, string> = {}) => {
+    const response = await fetch(`${base}/api/actions/${verb}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+    return [response.status, await response.json()];
+  };
+  try {
+    expect([
+      await post('label', ['r1', { arm: 'base' }]),
+      await post('label', ['r1', { arm: 'x' }], { 'sec-fetch-site': 'cross-site' }),
+      await post('label', ['r1', { arm: 'x' }], { 'content-type': 'text/plain' }),
+      await post('label', ['r1']),
+      await post('say', [1, 'hi']),
+      await post('merge', [1]),
+      [(await fetch(`${base}/api/actions/label`)).status, null],
+    ]).toEqual([
+      [200, { arm: 'base' }],
+      [403, { error: 'actions take same-origin JSON' }],
+      [403, { error: 'actions take same-origin JSON' }],
+      [400, { error: expect.stringContaining('Missing key') }],
+      [400, { error: 'comment on the tracker; this host does not post there' }],
+      [404, { error: 'no action merge' }],
+      [405, null],
+    ]);
   } finally {
     await server.close();
     vi.unstubAllEnvs();

@@ -35,7 +35,6 @@ const makeResultsPlugin = async (served: ServedGraph) => {
       title: 'Results',
       page: new URL('./src/results/ResultsPage.tsx', import.meta.url),
       dataSchema: ResultsData,
-      watch: () => (data ? [data] : []),
       read: () =>
         Effect.gen(function* () {
           const { readRunResults }: typeof ResultsModule = yield* Effect.promise(
@@ -69,17 +68,20 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
   const all = await served.read();
   const scoped = await Promise.all(
     all.map(async one => {
-      const { pages } = await readPlugins(one.graph?.dir, one.graph?.plugins, undefined, [
-        await makeResultsPlugin(one),
-        bench,
-      ]);
+      const { pages } = await readPlugins(
+        one.graph?.dir,
+        one.graph?.plugins,
+        undefined,
+        [await makeResultsPlugin(one), bench],
+        one.host && { instance: one.host }
+      );
       return pages.map(page => ({ ...page, instance: one.name }));
     })
   );
   const configs = readBenchConfigs(all);
-  const { pages: shared } = await readPlugins(undefined, undefined, undefined, [bench], name =>
-    makeEngineHost(name, configs)
-  );
+  const { pages: shared } = await readPlugins(undefined, undefined, undefined, [bench], {
+    engine: name => makeEngineHost(name, configs),
+  });
   return [...scoped.flat(), ...shared.map(page => ({ ...page, instance: undefined }))].map(page => ({
     ...page,
     key: page.instance ? `${page.instance}/${page.name}` : page.name,
