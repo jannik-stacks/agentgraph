@@ -364,9 +364,7 @@ export const boxRunner = (o: { url: string; data: string }): Layer.Layer<Runner>
               }).pipe(
                 Stream.decodeText(),
                 Stream.splitLines,
-                Stream.map(line =>
-                  line.startsWith(exitFrame) ? { code: Number(line.slice(exitFrame.length)) } : line
-                )
+                Stream.map(line => (line.startsWith(exitFrame) ? { code: Number(line.slice(exitFrame.length)) } : line))
               );
             })
           ),
