@@ -251,6 +251,8 @@ Feedback is what people say about work and how runs end. The `feedback` trigger 
 
 A run that ends is feedback too. When a run is done or stopped, including after a merge, a stop or a closed pull request, a retro reads how it went. Retros, the router's runs and runs that ended over a day ago start none. A run stopped by `/agent:restart` goes on as a new run, so it starts none unless the workflow sets `on: { feedback: { restarts: true } }`. <!-- code: src/run/hear.ts#findSettledRuns -->
 
+A retro reads the issue and the pull request of the newest run that worked there, open or merged: their comments, reviews and review comments, not only what woke it. An outsider's text stays withheld, as for every agent. <!-- code: src/run/hear.ts#readIssueWithPull -->
+
 What is said and what ended on the same issue in one look share one retro. Waiting on a question alone starts none; a person must answer or stop the run. <!-- code: src/run/trigger.ts#tick src/workflow.ts#isRunDone -->
 
 A retro never holds an issue, posts nothing on it, changes no label, skips setup, and stops where another workflow would wait. Its problems show in the studio and `show`. It files follow-up issues only: it ends with nothing, a [graph change](proposals.md#filing-issues) for a recurring miss, or a follow-up issue. <!-- code: src/workflow.ts#transition -->

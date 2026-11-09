@@ -161,7 +161,7 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
     } else yield* hostGit(work.git, ['read-tree', '-u', '--reset', pull.head]);
     if (!to || !waits) return { run: current };
     yield* runSetup(graph, work, run);
-    const t = yield* readIssueWithPull(w, run);
+    const t = yield* readIssueWithPull(w, run, graph);
     const left = {
       run: run.id,
       ...work,
@@ -220,7 +220,7 @@ export const runAside = (
     const kept = run.sessions[to.name];
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, graph));
     const prompt = [
-      !kept && [w.body, context(yield* readIssueWithPull(w, run))].join('\n\n'),
+      !kept && [w.body, context(yield* readIssueWithPull(w, run, graph))].join('\n\n'),
       `A human said this on the pull request while it waits at ${step.name}:\n\n${said}`,
       'This checkout is the pull request head; anything you change here is thrown away.',
       comments

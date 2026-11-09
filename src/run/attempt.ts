@@ -270,7 +270,7 @@ export const runAttempt = (
     /** The first session of a run a comment started, which may answer that comment. */
     const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
     const before = asked ? yield* writeCheckoutTree(work) : undefined;
-    const t = yield* readIssueWithPull(w, run);
+    const t = yield* readIssueWithPull(w, run, graph);
     if ('wait' in step.does) {
       const open = w.branch === undefined || t.issue.pull !== undefined || t.pull !== undefined;
       return done({
@@ -289,7 +289,7 @@ export const runAttempt = (
       Effect.gen(function* () {
         for (;;) {
           yield* Effect.sleep('1 minute');
-          const now = yield* Effect.result(readIssueWithPull(w, run));
+          const now = yield* Effect.result(readIssueWithPull(w, run, graph));
           if (Result.isFailure(now)) {
             yield* Effect.logWarning(`news for run ${run.id}`, now.failure);
             continue;
@@ -447,7 +447,7 @@ export const runAttempt = (
         replies.push(r.final);
       }
       const session = step.each === undefined ? tried.sessions[step.name] : undefined;
-      const now = session && Option.getOrUndefined(yield* Effect.option(readIssueWithPull(w, run)));
+      const now = session && Option.getOrUndefined(yield* Effect.option(readIssueWithPull(w, run, graph)));
       const late = now ? yield* readHeardOutcome(graph, w, tried, now) : undefined;
       if (late && late.outcome.kind !== 'answer')
         return done(late.outcome, yield* readContinuedRun({ ...tried, seen: late.at }, late.events));
