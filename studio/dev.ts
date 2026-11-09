@@ -6,15 +6,13 @@ import { ensureInstance, findInstances, findRepo, readPickedInstance } from '../
 import { readHostSettings } from '../src/services.ts';
 import { makeServedGraphs, type StudioInstances } from './served.ts';
 
-const { values, positionals } = parseArgs({
-  allowPositionals: true,
+const { values } = parseArgs({
   options: {
     dir: { type: 'string' },
     data: { type: 'string' },
     instance: { type: 'string', multiple: true },
     tracker: { type: 'string' },
     repo: { type: 'string' },
-    bench: { type: 'string', multiple: true },
     auth: { type: 'string' },
     plugins: { type: 'string' },
   },
@@ -36,6 +34,8 @@ const names = repo
     : findInstances(root).map(i => basename(i.dir));
 if (names.length > 1 && values.dir)
   quit(new Error('--dir picks the graph of one instance; set graph in each instance.yaml'));
+if (names.includes('plugins'))
+  quit(new Error(`an instance named plugins would hide the studio pages at /plugins; rename ${join(root, 'plugins')}`));
 if (names.length && values.tracker)
   quit(new Error('--tracker is for a studio of one --dir; set tracker in instance.yaml'));
 
@@ -49,8 +49,8 @@ if (names.length) {
   if (values.tracker) process.env.AGI_STUDIO_TRACKER = resolve(values.tracker);
 }
 if (values.auth) process.env.AGI_STUDIO_AUTH = values.auth;
-if (values.plugins) process.env.AGI_STUDIO_PLUGINS = resolve(values.plugins);
-if (values.bench) process.env.AGI_STUDIO_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
+const plugins = values.plugins ?? process.env.AGENTGRAPH_STUDIO_PLUGINS;
+if (plugins) process.env.AGI_STUDIO_PLUGINS = resolve(plugins);
 
 for (const one of await makeServedGraphs().read()) {
   if ((named.length || repo) && one.problems.some(p => p.path === 'instance.yaml'))
