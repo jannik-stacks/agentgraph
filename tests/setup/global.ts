@@ -31,6 +31,7 @@ export const startTime = (pid: number): string | undefined => {
 export const marked = (pid: number, log: string): boolean | undefined => {
   let env: string;
   try {
+    if (ps(['-p', String(pid)], 'uid=').trim() !== String(process.getuid?.())) return false;
     if (process.platform === 'linux') env = readFileSync(`/proc/${pid}/environ`, 'utf8');
     else {
       env = ps(['-E', '-p', String(pid)], 'command=');

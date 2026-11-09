@@ -52,6 +52,10 @@ describe('test process teardown', () => {
     expect(leftovers(spawned, () => true, running)).toEqual([{ ...running[0], owned: true }]);
   });
 
+  it("never owns another user's process, whose environment it cannot read", () => {
+    expect(marked(1, log)).toBe(false);
+  });
+
   it('owns an orphaned grandchild but not a stranger in a reused group', async () => {
     const real = await orphan();
     const stranger = await orphan('env -u AGENTGRAPH_TEST_PROCESSES ');
