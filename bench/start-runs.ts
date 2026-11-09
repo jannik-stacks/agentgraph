@@ -134,7 +134,7 @@ export const spendGuard = async (cap: number, per: number, usage: () => Promise<
 
 export const formatStaleSlots = (
   done: { point: string; versions: RunRecord['versions'] }[],
-  now: { engine: string; harnesses: Record<string, string> }
+  now: Required<Pick<NonNullable<RunRecord['versions']>, 'engine' | 'harnesses'>>
 ) => {
   const lines = done.flatMap(({ point, versions }) => {
     const harness = point.split(':')[0] ?? '';
@@ -155,7 +155,7 @@ export const formatStaleSlots = (
 
 const readCurrentVersions = Effect.gen(function* () {
   const { engine } = yield* readEngineVersions;
-  const { packages } = yield* readImage({}, sandboxImage);
+  const { packages } = yield* readImage();
   const { harnesses } = yield* readHarnessSettings;
   return { engine, harnesses: Object.fromEntries(harnesses.map(h => [h.name, packages[h.package] ?? 'unknown'])) };
 });
@@ -222,15 +222,15 @@ if (import.meta.main) {
   const queue = findLeft(slots);
   log(`planned ${wanted.length}, on disk ${wanted.length - queue.length}, starting ${queue.length}`);
   const done = wanted.flatMap(u => {
-    if (queue.includes(u)) return [];
     const input = bench.makeBenchInput(u.c, u.arm, u.repeat, { point: u.point, graph, labels });
-    const found = input.point ? readSlotRun(set, input, slots) : undefined;
+    const found = input.point && !queue.includes(u) && readSlotRun(set, input, slots);
     return found ? [{ point: u.point, versions: found.run.versions }] : [];
   });
-  await Effect.runPromise(readCurrentVersions).then(
-    now => formatStaleSlots(done, now).forEach(line => log(line)),
-    (e: unknown) => log(`1 skipped stale slot check: ${String(e).slice(0, 300)}`)
-  );
+  if (done.length)
+    await Effect.runPromise(readCurrentVersions).then(
+      now => formatStaleSlots(done, now).forEach(line => log(line)),
+      (e: unknown) => log(`1 skipped stale slot check: ${String(e).slice(0, 300)}`)
+    );
   if (values.dry) process.exit(0);
   const lock = join(set, 'start-runs');
   if (!claim(lock)) {
