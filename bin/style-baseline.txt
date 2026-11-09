@@ -159,6 +159,12 @@ no-of-for tune/skill.ts slotsOf
 no-of-for tune/skill.ts stopOf
 unique-export bin/tune.ts propose
 unique-export tune/propose.ts propose
+verb-first bench/score.ts bootstrap
+verb-first bench/score.ts cost
+verb-first bench/score.ts frontier
+verb-first bench/score.ts quality
+verb-first bench/score.ts random
+verb-first bench/score.ts summarise
 verb-first bench/start-runs.ts nodePath
 verb-first bench/start-runs.ts spendGuard
 verb-first bin/bench.ts codexUsed
@@ -222,12 +228,6 @@ verb-first src/workflow.ts begin
 verb-first src/workflow.ts fold
 verb-first src/workflow.ts transition
 verb-first src/workflow.ts unchanged
-verb-first studio/src/bench/score.ts bootstrap
-verb-first studio/src/bench/score.ts cost
-verb-first studio/src/bench/score.ts frontier
-verb-first studio/src/bench/score.ts quality
-verb-first studio/src/bench/score.ts random
-verb-first studio/src/bench/score.ts summarise
 verb-first studio/src/graph/layout.ts layout
 verb-first studio/src/graph/scenarios.ts scenarios
 verb-first studio/src/graph/scenarios.ts simulate

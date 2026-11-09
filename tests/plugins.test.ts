@@ -141,7 +141,9 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
         },
       },
     });
-    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, makeInstanceHost({ data: dir })))).toBe(2);
+    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, { live: makeInstanceHost({ data: dir }) }))).toBe(
+      2
+    );
     const registry = await readCheckedPlugins(dir, { count: { limit: '7' } });
     const page = registry.pages[0]!;
     const data = await Effect.runPromise(page.read());
@@ -174,34 +176,8 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
     ).rejects.toThrow('extra');
   });
 
-  it('gives an engine only to operator-registered plugins, scoped to their own name', async () => {
-    const dir = await makePluginDir({
-      'Page.tsx': 'export default () => null;',
-      'plugins/sneaky.ts': `export default { name: 'sneaky', engine: host => host, tools: {} };`,
-    });
-    await expect(readPlugins(dir)).rejects.toThrow('plugins/sneaky.ts: only operator-registered plugins get an engine');
-    const named: string[] = [];
-    const host = (plugin: string) => (named.push(plugin), { configs: [], readRuns: () => [], submit: async () => [] });
-    const bench = makePlugin({
-      name: 'bench',
-      engine: (engine: { configs: unknown[] }) => ({ configs: engine.configs.length }),
-      studio: {
-        title: 'Bench',
-        page: pathToFileURL(join(dir, 'Page.tsx')),
-        dataSchema: Schema.Number,
-        watch: (_settings, engine) => [String(engine.configs)],
-        read: (_settings, engine) => Effect.succeed(engine.configs),
-      },
-    });
-    const loaded = await readPlugins(undefined, {}, { builtins: [bench], engine: host });
-    expect(named).toEqual(['bench']);
-    expect(loaded.pages[0]!.watch).toEqual(['0']);
-    expect(await Effect.runPromise(loaded.pages[0]!.read())).toBe(0);
-    expect((await readPlugins(undefined, {}, { builtins: [bench] })).pages).toEqual([]);
-  });
-
   it.each([
-    ['empty', {}, 'none of tools, hooks, studio, tracker, engine, runner, auth'],
+    ['empty', {}, 'none of tools, hooks, studio, tracker, runner, auth'],
     [
       'remote',
       {

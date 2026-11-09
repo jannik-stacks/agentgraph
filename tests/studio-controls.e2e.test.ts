@@ -4,7 +4,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ServerResponse } from 'node:http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BenchRow } from '../studio/src/bench/data.ts';
+import type { BenchRow } from '../examples/plugins/bench/plugins/bench/data.ts';
 import { tmp } from './kit.ts';
 import { createStudioServer } from './studio.ts';
 
@@ -135,7 +135,7 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
     root = tmp('bench-controls');
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
     vi.stubEnv('AGI_STUDIO_DATA', root);
-    vi.stubEnv('AGI_STUDIO_BENCH', root);
+    vi.stubEnv('AGI_STUDIO_PLUGINS', join(import.meta.dirname, '../examples/plugins/bench'));
     server = await createStudioServer(['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime']);
     server.middlewares.stack.unshift({
       route: '/api/plugins/bench/data',
@@ -217,7 +217,7 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
     );
   };
   const load = async (query = '') => {
-    await browser.send('Page.navigate', { url: `${base}/bench${query}` });
+    await browser.send('Page.navigate', { url: `${base}/plugins/bench${query}` });
     await vi.waitFor(
       async () =>
         expect(await browser.evaluate(() => document.querySelector('aside h3 [aria-describedby]')?.textContent)).toBe(

@@ -138,26 +138,24 @@ export const tool = <A, I, S = undefined>(definition: {
   });
 };
 
-const members = ['studio', 'tracker', 'engine', 'runner', 'auth'] as const;
+const members = ['studio', 'tracker', 'runner', 'auth'] as const;
 
 export const makePlugin = <
   S = undefined,
   D = unknown,
   I = D,
   T = unknown,
-  E = unknown,
-  H = never,
+  H = unknown,
   L extends Layer.Layer<never, unknown> = Layer.Layer<never, unknown>,
 >(
   definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'on' | (typeof members)[number]> & {
     tracker?: (host: TrackerHost) => T;
-    engine?: (host: H, settings: S) => E;
     runner?: RunnerMember<S, L>;
     auth?: AuthMember<S>;
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Codec<D, I>;
-      read: (settings: S, host: E) => Effect.Effect<D, unknown>;
-      watch?: (settings: S, host: E) => readonly string[];
+      read: (settings: S, hosts: H) => Effect.Effect<D, unknown>;
+      watch?: (settings: S, hosts: H) => readonly string[];
     };
     tools?: Record<string, Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, ToolContext<S>>>;
     on?: { status?: StatusHook<S> };
@@ -171,12 +169,12 @@ const StudioPage = Schema.Struct({
   page: Schema.URL.check(Schema.makeFilter(url => url.protocol === 'file:' && url.pathname.endsWith('.tsx'))),
   dataSchema: Schema.declare((value): value is Schema.Codec<unknown, unknown> => Schema.isSchema(value)),
   read: Schema.declare(
-    (value): value is (settings: unknown, engine: unknown) => Effect.Effect<unknown, unknown> =>
+    (value): value is (settings: unknown, hosts: unknown) => Effect.Effect<unknown, unknown> =>
       typeof value === 'function'
   ),
   watch: Schema.optional(
     Schema.declare(
-      (value): value is (settings: unknown, engine: unknown) => readonly string[] => typeof value === 'function'
+      (value): value is (settings: unknown, hosts: unknown) => readonly string[] => typeof value === 'function'
     )
   ),
 });
@@ -188,9 +186,6 @@ const PluginFile = Schema.Struct({
   ),
   studio: Schema.optional(StudioPage),
   tracker: Schema.optional(Schema.declare((value): value is TrackerMember => typeof value === 'function')),
-  engine: Schema.optional(
-    Schema.declare((value): value is (host: unknown, settings: unknown) => unknown => typeof value === 'function')
-  ),
   runner: Schema.optional(Schema.declare((value): value is RunnerMember<unknown> => typeof value === 'function')),
   auth: Schema.optional(Schema.declare((value): value is AuthMember<unknown> => typeof value === 'function')),
   on: Schema.optional(
@@ -219,13 +214,11 @@ export const readPlugins = async (
   {
     isReserved = () => false,
     builtins = [],
-    engine: host,
-    instance,
+    instances = {},
   }: {
     isReserved?: (name: string) => boolean;
     builtins?: readonly unknown[];
-    engine?: (plugin: string) => unknown;
-    instance?: unknown;
+    instances?: Readonly<Record<string, unknown>>;
   } = {}
 ) => {
   const plugins = new Map<string, string>();
@@ -284,20 +277,18 @@ export const readPlugins = async (
     const names = Object.keys(plugin.tools);
     if (!names.length && !plugin.on?.status && !members.some(member => plugin[member]))
       throw new Error(`${file}: plugin has none of tools, hooks, ${members.join(', ')}`);
-    if (plugin.engine && file !== builtin) throw new Error(`${file}: only operator-registered plugins get an engine`);
     if (plugin.tracker) trackers[plugin.name] = plugin.tracker;
     const { runner } = plugin;
     if (runner) runners[plugin.name] = host => runner(host, decoded);
     const { auth } = plugin;
     if (auth) auths[plugin.name] = host => auth(host, decoded);
     if (plugin.on?.status) hooks.push({ plugin: plugin.name, settings: decoded, status: plugin.on.status });
-    const engine = plugin.engine && host ? plugin.engine(host(plugin.name), decoded) : instance;
-    if (plugin.studio && (!plugin.engine || host)) {
+    if (plugin.studio) {
       const { title, dataSchema, page, read, watch } = plugin.studio;
       const actual = await realpath(fileURLToPath(page));
       if (extname(actual) !== '.tsx' || !(await lstat(actual)).isFile())
         throw new Error(`${file}: studio page needs a TSX file`);
-      const roots = watch?.(decoded, engine) ?? [];
+      const roots = watch?.(decoded, instances) ?? [];
       if (!Array.isArray(roots) || !roots.every(root => typeof root === 'string'))
         throw new Error(`${file}: studio watch needs paths`);
       pages.push({
@@ -306,7 +297,7 @@ export const readPlugins = async (
         title,
         dataSchema,
         page: pathToFileURL(actual),
-        read: () => read(decoded, engine),
+        read: () => read(decoded, instances),
         watch: roots,
       });
     }

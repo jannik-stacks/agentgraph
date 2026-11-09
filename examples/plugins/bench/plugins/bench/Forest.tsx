@@ -1,9 +1,7 @@
 import { scaleLinear } from 'd3-scale';
 import { Fragment, type ReactNode } from 'react';
-import { getMean } from '../../../src/stats.ts';
-import { cx, Link, Tooltip } from '../ui.tsx';
-import { atLink } from '../runs/trace.ts';
-import { shown } from '../state.ts';
+import { atLink, cx, Tooltip } from '@jannik-stacks/agi/studio';
+import { getMean } from '../../../../../src/stats.ts';
 import type { BenchRow } from './data.ts';
 import {
   formatLabel,
@@ -13,7 +11,7 @@ import {
   getRowKey,
   roughBelow,
   type summarise,
-} from './score.ts';
+} from '../../../../../bench/score.ts';
 
 type Point = ReturnType<typeof summarise>[number];
 
@@ -25,16 +23,14 @@ export const BenchRunLink = ({
   row: BenchRow;
   children: ReactNode;
   className?: string;
-}) =>
-  row.instance === undefined || row.instance === (shown?.name ?? '') ? (
-    <Link href={atLink(row.run, undefined, row.instance === undefined ? row.data : undefined)} className={className}>
-      {children}
-    </Link>
-  ) : (
-    <a href={`/${row.instance}${atLink(row.run)}`} className={className}>
-      {children}
-    </a>
-  );
+}) => (
+  <a
+    href={`${row.instance ? `/${row.instance}` : ''}${atLink(row.run, undefined, row.instance === undefined ? row.data : undefined)}`}
+    className={className}
+  >
+    {children}
+  </a>
+);
 
 const [width, height, pad] = [280, 20, 14];
 const fmt = (v: number) => v.toFixed(2);

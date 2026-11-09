@@ -44,8 +44,6 @@ const makeServedHost = async (
 
 export const readQuery = (req: IncomingMessage) => new URL(req.url ?? '/', 'http://studio').searchParams;
 
-export const readBenchSets = () => (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
-
 export type StudioInstances = { root: string; names: string[]; graph?: string };
 
 const loadGraph = async (

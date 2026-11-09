@@ -7,6 +7,7 @@
     "tests/**/*.test.ts",
     "tests/setup/*.ts",
     "examples/*/scripts/**/*.mjs",
+    "examples/plugins/bench/plugins/bench.ts!",
     "studio/dev.ts!",
     "studio/watch.ts!",
     "studio/src/main.tsx!",
@@ -37,7 +38,6 @@
     "@tailwindcss/vite",
     "@vitejs/plugin-react",
     "agentation",
-    "@types/d3-scale",
     "@observablehq/plot"
   ]
 }

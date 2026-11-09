@@ -49,7 +49,6 @@ export default function Page() { const { value } = usePluginData('count', Schema
   vi.stubEnv('VITE_PRIVATE_CANARY', 'FAKE-private-plugin-value');
   vi.stubEnv('AGI_STUDIO_DIR', graph);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', external);
   const { server, base } = await startStudioServer();
   try {
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('7');
@@ -60,12 +59,6 @@ export default function Page() { const { value } = usePluginData('count', Schema
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     expect(manifest).toContain('/@id/__x00__virtual:agentgraph-page/count');
     expect(manifest).toContain('href:"/results"');
-    expect(manifest).toContain('href:"/bench"');
-    expect(await (await fetch(`${base}/api/plugins/bench/data`)).json()).toEqual({
-      rows: [],
-      fields: [],
-      conflicts: [],
-    });
     expect(manifest).not.toContain(external);
     expect(manifest).not.toContain(graph);
     expect((await fetch(`${base}/@fs${realpathSync(join(graph, 'plugins/pages/Page.tsx'))}`)).status).toBe(200);
@@ -92,7 +85,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
     expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['count']);
     writeFileSync(join(dir, 'data', 'new'), '');
     await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(2));
-    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'data', 'results']);
+    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['data', 'results']);
     expect(server.watcher.listenerCount('all')).toBe(listeners);
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('8');
   } finally {
@@ -122,7 +115,6 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
   );
   vi.stubEnv('AGI_STUDIO_DIR', mode ? dir : undefined);
   vi.stubEnv('AGI_STUDIO_DATA', data);
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     const response = await fetch(`${base}/api/plugins/results/data`);
@@ -137,7 +129,6 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
     expect(text).not.toContain('FAKE-private-results-value');
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     expect(manifest).toContain('href:"/results"');
-    expect(manifest).toContain('href:"/bench"');
     expect(manifest).not.toContain(dir);
     expect((await fetch(`${base}/@id/__x00__virtual:agentgraph-page/results`)).status).toBe(200);
   } finally {
@@ -152,7 +143,6 @@ it('reloads the served graph and its problems when a graph file changes', async 
   writeFileSync(join(dir, 'settings.yaml'), 'unknown: true\n');
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     const served = async () => (await fetch(`${base}/@id/__x00__virtual:served`)).text();
@@ -193,7 +183,6 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   }
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     const described = async () => {
@@ -216,7 +205,8 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   }
 });
 
-it.each(['results', 'bench'])('refuses a graph plugin named after the built-in %s page', async name => {
+it('refuses a graph plugin named after the built-in results page', async () => {
+  const name = 'results';
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-builtin-name-'));
   mkdirSync(join(dir, 'plugins', 'pages'), { recursive: true });
   writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
@@ -231,7 +221,6 @@ dataSchema: Schema.String, read: () => Effect.succeed('') } });
   );
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   try {
     await expect(createStudioServer()).rejects.toThrow(
       `plugins/${name}.ts: plugin ${name} already defined in the built-in plugins`
@@ -258,7 +247,6 @@ dataSchema: Schema.String, read: () => Effect.succeed('${name}') } });
   );
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     expect(await (await fetch(`${base}/api/plugins/${name}/data`)).json()).toBe(name);
@@ -284,7 +272,6 @@ it('runs instance actions only for same-origin JSON and reports refusals', async
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
   vi.stubEnv('AGI_STUDIO_TRACKER', join(root, 'tracker'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   const post = async (verb: string, body: unknown, headers: Record<string, string> = {}) => {
     const response = await fetch(`${base}/api/actions/${verb}`, {
@@ -314,6 +301,85 @@ it('runs instance actions only for same-origin JSON and reports refusals', async
     ]);
   } finally {
     await server.close();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const studio = (name: string) => `studio: { title: '${name}', page: new URL('./Page.tsx', import.meta.url),
+dataSchema: Schema.String, read: settings => Effect.succeed(settings.root.split('/').at(-1)),
+watch: settings => [settings.root] }`;
+
+const writePagePlugin = (dir: string, name: string, root: string, member = studio(name)) => {
+  mkdirSync(join(dir, 'plugins'), { recursive: true });
+  writeFileSync(join(dir, 'plugins/Page.tsx'), 'export default () => null;');
+  writeFileSync(join(dir, 'settings.yaml'), `plugins: { ${name}: { root: ${JSON.stringify(root)} } }\n`);
+  writeFileSync(
+    join(dir, 'plugins', `${name}.ts`),
+    `import { makePlugin } from ${JSON.stringify(pathToFileURL(join(studioDir, '../src/plugin.ts')).href)};
+import { Effect, Schema } from ${JSON.stringify(import.meta.resolve('effect'))};
+export default makePlugin({ name: '${name}', settingsSchema: Schema.Struct({ root: Schema.String }), ${member} });
+`
+  );
+};
+
+it('reads ?data= only inside the stores a studio page watches, and reloads with the plugins folder', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-studio-folder-'));
+  const [graph, folder, own, shared, moved] = ['graph', 'pages', 'own', 'shared', 'moved'].map(name =>
+    join(root, name)
+  );
+  for (const store of [own!, shared!, moved!]) {
+    mkdirSync(join(store, 'r1'), { recursive: true });
+    writeFileSync(
+      join(store, 'r1/run.json'),
+      JSON.stringify({ id: 'r1', workflow: 'w', status: 'done', started: 'now' })
+    );
+  }
+  writePagePlugin(graph!, 'count', own!);
+  writePagePlugin(folder!, 'shared', shared!);
+  vi.stubEnv('AGI_STUDIO_DIR', graph);
+  vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
+  vi.stubEnv('AGI_STUDIO_PLUGINS', folder);
+  const { server, base } = await startStudioServer();
+  const read = async (path: string) => {
+    const response = await fetch(`${base}${path}`);
+    return [response.status, await response.json()];
+  };
+  const listed = (store: string) => read(`/api/runs?data=${encodeURIComponent(store)}`);
+  try {
+    const before = [await read('/api/plugins/shared/data'), await listed(shared!), await listed(own!)];
+    const sent = vi.spyOn(server.ws, 'send');
+    writePagePlugin(folder!, 'shared', moved!);
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledWith({ type: 'full-reload' }));
+    const after = [await read('/api/plugins/shared/data'), (await listed(moved!))[0], (await listed(shared!))[0]];
+    expect({ before, after }).toEqual({
+      before: [
+        [200, 'shared'],
+        [200, [expect.objectContaining({ data: shared })]],
+        [400, { error: 'data is outside the stores the studio pages read' }],
+      ],
+      after: [[200, 'moved'], 200, 400],
+    });
+  } finally {
+    await server.close();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it.each([
+  ['count', studio('count'), 'studio page count is defined twice'],
+  ['lonely', 'tracker: () => ({})', 'lonely serve no studio page, the only member read here'],
+])('refuses a plugins folder with %s', async (name, member, error) => {
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-studio-refused-'));
+  writePagePlugin(join(root, 'graph'), 'count', root);
+  writePagePlugin(join(root, 'pages'), name, root, member);
+  vi.stubEnv('AGI_STUDIO_DIR', join(root, 'graph'));
+  vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
+  vi.stubEnv('AGI_STUDIO_PLUGINS', join(root, 'pages'));
+  try {
+    await expect(createStudioServer()).rejects.toThrow(error);
+  } finally {
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   }
