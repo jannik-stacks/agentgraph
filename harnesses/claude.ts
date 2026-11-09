@@ -145,12 +145,16 @@ export const claude = (): Harness => ({
         ok: false,
         denied: true,
       }));
-      const usage = Object.values(line.modelUsage ?? {}).map(
-        ({ inputTokens = 0, outputTokens = 0, cacheReadInputTokens = 0, cacheCreationInputTokens = 0 }): Piece => ({
+      const usage = Object.entries(line.modelUsage ?? {}).map(
+        ([
+          model,
+          { inputTokens = 0, outputTokens = 0, cacheReadInputTokens = 0, cacheCreationInputTokens = 0 },
+        ]): Piece => ({
           type: 'usage',
           input: inputTokens + cacheReadInputTokens + cacheCreationInputTokens,
           output: outputTokens,
           ...makeCacheCounts(cacheReadInputTokens, cacheCreationInputTokens),
+          model,
         })
       );
       const ended =

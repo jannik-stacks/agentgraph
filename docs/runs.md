@@ -162,6 +162,8 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 | `spoken`       | A CLI command, where it came from and where to reply                               |
 | `told`         | Forwarded text, with the sender in `by`: a router run id or `cli`                  |
 
+A usage event carries `model`, the model the harness says answered, when it says one: Claude Code and pi do, opencode and codex print none. The start event's `model` stays the alias the agent asked for. Usage is priced under the reported name first, then the alias. <!-- code: src/types.ts#SessionEvent src/harnesses.ts#priced harnesses/claude.ts#claude harnesses/pi.ts#pi -->
+
 `used` is what the command's container reported from its cgroup as it exited: `peak` memory in bytes, `cpu` time in ms, and `oom` when the kernel killed a process of it for memory. It is missing when the container reported nothing, as on cgroup v1, after a timeout, or from a box server. Studio shows it on the session, setup and check rows. <!-- code: src/docker.ts#dockerArgs src/types.ts#Exit studio/src/runs/rows.tsx -->
 
 `node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push'` fails on denied tool calls, sessions that cost nothing, and finished workflows without their listed applied kinds.

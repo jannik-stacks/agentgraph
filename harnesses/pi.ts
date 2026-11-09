@@ -6,7 +6,7 @@ import { getBlockText, makeCacheCounts, makeLineParser, modelTimeouts, some, spl
 const { String: Str, Number: Num, Boolean: Bool, Unknown, Struct, optional: opt } = Schema;
 
 const PiMessage = Struct({
-  ...some(Str, 'role', 'stopReason', 'errorMessage'),
+  ...some(Str, 'role', 'stopReason', 'errorMessage', 'model'),
   ...some(Unknown, 'content'),
   usage: opt(
     Struct({ ...some(Num, 'input', 'output', 'cacheRead', 'cacheWrite'), cost: opt(Struct(some(Num, 'total'))) })
@@ -133,6 +133,7 @@ export const pi = (): Harness => ({
                   output: u.output ?? 0,
                   ...makeCacheCounts(u.cacheRead, u.cacheWrite),
                   ...(u.cost?.total && { usd: u.cost.total }),
+                  ...(m.model && { model: m.model }),
                 },
               ]
             : []),

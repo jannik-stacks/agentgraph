@@ -235,6 +235,7 @@ export type SessionEvent =
       usd?: number;
       /** The model no list price was found for, when the harness reported no cost either. */
       unpriced?: string;
+      model?: string;
     }
   | (Pick<Exit, 'used'> & {
       type: 'end';

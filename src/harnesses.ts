@@ -335,7 +335,14 @@ export const harnessSession = (
                   )
                     return [];
                 }
-                if (piece.type === 'usage') return [priced(prices, [model, route.model], piece)];
+                if (piece.type === 'usage')
+                  return [
+                    priced(
+                      prices,
+                      [piece.model, model, route.model].filter(m => m !== undefined),
+                      piece
+                    ),
+                  ];
                 return [piece];
               });
             };
