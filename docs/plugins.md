@@ -277,4 +277,4 @@ stores it may read (`configs`, each a name, a data dir and an optional instance)
 labels and latest checks (`readRuns`), and starts or imports a run (`submit`). Submit checks the labels and stamps
 the run's origin with the plugin's own name, so a plugin cannot pose as another. `bin/bench.ts` builds a submitting
 host; the Bench studio page builds one that refuses submissions from the instance hosts it gets.
-<!-- code: src/engine.ts#EngineHost src/engine.ts#Submission src/engine.ts#makeEngineHost examples/plugins/bench/plugins/bench.ts -->
+<!-- code: src/engine.ts#EngineHost src/engine.ts#Submission src/engine.ts#makeEngineHost bench/runs.ts#makeSetHost -->
