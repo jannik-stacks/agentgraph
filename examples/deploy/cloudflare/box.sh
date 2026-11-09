@@ -98,8 +98,16 @@ run)
       *) break ;;
       esac
     done
-    if [ "$mode" = rw ]; then chown -R 1000:1000 "$root/work"; else chmod -R go-w "$root/work"; fi
+    lock=$root/work.lock
+    (umask 077 && : >> "$lock")
+    if [ "$mode" = rw ]; then
+      chown -R 1000:1000 "$root/work"
+    else
+      flock -n "$lock" setpriv --reuid=1000 --regid=1000 --clear-groups sh -c 'kill -KILL -1' 2> /dev/null || :
+      chmod -R go-w "$root/work"
+    fi
     set -- setpriv --reuid="$uid" --regid="$uid" --clear-groups --no-new-privs "$@"
+    [ "$mode" != rw ] || set -- flock -s -o "$lock" "$@"
   elif [ "$mode" != rw ]; then
     echo "agentgraph: a read-only command needs a box that starts it as root" >&2
     exit 126
