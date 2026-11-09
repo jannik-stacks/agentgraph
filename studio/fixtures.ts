@@ -3,19 +3,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
 import { Effect, Result, Schema, Stream } from 'effect';
-import { makeServedGraphs, readBenchSets, readQuery, servedIds } from './served.ts';
+import { makeServedGraphs, readBenchSets, readModule, readQuery, servedIds } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as StoreModule from '../src/store.ts';
 import type * as EngineModule from '../src/engine.ts';
+import type * as ToolsModule from '../src/tools.ts';
 import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
-
-const root = new URL('../', import.meta.url);
-const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 
 const json = (res: ServerResponse, value: unknown, status = 200) => {
   res.statusCode = status;
@@ -30,21 +28,14 @@ const isInside = async (path: string, roots: string[]) => {
 
 class StudioRequestError extends Error {}
 
-const SayArgs = Schema.Tuple([Schema.Int.check(Schema.isGreaterThan(0)), Schema.Trimmed.check(Schema.isNonEmpty())]);
-const LabelArgs = Schema.Tuple([Schema.String, Schema.Record(Schema.String, Schema.NullOr(Schema.String))]);
+type HostAction = {
+  readonly args: Schema.Codec<readonly unknown[], unknown>;
+  run(...args: readonly unknown[]): Effect.Effect<unknown, unknown>;
+};
 
 const isSameOrigin = (req: IncomingMessage) =>
   [undefined, 'same-origin'].includes(req.headers['sec-fetch-site']) &&
   [undefined, `http://${req.headers.host}`].includes(req.headers.origin);
-
-const readBody = async (req: IncomingMessage) => {
-  let text = '';
-  for await (const chunk of req) {
-    text += chunk;
-    if (text.length > 65_536) throw new StudioRequestError('the body is over 64 KiB');
-  }
-  return text;
-};
 
 const readPath = (req: IncomingMessage) => (req.url ?? '/').split('?')[0]!.slice(1);
 
@@ -62,7 +53,7 @@ const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeS
   const bench = readQuery(req).get('data');
   if (!bench) return { served, data: served?.data, store: served?.host?.store, bench: undefined };
   if (!(await isInside(bench, readBenchSets()))) throw new StudioRequestError('data is outside the bench dirs');
-  const { makeInstanceHost } = await from<typeof EngineModule>('src/engine.ts');
+  const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
   return { served, data: bench, store: makeInstanceHost({ data: bench }).store, bench };
 };
 
@@ -85,19 +76,17 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         if (!req.headers['content-type']?.startsWith('application/json') || !isSameOrigin(req))
           return json(res, { error: 'actions take same-origin JSON' }, 403);
         const verb = readPath(req);
-        if (verb !== 'say' && verb !== 'label') return json(res, { error: `no action ${verb}` }, 404);
         const host = (await pickServed(req, reader))?.host;
-        if (!host) throw new StudioRequestError('this studio serves no instance to act on');
-        const text = await readBody(req);
-        const decode = <A>(schema: Schema.Codec<A, unknown>) => {
-          try {
-            return Schema.decodeUnknownSync(schema)(JSON.parse(text));
-          } catch (e) {
-            throw new StudioRequestError((e as Error).message);
-          }
-        };
-        const act: Effect.Effect<unknown, unknown> =
-          verb === 'say' ? host.say(...decode(SayArgs)) : host.label(...decode(LabelArgs));
+        const actions: Readonly<Record<string, HostAction>> = host?.actions ?? {};
+        if (!Object.hasOwn(actions, verb)) return json(res, { error: `no action ${verb}` }, 404);
+        const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
+        const text = await readRequestBody(req);
+        if (text === undefined) throw new StudioRequestError('the body is over 64 KiB');
+        const { args, run } = actions[verb]!;
+        const act = Effect.try(() => JSON.parse(text)).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(args)),
+          Effect.flatMap(decoded => run(...decoded))
+        );
         json(
           res,
           await Effect.runPromise(act).catch((e: Error) => {
@@ -107,7 +96,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
       });
       use('/api/results', async (req, res) => {
         const { served, data } = await readDataDir(req, reader);
-        const { readRunResults } = await from<typeof ResultsModule>('bin/results.ts');
+        const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
         json(res, readRunResults(data, served?.graph));
       });
       use('/api/logs', async (req, res) => {
@@ -118,11 +107,11 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         res.end(text || '');
       });
       use('/api/locate', async (req, res) => {
-        const { fileStore, locate }: typeof StoreModule = await from('src/store.ts');
+        const { locate } = await readModule<typeof StoreModule>('src/store.ts');
         const gh = readQuery(req).get('gh');
-        for (const { name, data } of await reader.read()) {
-          if (!data) continue;
-          const found = await Effect.runPromise(Effect.result(locate({ gh })).pipe(Effect.provide(fileStore(data))));
+        for (const { name, host } of await reader.read()) {
+          if (!host) continue;
+          const found = await Effect.runPromise(Effect.result(locate({ gh }, host.store)));
           if (Result.isFailure(found)) return json(res, { error: found.failure.message }, 400);
           if (found.success) return json(res, { ...found.success, instance: name });
         }
@@ -149,7 +138,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         const { served, data, store, bench } = await readDataDir(req, reader);
         const one = decodeURIComponent(readPath(req));
         if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
-        const { readRunLabels }: typeof LabelsModule = await from('src/labels.ts');
+        const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
         if (!data || !store || (!served?.dir && !bench)) return json(res, one ? null : []);
         const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data, id), [data]));
         const answer = await Effect.runPromise(
@@ -199,8 +188,8 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         };
       }
       if (source !== '\0virtual:fixtures') return;
-      const { graphs, fixture }: typeof FixturesModule = await from('tests/fixtures.ts');
-      const engine: typeof WorkflowModule = await from('src/workflow.ts');
+      const { graphs, fixture }: typeof FixturesModule = await readModule('tests/fixtures.ts');
+      const engine: typeof WorkflowModule = await readModule('src/workflow.ts');
       const all: Fixture[] = graphs.flatMap(graph => {
         const { checks, workflows } = fixture(graph);
         return Object.values(workflows).map(workflow => ({

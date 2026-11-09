@@ -24,6 +24,18 @@ export type ServedGraph = {
   problems: Problem[];
 };
 
+const root = new URL('../', import.meta.url);
+export const readModule = <T>(path: string): Promise<T> => import(new URL(path, root).href);
+
+const makeServedHost = async (
+  data: string,
+  graph?: Graph,
+  tracker?: Parameters<typeof EngineModule.makeInstanceHost>[1]
+) => {
+  const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
+  return makeInstanceHost({ data, ...(graph && { checks: graph.checks }) }, tracker);
+};
+
 export const readQuery = (req: IncomingMessage) => new URL(req.url ?? '/', 'http://studio').searchParams;
 
 export const readBenchSets = () => (process.env.AGI_STUDIO_BENCH ?? '').split(':').filter(Boolean);
@@ -36,9 +48,7 @@ const loadGraph = async (
   scope: Pick<Awaited<ReturnType<typeof MainModule.readInstanceEnv>>, 'config'>
 ) => {
   const { ConfigProvider, Effect, Result } = await import('effect');
-  const { readConfiguredGraph }: typeof HarnessesModule = await import(
-    new URL('../src/harnesses.ts', import.meta.url).href
-  );
+  const { readConfiguredGraph } = await readModule<typeof HarnessesModule>('src/harnesses.ts');
   const loaded = await Effect.runPromise(
     Effect.result(
       readConfiguredGraph(dir, instance).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
@@ -50,13 +60,9 @@ const loadGraph = async (
 const readChoice = () => JSON.parse(process.env.AGI_STUDIO_HARNESS_CHOICE ?? '{}');
 
 const readInstanceServed = async ({ root, graph: explicit }: StudioInstances, name: string): Promise<ServedGraph> => {
-  const { readInstance, ensureInstanceGraph }: typeof InstanceModule = await import(
-    new URL('../src/instance.ts', import.meta.url).href
-  );
-  const { readInstanceEnv }: typeof MainModule = await import(new URL('../src/main.ts', import.meta.url).href);
-  const { makeTrackerSetup, settings }: typeof ServicesModule = await import(
-    new URL('../src/services.ts', import.meta.url).href
-  );
+  const { readInstance, ensureInstanceGraph } = await readModule<typeof InstanceModule>('src/instance.ts');
+  const { readInstanceEnv } = await readModule<typeof MainModule>('src/main.ts');
+  const { makeTrackerSetup, settings } = await readModule<typeof ServicesModule>('src/services.ts');
   const { ConfigProvider, Effect } = await import('effect');
   const files = [join(root, name, 'instance.yaml')];
   let data: string | undefined;
@@ -76,36 +82,41 @@ const readInstanceServed = async ({ root, graph: explicit }: StudioInstances, na
     );
     const setup = await makeTrackerSetup(current);
     if (setup.origin.local && !existsSync(setup.origin.origin)) throw new Error(whyTracker);
-    const local = !!setup.origin.local;
     const loaded = await loadGraph(dir, instance, scope);
-    const { makeInstanceHost }: typeof EngineModule = await import(new URL('../src/engine.ts', import.meta.url).href);
-    const host = makeInstanceHost(
-      { data: instance.data, ...(loaded.graph && { checks: loaded.graph.checks }) },
-      { layer: setup.layer(loaded.graph?.trust ?? current.trust, instance.owner), local }
-    );
-    return { name, title: name, dir, data: instance.data, files, local, host, ...loaded };
+    const host = await makeServedHost(instance.data, loaded.graph, {
+      layer: setup.layer(loaded.graph?.trust ?? current.trust, instance.owner),
+      origin: setup.origin,
+    });
+    return { name, title: name, dir, data: instance.data, files, local: !!setup.origin.local, host, ...loaded };
   } catch (e) {
     const problems = [{ path: 'instance.yaml', message: (e as Error).message }];
-    return { name, title: name, ...(data && { data }), files, local: false, problems };
+    return {
+      name,
+      title: name,
+      ...(data && { data, host: await makeServedHost(data) }),
+      files,
+      local: false,
+      problems,
+    };
   }
 };
 
 const readPlainServed = async (): Promise<ServedGraph> => {
   const { AGI_STUDIO_DIR: dir, AGI_STUDIO_DATA: data, AGI_STUDIO_TRACKER: tracker } = process.env;
-  const { makeInstanceHost }: typeof EngineModule = await import(new URL('../src/engine.ts', import.meta.url).href);
-  const { folderTracker }: typeof TrackerModule = await import(new URL('../src/tracker.ts', import.meta.url).href);
-  const makeHost = (graph?: Graph) =>
+  const { folder } = await readModule<typeof TrackerModule>('src/tracker.ts');
+  const { Option } = await import('effect');
+  const setup =
+    tracker === undefined ? undefined : folder.tracker!({ repo: '', studio: '', app: Option.none(), dir: tracker });
+  const makeHost = async (graph?: Graph) =>
     data
       ? {
-          host: makeInstanceHost(
-            { data, ...(graph && { checks: graph.checks }) },
-            tracker ? { layer: folderTracker(tracker, undefined, graph?.trust), local: false } : undefined
-          ),
+          host: await makeServedHost(data, graph, setup && { layer: setup.layer(graph?.trust), origin: setup.origin }),
         }
       : {};
-  const plain = { name: '', title: basename(dir ?? data ?? ''), ...(data && { data }), files: [], local: !!tracker };
-  if (!dir) return { ...plain, ...makeHost(), problems: [] };
-  const { readInstanceEnv }: typeof MainModule = await import(new URL('../src/main.ts', import.meta.url).href);
+  const local = !!setup?.origin.local;
+  const plain = { name: '', title: basename(dir ?? data ?? ''), ...(data && { data }), files: [], local };
+  if (!dir) return { ...plain, ...(await makeHost()), problems: [] };
+  const { readInstanceEnv } = await readModule<typeof MainModule>('src/main.ts');
   const config = data && join(data, 'config.ts');
   const scope = await readInstanceEnv(
     undefined,
@@ -113,14 +124,14 @@ const readPlainServed = async (): Promise<ServedGraph> => {
     config && existsSync(config) ? { AGENTGRAPH_CONFIG: config } : {}
   );
   const loaded = await loadGraph(dir, undefined, scope);
-  return { ...plain, dir, ...makeHost(loaded.graph), ...loaded };
+  return { ...plain, dir, ...(await makeHost(loaded.graph)), ...loaded };
 };
 
 const readServedGraphs = async (): Promise<ServedGraph[]> => {
   const listed = process.env.AGI_STUDIO_INSTANCES;
   if (listed) {
     const instances: StudioInstances = JSON.parse(listed);
-    const { removeShellSettings }: typeof MainModule = await import(new URL('../src/main.ts', import.meta.url).href);
+    const { removeShellSettings } = await readModule<typeof MainModule>('src/main.ts');
     removeShellSettings(instances.names.length);
     return Promise.all(instances.names.map(name => readInstanceServed(instances, name)));
   }
