@@ -3,6 +3,7 @@
 Rough edges known at merge time.
 
 - A box walks `/work` on every command, a chown before a writable one and a chmod before a read-only one, which costs time on big trees.
+- A process a writable command left behind in a box lives on while another writable command runs, as checks do side by side; the next read-only command that starts alone kills it.
 - A box that cannot start commands as root refuses read-only commands with exit 126; only the test double runs that way.
 - A box that restarts between `init` and `run` costs one failed command before it is pushed again.
 - Modal resolves the gateway's addresses once per box. A gateway behind a CDN that changes address mid-box cuts the box off; it never widens.
