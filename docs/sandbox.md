@@ -122,6 +122,10 @@ An agent with `reads: traces` needs a tool that can read the trace files. The gr
 
 Agent `tools` defaults to none. Session homes under `homes/` in the data folder persist across resumes; a resume finds its home by name there, so a moved data folder keeps them. <!-- code: src/harnesses.ts#harnessSession -->
 
+### Harness versions
+
+The harnesses and tools in the sandbox image are pinned as exact `ARG <NAME>_VERSION=x.y.z` lines in `infra/local/sandbox/Dockerfile`, and `npm install -g` installs each as `pkg@${NAME}`. A test fails on any `*_VERSION` ARG under `infra/local` that is not an exact version, and on any `@${NAME}` that names no ARG. An update is a one-line pull request that edits the ARG. The next runner start sees the new source hash and rebuilds `agentgraph-sandbox:local`. <!-- code: tests/dockerfile-pins.test.ts src/docker.ts#ensureImage -->
+
 ## Models
 
 ### Providers
