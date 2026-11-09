@@ -17,9 +17,7 @@ import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Config, ConfigProvider, Effect, Fiber, Redacted, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
-import { makeInstanceHost, makeLocalActionClient, readEngineErrors } from '../src/engine.ts';
-import type { Rpc } from 'effect/rpc';
-import type { Action } from '../src/actions.ts';
+import { makeInstanceHost, readEngineErrors, runLocalActions } from '../src/engine.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
 import { formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
@@ -350,11 +348,7 @@ if (!i) {
 } else {
   if (verb === 'prune-logs') {
     const { files, bytes } = await Effect.runPromise(
-      Effect.scoped(
-        Effect.flatMap(makeLocalActionClient(makeInstanceHost({ data: i.data })), client =>
-          client.prune({ apply: !!values.apply })
-        )
-      )
+      runLocalActions(makeInstanceHost({ data: i.data }), client => client.prune({ apply: !!values.apply }))
     );
     console.log(`${values.apply ? 'deleted' : 'would delete'} ${files} unreferenced log(s), ${bytes} bytes`);
     process.exit(0);
@@ -457,21 +451,15 @@ async function runOnInstance(
       stopping.signal
     );
   };
-  const act = <A>(
-    call: (client: Effect.Success<ReturnType<typeof makeLocalActionClient>>) => Effect.Effect<A, unknown>
-  ) =>
+  const act = <A>(call: Parameters<typeof runLocalActions<A, unknown>>[1]) =>
     Effect.runPromise(
-      Effect.scoped(
-        Effect.flatMap(
-          makeLocalActionClient(
-            makeInstanceHost(
-              { data: i.data },
-              { layer: setup.layer(current.trust, i.owner), origin: setup.origin },
-              { instance: i, drive: startInstruction }
-            )
-          ),
-          call
-        )
+      runLocalActions(
+        makeInstanceHost(
+          { data: i.data },
+          { layer: setup.layer(current.trust, i.owner), origin: setup.origin },
+          { instance: i, drive: startInstruction }
+        ),
+        call
       )
     ).catch((e: Error) => fail(e.message, 1));
   const synced = async () => {
@@ -563,10 +551,33 @@ async function runOnInstance(
       return;
     }
     case 'show': {
-      const shown = await act(client => client.show(rest[0] ? { issue: numbered() } : {}));
-      if (!rest[0]) return showAll(shown);
-      for (const t of shown.issues) console.log(formatIssueTimeline({ ...t, events: t.events ?? [] }, t.diff ?? ''));
-      for (const line of shown.notes) console.log(line);
+      const { issues, runs, notes } = await act(client => client.show(rest[0] ? { issue: numbered() } : {}));
+      if (rest[0]) {
+        for (const t of issues) console.log(formatIssueTimeline({ ...t, events: t.events ?? [] }, t.diff ?? ''));
+        for (const line of notes) console.log(line);
+        return;
+      }
+      const lines = [
+        ...(scope.env.AGENTGRAPH_TRACKER === 'github'
+          ? await Effect.runPromise(
+              readInstallationReach({
+                repo: scope.env.AGENTGRAPH_REPO!,
+                id: scope.env.AGENTGRAPH_APP_ID!,
+                key: Redacted.make(scope.env.AGENTGRAPH_APP_KEY!),
+              })
+            )
+          : []),
+        ...findRunsWaitingOnPeople(runs).flatMap(run =>
+          formatNextSteps(
+            run,
+            scope.env.AGENTGRAPH_TRACKER === 'github' ? scope.env.AGENTGRAPH_REPO : undefined,
+            selected
+          )
+        ),
+        ...notes,
+      ];
+      console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
+      console.log(formatIssueList(issues));
       return;
     }
     case 'check':
@@ -599,19 +610,17 @@ async function runOnInstance(
 function watchRuns(i: Instance, issue: number) {
   const shown = new Map<string, string>();
   const follow = (take = Infinity) =>
-    Effect.scoped(
-      Effect.flatMap(makeLocalActionClient(makeInstanceHost({ data: i.data })), client =>
-        client.watch({ issue }).pipe(
-          Stream.take(take),
-          Stream.runForEach(runs =>
-            Effect.sync(() => {
-              for (const run of runs) {
-                const now = `${run.step}: ${run.status === 'running' ? 'working' : run.status}`;
-                if (shown.get(run.id) !== now) console.log(`#${issue} ${now}`);
-                shown.set(run.id, now);
-              }
-            })
-          )
+    runLocalActions(makeInstanceHost({ data: i.data }), client =>
+      client.watch({ issue }).pipe(
+        Stream.take(take),
+        Stream.runForEach(runs =>
+          Effect.sync(() => {
+            for (const run of runs) {
+              const now = `${run.step}: ${run.status === 'running' ? 'working' : run.status}`;
+              if (shown.get(run.id) !== now) console.log(`#${issue} ${now}`);
+              shown.set(run.id, now);
+            }
+          })
         )
       )
     ).pipe(Effect.catch(e => Effect.sync(() => console.error(`Could not read runs: ${e.message}`))));
@@ -955,26 +964,6 @@ async function serveLocked(instance: Instance, tag: string, shared: Semaphore.Se
     await polling;
     await drives?.stop();
   }
-}
-
-async function showAll({ issues, runs, notes }: Rpc.Success<Rpc.ExtractTag<Action, 'show'>>) {
-  const lines = [
-    ...(scope.env.AGENTGRAPH_TRACKER === 'github'
-      ? await Effect.runPromise(
-          readInstallationReach({
-            repo: scope.env.AGENTGRAPH_REPO!,
-            id: scope.env.AGENTGRAPH_APP_ID!,
-            key: Redacted.make(scope.env.AGENTGRAPH_APP_KEY!),
-          })
-        )
-      : []),
-    ...findRunsWaitingOnPeople(runs).flatMap(run =>
-      formatNextSteps(run, scope.env.AGENTGRAPH_TRACKER === 'github' ? scope.env.AGENTGRAPH_REPO : undefined, selected)
-    ),
-    ...notes,
-  ];
-  console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
-  console.log(formatIssueList(issues));
 }
 
 async function showInstances(root: string) {

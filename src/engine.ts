@@ -1,9 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Effect, Layer, Schedule, Schema, Stream } from 'effect';
 import { HttpRouter } from 'effect/http';
 import { RpcSerialization, RpcServer } from 'effect/rpc';
-import { ActionError, Actions, ActionUser, makeActionClient, userHeader } from './actions.ts';
+import { ActionError, Actions, ActionUser, runActions } from './actions.ts';
 import { parseLabels, readRunLabels, writeRunLabels, writeStoredRunLabels } from './labels.ts';
 import { PluginMetadata } from './meta.ts';
 import {
@@ -117,7 +118,7 @@ export const makeInstanceHost = (
     show: ({ issue }) =>
       Effect.gen(function* () {
         const runs = yield* store.list(issue === undefined ? {} : { issue });
-        const pull = issue && folder ? yield* Effect.promise(() => findPull(folder, issue)) : undefined;
+        const pull = issue && folder ? yield* attempt(() => findPull(folder, issue)) : undefined;
         const issues =
           issue === undefined
             ? yield* reads.issues()
@@ -136,8 +137,7 @@ export const makeInstanceHost = (
       ),
     verdicts: ({ workflow, step, check }) =>
       Effect.gen(function* () {
-        const records = (yield* store.listRecords({ workflow })).filter(run => run.workflow === workflow);
-        const runs = yield* Effect.forEach(records, run =>
+        const runs = yield* Effect.forEach(yield* store.listRecords({ workflow }), run =>
           Effect.map(store.readChecks(run.id), checks => ({ run, checks }))
         );
         return findCheckVerdicts(runs, step, check);
@@ -163,28 +163,37 @@ export const makeInstanceHost = (
   return { ...host, actions };
 };
 
-const requireUser = Layer.succeed(ActionUser)((effect, { headers }) =>
-  headers[userHeader] ? effect : Effect.fail(ActionError.make({ message: 'log in first' }))
-);
+const userHeader = 'x-agentgraph-user';
 
 export const makeActionWebHandler = (
   host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>,
   own: Partial<Pick<ReturnType<typeof makeInstanceHost>['actions'], 'runs' | 'results'>> = {}
-) =>
-  HttpRouter.toWebHandler(
+) => {
+  const key = randomUUID();
+  const { handler } = HttpRouter.toWebHandler(
     RpcServer.layerHttp({ group: Actions, path: '/', protocol: 'http' }).pipe(
-      Layer.provide([Actions.toLayer({ ...host.actions, ...own }), requireUser, RpcSerialization.layerNdjson])
+      Layer.provide([
+        Actions.toLayer({ ...host.actions, ...own }),
+        Layer.succeed(ActionUser)((effect, { headers }) =>
+          headers[userHeader] === key ? effect : Effect.fail(ActionError.make({ message: 'log in first' }))
+        ),
+        RpcSerialization.layerNdjson,
+      ])
     ),
     { disableLogger: true }
   );
-
-export const makeLocalActionClient = (host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>) => {
-  const { handler } = makeActionWebHandler(host);
-  return makeActionClient('http://local/', (input, init) => {
-    const request = new Request(input, init);
-    request.headers.set(userHeader, 'local');
+  return (request: Request, user: string | undefined) => {
+    request.headers.set(userHeader, user ? key : '');
     return handler(request);
-  });
+  };
+};
+
+export const runLocalActions = <A, E>(
+  host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>,
+  use: Parameters<typeof runActions<A, E>>[2]
+) => {
+  const handle = makeActionWebHandler(host);
+  return runActions('http://local/', (input, init) => handle(new Request(input, init), 'local'), use);
 };
 
 export const makeEngineHost = (plugin: string, configs: readonly EngineConfig[], submitting = false): EngineHost => {

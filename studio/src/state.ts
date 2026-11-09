@@ -1,6 +1,6 @@
 import { atom } from 'jotai';
 import { Effect } from 'effect';
-import { makeActionClient } from '../../src/actions.ts';
+import { runActions } from '../../src/actions.ts';
 import type { readRunResults } from '../../bin/results.ts';
 import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
 import { served } from 'virtual:served';
@@ -17,18 +17,12 @@ export const makeInstanceHref = (href: string) => prefix + href;
 const makeApiHref = (href: string) =>
   shown?.name ? `${href}${href.includes('?') ? '&' : '?'}instance=${shown.name}` : href;
 
-export const runAction = <A, E>(
-  use: (actions: Effect.Success<ReturnType<typeof makeActionClient>>) => Effect.Effect<A, E>,
-  data?: string | null
-) =>
+export const runAction = <A, E>(use: Parameters<typeof runActions<A, E>>[2], data?: string | null) =>
   Effect.runPromise(
-    Effect.scoped(
-      Effect.flatMap(
-        makeActionClient(new URL(makeApiHref(makeDataHref('/api/actions', data)), location.href).href, (input, init) =>
-          fetch(input, init)
-        ),
-        use
-      )
+    runActions(
+      new URL(makeApiHref(makeDataHref('/api/actions', data)), location.href).href,
+      (input, init) => fetch(input, init),
+      use
     )
   );
 

@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
-import { makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
+import { makeInstanceHost, runLocalActions } from '../src/engine.ts';
 import { ensureInstance, writeImportedRun } from '../src/instance.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -137,11 +137,7 @@ it('serves verdicts of one check at one step lazily, and an issue body once on i
   const runs = await serveStudio(data);
   const verdicts = (step: string, check: string) =>
     Effect.runPromise(
-      Effect.scoped(
-        Effect.flatMap(makeLocalActionClient(makeInstanceHost({ data })), actions =>
-          actions.verdicts({ workflow: 'issue', step, check })
-        )
-      )
+      runLocalActions(makeInstanceHost({ data }), actions => actions.verdicts({ workflow: 'issue', step, check }))
     );
   expect(await verdicts('implement', 'review')).toEqual([
     {

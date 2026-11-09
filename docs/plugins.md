@@ -228,7 +228,7 @@ query/navigation atoms and results components through that browser entry.
 
 The studio serves the instance's actions, the verbs the CLI runs through the same Effect RPC group, as NDJSON
 posts to `/api/actions` behind the [auth](#auth) gate. Every call carries the gate's user and is refused without one.
-<!-- code: src/actions.ts#Actions src/engine.ts#makeActionWebHandler src/engine.ts#makeLocalActionClient studio/fixtures.ts#makeStudioDevApiPlugin -->
+<!-- code: src/actions.ts#Actions src/engine.ts#makeActionWebHandler src/engine.ts#runLocalActions studio/fixtures.ts#makeStudioDevApiPlugin studio/src/state.ts#runAction -->
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 
 Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named

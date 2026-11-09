@@ -26,23 +26,17 @@ const isInside = async (path: string, roots: string[]) => {
 
 class StudioRequestError extends Error {}
 
-const pickServed = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
+const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
   const name = readQuery(req).get('instance') ?? '';
   const all = await reader.read();
   const served = all.find(one => one.name === name);
   if (!served && (name || all.some(one => one.name)))
     throw new StudioRequestError(`this studio serves no instance named "${name}"`);
-  return served;
-};
-
-const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
-  const served = await pickServed(req, reader);
   const bench = readQuery(req).get('data');
-  if (!bench) return { served, data: served?.data, host: served?.host, store: served?.host?.store, bench: undefined };
+  if (!bench) return { served, data: served?.data, host: served?.host, bench: undefined };
   if (!(await isInside(bench, readBenchSets()))) throw new StudioRequestError('data is outside the bench dirs');
   const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
-  const host = makeInstanceHost({ data: bench });
-  return { served, data: bench, host, store: host.store, bench };
+  return { served, data: bench, host: makeInstanceHost({ data: bench }), bench };
 };
 
 const bodies = (docs: Record<string, { body: string }>) =>
@@ -64,28 +58,29 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         if (req.method !== 'POST') return writeJson(res, { error: 'POST required' }, 405);
         if (!/^application\/(x-)?ndjson\b/.test(req.headers['content-type'] ?? ''))
           return writeJson(res, { error: 'actions take NDJSON' }, 415);
-        const { served, data, host, store, bench } = await readDataDir(req, reader);
+        const { served, data, host, bench } = await readDataDir(req, reader);
         if (!host) return writeJson(res, { error: 'this studio serves no instance host' }, 404);
+        const { store } = host;
         const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
         const body = await readRequestBody(req);
         if (body === undefined) throw new StudioRequestError('the body is over 64 KiB');
         const { makeActionWebHandler } = await readModule<typeof EngineModule>('src/engine.ts');
-        const { ActionError, userHeader } = await readModule<typeof ActionsModule>('src/actions.ts');
+        const { ActionError } = await readModule<typeof ActionsModule>('src/actions.ts');
         const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
         const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
         const results = () => Effect.sync(() => readRunResults(data, served?.graph));
         const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data!, id), [data!]));
         const entry = (run: RunRecord, all: boolean, body = false) =>
-          Effect.zipWith(Stream.runCollect(store!.read(run.id)), store!.readChecks(run.id), (trace, checks) => {
+          Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
             const lines = mergeCheckEntries(trace, checks);
-            const summary = makeRunSummary(run, lines);
-            const { usd, lastAt, urls } = summary;
+            const { trail, ...summary } = makeRunSummary(run, lines);
             return {
               fixture: `${bench ? 'bench' : served!.title}/${run.workflow}`,
               repo: served?.graph?.repo ?? '',
               run: all ? run : pickListedRun(run, body),
               labels: readRunLabels(data!, run.id),
-              ...(all ? { usd, ...(lastAt && { lastAt }), urls, trace: lines } : summary),
+              ...summary,
+              ...(all ? { trace: lines } : { trail }),
               ...findTraceLinks(trace),
               ...(bench && { data: bench }),
             };
@@ -93,7 +88,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         const runs = ({ id }: { id?: string }) =>
           Effect.gen(function* () {
             if (id === undefined) {
-              const runs = yield* Effect.filter(yield* store!.listRecords(), run => keep(run.id));
+              const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
               const told = new Map<number, string>();
               for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
                 if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
@@ -102,7 +97,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
               );
             }
             if (!/^(?!\.+$)[\w.-]+$/.test(id)) return yield* Effect.fail(new Error('bad run id'));
-            const run = (yield* keep(id)) ? yield* store!.getRecord(id) : undefined;
+            const run = (yield* keep(id)) ? yield* store.getRecord(id) : undefined;
             return run ? yield* entry(run, true) : null;
           }).pipe(Effect.mapError(e => ActionError.make({ message: e.message })));
         const web =
@@ -110,13 +105,9 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
           handlers
             .set(host, makeActionWebHandler(host, { results, ...((served?.dir || bench) && { runs }) }))
             .get(host)!;
-        const user = readRequestUser(req);
-        const response = await web.handler(
-          new Request('http://studio/', {
-            method: 'POST',
-            headers: { 'content-type': 'application/ndjson', ...(user && { [userHeader]: user }) },
-            body,
-          })
+        const response = await web(
+          new Request('http://studio/', { method: 'POST', headers: { 'content-type': 'application/ndjson' }, body }),
+          readRequestUser(req)
         );
         res.statusCode = response.status;
         response.headers.forEach((value, key) => res.setHeader(key, value));

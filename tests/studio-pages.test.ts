@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
-import { makeActionClient } from '../src/actions.ts';
+import { runActions } from '../src/actions.ts';
 import { createStudioServer, runStudioAction, startStudioServer, studioDir } from './studio.ts';
 import { writeIssueFile } from '../src/tracker.ts';
 
@@ -288,9 +288,9 @@ it('runs instance actions through the RPC client and refuses foreign requests', 
   vi.stubEnv('AGI_STUDIO_TRACKER', join(root, 'tracker'));
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
-  const act = <A, E>(use: (actions: Effect.Success<ReturnType<typeof makeActionClient>>) => Effect.Effect<A, E>) =>
+  const act = <A, E>(use: Parameters<typeof runActions<A, E>>[2]) =>
     Effect.runPromise(
-      Effect.scoped(Effect.flatMap(makeActionClient(`${base}/api/actions`, fetch), use)).pipe(
+      runActions(`${base}/api/actions`, fetch, use).pipe(
         Effect.catch(e => Effect.succeed({ error: (e as Error).message }))
       )
     );

@@ -1,6 +1,6 @@
 import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Effect } from 'effect';
-import { makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
+import { makeInstanceHost, runLocalActions } from '../src/engine.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -427,11 +427,7 @@ describe('a bench data dir', () => {
       const one = (await runs(data, 'issue-1')) as { data: string; trace: { event?: { text?: string } }[] };
       expect([one.data, one.trace.find(l => l.event)?.event?.text]).toEqual([data, 'from the bench']);
       expect(
-        await Effect.runPromise(
-          Effect.scoped(
-            Effect.flatMap(makeLocalActionClient(makeInstanceHost({ data })), actions => actions.log({ hash }))
-          )
-        )
+        await Effect.runPromise(runLocalActions(makeInstanceHost({ data }), actions => actions.log({ hash })))
       ).toBe('full output');
       const results = await runStudioAction(`${base}/api/actions${q(data)}`, actions => actions.results());
       expect((results as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');

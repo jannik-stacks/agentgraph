@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Effect, Stream } from 'effect';
 import { afterEach, expect, it } from 'vitest';
-import { makeActionClient } from '../src/actions.ts';
-import { makeActionWebHandler, makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
+import { runActions } from '../src/actions.ts';
+import { makeActionWebHandler, makeInstanceHost, runLocalActions } from '../src/engine.ts';
 import { folderTracker, writeIssueFile } from '../src/tracker.ts';
 import { stoppedByRunner } from '../src/context.ts';
 import { instruct } from '../src/run/trigger.ts';
@@ -41,11 +41,9 @@ const makeInstance = async () => {
   return { data, tracker, issue };
 };
 
-const callLocal = <A, E>(
-  host: ReturnType<typeof makeInstanceHost>,
-  call: (client: LocalClient) => Effect.Effect<A, E>
-) => Effect.runPromise(Effect.scoped(Effect.flatMap(makeLocalActionClient(host), call)));
-type LocalClient = Effect.Success<ReturnType<typeof makeLocalActionClient>>;
+const callLocal = <A, E>(host: ReturnType<typeof makeInstanceHost>, call: Parameters<typeof runActions<A, E>>[2]) =>
+  Effect.runPromise(runLocalActions(host, call));
+type LocalClient = Parameters<Parameters<typeof runActions>[2]>[0];
 
 it('reads runs, labels and tracker issues of its one instance and acts through the action client', async () => {
   const { data, tracker, issue } = await makeInstance();
@@ -140,19 +138,35 @@ it('resumes a parked run through the engine services the host was given', async 
   expect(resumed.map(r => [r.id, r.status, r.retried])).toEqual([['retro-7', 'running', undefined]]);
 });
 
-it('refuses a call that carries no user, even through the same codec', async () => {
+it('refuses a call without a user, even through the same codec or with a forged user header', async () => {
   const { data } = await makeInstance();
-  const { handler } = makeActionWebHandler(makeInstanceHost({ data }));
-  await expect(
-    Effect.runPromise(
-      Effect.scoped(
-        Effect.flatMap(
-          makeActionClient('http://local/', (input, init) => handler(new Request(input, init))),
-          client => client.label({ id: 'r1', patch: { arm: 'x' } })
-        )
-      )
+  const handle = makeActionWebHandler(makeInstanceHost({ data }));
+  const label = { id: 'r1', patch: { arm: 'x' } };
+  const viaCodec = Effect.runPromise(
+    runActions(
+      'http://local/',
+      (input, init) => handle(new Request(input, init), undefined),
+      client => client.label(label)
     )
-  ).rejects.toThrow('log in first');
+  );
+  const forged = (headers: string[][]) =>
+    handle(
+      new Request('http://local/', {
+        method: 'POST',
+        headers: { 'content-type': 'application/ndjson', 'x-agentgraph-user': 'local' },
+        body: `${JSON.stringify({ _tag: 'Request', id: '1', tag: 'label', payload: label, headers })}\n`,
+      }),
+      undefined
+    ).then(response => response.text());
+  expect([
+    await viaCodec.catch((e: Error) => e.message),
+    await forged([]),
+    await forged([['x-agentgraph-user', 'local']]),
+  ]).toEqual([
+    expect.stringContaining('log in first'),
+    expect.stringContaining('log in first'),
+    expect.stringContaining('log in first'),
+  ]);
 });
 
 it('watches runs, sending a list only when it changed', async () => {
