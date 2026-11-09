@@ -142,19 +142,19 @@ it('registers the example page, reuses settings and reads a changed run', async 
 });
 
 it.each([
-  { source: 'unknown' },
-  { type: 'pie' },
-  { days: 0 },
-  { days: 91 },
-  { days: 1.5 },
-  { extra: true },
-  { source: 'issues', workflow: 'issue' },
-])('rejects unknown or unbounded widget input: %j', invalid => {
+  [{ source: 'unknown' }, '"issues"\n  at ["widgets"][0]["source"]'],
+  [{ type: 'pie' }, '"table"\n  at ["widgets"][0]["type"]'],
+  [{ days: 0 }, 'between 1 and 90\n  at ["widgets"][0]["days"]'],
+  [{ days: 91 }, 'between 1 and 90\n  at ["widgets"][0]["days"]'],
+  [{ days: 1.5 }, 'an integer\n  at ["widgets"][0]["days"]'],
+  [{ extra: true }, 'no excess property\n  at ["widgets"][0]["extra"]'],
+  [{ source: 'issues', workflow: 'issue' }, 'issues widgets take no workflow or step'],
+])('rejects unknown or unbounded widget input: %j', (invalid, why) => {
   expect(() =>
     Schema.decodeUnknownSync(DashboardSettings, { onExcessProperty: 'error' })({
       widgets: [{ title: 'Runs', type: 'line', source: 'runs', days: 7, ...invalid }],
     })
-  ).toThrow();
+  ).toThrow(why);
 });
 
 it('fails on malformed store data and skips issues without a tracker', async () => {
