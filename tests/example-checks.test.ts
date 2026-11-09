@@ -145,7 +145,7 @@ describe('agentgraph graph checks', () => {
         ].join('\n'),
         'docs/a.md': '# A\n\n```\n      ▲\n      v\n```\n\nKeep `../x` and `a...b`.\n',
         'examples/agentgraph/skills/review.md':
-          'Review the whole branch: `git diff bothub-main..HEAD -- agentgraph`.\nDiff the recorded `git diff abc1234..def5678`.\n',
+          'Review the whole branch: `git diff old-main..HEAD -- agentgraph`.\nDiff the recorded `git diff abc1234..def5678`.\n',
         'CLAUDE.md': '@AGENTS.md\n',
       }
     );

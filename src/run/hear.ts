@@ -17,8 +17,6 @@ export const isInScope = (graph: Graph, issue?: Issue) =>
 
 export const isBoardGraph = (graph: Graph) => Object.values(graph.workflows).some(w => w.on.issues?.column);
 
-const normal = (branch: string) => branch.replace(/^bothub\//, 'agentgraph/');
-
 /** The open pull request on the branch a run of `w` works on: its checkout branch, else the workflow's branch for its issue. */
 export const findPullNumber = (w: Workflow, run: Pick<Run, 'issue' | 'checkout'>, open: Issue[]) => {
   const branch =
@@ -26,7 +24,7 @@ export const findPullNumber = (w: Workflow, run: Pick<Run, 'issue' | 'checkout'>
     (w.branch === undefined
       ? undefined
       : formatTemplate(w.branch, open.find(t => t.number === run.issue) ?? { number: run.issue }));
-  return branch === undefined ? undefined : open.find(t => t.pull && normal(t.pull.branch) === normal(branch))?.number;
+  return branch === undefined ? undefined : open.find(t => t.pull?.branch === branch)?.number;
 };
 
 export const readEarlierBranch = (w: Workflow, run: Run, named: string) =>

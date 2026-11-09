@@ -113,15 +113,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         graph.stacks && !current.base && findStackBase(w, issue, yield* tracker.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const named = w.branch && formatTemplate(w.branch, issue);
-      const old = named && named.replace(/^agentgraph\//, 'bothub/');
-      const legacy =
-        old && old !== named && (yield* tracker.issues({ state: 'open' })).some(t => t.pull?.branch === old)
-          ? old
-          : named;
-      const earlier = !current.checkout && legacy ? yield* readEarlierBranch(w, current, legacy) : undefined;
+      const earlier = !current.checkout && named ? yield* readEarlierBranch(w, current, named) : undefined;
       const closed = earlier?.pull?.state === 'closed' ? { ...earlier, pull: earlier.pull } : undefined;
       const own =
-        current.checkout?.branch ?? (closed && named ? yield* findFreeBranch(named) : earlier?.branch) ?? legacy;
+        current.checkout?.branch ?? (closed && named ? yield* findFreeBranch(named) : earlier?.branch) ?? named;
       if (closed) current = { ...current, feedback: yield* formatClosedAttempt(closed, current.feedback) };
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
