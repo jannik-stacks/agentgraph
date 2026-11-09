@@ -135,18 +135,17 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, { ...graph, readonly })
       );
       if (current.graphTree === undefined) {
-        const image = made.image;
+        const { image } = made;
         const versions = {
           ...(yield* readEngineVersions),
           ...(image && {
             image: image.id,
             harnesses: Object.fromEntries(
-              Object.values(graph.agents).map(a => [a.harness, (a.package && image.packages[a.package]) || 'unknown'])
+              Object.values(graph.agents).map(a => [a.harness, image.packages[a.package ?? ''] ?? 'unknown'])
             ),
           }),
         };
-        const graphTree = yield* ensureGraphRef(made.git, graph.dir);
-        yield* store.put((current = { ...current, graphTree, versions }));
+        yield* store.put((current = { ...current, graphTree: yield* ensureGraphRef(made.git, graph.dir), versions }));
       }
       if (own && made.saved) {
         const message = yield* readGit(made.git, ['log', '-1', '--format=%B', made.saved]);
