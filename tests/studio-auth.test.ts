@@ -107,15 +107,15 @@ describe('studio gate', () => {
       const after = await get('/api/runs', { cookie: session });
       const bearer = await get('/api/runs', { authorization: 'Bearer script-token' });
       const forged = await get('/api/runs', { cookie: `${session.slice(0, -2)}xx` });
-      const crossSite = await fetch(`${base}/api/actions/say`, {
+      const crossSite = await fetch(`${base}/api/actions`, {
         method: 'POST',
-        headers: { cookie: session, origin: 'https://evil.example', 'content-type': 'application/json' },
-        body: '[1,"hi"]',
+        headers: { cookie: session, origin: 'https://evil.example', 'content-type': 'application/ndjson' },
+        body: '',
       });
-      const proxied = await fetch(`${base}/api/actions/label`, {
+      const proxied = await fetch(`${base}/api/actions`, {
         method: 'POST',
-        headers: { cookie: session, origin: `https://${new URL(base).host}`, 'content-type': 'application/json' },
-        body: '["r1",{"arm":"x"}]',
+        headers: { cookie: session, origin: `https://${new URL(base).host}`, 'content-type': 'application/ndjson' },
+        body: '',
       });
       const logout = await fetch(`${base}/auth/logout`, {
         method: 'POST',
@@ -164,7 +164,7 @@ describe('studio gate', () => {
         bearer: 200,
         forged: 401,
         crossSite: 403,
-        proxied: 400,
+        proxied: 200,
         forwarded: 303,
         logout: [303, '/auth/login', `agi_session_${port}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`],
         socket: [undefined, undefined, true],

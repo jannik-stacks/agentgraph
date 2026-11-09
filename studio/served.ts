@@ -36,10 +36,17 @@ export const readModule = <T>(path: string): Promise<T> => import(new URL(path, 
 const makeServedHost = async (
   data: string,
   graph?: Graph,
-  tracker?: Parameters<typeof EngineModule.makeInstanceHost>[1]
+  tracker?: Parameters<typeof EngineModule.makeInstanceHost>[1],
+  driven?: Omit<Parameters<typeof MainModule.start>[0], 'issue' | 'data' | 'instruction'>
 ) => {
   const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
-  return makeInstanceHost({ data, ...(graph && { checks: graph.checks }) }, tracker);
+  const drive =
+    driven &&
+    (async (instruction: NonNullable<Parameters<typeof MainModule.start>[0]['instruction']>) => {
+      const { start } = await readModule<typeof MainModule>('src/main.ts');
+      return start({ ...driven, issue: 'all', data, instruction, choice: readChoice() });
+    });
+  return makeInstanceHost({ data, ...(graph && { checks: graph.checks }) }, tracker, drive);
 };
 
 export const readQuery = (req: IncomingMessage) => new URL(req.url ?? '/', 'http://studio').searchParams;
@@ -89,10 +96,12 @@ const readInstanceServed = async ({ root, graph: explicit }: StudioInstances, na
     const setup = await makeTrackerSetup(current);
     if (setup.origin.local && !existsSync(setup.origin.origin)) throw new Error(whyTracker);
     const loaded = await loadGraph(dir, instance, scope);
-    const host = await makeServedHost(instance.data, loaded.graph, {
-      layer: setup.layer(loaded.graph?.trust ?? current.trust, instance.owner),
-      origin: setup.origin,
-    });
+    const host = await makeServedHost(
+      instance.data,
+      loaded.graph,
+      { layer: setup.layer(loaded.graph?.trust ?? current.trust, instance.owner), origin: setup.origin },
+      { graph: dir, instance }
+    );
     return { name, title: name, dir, data: instance.data, files, local: !!setup.origin.local, host, ...loaded };
   } catch (e) {
     const problems = [{ path: 'instance.yaml', message: (e as Error).message }];

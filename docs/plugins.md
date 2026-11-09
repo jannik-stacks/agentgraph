@@ -208,9 +208,9 @@ Schema for its data and a `read(settings, host)` effect. Optional `watch(setting
 folders whose changes refresh the page, such as the instance's `host.data`. The reader gets this plugin's decoded
 settings and the instance's host: its `data` folder, `store` (`list`, `listRecords`, `getRecord`, `read`,
 `readChecks`, `readLog`), `tracker` (`issues`, `issue`, `since`), `readRuns()`, each run with its labels and
-latest checks, and `actions`. These are the
+latest checks, and the `actions` that pages call. These are the
 reads the studio's own Runs and Graph pages use, scoped to the one instance the page is served
-for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/trackers`, as in
+for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/plugins`, as in
 `read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations does not execute readers or import TSX. Host code remains trusted; namespaces
 are not isolation.
 <!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/types.ts#InstanceHost src/engine.ts#makeInstanceHost -->
@@ -221,13 +221,17 @@ Pass its plugin name and a browser-safe data schema shared with the host reader.
 exports its UI (`Live`, `Loading`, `Muted`, `Button`, `Select`, `Badge`, `Disclosure`, `Tooltip` and more),
 query/navigation atoms and results components through that browser entry.
 
-A page acts with `runAction(verb, ...args)`, which runs the host action of that name on the page's
-instance. The instance host defines one action map. Each verb has an argument schema and a handler. `runAction('say', 12, 'go on')` posts `/agent go on` like `agi say`, and
-`runAction('label', runId, { arm: 'base' })` sets run labels like `agi label`. `say` takes the same
+A page acts with `runAction(use)`, which hands `use` a typed client for the page's instance. The actions
+are one Effect RPC group, and the CLI calls the same group in process through the same HTTP codec, so each
+action has one input schema, one output schema and one error. `runAction(a => a.say({ issue: 12, text: 'go on' }))`
+posts `/agent go on` like `agi say`, `a.label({ id: runId, patch: { arm: 'base' } })` sets run labels like
+`agi label`, `a.show({ issue: 12 })` reads what `agi show 12` prints, and `a.resume({ parked: true })` resumes
+parked runs like `agi resume --parked` in a studio of named instances. `say` takes the same
 [commands](workflows.md#commands), so `':restart:implement'` or `':stop'` reach a run under the graph's
-`commands` gate. It posts only to a local tracker. The studio never drives; a running loop picks the
-comment up. The studio accepts actions only as JSON posts to `/api/actions/<verb>`, behind the [auth](#auth) gate's origin check.
-<!-- code: src/engine.ts#makeInstanceHost studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
+`commands` gate. It posts only to a local tracker; a running loop picks the comment up. The studio accepts
+actions only as NDJSON posts to `/api/actions`, behind the [auth](#auth) gate, and every call carries the
+gate's user. A call without one is refused.
+<!-- code: src/actions.ts#Actions src/engine.ts#makeActionWebHandler studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 
 Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named

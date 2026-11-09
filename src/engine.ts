@@ -1,16 +1,21 @@
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { Effect, type Layer, Schema, Stream } from 'effect';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { Effect, Layer, Schedule, Schema, Stream } from 'effect';
+import { HttpRouter } from 'effect/http';
+import { RpcSerialization, RpcServer } from 'effect/rpc';
+import { ActionError, Actions, ActionUser, makeActionClient, userHeader } from './actions.ts';
 import { parseLabels, readRunLabels, writeRunLabels, writeStoredRunLabels } from './labels.ts';
 import { PluginMetadata } from './meta.ts';
-import { readRealPath } from './instance.ts';
+import { findPull, readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
 import type * as MainModule from './main.ts';
 import type { JsonValue } from './meta.ts';
+import type { Instruction } from './run/trigger.ts';
+import { formatRunnerError } from './status.ts';
 import { fileStore, readJsonlRows, readRecordSync, Store } from './store.ts';
-import { Tracker, type TrackerSetup, writeAgentComment } from './tracker.ts';
+import { findIssueDir, Tracker, type TrackerSetup, writeAgentComment } from './tracker.ts';
 import { findLatestChecks } from './trace.ts';
-import { type CheckEntry, type InstanceHost, type RunRecord, TrackerError } from './types.ts';
+import { type CheckEntry, type InstanceHost, type Run, type RunRecord, TrackerError } from './types.ts';
 
 type EngineConfig = {
   readonly name: string;
@@ -51,14 +56,10 @@ const readStoredRuns = ({ data, checks = {} }: Pick<EngineConfig, 'data' | 'chec
   return (existsSync(data) ? readdirSync(data) : []).flatMap(id => readStoredRun(data, id, versions) ?? []);
 };
 
-const makeAction = <S extends Schema.Codec<readonly unknown[], unknown>, A, E>(
-  args: S,
-  run: (...args: S['Type']) => Effect.Effect<A, E>
-) => ({ args, run });
-
 export const makeInstanceHost = (
   config: Pick<EngineConfig, 'data' | 'checks'>,
-  tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] }
+  tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] },
+  drive?: (instruction: Instruction) => Promise<RunRecord[]>
 ) => {
   const { data } = config;
   const store: InstanceHost['store'] = Effect.runSync(Store.pipe(Effect.provide(fileStore(data))));
@@ -73,22 +74,76 @@ export const makeInstanceHost = (
       service ? Stream.unwrap(Effect.map(service, t => t.since(cursor, columns))) : Stream.fail(missing),
   };
   const host: InstanceHost = { data, store, tracker: reads, readRuns: () => readStoredRuns(config) };
-  return {
-    ...host,
-    actions: {
-      say: makeAction(
-        Schema.Tuple([Schema.Int.check(Schema.isGreaterThan(0)), Schema.Trimmed.check(Schema.isNonEmpty())]),
-        (issue, text) =>
-          !tracker || tracker.origin.local
-            ? provided(writeAgentComment(issue, text))
-            : Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
+  const folder = tracker?.origin.local ? dirname(tracker.origin.origin) : undefined;
+  const fail = (e: unknown) => ActionError.make({ message: e instanceof Error ? e.message : String(e) });
+  const readNotes = (runs: readonly Run[]) =>
+    Effect.map(
+      Effect.forEach(
+        runs.filter(run => run.status === 'waiting' && run.retried),
+        run =>
+          Effect.map(Stream.runCollect(store.read(run.id)), trace =>
+            formatRunnerError([...trace], join(data, run.id, 'trace.jsonl'))
+          )
       ),
-      label: makeAction(
-        Schema.Tuple([Schema.String, Schema.Record(Schema.String, Schema.NullOr(Schema.String))]),
-        (id, patch) => writeStoredRunLabels(data, id, patch)
+      lines => lines.flat()
+    );
+  const readIssue = (n: number) =>
+    Effect.map(reads.issue(n), issue => {
+      const diff = folder ? join(findIssueDir(folder, n), 'diff.patch') : '';
+      return { ...issue, diff: diff && existsSync(diff) ? readFileSync(diff, 'utf8') : '' };
+    });
+  const actions = Actions.toLayer({
+    show: ({ issue }) =>
+      Effect.gen(function* () {
+        const runs = yield* store.list(issue === undefined ? {} : { issue });
+        const pull = issue && folder ? yield* Effect.promise(() => findPull(folder, issue)) : undefined;
+        const issues =
+          issue === undefined
+            ? yield* reads.issues()
+            : yield* Effect.forEach([...new Set([issue, pull?.number ?? issue])], readIssue);
+        return { issues, runs, notes: yield* readNotes(runs) };
+      }).pipe(Effect.mapError(fail)),
+    say: ({ issue, text }) =>
+      (!tracker || tracker.origin.local
+        ? provided(writeAgentComment(issue, text))
+        : Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
+      ).pipe(Effect.asVoid, Effect.mapError(fail)),
+    label: ({ id, patch }) => writeStoredRunLabels(data, id, patch).pipe(Effect.mapError(fail)),
+    resume: selection =>
+      drive
+        ? Effect.tryPromise({ try: () => drive({ kind: 'resume', ...selection }), catch: fail })
+        : Effect.fail(ActionError.make({ message: 'this host does not drive runs' })),
+    watch: ({ issue }) =>
+      Stream.fromEffectSchedule(
+        store.listRecords(issue === undefined ? {} : { issue }),
+        Schedule.spaced('1 second')
+      ).pipe(
+        Stream.changesWith((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+        Stream.mapError(fail)
       ),
-    },
-  };
+  });
+  return { ...host, actions };
+};
+
+const requireUser = Layer.succeed(ActionUser)((effect, { headers }) =>
+  headers[userHeader] ? effect : Effect.fail(ActionError.make({ message: 'log in first' }))
+);
+
+export const makeActionWebHandler = (host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>) =>
+  HttpRouter.toWebHandler(
+    RpcServer.layerHttp({ group: Actions, path: '/', protocol: 'http' }).pipe(
+      Layer.provide([host.actions, requireUser, RpcSerialization.layerNdjson])
+    ),
+    { disableLogger: true }
+  );
+
+export const makeLocalActionClient = (host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>) => {
+  const { handler } = makeActionWebHandler(host);
+  return makeActionClient('http://local/', (input, init) => {
+    const request = new Request(input, init);
+    request.headers.set(userHeader, 'local');
+    return handler(request);
+  });
 };
 
 export const makeEngineHost = (plugin: string, configs: readonly EngineConfig[], submitting = false): EngineHost => {

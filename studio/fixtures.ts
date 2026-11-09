@@ -1,14 +1,18 @@
 import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { Plugin } from 'vite';
-import { Effect, Result, Schema, Stream } from 'effect';
+import { Effect, Result, Stream } from 'effect';
+import { readRequestUser } from './auth.ts';
 import { makeServedGraphs, readBenchSets, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as StoreModule from '../src/store.ts';
+import type * as ActionsModule from '../src/actions.ts';
 import type * as EngineModule from '../src/engine.ts';
 import type * as ToolsModule from '../src/tools.ts';
 import type * as LabelsModule from '../src/labels.ts';
@@ -22,11 +26,6 @@ const isInside = async (path: string, roots: string[]) => {
 };
 
 class StudioRequestError extends Error {}
-
-type HostAction = {
-  readonly args: Schema.Codec<readonly unknown[], unknown>;
-  run(...args: readonly unknown[]): Effect.Effect<unknown, unknown>;
-};
 
 const readPath = (req: IncomingMessage) => (req.url ?? '/').split('?')[0]!.slice(1);
 
@@ -62,28 +61,31 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
             writeJson(res, { error: e.message || e._tag }, e instanceof StudioRequestError ? 400 : 500)
           );
         });
+      const handlers = new WeakMap<object, ReturnType<typeof EngineModule.makeActionWebHandler>>();
       use('/api/actions', async (req, res) => {
         if (req.method !== 'POST') return writeJson(res, { error: 'POST required' }, 405);
-        if (!req.headers['content-type']?.startsWith('application/json'))
-          return writeJson(res, { error: 'actions take JSON' }, 415);
-        const verb = readPath(req);
+        if (!/^application\/(x-)?ndjson\b/.test(req.headers['content-type'] ?? ''))
+          return writeJson(res, { error: 'actions take NDJSON' }, 415);
         const host = (await pickServed(req, reader))?.host;
-        const actions: Readonly<Record<string, HostAction>> = host?.actions ?? {};
-        if (!Object.hasOwn(actions, verb)) return writeJson(res, { error: `no action ${verb}` }, 404);
+        if (!host) return writeJson(res, { error: 'this studio serves no instance host' }, 404);
         const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
-        const text = await readRequestBody(req);
-        if (text === undefined) throw new StudioRequestError('the body is over 64 KiB');
-        const { args, run } = actions[verb]!;
-        const act = Effect.try(() => JSON.parse(text)).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(args)),
-          Effect.flatMap(decoded => run(...decoded))
-        );
-        writeJson(
-          res,
-          await Effect.runPromise(act).catch((e: Error) => {
-            throw new StudioRequestError(e.message);
+        const body = await readRequestBody(req);
+        if (body === undefined) throw new StudioRequestError('the body is over 64 KiB');
+        const { makeActionWebHandler } = await readModule<typeof EngineModule>('src/engine.ts');
+        const { userHeader } = await readModule<typeof ActionsModule>('src/actions.ts');
+        const web = handlers.get(host) ?? handlers.set(host, makeActionWebHandler(host)).get(host)!;
+        const user = readRequestUser(req);
+        const response = await web.handler(
+          new Request('http://studio/', {
+            method: 'POST',
+            headers: { 'content-type': 'application/ndjson', ...(user && { [userHeader]: user }) },
+            body,
           })
         );
+        res.statusCode = response.status;
+        response.headers.forEach((value, key) => res.setHeader(key, value));
+        if (!response.body) return res.end();
+        await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), res).catch(() => {});
       });
       use('/api/results', async (req, res) => {
         const { served, data } = await readDataDir(req, reader);

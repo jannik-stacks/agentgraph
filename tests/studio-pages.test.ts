@@ -2,7 +2,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
+import { makeActionClient } from '../src/actions.ts';
 import { createStudioServer, startStudioServer, studioDir } from './studio.ts';
 import { writeIssueFile } from '../src/tracker.ts';
 
@@ -269,7 +271,7 @@ dataSchema: Schema.String, read: () => Effect.succeed('${name}') } });
   }
 });
 
-it('runs instance actions only for same-origin JSON and reports refusals', async () => {
+it('runs instance actions through the RPC client and refuses foreign requests', async () => {
   const root = mkdtempSync(join(tmpdir(), 'agentgraph-actions-'));
   const dir = join(root, 'graph');
   mkdirSync(dir);
@@ -286,30 +288,32 @@ it('runs instance actions only for same-origin JSON and reports refusals', async
   vi.stubEnv('AGI_STUDIO_TRACKER', join(root, 'tracker'));
   vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
-  const post = async (verb: string, body: unknown, headers: Record<string, string> = {}) => {
-    const response = await fetch(`${base}/api/actions/${verb}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-    });
+  const act = <A, E>(use: (actions: Effect.Success<ReturnType<typeof makeActionClient>>) => Effect.Effect<A, E>) =>
+    Effect.runPromise(
+      Effect.scoped(Effect.flatMap(makeActionClient(`${base}/api/actions`), use)).pipe(
+        Effect.catch(e => Effect.succeed({ error: (e as Error).message }))
+      )
+    );
+  const post = async (headers: Record<string, string>) => {
+    const response = await fetch(`${base}/api/actions`, { method: 'POST', headers, body: '' });
     return [response.status, await response.json()];
   };
   try {
     expect([
-      await post('label', ['r1', { arm: 'base' }]),
-      await post('label', ['r1', { arm: 'x' }], { 'sec-fetch-site': 'cross-site' }),
-      await post('label', ['r1', { arm: 'x' }], { 'content-type': 'text/plain' }),
-      await post('label', ['r1']),
-      await post('say', [issue, 'hi']),
-      await post('merge', [1]),
-      [(await fetch(`${base}/api/actions/label`)).status, null],
+      await act(actions => actions.label({ id: 'r1', patch: { arm: 'base' } })),
+      await act(actions => actions.label({ id: 'r2', patch: { arm: 'x' } })),
+      await act(actions => actions.say({ issue, text: 'hi' })),
+      await act(actions => actions.resume({ id: 'r1' })),
+      await post({ 'content-type': 'application/ndjson', 'sec-fetch-site': 'cross-site' }),
+      await post({ 'content-type': 'text/plain' }),
+      [(await fetch(`${base}/api/actions`)).status, null],
     ]).toEqual([
-      [200, { arm: 'base' }],
+      { arm: 'base' },
+      { error: expect.stringContaining('r2') },
+      undefined,
+      { error: 'this host does not drive runs' },
       [403, { error: 'cross-origin request' }],
-      [415, { error: 'actions take JSON' }],
-      [400, { error: expect.stringContaining('Missing key') }],
-      [200, expect.objectContaining({ ok: true })],
-      [404, { error: 'no action merge' }],
+      [415, { error: 'actions take NDJSON' }],
       [405, null],
     ]);
   } finally {

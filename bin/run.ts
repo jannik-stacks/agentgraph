@@ -17,9 +17,12 @@ import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Config, ConfigProvider, Effect, Redacted, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
+import { makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
+import type { Rpc } from 'effect/rpc';
+import type { Action } from '../src/actions.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit, writeAgentComment } from '../src/tracker.ts';
+import { formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
 import { readConfiguredGraph, readHarnessSettings, splitNames, type Provider } from '../src/harnesses.ts';
 import {
   ensureInstanceGraph,
@@ -116,7 +119,7 @@ const relabel = async (data: string) => {
 };
 const listRuns = (data: string, filter: Parameters<Store['Service']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
-const printRuns = (runs: RunRecord[], tag = '') => {
+const printRuns = (runs: readonly RunRecord[], tag = '') => {
   if (verb === 'resume' && !runs.length) console.log('0 runs parked by runner errors');
   for (const run of runs)
     console.log(`${tag}${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
@@ -300,8 +303,7 @@ const trapInterrupt = (release?: () => Promise<void>) => {
 
 let trackerSetup: Awaited<ReturnType<typeof makeTrackerSetup>>;
 
-const instruction =
-  (verb === 'check' && values.runs) || verb === 'resume' || verb === 'dispatch' ? instructed() : undefined;
+const instruction = (verb === 'check' && values.runs) || verb === 'dispatch' ? instructed() : undefined;
 const host = await readHostSettings({ data: values.data }).catch((e: Error) => fail(e.message));
 const root = host.data;
 const defaults = {
@@ -408,11 +410,6 @@ async function openTracker(instance: Instance, scope: InstanceEnv) {
 }
 
 function instructed(): Instruction {
-  if (verb === 'resume') {
-    if (values.parked && rest.length === 0) return { kind: 'resume', parked: true };
-    if (!values.parked && rest.length === 1) return { kind: 'resume', id: rest[0]! };
-    return fail('usage: agi resume <run id>|--parked');
-  }
   if (verb === 'dispatch') {
     if (!values.workflow) fail('dispatch takes --workflow <name>');
     return {
@@ -445,7 +442,35 @@ async function runOnInstance(
   graph: string
 ) {
   trackerSetup = setup;
-  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, setup.layer(current.trust, i.owner)));
+  const layer = setup.layer(current.trust, i.owner);
+  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, layer));
+  const startInstruction = async (instruction: Instruction) => {
+    const graph = await synced();
+    const { provider } = await prepare(i, graph, 'Nothing was driven.');
+    trapInterrupt();
+    return start(
+      {
+        graph,
+        issue: 'all',
+        data: i.data,
+        instance: i,
+        ...overrides,
+        setup: { ...scope, tracker: trackerSetup },
+        instruction,
+        choice: makeHarnessChoice(provider),
+      },
+      undefined,
+      {},
+      stopping.signal
+    );
+  };
+  const host = makeInstanceHost({ data: i.data }, { layer, origin: setup.origin }, startInstruction);
+  const act = <A>(
+    call: (client: Effect.Success<ReturnType<typeof makeLocalActionClient>>) => Effect.Effect<A, unknown>
+  ) =>
+    Effect.runPromise(Effect.scoped(Effect.flatMap(makeLocalActionClient(host), call))).catch((e: Error) =>
+      fail(e.message, 1)
+    );
   const synced = async () => {
     const why = setup.origin.local && (await ensureBase(i));
     if (why) fail(why, 1);
@@ -485,10 +510,7 @@ async function runOnInstance(
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
       if (values.line) await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
-      else
-        await Effect.runPromise(Effect.provideService(writeAgentComment(n, said()), Tracker, await getTracker())).catch(
-          (e: Error) => fail(e.message)
-        );
+      else await act(client => client.say({ issue: n, text: said() }));
       if (values.label)
         await Effect.runPromise((await getTracker()).apply(issue, { kind: 'label', add: values.label, remove: [] }));
       return drive(i, issue, graph, provider);
@@ -540,32 +562,26 @@ async function runOnInstance(
       console.log(closed.length ? `closed #${closed.join(' and #')}` : `nothing open on #${n}`);
       return;
     }
-    case 'show':
-      return rest[0] ? showIssue(await getTracker(), numbered(), i) : showAll(i, await getTracker());
+    case 'show': {
+      const shown = await act(client => client.show(rest[0] ? { issue: numbered() } : {}));
+      if (!rest[0]) return showAll(shown);
+      for (const t of shown.issues) console.log(formatIssueTimeline({ ...t, events: t.events ?? [] }, t.diff ?? ''));
+      for (const line of shown.notes) console.log(line);
+      return;
+    }
+    case 'resume': {
+      const selection =
+        values.parked && !rest.length
+          ? ({ parked: true } as const)
+          : !values.parked && rest.length === 1
+            ? { id: rest[0]! }
+            : fail('usage: agi resume <run id>|--parked');
+      return printRuns(await act(client => client.resume(selection)));
+    }
     case 'check':
-    case 'resume':
     case 'dispatch': {
       if (verb === 'check' && !values.runs) return checkGraph(await synced(), i);
-      const graph = await synced();
-      const { provider } = await prepare(i, graph, 'Nothing was driven.');
-      trapInterrupt();
-      return printRuns(
-        await start(
-          {
-            graph,
-            issue: 'all',
-            data: i.data,
-            instance: i,
-            ...overrides,
-            setup: { ...scope, tracker: trackerSetup },
-            instruction: instruction!,
-            choice: makeHarnessChoice(provider),
-          },
-          undefined,
-          {},
-          stopping.signal
-        )
-      );
+      return printRuns(await startInstruction(instruction!));
     }
     case 'loop':
       return loop([i]);
@@ -946,8 +962,7 @@ async function serveLocked(instance: Instance, tag: string, shared: Semaphore.Se
   }
 }
 
-async function showAll(i: Instance, tracker: Tracker['Service']) {
-  const runs = await listRuns(i.data);
+async function showAll({ issues, runs, notes }: Rpc.Success<Rpc.ExtractTag<Action, 'show'>>) {
   const lines = [
     ...(scope.env.AGENTGRAPH_TRACKER === 'github'
       ? await Effect.runPromise(
@@ -961,20 +976,10 @@ async function showAll(i: Instance, tracker: Tracker['Service']) {
     ...findRunsWaitingOnPeople(runs).flatMap(run =>
       formatNextSteps(run, scope.env.AGENTGRAPH_TRACKER === 'github' ? scope.env.AGENTGRAPH_REPO : undefined, selected)
     ),
-    ...(await formatRunnerErrors(i.data, runs)),
+    ...notes,
   ];
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
-  console.log(formatIssueList(await Effect.runPromise(tracker.issues())));
-}
-
-async function showIssue(tracker: Tracker['Service'], issue: number, i: Instance) {
-  const pull = trackerSetup.origin.local ? await findPull(i.tracker, issue) : undefined;
-  for (const k of new Set([issue, pull?.number ?? issue])) {
-    const t = await Effect.runPromise(tracker.issue(k)).catch((e: Error) => fail(e.message, 1));
-    const diff = join(findIssueDir(i.tracker, k), 'diff.patch');
-    console.log(formatIssueTimeline(t, existsSync(diff) ? readFileSync(diff, 'utf8') : ''));
-  }
-  for (const line of await formatRunnerErrors(i.data, await listRuns(i.data, { issue }))) console.log(line);
+  console.log(formatIssueList(issues));
 }
 
 async function showInstances(root: string) {
