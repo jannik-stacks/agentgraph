@@ -1,15 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Effect, Stream } from 'effect';
 import { afterEach, expect, it } from 'vitest';
-import { makeActionClient } from '../src/actions.ts';
-import { makeActionWebHandler, makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
+import { runActions } from '../src/actions.ts';
+import { makeActionWebHandler, makeInstanceHost, runLocalActions } from '../src/engine.ts';
 import { folderTracker, writeIssueFile } from '../src/tracker.ts';
-import { stoppedByRunner } from '../src/context.ts';
+import { stoppedByEngine } from '../src/context.ts';
 import { instruct } from '../src/run/trigger.ts';
 import { Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
+import type { Instance } from '../src/instance.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { services, world } from './world.ts';
 
@@ -40,11 +41,9 @@ const makeInstance = async () => {
   return { data, tracker, issue };
 };
 
-const callLocal = <A, E>(
-  host: ReturnType<typeof makeInstanceHost>,
-  call: (client: LocalClient) => Effect.Effect<A, E>
-) => Effect.runPromise(Effect.scoped(Effect.flatMap(makeLocalActionClient(host), call)));
-type LocalClient = Effect.Success<ReturnType<typeof makeLocalActionClient>>;
+const callLocal = <A, E>(host: ReturnType<typeof makeInstanceHost>, call: Parameters<typeof runActions<A, E>>[2]) =>
+  Effect.runPromise(runLocalActions(host, call));
+type LocalClient = Parameters<Parameters<typeof runActions>[2]>[0];
 
 it('reads runs, labels and tracker issues of its one instance and acts through the action client', async () => {
   const { data, tracker, issue } = await makeInstance();
@@ -126,30 +125,90 @@ it('resumes a parked run through the engine services the host was given', async 
       store.put({
         ...begin(flow, { id: 'retro-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }),
         status: 'waiting',
-        reason: `${stoppedByRunner} (SessionStop).`,
+        reason: `${stoppedByEngine} (SessionStop).`,
         retried: true,
       })
     )
   );
   const host = makeInstanceHost({ data: where.data }, undefined, {
-    instance: { tracker: where.tracker, owner: 'local' },
+    instance: { tracker: where.tracker, owner: 'local' } as Instance,
     drive: instruction => run(instruct(graph, instruction)),
   });
   const resumed = await callLocal(host, client => client.instruct({ kind: 'resume', parked: true }));
   expect(resumed.map(r => [r.id, r.status, r.retried])).toEqual([['retro-7', 'running', undefined]]);
 });
 
-it('refuses a call that carries no user, even through the same codec', async () => {
+it('refuses a call without a user, even through the same codec or with a forged user header', async () => {
   const { data } = await makeInstance();
-  const { handler } = makeActionWebHandler(makeInstanceHost({ data }));
-  await expect(
-    Effect.runPromise(
-      Effect.scoped(
-        Effect.flatMap(
-          makeActionClient('http://local/', (input, init) => handler(new Request(input, init))),
-          client => client.label({ id: 'r1', patch: { arm: 'x' } })
-        )
-      )
+  const handle = makeActionWebHandler(makeInstanceHost({ data }));
+  const label = { id: 'r1', patch: { arm: 'x' } };
+  const viaCodec = Effect.runPromise(
+    runActions(
+      'http://local/',
+      (input, init) => handle(new Request(input, init), undefined),
+      client => client.label(label)
     )
-  ).rejects.toThrow('log in first');
+  );
+  const forged = (headers: string[][]) =>
+    handle(
+      new Request('http://local/', {
+        method: 'POST',
+        headers: { 'content-type': 'application/ndjson', 'x-agentgraph-user': 'local' },
+        body: `${JSON.stringify({ _tag: 'Request', id: '1', tag: 'label', payload: label, headers })}\n`,
+      }),
+      undefined
+    ).then(response => response.text());
+  expect([
+    await viaCodec.catch((e: Error) => e.message),
+    await forged([]),
+    await forged([['x-agentgraph-user', 'local']]),
+  ]).toEqual([
+    expect.stringContaining('log in first'),
+    expect.stringContaining('log in first'),
+    expect.stringContaining('log in first'),
+  ]);
+});
+
+it('keeps engine writes to the local CLI and lets a studio user say and label', async () => {
+  const { data } = await makeInstance();
+  const handle = makeActionWebHandler(makeInstanceHost({ data }));
+  const asStudio = <A>(use: Parameters<typeof runActions<A, unknown>>[2]) =>
+    Effect.runPromise(
+      runActions('http://local/', (input, init) => handle(new Request(input, init), 'morgan'), use)
+    ).catch((e: Error) => e.message);
+  expect([
+    await asStudio(client => client.instruct({ kind: 'resume', parked: true })),
+    await asStudio(client => client.review({ issue: 1, verdict: 'approved', text: '' })),
+    await asStudio(client => client.merge({ issue: 1 })),
+    await asStudio(client => client.export({ issue: 1 })),
+    await asStudio(client => client.close({ issue: 1 })),
+    await asStudio(client => client.prune({ apply: true })),
+    await asStudio(client => client.label({ id: 'r1', patch: { arm: 'x' } })),
+  ]).toEqual([
+    'instruct runs only from the agi CLI',
+    'review runs only from the agi CLI',
+    'merge runs only from the agi CLI',
+    'export runs only from the agi CLI',
+    'close runs only from the agi CLI',
+    'prune runs only from the agi CLI',
+    { arm: 'x' },
+  ]);
+});
+
+it('watches runs, sending a list only when it changed', async () => {
+  const { data } = await makeInstance();
+  const record = join(data, 'r1', 'run.json');
+  writeFileSync(record, readFileSync(record, 'utf8').replace('"id":"r1"', '"id":"r1","issue":1'));
+  const seen = await callLocal(makeInstanceHost({ data }), client =>
+    client.watch({}).pipe(
+      Stream.tap(() =>
+        Effect.sync(() =>
+          writeFileSync(record, readFileSync(record, 'utf8').replace('"status":"done"', '"status":"running"'))
+        )
+      ),
+      Stream.take(2),
+      Stream.runCollect
+    )
+  );
+  expect(seen.map(runs => runs.map(run => run.status))).toEqual([['done'], ['running']]);
 });

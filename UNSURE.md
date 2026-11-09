@@ -14,21 +14,20 @@ Decisions made without being sure. Each names what was picked and what would cha
 - The CLI calls actions in process through the same HTTP codec as the studio and never reaches a remote host, so
   there is no remote write to fall back from. A loop that serves the group (planned) must keep that: a failed
   remote call is reported, never retried locally.
-- `show`, `say`, `label`, `review`, `merge`, `close` and `instruct` (resume, dispatch, `check --runs`) are actions.
-  Estimates for the rest, as lines added / deleted in production code:
-  - `runs` and `run`: +30 / -11. A schema for the listed run (summary, links, labels) and the run with its trace;
-    the summary helpers move from `studio/src/runs/trace.ts` into `src/`; bench dirs need a host per bench folder.
-  - `log`: +6 / -10. A `log { hash }` action returning text replaces the route and the fetch in `rows.tsx`.
-  - `results`: +20 / -8. Needs a schema for the result tables `bin/results.ts` builds.
-  - `locate`: +8 / -12. It searches every served instance, so the page calls each instance's group in turn.
-  - `verdicts`: +12 / -20. `findCheckVerdicts` moves into `src/`; its rows need a small schema.
-  - plugin data: +6 / -8. Each plugin brings its own schema, so the action returns JSON and the page decodes it;
-    no typing gain.
-  - studio pages: +15 / -12. A browser client and a live atom over it replace the fetch and error parsing in
-    `makeLiveJsonAtom`.
-  - `watch`: +29 / -18. A bounded, coalescing stream replaces the CLI's one-second `watchRuns` poll; replacing the
-    studio's change topics with it as well would delete about 20 more lines but touches every live page.
-  - `start`, `export`, `import`, `prune-logs`: about +10 each, nothing to delete until the studio calls them.
+- `show`, `say`, `label`, `review`, `merge`, `close`, `instruct` (resume, dispatch, `check --runs`), `log`,
+  `verdicts`, `runs`, `results`, `watch`, `export` and `prune` are actions. Left as they are:
+  - `start` and `import` stay CLI code. `start` needs the loaded graph and the CLI's harness checks before it
+    files the issue, and `import` needs the package version; each would add about +10 production lines, past the
+    +260 budget for this branch.
+  - `locate` and plugin data stay routes: `locate` searches every served instance, and plugin data is JSON each
+    page decodes with its own schema, so an action would add no typing.
+  - `runs` and `results` are typed `Schema.Unknown`. Their rows are built by studio helpers
+    (`studio/src/runs/trace.ts`, `bin/results.ts`), so the engine group has an empty default and the studio
+    bridge passes its own handlers to `makeActionWebHandler`. A typed schema would need those helpers in `src/`.
+  - `watch` polls the store once a second on the host, emits only on change, and keeps one sliding slot per
+    subscriber, so a slow client gets the newest full list. A failed read ends the stream; the CLI prints it and
+    stops watching, where the old poll printed and kept polling. The studio keeps its change topics: moving the
+    live pages onto `watch` would not delete more than it adds.
 - A loop that serves the group would listen on `127.0.0.1:0` and write its URL atomically into its lock holder
   file. `agi say` and the other actions would call that URL when a loop holds the instance and report a failed
   call without retrying locally. Run lists would stream as `watch { issue }`, coalesced per tick, with one bounded
@@ -51,14 +50,14 @@ Decisions made without being sure. Each names what was picked and what would cha
   GitHub scans back to back.
 - `readStudioPages` hands the instance host to graph plugins whose graph may come from the repo. Reads there
   add no authority beyond what host code already has, but it is worth a second look.
-- `/api/results` and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
+- The `results` action and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
   `readRunResults` onto the instance store would make one path; it reads sync files today.
 - `InstanceHost` is exported from `@jannik-stacks/agi/trackers`, not `/plugins`. `src/plugin.ts` must stay a
   leaf for the import-cycle lint, and the host type pulls in the tracker and store. A reader types its own
   host parameter; `makePlugin` infers it, so nothing checks that the served host matches at compile time.
 - Left from the studio review: the dashboard keeps its `why` field (the page would derive it from source and
   skips), `InstanceHost` keeps `tracker.issues`/`issue` and `store.readLog`/`getRecord` (the trim waits on the
-  types refactor), and a bench data folder still gets a whole instance host for its store. The `ResultBadge`
+  types refactor), and a `?data=` store still gets a whole instance host for its store. The `ResultBadge`
   wrapper stays: `runRow` is a plain function, so the hook needs that component.
 - **Studio auth is one gate for every served instance.** Each instance's env file and graph may pick it, but a studio
   of several refuses to start unless they agree on the name, the plugin settings and every `AGENTGRAPH_AUTH` and
@@ -86,3 +85,19 @@ Decisions made without being sure. Each names what was picked and what would cha
 - **`bin/pins.mjs` is plain JavaScript and tested as a subprocess with `--root`**, so it stays the `.mjs` the
   plan named without a type declaration; the pin test keeps its own ARG parsing.
 - **Stale-slot lines compare against `agentgraph-sandbox:local` only**, not a case's own image (spec open question 5).
+- **`Graph.trust` stays.** It is not a leftover: `readConfiguredGraph` sets it from the instance's resolved trust (flag, instance `trust`, else the owner), and `writeTriggeringIssue` and the loop's tracker layer read it. Dropping the field would need `agi start` to resolve trust on its own. Moving trust off `Graph` into the settings it belongs to is a later cleanup.
+- **The `ask` proposal keeps its `runner` field.** An agent reports a sandbox, checkout, network or tool problem with it, which is the executor's meaning of runner. Renaming it changes what every agent returns.
+- **Studio pages are registered by folder, not per plugin**: `--plugins <dir>` or `AGENTGRAPH_STUDIO_PLUGINS` in the
+  shell names a folder with a graph's layout, and every page in it reads every served instance. Left out:
+  `runAction` from a studio page (it has no instance to post to), and naming the folder in an instance env file,
+  which would need the agreement check auth uses across instances. The Bench example imports engine modules
+  relatively, so it runs from the clone only.
+- **Plain mode keys its one host by the empty name**: studio pages and Bench see `''`, so Bench's `instance` label is
+  empty there where it used to be the graph's title. Keying by title would break the run links, which need the
+  served name. A studio page named `graph` or `data` shares those unscoped change topics, as a plain-mode graph
+  plugin already does; reserving the two names would close it.
+- The action gate stamps a per-handler random key into the user header, because Effect's HTTP RPC server merges
+  headers a client writes into the NDJSON body. The studio gate already refuses anonymous requests, so the
+  middleware is a second gate; dropping it would save about 12 lines.
+- `agi` watch output during a drive resubscribes once a second after a failed store read; no test covers the CLI
+  watch output, since it only prints during a live drive.

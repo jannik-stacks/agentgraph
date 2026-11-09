@@ -29,7 +29,7 @@ const PATHS = [
   ['elsewhere/tsconfig.json', false],
 ] as const;
 
-const SERVED = ['run.json', 'trace.jsonl', 'checks.jsonl', 'labels.jsonl', 'set.json', 'log.jsonl'];
+const SERVED = ['run.json', 'set.json'];
 const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'];
 
 it.each(PATHS)('%s is unwatched: %s', (path, skipped) => {
@@ -49,7 +49,6 @@ it('sends a change for a run record but not for a run checkout', async () => {
   mkdirSync(join(data, 'run-1'), { recursive: true });
   mkdirSync(join(data, 'cache/work/abc/.git'), { recursive: true });
   vi.stubEnv('AGI_STUDIO_DIR', undefined);
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   vi.stubEnv('AGI_STUDIO_DATA', data);
   const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
   const server = await createServer({
@@ -70,7 +69,7 @@ it('sends a change for a run record but not for a run checkout', async () => {
       () => {
         writeFileSync(join(data, 'cache/work/abc/tsconfig.json'), '{}');
         writeFileSync(join(data, 'run-1/run.json'), '{}');
-        expect(sent).toContainEqual(['agi:changed', { topics: ['data', 'results', 'bench'] }]);
+        expect(sent).toContainEqual(['agi:changed', { topics: ['data', 'results'] }]);
       },
       { timeout: 4000, interval: 200 }
     );

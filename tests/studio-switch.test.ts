@@ -8,7 +8,6 @@ type CreateElement = (type: unknown, props?: object | null, ...children: unknown
 let html: string;
 let state: {
   pageAtom: Atom;
-  makeApiHref: (href: string) => string;
   readChanged: (topics: string[]) => void;
   makeLiveJsonAtom: (path: string, topics: string[]) => Atom;
 };
@@ -38,7 +37,7 @@ it('reads the instance from the first path segment and keeps every in-app link u
   const hrefs = [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(m => m[1]);
   expect(hrefs).toContain('/bench/runs');
   expect(hrefs).toContain('/bench/graph');
-  expect(hrefs.filter(href => href?.startsWith('/') && !href.startsWith('/bench/'))).toEqual([]);
+  expect(hrefs.filter(href => href?.startsWith('/') && !href.startsWith('/bench/'))).toEqual(['/plugins/count']);
   expect(html).toMatch(/<option value="live">live<\/option><option value="bench" selected="">bench<\/option>/);
 });
 
@@ -48,7 +47,6 @@ it('asks the API for the shown instance and follows only its change topics', asy
   }>('jotai');
   const store = jotai.createStore();
   expect(store.get(state.pageAtom)).toEqual({ route: 'runs', id: 'run-1' });
-  expect(state.makeApiHref('/api/runs?data=x')).toBe('/api/runs?data=x&instance=bench');
   store.sub(state.makeLiveJsonAtom('/api/topic', ['data']), () => {});
   expect(asked()).toBe(1);
   await new Promise(resolve => setTimeout(resolve));

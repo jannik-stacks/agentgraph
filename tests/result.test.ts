@@ -87,8 +87,8 @@ describe('the result server', () => {
       [1],
     ];
     const said = talk(stuck, ...values.map((v, i) => call(i, v))).map(a => a.result.content[0].text);
-    expect(said).toEqual(values.map(v => findMismatch(stuck, v)?.concat('. Call result again.') ?? 'Recorded.'));
-    expect(said.slice(1)).toEqual([
+    expect(said).toEqual([
+      'Recorded.',
       'result.wasted must be an integer. Call result again.',
       'result.wasted must be at least 0. Call result again.',
       'result.stuck must be one of ["nothing","tests"]. Call result again.',

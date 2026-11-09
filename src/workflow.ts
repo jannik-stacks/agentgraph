@@ -3,7 +3,7 @@ import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
 import type { Event } from './event.ts';
 import { Kind } from './proposal.ts';
-import { CommandLimits, type Outcome, type Run, type RunRecord } from './types.ts';
+import { CommandLimits, Count, type Outcome, type Run, type RunRecord } from './types.ts';
 
 /** A graph file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };
@@ -46,12 +46,11 @@ export type Step = {
   tries: number;
   carry?: boolean;
   back?: { to: string; until?: string; rounds?: number };
-  each?: 'files' | 'hunks' | { run: string };
+  each?: string;
 };
 
 export const isRunDone = (run: RunRecord) => run.status === 'done' || run.status === 'stopped';
 
-const Count = Schema.Int.check(Schema.isGreaterThan(0));
 const Names = Schema.mutable(Schema.Array(Schema.String));
 const Trigger = Schema.NullOr(
   Schema.Struct({
@@ -77,7 +76,7 @@ const StepFile = Schema.Struct({
   back: Schema.optionalKey(Schema.String),
   until: Schema.optionalKey(Schema.String),
   rounds: Schema.optionalKey(Count),
-  each: Schema.optionalKey(Schema.Union([Schema.Literals(['files', 'hunks']), Schema.Struct({ run: Schema.String })])),
+  each: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
   limits: Schema.optionalKey(CommandLimits),
 });
 

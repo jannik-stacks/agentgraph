@@ -4,6 +4,8 @@ import { PluginMetadata } from './meta.ts';
 import { Kind, Proposal } from './proposal.ts';
 import { CheckMode, type Result, ResultType } from './result.ts';
 
+export const Count = Schema.Int.check(Schema.isGreaterThan(0));
+
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
   harness: Schema.String.pipe(Schema.withDecodingDefaultType(Effect.succeed(''))),
@@ -23,10 +25,10 @@ export const Check = Schema.Struct({
   returns: Schema.optionalKey(ResultType),
   pass: Schema.optionalKey(ResultType),
   reads: Schema.optionalKey(Schema.Literal('traces')),
-  each: Schema.optionalKey(Schema.String),
+  each: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
   run: Schema.optionalKey(Schema.String),
   agent: Schema.optionalKey(Schema.String),
-  max: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+  max: Schema.optionalKey(Count),
 });
 export type Check = typeof Check.Type;
 
@@ -115,6 +117,17 @@ const RunFields = {
 /** Where one workflow run on one issue stands. */
 export const Run = Schema.Struct({ ...RunFields, issue: Schema.Number });
 export type Run = Types.Mutable<typeof Run.Type>;
+
+export const Verdict = Schema.Struct({
+  run: Schema.String,
+  issue: Schema.optional(Schema.Number),
+  at: Schema.String,
+  pass: Schema.Boolean,
+  empty: Schema.Boolean,
+  findings: Schema.optional(Schema.String),
+  items: Schema.Number,
+  failed: Schema.Number,
+});
 
 export const RunRecord = Schema.Struct({ ...RunFields, issue: Schema.optionalKey(Schema.Number) });
 export type RunRecord = Types.Mutable<typeof RunRecord.Type>;
@@ -316,6 +329,7 @@ export class StoreError extends Data.TaggedError('StoreError')<{ path: string; c
 
 export type InstanceHost = {
   readonly data: string;
+  readonly checks?: Readonly<Record<string, Check & { version: string }>>;
   readonly store: {
     getRecord: (id: string) => Effect.Effect<RunRecord | undefined, StoreError>;
     list: (filter?: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>>) => Effect.Effect<Run[], StoreError>;
@@ -340,3 +354,5 @@ export type InstanceHost = {
     readonly latest: readonly CheckEntry[];
   }[];
 };
+
+export type InstanceHosts = Readonly<Record<string, InstanceHost | { why: string }>>;

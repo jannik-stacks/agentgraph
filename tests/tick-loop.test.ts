@@ -18,7 +18,7 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { findStatus, git, issuePath, writeIssueAt } from './kit.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
-import { graph, w, removeAfter, world, push, pull, services, reactions, bodies, fresh, say, comment } from './world.ts';
+import { graph, w, removeAfter, world, push, pull, services, reactions, fresh, say, comment } from './world.ts';
 
 import { small, issue, merging, waiting } from './tick-fixtures.ts';
 import { type Run, StoreError } from '../src/types.ts';
@@ -167,11 +167,11 @@ describe('tick', () => {
   it('waits for an issue to settle before a burst starts work, and never starts again on what a run took in', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
-    where.human('/agent hello', new Date().toISOString());
+    const said = new Date().toISOString();
+    where.human('/agent hello', said);
     expect(await run(tick(small, undefined, false, issueDebounceMs))).toEqual([]);
     const [done] = await run(tick(small));
-    console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))));
-    expect(done!.seen! >= done!.started).toBe(true);
+    expect(done!.seen).toBe(said);
     expect(await run(tick(small))).toEqual([]);
     expect(specs).toHaveLength(1);
   });
@@ -547,15 +547,13 @@ describe('readEngineEnv', () => {
     }
   };
 
-  it('reads quotes, comments, export and the key file the App env file names', async () => {
+  it('reads quotes, comments, export and the key file the App env file names, from the shell or an instance', async () => {
     const { env } = file(
       '# app\nexport AGENTGRAPH_APP_ID=42\nAGENTGRAPH_REPO="o/r" # inline\nAGENTGRAPH_APP_KEY_FILE=\'$DIR/key.pem\'\n'
     );
-    expect(await withShell({ AGENTGRAPH_APP_ENV: env }, () => readEngineEnv([process.env]))).toMatchObject({
-      AGENTGRAPH_APP_ID: '42',
-      AGENTGRAPH_REPO: 'o/r',
-      AGENTGRAPH_APP_KEY: 'PEM',
-    });
+    const expected = { AGENTGRAPH_APP_ID: '42', AGENTGRAPH_REPO: 'o/r', AGENTGRAPH_APP_KEY: 'PEM' };
+    expect(await withShell({ AGENTGRAPH_APP_ENV: env }, () => readEngineEnv([process.env]))).toMatchObject(expected);
+    expect(await withShell({}, () => readEngineEnv([{ AGENTGRAPH_APP_ENV: env }]))).toMatchObject(expected);
   });
 
   it('reads a NAME_FILE the shell or the defaults set, and only for secret settings and session variables', async () => {
@@ -608,13 +606,6 @@ describe('readEngineEnv', () => {
       readEngineEnv([{ AGENTGRAPH_APP_KEY_FILE: '/nonexistent/key.pem' }, process.env])
     );
     expect(env.AGENTGRAPH_APP_KEY).toBe('from-shell');
-  });
-
-  it('finds the App env file an instance names', async () => {
-    const { env } = file('AGENTGRAPH_APP_ID=42\n');
-    expect(await withShell({}, () => readEngineEnv([{ AGENTGRAPH_APP_ENV: env }]))).toMatchObject({
-      AGENTGRAPH_APP_ID: '42',
-    });
   });
 
   it('reads a scoped instance env file without changing the process and lets it override the shell', async () => {
@@ -776,7 +767,7 @@ describe('scanIssuesAndRunningRuns', () => {
     expect(most).toBe(2);
   });
 
-  it('parks a run whose session dies with a runner error and drives the others on', async () => {
+  it('parks a run whose session dies with an engine error and drives the others on', async () => {
     const where = world();
     writeIssueAt(
       issuePath(where.tracker, 8),
@@ -793,7 +784,7 @@ describe('scanIssuesAndRunningRuns', () => {
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status, r.reason]).toSorted()).toEqual([
       [7, 'waiting', 'Which file?'],
-      [8, 'waiting', 'Stopped by a runner error.'],
+      [8, 'waiting', 'Stopped by an engine error.'],
     ]);
   });
 });

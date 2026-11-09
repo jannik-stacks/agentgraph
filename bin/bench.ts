@@ -634,9 +634,9 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   return { answers, status, ...(reason && { reason: reason.slice(0, 500) }) };
 };
 
-/** Why an arm attempt broke on its environment, not on the agent: the engine stopped on a runner error. */
-export const runnerError = (reason = '') =>
-  /runner error|^(SandboxError|SessionStop|TrackerError)\b/.test(reason) ? reason.slice(0, 200) : undefined;
+/** Why an arm attempt broke on its environment, not on the agent: an engine error. */
+export const engineError = (reason = '') =>
+  /engine error|^(SandboxError|SessionStop|TrackerError)\b/.test(reason) ? reason.slice(0, 200) : undefined;
 
 /** The graph an arm of the case starts from: `--graph` when given, else the example graph of its repo. */
 const findCaseGraphDir = (c: Pick<Case, 'repo'>, graph = options.graph) =>
@@ -705,7 +705,7 @@ export const writeAttemptImport = async (
 /**
  * Runs one arm of a case into its slot, each try in a new attempt dir, until an attempt ends with a `bench/arm` result.
  * A run that never finished is tried twice, then ends as infra; a run that changed nothing is the agent's result. A run
- * its environment broke (proxy, docker, a runner error, the machine asleep) waits for the environment and is tried
+ * its environment broke (proxy, docker, an engine error, the machine asleep) waits for the environment and is tried
  * again, up to `patience` attempts, then ends as infra.
  */
 const runArm = async (arm: string, caseDir: string, set: string, repo: string) => {
@@ -761,7 +761,7 @@ const runArm = async (arm: string, caseDir: string, set: string, repo: string) =
       const env =
         broke ??
         (mine ? undefined : 'the attempt started no run') ??
-        runnerError(ran?.reason) ??
+        engineError(ran?.reason) ??
         (mine && harnessError(mine.data, mine.run.id)) ??
         (nothing || !change.trim() ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
       if (env) log({ event: 'infra', why: env, attempt: pinned.attempt });

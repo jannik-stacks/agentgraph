@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { connectedAtom, instances, navigateAtom, pageAtom, shown } from './state.ts';
+import { connectedAtom, dataParam, instances, navigateAtom, pageAtom, shown, studioPages } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
 import { accent, Button, cx, Link, Loading, Muted, Select } from './ui.tsx';
@@ -11,7 +11,11 @@ const pages = {
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
 };
 
-const own = declared.filter(page => page.instance === undefined || page.instance === shown?.name);
+const instance = shown?.name ?? '';
+
+const across = instances.length > 0 && !shown;
+
+const own = declared.filter(page => page.instance === instance);
 
 const custom = own.filter(page => !page.builtin);
 
@@ -26,35 +30,40 @@ const NavTabs = ({
   links,
   here,
   className,
+  reload,
 }: {
   label: string;
   links: readonly { href: string; title: string }[];
   here: string;
   className: string;
-}) => (
-  <nav
-    aria-label={label}
-    className={cx('inline-flex min-w-0 gap-0.5 overflow-x-auto rounded-lg p-0.5 text-[13px] leading-5', className)}
-  >
-    {links.map(({ href, title }) => (
-      <Link
-        key={href}
-        href={href}
-        aria-current={href === here ? 'page' : undefined}
-        className={cx(
-          'rounded-md px-2 py-0.5 capitalize',
-          href === here
-            ? 'bg-white font-medium shadow-sm dark:bg-zinc-700'
-            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
-        )}
-      >
-        {title}
-      </Link>
-    ))}
-  </nav>
-);
+  reload?: boolean;
+}) => {
+  const Anchor = reload ? 'a' : Link;
+  return (
+    <nav
+      aria-label={label}
+      className={cx('inline-flex min-w-0 gap-0.5 overflow-x-auto rounded-lg p-0.5 text-[13px] leading-5', className)}
+    >
+      {links.map(({ href, title }) => (
+        <Anchor
+          key={href}
+          href={href}
+          aria-current={href === here ? 'page' : undefined}
+          className={cx(
+            'rounded-md px-2 py-0.5 capitalize',
+            href === here
+              ? 'bg-white font-medium shadow-sm dark:bg-zinc-700'
+              : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+          )}
+        >
+          {title}
+        </Anchor>
+      ))}
+    </nav>
+  );
+};
 
-const plugins = new Map(own.map(page => [page.href, lazy(page.load)]));
+const plugins = new Map([...own, ...(instance ? [] : studioPages)].map(page => [page.href, lazy(page.load)]));
 
 const Unknown = () => (
   <Muted>
@@ -96,7 +105,8 @@ export const App = () => {
     plugins.get(here) ?? (route && Object.hasOwn(pages, route) ? pages[route as keyof typeof pages] : undefined);
   const navigate = useSetAtom(navigateAtom);
   const connected = useAtomValue(connectedAtom);
-  const unknown = instances.length > 0 && !shown;
+  const data = useAtomValue(dataParam);
+  const unknown = across && route !== 'plugins' && !(route === 'runs' && id && data);
   useEffect(() => {
     if (unknown && location.pathname === '/') location.replace(`/${instances[0]!.name}/runs`);
     else if (!route && !unknown) navigate({ href: '/runs', replace: true });
@@ -104,11 +114,14 @@ export const App = () => {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-zinc-200 px-3 sm:gap-5 sm:px-4 dark:border-zinc-800">
-        <Link href="/runs" className="inline-flex shrink-0 items-center gap-1.5 font-semibold tracking-tight">
+        <Link
+          href={across ? '/' : '/runs'}
+          className="inline-flex shrink-0 items-center gap-1.5 font-semibold tracking-tight"
+        >
           <AgentgraphLogo className="size-5" />
           agentgraph
         </Link>
-        <NavTabs label="Pages" links={official} here={here} className="bg-zinc-100 dark:bg-zinc-900" />
+        {!across && <NavTabs label="Pages" links={official} here={here} className="bg-zinc-100 dark:bg-zinc-900" />}
         {custom.length > 0 && (
           <NavTabs
             label="Plugin pages"
@@ -117,11 +130,23 @@ export const App = () => {
             className="border border-dashed border-zinc-300 dark:border-zinc-700"
           />
         )}
-        {instances.length > 1 && shown && (
+        {studioPages.length > 0 && (
+          <NavTabs
+            label="Studio pages"
+            links={studioPages}
+            here={instance ? '' : here}
+            reload={!!instance}
+            className="border border-zinc-200 dark:border-zinc-800"
+          />
+        )}
+        {(instances.length > 1 || across) && (
           <Select
             label="Instance"
-            value={shown.name}
-            options={instances.map(({ name }) => ({ value: name, label: name }))}
+            value={shown?.name ?? ''}
+            options={[
+              ...(across ? [{ value: '', label: 'all instances' }] : []),
+              ...instances.map(({ name }) => ({ value: name, label: name })),
+            ]}
             onChange={name => location.assign(`/${name}/${route === 'plugins' ? 'runs' : (route ?? 'runs')}`)}
           />
         )}

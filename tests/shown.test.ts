@@ -4,7 +4,7 @@ import {
   findIssueStatus,
   formatStatusHeader,
   proposeQuestion,
-  stoppedByRunner,
+  stoppedByEngine,
   type IssueWithPull,
 } from '../src/context.ts';
 import { formatRunMark, makeBodyWithStatus, removeRunLink, type Issue } from '../src/event.ts';
@@ -49,7 +49,7 @@ describe('the issue status', () => {
     expect(findIssueStatus([{ ...run, status: 'waiting' }], true)).toBe('needs-review');
     expect(findIssueStatus([{ ...run, status: 'waiting' }], false)).toBe('needs-answer');
     expect(findIssueStatus([{ ...run, status: 'waiting', reason: 'Which one?' }], true)).toBe('needs-answer');
-    expect(findIssueStatus([{ ...run, status: 'waiting', reason: `${stoppedByRunner}.` }], true)).toBe('needs-answer');
+    expect(findIssueStatus([{ ...run, status: 'waiting', reason: `${stoppedByEngine}.` }], true)).toBe('needs-answer');
     expect(findIssueStatus([{ ...run, status: 'done' }], true)).toBe('done');
     expect(findIssueStatus([], true)).toBeUndefined();
   });
@@ -105,7 +105,7 @@ describe('the question', () => {
   });
 
   it('says a parked run waits on a retry, and nothing for a run waiting on its own child', () => {
-    const parked = { ...run, status: 'waiting' as const, reason: `${stoppedByRunner}.`, retried: true as const };
+    const parked = { ...run, status: 'waiting' as const, reason: `${stoppedByEngine}.`, retried: true as const };
     expect(bodies(run, parked)[0]).toBe(
       '@maintainer Paused on an agentgraph problem, not this change. Reply `/agent` to retry.\n\nRun: http://studio:5492/runs/issue-7'
     );

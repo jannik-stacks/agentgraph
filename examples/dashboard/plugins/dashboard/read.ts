@@ -1,6 +1,6 @@
 import { Effect, Result, Stream } from 'effect';
 import type { InstanceHost } from '@jannik-stacks/agi/plugins';
-import { type DashboardData, type DashboardSettings, sources } from './data.ts';
+import { type DashboardSnapshot, type DashboardSettings, sources } from './data.ts';
 
 const findDayStart = (today: number, daysBack: number) => today - daysBack * 86_400_000;
 
@@ -108,5 +108,5 @@ export const readDashboard = (
         why,
       };
     });
-    return { at: now.toISOString(), widgets } satisfies typeof DashboardData.Type;
+    return { at: now.toISOString(), widgets } satisfies typeof DashboardSnapshot.Type;
   });

@@ -1,90 +1,47 @@
 # Engine and code
 
-The engine is the runner code in `src/`. [STYLE.md](../STYLE.md) has the code rules.
+The engine lives in `src/`. Repository development rules are in [STYLE.md](../STYLE.md).
 
 ## Where everything lives
 
-```
- GitHub: issues, comments, pull requests
-      ^                          │
-      │ writes, with the App     │ events, read through the App
-      │                          v
-┌─────────────────────────────────────────────────────────────────┐
-│ host                                                            │
-│  runner process = the engine                                    │
-│    looks at the repo, begins and drives runs                    │
-│    pushes and opens pull requests through the Git API           │
-│         │                                 │                     │
-│         │ docker run --rm                 │ reads and writes    │
-│         v                                 v                     │
-│  ┌──────────────────────────┐  ┌─────────────────────────────┐  │
-│  │ sandbox                  │  │ data folder                 │  │
-│  │ one session              │  │ <run id>/run.json           │  │
-│  │ /work: git worktree      │  │ <run id>/trace.jsonl        │  │
-│  │ no GitHub token          │  │ mirror.git, homes/, cache/  │  │
-│  └────────────┬─────────────┘  └──────────────┬──────────────┘  │
-│               │ model calls                   │                 │
-│               v                               v                 │
-│  ┌──────────────────────────┐  studio reads the graph,          │
-│  │ model gateway            │  run.json and trace               │
-│  └────────────┬─────────────┘                                   │
-└───────────────┼─────────────────────────────────────────────────┘
-                v
-         model providers
-```
+The host drives runs and applies tracker writes. A runner executes sandbox commands; the store keeps run state and traces. The studio reads the graph and run data. <!-- code: src/main.ts#start -->
 
-<!-- code: src/main.ts#start -->
+Four services separate the engine from I/O:
 
-The engine reaches the outside only through four services, each with a test stand-in:
+| Service | Responsibility |
+| --- | --- |
+| Tracker | Read issues and apply proposals on GitHub or in a folder |
+| Store | Save runs, results and traces |
+| Sandbox | Manage the mirror and checkouts; execute commands through a runner |
+| Session | Talk to a harness |
 
-- The tracker reads and writes GitHub, or a folder. <!-- code: src/tracker.ts#Tracker -->
-- The store keeps runs and traces. <!-- code: src/store.ts#Store -->
-- The sandbox runs commands in docker, or on the host in tests. <!-- code: src/sandbox.ts#Sandbox tests/doubles/sandbox.ts#hostSandbox -->
-- The session talks to a harness, or replays a script in tests. <!-- code: src/session.ts#Session tests/doubles/session.ts#replaySession -->
+Each service has a test stand-in. Sandbox tests use `hostSandbox`; session tests use `replaySession`. <!-- code: src/tracker.ts#Tracker src/store.ts#Store src/sandbox.ts#Sandbox src/mirror.ts#makeSandbox src/sandbox.ts#Runner src/session.ts#Session tests/doubles/sandbox.ts#hostSandbox tests/doubles/session.ts#replaySession -->
 
 ## Engine code and model judgment
 
-| Engine code                         | Model judgment        |
-| ----------------------------------- | --------------------- |
-| Step transitions, tries and rounds  | Edits and proposals   |
-| Script checks and failure modes     | Judge results         |
-| Proposal validation and application | Whether `until` holds |
-| Push safety, triggers and trust     | Questions for people  |
+The engine validates graph files, proposals and results, runs checks and controls transitions. Agents edit files, request actions and supply judged results. `transition` computes the next run without I/O; `runWorkflow` performs the surrounding work. Invalid replies fail the try. <!-- code: src/workflow.ts#transition src/run/settle.ts#writeProposals src/run/trigger.ts#tick src/run/drive.ts#runWorkflow -->
 
-A malformed reply fails the try. `transition` maps a workflow, a run and an outcome to the next run, with no clock or I/O; `runWorkflow` does the reads and writes around it. Proposals are the only write path. <!-- code: src/workflow.ts#transition src/run/settle.ts#writeProposals src/run/trigger.ts#tick src/run/drive.ts#runWorkflow -->
-
-Graph files decode strictly: a bad reference or unknown key fails `check` with its path before anything runs. <!-- code: src/folder.ts#loadGraph -->
+Unknown graph keys and invalid references fail validation before a run starts. <!-- code: src/folder.ts#loadGraph -->
 
 ## Names
 
-An exported function starts with one of these verbs:
+This repository requires exported functions to start with one of these verbs:
 
-- `parse` turns text into a value, `compile` into a checked value or its problems, `format` a value into text for people. None do IO.
-- `make` builds a value from parts (`makePostableProposal`); `get` takes or looks up a part; `pick` chooses by a rule; `split` cuts; `sum` adds.
-- `find` searches a collection or folder tree, reading but never writing.
-- `is` answers a boolean and `why` a reason or undefined.
-- `read` does IO in. `write`, `append`, `copy`, `move` and `remove` change files, volumes or containers; `create` brings an outside resource into being; `ensure` acts only when a condition does not hold yet.
-- `run` runs to the end, `start` begins something that keeps going, `wait` blocks on a condition, `scan` is one pass over open issues, `queue` enqueues, `propose` answers proposals; `commit` and `merge` are git's.
+- `parse` turns text into a value; `compile` checks it; `format` makes display text. These do no I/O.
+- `make` builds a value; `get` looks up a part; `pick` chooses; `split` cuts; `sum` adds.
+- `find` searches, reading but never writing; `is` returns a boolean; `why` returns a reason or undefined.
+- `read` does input; `write`, `append`, `copy`, `move` and `remove` change resources; `create` brings one into being; `ensure` acts when needed.
+- `run` finishes work; `start` begins ongoing work; `wait` blocks; `scan` makes one issue pass; `queue` enqueues; `propose` answers proposals; `commit` and `merge` are git operations.
 - `use` names a React hook.
 
-The other naming rules are in [STYLE.md](../STYLE.md#naming). <!-- code: bin/style.mjs#verbs -->
+See [naming rules](../STYLE.md#naming). <!-- code: bin/style.mjs#verbs -->
 
 ## Before you commit
 
-Use `<!-- unfinished -->` or `<!-- untested -->` on the same line as a heading or paragraph for a studio status pill; GitHub hides it. <!-- code: studio/src/Markdown.tsx#remarkStatus studio/src/Markdown.tsx#rehypeStatus -->
+`npm run check:static` runs the commit checks. `npm run check` also runs tests and builds the studio; it must pass before merge. `npm run hooks` installs the hooks. `sh bin/precommit.sh` runs this repository's example checks on the uncommitted diff.
 
-`npm run check` is the gate before a merge: format, lint, unused code, docs, example graphs, types, all tests with coverage and the studio build, with the tests running alongside the rest. The commit hook runs `npm run check:static`, which is everything but the tests and the studio build. `npm run hooks` turns the hooks on. `sh bin/precommit.sh` runs the agentgraph example's fast checks on the uncommitted change against `HEAD`, or `AGENTGRAPH_BASE`.
+Docs use hidden code anchors. `node bin/refs.mjs` checks them; `--coverage` checks documented names and `--diff main` lists changed pairs. `node bin/commands.mjs` checks documented commands.
 
-The bench interaction tests use an installed Chrome or Chromium in standard macOS or Linux locations, with an
-isolated browser profile and synthetic data. Without that browser, Vitest counts the tests as skipped and names
-why in the suite title. No browser package is required. <!-- code: tests/studio-controls.e2e.test.ts#startBrowser -->
+The studio renders `<!-- unfinished -->` and `<!-- untested -->` as status pills. Browser interaction tests visibly skip with a reason when Chrome or Chromium is unavailable. <!-- code: studio/src/Markdown.tsx#remarkStatus studio/src/Markdown.tsx#rehypeStatus tests/studio-controls.e2e.test.ts#startBrowser -->
 
-Docs tie claims to code with hidden `<!-- code: src/run/settle.ts#writeProposals -->` comments. `node bin/refs.mjs` fails on a missing file or symbol, `--coverage` on a field, value, status, proposal kind, flag or `AGENTGRAPH_` variable in no docs code span, and `--diff main` lists pairs changed on one side only. `node bin/commands.mjs` fails on documented commands, flags or scripts that do not exist.
-
-`bin/lsp.ts` gives find references and rename from the shell through the TypeScript language server. Positions are `file:line:col` from 1.
-
-```sh
-node bin/lsp.ts refs src/disk.ts:374:14
-node bin/lsp.ts rename src/disk.ts:374:14 roomLeft --dry   # print the edits, change nothing
-node bin/lsp.ts rename-symbol inventory listItems          # find the declaration by name
-```
+`bin/lsp.ts` provides shell access to TypeScript references and renames; positions use `file:line:col`, counted from 1.

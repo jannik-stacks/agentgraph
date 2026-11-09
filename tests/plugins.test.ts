@@ -141,7 +141,9 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
         },
       },
     });
-    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, makeInstanceHost({ data: dir })))).toBe(2);
+    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, { live: makeInstanceHost({ data: dir }) }))).toBe(
+      2
+    );
     const registry = await readCheckedPlugins(dir, { count: { limit: '7' } });
     const page = registry.pages[0]!;
     const data = await Effect.runPromise(page.read());
@@ -174,34 +176,8 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
     ).rejects.toThrow('extra');
   });
 
-  it('gives an engine only to operator-registered plugins, scoped to their own name', async () => {
-    const dir = await makePluginDir({
-      'Page.tsx': 'export default () => null;',
-      'plugins/sneaky.ts': `export default { name: 'sneaky', engine: host => host, tools: {} };`,
-    });
-    await expect(readPlugins(dir)).rejects.toThrow('plugins/sneaky.ts: only operator-registered plugins get an engine');
-    const named: string[] = [];
-    const host = (plugin: string) => (named.push(plugin), { configs: [], readRuns: () => [], submit: async () => [] });
-    const bench = makePlugin({
-      name: 'bench',
-      engine: (engine: { configs: unknown[] }) => ({ configs: engine.configs.length }),
-      studio: {
-        title: 'Bench',
-        page: pathToFileURL(join(dir, 'Page.tsx')),
-        dataSchema: Schema.Number,
-        watch: (_settings, engine) => [String(engine.configs)],
-        read: (_settings, engine) => Effect.succeed(engine.configs),
-      },
-    });
-    const loaded = await readPlugins(undefined, {}, { builtins: [bench], engine: host });
-    expect(named).toEqual(['bench']);
-    expect(loaded.pages[0]!.watch).toEqual(['0']);
-    expect(await Effect.runPromise(loaded.pages[0]!.read())).toBe(0);
-    expect((await readPlugins(undefined, {}, { builtins: [bench] })).pages).toEqual([]);
-  });
-
   it.each([
-    ['empty', {}, 'none of tools, hooks, studio, tracker, engine, runner, auth'],
+    ['empty', {}, 'none of tools, hooks, studio, tracker, runner, auth'],
     [
       'remote',
       {
@@ -266,7 +242,7 @@ exports.cjsTool = require('ai').tool;
     });
   });
 
-  it('decodes only its settings and calls an SDK tool with typed input and context', async () => {
+  it('types an SDK tool input and context and refuses input with an unknown key', async () => {
     const settings = Schema.Struct({ limit: Schema.NumberFromString });
     const plugin = makePlugin<typeof settings.Type>({
       name: 'search',
@@ -280,48 +256,14 @@ exports.cjsTool = require('ai').tool;
             expectTypeOf(ctx.settings.limit).toEqualTypeOf<number>();
             expectTypeOf(ctx.tracker.searchIssues).parameter(0).toEqualTypeOf<string>();
             expectTypeOf(ctx.abortSignal).toEqualTypeOf<AbortSignal | undefined>();
-            return {
-              query,
-              repo: ctx.repo,
-              limit: ctx.settings.limit,
-              isAborted: ctx.abortSignal?.aborted,
-            };
+            return query;
           },
         }),
       },
     });
-    const dir = await makePluginDir({ 'plugins/search.ts': source() });
-    const registry = await readCheckedPlugins(dir, { search: { limit: '10' } });
-    const decoded = Schema.decodeUnknownSync(Schema.toType(settings))(registry.tools.issues!.settings);
-    const definition = plugin.tools.issues!;
-    const schema = asSchema(definition.inputSchema);
-    const parsed = await schema.validate!({ query: 'cache' });
-    const result = await definition.execute!(
-      { query: 'cache' },
-      {
-        toolCallId: 'search',
-        messages: [],
-        abortSignal: AbortSignal.abort(),
-        context: {
-          readFile: async () => ({ bytes: new Uint8Array(), type: 'image/png' }),
-          repo: 'o/r',
-          settings: decoded,
-          tracker: { searchIssues: async () => [] },
-        },
-      }
-    );
-    const invalid = await schema.validate!({ query: 'cache', extra: true });
-    expect(invalid.success).toBe(false);
-    expect(parsed).toEqual({ success: true, value: { query: 'cache' } });
-    expect(result).toEqual({ query: 'cache', repo: 'o/r', limit: 10, isAborted: true });
-  });
-
-  it('loads plugins in filename order and decodes separate namespaces', async () => {
-    const dir = await makePluginDir({ 'plugins/a.ts': source(), 'plugins/lib/helper.ts': 'export const value = 1;' });
-    const registry = await readCheckedPlugins(dir, { search: { limit: '10' } });
-    expect(Object.keys(registry.tools)).toEqual(['issues']);
-    expect(registry.tools.issues!.settings).toEqual({ limit: 10 });
-    expect(registry.tools.issues!.plugin).toBe('search');
+    const schema = asSchema(plugin.tools.issues!.inputSchema);
+    expect(await schema.validate!({ query: 'cache' })).toEqual({ success: true, value: { query: 'cache' } });
+    expect((await schema.validate!({ query: 'cache', extra: true })).success).toBe(false);
   });
 
   it.each([

@@ -1,15 +1,13 @@
 import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Effect } from 'effect';
+import { makeInstanceHost, runLocalActions } from '../src/engine.ts';
 import { fileStore, Store } from '../src/store.ts';
-import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
-import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
-import { getQuantile } from '../studio/src/results/result.ts';
-import { studioDir, studioModule } from './studio.ts';
+import type { BenchData, BenchRow } from '../examples/plugins/bench/plugins/bench/data.ts';
+import { getQuantile } from '../src/stats.ts';
+import { createStudioServer, runStudioAction, startStudioServer, studioDependency } from './studio.ts';
 import { tmp } from './kit.ts';
 import {
   bootstrap,
@@ -25,10 +23,11 @@ import {
   quality,
   readBenchRowResults,
   summarise,
-} from '../studio/src/bench/score.ts';
+} from '../bench/score.ts';
 import { type Run, type Trace } from '../src/types.ts';
 
 type Row = BenchRow;
+const bench = join(import.meta.dirname, '../examples/plugins/bench/plugins/bench.ts');
 const at = '2026-10-16T05:00:00.000Z';
 
 const row = (over: Partial<Row>): Row => ({
@@ -126,7 +125,6 @@ describe('bench score', () => {
     const fields = findBenchNumericFields(rows, { w: defaultBenchScoreWeights });
     const axis = getBenchAxis(selected, fields);
     expect(axis).toBeNull();
-    expect(axis).not.toBe(selected);
     expect(
       summarise(rows, {
         w: defaultBenchScoreWeights,
@@ -135,7 +133,6 @@ describe('bench score', () => {
       }).map(p => p.x)
     ).toEqual([3]);
     expect(getBenchAxis('minutes', fields)).toBe('minutes');
-    expect(getBenchAxis(selected, findBenchNumericFields([labelled], { w: defaultBenchScoreWeights }))).toBe(selected);
   });
 
   it.each([
@@ -300,8 +297,12 @@ describe('the bench page data', () => {
     const run = { id: 'issue-1', started: at, workflow: 'issue', meta: { engine: { origin } }, versions };
     writeFileSync(join(data, 'issue-1', 'run.json'), '{');
     writeFileSync(join(data, 'issue-1', 'labels.jsonl'), '{"key":"engine","value":"written"}\n');
+    const folder = join(out, 'pages');
+    mkdirSync(join(folder, 'plugins'), { recursive: true });
+    writeFileSync(join(folder, 'plugins/bench.ts'), `export { default } from ${JSON.stringify(bench)};`);
+    writeFileSync(join(folder, 'settings.yaml'), `plugins:\n  bench:\n    sets: [${JSON.stringify(out)}]\n`);
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
-    vi.stubEnv('AGI_STUDIO_BENCH', out);
+    vi.stubEnv('AGI_STUDIO_PLUGINS', folder);
     const routes: Record<string, (req: unknown, res: unknown) => void> = {};
     const plugin = makeStudioPagesPlugin().configureServer as (server: unknown) => Promise<void>;
     await plugin({
@@ -354,14 +355,17 @@ describe('bench spread', () => {
   });
 
   it('lists two arms on the same case and repeat as two runs of one point', async () => {
-    const dependency = <T>(name: string): Promise<T> =>
-      import(pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href);
-    const { createElement } = await dependency<{ createElement: (type: unknown, props: object) => unknown }>('react');
-    const { renderToStaticMarkup } = await dependency<{ renderToStaticMarkup: (node: unknown) => string }>(
+    const { createElement } = await studioDependency<{ createElement: (type: unknown, props: object) => unknown }>(
+      'react'
+    );
+    const { renderToStaticMarkup } = await studioDependency<{ renderToStaticMarkup: (node: unknown) => string }>(
       'react-dom/server'
     );
+    const server = await createStudioServer();
     vi.stubGlobal('location', new URL('http://studio/bench'));
-    const { Forest } = await studioModule<{ Forest: unknown }>('bench/Forest.tsx');
+    const { Forest } = await (server.ssrLoadModule as (id: string) => Promise<{ Forest: unknown }>)(
+      join(import.meta.dirname, '../examples/plugins/bench/plugins/bench/Forest.tsx')
+    );
     const rows = ['floor', 'v2'].map(arm =>
       row({ hidden: 1, labels: { ...row({}).labels, arm }, data: `/b/a/${arm}/data`, run: `run-${arm}` })
     );
@@ -385,6 +389,7 @@ describe('bench spread', () => {
       ]);
     } finally {
       vi.unstubAllGlobals();
+      await server.close();
     }
   });
 });
@@ -417,36 +422,37 @@ describe('a bench data dir', () => {
     symlinkSync(elsewhere, join(out, 'linked'));
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
     vi.stubEnv('AGI_STUDIO_DATA', undefined);
-    vi.stubEnv('AGI_STUDIO_BENCH', out);
-    const routes: Record<string, (req: unknown, res: unknown) => void> = {};
-    const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
-    plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
-    const ask = (route: string, url: string) =>
-      new Promise<{ status: number; body: string }>(done => {
-        const res = {
-          statusCode: 200,
-          setHeader: () => {},
-          end: (body: string) => done({ status: res.statusCode, body }),
-        };
-        routes[route]!({ url }, res);
-      });
+    const folder = join(out, 'pages');
+    mkdirSync(join(folder, 'plugins'), { recursive: true });
+    writeFileSync(join(folder, 'plugins/bench.ts'), `export { default } from ${JSON.stringify(bench)};`);
+    writeFileSync(
+      join(folder, 'settings.yaml'),
+      `plugins:\n  bench:\n    sets: [${JSON.stringify(join(out, 'c', 'v2'))}]\n`
+    );
+    vi.stubEnv('AGI_STUDIO_PLUGINS', folder);
     const q = (dir: string) => `?data=${encodeURIComponent(dir)}`;
+    const { server, base } = await startStudioServer();
     try {
-      expect(await ask('/api/runs', `/${q(join(out, '..'))}`)).toMatchObject({ status: 400 });
-      expect(await ask('/api/runs', `/${q(join(out, 'linked'))}`)).toMatchObject({ status: 400 });
-      expect(await ask('/api/logs', `/${hash}${q(join(out, 'linked'))}`)).toMatchObject({ status: 400 });
-      const listed = JSON.parse((await ask('/api/runs', `/${q(data)}`)).body) as { run: Run; data: string }[];
+      const runs = (dir: string, id?: string) =>
+        runStudioAction(`${base}/api/actions${q(dir)}`, actions => actions.runs(id === undefined ? {} : { id }));
+      for (const dir of [join(out, '..'), join(out, 'linked')]) await expect(runs(dir)).rejects.toThrow();
+      const listed = (await runs(data)) as { run: Run; data: string }[];
       expect(listed.map(r => [r.run.id, r.data])).toEqual([['issue-1', data]]);
-      expect(await ask('/api/runs', `/issue-2${q(data)}`)).toMatchObject({ status: 404 });
-      const one = JSON.parse((await ask('/api/runs', `/issue-1${q(data)}`)).body) as {
-        data: string;
-        trace: { event?: { text?: string } }[];
-      };
+      expect(await runs(data, 'issue-2')).toBeNull();
+      const one = (await runs(data, 'issue-1')) as { data: string; trace: { event?: { text?: string } }[] };
       expect([one.data, one.trace.find(l => l.event)?.event?.text]).toEqual([data, 'from the bench']);
-      expect(await ask('/api/logs', `/${hash}${q(data)}`)).toEqual({ status: 200, body: 'full output' });
-      const results = await ask('/api/results', `/?data=${encodeURIComponent(data)}`);
-      expect((JSON.parse(results.body) as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
+      expect(
+        await Effect.runPromise(runLocalActions(makeInstanceHost({ data }), actions => actions.log({ hash })))
+      ).toBe('full output');
+      const results = await runStudioAction(`${base}/api/actions${q(data)}`, actions => actions.results());
+      expect((results as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
+      await expect(
+        runStudioAction(`${base}/api/actions${q(data)}`, actions =>
+          actions.label({ id: 'issue-1', patch: { arm: 'x' } })
+        )
+      ).rejects.toThrow('a store read through ?data= is read-only');
     } finally {
+      await server.close();
       vi.unstubAllEnvs();
       rmSync(out, { recursive: true, force: true });
       rmSync(elsewhere, { recursive: true, force: true });

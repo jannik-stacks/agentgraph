@@ -36,7 +36,7 @@ describe('pickTryOutcome', () => {
     [
       'refuses changed files without a push',
       { proposals: [comment], dirty: true },
-      ['files changed but nothing was pushed: end with a push proposal, which the runner commits and pushes, or ask'],
+      ['files changed but nothing was pushed: end with a push proposal, which the engine commits and pushes, or ask'],
     ],
     [
       'refuses a comment-only answer to work that does not exist yet',

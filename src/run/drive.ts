@@ -5,7 +5,7 @@ import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
 import { Tracker } from '../tracker.ts';
 import { makeOutcomeLine } from '../trace.ts';
-import { stoppedByRunner, context } from '../context.ts';
+import { stoppedByEngine, context } from '../context.ts';
 import { Sandbox, SandboxError } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout, readEngineVersions } from '../git.ts';
 import {
@@ -72,7 +72,7 @@ const rejected = 'the model provider rejected the key or login. Fix it, then sta
 
 /**
  * Hears what was said while the run waited, runs the graph's setup, tries until the run stops running, then runs the end
- * checks it left owed. A runner error is retried once, then parks the run at its step, so an
+ * checks it left owed. An engine error is retried once, then parks the run at its step, so an
  * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
  */
 export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Services> =>
@@ -114,15 +114,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         graph.stacks && !current.base && findStackBase(w, issue, yield* tracker.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const named = w.branch && formatTemplate(w.branch, issue);
-      const old = named && named.replace(/^agentgraph\//, 'bothub/');
-      const legacy =
-        old && old !== named && (yield* tracker.issues({ state: 'open' })).some(t => t.pull?.branch === old)
-          ? old
-          : named;
-      const earlier = !current.checkout && legacy ? yield* readEarlierBranch(w, current, legacy) : undefined;
+      const earlier = !current.checkout && named ? yield* readEarlierBranch(w, current, named) : undefined;
       const closed = earlier?.pull?.state === 'closed' ? { ...earlier, pull: earlier.pull } : undefined;
       const own =
-        current.checkout?.branch ?? (closed && named ? yield* findFreeBranch(named) : earlier?.branch) ?? legacy;
+        current.checkout?.branch ?? (closed && named ? yield* findFreeBranch(named) : earlier?.branch) ?? named;
       if (closed) current = { ...current, feedback: yield* formatClosedAttempt(closed, current.feedback) };
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
@@ -212,7 +207,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     });
     const halt = (e: SandboxError | SessionStop | TrackerError) => {
       const why = formatFailure(e);
-      const said = `${stoppedByRunner}.`;
+      const said = `${stoppedByEngine}.`;
       if (e._tag === 'SessionStop' && e.reason === 'human')
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: 'Stopped by a person.' }));
       if (e._tag === 'SessionStop' && e.reason === 'login')

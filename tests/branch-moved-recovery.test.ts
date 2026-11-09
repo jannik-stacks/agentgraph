@@ -232,10 +232,13 @@ describe('a run branch that moved', () => {
     expect(readTrace(where.data, 'run-7').some(t => 'applied' in t && t.applied.proposal.kind === 'merge')).toBe(false);
   });
 
-  it.each(['agentgraph/7', 'bothub/7'])('accepts a merge proposal for its own branch: %s', async branch => {
+  it('accepts a merge proposal for its own branch', async () => {
     const where = world();
     pullRequest(where);
-    writeIssueAt(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
+    writeIssueAt(
+      issuePath(where.tracker, 8, 'pull.json'),
+      JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'own' })
+    );
     const { run } = services(where, [[start('a'), reply({ kind: 'merge', number: 8, head: 'own' })]]);
     await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('merged');

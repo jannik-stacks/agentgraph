@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Effect, Redacted } from 'effect';
 import { expect, it } from 'vitest';
 import { readInstallationReach } from '../src/github.ts';
-import { findRunsWaitingOnPeople, formatNextSteps, formatRunnerError } from '../src/status.ts';
+import { findRunsWaitingOnPeople, formatNextSteps, formatEngineError } from '../src/status.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { type Run } from '../src/types.ts';
 
@@ -72,7 +72,10 @@ const check = async (repositories: string[]) => {
 it('warns about extra repos and lists waiting runs', async () => {
   const { lines, calls, bodies } = await check(['o/r', 'o/other']);
   expect(bodies).toEqual([{ permissions: { metadata: 'read' } }]);
-  expect(lines[0]).toContain('o/other');
+  expect(lines.slice(0, 2)).toEqual([
+    'The installation reaches 1 repo(s) besides o/r: o/other',
+    '  Narrow it at https://github.com/settings/installations',
+  ]);
   expect(lines.filter(l => l.includes('is waiting'))).toHaveLength(2);
   expect(lines.join('\n')).toContain('Answer at https://github.com/o/r/issues/3');
   expect(lines.join('\n')).toContain('Review the PR linked from https://github.com/o/r/issues/4');
@@ -82,7 +85,12 @@ it('warns about extra repos and lists waiting runs', async () => {
 
 it('stays quiet about a single repo', async () => {
   const { lines } = await check(['o/r']);
-  expect(lines.some(l => l.includes('besides'))).toBe(false);
+  expect(lines).toEqual([
+    'a fix #3 is waiting: which one?',
+    '  Answer at https://github.com/o/r/issues/3',
+    'b fix #4 is waiting',
+    '  Review the PR linked from https://github.com/o/r/issues/4',
+  ]);
 });
 
 it('says how to continue on the local tracker, and leaves out a run that waits on its child', () => {
@@ -100,20 +108,20 @@ it('says how to continue on the local tracker, and leaves out a run that waits o
   expect(lines.join('\n')).not.toContain('#5');
 });
 
-const askedRunnerError = (question: string) => ({
+const askedEngineError = (question: string) => ({
   at: 'x',
   step: 'implement',
   outcome: { kind: 'ask' as const, question },
   run: { step: 'implement', status: 'waiting' as const, tries: 0, rounds: {} },
 });
 
-it('names the last question a runner error asked and the trace file', () => {
+it('names the last question an engine error asked and the trace file', () => {
   expect(
-    formatRunnerError(
+    formatEngineError(
       [
-        askedRunnerError('SessionStop: first'),
+        askedEngineError('SessionStop: first'),
         { at: 'x', step: 'implement', setup: { ms: 1, exit: 0 } },
-        askedRunnerError('SandboxError: root'),
+        askedEngineError('SandboxError: root'),
       ],
       '/d/r/trace.jsonl'
     )

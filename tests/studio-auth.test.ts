@@ -92,21 +92,28 @@ describe('studio gate', () => {
     vi.stubEnv('AGENTGRAPH_AUTH', 'token');
     vi.stubEnv('AGENTGRAPH_STUDIO_TOKEN', 'start-token');
     vi.stubEnv('AGENTGRAPH_STUDIO_API_TOKEN', 'script-token');
+    vi.stubEnv('AGI_STUDIO_PLUGINS', join(import.meta.dirname, '../examples/dashboard'));
     const { server, base } = await startStudioServer();
     const { port } = new URL(base);
     try {
       const get = (path: string, headers: Record<string, string> = {}) =>
         fetch(`${base}${path}`, { headers, redirect: 'manual' });
-      const api = await get('/api/runs');
+      const api = await get('/@vite/client');
       const page = await get('/', { accept: 'text/html' });
+      const studioPage = await Promise.all(
+        ['/api/plugins/dashboard/data', `/api/runs?data=${encodeURIComponent(data)}`].map(
+          async path => (await get(path)).status
+        )
+      );
+      const studioHtml = await get('/plugins/dashboard', { accept: 'text/html' });
       const form = await get('/auth/login');
       const wrong = await get('/auth/login?token=guess');
       const login = await get('/auth/login?token=start-token');
       const cookie = login.headers.get('set-cookie') ?? '';
       const session = cookie.split(';')[0]!;
-      const after = await get('/api/runs', { cookie: session });
-      const bearer = await get('/api/runs', { authorization: 'Bearer script-token' });
-      const forged = await get('/api/runs', { cookie: `${session.slice(0, -2)}xx` });
+      const after = await get('/@vite/client', { cookie: session });
+      const bearer = await get('/@vite/client', { authorization: 'Bearer script-token' });
+      const forged = await get('/@vite/client', { cookie: `${session.slice(0, -2)}xx` });
       const crossSite = await fetch(`${base}/api/actions`, {
         method: 'POST',
         headers: { cookie: session, origin: 'https://evil.example', 'content-type': 'application/ndjson' },
@@ -141,6 +148,7 @@ describe('studio gate', () => {
       expect({
         api: [api.status, await api.json()],
         page: [page.status, page.headers.get('location')],
+        studioPage: [...studioPage, studioHtml.status, studioHtml.headers.get('location')],
         form: [form.status, (await form.text()).includes('name="secret"')],
         wrong: [wrong.status, (await wrong.text()).includes('name="secret"')],
         login: [login.status, login.headers.get('location')],
@@ -156,6 +164,7 @@ describe('studio gate', () => {
       }).toEqual({
         api: [401, { error: 'log in first', login: '/auth/login' }],
         page: [302, '/auth/login'],
+        studioPage: [401, 401, 302, '/auth/login'],
         form: [200, true],
         wrong: [401, true],
         login: [303, '/'],
@@ -185,7 +194,7 @@ describe('studio gate', () => {
       const statuses: number[] = [];
       for (let step = 0; step < 14; step++) {
         vi.setSystemTime(Date.now() + 55 * 60_000);
-        const response = await fetch(`${base}/api/runs`, { headers: { cookie: session } });
+        const response = await fetch(`${base}/@vite/client`, { headers: { cookie: session } });
         statuses.push(response.status);
         session = response.headers.get('set-cookie')?.split(';')[0] ?? session;
       }
@@ -196,7 +205,7 @@ describe('studio gate', () => {
     }
   });
 
-  it('opens the live socket without a login under none and words the login page per auth', async () => {
+  it('opens the live socket without a login under none', async () => {
     vi.stubEnv('AGENTGRAPH_AUTH', 'none');
     const { server, base } = await startStudioServer();
     try {

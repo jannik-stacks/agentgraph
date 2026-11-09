@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { Effect } from 'effect';
+import { runActions } from '../src/actions.ts';
 
 /** The studio sources, which the root typecheck leaves to the studio's own tsconfig. */
 export const studioDir = join(import.meta.dirname, '..', 'studio');
@@ -45,3 +47,6 @@ export const startStudioServer = async () => {
   const base: string = server.resolvedUrls.local[0].replace(/\/$/, '');
   return { server, base };
 };
+
+export const runStudioAction = <A, E>(url: string, use: Parameters<typeof runActions<A, E>>[2]) =>
+  Effect.runPromise(runActions(url, fetch, use));

@@ -69,8 +69,10 @@ describe('studio navigation', () => {
     );
   });
 
-  it('shows a declared plugin page', () => {
-    expect(render('/plugins/count')).not.toContain('Page not found.');
+  it('shows a declared plugin page once its module loads', async () => {
+    render('/plugins/count');
+    await new Promise(resolve => setTimeout(resolve));
+    expect(render('/plugins/count')).toContain('the count page');
   });
 
   it.each(['constructor', 'toString', '__proto__', 'missing'])('shows an unknown plugin page: %s', name => {

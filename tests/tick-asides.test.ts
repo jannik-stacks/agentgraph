@@ -67,7 +67,7 @@ describe('tick', () => {
     expect(specs).toHaveLength(0);
   });
 
-  it('applies the push, then retries and parks as a runner error when a reply fails on the tracker', async () => {
+  it('applies the push, then retries and parks as an engine error when a reply fails on the tracker', async () => {
     const where = world();
     const failing = Layer.effect(
       Tracker,
@@ -100,7 +100,7 @@ describe('tick', () => {
     expect(parked).toMatchObject({ step: 'implement', status: 'waiting', retried: true });
     expect(parked.sessions.implement).toMatchObject({ id: 'a', seen: { at: expect.any(String) } });
     expect(parked.seen).not.toBe(begun.seen);
-    expect(parked.reason).toMatch(/^Stopped by a runner error/);
+    expect(parked.reason).toMatch(/^Stopped by an engine error/);
     expect(bodies(issue).filter(b => b.includes('forbidden'))).toEqual([]);
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
   });
@@ -396,7 +396,7 @@ describe('tick', () => {
       await run(tick(kit, 7));
       expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.seen).not.toBe(at);
       await run(tick(kit, 7));
-      expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.reason).toBe('Stopped by a runner error.');
+      expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.reason).toBe('Stopped by an engine error.');
       expect(readFileSync(issuePath(where.tracker, kind === 'no-pull' ? 7 : 8, 'events.jsonl'), 'utf8')).not.toContain(
         'Could not answer'
       );
@@ -448,7 +448,7 @@ describe('tick', () => {
     expect(second).toMatchObject({
       step: 'merge',
       status: 'waiting',
-      reason: 'Stopped by a runner error.',
+      reason: 'Stopped by an engine error.',
       retried: true,
     });
     expect(second.seen).not.toBe('2026-10-16T00:00:05.000Z');

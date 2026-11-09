@@ -36,7 +36,6 @@ describe('install scripts', () => {
 
   it('the sandbox image installs every npm package without scripts', () => {
     const installs = readFileSync(join(root, 'infra/local/sandbox/Dockerfile'), 'utf8').match(/npm install[^&]*/g)!;
-    expect(installs).toHaveLength(2);
-    for (const line of installs) expect(line).toContain('--ignore-scripts');
+    expect(installs.filter(line => !line.includes('--ignore-scripts'))).toEqual([]);
   });
 });

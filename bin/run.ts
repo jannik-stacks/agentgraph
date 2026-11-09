@@ -15,11 +15,9 @@ import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { Config, ConfigProvider, Effect, Redacted, Semaphore, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Fiber, Redacted, Schedule, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
-import { makeInstanceHost, makeLocalActionClient, readRunnerErrors } from '../src/engine.ts';
-import type { Rpc } from 'effect/rpc';
-import type { Action } from '../src/actions.ts';
+import { makeInstanceHost, readEngineErrors, runLocalActions } from '../src/engine.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
 import { formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
@@ -64,7 +62,7 @@ import {
   settings,
   whyRunnerRefuses,
 } from '../src/services.ts';
-import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
+import { fileStore, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeStoredRunLabels } from '../src/labels.ts';
 import { type RunRecord } from '../src/types.ts';
 
@@ -116,7 +114,7 @@ const relabel = async (data: string) => {
 const listRuns = (data: string, filter: Parameters<Store['Service']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
 const printRuns = (runs: readonly RunRecord[], tag = '') => {
-  if (verb === 'resume' && !runs.length) console.log('0 runs parked by runner errors');
+  if (verb === 'resume' && !runs.length) console.log('0 runs parked by engine errors');
   for (const run of runs)
     console.log(`${tag}${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
@@ -349,7 +347,10 @@ if (!i) {
   else fail(`${verb} runs inside a git repo, or pass --repo <dir>\n${usage}`);
 } else {
   if (verb === 'prune-logs') {
-    await prune(i.data);
+    const { files, bytes } = await Effect.runPromise(
+      runLocalActions(makeInstanceHost({ data: i.data }), client => client.prune({ apply: !!values.apply }))
+    );
+    console.log(`${values.apply ? 'deleted' : 'would delete'} ${files} unreferenced log(s), ${bytes} bytes`);
     process.exit(0);
   }
   if (verb === 'label') {
@@ -423,11 +424,6 @@ function instructed() {
   };
 }
 
-async function prune(data: string) {
-  const { files, bytes } = await pruneLogs(data, values.apply);
-  console.log(`${values.apply ? 'deleted' : 'would delete'} ${files} unreferenced log(s), ${bytes} bytes`);
-}
-
 async function runOnInstance(
   i: Instance,
   { setup, current }: Pick<Awaited<ReturnType<typeof openTracker>>, 'setup' | 'current'>,
@@ -455,21 +451,15 @@ async function runOnInstance(
       stopping.signal
     );
   };
-  const act = <A>(
-    call: (client: Effect.Success<ReturnType<typeof makeLocalActionClient>>) => Effect.Effect<A, unknown>
-  ) =>
+  const act = <A>(call: Parameters<typeof runLocalActions<A, unknown>>[1]) =>
     Effect.runPromise(
-      Effect.scoped(
-        Effect.flatMap(
-          makeLocalActionClient(
-            makeInstanceHost(
-              { data: i.data },
-              { layer: setup.layer(current.trust, i.owner), origin: setup.origin },
-              { instance: i, drive: startInstruction }
-            )
-          ),
-          call
-        )
+      runLocalActions(
+        makeInstanceHost(
+          { data: i.data },
+          { layer: setup.layer(current.trust, i.owner), origin: setup.origin },
+          { instance: i, drive: startInstruction }
+        ),
+        call
       )
     ).catch((e: Error) => fail(e.message, 1));
   const synced = async () => {
@@ -540,11 +530,13 @@ async function runOnInstance(
     }
     case 'export': {
       if (!setup.origin.local) fail('export applies to a local tracker');
-      numbered();
-      const result = await writePullToRepo(i, n, {
-        ...(values.as && { as: values.as }),
-        ...(values.patch && { patch: values.patch }),
-      }).catch((e: Error) => fail(e.message, 1));
+      const result = await act(client =>
+        client.export({
+          issue: numbered(),
+          ...(values.as && { as: values.as }),
+          ...(values.patch && { patch: values.patch }),
+        })
+      );
       if (!result) return fail(`#${n} has no pull request`, 1);
       if ('why' in result)
         return fail(values.patch ? result.why : `${result.why}; try --as <branch> or --patch <file>`, 1);
@@ -559,10 +551,33 @@ async function runOnInstance(
       return;
     }
     case 'show': {
-      const shown = await act(client => client.show(rest[0] ? { issue: numbered() } : {}));
-      if (!rest[0]) return showAll(shown);
-      for (const t of shown.issues) console.log(formatIssueTimeline({ ...t, events: t.events ?? [] }, t.diff ?? ''));
-      for (const line of shown.notes) console.log(line);
+      const { issues, runs, notes } = await act(client => client.show(rest[0] ? { issue: numbered() } : {}));
+      if (rest[0]) {
+        for (const t of issues) console.log(formatIssueTimeline({ ...t, events: t.events ?? [] }, t.diff ?? ''));
+        for (const line of notes) console.log(line);
+        return;
+      }
+      const lines = [
+        ...(scope.env.AGENTGRAPH_TRACKER === 'github'
+          ? await Effect.runPromise(
+              readInstallationReach({
+                repo: scope.env.AGENTGRAPH_REPO!,
+                id: scope.env.AGENTGRAPH_APP_ID!,
+                key: Redacted.make(scope.env.AGENTGRAPH_APP_KEY!),
+              })
+            )
+          : []),
+        ...findRunsWaitingOnPeople(runs).flatMap(run =>
+          formatNextSteps(
+            run,
+            scope.env.AGENTGRAPH_TRACKER === 'github' ? scope.env.AGENTGRAPH_REPO : undefined,
+            selected
+          )
+        ),
+        ...notes,
+      ];
+      console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
+      console.log(formatIssueList(issues));
       return;
     }
     case 'check':
@@ -594,20 +609,25 @@ async function runOnInstance(
 
 function watchRuns(i: Instance, issue: number) {
   const shown = new Map<string, string>();
-  const look = async () => {
-    for (const run of await listRuns(i.data, { issue }).catch((e: Error) => {
-      console.error(`Could not read runs: ${e.message}`);
-      return [];
-    })) {
-      const now = `${run.step}: ${run.status === 'running' ? 'working' : run.status}`;
-      if (shown.get(run.id) !== now) console.log(`#${issue} ${now}`);
-      shown.set(run.id, now);
-    }
-  };
-  const timer = setInterval(() => void look(), 1000);
+  const follow = (take = Infinity) =>
+    runLocalActions(makeInstanceHost({ data: i.data }), client =>
+      client.watch({ issue }).pipe(
+        Stream.take(take),
+        Stream.runForEach(runs =>
+          Effect.sync(() => {
+            for (const run of runs) {
+              const now = `${run.step}: ${run.status === 'running' ? 'working' : run.status}`;
+              if (shown.get(run.id) !== now) console.log(`#${issue} ${now}`);
+              shown.set(run.id, now);
+            }
+          })
+        )
+      )
+    ).pipe(Effect.tapError(e => Effect.sync(() => console.error(`Could not read runs: ${e.message}`))));
+  const fiber = Effect.runFork(follow().pipe(Effect.retry(Schedule.spaced('1 second'))));
   return async () => {
-    clearInterval(timer);
-    await look();
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    await Effect.runPromise(Effect.ignore(follow(1)));
   };
 }
 
@@ -655,7 +675,14 @@ function openStudio(i: Instance) {
     if (spawnSync('npm', ['ci', '--prefix', dir, '--no-audit', '--no-fund'], { stdio: 'inherit' }).status !== 0)
       fail('the studio install failed', 1);
   }
-  const flags = ['--instance', basename(i.dir), '--data', root, ...(values.dir ? ['--dir', resolve(values.dir)] : [])];
+  const flags = [
+    '--instance',
+    basename(i.dir),
+    '--data',
+    root,
+    ...(values.dir ? ['--dir', resolve(values.dir)] : []),
+    ...(values.plugins ? ['--plugins', resolve(values.plugins)] : []),
+  ];
   const { status } = spawnSync(process.execPath, [join(dir, 'watch.ts'), '--repo', i.checkout, ...flags], {
     cwd: dir,
     stdio: 'inherit',
@@ -709,7 +736,7 @@ async function report(
       if (why) console.log(why);
     }
   }
-  for (const line of await Effect.runPromise(readRunnerErrors(makeInstanceHost({ data: i.data }).store, i.data, runs)))
+  for (const line of await Effect.runPromise(readEngineErrors(makeInstanceHost({ data: i.data }).store, i.data, runs)))
     console.log(line);
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
   const steps = merged
@@ -944,26 +971,6 @@ async function serveLocked(instance: Instance, tag: string, shared: Semaphore.Se
     await polling;
     await drives?.stop();
   }
-}
-
-async function showAll({ issues, runs, notes }: Rpc.Success<Rpc.ExtractTag<Action, 'show'>>) {
-  const lines = [
-    ...(scope.env.AGENTGRAPH_TRACKER === 'github'
-      ? await Effect.runPromise(
-          readInstallationReach({
-            repo: scope.env.AGENTGRAPH_REPO!,
-            id: scope.env.AGENTGRAPH_APP_ID!,
-            key: Redacted.make(scope.env.AGENTGRAPH_APP_KEY!),
-          })
-        )
-      : []),
-    ...findRunsWaitingOnPeople(runs).flatMap(run =>
-      formatNextSteps(run, scope.env.AGENTGRAPH_TRACKER === 'github' ? scope.env.AGENTGRAPH_REPO : undefined, selected)
-    ),
-    ...notes,
-  ];
-  console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
-  console.log(formatIssueList(issues));
 }
 
 async function showInstances(root: string) {

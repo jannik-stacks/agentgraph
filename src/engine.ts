@@ -1,9 +1,10 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { Effect, Layer, Schema, Stream } from 'effect';
+import { Effect, Layer, Schedule, Schema, Stream } from 'effect';
 import { HttpRouter } from 'effect/http';
 import { RpcSerialization, RpcServer } from 'effect/rpc';
-import { ActionError, Actions, ActionUser, makeActionClient, userHeader } from './actions.ts';
+import { ActionError, Actions, ActionUser, runActions } from './actions.ts';
 import { parseLabels, readRunLabels, writeRunLabels, writeStoredRunLabels } from './labels.ts';
 import { PluginMetadata } from './meta.ts';
 import {
@@ -13,23 +14,23 @@ import {
   mergePull,
   readRealPath,
   writeClosed,
+  writePullToRepo,
   writeReview,
 } from './instance.ts';
-import type { Graph } from './folder.ts';
 import type * as MainModule from './main.ts';
 import type { JsonValue } from './meta.ts';
 import type { Instruction } from './run/trigger.ts';
-import { formatRunnerError } from './status.ts';
-import { fileStore, readJsonlRows, readRecordSync, Store } from './store.ts';
+import { formatEngineError } from './status.ts';
+import { fileStore, pruneLogs, readJsonlRows, readRecordSync, Store } from './store.ts';
 import { findIssueDir, Tracker, type TrackerSetup, writeAgentComment } from './tracker.ts';
-import { findLatestChecks } from './trace.ts';
+import { findCheckVerdicts, findLatestChecks } from './trace.ts';
 import { type CheckEntry, type InstanceHost, type Run, type RunRecord, TrackerError } from './types.ts';
 
 type EngineConfig = {
   readonly name: string;
   readonly data: string;
   readonly instance?: string;
-  readonly checks?: Graph['checks'];
+  readonly checks?: InstanceHost['checks'];
 };
 
 type StoredRun = ReturnType<InstanceHost['readRuns']>[number];
@@ -64,13 +65,13 @@ const readStoredRuns = ({ data, checks = {} }: Pick<EngineConfig, 'data' | 'chec
   return (existsSync(data) ? readdirSync(data) : []).flatMap(id => readStoredRun(data, id, versions) ?? []);
 };
 
-export const readRunnerErrors = (store: Pick<InstanceHost['store'], 'read'>, data: string, runs: readonly Run[]) =>
+export const readEngineErrors = (store: Pick<InstanceHost['store'], 'read'>, data: string, runs: readonly Run[]) =>
   Effect.map(
     Effect.forEach(
       runs.filter(run => run.status === 'waiting' && run.retried),
       run =>
         Effect.map(Stream.runCollect(store.read(run.id)), trace =>
-          formatRunnerError([...trace], join(data, run.id, 'trace.jsonl'))
+          formatEngineError([...trace], join(data, run.id, 'trace.jsonl'))
         )
     ),
     lines => lines.flat()
@@ -79,7 +80,7 @@ export const readRunnerErrors = (store: Pick<InstanceHost['store'], 'read'>, dat
 export const makeInstanceHost = (
   config: Pick<EngineConfig, 'data' | 'checks'>,
   tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] },
-  local?: { instance: Pick<Instance, 'tracker' | 'owner'>; drive: (instruction: Instruction) => Promise<RunRecord[]> }
+  local?: { instance: Instance; drive: (instruction: Instruction) => Promise<RunRecord[]> }
 ) => {
   const { data } = config;
   const store: InstanceHost['store'] = Effect.runSync(Store.pipe(Effect.provide(fileStore(data))));
@@ -93,7 +94,13 @@ export const makeInstanceHost = (
     since: (cursor, columns) =>
       service ? Stream.unwrap(Effect.map(service, t => t.since(cursor, columns))) : Stream.fail(missing),
   };
-  const host: InstanceHost = { data, store, tracker: reads, readRuns: () => readStoredRuns(config) };
+  const host: InstanceHost = {
+    data,
+    ...(config.checks && { checks: config.checks }),
+    store,
+    tracker: reads,
+    readRuns: () => readStoredRuns(config),
+  };
   const folder = tracker?.origin.local ? dirname(tracker.origin.origin) : undefined;
   const fail = (e: unknown) => ActionError.make({ message: e instanceof Error ? e.message : String(e) });
   const attempt = <A>(act: () => Promise<A>) => Effect.tryPromise({ try: act, catch: fail });
@@ -101,30 +108,52 @@ export const makeInstanceHost = (
   const owned = local && folder ? Effect.succeed(local.instance) : refuse;
   const readIssue = (n: number) =>
     Effect.map(reads.issue(n), issue => {
-      const diff = folder ? join(findIssueDir(folder, n), 'diff.patch') : '';
-      return { ...issue, diff: diff && existsSync(diff) ? readFileSync(diff, 'utf8') : '' };
+      return { ...issue, diff: folder ? readRecordSync(join(findIssueDir(folder, n), 'diff.patch')) : '' };
     });
-  const actions = Actions.toLayer({
+  const actions = Actions.of({
+    runs: (_: { id?: string }): Effect.Effect<unknown, typeof ActionError.Type> => refuse,
+    results: (): Effect.Effect<unknown, typeof ActionError.Type> => refuse,
+    watch: ({ issue }) =>
+      Stream.fromEffectSchedule(store.list(issue === undefined ? {} : { issue }), Schedule.spaced('1 second')).pipe(
+        Stream.changes,
+        Stream.buffer({ capacity: 1, strategy: 'sliding' }),
+        Stream.mapError(fail)
+      ),
     show: ({ issue }) =>
       Effect.gen(function* () {
         const runs = yield* store.list(issue === undefined ? {} : { issue });
-        const pull = issue && folder ? yield* Effect.promise(() => findPull(folder, issue)) : undefined;
+        const pull = issue && folder ? yield* attempt(() => findPull(folder, issue)) : undefined;
         const issues =
           issue === undefined
             ? yield* reads.issues()
             : yield* Effect.forEach([...new Set([issue, pull?.number ?? issue])], readIssue);
-        return { issues, runs, notes: yield* readRunnerErrors(store, data, runs) };
+        return { issues, runs, notes: yield* readEngineErrors(store, data, runs) };
       }).pipe(Effect.mapError(fail)),
     say: ({ issue, text }) =>
       (!tracker || tracker.origin.local
         ? provided(writeAgentComment(issue, text))
         : Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
       ).pipe(Effect.asVoid, Effect.mapError(fail)),
+    log: ({ hash }) =>
+      store.readLog(hash).pipe(
+        Effect.map(text => text ?? null),
+        Effect.mapError(fail)
+      ),
+    verdicts: ({ workflow, step, check }) =>
+      Effect.gen(function* () {
+        const runs = yield* Effect.forEach(yield* store.listRecords({ workflow }), run =>
+          Effect.map(store.readChecks(run.id), checks => ({ run, checks }))
+        );
+        return findCheckVerdicts(runs, step, check);
+      }).pipe(Effect.mapError(fail)),
     label: ({ id, patch }) => writeStoredRunLabels(data, id, patch).pipe(Effect.mapError(fail)),
     instruct: instruction => (local ? attempt(() => local.drive(instruction)) : refuse),
     review: ({ issue, verdict, text }) =>
       Effect.flatMap(owned, i => attempt(() => writeReview(i.tracker, i.owner, issue, verdict, text))),
     merge: ({ issue }) => Effect.flatMap(owned, i => attempt(() => mergePull(i, issue))),
+    export: ({ issue, ...to }) =>
+      Effect.flatMap(owned, i => attempt(async () => (await writePullToRepo(i, issue, to)) ?? null)),
+    prune: ({ apply }) => attempt(() => pruneLogs(data, apply)),
     close: ({ issue }) =>
       Effect.gen(function* () {
         const i = yield* owned;
@@ -138,25 +167,49 @@ export const makeInstanceHost = (
   return { ...host, actions };
 };
 
-const requireUser = Layer.succeed(ActionUser)((effect, { headers }) =>
-  headers[userHeader] ? effect : Effect.fail(ActionError.make({ message: 'log in first' }))
-);
+const userHeader = 'x-agentgraph-user';
+const localActions = new Set(['instruct', 'review', 'merge', 'export', 'close', 'prune']);
+const writeActions = new Set([...localActions, 'say', 'label']);
 
-export const makeActionWebHandler = (host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>) =>
-  HttpRouter.toWebHandler(
+export const makeActionWebHandler = (
+  host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>,
+  own: Partial<Pick<ReturnType<typeof makeInstanceHost>['actions'], 'runs' | 'results'>> = {},
+  readOnly = false
+) => {
+  const key = randomUUID();
+  const { handler } = HttpRouter.toWebHandler(
     RpcServer.layerHttp({ group: Actions, path: '/', protocol: 'http' }).pipe(
-      Layer.provide([host.actions, requireUser, RpcSerialization.layerNdjson])
+      Layer.provide([
+        Actions.toLayer({ ...host.actions, ...own }),
+        Layer.succeed(ActionUser)((effect, { rpc, headers }) => {
+          const given = headers[userHeader] ?? '';
+          const user = given.startsWith(`${key}:`) ? given.slice(key.length + 1) : '';
+          const why = !user
+            ? 'log in first'
+            : readOnly && writeActions.has(rpc._tag)
+              ? `${rpc._tag} refused: a store read through ?data= is read-only`
+              : user !== 'local' && localActions.has(rpc._tag)
+                ? `${rpc._tag} runs only from the agi CLI`
+                : undefined;
+          return why ? Effect.fail(ActionError.make({ message: why })) : effect;
+        }),
+        RpcSerialization.layerNdjson,
+      ])
     ),
     { disableLogger: true }
   );
-
-export const makeLocalActionClient = (host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>) => {
-  const { handler } = makeActionWebHandler(host);
-  return makeActionClient('http://local/', (input, init) => {
-    const request = new Request(input, init);
-    request.headers.set(userHeader, 'local');
+  return (request: Request, user: string | undefined) => {
+    request.headers.set(userHeader, user ? `${key}:${user}` : '');
     return handler(request);
-  });
+  };
+};
+
+export const runLocalActions = <A, E>(
+  host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>,
+  use: Parameters<typeof runActions<A, E>>[2]
+) => {
+  const handle = makeActionWebHandler(host);
+  return runActions('http://local/', (input, init) => handle(new Request(input, init), 'local'), use);
 };
 
 export const makeEngineHost = (plugin: string, configs: readonly EngineConfig[], submitting = false): EngineHost => {

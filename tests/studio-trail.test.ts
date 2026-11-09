@@ -1,20 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { findCheckVerdicts } from '../src/trace.ts';
+import type { CheckEntry } from '../src/types.ts';
 import { studioModule } from './studio.ts';
 
 type Opened = { kind: 'check' | 'agent'; name: string };
-type Verdict = {
-  run: string;
-  at: string;
-  pass: boolean;
-  empty: boolean;
-  findings?: string;
-  items: number;
-  failed: number;
-};
 type Uses = { steps: { name: string; path: string }[]; checks: { name: string; path?: string }[] };
-const { splitSelection, findCheckVerdicts, findAgentUses } = await studioModule<{
+const { splitSelection, findAgentUses } = await studioModule<{
   splitSelection: (selected: string | null) => { workflow?: string; step?: string; trail: Opened[] };
-  findCheckVerdicts: (runs: unknown[], step: string, check: string) => Verdict[];
   findAgentUses: (fixtures: unknown[], agent: string) => Uses;
 }>('graph/trail.ts');
 
@@ -33,7 +25,7 @@ describe('splitSelection', () => {
   });
 });
 
-const run = (id: string, checks: unknown[]) => ({ run: { id, issue: 7 }, checks });
+const run = (id: string, checks: unknown[]) => ({ run: { id, issue: 7 }, checks: checks as CheckEntry[] });
 
 describe('findCheckVerdicts', () => {
   const line = (at: string, check: string, pass: boolean, item?: string) => ({

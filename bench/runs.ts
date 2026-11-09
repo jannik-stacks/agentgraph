@@ -6,12 +6,13 @@ import { makeVersionLabels } from '../src/labels.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import { getRounded } from '../src/stats.ts';
 import { findLatestChecks } from '../src/trace.ts';
-import type { ResultSheet } from '../src/results.ts';
+import { findCheckFields, mergeCheckFields, type ResultSheet } from '../src/results.ts';
 import { readJsonlRows, readRecordSync, writeFileAtomic } from '../src/store.ts';
 import { getSha } from '../src/hash.ts';
 import { readDirOrEmpty } from '../src/read.ts';
 import { type EngineHost, makeEngineHost } from '../src/engine.ts';
-import { type CheckEntry, type RunRecord } from '../src/types.ts';
+import { readRealPath } from '../src/instance.ts';
+import { type CheckEntry, type InstanceHosts, type RunRecord } from '../src/types.ts';
 
 export type BenchInput = {
   case: string;
@@ -178,11 +179,18 @@ export const getBenchUsageCost = (u: { usd?: number; tokens?: Record<string, Tok
   return { usd: at(false), usdUncached: at(true), ...(unpriced.length > 0 && { unpriced }) };
 };
 
-export const makeSetHost = (sets: readonly string[]) =>
-  makeEngineHost(
+export const makeSetHost = (sets: readonly string[], hosts: InstanceHosts = {}) => {
+  const seen = new Set<string>();
+  return makeEngineHost(
     'bench',
-    sets.map(set => ({ name: set, data: join(set, 'data') }))
+    [
+      ...Object.entries(hosts).flatMap(([name, host]) =>
+        'why' in host ? [] : [{ name, data: host.data, instance: name, ...(host.checks && { checks: host.checks }) }]
+      ),
+      ...sets.map(set => ({ name: set, data: join(set, 'data') })),
+    ].filter(({ data }) => !seen.has(readRealPath(data)) && !!seen.add(readRealPath(data)))
   );
+};
 
 export const findBenchRuns = (host: Pick<EngineHost, 'configs' | 'readRuns'>) =>
   host.configs.flatMap(config =>
@@ -386,3 +394,18 @@ export const readBenchRows = (host: Pick<EngineHost, 'configs' | 'readRuns'>) =>
 };
 
 export type BenchRow = ReturnType<typeof readBenchRows>[number];
+
+export const readBenchData = (host: Pick<EngineHost, 'configs' | 'readRuns'>) => {
+  const rows = readBenchRows(host);
+  return {
+    rows,
+    ...mergeCheckFields(
+      host.configs.map(c =>
+        findCheckFields(
+          rows.filter(row => row.data === c.data),
+          c.checks
+        )
+      )
+    ),
+  };
+};

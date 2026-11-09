@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Effect, Exit } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { sandboxImage } from '../src/docker.ts';
@@ -69,5 +70,53 @@ describe.skipIf(!up())('a read-only command in a real container', () => {
     const exit = await run(false);
     expect(Exit.isSuccess(exit) && exit.value).toMatchObject({ file: 'x\n' });
     expect(Exit.isSuccess(exit) && exit.value.output).toContain('edit ok\ncreate ok\ngitdir ok\n');
+  }, 120_000);
+});
+
+const box = fileURLToPath(new URL('../examples/deploy/cloudflare/box.sh', import.meta.url));
+
+const steps = `
+sh /box.sh init > /dev/null
+mkdir /box/work/d && echo main > /box/work/a.txt
+sh /box.sh run 1 rw sh -c 'chmod o+w a.txt d && cp /usr/bin/tee tee && chmod u+s tee && (env -i sh -c "sleep 2; echo x > late") > /dev/null 2>&1 &'
+sh /box.sh run 1 ro sh -c '
+  try() { if sh -c "$1" 2>/dev/null; then echo "$2 ok"; else echo "$2 denied"; fi; }
+  try "echo x > a.txt" edit
+  try "echo x > d/new" dir
+  try "echo x | ./tee a.txt > /dev/null" setuid
+  sleep 3
+  [ -e late ] && echo "late ok" || echo "late denied"
+  cat a.txt'
+sh /box.sh run 1 rw sh -c 'sleep 2; echo done > busy' &
+sleep 1
+sh /box.sh run 1 ro true
+wait
+cat /box/work/busy
+`;
+
+describe.skipIf(!up())('a read-only command in a box', () => {
+  it('cannot write what an earlier writable command opened up or left running, and never stops one still running', () => {
+    const out = spawnSync(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '--network',
+        'none',
+        '--user',
+        '0',
+        '--env',
+        'AGENTGRAPH_BOX_ROOT=/box',
+        '--mount',
+        `type=bind,src=${box},dst=/box.sh,readonly`,
+        '--entrypoint',
+        'sh',
+        sandboxImage,
+        '-c',
+        steps,
+      ],
+      { encoding: 'utf8' }
+    );
+    expect(out.stdout).toBe('edit denied\ndir denied\nsetuid denied\nlate denied\nmain\ndone\n');
   }, 120_000);
 });
