@@ -17,6 +17,7 @@ import {
   SchemaRepresentation,
 } from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
+import type { InstanceHosts } from './engine.ts';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -145,7 +146,6 @@ export const makePlugin = <
   D = unknown,
   I = D,
   T = unknown,
-  H = unknown,
   L extends Layer.Layer<never, unknown> = Layer.Layer<never, unknown>,
 >(
   definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'on' | (typeof members)[number]> & {
@@ -154,8 +154,8 @@ export const makePlugin = <
     auth?: AuthMember<S>;
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Codec<D, I>;
-      read: (settings: S, hosts: H) => Effect.Effect<D, unknown>;
-      watch?: (settings: S, hosts: H) => readonly string[];
+      read: (settings: S, hosts: InstanceHosts) => Effect.Effect<D, unknown>;
+      watch?: (settings: S, hosts: InstanceHosts) => readonly string[];
     };
     tools?: Record<string, Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, ToolContext<S>>>;
     on?: { status?: StatusHook<S> };
@@ -218,7 +218,7 @@ export const readPlugins = async (
   }: {
     isReserved?: (name: string) => boolean;
     builtins?: readonly unknown[];
-    instances?: Readonly<Record<string, unknown>>;
+    instances?: InstanceHosts;
   } = {}
 ) => {
   const plugins = new Map<string, string>();

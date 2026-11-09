@@ -141,7 +141,9 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
         },
       },
     });
-    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, makeInstanceHost({ data: dir })))).toBe(2);
+    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, { live: makeInstanceHost({ data: dir }) }))).toBe(
+      2
+    );
     const registry = await readCheckedPlugins(dir, { count: { limit: '7' } });
     const page = registry.pages[0]!;
     const data = await Effect.runPromise(page.read());
