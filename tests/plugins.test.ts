@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { access, mkdtemp, mkdir, writeFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -53,11 +54,12 @@ export default makePlugin({ name: 'external', settingsSchema: Input, tools: {
 } });
 `;
 
-it('lets a graph plugin wrap the built-in trackers by their package paths', async () => {
+it('loads the tracker example, which wraps a built-in by its package path, under its own name', async () => {
   const dir = await makePluginDir({
-    'plugins/mine.ts': `import { folder } from '@jannik-stacks/agi/trackers';
-export default { ...folder, name: 'mine' };
-`,
+    'plugins/my-folder.ts': readFileSync(
+      join(import.meta.dirname, '../examples/plugins/trackers/my-folder.ts'),
+      'utf8'
+    ),
   });
   const picked = execFileSync(
     process.execPath,
@@ -68,7 +70,7 @@ export default { ...folder, name: 'mine' };
 import { readPlugins } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href)};
 const { trackers } = await readPlugins(${JSON.stringify(dir)}, {});
 const { github } = await import('@jannik-stacks/agi/trackers');
-console.log(trackers.mine({ dir: '/t' }).origin.origin, github.name);
+console.log(trackers['my-folder']({ dir: '/t' }).origin.origin, github.name);
 `,
     ],
     { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }

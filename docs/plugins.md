@@ -138,22 +138,8 @@ labels, `folder` moves the issue's folder. A status the tracker refuses is shown
 ### Your own tracker
 
 The built-ins ship as `folder` and `github` in `@jannik-stacks/agi/trackers`, so a graph plugin can wrap one under a
-new name:
-
-```ts
-// .agentgraph/plugins/my-folder.ts
-import { makePlugin } from '@jannik-stacks/agi/plugins';
-import { folder } from '@jannik-stacks/agi/trackers';
-
-export default makePlugin({
-  ...folder,
-  name: 'my-folder',
-  tracker: host => {
-    const setup = folder.tracker!(host);
-    return { ...setup, layer: (trust: readonly string[] = []) => setup.layer([...trust, 'ci-bot']) };
-  },
-});
-```
+new name. `examples/plugins/trackers/my-folder.ts` wraps `folder` and adds `ci-bot` to the trusted logins; copy it
+into the graph's `plugins/`.
 
 On an instance the tracker keeps the folder it is given: `agi` and the loop, on every graph change, refuse one whose `origin.git` lies elsewhere, since
 merge and export work on that remote. The CLI verbs write your side, issues, comments, reviews and closes, straight to
@@ -164,7 +150,7 @@ with `--tracker my-folder`, `AGENTGRAPH_TRACKER=my-folder` or `tracker: my-folde
 `agi check --dir <graph>` to see that the name resolves to a plugin with a tracker in a graph the host reads. A graph
 plugin named `folder` would replace the built-in, but a new name keeps the swap visible. Turning status off needs no
 fork: `status: false` in settings.yaml.
-<!-- code: src/plugin.ts src/trackers.ts -->
+<!-- code: src/plugin.ts src/trackers.ts examples/plugins/trackers/my-folder.ts -->
 
 ## Runners
 
