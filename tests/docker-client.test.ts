@@ -1109,7 +1109,7 @@ describe('image precedence', () => {
     [{}, undefined, undefined, 'agentgraph-sandbox:local'],
   ] as const)('resolves %j with fallback %s and override %s', async (graph, fallback, override, tag) => {
     await faked({ 'image inspect': 'sha256:pinned' }, async log => {
-      const id = await Effect.runPromise(readImage(graph, fallback, override));
+      const { id } = await Effect.runPromise(readImage(graph, fallback, override));
       expect(id).toBe('sha256:pinned');
       expect(log()).toContain(`{{.Id}} ${tag}`);
     });
@@ -1158,6 +1158,30 @@ describe('image check without a docker daemon', () => {
     process.env.PATH = path;
     expect(JSON.stringify(exit)).toContain('Cannot connect to the Docker daemon');
     expect(JSON.stringify(exit)).not.toContain('is missing');
+  });
+});
+
+describe('image packages', () => {
+  const listed = JSON.stringify({
+    dependencies: { 'opencode-ai': { version: '1.19.0' }, '@openai/codex': { version: '0.162.1' }, broken: {} },
+  });
+  it.each([
+    ['sha256:listed', listed, { 'opencode-ai': '1.19.0', '@openai/codex': '0.162.1' }],
+    ['sha256:garbage', 'npm ERR! not json', {}],
+    ['sha256:silent', '', {}],
+  ])('reads the global npm packages of %s', async (id, probe, packages) => {
+    const bin = tmp('image-packages');
+    writeFileSync(
+      join(bin, 'docker'),
+      `#!/bin/sh\ncase "$1" in image) echo ${id};; run) printf 'agentgraph-command-ready%s' '${probe}';; esac\n`
+    );
+    chmodSync(join(bin, 'docker'), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    const found = await Effect.runPromise(readImage({ image: 'custom:packages' })).finally(() => {
+      process.env.PATH = path;
+    });
+    expect(found).toEqual({ id, packages });
   });
 });
 

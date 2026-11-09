@@ -27,6 +27,7 @@ const writeAuth = 'umask 077; printf %s "$AGENTGRAPH_CHATGPT_AUTH" > /tmp/codex-
 
 export const makeCodexHarness = (): Harness => ({
   name: 'codex',
+  package: '@openai/codex',
   classify: tool => {
     const name = splitToolPattern(tool)[1] ?? tool;
     if (writing.includes(name)) return 'write';

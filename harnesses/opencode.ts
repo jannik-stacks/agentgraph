@@ -51,6 +51,7 @@ const deniedByOpencode = 'prevents you from using this specific tool call';
 
 export const opencode = (): Harness => ({
   name: 'opencode',
+  package: 'opencode-ai',
   classify: tool => {
     const name = splitToolPattern(tool)[1] ?? tool;
     if (['edit', 'write', 'bash', 'task', 'todowrite', 'lsp', 'batch'].includes(name)) return 'write';

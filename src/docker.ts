@@ -236,7 +236,21 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
     return true;
   });
 
-const checkedImages = new Set<string>();
+const checkedImages = new Map<string, NonNullable<Checkout['image']>['packages']>();
+const ready = 'agentgraph-command-ready';
+
+const parseGlobalPackages = (text: string) => {
+  try {
+    const found: { dependencies?: Record<string, { version?: unknown }> } = JSON.parse(text);
+    return Object.fromEntries(
+      Object.entries(found.dependencies ?? {}).flatMap(([name, { version }]) =>
+        typeof version === 'string' ? [[name, version]] : []
+      )
+    );
+  } catch {
+    return {};
+  }
+};
 
 export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxImage, override?: string) =>
   Effect.gen(function* () {
@@ -280,7 +294,7 @@ export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxIm
         id,
         'sh',
         '-c',
-        'printf agentgraph-command-ready',
+        `printf ${ready}; npm ls -g --json --depth=0 2>/dev/null; true`,
       ]).pipe(
         Effect.timeoutOrElse({
           duration: '10 seconds',
@@ -292,14 +306,14 @@ export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxIm
           )
         )
       );
-      if (out !== 'agentgraph-command-ready')
+      if (!out.startsWith(ready))
         return yield* new SandboxError({
           reason: 'host',
           detail: `Image ${id} must run supplied commands directly; check its entrypoint.`,
         });
-      checkedImages.add(id);
+      checkedImages.set(id, parseGlobalPackages(out.slice(ready.length)));
     }
-    return id;
+    return { id, packages: checkedImages.get(id) ?? {} };
   });
 
 const findMissingModelHosts = (hosts: string[]) =>
@@ -622,11 +636,12 @@ export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
         );
 
       const open = (
-        work: Omit<Checkout, 'ready' | 'env' | 'written'>,
+        work: Omit<Checkout, 'ready' | 'env' | 'written' | 'image'>,
         graph?: Parameters<Sandbox['Service']['checkout']>[3]
       ) =>
         Effect.gen(function* () {
-          const box = yield* readImage(graph, image);
+          const found = yield* readImage(graph, image);
+          const box = found.id;
           const { news, scratch } = getCheckoutPaths(o.data, basename(work.dir));
           if (!work.base) {
             yield* Effect.acquireRelease(
@@ -643,7 +658,7 @@ export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
               ),
               () => Effect.sync(() => made.delete(work.dir))
             );
-            return { lines, tools: () => tools };
+            return { lines, tools: () => tools, image: found };
           }
           const mirror = work.git.GIT_DIR;
           const rev = work.head ?? work.base;
@@ -725,6 +740,7 @@ export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
           return {
             lines,
             tools: () => tools,
+            image: found,
             ...(env?.complete && setup && !work.saved && match && { ready: true }),
             ...(env && { env: { key: env.key, mode: env.mode, match } }),
             written: () => written(sharedMounts, env?.image ?? box),

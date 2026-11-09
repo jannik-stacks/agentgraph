@@ -39,7 +39,7 @@ const startRegistered = async (
     'plugins/tools.ts': `import { makePlugin, tool } from '${new URL('../src/plugin.ts', import.meta.url).href}'; import { Schema } from '${import.meta.resolve('effect')}'; export default makePlugin({ name: 'fixture', tools: { ${records} } });`,
   });
   const graph = await Effect.runPromise(
-    loadGraph(dir, [{ name: 'fixture', classify: name => (name === 'read' ? 'read' : undefined) }])
+    loadGraph(dir, [{ name: 'fixture', package: 'fixture', classify: name => (name === 'read' ? 'read' : undefined) }])
   );
   const selected = Object.fromEntries(
     graph.tools!.filter(name => graph.agents.reader!.tools.includes(name)).map(name => [name, available[name]!])

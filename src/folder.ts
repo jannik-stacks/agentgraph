@@ -273,6 +273,7 @@ const compile = (
 
 export type HarnessCheck = {
   name: string;
+  package: string;
   classify: (tool: string) => 'read' | 'write' | undefined;
   check?: (agent: Agent) => string[];
 };

@@ -25,6 +25,7 @@ const chatgptToken = `!node -p 'JSON.parse(process.env.AGENTGRAPH_CHATGPT_AUTH).
 
 export const pi = (): Harness => ({
   name: 'pi',
+  package: '@earendil-works/pi-coding-agent',
   classify: tool => {
     const name = splitToolPattern(tool)[1] ?? tool;
     if (['edit', 'write', 'bash'].includes(name)) return 'write';

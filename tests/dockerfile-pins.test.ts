@@ -10,7 +10,7 @@ const readPins = (path: string) => {
   const args = Object.fromEntries([...text.matchAll(/^ARG (\w+_VERSION)=(\S*)$/gm)].map(m => [m[1], m[2]]));
   const used = [...text.matchAll(/@\$\{(\w+)\}/g)].map(m => m[1]!);
   return {
-    loose: Object.entries(args).filter(([, version]) => !/^\d+\.\d+\.\d+$/.test(version ?? '')),
+    loose: Object.entries(args).filter(([, version]) => !/^\d+\.\d+\.\d+$/.test(String(version))),
     dangling: used.filter(name => !Object.hasOwn(args, name)),
   };
 };

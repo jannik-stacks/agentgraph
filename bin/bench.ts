@@ -656,7 +656,7 @@ export const readCaseImage = async (c: Case & Commands, set: string, graph = fin
       const problems: string[] = [];
       const settings = parseGraphSettings(readFileOrEmpty(join(graph, 'settings.yaml')), m => problems.push(m));
       if (!settings || problems.length) throw new Error(`invalid case graph: ${problems.join('; ')}`);
-      selected = await Effect.runPromise(readImage(settings, image, c.image));
+      selected = (await Effect.runPromise(readImage(settings, image, c.image))).id;
       writeFileAtomic(file, { image: selected });
     } else {
       await Effect.runPromise(readImage({ image: selected }));

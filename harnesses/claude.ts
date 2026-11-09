@@ -53,6 +53,7 @@ const claudeTools = (tools: string[]) =>
 
 export const claude = (): Harness => ({
   name: 'claude',
+  package: '@anthropic-ai/claude-code',
   classify: tool => {
     const name = splitToolPattern(tool)[1] ?? tool;
     if (!Object.hasOwn(claudeNames, name)) return undefined;

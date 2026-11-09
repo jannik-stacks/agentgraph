@@ -165,6 +165,8 @@ export type Checkout = {
   news: string;
   /** How many files the checkout's commands wrote over the shared cache so far, when the sandbox can tell. */
   written?: () => Promise<number | undefined>;
+  /** The Docker image the checkout runs in and its global npm packages with their versions. */
+  image?: { id: string; packages: Record<string, string> };
 };
 
 export const formatCause = (cause: unknown): string => {

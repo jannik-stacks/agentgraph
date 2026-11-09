@@ -130,6 +130,11 @@ it('passes session resources to the sandbox command', async () => {
   expect(command.limits).toEqual({ memory: '8g', cpus: 4 });
 });
 
+it.each(harnesses.map(h => [h.name, h.package]))('installs the %s package %s in the sandbox image', (_, name) => {
+  const dockerfile = readFileSync(join(import.meta.dirname, '../infra/local/sandbox/Dockerfile'), 'utf8');
+  expect(dockerfile).toContain(` ${name}@\${`);
+});
+
 describe('model URL pairs', () => {
   it.each(['sol=http://localhost bad', 'sol=http://localhost broken'])('rejects malformed input %s', text => {
     expect(() => parseModelUrls(text)).toThrow('invalid name=value pair');
