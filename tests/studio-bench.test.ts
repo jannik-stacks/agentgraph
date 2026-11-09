@@ -1,5 +1,6 @@
 import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Effect } from 'effect';
+import { makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -431,7 +432,6 @@ describe('a bench data dir', () => {
     try {
       expect(await ask('/api/runs', `/${q(join(out, '..'))}`)).toMatchObject({ status: 400 });
       expect(await ask('/api/runs', `/${q(join(out, 'linked'))}`)).toMatchObject({ status: 400 });
-      expect(await ask('/api/logs', `/${hash}${q(join(out, 'linked'))}`)).toMatchObject({ status: 400 });
       const listed = JSON.parse((await ask('/api/runs', `/${q(data)}`)).body) as { run: Run; data: string }[];
       expect(listed.map(r => [r.run.id, r.data])).toEqual([['issue-1', data]]);
       expect(await ask('/api/runs', `/issue-2${q(data)}`)).toMatchObject({ status: 404 });
@@ -440,7 +440,13 @@ describe('a bench data dir', () => {
         trace: { event?: { text?: string } }[];
       };
       expect([one.data, one.trace.find(l => l.event)?.event?.text]).toEqual([data, 'from the bench']);
-      expect(await ask('/api/logs', `/${hash}${q(data)}`)).toEqual({ status: 200, body: 'full output' });
+      expect(
+        await Effect.runPromise(
+          Effect.scoped(
+            Effect.flatMap(makeLocalActionClient(makeInstanceHost({ data })), actions => actions.log({ hash }))
+          )
+        )
+      ).toBe('full output');
       const results = await ask('/api/results', `/?data=${encodeURIComponent(data)}`);
       expect((JSON.parse(results.body) as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
     } finally {

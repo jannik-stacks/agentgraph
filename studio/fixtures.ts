@@ -41,10 +41,11 @@ const pickServed = async (req: IncomingMessage, reader: ReturnType<typeof makeSe
 const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
   const served = await pickServed(req, reader);
   const bench = readQuery(req).get('data');
-  if (!bench) return { served, data: served?.data, store: served?.host?.store, bench: undefined };
+  if (!bench) return { served, data: served?.data, host: served?.host, store: served?.host?.store, bench: undefined };
   if (!(await isInside(bench, readBenchSets()))) throw new StudioRequestError('data is outside the bench dirs');
   const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
-  return { served, data: bench, store: makeInstanceHost({ data: bench }).store, bench };
+  const host = makeInstanceHost({ data: bench });
+  return { served, data: bench, host, store: host.store, bench };
 };
 
 const bodies = (docs: Record<string, { body: string }>) =>
@@ -66,7 +67,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         if (req.method !== 'POST') return writeJson(res, { error: 'POST required' }, 405);
         if (!/^application\/(x-)?ndjson\b/.test(req.headers['content-type'] ?? ''))
           return writeJson(res, { error: 'actions take NDJSON' }, 415);
-        const host = (await pickServed(req, reader))?.host;
+        const { host } = await readDataDir(req, reader);
         if (!host) return writeJson(res, { error: 'this studio serves no instance host' }, 404);
         const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
         const body = await readRequestBody(req);
@@ -91,13 +92,6 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         const { served, data } = await readDataDir(req, reader);
         const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
         writeJson(res, readRunResults(data, served?.graph));
-      });
-      use('/api/logs', async (req, res) => {
-        const { store } = await readDataDir(req, reader);
-        const text = store && (await Effect.runPromise(store.readLog(readPath(req))));
-        res.statusCode = text === undefined || text === '' ? 404 : 200;
-        res.setHeader('content-type', 'text/plain; charset=utf-8');
-        res.end(text || '');
       });
       use('/api/locate', async (req, res) => {
         const { locate } = await readModule<typeof StoreModule>('src/store.ts');

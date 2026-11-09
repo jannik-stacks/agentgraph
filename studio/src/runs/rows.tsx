@@ -4,12 +4,11 @@ import type { Proposal } from '../../../src/proposal.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultBadge, RunResultLines } from '../results/ResultTable.tsx';
-import { dataParam, makeApiHref, makeInstanceHref, runAtom, runResultsAtom } from '../state.ts';
+import { dataParam, makeInstanceHref, runAction, runAtom, runResultsAtom } from '../state.ts';
 import { accent, Badge, cx, Disclosure, Link, Live, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
   atLink,
-  makeDataHref,
   type ServedRun,
   detail,
   formatCheckValue,
@@ -114,9 +113,10 @@ const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }
       type="button"
       className="font-sans text-[10px] text-sky-600 underline"
       onClick={() =>
-        fetch(makeApiHref(makeDataHref(`/api/logs/${log.hash}`, data)))
-          .then(r => (r.ok ? r.text() : `not in the data dir (${r.status})`))
-          .then(setText, (e: Error) => setText(e.message))
+        runAction(actions => actions.log({ hash: log.hash }), data).then(
+          text => setText(text || 'not in the data dir'),
+          (e: Error) => setText(e.message)
+        )
       }
     >
       full log, {log.bytes.toLocaleString()} bytes

@@ -30,6 +30,7 @@ export const Actions = RpcGroup.make(
     }),
     error,
   }),
+  Rpc.make('log', { payload: { hash: Schema.String }, success: Schema.String, error }),
   Rpc.make('say', { payload: { issue: Count, text: Schema.Trimmed.check(Schema.isNonEmpty()) }, error }),
   Rpc.make('label', {
     payload: { id: Schema.String, patch: Schema.Record(Schema.String, Schema.NullOr(Schema.String)) },

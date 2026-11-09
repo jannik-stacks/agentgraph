@@ -120,6 +120,11 @@ export const makeInstanceHost = (
         ? provided(writeAgentComment(issue, text))
         : Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
       ).pipe(Effect.asVoid, Effect.mapError(fail)),
+    log: ({ hash }) =>
+      store.readLog(hash).pipe(
+        Effect.map(text => text ?? ''),
+        Effect.mapError(fail)
+      ),
     label: ({ id, patch }) => writeStoredRunLabels(data, id, patch).pipe(Effect.mapError(fail)),
     instruct: instruction => (local ? attempt(() => local.drive(instruction)) : refuse),
     review: ({ issue, verdict, text }) =>
