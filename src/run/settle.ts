@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Effect, Stream, Schedule } from 'effect';
 import { type Workflow, isQuiet } from '../workflow.ts';
 import { currentRunLinkRef, Tracker } from '../tracker.ts';
-import { stoppedByRunner, findIssueStatus, formatStatusHeader, proposeQuestion } from '../context.ts';
+import { stoppedByEngine, findIssueStatus, formatStatusHeader, proposeQuestion } from '../context.ts';
 import { Store } from '../store.ts';
 import type { Graph } from '../folder.ts';
 import { LockHeldError } from '../owner.ts';
@@ -26,7 +26,7 @@ export const useRunLink =
     );
 
 export const isParked = (run: Run) =>
-  run.status === 'waiting' && run.retried === true && run.reason?.startsWith(stoppedByRunner) === true;
+  run.status === 'waiting' && run.retried === true && run.reason?.startsWith(stoppedByEngine) === true;
 
 export const readRunSpend = (id: string) =>
   Effect.flatMap(Store, store =>

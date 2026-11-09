@@ -57,7 +57,7 @@ no-comment src/github.ts 20
 no-comment src/graph.ts 3
 no-comment src/harnesses.ts 5
 no-comment src/main.ts 1
-no-comment src/proposal.ts 3
+no-comment src/proposal.ts 2
 no-comment src/run/attempt.ts 10
 no-comment src/run/check.ts 8
 no-comment src/run/checkout.ts 4
@@ -159,10 +159,17 @@ no-of-for tune/skill.ts slotsOf
 no-of-for tune/skill.ts stopOf
 unique-export bin/tune.ts propose
 unique-export tune/propose.ts propose
+verb-first bench/score.ts bootstrap
+verb-first bench/score.ts cost
+verb-first bench/score.ts frontier
+verb-first bench/score.ts quality
+verb-first bench/score.ts random
+verb-first bench/score.ts summarise
 verb-first bench/start-runs.ts nodePath
 verb-first bench/start-runs.ts spendGuard
 verb-first bin/bench.ts codexUsed
 verb-first bin/bench.ts couplings
+verb-first bin/bench.ts engineError
 verb-first bin/bench.ts failureClass
 verb-first bin/bench.ts harnessError
 verb-first bin/bench.ts hiddenShare
@@ -171,7 +178,6 @@ verb-first bin/bench.ts orders
 verb-first bin/bench.ts pad
 verb-first bin/bench.ts plant
 verb-first bin/bench.ts repoint
-verb-first bin/bench.ts runnerError
 verb-first bin/bench.ts scrub
 verb-first bin/bench.ts stats
 verb-first bin/bench.ts unpriced
@@ -222,12 +228,6 @@ verb-first src/workflow.ts begin
 verb-first src/workflow.ts fold
 verb-first src/workflow.ts transition
 verb-first src/workflow.ts unchanged
-verb-first studio/src/bench/score.ts bootstrap
-verb-first studio/src/bench/score.ts cost
-verb-first studio/src/bench/score.ts frontier
-verb-first studio/src/bench/score.ts quality
-verb-first studio/src/bench/score.ts random
-verb-first studio/src/bench/score.ts summarise
 verb-first studio/src/graph/layout.ts layout
 verb-first studio/src/graph/scenarios.ts scenarios
 verb-first studio/src/graph/scenarios.ts simulate

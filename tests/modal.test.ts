@@ -104,7 +104,7 @@ describe('the Modal runner', () => {
   const each = Object.fromEntries(
     Object.entries(graph.workflows).map(([name, w]) => [
       name,
-      { ...w, steps: w.steps.map(step => ({ ...step, each: { run: 'ls' } })) },
+      { ...w, steps: w.steps.map(step => ({ ...step, each: 'ls' })) },
     ])
   );
   it.each([
@@ -112,6 +112,26 @@ describe('the Modal runner', () => {
     [
       'commands without network beside sessions',
       { ...talks, network: 'models', workflows: each },
+      gateway,
+      'one network',
+    ],
+    [
+      'a check that judges the lines of a command beside sessions',
+      {
+        ...talks,
+        network: 'models',
+        checks: {
+          lines: {
+            name: 'lines',
+            path: 'checks/lines.md',
+            body: '',
+            version: '',
+            mode: 'info',
+            each: 'ls',
+            agent: 'judge',
+          },
+        },
+      },
       gateway,
       'one network',
     ],

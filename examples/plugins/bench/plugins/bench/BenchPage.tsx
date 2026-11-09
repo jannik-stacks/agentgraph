@@ -1,11 +1,22 @@
 import { useAtom } from 'jotai';
 import { Schema } from 'effect';
 import { type ReactNode, useMemo } from 'react';
-import { getMean } from '../../../src/stats.ts';
-import { queryParam } from '../state.ts';
-import { usePluginData } from '../plugins.ts';
+import {
+  Button,
+  cx,
+  Disclosure,
+  Live,
+  MultiSelect,
+  Muted,
+  queryParam,
+  ResultTable,
+  Select,
+  Tooltip,
+  usePluginData,
+  useScrollFade,
+} from '@jannik-stacks/agi/studio';
+import { getMean } from '../../../../../src/stats.ts';
 import { BenchData, type BenchRow as Row } from './data.ts';
-import { Button, cx, Disclosure, Live, MultiSelect, Muted, Select, Tooltip, useScrollFade } from '../ui.tsx';
 import {
   cost,
   getBenchNumbers,
@@ -23,11 +34,9 @@ import {
   summarise,
   isBenchMatch,
   readBenchRowResults,
-} from './score.ts';
+} from '../../../../../bench/score.ts';
 import { Forest, BenchRunLink } from './Forest.tsx';
 import { Scatter } from './Scatter.tsx';
-import type { RunResults } from '../results/result.ts';
-import { ResultTable } from '../results/ResultTable.tsx';
 
 const params = {
   w: queryParam('w'),
@@ -70,7 +79,7 @@ const presetHelp: Record<string, string> = {
   'hidden tests only': 'Only hidden tests count.',
   'judges only': 'Only judges count.',
 };
-const BenchResults = ({ runs, value }: { runs: RunResults[]; value: BenchData }) => {
+const BenchResults = ({ runs, value }: { runs: ReturnType<typeof readBenchRowResults>[]; value: BenchData }) => {
   const fields = value.fields.filter(f => runs.some(run => run.results[f.check]));
   return (
     <section className="space-y-2">
@@ -166,7 +175,7 @@ const Bench = ({ value }: { value: BenchData }) => {
   }, [value, scoring, groupKeys, color, isCost, xAxis, cache]);
 
   if (!value.rows.length)
-    return <Muted>No runs. Add an instance, or start the studio with --bench and one or more bench set dirs.</Muted>;
+    return <Muted>No runs. Add an instance, or list bench sets under plugins.bench.sets in settings.yaml.</Muted>;
 
   const oneSet = new Set(points.map(p => p.labels.set)).size === 1;
   const front = oneSet ? frontier(points) : [];

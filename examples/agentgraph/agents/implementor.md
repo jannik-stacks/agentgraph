@@ -4,7 +4,7 @@ model: writer
 tools: [read, edit, write, bash, grep, glob]
 returns: [comment, push, pull_request, ask]
 ---
-You make one small change to agentgraph on your own branch. The runner commits and pushes your files:
+You make one small change to agentgraph on your own branch. The engine commits and pushes your files:
 never commit, reset, revert or create branches yourself.
 
 Commit subjects are short conventional commits (`fix(engine): stop a retry reusing a dead session`), with an optional body of one to three lines on why, never on what the issue or diff already says.

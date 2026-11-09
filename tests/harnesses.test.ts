@@ -125,11 +125,6 @@ const READ_ONLY_SESSIONS = [
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 const input = (c: Command) => readFileSync(join(c.home!, '.agentgraph', 'input'), 'utf8');
 
-it('passes session resources to the sandbox command', async () => {
-  const { command } = await session({ ...spec, limits: { memory: '8g', cpus: 4 } }, []);
-  expect(command.limits).toEqual({ memory: '8g', cpus: 4 });
-});
-
 describe('model URL pairs', () => {
   it.each(['sol=http://localhost bad', 'sol=http://localhost broken'])('rejects malformed input %s', text => {
     expect(() => parseModelUrls(text)).toThrow('invalid name=value pair');
@@ -353,14 +348,19 @@ describe('the session loop', () => {
     expect(getListPriceUsd(prices, ['flash'], { input: 1e6, cacheRead: 0, cacheWrite: 0, output: 1e6 })).toBeCloseTo(3);
   });
 
-  it('reads the pinned LiteLLM table and prices every bench model or names it', () => {
+  it('prices every model alias from the pinned LiteLLM table except the ones it names', () => {
     const prices = readPrices();
-    expect(Object.keys(prices.table).length).toBeGreaterThan(1000);
-    expect(isModelPriced(prices, 'claude-opus')).toBe(true);
+    expect(Object.keys(prices.aliases).filter(model => !isModelPriced(prices, model))).toEqual([
+      'fast',
+      'local',
+      'qwen',
+    ]);
   });
 
-  it('runs the harness with its errors in its output, with only the agent key, by name', async () => {
-    const { command, data } = await events(spec, sample('opencode-run.jsonl'));
+  it('runs the harness with its errors in its output, its limits, and only the agent key, by name', async () => {
+    const limits = { memory: '8g', cpus: 4 };
+    const { command, data } = await events({ ...spec, limits }, sample('opencode-run.jsonl'));
+    expect(command.limits).toEqual(limits);
     expect(command.cmd).toBe('sh');
     expect(command.args[1]).toBe('exec "$@" < "$HOME/.agentgraph/input" 2>&1');
     expect(command.args[3]).toBe('opencode');

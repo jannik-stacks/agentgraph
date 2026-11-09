@@ -167,9 +167,8 @@ export const withheld = (author: string, what = 'comment', why = 'not a collabor
   `(${what} by @${author} withheld: ${why})`;
 
 /** The branches a push may move, the files it may change at most, and the largest file it may write. */
-export const pushLimits = { prefix: 'agentgraph/', old: 'bothub/', files: 200, bytes: 1 << 20 };
-export const isAgentBranch = (branch: string) =>
-  branch.startsWith(pushLimits.prefix) || branch.startsWith(pushLimits.old);
+export const pushLimits = { prefix: 'agentgraph/', files: 200, bytes: 1 << 20 };
+export const isAgentBranch = (branch: string) => branch.startsWith(pushLimits.prefix);
 
 /** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
 export const unpushable = (path: string, modes: string[]) =>

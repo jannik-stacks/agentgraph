@@ -1,6 +1,6 @@
 import { scaleLinear, scaleLog } from 'd3-scale';
 import { type ReactNode, useId, useState } from 'react';
-import { cx, TipBubble, useTip } from '../ui.tsx';
+import { cx, TipBubble, useTip } from '@jannik-stacks/agi/studio';
 
 type Dot = {
   key: string;

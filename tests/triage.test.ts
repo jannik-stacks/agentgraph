@@ -4,7 +4,7 @@ import { Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
-import { stoppedByRunner } from '../src/context.ts';
+import { stoppedByEngine } from '../src/context.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { type Graph, loadGraph } from '../src/folder.ts';
@@ -143,7 +143,7 @@ describe('triage', () => {
     expect(rest.value.map(r => r.issue)).toEqual([2]);
   });
 
-  it('posts each part and follow-up once when the runner stopped after posting and before recording it', async () => {
+  it('posts each part and follow-up once when the engine stopped after posting and before recording it', async () => {
     const where = world([
       [1, 'morgan'],
       [2, 'morgan'],
@@ -696,7 +696,7 @@ describe('/agent after a close or merge', () => {
 });
 
 describe('router input', () => {
-  it('opens on the review comment that asked, after its thread, without the runner labels and status', async () => {
+  it('opens on the review comment that asked, after its thread, without the engine labels and status', async () => {
     const where = world();
     openPull(where, 2, 'agentgraph/1');
     git(where.origin, 'branch', 'agentgraph/1', 'main');
@@ -747,8 +747,8 @@ describe('router input', () => {
   });
 });
 
-describe('a run parked by a runner error', () => {
-  const retried = 'Tried again after a runner error. Go on from where the run was.';
+describe('a run parked by an engine error', () => {
+  const retried = 'Tried again after an engine error. Go on from where the run was.';
   it.each([
     ['tries again once the wait is over', 0, at(9), 'done'],
     ['waits ten minutes, doubled with each try', 1, new Date(Date.now() - 900_000).toISOString(), 'waiting'],
@@ -758,7 +758,7 @@ describe('a run parked by a runner error', () => {
     await putRun(where, {
       ...begin(graph.workflows.router!, { id: 'router-1', issue: 1, started: at(0) }),
       status: 'waiting',
-      reason: `${stoppedByRunner} (SandboxError). Reply to try router again from where it was.`,
+      reason: `${stoppedByEngine} (SandboxError). Reply to try router again from where it was.`,
       retried: true,
     });
     const step = 'router';
@@ -788,7 +788,7 @@ describe('a pass', () => {
     await putRun(where, {
       ...begin(graph.workflows.router!, { id: 'router-2', issue: 2, started: at(0) }),
       status: 'waiting',
-      reason: `${stoppedByRunner} (SandboxError). Reply to try router again from where it was.`,
+      reason: `${stoppedByEngine} (SandboxError). Reply to try router again from where it was.`,
     });
     await Effect.runPromise(
       Effect.flatMap(Store, s => s.trace('router-2', { at: at(9), step: 'router', saved: { status: 'waiting' } })).pipe(

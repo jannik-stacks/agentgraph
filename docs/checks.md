@@ -32,7 +32,7 @@ A result that cannot be read or does not match `returns` fails the check, except
 
 ## Judges
 
-A judge reads the diff, the item or the script's output, and calls the `result` tool, whose input is `returns`; a call that does not match is refused with the reason. A judge that stops without a result is asked once more, and one that crashes is retried once. If none comes, a `block` or `stop` check parks the run as a runner error, and an `info` or `warn` check records it. <!-- code: src/run/execute.ts#runJudge src/result.ts#makeResultServer src/result.ts#resultTool src/result.ts#getRecordedResult -->
+A judge reads the diff, the item or the script's output, and calls the `result` tool, whose input is `returns`; a call that does not match is refused with the reason. A judge that stops without a result is asked once more, and one that crashes is retried once. If none comes, a `block` or `stop` check parks the run as an engine error, and an `info` or `warn` check records it. <!-- code: src/run/execute.ts#runJudge src/result.ts#makeResultServer src/result.ts#resultTool src/result.ts#getRecordedResult -->
 
 With `each`, a judge answers every item on its own, and any failed item fails the check. No items passes; more than `max` fail as one finding that lists the first line of each item; findings are shortened per item, so every failed item reaches the agent; a failing slicer command fails with its output.
 
@@ -58,7 +58,7 @@ Scripts run in the checkout, without network, with these variables: <!-- code: s
 
 ## End checks
 
-A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the kept files, measured from `startCommit`, with the issue the run was given and its last session's reply. They never read or write the tracker. They must be `info` or `warn` and never change the run's status. A runner killed partway runs only the ones it still owes. Results go to the run's [check record](runs.md#the-check-record). A check that cannot run there gives an empty result. One that does not apply gives an empty result marked `na`, shown as n/a: a check of traces on a run with no session, or of files on a run that kept no change. <!-- code: src/workflow.ts#transition src/run/evaluate.ts#runEndedChecks -->
+A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the kept files, measured from `startCommit`, with the issue the run was given and its last session's reply. They never read or write the tracker. They must be `info` or `warn` and never change the run's status. After a restart, the engine runs only the checks it still owes. Results go to the run's [check record](runs.md#the-check-record). A check that cannot run there gives an empty result. One that does not apply gives an empty result marked `na`, shown as n/a: a check of traces on a run with no session, or of files on a run that kept no change. <!-- code: src/workflow.ts#transition src/run/evaluate.ts#runEndedChecks -->
 
 An agent step's session cost is in the trace. Check cost, including step judges, is in the run's check record. The run budget counts both. After each try, a run that is still running stops if the total exceeds `usd-per-run`. The cost of end checks is recorded with the ended run and cannot stop it. <!-- code: src/run/settle.ts#readRunSpend src/run/drive.ts#runWorkflow -->
 
@@ -68,7 +68,7 @@ A `reads: traces` check gets an empty folder beside the run's traces, so it work
 
 ## The Results tab
 
-The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result under its current version. If none exists, it uses the latest older-version result, marked `older`. Run labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage src/results.ts#ResultSheet src/trace.ts#findLatestChecks -->
+The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result under its current version. If none exists, it uses the latest older-version result, marked `older`, and the run's result line names those checks. Run labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage src/results.ts#ResultSheet src/trace.ts#findLatestChecks studio/src/results/ResultTable.tsx#RunResultLines -->
 
 The table has one row per result field: runs that gave it, failed results, values outside `pass`, the median, one dot per run, and a trend. `by` splits a field by workflow, model, tune or another dimension, and a field's `unit` sets how it reads. Runs that ended before any step passed or session started are dead and hidden by default. The chart draws a field against time, order, a dimension or another field, one dot per run. <!-- code: src/results.ts#findCheckFields bin/results.ts#findDeadReason -->
 

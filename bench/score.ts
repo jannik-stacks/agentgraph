@@ -1,6 +1,6 @@
-import { getMean } from '../../../src/stats.ts';
-import { getQuantile, type RunResults } from '../results/result.ts';
-import type { BenchRow as Row } from './data.ts';
+import { getMean, getQuantile } from '../src/stats.ts';
+import type { ResultSheet } from '../src/results.ts';
+import type { BenchRow as Row } from './runs.ts';
 
 export const roughBelow = 10;
 
@@ -165,7 +165,7 @@ export const frontier = (points: { key: string; x: number; y: number; judgeOnly?
     .flatMap(p => (p.y > best ? ((best = p.y), [p.key]) : []));
 };
 
-export const readBenchRowResults = (row: Row): RunResults => {
+export const readBenchRowResults = (row: Row): (typeof ResultSheet.Type.runs)[number] => {
   const at = Object.values(row.results)[0]?.at ?? '';
   return {
     key: getRowKey(row),

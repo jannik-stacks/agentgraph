@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
@@ -5,7 +6,7 @@ import { readInstanceEnv } from '../src/main.ts';
 import { ensureInstance } from '../src/instance.ts';
 import { seeded } from './fixtures.ts';
 import { removeAfter } from './world.ts';
-import { runStudioAction, startStudioServer } from './studio.ts';
+import { runStudioAction, startStudioServer, studioDir } from './studio.ts';
 import { makeServedGraphs } from '../studio/served.ts';
 
 const starter = join(import.meta.dirname, '..', 'examples', 'starter');
@@ -42,7 +43,7 @@ it('serves each named instance under its own name, with no run crossing over', a
   vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root, names: ['live', 'bench'] }));
   vi.stubEnv('AGI_STUDIO_DIR', undefined);
   vi.stubEnv('AGI_STUDIO_DATA', undefined);
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  vi.stubEnv('AGI_STUDIO_PLUGINS', join(import.meta.dirname, '../examples/plugins/bench'));
   const { server, base } = await startStudioServer();
   const get = async (path: string) => {
     const response = await fetch(`${base}${path}`);
@@ -63,7 +64,7 @@ it('serves each named instance under its own name, with no run crossing over', a
     expect((await fetch(`${base}/api/plugins/results/data`)).status).toBe(404);
     const [, results] = await get('/api/plugins/results/data?instance=bench');
     expect(results.sheet.runs.map((r: { key: string }) => r.key)).toEqual(['run-bench']);
-    const [, benched] = await get('/api/plugins/bench/data?instance=bench');
+    const [, benched] = await get('/api/plugins/bench/data');
     expect(
       benched.rows.map((r: { instance: string; run: string; labels: Record<string, string> }) => [
         r.instance,
@@ -76,7 +77,7 @@ it('serves each named instance under its own name, with no run crossing over', a
       ['bench', 'run-bench', 'bench', undefined],
     ]);
     expect(benched.fields).toEqual([{ check: 'quality', field: 'score', type: 'number' }]);
-    expect((await get('/api/plugins/bench/data?instance=live'))[1]).toEqual(benched);
+    expect((await get('/api/plugins/bench/data?instance=live'))[0]).toBe(404);
     const served = await (await fetch(`${base}/@id/__x00__virtual:served`)).text();
     expect(served).toContain('"name":"live","title":"live","problems":[],"local":true');
     expect(served).toContain('"name":"bench"');
@@ -132,4 +133,21 @@ it('ignores instance settings from the shell when it serves several instances, a
     warned.mockRestore();
     vi.unstubAllEnvs();
   }
+});
+
+it('refuses to serve an instance named plugins, which would hide the studio pages', async () => {
+  const { root: dir, seed } = seeded('studio-reserved', { 'README.md': 'hello' });
+  removeAfter(dir);
+  const root = join(dir, 'instances');
+  await ensureInstance(root, 'plugins', seed);
+  const ran = spawnSync(process.execPath, [join(studioDir, 'dev.ts'), '--instance', 'plugins', '--data', root], {
+    encoding: 'utf8',
+    env: { ...process.env, NODE_OPTIONS: '' },
+    timeout: 20_000,
+    killSignal: 'SIGKILL',
+  });
+  expect([ran.status, ran.stderr.trim()]).toEqual([
+    2,
+    `an instance named plugins would hide the studio pages at /plugins; rename ${join(root, 'plugins')}`,
+  ]);
 });

@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import type { Plugin } from 'vite';
 import { Effect, Result, Stream } from 'effect';
 import { readRequestUser } from './auth.ts';
-import { makeServedGraphs, readBenchSets, readModule, readQuery, servedIds, writeJson } from './served.ts';
+import { makeServedGraphs, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
 import type * as ResultsModule from '../bin/results.ts';
@@ -19,30 +19,40 @@ import type * as WorkflowModule from '../src/workflow.ts';
 import type { RunRecord } from '../src/types.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
 
-const isInside = async (path: string, roots: string[]) => {
+const isInside = async (path: string, roots: readonly string[]) => {
   const [real, ...reals] = await Promise.all([path, ...roots].map(p => realpath(p).catch(() => undefined)));
-  return !!real && reals.some(root => root !== undefined && real.startsWith(root + sep));
+  return !!real && reals.some(root => root !== undefined && (real === root || real.startsWith(root + sep)));
 };
 
 class StudioRequestError extends Error {}
 
-const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
+const readDataDir = async (
+  req: IncomingMessage,
+  reader: ReturnType<typeof makeServedGraphs>,
+  readStores: () => Promise<readonly string[]>
+) => {
+  const watched = readQuery(req).get('data');
+  if (watched) {
+    if (!(await isInside(watched, await readStores())))
+      throw new StudioRequestError('data is outside the stores the studio pages read');
+    const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
+    return { served: undefined, data: watched, host: makeInstanceHost({ data: watched }), watched };
+  }
   const name = readQuery(req).get('instance') ?? '';
   const all = await reader.read();
   const served = all.find(one => one.name === name);
   if (!served && (name || all.some(one => one.name)))
     throw new StudioRequestError(`this studio serves no instance named "${name}"`);
-  const bench = readQuery(req).get('data');
-  if (!bench) return { served, data: served?.data, host: served?.host, bench: undefined };
-  if (!(await isInside(bench, readBenchSets()))) throw new StudioRequestError('data is outside the bench dirs');
-  const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
-  return { served, data: bench, host: makeInstanceHost({ data: bench }), bench };
+  return { served, data: served?.data, host: served?.host, watched: undefined };
 };
 
 const bodies = (docs: Record<string, { body: string }>) =>
   Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
 
-export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
+export const makeStudioDevApiPlugin = (
+  reader = makeServedGraphs(),
+  readStores: () => Promise<readonly string[]> = async () => []
+): Plugin => {
   return {
     name: 'agentgraph:fixtures',
     resolveId: source => (servedIds.includes(source) ? `\0${source}` : undefined),
@@ -58,7 +68,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         if (req.method !== 'POST') return writeJson(res, { error: 'POST required' }, 405);
         if (!/^application\/(x-)?ndjson\b/.test(req.headers['content-type'] ?? ''))
           return writeJson(res, { error: 'actions take NDJSON' }, 415);
-        const { served, data, host, bench } = await readDataDir(req, reader);
+        const { served, data, host, watched } = await readDataDir(req, reader, readStores);
         if (!host) return writeJson(res, { error: 'this studio serves no instance host' }, 404);
         const { store } = host;
         const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
@@ -71,25 +81,25 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
           const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
           const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
           const results = () => Effect.sync(() => readRunResults(data, served?.graph));
-          const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data!, id), [data!]));
+          const keep = (id: string) => Effect.promise(async () => !watched || isInside(join(data!, id), [data!]));
           const entry = (run: RunRecord, all: boolean, body = false) =>
             Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
               const lines = mergeCheckEntries(trace, checks);
               const { trail, ...summary } = makeRunSummary(run, lines);
               return {
-                fixture: `${bench ? 'bench' : served!.title}/${run.workflow}`,
+                fixture: `${watched ? 'store' : served!.title}/${run.workflow}`,
                 repo: served?.graph?.repo ?? '',
                 run: all ? run : pickListedRun(run, body),
                 labels: readRunLabels(data!, run.id),
                 ...summary,
                 ...(all ? { trace: lines } : { trail }),
                 ...findTraceLinks(trace),
-                ...(bench && { data: bench }),
+                ...(watched && { data: watched }),
               };
             });
           const runs = ({ id }: { id?: string }) =>
             Effect.gen(function* () {
-              if (!served?.dir && !bench) return id === undefined ? [] : null;
+              if (!served?.dir && !watched) return id === undefined ? [] : null;
               if (id === undefined) {
                 const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
                 const told = new Map<number, string>();
@@ -103,7 +113,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
               const run = (yield* keep(id)) ? yield* store.getRecord(id) : undefined;
               return run ? yield* entry(run, true) : null;
             }).pipe(Effect.mapError(e => ActionError.make({ message: e.message })));
-          web = makeActionWebHandler(host, { results, runs }, !!bench);
+          web = makeActionWebHandler(host, { results, runs }, !!watched);
           handlers.set(host, web);
         }
         const response = await web(

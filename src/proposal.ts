@@ -52,12 +52,6 @@ const Run = Schema.Struct({
 });
 const Tell = Schema.Struct({ kind: Schema.Literal('tell'), issue: Schema.Int, text: Schema.String });
 
-/**
- * What a run may change on the repo, and the three proposals that steer the run. `react` and `rebase` are the runner's
- * own; a rebase moves the commits on `branch` after `from` onto `onto`, or replays `head` in the checkout only.
- * A react with `remove` takes back the reaction of that id. A push with `onto` lands the files as one commit on `onto` and replaces the branch, or with
- * `merge` as a merge of `onto` into it; either refuses when the branch moved past the commit the checkout started from. An issue with a `parent` is filed as its sub-issue.
- */
 export const Proposal = Schema.Union([
   Comment,
   React,

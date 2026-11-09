@@ -86,7 +86,7 @@ export function makeWorkflowGraph(
       };
     }),
     tries: s.tries,
-    ...(s.each !== undefined && { each: typeof s.each === 'string' ? s.each : s.each.run }),
+    ...(s.each !== undefined && { each: s.each }),
     ...(getStepReturns(s, agents).includes('run') && { dispatches: true as const }),
     ...('agent' in s.does &&
       agents[s.does.agent] && { writes: agents[s.does.agent]!.returns.filter(k => github.has(k)) }),

@@ -6,7 +6,7 @@ import { afterEach, expect, it } from 'vitest';
 import { runActions } from '../src/actions.ts';
 import { makeActionWebHandler, makeInstanceHost, runLocalActions } from '../src/engine.ts';
 import { folderTracker, writeIssueFile } from '../src/tracker.ts';
-import { stoppedByRunner } from '../src/context.ts';
+import { stoppedByEngine } from '../src/context.ts';
 import { instruct } from '../src/run/trigger.ts';
 import { Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
@@ -125,7 +125,7 @@ it('resumes a parked run through the engine services the host was given', async 
       store.put({
         ...begin(flow, { id: 'retro-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }),
         status: 'waiting',
-        reason: `${stoppedByRunner} (SessionStop).`,
+        reason: `${stoppedByEngine} (SessionStop).`,
         retried: true,
       })
     )

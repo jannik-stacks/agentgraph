@@ -16,7 +16,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
-import { presets, quality, random } from '../studio/src/bench/score.ts';
+import { presets, quality, random } from '../bench/score.ts';
 import { getMean, getRounded, sum } from '../src/stats.ts';
 import { propose as proposeWith, readVariantRows } from '../tune/propose.ts';
 import { codexUsed, makeBenchInput, pickBenchTestCommands, readBenchCase } from './bench.ts';

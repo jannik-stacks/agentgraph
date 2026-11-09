@@ -15,7 +15,7 @@ npm run down     # stop everything, keep volumes
 npm run prices   # fetch prices.json.gz again, LiteLLM's price table pinned to a commit
 ```
 
-Run `npm run up` again after changing `.env` or `litellm.config.yaml`, and `npm run keys` again to converge key limits; `ROTATE=1` replaces every key. Subscription models spend $0, so their limits are rpm and tpm. `e2e.sh` turns `.keys.env` into `AGENTGRAPH_PROXY_KEYS` for a data folder; see [Running on GitHub](../../docs/github.md#start-the-runner).
+Run `npm run up` again after changing `.env` or `litellm.config.yaml`, and `npm run keys` again to converge key limits; `ROTATE=1` replaces every key. Subscription models spend $0, so their limits are rpm and tpm. `e2e.sh` turns `.keys.env` into `AGENTGRAPH_PROXY_KEYS` for a data folder; see [Running on GitHub](../../docs/github.md#start-the-engine).
 
 Ollama runs natively on macOS (`brew install ollama`, then `ollama serve`). On Linux, start it with `docker compose -f infra/local/docker-compose.yml --profile ollama up -d` and set the two Linux values in `.env`. Pull `qwen3.5:4b` and `tev1:0.8b`; Ollama must be 0.35 or later.
 

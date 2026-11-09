@@ -92,6 +92,7 @@ describe('studio gate', () => {
     vi.stubEnv('AGENTGRAPH_AUTH', 'token');
     vi.stubEnv('AGENTGRAPH_STUDIO_TOKEN', 'start-token');
     vi.stubEnv('AGENTGRAPH_STUDIO_API_TOKEN', 'script-token');
+    vi.stubEnv('AGI_STUDIO_PLUGINS', join(import.meta.dirname, '../examples/dashboard'));
     const { server, base } = await startStudioServer();
     const { port } = new URL(base);
     try {
@@ -99,6 +100,12 @@ describe('studio gate', () => {
         fetch(`${base}${path}`, { headers, redirect: 'manual' });
       const api = await get('/@vite/client');
       const page = await get('/', { accept: 'text/html' });
+      const studioPage = await Promise.all(
+        ['/api/plugins/dashboard/data', `/api/runs?data=${encodeURIComponent(data)}`].map(
+          async path => (await get(path)).status
+        )
+      );
+      const studioHtml = await get('/plugins/dashboard', { accept: 'text/html' });
       const form = await get('/auth/login');
       const wrong = await get('/auth/login?token=guess');
       const login = await get('/auth/login?token=start-token');
@@ -141,6 +148,7 @@ describe('studio gate', () => {
       expect({
         api: [api.status, await api.json()],
         page: [page.status, page.headers.get('location')],
+        studioPage: [...studioPage, studioHtml.status, studioHtml.headers.get('location')],
         form: [form.status, (await form.text()).includes('name="secret"')],
         wrong: [wrong.status, (await wrong.text()).includes('name="secret"')],
         login: [login.status, login.headers.get('location')],
@@ -156,6 +164,7 @@ describe('studio gate', () => {
       }).toEqual({
         api: [401, { error: 'log in first', login: '/auth/login' }],
         page: [302, '/auth/login'],
+        studioPage: [401, 401, 302, '/auth/login'],
         form: [200, true],
         wrong: [401, true],
         login: [303, '/'],
@@ -196,7 +205,7 @@ describe('studio gate', () => {
     }
   });
 
-  it('opens the live socket without a login under none and words the login page per auth', async () => {
+  it('opens the live socket without a login under none', async () => {
     vi.stubEnv('AGENTGRAPH_AUTH', 'none');
     const { server, base } = await startStudioServer();
     try {

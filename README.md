@@ -43,14 +43,15 @@ Start at [What agentgraph is](docs/index.md), then:
 
 ## Examples
 
-| Example               | What it is                                         |
-| --------------------- | -------------------------------------------------- |
-| `examples/starter`    | Copy this graph to start with your own repo        |
-| `examples/sandbox`    | A small JavaScript package; the place to start     |
-| `examples/agentgraph` | The graph agentgraph runs on itself                |
-| `examples/bench`      | The graph the bench replays pull requests with     |
-| `examples/dashboard`  | A studio page plugin for runs and tracker activity |
-| `examples/conflicts`  | Conflicts resolved in a run of their own           |
+| Example                  | What it is                                         |
+| ------------------------ | -------------------------------------------------- |
+| `examples/starter`       | Copy this graph to start with your own repo        |
+| `examples/sandbox`       | A small JavaScript package; the place to start     |
+| `examples/agentgraph`    | The graph agentgraph runs on itself                |
+| `examples/bench`         | The graph the bench replays pull requests with     |
+| `examples/dashboard`     | A studio page plugin for runs and tracker activity |
+| `examples/plugins/bench` | The Bench studio page across instances and sets    |
+| `examples/conflicts`     | Conflicts resolved in a run of their own           |
 
 ## Development
 

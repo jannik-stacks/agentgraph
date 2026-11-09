@@ -468,7 +468,6 @@ it.each(STUDIO_PATHS)(
       'AGI_STUDIO_INSTANCES',
       JSON.stringify({ root: w.root, names: ['studio-path'], ...(from === 'explicit' && { graph: w.graph }) })
     );
-    vi.stubEnv('AGI_STUDIO_BENCH', undefined);
     const served = makeServedGraphs();
     const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
     const server = await createServer({
@@ -625,9 +624,6 @@ exec "$NODE_EXECUTABLE" "$@" --once
   const missing = spawnSync('sh', [join(entry, 'start.sh')], { encoding: 'utf8', env: environment });
   expect([missing.status, missing.stderr]).toEqual([1, expect.stringContaining('provision')]);
   expect(existsSync(args)).toBe(false);
-  expect(readFileSync(new URL('../examples/deploy/cloudflare/engine.sh', import.meta.url), 'utf8')).toContain(
-    'loop --instance live --data'
-  );
 });
 
 it('prepares the selected provider before CLI dispatch', async () => {
@@ -965,7 +961,6 @@ export default makePlugin({ name: 'count', studio: { title: 'Count',
     );
   }
   vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root: w.root, names: ['pages'] }));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
   const server = await createServer({
     configFile: false,

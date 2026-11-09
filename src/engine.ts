@@ -17,11 +17,10 @@ import {
   writePullToRepo,
   writeReview,
 } from './instance.ts';
-import type { Graph } from './folder.ts';
 import type * as MainModule from './main.ts';
 import type { JsonValue } from './meta.ts';
 import type { Instruction } from './run/trigger.ts';
-import { formatRunnerError } from './status.ts';
+import { formatEngineError } from './status.ts';
 import { fileStore, pruneLogs, readJsonlRows, readRecordSync, Store } from './store.ts';
 import { findIssueDir, Tracker, type TrackerSetup, writeAgentComment } from './tracker.ts';
 import { findCheckVerdicts, findLatestChecks } from './trace.ts';
@@ -31,7 +30,7 @@ type EngineConfig = {
   readonly name: string;
   readonly data: string;
   readonly instance?: string;
-  readonly checks?: Graph['checks'];
+  readonly checks?: InstanceHost['checks'];
 };
 
 type StoredRun = ReturnType<InstanceHost['readRuns']>[number];
@@ -72,7 +71,7 @@ export const readEngineErrors = (store: Pick<InstanceHost['store'], 'read'>, dat
       runs.filter(run => run.status === 'waiting' && run.retried),
       run =>
         Effect.map(Stream.runCollect(store.read(run.id)), trace =>
-          formatRunnerError([...trace], join(data, run.id, 'trace.jsonl'))
+          formatEngineError([...trace], join(data, run.id, 'trace.jsonl'))
         )
     ),
     lines => lines.flat()
@@ -95,7 +94,13 @@ export const makeInstanceHost = (
     since: (cursor, columns) =>
       service ? Stream.unwrap(Effect.map(service, t => t.since(cursor, columns))) : Stream.fail(missing),
   };
-  const host: InstanceHost = { data, store, tracker: reads, readRuns: () => readStoredRuns(config) };
+  const host: InstanceHost = {
+    data,
+    ...(config.checks && { checks: config.checks }),
+    store,
+    tracker: reads,
+    readRuns: () => readStoredRuns(config),
+  };
   const folder = tracker?.origin.local ? dirname(tracker.origin.origin) : undefined;
   const fail = (e: unknown) => ActionError.make({ message: e instanceof Error ? e.message : String(e) });
   const attempt = <A>(act: () => Promise<A>) => Effect.tryPromise({ try: act, catch: fail });
@@ -182,7 +187,7 @@ export const makeActionWebHandler = (
           const why = !user
             ? 'log in first'
             : readOnly && writeActions.has(rpc._tag)
-              ? `${rpc._tag} refused: a bench folder is read-only`
+              ? `${rpc._tag} refused: a store read through ?data= is read-only`
               : user !== 'local' && localActions.has(rpc._tag)
                 ? `${rpc._tag} runs only from the agi CLI`
                 : undefined;

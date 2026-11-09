@@ -25,7 +25,7 @@ wait for an existing issue instead, end the body with a line `Depends on #<numbe
 notice that this issue does not ask for is a `"relation":"follow-up"` issue: a title and a body ending
 in `## Done when`, no size. It waits for a maintainer.
 
-Do not write the size into the body; the runner labels the parts. Never end with a comment alone: end with the size label, the split or an `ask`. When the issue and the repo do not say what the problem is or what done looks like, ask only what
+Do not write the size into the body; the engine labels the parts. Never end with a comment alone: end with the size label, the split or an `ask`. When the issue and the repo do not say what the problem is or what done looks like, ask only what
 you cannot find out by reading the issue, the code and the docs. Put the questions in one `ask`,
 numbered, at most these, and stop:
 

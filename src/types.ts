@@ -25,7 +25,7 @@ export const Check = Schema.Struct({
   returns: Schema.optionalKey(ResultType),
   pass: Schema.optionalKey(ResultType),
   reads: Schema.optionalKey(Schema.Literal('traces')),
-  each: Schema.optionalKey(Schema.String),
+  each: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
   run: Schema.optionalKey(Schema.String),
   agent: Schema.optionalKey(Schema.String),
   max: Schema.optionalKey(Count),
@@ -319,6 +319,7 @@ export class StoreError extends Data.TaggedError('StoreError')<{ path: string; c
 
 export type InstanceHost = {
   readonly data: string;
+  readonly checks?: Readonly<Record<string, Check & { version: string }>>;
   readonly store: {
     getRecord: (id: string) => Effect.Effect<RunRecord | undefined, StoreError>;
     list: (filter?: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>>) => Effect.Effect<Run[], StoreError>;
@@ -343,3 +344,5 @@ export type InstanceHost = {
     readonly latest: readonly CheckEntry[];
   }[];
 };
+
+export type InstanceHosts = Readonly<Record<string, InstanceHost | { why: string }>>;

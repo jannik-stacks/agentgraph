@@ -5,8 +5,11 @@ import type { readRunResults } from '../../bin/results.ts';
 import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
 import { served } from 'virtual:served';
 import { type RunRecord } from '../../src/types.ts';
+import { pages } from 'virtual:agentgraph-pages';
 
 export const instances = served.filter(one => one.name);
+
+export const studioPages = pages.filter(page => page.instance === undefined);
 
 export const shown = instances.length ? instances.find(one => one.name === location.pathname.split('/')[1]) : served[0];
 
@@ -141,7 +144,8 @@ export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof mak
 
 const opened = new Map<string, object>();
 const openOnce = <T>(key: string, data: string | null | undefined, load: () => Promise<T>) => {
-  if (!opened.has(key)) opened.set(key, makeLiveJsonAtom<T>(load, [data ? 'bench' : 'data']));
+  if (!opened.has(key))
+    opened.set(key, makeLiveJsonAtom<T>(load, data ? studioPages.map(page => page.name) : ['data']));
   return opened.get(key) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
 

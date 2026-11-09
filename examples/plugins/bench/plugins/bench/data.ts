@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
-import type { BenchRow } from '../../../bench/runs.ts';
-import { ResultSheet } from '../../../src/results.ts';
+import type { BenchRow } from '../../../../../bench/runs.ts';
+import { ResultSheet } from '../../../../../src/results.ts';
 
 export type { BenchRow };
 

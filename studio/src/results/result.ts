@@ -1,4 +1,5 @@
 import type { ResultSheet } from '../../../src/results.ts';
+import { getQuantile } from '../../../src/stats.ts';
 import { formatNumber } from '../runs/trace.ts';
 
 export type CheckField = (typeof ResultSheet.Type.fields)[number];
@@ -32,13 +33,6 @@ export const formatResultValue = (field: Pick<CheckField, 'unit' | 'type'>, v: u
     default:
       return formatNumber(v);
   }
-};
-
-export const getQuantile = (xs: number[], q: number) => {
-  const sorted = xs.toSorted((a, b) => a - b);
-  const i = (sorted.length - 1) * q;
-  const lo = sorted[Math.floor(i)] ?? 0;
-  return lo + ((sorted[Math.ceil(i)] ?? lo) - lo) * (i - Math.floor(i));
 };
 
 export const splitRunsByAxis = (runs: RunResults[], axis: string) => {

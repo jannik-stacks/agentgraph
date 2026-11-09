@@ -50,7 +50,7 @@ const lines = (text: string) => text.split('\n').filter(line => line.trim());
 
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
 export const findFanOutItems = (
-  each: string | { run: string },
+  each: string,
   graph: Graph,
   work: Checkout,
   minutes: number,
@@ -67,8 +67,7 @@ export const findFanOutItems = (
         })
     );
   if (each === 'files') return Effect.map(readCheckoutDiff(work, '--name-only'), lines);
-  const script = typeof each === 'string' ? each : each.run;
-  return Effect.flatMap(runShell(script, graph, work.dir, env, minutes), out =>
+  return Effect.flatMap(runShell(each, graph, work.dir, env, minutes), out =>
     out.code === 0 ? Effect.succeed(lines(out.output)) : Effect.fail(new EachFailed({ detail: out.output.trim() }))
   );
 };

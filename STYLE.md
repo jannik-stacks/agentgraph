@@ -95,7 +95,8 @@ that level first.
 35. Layer folders; imports only go down; no cycles.
 36. The engine repo holds the engine and one minimal example. A repo's graph lives in its `.agentgraph/` folder or in a
     `<repo>-agentgraph` repo.
-37. The engine is the SDK; the runner is where it runs. Keep them apart.
+37. The engine is the process that drives runs; a runner is where its commands run (`local`, `box` or a plugin).
+    Keep them apart.
 38. Everything runs through plain npm scripts and the CLI. Agent instructions live in `AGENTS.md`; there
     is no `CLAUDE.md`, not even a stub.
 

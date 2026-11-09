@@ -1,6 +1,6 @@
 /**
  * Lists and collects the cache sandbox setups, dependency volumes, toolchain cache volumes and score trees hold, pins what a paused bench still needs,
- * and removes dependency volumes of dead runners.
+ * and removes dependency volumes of dead engine processes.
  *
  *   node bin/env.ts list [--root <dir>]...
  *   node bin/env.ts collect [--cap 60g] [--root <dir>]... [--dry-run]

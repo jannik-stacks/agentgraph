@@ -15,6 +15,9 @@ from `studio/` to read a run store. For the issues widget, use instance mode:
 The instance supplies the tracker.
 Open `/plugins/dashboard`, or choose Dashboard in the header.
 For named instances the page is `/<instance>/plugins/dashboard`.
+To show every served instance on one page, pass this folder as the studio's plugins instead:
+`npm run dev -- --instance a --instance b --plugins ../examples/dashboard`.
+The page is then `/plugins/dashboard`, with one section per instance.
 Restart after changing plugin code. Settings changes reload through the studio.
 
 Each widget needs `title`, `type`, `source` and `days`.
@@ -37,7 +40,7 @@ Each chart has a daily values table. Empty days show zero.
 
 The existing studio connection refreshes the snapshot when the instance's run data changes.
 Tracker events alone do not refresh it. Tracker reads are cached for one minute.
-The reader uses the instance host's store and tracker.
+The reader uses each instance host's store and tracker.
 No polling or new history file is needed.
 Time windows advance on the next data refresh.
 The reader scans the store on each refresh. Keep this experiment to modest stores.

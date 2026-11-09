@@ -50,6 +50,7 @@ const own = {
   parked: flag('parked'),
   label: many(Flag.String('label')),
   'run-label': many(Flag.String('run-label').pipe(Flag.withDescription('<key>=<value>'))),
+  plugins: text(Flag.String('plugins').pipe(Flag.withDescription('<dir>'))),
 };
 const table: [verb: string, args: string | undefined, flags: (keyof typeof own)[], what: string][] = [
   ['start', 'text', ['workflow', 'label', 'run-label'], 'files an issue and drives it until it waits or ends'],
@@ -74,9 +75,9 @@ const table: [verb: string, args: string | undefined, flags: (keyof typeof own)[
   ['export', 'n', ['as', 'patch'], "writes issue n's branch into your repo again"],
   ['close', 'n', [], 'closes issue n'],
   ['check', 'check', ['runs', 'issue', 'workflow'], 'validates the graph, or runs checks again on ended runs'],
-  ['resume', 'run', ['parked'], 'queues runs parked by runner errors for the next loop pass'],
+  ['resume', 'run', ['parked'], 'queues runs parked by engine errors for the next loop pass'],
   ['dispatch', 'n text', ['workflow', 'step'], 'starts any workflow on issue n, asked the text; --step picks the step'],
-  ['studio', undefined, [], 'starts the studio for this repo and prints its URL'],
+  ['studio', undefined, ['plugins'], 'starts the studio for this repo and prints its URL'],
   ['prune-logs', undefined, ['apply'], 'counts the check logs no run names, or deletes them'],
   ['import', 'commit|patch issue-file', ['from', 'meta'], 'records a change as an ended run, for check --runs'],
 ];

@@ -57,7 +57,7 @@ Decisions made without being sure. Each names what was picked and what would cha
   host parameter; `makePlugin` infers it, so nothing checks that the served host matches at compile time.
 - Left from the studio review: the dashboard keeps its `why` field (the page would derive it from source and
   skips), `InstanceHost` keeps `tracker.issues`/`issue` and `store.readLog`/`getRecord` (the trim waits on the
-  types refactor), and a bench data folder still gets a whole instance host for its store. The `ResultBadge`
+  types refactor), and a `?data=` store still gets a whole instance host for its store. The `ResultBadge`
   wrapper stays: `runRow` is a plain function, so the hook needs that component.
 - **Studio auth is one gate for every served instance.** Each instance's env file and graph may pick it, but a studio
   of several refuses to start unless they agree on the name, the plugin settings and every `AGENTGRAPH_AUTH` and
@@ -67,6 +67,17 @@ Decisions made without being sure. Each names what was picked and what would cha
   start token changes on every restart, so `token` sessions do too, which matches its login URL.
 - **The gate knows two names**: it prints the login URL for `token` and warns for `none` beyond loopback. A plugin
   hook for start-up lines would remove that, but nothing else needs one yet.
+- **`Graph.trust` stays.** It is not a leftover: `readConfiguredGraph` sets it from the instance's resolved trust (flag, instance `trust`, else the owner), and `writeTriggeringIssue` and the loop's tracker layer read it. Dropping the field would need `agi start` to resolve trust on its own. Moving trust off `Graph` into the settings it belongs to is a later cleanup.
+- **The `ask` proposal keeps its `runner` field.** An agent reports a sandbox, checkout, network or tool problem with it, which is the executor's meaning of runner. Renaming it changes what every agent returns.
+- **Studio pages are registered by folder, not per plugin**: `--plugins <dir>` or `AGENTGRAPH_STUDIO_PLUGINS` in the
+  shell names a folder with a graph's layout, and every page in it reads every served instance. Left out:
+  `runAction` from a studio page (it has no instance to post to), and naming the folder in an instance env file,
+  which would need the agreement check auth uses across instances. The Bench example imports engine modules
+  relatively, so it runs from the clone only.
+- **Plain mode keys its one host by the empty name**: studio pages and Bench see `''`, so Bench's `instance` label is
+  empty there where it used to be the graph's title. Keying by title would break the run links, which need the
+  served name. A studio page named `graph` or `data` shares those unscoped change topics, as a plain-mode graph
+  plugin already does; reserving the two names would close it.
 - The action gate stamps a per-handler random key into the user header, because Effect's HTTP RPC server merges
   headers a client writes into the NDJSON body. The studio gate already refuses anonymous requests, so the
   middleware is a second gate; dropping it would save about 12 lines.

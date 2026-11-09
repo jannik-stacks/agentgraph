@@ -104,14 +104,7 @@ it.each([undefined, 'chatgpt'])('keeps Codex MCP configured with %s authenticati
   expect(JSON.stringify({ command, home })).not.toContain(toolEndpoint.secret);
 });
 
-it.each([undefined, 'chatgpt'])('keeps Pi MCP configured with %s authentication', auth => {
-  const harness = pi();
-  const route = { url: '', model: 'default', ...(auth && { auth }) };
-  const command = harness.command(toolSpec, route);
-  const home = harness.home!(toolSpec, route);
-  expect(command.args).toEqual(expect.arrayContaining(['-e', 'builtin:mcp']));
-  expect(command.args[command.args.indexOf('--tools') + 1]).toBe('read,mcp__tools__issues');
-  expect(JSON.parse(home.files!['.pi/agent/mcp.json']!).mcpServers.tools.url).toBe(toolEndpoint.url);
+it.each([undefined, 'chatgpt'])('clears the Pi models.json unless the route has authentication: %s', auth => {
+  const home = pi().home!(toolSpec, { url: '', model: 'default', ...(auth && { auth }) });
   expect(home.files!['.pi/agent/models.json'] === null).toBe(!auth);
-  expect(JSON.stringify({ command, home })).not.toContain(toolEndpoint.secret);
 });

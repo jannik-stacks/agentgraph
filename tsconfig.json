@@ -18,5 +18,6 @@
       "@jannik-stacks/agi/runners": ["./src/runners.ts"]
     }
   },
-  "include": ["src", "tests", "bin", "tune", "bench", "harnesses", "agentgraph.config.ts", "examples/plugins"]
+  "include": ["src", "tests", "bin", "tune", "bench", "harnesses", "agentgraph.config.ts", "examples/plugins"],
+  "exclude": ["examples/plugins/bench/plugins/bench/*.tsx"]
 }

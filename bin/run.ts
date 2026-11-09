@@ -114,7 +114,7 @@ const relabel = async (data: string) => {
 const listRuns = (data: string, filter: Parameters<Store['Service']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
 const printRuns = (runs: readonly RunRecord[], tag = '') => {
-  if (verb === 'resume' && !runs.length) console.log('0 runs parked by runner errors');
+  if (verb === 'resume' && !runs.length) console.log('0 runs parked by engine errors');
   for (const run of runs)
     console.log(`${tag}${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
@@ -675,7 +675,14 @@ function openStudio(i: Instance) {
     if (spawnSync('npm', ['ci', '--prefix', dir, '--no-audit', '--no-fund'], { stdio: 'inherit' }).status !== 0)
       fail('the studio install failed', 1);
   }
-  const flags = ['--instance', basename(i.dir), '--data', root, ...(values.dir ? ['--dir', resolve(values.dir)] : [])];
+  const flags = [
+    '--instance',
+    basename(i.dir),
+    '--data',
+    root,
+    ...(values.dir ? ['--dir', resolve(values.dir)] : []),
+    ...(values.plugins ? ['--plugins', resolve(values.plugins)] : []),
+  ];
   const { status } = spawnSync(process.execPath, [join(dir, 'watch.ts'), '--repo', i.checkout, ...flags], {
     cwd: dir,
     stdio: 'inherit',

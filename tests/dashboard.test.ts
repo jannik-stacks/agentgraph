@@ -5,10 +5,13 @@ import { pathToFileURL } from 'node:url';
 import { Effect, Schema, Stream } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
 import { startStudioServer } from './studio.ts';
+import { seeded } from './fixtures.ts';
+import { removeAfter } from './world.ts';
+import { ensureInstance } from '../src/instance.ts';
 import { makeInstanceHost } from '../src/engine.ts';
 import { readPlugins } from '../src/plugin.ts';
 import { findIssueDir, folderTracker, writeIssueFile } from '../src/tracker.ts';
-import { DashboardSettings, DashboardData } from '../examples/dashboard/plugins/dashboard/data.ts';
+import { DashboardSettings, DashboardData, DashboardSnapshot } from '../examples/dashboard/plugins/dashboard/data.ts';
 import { readDashboard } from '../examples/dashboard/plugins/dashboard/read.ts';
 
 const folders: string[] = [];
@@ -20,6 +23,11 @@ const makeData = () => {
 afterEach(() => folders.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 
 const now = new Date('2026-11-09T12:00:00Z');
+
+const readFirstWidgetRows = (sections: typeof DashboardData.Type) =>
+  sections.map(section =>
+    'why' in section ? section.why : section.widgets[0]!.rows.filter(row => row.value).map(row => row.series)
+  );
 const makeSettings = () =>
   Schema.decodeUnknownSync(DashboardSettings)({
     widgets: [
@@ -85,7 +93,7 @@ it('aggregates current run cohorts and dated events, with missing cost counted',
     { kind: 'comment', at: '2026-11-01T10:00:00Z' },
   ]);
   const snapshot = await Effect.runPromise(readDashboard(makeSettings(), makeInstanceHost({ data }, tracker), now));
-  expect(Schema.is(DashboardData)(snapshot)).toBe(true);
+  expect(Schema.is(DashboardSnapshot)(snapshot)).toBe(true);
   expect(
     snapshot.widgets.map(widget => ({
       source: widget.source,
@@ -122,7 +130,7 @@ it('registers the example page, reuses settings and reads a changed run', async 
   const { pages } = await readPlugins(
     join(import.meta.dirname, '../examples/dashboard'),
     { dashboard: { widgets: [{ title: 'runs', type: 'table', source: 'runs', days: 2 }] } },
-    { instance: makeInstanceHost({ data }) }
+    { instances: { live: makeInstanceHost({ data }) } }
   );
   expect(pages.map(page => ({ name: page.name, watch: page.watch }))).toEqual([{ name: 'dashboard', watch: [data] }]);
   const run = join(data, 'r1');
@@ -136,25 +144,23 @@ it('registers the example page, reuses settings and reads a changed run', async 
   const before = (await Effect.runPromise(pages[0]!.read())) as typeof DashboardData.Type;
   writeRun('done');
   const after = (await Effect.runPromise(pages[0]!.read())) as typeof DashboardData.Type;
-  expect(
-    [before, after].map(snapshot => snapshot.widgets[0]!.rows.filter(row => row.value).map(row => row.series))
-  ).toEqual([['waiting'], ['done']]);
+  expect([before, after].map(readFirstWidgetRows)).toEqual([[['waiting']], [['done']]]);
 });
 
 it.each([
-  { source: 'unknown' },
-  { type: 'pie' },
-  { days: 0 },
-  { days: 91 },
-  { days: 1.5 },
-  { extra: true },
-  { source: 'issues', workflow: 'issue' },
-])('rejects unknown or unbounded widget input: %j', invalid => {
+  [{ source: 'unknown' }, '"issues"\n  at ["widgets"][0]["source"]'],
+  [{ type: 'pie' }, '"table"\n  at ["widgets"][0]["type"]'],
+  [{ days: 0 }, 'between 1 and 90\n  at ["widgets"][0]["days"]'],
+  [{ days: 91 }, 'between 1 and 90\n  at ["widgets"][0]["days"]'],
+  [{ days: 1.5 }, 'an integer\n  at ["widgets"][0]["days"]'],
+  [{ extra: true }, 'no excess property\n  at ["widgets"][0]["extra"]'],
+  [{ source: 'issues', workflow: 'issue' }, 'issues widgets take no workflow or step'],
+])('rejects unknown or unbounded widget input: %j', (invalid, why) => {
   expect(() =>
     Schema.decodeUnknownSync(DashboardSettings, { onExcessProperty: 'error' })({
       widgets: [{ title: 'Runs', type: 'line', source: 'runs', days: 7, ...invalid }],
     })
-  ).toThrow();
+  ).toThrow(why);
 });
 
 it('fails on malformed store data and skips issues without a tracker', async () => {
@@ -206,9 +212,61 @@ it('serves the example page and refreshes it through the existing change path', 
       expect(sent).toHaveBeenCalledWith('agi:changed', { topics: expect.arrayContaining(['dashboard']) })
     );
     const after = await read();
-    expect(
-      [before, after].map(snapshot => snapshot.widgets[0]!.rows.filter(row => row.value).map(row => row.series))
-    ).toEqual([['waiting'], ['done']]);
+    expect([before, after].map(readFirstWidgetRows)).toEqual([[['waiting']], [['done']]]);
+  } finally {
+    await server.close();
+    vi.unstubAllEnvs();
+  }
+});
+
+const writeStatusRun = (data: string, id: string, status: string) => {
+  mkdirSync(join(data, id), { recursive: true });
+  writeFileSync(
+    join(data, id, 'run.json'),
+    JSON.stringify({ id, workflow: 'issue', step: 'build', status, started: new Date().toISOString() })
+  );
+};
+
+it('serves the example as one studio page over every served instance', async () => {
+  const { root: dir, seed } = seeded('studio-dashboard', { 'README.md': 'hello' });
+  removeAfter(dir);
+  const root = join(dir, 'instances');
+  const served = await Promise.all(['live', 'bench'].map(name => ensureInstance(root, name, seed)));
+  for (const i of served) {
+    writeFileSync(
+      join(i.dir, 'instance.yaml'),
+      `checkout: ${seed}\nbase: main\nowner: o\nexported: {}\ngraph: ${join(import.meta.dirname, '../examples/starter')}\n`
+    );
+    writeStatusRun(i.data, 'r1', 'waiting');
+  }
+  vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root, names: ['live', 'bench', 'gone'] }));
+  vi.stubEnv('AGI_STUDIO_PLUGINS', join(import.meta.dirname, '../examples/dashboard'));
+  const { server, base } = await startStudioServer();
+  const read = async (query = '') => {
+    const response = await fetch(`${base}/api/plugins/dashboard/data${query}`);
+    return response.ok ? Schema.decodeUnknownSync(DashboardData)(await response.json()) : response.status;
+  };
+  const count = (snapshot: Awaited<ReturnType<typeof read>>) =>
+    typeof snapshot === 'number' ? snapshot : readFirstWidgetRows(snapshot);
+  try {
+    const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
+    const before = await read();
+    const sent = vi.spyOn(server.ws, 'send');
+    writeStatusRun(served[1]!.data, 'r1', 'done');
+    await vi.waitFor(() =>
+      expect(sent).toHaveBeenCalledWith('agi:changed', { topics: expect.arrayContaining(['dashboard']) })
+    );
+    expect({
+      page: manifest.includes('href:"/plugins/dashboard",builtin:false,instance:undefined'),
+      before: count(before),
+      after: count(await read()),
+      scoped: await read('?instance=live'),
+    }).toEqual({
+      page: true,
+      before: [['waiting'], ['waiting'], `there is no instance gone under ${root}`],
+      after: [['waiting'], ['done'], `there is no instance gone under ${root}`],
+      scoped: 404,
+    });
   } finally {
     await server.close();
     vi.unstubAllEnvs();

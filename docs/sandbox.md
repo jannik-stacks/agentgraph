@@ -2,7 +2,7 @@
 
 ## The sandbox
 
-Sessions, `run` steps, checks and checkout setup execute through a [runner](#runners). The `local` runner uses throwaway Docker containers and never pulls command images. For `local`, missing Docker or the internal network is a [runner error](workflows.md#order-and-limits). The `box` runner sends commands to a box server over HTTP; plugins can execute them on other hosts. <!-- code: src/docker.ts#dockerArgs src/remote.ts#boxRunner -->
+Sessions, `run` steps, checks and checkout setup execute through a [runner](#runners). The `local` runner uses throwaway Docker containers and never pulls command images. For `local`, missing Docker or the internal network is an [engine error](workflows.md#order-and-limits). The `box` runner sends commands to a box server over HTTP; plugins can execute them on other hosts. <!-- code: src/docker.ts#dockerArgs src/remote.ts#boxRunner -->
 
 A `local` runner container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory and 1.5 CPUs by default, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets its model credentials and, when configured, its own tool bearer. <!-- code: src/docker.ts#dockerArgs -->
 
@@ -31,9 +31,9 @@ A workflow step can override either field with `limits: { memory: 8g }`. This ap
 
 Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerRunner -->
 
-Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/sandbox.ts#inside src/run/attempt.ts#runAttempt src/docker.ts#dockerRunner src/env.ts#getCheckoutPaths src/env.ts#removeCheckout src/mirror.ts#makeSandbox -->
+Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/sandbox.ts#inside src/run/attempt.ts#runAttempt src/docker.ts#dockerRunner src/env.ts#getCheckoutPaths src/env.ts#removeCheckout src/mirror.ts#makeSandbox -->
 
-A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user, and the command runs as uid 1001. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
+A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user and loses its group and other write bits, and the command runs as uid 1001 with no new privileges, so a setuid file left by an earlier command does not help it. Before it starts, the box kills every process an earlier writable command left behind, unless a writable command is still running. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
 `infra/local/sandbox` builds the image. <!-- code: src/docker.ts#ensureImage -->
 
@@ -68,9 +68,9 @@ A run whose steps all use agents with only read tools, such as a router or triag
 
 ### Disk
 
-`bin/env.ts` frees disk. It removes unused volumes, environments and cache volumes no run can reuse, and score trees nobody holds (under `--root` or `AGENTGRAPH_GC_ROOTS`), then the least recently used until the total is under `AGENTGRAPH_ENV_CAP` (`60g`). It keeps what a container, a live checkout or a pin uses, and what a live runner used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2). A cache volume stays while any environment built with it is left. <!-- code: src/disk.ts#collect -->
+`bin/env.ts` frees disk. It removes unused volumes, environments and cache volumes no run can reuse, and score trees nobody holds (under `--root` or `AGENTGRAPH_GC_ROOTS`), then the least recently used until the total is under `AGENTGRAPH_ENV_CAP` (`60g`). It keeps what a container, a live checkout or a pin uses, and what a live engine process used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2). A cache volume stays while any environment built with it is left. <!-- code: src/disk.ts#collect -->
 
-Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `unpin` and `sweep`, which drops dead runners' dependency volumes. Bench collection and automatic low-disk collection only consider environment tags and cache volumes recorded in the case or runner data dir (`.envs/refs.jsonl`). A retained environment keeps its shared lower volume and its cache layer, and a live checkout keeps the environment it reads. Global collection stays an explicit operator action. Collection runs below `AGENTGRAPH_MIN_FREE_GB` (40) free. If that is not enough, `disk low` names what holds the space and bench work waits. <!-- code: src/disk.ts#ensureFreeDisk src/env.ts#removeOrphanedVolumes -->
+Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `unpin` and `sweep`, which drops the dependency volumes of dead engine processes. Bench collection and automatic low-disk collection only consider environment tags and cache volumes recorded in the case or instance data folder (`.envs/refs.jsonl`). A retained environment keeps its shared lower volume and its cache layer, and a live checkout keeps the environment it reads. Global collection stays an explicit operator action. Collection runs below `AGENTGRAPH_MIN_FREE_GB` (40) free. If that is not enough, `disk low` names what holds the space and bench work waits. <!-- code: src/disk.ts#ensureFreeDisk src/env.ts#removeOrphanedVolumes -->
 
 ### Toolchains
 
@@ -80,7 +80,7 @@ The image has toolchain managers and a C compiler. Each repo has its own cache v
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
 ```
 
-A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` sets another name prefix; empty turns off the caches and environments. Changing the image or toolchain starts a new cache volume, and [disk collection](#disk) removes the old one. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#readSandboxSetup src/env.ts#makeLayerVolumeName src/env.ts#written src/services.ts#settings -->
+A failed install is an engine error. `AGENTGRAPH_CACHE_VOLUME` sets another name prefix; empty turns off the caches and environments. Changing the image or toolchain starts a new cache volume, and [disk collection](#disk) removes the old one. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#readSandboxSetup src/env.ts#makeLayerVolumeName src/env.ts#written src/services.ts#settings -->
 
 ## A graph's own image
 
@@ -181,7 +181,7 @@ Claude Code on its own subscription needs `network: egress` and `AGENTGRAPH_PROX
 
 ## Secrets on the host
 
-- Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the `AGENTGRAPH_SESSION_ENV` names may come from a `_FILE`, read once per start. Bench keys stay in the runner's memory. <!-- code: src/main.ts#readEngineEnv bin/bench.ts#readBenchKeys -->
+- Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the `AGENTGRAPH_SESSION_ENV` names may come from a `_FILE`, read once per start. Bench keys stay in the engine's memory. <!-- code: src/main.ts#readEngineEnv bin/bench.ts#readBenchKeys -->
 - Host git, docker and environment builds get only `PATH`, `HOME`, `USER`, `TMPDIR`, the locale, `TZ` and the Docker settings. <!-- code: src/git.ts#makeHostEnv -->
 - Keys never show in a process list, and npm runs no install scripts (`ignore-scripts=true`, `min-release-age=7`).
 - The studio dev server serves only `studio/`, `src/` and `node_modules/`, and refuses env, key, certificate and `.npmrc` files. <!-- code: studio/vite.config.ts#deny -->

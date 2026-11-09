@@ -1,79 +1,52 @@
 # Running on GitHub
 
-On GitHub, agentgraph acts as one GitHub App. The runner polls the repo, so the App needs no webhook or tunnel. People start work with `/agent` or `@agent` in a comment, with a trigger label, or by moving an issue's card into a project board column; see [Workflows](workflows.md#what-starts-a-run). Commands such as `/agent:stop` are separate from text, and `commands` in `settings.yaml` limits who may use them; see [Commands](workflows.md#commands).
-
-The App is private and asks for six repository permissions: contents write, pull requests write, issues write, metadata read, checks read and statuses read. It never gets workflows or administration. Commits go through the Git API, so GitHub signs them and a "require signed commits" rule passes. <!-- code: bin/setup-app.ts#makeGithubAppSetupManifest -->
+The GitHub tracker uses a GitHub App and polls the repo; it needs no webhook. Workflows select comment, label or project-column triggers. [Commands](workflows.md#commands) and instance trust control who can steer runs. <!-- code: src/workflow.ts#isIssueTriggered src/run/trigger.ts#tick -->
 
 ## Create the App
 
-From a checkout of agentgraph:
+From an agentgraph checkout:
 
 ```sh
-node bin/setup-app.ts                # the App belongs to your account
-node bin/setup-app.ts --org acme     # the App belongs to the organization
+node bin/setup-app.ts
+node bin/setup-app.ts --org acme
 ```
 
-1. Open the `http://127.0.0.1:5189/` it prints, in the browser where you are signed in to GitHub.
-2. Click **Create GitHub App**. For `--org` you must be an owner or a GitHub App manager of the organization.
-3. GitHub sends you to the install page. The command saves `app.env` in `~/.config/agentgraph/<slug>/`, readable only by you.
-4. Pick **Only select repositories**, choose the repo and click **Install**. The runner finds the installation from the repo.
+Open the printed URL, create the App, then install it on the repositories it should serve. The command saves `app.env` under `~/.config/agentgraph/<slug>/`. `--name`, `--dir` and `--port` override the App name, credentials folder and setup port. <!-- code: bin/setup-app.ts#setupApp -->
 
-`--name` sets the App name (default `agentgraph`), `--dir` the credentials folder (default `~/.config/agentgraph`), and `--port` the local setup port (default 5189).
-
-<!-- code: bin/setup-app.ts#setupApp -->
-
-Who must approve the install:
-
-| App owner        | Repo owner       | Install                                                                                                       |
-| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------- |
-| your account     | your account     | you install it                                                                                                |
-| the organization | the organization | an organization owner installs it, or a repo admin requests it                                                |
-| your account     | an organization  | a repo admin requests it, and an organization owner approves it under the organization's GitHub Apps settings |
+The setup requests contents, pull requests and issues write access, plus metadata, checks and statuses read access. It requests no workflows or administration permission. GitHub signs commits written through the Git API. <!-- code: bin/setup-app.ts#makeGithubAppSetupManifest src/github.ts#githubTracker -->
 
 ## How it talks to GitHub
 
-Each loop pass shares one open-issue listing and shared event polls across issue ticks. Issues with no prior run share a separate history poll, so their catch-up keeps live runs first. The process keeps scoped installation tokens, ETags and write permissions per App and repo, so they last across passes, refreshed session credentials and rebuilt tracker setups. Conditional requests reuse an ETag only with the token and API version that received it. Whether a login may write is asked once per ten minutes. A rate-limit response holds every request, the limited one included, until GitHub's reset time or retry delay, and logs one warning. <!-- code: src/run/trigger.ts#scanIssuesAndRunningRuns src/services.ts#makeProductionLayers src/github.ts#requester src/github.ts#github -->
-
-Agent tools can call the tracker's `searchIssues(query, { state, limit })` to read this repo's issues through the same requester and text trust rules. Queries take keywords up to 256 characters; search qualifiers, operators and punctuation are stripped. Repository and issue scope stay fixed, and returned repository identities are checked. `state` defaults to `open` and also accepts `closed` or `all`; `limit` defaults to 20 and accepts integers from 1 to 100. The folder tracker matches the keywords in issue titles and bodies for local tests. <!-- code: src/tracker.ts#Tracker src/tracker.ts#parseIssueSearch src/tracker.ts#folderTracker src/github.ts#githubTracker -->
+The tracker caches scoped tokens and conditional reads across passes. Rate limits delay requests until GitHub allows a retry. Plugin tools can use `searchIssues` to search this repo under the same text trust rules. <!-- code: src/run/trigger.ts#scanIssuesAndRunningRuns src/services.ts#makeProductionLayers src/github.ts#requester src/github.ts#github src/tracker.ts#Tracker src/tracker.ts#parseIssueSearch src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
 ## The key
 
-On macOS the private key goes into the login Keychain, which asks before every read, and `app.env` names `/dev/fd/3`. Elsewhere, or when the Keychain refuses, it goes into `key.pem` beside `app.env`, readable only by you. Keys never go in a repo or a log. <!-- code: bin/setup-app.ts#saveKeyInKeychain -->
-
-`with-key` reads the key from the Keychain onto that descriptor and passes the other arguments to `bin/run.ts`. `keychain-import` moves an older `key.pem` into the Keychain and deletes the file.
+Setup stores the private key in the macOS login Keychain, or in a private `key.pem` beside `app.env`. The Keychain wrapper passes it through `/dev/fd/3`:
 
 ```sh
 npm run with-key -- <slug> loop --instance live --data ~/agentgraph-data
 npm run keychain-import -- <slug>
 ```
 
-On other hosts, set `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE`, or point `AGENTGRAPH_APP_ENV` at `app.env`. [Hosting](hosting.md) shows each host. <!-- code: src/main.ts#readEngineEnv -->
+`keychain-import` moves a saved `key.pem` into the Keychain. On other hosts, set `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE`, or point `AGENTGRAPH_APP_ENV` at `app.env`. <!-- code: bin/setup-app.ts#saveKeyInKeychain src/main.ts#readEngineEnv -->
 
 ## Project boards
 
-A workflow with a `column` trigger reads the repo's project boards with your own token, since a GitHub App cannot read a personal account's boards. Give the `gh` login the scope once:
+Column triggers need a user token with `read:project`. The engine reads `AGENTGRAPH_PROJECT_TOKEN`, then falls back to `gh auth token`:
 
 ```sh
 gh auth refresh -s read:project
 ```
 
-The runner then uses `gh auth token`. Where there is no `gh`, set `AGENTGRAPH_PROJECT_TOKEN` to a token with `read:project`. It is only read from the environment and never logged or stored. <!-- code: src/github.ts#readProjectToken --> See [Project boards](workflows.md#project-boards).
+The [board plugin](workflows.md#project-boards) also writes card fields and needs `project` scope instead. <!-- code: src/github.ts#readProjectToken -->
 
-The board plugin also writes card fields, which needs the `project` scope on the same token instead:
+## Start the engine
 
-```sh
-gh auth refresh -s project
-```
-
-## Start the runner
-
-From a checkout of agentgraph, prepare a data folder with the agents' model keys, then start the loop:
+Select a [named instance](local.md#named-instances-and-settings) with a checkout, graph and `tracker: github`. Put App and [model settings](sandbox.md#models) in its env file, then run:
 
 ```sh
-infra/local/e2e.sh ~/agentgraph-data examples/sandbox
-set -a; . ~/agentgraph-data/.env; set +a
-AGENTGRAPH_REPO=owner/name agi loop --instance live --repo ~/code/project --tracker github --dir examples/sandbox --data ~/agentgraph-data
-AGENTGRAPH_REPO=owner/name agi show --instance live --tracker github --dir examples/sandbox --data ~/agentgraph-data
+agi loop --instance live --data ~/agentgraph-data
+agi show --instance live --data ~/agentgraph-data
 ```
 
-`e2e.sh` writes the keys from the [local stack](../infra/local/README.md) as `AGENTGRAPH_PROXY_KEYS` to `.env` in the data folder and prints the commands to run. The runner does not load that file, so source it first. `loop` without `--dir` uses the repo's [own graph](reference.md#which-graph-runs) and `AGENTGRAPH_REPO`. `show` needs App credentials and warns when the App reaches other repos. <!-- code: src/github.ts#readInstallationReach -->
+The loop reads the selected graph; it imposes no implement, review or merge sequence. `show` warns when the App can reach other repos. See [Hosting](hosting.md) for service deployment examples. <!-- code: src/instance.ts#readInstance src/instance.ts#ensureGraph src/github.ts#readInstallationReach -->

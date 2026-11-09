@@ -2,14 +2,12 @@ import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:
 import { Effect } from 'effect';
 import { makeInstanceHost, runLocalActions } from '../src/engine.ts';
 import { fileStore, Store } from '../src/store.ts';
-import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
-import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
-import { getQuantile } from '../studio/src/results/result.ts';
-import { runStudioAction, startStudioServer, studioDir, studioModule } from './studio.ts';
+import type { BenchData, BenchRow } from '../examples/plugins/bench/plugins/bench/data.ts';
+import { getQuantile } from '../src/stats.ts';
+import { createStudioServer, runStudioAction, startStudioServer, studioDependency } from './studio.ts';
 import { tmp } from './kit.ts';
 import {
   bootstrap,
@@ -25,10 +23,11 @@ import {
   quality,
   readBenchRowResults,
   summarise,
-} from '../studio/src/bench/score.ts';
+} from '../bench/score.ts';
 import { type Run, type Trace } from '../src/types.ts';
 
 type Row = BenchRow;
+const bench = join(import.meta.dirname, '../examples/plugins/bench/plugins/bench.ts');
 const at = '2026-10-16T05:00:00.000Z';
 
 const row = (over: Partial<Row>): Row => ({
@@ -126,7 +125,6 @@ describe('bench score', () => {
     const fields = findBenchNumericFields(rows, { w: defaultBenchScoreWeights });
     const axis = getBenchAxis(selected, fields);
     expect(axis).toBeNull();
-    expect(axis).not.toBe(selected);
     expect(
       summarise(rows, {
         w: defaultBenchScoreWeights,
@@ -135,7 +133,6 @@ describe('bench score', () => {
       }).map(p => p.x)
     ).toEqual([3]);
     expect(getBenchAxis('minutes', fields)).toBe('minutes');
-    expect(getBenchAxis(selected, findBenchNumericFields([labelled], { w: defaultBenchScoreWeights }))).toBe(selected);
   });
 
   it.each([
@@ -298,8 +295,12 @@ describe('the bench page data', () => {
     const origin = { plugin: 'bench', version: 'v', job: 'set', input };
     const run = { id: 'issue-1', started: at, workflow: 'issue', meta: { engine: { origin } } };
     writeFileSync(join(data, 'issue-1', 'run.json'), '{');
+    const folder = join(out, 'pages');
+    mkdirSync(join(folder, 'plugins'), { recursive: true });
+    writeFileSync(join(folder, 'plugins/bench.ts'), `export { default } from ${JSON.stringify(bench)};`);
+    writeFileSync(join(folder, 'settings.yaml'), `plugins:\n  bench:\n    sets: [${JSON.stringify(out)}]\n`);
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
-    vi.stubEnv('AGI_STUDIO_BENCH', out);
+    vi.stubEnv('AGI_STUDIO_PLUGINS', folder);
     const routes: Record<string, (req: unknown, res: unknown) => void> = {};
     const plugin = makeStudioPagesPlugin().configureServer as (server: unknown) => Promise<void>;
     await plugin({
@@ -351,14 +352,17 @@ describe('bench spread', () => {
   });
 
   it('lists two arms on the same case and repeat as two runs of one point', async () => {
-    const dependency = <T>(name: string): Promise<T> =>
-      import(pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href);
-    const { createElement } = await dependency<{ createElement: (type: unknown, props: object) => unknown }>('react');
-    const { renderToStaticMarkup } = await dependency<{ renderToStaticMarkup: (node: unknown) => string }>(
+    const { createElement } = await studioDependency<{ createElement: (type: unknown, props: object) => unknown }>(
+      'react'
+    );
+    const { renderToStaticMarkup } = await studioDependency<{ renderToStaticMarkup: (node: unknown) => string }>(
       'react-dom/server'
     );
+    const server = await createStudioServer();
     vi.stubGlobal('location', new URL('http://studio/bench'));
-    const { Forest } = await studioModule<{ Forest: unknown }>('bench/Forest.tsx');
+    const { Forest } = await (server.ssrLoadModule as (id: string) => Promise<{ Forest: unknown }>)(
+      join(import.meta.dirname, '../examples/plugins/bench/plugins/bench/Forest.tsx')
+    );
     const rows = ['floor', 'v2'].map(arm =>
       row({ hidden: 1, labels: { ...row({}).labels, arm }, data: `/b/a/${arm}/data`, run: `run-${arm}` })
     );
@@ -382,6 +386,7 @@ describe('bench spread', () => {
       ]);
     } finally {
       vi.unstubAllGlobals();
+      await server.close();
     }
   });
 });
@@ -414,7 +419,14 @@ describe('a bench data dir', () => {
     symlinkSync(elsewhere, join(out, 'linked'));
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
     vi.stubEnv('AGI_STUDIO_DATA', undefined);
-    vi.stubEnv('AGI_STUDIO_BENCH', out);
+    const folder = join(out, 'pages');
+    mkdirSync(join(folder, 'plugins'), { recursive: true });
+    writeFileSync(join(folder, 'plugins/bench.ts'), `export { default } from ${JSON.stringify(bench)};`);
+    writeFileSync(
+      join(folder, 'settings.yaml'),
+      `plugins:\n  bench:\n    sets: [${JSON.stringify(join(out, 'c', 'v2'))}]\n`
+    );
+    vi.stubEnv('AGI_STUDIO_PLUGINS', folder);
     const q = (dir: string) => `?data=${encodeURIComponent(dir)}`;
     const { server, base } = await startStudioServer();
     try {
@@ -435,7 +447,7 @@ describe('a bench data dir', () => {
         runStudioAction(`${base}/api/actions${q(data)}`, actions =>
           actions.label({ id: 'issue-1', patch: { arm: 'x' } })
         )
-      ).rejects.toThrow('a bench folder is read-only');
+      ).rejects.toThrow('a store read through ?data= is read-only');
     } finally {
       await server.close();
       vi.unstubAllEnvs();

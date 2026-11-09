@@ -789,6 +789,9 @@ describe('runStepChecks', () => {
     it('parks the run when a stop check cannot be judged', async () => {
       const { exit } = await judged([killed, killed], 'stop');
       expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).toContain(
+        'check critic could not be judged: session error (exit 137), final: Killed'
+      );
     });
 
     it('stops on a failed stop check even when another check cannot be judged', async () => {
@@ -817,8 +820,10 @@ describe('runStepChecks', () => {
 
     it('treats a clean stop without a result the same way', async () => {
       const mute = { ...stop, final: 'looks fine to me' };
-      const { exit } = await judged([mute, mute]);
+      const { exit, data } = await judged([mute, mute]);
       expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).toContain('check critic could not be judged: session gave no result');
+      expect(readJudgeSessions(data).map(s => s.ended)).toEqual(['stop', 'stop']);
     });
   });
 });
