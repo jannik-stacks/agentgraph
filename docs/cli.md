@@ -124,3 +124,18 @@ The runner reads these. Instance defaults and command overrides follow the [sett
 An instance's settings come from [its files first](local.md#named-instances-and-settings). A setting in both the shell and the App env file takes the env file's value. Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the names in `AGENTGRAPH_SESSION_ENV` may come from a file named by the setting plus `_FILE`. <!-- code: src/main.ts#readEngineEnv -->
 
 Script variables are in [Checks](checks.md#script-variables), and disk settings in [Sandbox and models](sandbox.md#disk).
+
+The studio has its own [auth settings](plugins.md#auth). Run `npm run dev -- --auth <name>` from `studio/` to select an auth plugin; this flag belongs to the studio command.
+
+| Variable                      | Meaning and default                                |
+| ----------------------------- | -------------------------------------------------- |
+| `AGENTGRAPH_AUTH`             | Studio auth plugin, `token`                        |
+| `AGENTGRAPH_STUDIO_TOKEN`     | Token login secret; random at startup when absent  |
+| `AGENTGRAPH_STUDIO_PASSWORD`  | Required by password auth                          |
+| `AGENTGRAPH_STUDIO_KEY`       | Signing key input, at least 32 characters when set |
+| `AGENTGRAPH_STUDIO_API_TOKEN` | Bearer token for scripts when auth asks for login  |
+| `AGI_HOST`                    | Studio listen address, `127.0.0.1`                 |
+| `AGI_PORT`                    | Studio port, 5182                                  |
+| `AGI_ALLOWED_HOSTS`           | Comma-separated allowed hostnames for the studio   |
+
+Instance env files override shell values for auth and studio secrets. A studio serving several instances requires compatible auth settings. <!-- code: studio/auth.ts#readStudioAuth studio/vite.config.ts#server -->
