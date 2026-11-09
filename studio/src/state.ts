@@ -14,7 +14,7 @@ const prefix = shown?.name ? `/${shown.name}` : '';
 
 export const makeInstanceHref = (href: string) => prefix + href;
 
-export const makeApiHref = (href: string) =>
+const makeApiHref = (href: string) =>
   shown?.name ? `${href}${href.includes('?') ? '&' : '?'}instance=${shown.name}` : href;
 
 export const runAction = <A, E>(

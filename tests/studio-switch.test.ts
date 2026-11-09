@@ -8,7 +8,6 @@ type CreateElement = (type: unknown, props?: object | null, ...children: unknown
 let html: string;
 let state: {
   pageAtom: Atom;
-  makeApiHref: (href: string) => string;
   readChanged: (topics: string[]) => void;
   makeLiveJsonAtom: (path: string, topics: string[]) => Atom;
 };
@@ -48,7 +47,6 @@ it('asks the API for the shown instance and follows only its change topics', asy
   }>('jotai');
   const store = jotai.createStore();
   expect(store.get(state.pageAtom)).toEqual({ route: 'runs', id: 'run-1' });
-  expect(state.makeApiHref('/api/runs?data=x')).toBe('/api/runs?data=x&instance=bench');
   store.sub(state.makeLiveJsonAtom('/api/topic', ['data']), () => {});
   expect(asked()).toBe(1);
   await new Promise(resolve => setTimeout(resolve));

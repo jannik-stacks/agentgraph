@@ -3,8 +3,6 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Effect } from 'effect';
-import { makeActionClient } from '../src/actions.ts';
 
 /** The studio sources, which the root typecheck leaves to the studio's own tsconfig. */
 export const studioDir = join(import.meta.dirname, '..', 'studio');
@@ -40,12 +38,6 @@ export const createStudioServer = async (include: string[] = []) => {
     })
   );
 };
-
-export const callStudio = <A, E>(
-  base: string,
-  use: (actions: Effect.Success<ReturnType<typeof makeActionClient>>) => Effect.Effect<A, E>,
-  query = ''
-) => Effect.runPromise(Effect.scoped(Effect.flatMap(makeActionClient(`${base}/api/actions${query}`, fetch), use)));
 
 export const startStudioServer = async () => {
   const server = await createStudioServer();
