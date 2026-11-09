@@ -151,7 +151,7 @@ export const writeIdleRunsCompressed = async (dir: string, days: number) => {
   }
 };
 
-const parseJsonlRows = (path: string, text: string): unknown[] =>
+export const parseJsonlRows = (path: string, text: string): unknown[] =>
   text.split('\n').flatMap((line, i, lines) => {
     if (!line) return [];
     try {
