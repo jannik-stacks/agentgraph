@@ -12,11 +12,12 @@ export default makePlugin<typeof settings.Type>({
   name: 'cloudflare-access',
   settingsSchema: settings,
   auth: (_host, { team, audience, domains }) => {
-    const keys = createRemoteJWKSet(new URL('/cdn-cgi/access/certs', team));
+    const issuer = new URL(team).origin;
+    const keys = createRemoteJWKSet(new URL('/cdn-cgi/access/certs', issuer));
     return async ({ headers }) => {
       const assertion = headers['cf-access-jwt-assertion'];
       if (typeof assertion !== 'string') return { kind: 'refuse', why: 'open the studio through Cloudflare Access' };
-      const verified = await jwtVerify(assertion, keys, { issuer: new URL(team).origin, audience }).catch(
+      const verified = await jwtVerify(assertion, keys, { issuer, audience, algorithms: ['RS256'] }).catch(
         () => undefined
       );
       const email = verified?.payload.email;

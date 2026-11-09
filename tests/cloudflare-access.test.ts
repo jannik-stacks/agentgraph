@@ -15,7 +15,7 @@ it('lets in verified Cloudflare Access emails on an allowed domain and refuses t
   try {
     const { auths } = await readPlugins(
       undefined,
-      { 'cloudflare-access': { team, audience: 'studio-aud', domains: ['stackslabs.com'] } },
+      { 'cloudflare-access': { team: `${team}/some/path`, audience: 'studio-aud', domains: ['stackslabs.com'] } },
       { builtins: [cloudflareAccess] }
     );
     const check = auths['cloudflare-access']!({ env: {} });
