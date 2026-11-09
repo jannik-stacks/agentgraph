@@ -1,6 +1,6 @@
 # Hosting <!-- untested -->
 
-Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: a named instance in the data root, environment overrides, commands through docker or a box server named by `AGENTGRAPH_SANDBOX_URL`. <!-- code: src/services.ts#makeProductionLayers -->
+Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: a named instance in the data root, environment overrides, commands through a [runner](sandbox.md#runners): docker on the host, or the `box` runner and the box server `AGENTGRAPH_SANDBOX_URL` names. <!-- code: src/services.ts#makeProductionLayers -->
 
 | Folder       | Runs on                                     | Sandbox                        | Tested                                     |
 | ------------ | ------------------------------------------- | ------------------------------ | ------------------------------------------ |
@@ -136,7 +136,7 @@ Values already in the environment are used without asking, so a second `up` only
    keys.internal ----------> the App key, the agent keys and the session variables, read once at start
 ```
 
-The engine is the host image, with `AGENTGRAPH_SANDBOX_URL=http://box.internal`. Checkouts stay on the engine's disk. <!-- code: src/remote.ts#makeBoxRunner -->
+The engine is the host image, with `AGENTGRAPH_RUNNER=box` and `AGENTGRAPH_SANDBOX_URL=http://box.internal`. Checkouts stay on the engine's disk. <!-- code: src/remote.ts#makeBoxRunner -->
 
 How boxes differ from docker:
 

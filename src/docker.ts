@@ -43,7 +43,7 @@ const bind = ({ src, dst, readonly }: Mount) => {
   return ['--mount', `type=bind,src=${src},dst=${dst}${readonly ? ',readonly' : ''}`];
 };
 
-export const whyRoot = () =>
+const whyRoot = () =>
   process.getuid?.() === 0
     ? 'agentgraph refuses to run a container as root. Run it as a user in the docker group.'
     : undefined;
@@ -300,7 +300,7 @@ export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxIm
     return id;
   });
 
-export const findMissingModelHosts = (hosts: string[]) =>
+const findMissingModelHosts = (hosts: string[]) =>
   Effect.gen(function* () {
     if (hosts.length === 0) return [];
     const filters = Object.values(networks).flatMap(n => ['--filter', `network=${n}`]);
@@ -321,11 +321,32 @@ export const findMissingModelHosts = (hosts: string[]) =>
     return hosts.filter(h => !answered.has(h));
   });
 
-export const ensureDocker = (say: (line: string) => void, image: string) =>
+const checked = new Set<string>();
+
+export const ensureDockerHost = (o: Pick<Parameters<typeof dockerRunner>[0], 'image' | 'direct'>) =>
+  Effect.gen(function* () {
+    const key = JSON.stringify([o.image, o.direct]);
+    if (checked.has(key)) return;
+    const root = whyRoot();
+    if (root) return yield* infra(root);
+    const missing = yield* findMissingModelHosts((o.direct ?? []).filter(host => !host.includes('.')));
+    if (missing.length)
+      return yield* infra(
+        [
+          `Nothing answers to ${missing.join(' or ')} on the sandbox network, so sessions cannot reach a model.`,
+          'Start the model stack with `npm run up` in the agentgraph checkout (infra/local/README.md), or pick another provider.',
+        ].join('\n')
+      );
+    const version = yield* ensureDocker(line => console.error(`sandbox  ${line}`), o.image ?? sandboxImage);
+    console.error(`sandbox  docker ${version}`);
+    checked.add(key);
+  });
+
+const ensureDocker = (say: (line: string) => void, image: string) =>
   Effect.gen(function* () {
     const version = yield* Effect.mapError(run('docker', ['version', '--format', '{{.Server.Version}}']), () =>
       infra(
-        "agentgraph runs the repo's code only in a container, and docker is not running.\nStart Docker Desktop, colima or podman (DOCKER_HOST), or set AGENTGRAPH_SANDBOX_URL to a box server."
+        "agentgraph runs the repo's code only in a container, and docker is not running.\nStart Docker Desktop, colima or podman (DOCKER_HOST), or pick another runner with --runner."
       )
     );
     yield* locked(

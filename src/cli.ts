@@ -24,6 +24,7 @@ const shared = {
   base: text(Flag.String('base')),
   dir: text(Flag.String('dir')),
   tracker: text(Flag.String('tracker').pipe(Flag.withDescription('<name>|<dir>'))),
+  runner: text(Flag.String('runner').pipe(Flag.withDescription('<name>'))),
   logs: text(Flag.String('logs').pipe(Flag.withDescription('all|failed|off'))),
   'read-only': flag('read-only'),
   provider: text(Flag.String('provider')),

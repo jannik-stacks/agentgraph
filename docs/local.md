@@ -8,7 +8,7 @@ npm install -g @jannik-stacks/agi
 
 `npx @jannik-stacks/agi <verb>` runs it without installing. The unscoped `agentgraph` package on npm is unrelated.
 
-Before it files anything, `agi` checks Docker, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress`, builds missing or changed images and starts an egress proxy. It stops early when Docker is down, when it runs as root, or when the provider's gateway is a sandbox-network name no container answers to. The first build takes about 3 minutes. `AGENTGRAPH_SANDBOX_URL` skips this. <!-- code: src/docker.ts#ensureDocker -->
+Before it files anything, `agi` checks Docker, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress`, builds missing or changed images and starts an egress proxy. It stops early when Docker is down, when it runs as root, or when the provider's gateway is a sandbox-network name no container answers to. The first build takes about 3 minutes. Another [runner](sandbox.md#runners) skips this. <!-- code: src/docker.ts#ensureDocker -->
 
 ## Models
 

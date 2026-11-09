@@ -14,7 +14,7 @@ limits:
   cpus: 4
 ```
 
-A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. Remote boxes reject resource overrides. <!-- code: src/run/follow.ts#runAside src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#makeBoxRunner -->
+A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. A box cannot enforce them, so `agi check` refuses them under the `box` runner. <!-- code: src/run/follow.ts#runAside src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#makeBoxRunner -->
 
 | Path          | What                                                                       | Access                                                                   |
 | ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -34,6 +34,12 @@ Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, n
 A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user, and the command runs as uid 1001. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
 `infra/local/sandbox` builds the image. <!-- code: tests/doubles/sandbox.ts#hostSandbox -->
+
+### Runners
+
+A runner executes commands; the engine keeps git, the mirror, worktrees, cleanup and publishing. `local`, the default, runs docker on this host and checks it first: not root, Docker up, the image built, the model hosts answering. `box` sends each checkout to the box server `AGENTGRAPH_SANDBOX_URL` names; see [Hosting](hosting.md#cloudflare). A [runner plugin](plugins.md#runners) in the host graph adds another, such as Modal in `examples/plugins/modal/`.
+
+`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner never runs a read-only command writable and never widens a command's network. <!-- code: src/services.ts#whyRunnerRefuses src/runners.ts src/remote.ts#makeBoxRunner -->
 
 ## The network
 

@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { Duration, Effect, Exit, Layer, Redacted, Schedule, Scope, Semaphore, Stream } from 'effect';
 import { getCachePath, makeToolchainSetupCommands } from './env.ts';
 import { hostGit, indexLock, makeHostEnv } from './git.ts';
+import type { Graph } from './folder.ts';
 import { type Command, type Exit as CommandExit, inside, Runner, SandboxError } from './sandbox.ts';
 
 const exitFrame = '\u0000agentgraph-exit ';
@@ -14,9 +15,19 @@ const freshHeader = 'agentgraph-box-fresh';
 
 const infra = (detail: string) => new SandboxError({ reason: 'infra', detail });
 
+const whyBoxRefused = (graph: Graph) => {
+  if (graph.image) return `a box runs one image; the graph names ${graph.image}`;
+  const limits = [graph.limits, ...Object.values(graph.workflows).flatMap(w => w.steps.flatMap(s => s.limits ?? []))];
+  if (limits.some(l => l.memory !== undefined || l.cpus !== undefined))
+    return 'a box cannot enforce memory or cpus limits';
+  const tools = graph.tools ?? [];
+  const agent = Object.values(graph.agents).find(a => a.tools.some(name => tools.includes(name)));
+  return agent && `${agent.path}: a box cannot serve host tools`;
+};
+
 type SyncedDir = { box: string; git: Record<string, string>; tracked?: Record<string, string> };
 
-const makeBoxRunner = (
+export const makeBoxRunner = (
   data: string,
   open: (...args: Parameters<Runner['Service']['open']>) => Effect.Effect<
     {
@@ -34,7 +45,8 @@ const makeBoxRunner = (
     },
     SandboxError,
     Scope.Scope
-  >
+  >,
+  whyRefused?: Runner['Service']['whyRefused']
 ): Layer.Layer<Runner> =>
   Layer.effect(
     Runner,
@@ -50,9 +62,9 @@ const makeBoxRunner = (
         });
 
       return {
+        whyRefused: graph => whyBoxRefused(graph) ?? whyRefused?.(graph),
         open: (work, graph) =>
           Effect.gen(function* () {
-            if (graph?.image) return yield* infra(`a remote sandbox runs one image; the graph names ${graph.image}`);
             const scope = yield* Scope.make();
             const box = yield* open(work, graph).pipe(
               Scope.provide(scope),
@@ -151,7 +163,6 @@ const makeBoxRunner = (
             const before = (c: Command, home?: SyncedDir) =>
               sync.withPermits(1)(
                 Effect.gen(function* () {
-                  if (c.tools) return yield* infra('remote sandboxes do not support host tools');
                   if ((yield* box.op('init', [])).length > 0) {
                     const lost = unfinished.size > 0;
                     unfinished.clear();
@@ -182,8 +193,6 @@ const makeBoxRunner = (
             const lines = (c: Command): Stream.Stream<string | Pick<CommandExit, 'code'>, SandboxError> =>
               Stream.unwrap(
                 Effect.gen(function* () {
-                  if (c.limits?.memory !== undefined || c.limits?.cpus !== undefined)
-                    return yield* infra('remote sandboxes do not support command resource limits');
                   const home = c.home ? yield* homeDir(c.home) : undefined;
                   const late = () =>
                     new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });

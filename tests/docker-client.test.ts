@@ -1132,7 +1132,7 @@ describe('deployment image startup', () => {
       PATH: `${bin}${delimiter}${process.env.PATH}`,
       AGENTGRAPH_DATA: data,
       AGENTGRAPH_IMAGE: 'custom:missing',
-      AGENTGRAPH_SANDBOX_URL: '',
+      AGENTGRAPH_RUNNER: 'local',
     };
     const unprovisioned = spawnSync('sh', [script], { encoding: 'utf8', env });
     expect([unprovisioned.status, unprovisioned.stderr]).toEqual([1, expect.stringContaining('provision')]);

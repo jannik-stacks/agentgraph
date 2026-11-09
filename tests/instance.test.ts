@@ -5,6 +5,7 @@ import { ConfigProvider, Config, Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { ensureGraph, ensureInstanceGraph, ensureInstance, findInstances } from '../src/instance.ts';
 import { readInstanceEnv } from '../src/main.ts';
+import { hostSettings } from '../src/services.ts';
 import { commit } from './kit.ts';
 import { seeded } from './fixtures.ts';
 
@@ -130,6 +131,33 @@ it('lets an instance tracker beat the tracker env and the App env, below the --t
     vi.stubEnv('AGENTGRAPH_TRACKER', 'github');
     expect(await readTracker({ trackerName: 'folder' })).toBe('folder');
     expect(await readTracker({ trackerName: 'folder' }, { AGENTGRAPH_TRACKER: 'github' })).toBe('github');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it('picks the runner from --runner, then the instance env file, then instance.yaml, then the shell, then local', async () => {
+  const { root } = seeded('instance-runner', { 'file.txt': 'content' });
+  const env = join(root, 'runner.env');
+  writeFileSync(env, 'AGENTGRAPH_RUNNER=file\n');
+  const read = async (instance: object, flags = {}) =>
+    Effect.runPromise(
+      Config.all(hostSettings).pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          (await readInstanceEnv({ data: '/unused', ...instance }, {}, {}, flags)).config
+        ),
+        Effect.map(s => s.runner)
+      )
+    );
+  vi.stubEnv('AGENTGRAPH_RUNNER', undefined);
+  try {
+    expect(await read({})).toBe('local');
+    vi.stubEnv('AGENTGRAPH_RUNNER', 'shell');
+    expect(await read({})).toBe('shell');
+    expect(await read({ runner: 'yaml' })).toBe('yaml');
+    expect(await read({ runner: 'yaml', env })).toBe('file');
+    expect(await read({ runner: 'yaml', env }, { AGENTGRAPH_RUNNER: 'flag' })).toBe('flag');
   } finally {
     vi.unstubAllEnvs();
   }

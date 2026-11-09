@@ -2,7 +2,7 @@ import { getSha } from './hash.ts';
 import { readOrUndefined } from './read.ts';
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
-import { Config, Data, Effect, Result, Schema } from 'effect';
+import { Data, Effect, Result, Schema } from 'effect';
 import { parse } from 'yaml';
 import { issueStatuses, type IssueStatus } from './event.ts';
 import { Kind } from './proposal.ts';
@@ -384,11 +384,6 @@ export const loadGraph = (
           })
         )
       : undefined;
-    const remote =
-      registry &&
-      Object.values(parts.agents).some(agent => agent.tools.some(name => Object.hasOwn(registry.tools, name)))
-        ? yield* Effect.orDie(Config.String('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')))
-        : '';
     const agents: Graph['agents'] = { ...parts.agents };
     for (const agent of Object.values(parts.agents)) {
       const harness = harnesses.find(harness => harness.name === agent.harness);
@@ -405,8 +400,6 @@ export const loadGraph = (
       if (reads) agents[agent.name] = { ...agent, readonly: true };
       for (const message of harness.check?.({ ...agent, tools: checked }) ?? [])
         problems.push({ path: agent.path, message: `harness: ${harness.name} ${message}` });
-      if (remote && builtins.length !== agent.tools.length)
-        problems.push({ path: agent.path, message: 'tools: remote sandboxes do not support host tools' });
     }
     if (problems.length > 0 || !settings || !registry) return yield* new GraphError({ problems });
     const tools = Object.keys(registry.tools);

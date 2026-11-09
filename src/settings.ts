@@ -9,6 +9,7 @@ export const InstanceFile = Schema.Struct({
   base: Schema.String,
   owner: Schema.String,
   tracker: Schema.optionalKey(Schema.String),
+  runner: Schema.optionalKey(Schema.String),
   trust: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
   env: Schema.optionalKey(Schema.String),
   loop: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),

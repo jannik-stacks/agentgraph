@@ -50,6 +50,7 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--base <branch>`             | all                                 | The instance's base branch                                                                                  |
 | `--dir <dir>`                 | all                                 | The graph folder; see [Which graph runs](reference.md#which-graph-runs)                                     |
 | `--tracker <name>` or `<dir>` | all                                 | Run as a runner on the tracker plugin `<name>`, such as `github`, or on a tracker folder                    |
+| `--runner <name>`             | all                                 | The [runner](sandbox.md#runners) that executes commands, `local` by default                                 |
 | `--logs all\|failed\|off`     | all                                 | Which check output to keep                                                                                  |
 | `--provider <name>`           | all                                 | The provider for this command                                                                               |
 | `--save`                      | with `--provider`                   | Keep that provider for later commands                                                                       |
@@ -116,7 +117,8 @@ The runner reads these. Instance defaults and command overrides follow the [sett
 | `AGENTGRAPH_CHECK_LOGS`                   | `all`, `failed` or `off`, as `--logs`                                                                       |
 | `AGENTGRAPH_CACHE_VOLUME`                 | Name prefix of the per-repo [toolchain cache](sandbox.md#toolchains) volumes, `agentgraph-cache`            |
 | `AGENTGRAPH_IMAGE`                        | Sandbox image override; default `agentgraph-sandbox:local`                                                  |
-| `AGENTGRAPH_SANDBOX_URL`                  | A box server that runs commands instead of docker; see [Hosting](hosting.md)                                |
+| `AGENTGRAPH_RUNNER`                       | The [runner](sandbox.md#runners), as `--runner`; `local` by default                                         |
+| `AGENTGRAPH_SANDBOX_URL`                  | The box server the `box` runner sends commands to; see [Hosting](hosting.md)                                |
 | `AGENTGRAPH_STUDIO_URL`                   | Studio address for [run links](runs.md#run-links); an instance's links add `/<name>`                        |
 
 An instance's settings come from [its files first](local.md#named-instances-and-settings). A setting in both the shell and the App env file takes the env file's value. Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the names in `AGENTGRAPH_SESSION_ENV` may come from a file named by the setting plus `_FILE`. <!-- code: src/main.ts#readEngineEnv -->

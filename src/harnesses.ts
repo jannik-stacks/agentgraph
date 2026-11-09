@@ -36,7 +36,7 @@ export type Provider = {
   name: string;
   harnesses: string[];
   auth?: ModelRoute['auth'];
-  ready: (host: { image: string; sandbox: string; env: Record<string, string> }) => boolean | Promise<boolean>;
+  ready: (host: { image: string; env: Record<string, string> }) => boolean | Promise<boolean>;
   detect?: (host: Parameters<Provider['ready']>[0]) => boolean;
   setup?: string;
   whyLogin?: () => string;

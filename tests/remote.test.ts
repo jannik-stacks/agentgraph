@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { Effect, Exit, Fiber, Layer, Redacted, type Scope, Stream } from 'effect';
+import { Context, Effect, Exit, Fiber, Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeSandbox } from '../src/mirror.ts';
 import { boxRunner } from '../src/remote.ts';
-import { type Command, Sandbox } from '../src/sandbox.ts';
+import { type Command, Runner, Sandbox } from '../src/sandbox.ts';
+import { makeTestGraph } from './fixtures.ts';
+import type { Graph } from '../src/folder.ts';
 import { startBoxServer } from './doubles/box.ts';
 import { git, tmp } from './kit.ts';
 
@@ -91,12 +93,26 @@ describe('remote sandbox', () => {
     );
   });
 
-  it.each([{ memory: '8g' }, { cpus: 4 }])('refuses command resource limits %j', async limits => {
-    const exit = await use(layer(), s =>
-      Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true', { limits })))
-    );
-    expect(JSON.stringify(exit)).toContain('remote sandboxes do not support command resource limits');
-  });
+  const graph = makeTestGraph('graph');
+  const agent = Object.values(graph.agents)[0]!;
+  it.each([
+    [{}, undefined],
+    [{ image: 'custom:1' }, 'a box runs one image; the graph names custom:1'],
+    [{ limits: { ...graph.limits, memory: '8g' } }, 'a box cannot enforce memory or cpus limits'],
+    [{ limits: { ...graph.limits, cpus: 4 } }, 'a box cannot enforce memory or cpus limits'],
+    [
+      { tools: ['search'], agents: { [agent.name]: { ...agent, tools: ['search'] } } },
+      `${agent.path}: a box cannot serve host tools`,
+    ],
+  ] satisfies [Partial<Graph>, string | undefined][])(
+    'refuses what a box cannot run at check time: %j',
+    async (patch, refused) => {
+      const runner = await Effect.runPromise(
+        Effect.scoped(Layer.build(boxRunner({ url: server.url, data: tmp('data') })))
+      );
+      expect(Context.get(runner, Runner).whyRefused?.({ ...graph, ...patch })).toBe(refused);
+    }
+  );
 
   it('seeds a box again after it restarted, from the files the host has', async () => {
     const exit = await use(layer(), s =>
@@ -199,10 +215,8 @@ describe('remote sandbox', () => {
     expect(JSON.stringify(exit)).toContain('tar');
   });
 
-  it('refuses a graph image and a dir it did not check out', async () => {
-    const image = await use(layer(), s => s.checkout('main', undefined, undefined, { image: 'other' }));
+  it('refuses a dir it did not check out', async () => {
     const stray = await use(layer(), s => s.exec(sh(tmp('stray'), 'true')));
-    expect(JSON.stringify(image)).toContain('one image');
     expect(JSON.stringify(stray)).toContain('is not a checkout');
   });
 

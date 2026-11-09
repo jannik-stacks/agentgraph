@@ -166,6 +166,16 @@ plugin named `folder` would replace the built-in, but a new name keeps the swap 
 fork: `status: false` in settings.yaml.
 <!-- code: src/plugin.ts src/trackers.ts -->
 
+## Runners
+
+A plugin can provide `runner` instead of tools. It receives the host, `{ data, image, cache, direct }`, and its own
+settings, and returns a layer that provides the `Runner`: `open` starts a box for one checkout and `whyRefused` names
+what in a graph it cannot run. `makeBoxRunner` in `@jannik-stacks/agi/runners` builds one from two calls, `op` for the
+`box.sh` steps and `run` for a command, so a plugin only moves bytes. Pick it with `--runner <name>`,
+`AGENTGRAPH_RUNNER` or `runner:` in instance.yaml. Only plugins of a graph the host reads count, like trackers, and
+`agi check --dir <graph>` says when the name resolves to nothing or the runner refuses the graph.
+`examples/plugins/modal/` runs boxes on Modal. <!-- code: src/plugin.ts#makePlugin src/runners.ts src/remote.ts#makeBoxRunner src/services.ts#whyRunnerRefuses -->
+
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect

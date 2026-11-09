@@ -29,13 +29,10 @@ const files = (tools: string[]) => ({
   'plugins/search.ts': pluginSource(),
 });
 
-const readGraph = (dir: string, harnesses: Parameters<typeof loadGraph>[1], remote = '') =>
+const readGraph = (dir: string, harnesses: Parameters<typeof loadGraph>[1]) =>
   Effect.runPromise(
     loadGraph(dir, harnesses).pipe(
-      Effect.provideService(
-        ConfigProvider.ConfigProvider,
-        ConfigProvider.fromEnv({ env: Object.fromEntries([['AGENTGRAPH_SANDBOX_URL', remote]]) })
-      )
+      Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: {} }))
     )
   );
 
@@ -94,26 +91,5 @@ describe('agent tools', () => {
         { name: 'other', classify: name => (name === 'grep' ? 'read' : undefined) },
       ])
     ).rejects.toThrow('tool grep is a harness built-in');
-  });
-
-  it('rejects selected custom tools for a remote sandbox during graph check', async () => {
-    const dir = await makeGraphDir(files(['read', 'issues']));
-    await expect(
-      readGraph(
-        dir,
-        [{ name: 'custom', classify: name => (name === 'read' ? 'read' : undefined) }],
-        'https://box.invalid'
-      )
-    ).rejects.toThrow('agents/a.md: tools: remote sandboxes do not support host tools');
-  });
-
-  it('still allows remote graphs that do not select custom tools', async () => {
-    const dir = await makeGraphDir(files(['read']));
-    const graph = await readGraph(
-      dir,
-      [{ name: 'custom', classify: name => (name === 'read' ? 'read' : undefined) }],
-      'https://box.invalid'
-    );
-    expect(graph.agents.a!.tools).toEqual(['read']);
   });
 });
