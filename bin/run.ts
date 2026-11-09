@@ -442,8 +442,7 @@ async function runOnInstance(
   graph: string
 ) {
   trackerSetup = setup;
-  const layer = setup.layer(current.trust, i.owner);
-  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, layer));
+  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, setup.layer(current.trust, i.owner)));
   const startInstruction = async (instruction: Instruction) => {
     const graph = await synced();
     const { provider } = await prepare(i, graph, 'Nothing was driven.');
@@ -464,13 +463,23 @@ async function runOnInstance(
       stopping.signal
     );
   };
-  const host = makeInstanceHost({ data: i.data }, { layer, origin: setup.origin }, startInstruction);
   const act = <A>(
     call: (client: Effect.Success<ReturnType<typeof makeLocalActionClient>>) => Effect.Effect<A, unknown>
   ) =>
-    Effect.runPromise(Effect.scoped(Effect.flatMap(makeLocalActionClient(host), call))).catch((e: Error) =>
-      fail(e.message, 1)
-    );
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(
+          makeLocalActionClient(
+            makeInstanceHost(
+              { data: i.data },
+              { layer: setup.layer(current.trust, i.owner), origin: setup.origin },
+              startInstruction
+            )
+          ),
+          call
+        )
+      )
+    ).catch((e: Error) => fail(e.message, 1));
   const synced = async () => {
     const why = setup.origin.local && (await ensureBase(i));
     if (why) fail(why, 1);
