@@ -72,6 +72,8 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         const { makeActionWebHandler } = await readModule<typeof EngineModule>('src/engine.ts');
         const { ActionError, userHeader } = await readModule<typeof ActionsModule>('src/actions.ts');
         const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
+        const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
+        const results = () => Effect.sync(() => readRunResults(data, served?.graph));
         const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data!, id), [data!]));
         const entry = (run: RunRecord, all: boolean, body = false) =>
           Effect.zipWith(Stream.runCollect(store!.read(run.id)), store!.readChecks(run.id), (trace, checks) => {
@@ -105,7 +107,9 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
           }).pipe(Effect.mapError(e => ActionError.make({ message: e.message })));
         const web =
           handlers.get(host) ??
-          handlers.set(host, makeActionWebHandler(host, served?.dir || bench ? runs : undefined)).get(host)!;
+          handlers
+            .set(host, makeActionWebHandler(host, { results, ...((served?.dir || bench) && { runs }) }))
+            .get(host)!;
         const user = readRequestUser(req);
         const response = await web.handler(
           new Request('http://studio/', {
@@ -118,11 +122,6 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         response.headers.forEach((value, key) => res.setHeader(key, value));
         if (!response.body) return res.end();
         await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), res).catch(() => {});
-      });
-      use('/api/results', async (req, res) => {
-        const { served, data } = await readDataDir(req, reader);
-        const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
-        writeJson(res, readRunResults(data, served?.graph));
       });
       use('/api/locate', async (req, res) => {
         const { locate } = await readModule<typeof StoreModule>('src/store.ts');

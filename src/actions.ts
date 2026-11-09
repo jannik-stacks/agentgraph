@@ -32,6 +32,7 @@ export const Actions = RpcGroup.make(
   }),
   Rpc.make('log', { payload: { hash: Schema.String }, success: Schema.String, error }),
   Rpc.make('runs', { payload: { id: Schema.optionalKey(Schema.String) }, success: Schema.Unknown, error }),
+  Rpc.make('results', { success: Schema.Unknown, error }),
   Rpc.make('verdicts', {
     payload: { workflow: Schema.String, step: Schema.String, check: Schema.String },
     success: Schema.Array(Verdict),

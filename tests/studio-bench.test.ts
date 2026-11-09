@@ -6,7 +6,6 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
 import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
 import { getQuantile } from '../studio/src/results/result.ts';
@@ -416,18 +415,6 @@ describe('a bench data dir', () => {
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
     vi.stubEnv('AGI_STUDIO_DATA', undefined);
     vi.stubEnv('AGI_STUDIO_BENCH', out);
-    const routes: Record<string, (req: unknown, res: unknown) => void> = {};
-    const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
-    plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
-    const ask = (route: string, url: string) =>
-      new Promise<{ status: number; body: string }>(done => {
-        const res = {
-          statusCode: 200,
-          setHeader: () => {},
-          end: (body: string) => done({ status: res.statusCode, body }),
-        };
-        routes[route]!({ url }, res);
-      });
     const q = (dir: string) => `?data=${encodeURIComponent(dir)}`;
     const { server, base } = await startStudioServer();
     try {
@@ -446,8 +433,8 @@ describe('a bench data dir', () => {
           )
         )
       ).toBe('full output');
-      const results = await ask('/api/results', `/?data=${encodeURIComponent(data)}`);
-      expect((JSON.parse(results.body) as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
+      const results = await runStudioAction(`${base}/api/actions${q(data)}`, actions => actions.results());
+      expect((results as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
     } finally {
       await server.close();
       vi.unstubAllEnvs();

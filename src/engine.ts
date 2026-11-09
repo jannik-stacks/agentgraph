@@ -106,6 +106,7 @@ export const makeInstanceHost = (
     });
   const actions = Actions.of({
     runs: ({ id }): Effect.Effect<unknown, typeof ActionError.Type> => Effect.succeed(id === undefined ? [] : null),
+    results: (): Effect.Effect<unknown, typeof ActionError.Type> => Effect.succeed({ fields: [], runs: [] }),
     show: ({ issue }) =>
       Effect.gen(function* () {
         const runs = yield* store.list(issue === undefined ? {} : { issue });
@@ -158,11 +159,11 @@ const requireUser = Layer.succeed(ActionUser)((effect, { headers }) =>
 
 export const makeActionWebHandler = (
   host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>,
-  runs = host.actions.runs
+  own: Partial<Pick<ReturnType<typeof makeInstanceHost>['actions'], 'runs' | 'results'>> = {}
 ) =>
   HttpRouter.toWebHandler(
     RpcServer.layerHttp({ group: Actions, path: '/', protocol: 'http' }).pipe(
-      Layer.provide([Actions.toLayer({ ...host.actions, runs }), requireUser, RpcSerialization.layerNdjson])
+      Layer.provide([Actions.toLayer({ ...host.actions, ...own }), requireUser, RpcSerialization.layerNdjson])
     ),
     { disableLogger: true }
   );

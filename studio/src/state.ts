@@ -147,7 +147,7 @@ export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof mak
 );
 
 const opened = new Map<string, object>();
-const openOnce = <T>(key: string, data?: string | null, load: string | (() => Promise<T>) = key) => {
+const openOnce = <T>(key: string, data: string | null | undefined, load: () => Promise<T>) => {
   if (!opened.has(key)) opened.set(key, makeLiveJsonAtom<T>(load, [data ? 'bench' : 'data']));
   return opened.get(key) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
@@ -155,7 +155,11 @@ const openOnce = <T>(key: string, data?: string | null, load: string | (() => Pr
 export const dataParam = queryParam('data');
 
 export const runResultsAtom = (data?: string | null) =>
-  openOnce<ReturnType<typeof readRunResults>>(makeDataHref('/api/results', data), data);
+  openOnce(
+    makeDataHref('results', data),
+    data,
+    () => runAction(actions => actions.results(), data) as Promise<ReturnType<typeof readRunResults>>
+  );
 
 export const runAtom = (id: string, data?: string | null) =>
   openOnce(

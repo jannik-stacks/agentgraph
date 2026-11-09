@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { makeActionClient } from '../src/actions.ts';
-import { createStudioServer, startStudioServer, studioDir } from './studio.ts';
+import { createStudioServer, runStudioAction, startStudioServer, studioDir } from './studio.ts';
 import { writeIssueFile } from '../src/tracker.ts';
 
 it('encodes page data, hides reader failures and sends change topics per watch root', async () => {
@@ -200,7 +200,7 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   try {
     const described = async () => {
       const page = await (await fetch(`${base}/api/plugins/results/data`)).json();
-      const runs = await (await fetch(`${base}/api/results`)).json();
+      const runs = (await runStudioAction(`${base}/api/actions`, actions => actions.results())) as { fields: object[] };
       return [page.sheet.fields, runs.fields].map(
         (fields: { check?: string; description?: string }[]) => fields.find(f => f.check === 'lines')?.description
       );
