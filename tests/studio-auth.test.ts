@@ -45,13 +45,13 @@ describe('built-in auth', () => {
       ask(byPassword, '/auth/login', 'secret=guess'),
     ]);
     expect(results).toEqual([
-      { login: '/auth/login' },
-      { user: 'token' },
-      { user: 'token' },
-      { refuse: 'wrong token' },
-      { login: '/auth/login' },
-      { user: 'password' },
-      { refuse: 'wrong password' },
+      { kind: 'login', url: '/auth/login' },
+      { kind: 'user', user: 'token' },
+      { kind: 'user', user: 'token' },
+      { kind: 'refuse', why: 'wrong token' },
+      { kind: 'login', url: '/auth/login' },
+      { kind: 'user', user: 'password' },
+      { kind: 'refuse', why: 'wrong password' },
     ]);
     expect(() => password.auth!({ env: {} }, undefined)).toThrow('auth password needs AGENTGRAPH_STUDIO_PASSWORD');
   });

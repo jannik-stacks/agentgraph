@@ -201,7 +201,7 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
   });
 
   it.each([
-    ['empty', {}, 'no tools, studio, hooks, tracker, engine, runner or auth'],
+    ['empty', {}, 'none of tools, hooks, studio, tracker, engine, runner, auth'],
     [
       'remote',
       {

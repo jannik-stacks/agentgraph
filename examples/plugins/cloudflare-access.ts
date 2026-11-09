@@ -15,16 +15,16 @@ export default makePlugin<typeof settings.Type>({
     const keys = createRemoteJWKSet(new URL('/cdn-cgi/access/certs', team));
     return async ({ headers }) => {
       const assertion = headers['cf-access-jwt-assertion'];
-      if (typeof assertion !== 'string') return { refuse: 'open the studio through Cloudflare Access' };
+      if (typeof assertion !== 'string') return { kind: 'refuse', why: 'open the studio through Cloudflare Access' };
       const verified = await jwtVerify(assertion, keys, { issuer: new URL(team).origin, audience }).catch(
         () => undefined
       );
       const email = verified?.payload.email;
-      if (typeof email !== 'string') return { refuse: 'the Cloudflare Access token does not verify' };
+      if (typeof email !== 'string') return { kind: 'refuse', why: 'the Cloudflare Access token does not verify' };
       const domain = email.split('@').at(-1)!.toLowerCase();
       return domains.some(allowed => domain === allowed || domain.endsWith(`.${allowed}`))
-        ? { user: email }
-        : { refuse: `${email} is not on an allowed domain` };
+        ? { kind: 'user', user: email }
+        : { kind: 'refuse', why: `${email} is not on an allowed domain` };
     };
   },
 });

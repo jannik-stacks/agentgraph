@@ -64,7 +64,10 @@ type RunnerMember<S, L = Layer.Layer<never, unknown>> = (host: RunnerHost, setti
 
 export type AuthRequest = Pick<IncomingMessage, 'headers'> & { url: URL; form?: URLSearchParams };
 
-export type AuthResult = { user: string } | { login: string } | { refuse: string };
+export type AuthResult =
+  | { kind: 'user'; user: string }
+  | { kind: 'login'; url: string }
+  | { kind: 'refuse'; why: string };
 
 export type AuthHost = { env: NodeJS.ProcessEnv };
 
@@ -135,6 +138,8 @@ export const tool = <A, I, S = undefined>(definition: {
   });
 };
 
+const members = ['studio', 'tracker', 'engine', 'runner', 'auth'] as const;
+
 export const makePlugin = <
   S = undefined,
   D = unknown,
@@ -144,10 +149,7 @@ export const makePlugin = <
   H = never,
   L extends Layer.Layer<never, unknown> = Layer.Layer<never, unknown>,
 >(
-  definition: Omit<
-    typeof PluginFile.Type,
-    'settingsSchema' | 'tools' | 'studio' | 'on' | 'tracker' | 'engine' | 'runner' | 'auth'
-  > & {
+  definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'on' | (typeof members)[number]> & {
     tracker?: (host: TrackerHost) => T;
     engine?: (host: H, settings: S) => E;
     runner?: RunnerMember<S, L>;
@@ -280,16 +282,8 @@ export const readPlugins = async (
       decoded = result.success;
     }
     const names = Object.keys(plugin.tools);
-    if (
-      !names.length &&
-      !plugin.studio &&
-      !plugin.on?.status &&
-      !plugin.tracker &&
-      !plugin.engine &&
-      !plugin.runner &&
-      !plugin.auth
-    )
-      throw new Error(`${file}: plugin has no tools, studio, hooks, tracker, engine, runner or auth`);
+    if (!names.length && !plugin.on?.status && !members.some(member => plugin[member]))
+      throw new Error(`${file}: plugin has none of tools, hooks, ${members.join(', ')}`);
     if (plugin.engine && file !== builtin) throw new Error(`${file}: only operator-registered plugins get an engine`);
     if (plugin.tracker) trackers[plugin.name] = plugin.tracker;
     const { runner } = plugin;

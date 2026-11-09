@@ -138,20 +138,20 @@ export const makeStudioAuthPlugin = (served = makeServedGraphs()): Plugin => ({
       }
       const form = onLogin && req.method === 'POST' ? await readLoginForm(req) : undefined;
       const result = await check({ url, headers: req.headers, ...(form && { form }) });
-      if ('user' in result) {
+      if (result.kind === 'user') {
         await writeSession(req, res, result.user);
         return onLogin ? redirect(res, 303, '/') : true;
       }
-      if (onLogin && !('login' in result && result.login !== loginPath))
+      if (onLogin && !(result.kind === 'login' && result.url !== loginPath))
         return send(
           res,
-          'refuse' in result ? 401 : 200,
-          formatLoginPage('refuse' in result ? result.refuse : ''),
+          result.kind === 'refuse' ? 401 : 200,
+          formatLoginPage(result.kind === 'refuse' ? result.why : ''),
           'text/html; charset=utf-8'
         );
-      if ('refuse' in result) return send(res, 403, JSON.stringify({ error: result.refuse }));
-      if (req.headers.accept?.includes('text/html')) return redirect(res, 302, result.login);
-      return send(res, 401, JSON.stringify({ error: 'log in first', login: result.login }));
+      if (result.kind === 'refuse') return send(res, 403, JSON.stringify({ error: result.why }));
+      if (req.headers.accept?.includes('text/html')) return redirect(res, 302, result.url);
+      return send(res, 401, JSON.stringify({ error: 'log in first', login: result.url }));
     };
 
     server.middlewares.use((req, res, next) => {

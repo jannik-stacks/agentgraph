@@ -39,12 +39,12 @@ it('lets in verified Cloudflare Access emails on an allowed domain and refuses t
       await ask(await sign('ana@stackslabs.com', { key: other.privateKey })),
       await ask(),
     ]).toEqual([
-      { user: 'ana@stackslabs.com' },
-      { user: 'bo@eu.stackslabs.com' },
-      { refuse: 'eve@evilstackslabs.com is not on an allowed domain' },
-      { refuse: 'the Cloudflare Access token does not verify' },
-      { refuse: 'the Cloudflare Access token does not verify' },
-      { refuse: 'open the studio through Cloudflare Access' },
+      { kind: 'user', user: 'ana@stackslabs.com' },
+      { kind: 'user', user: 'bo@eu.stackslabs.com' },
+      { kind: 'refuse', why: 'eve@evilstackslabs.com is not on an allowed domain' },
+      { kind: 'refuse', why: 'the Cloudflare Access token does not verify' },
+      { kind: 'refuse', why: 'the Cloudflare Access token does not verify' },
+      { kind: 'refuse', why: 'open the studio through Cloudflare Access' },
     ]);
   } finally {
     jwks.close();

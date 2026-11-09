@@ -12,12 +12,12 @@ const makeSecretCheck =
     if (!secret) throw new Error(`auth ${name} needs ${variable}`);
     return ({ url, form }: AuthRequest): AuthResult => {
       const given = form?.get('secret') ?? (inUrl ? url.searchParams.get('token') : null);
-      if (given === null) return { login: '/auth/login' };
-      return isSameSecret(given, secret) ? { user: name } : { refuse: `wrong ${name}` };
+      if (given === null) return { kind: 'login', url: '/auth/login' };
+      return isSameSecret(given, secret) ? { kind: 'user', user: name } : { kind: 'refuse', why: `wrong ${name}` };
     };
   };
 
-export const none = makePlugin({ name: 'none', auth: () => () => ({ user: 'anyone' }) });
+export const none = makePlugin({ name: 'none', auth: () => () => ({ kind: 'user', user: 'anyone' }) });
 
 export const token = makePlugin({ name: 'token', auth: makeSecretCheck('token', 'AGI_STUDIO_TOKEN', true) });
 
