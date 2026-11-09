@@ -15,7 +15,7 @@ import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { Config, ConfigProvider, Effect, Redacted, Semaphore, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Fiber, Redacted, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { makeInstanceHost, makeLocalActionClient, readEngineErrors } from '../src/engine.ts';
 import type { Rpc } from 'effect/rpc';
@@ -594,20 +594,27 @@ async function runOnInstance(
 
 function watchRuns(i: Instance, issue: number) {
   const shown = new Map<string, string>();
-  const look = async () => {
-    for (const run of await listRuns(i.data, { issue }).catch((e: Error) => {
-      console.error(`Could not read runs: ${e.message}`);
-      return [];
-    })) {
-      const now = `${run.step}: ${run.status === 'running' ? 'working' : run.status}`;
-      if (shown.get(run.id) !== now) console.log(`#${issue} ${now}`);
-      shown.set(run.id, now);
-    }
-  };
-  const timer = setInterval(() => void look(), 1000);
+  const follow = (take = Infinity) =>
+    Effect.scoped(
+      Effect.flatMap(makeLocalActionClient(makeInstanceHost({ data: i.data })), client =>
+        client.watch({ issue }).pipe(
+          Stream.take(take),
+          Stream.runForEach(runs =>
+            Effect.sync(() => {
+              for (const run of runs) {
+                const now = `${run.step}: ${run.status === 'running' ? 'working' : run.status}`;
+                if (shown.get(run.id) !== now) console.log(`#${issue} ${now}`);
+                shown.set(run.id, now);
+              }
+            })
+          )
+        )
+      )
+    ).pipe(Effect.catch(e => Effect.sync(() => console.error(`Could not read runs: ${e.message}`))));
+  const fiber = Effect.runFork(follow());
   return async () => {
-    clearInterval(timer);
-    await look();
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    await Effect.runPromise(follow(1));
   };
 }
 

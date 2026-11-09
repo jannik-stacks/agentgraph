@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Effect, Stream } from 'effect';
@@ -152,4 +152,22 @@ it('refuses a call that carries no user, even through the same codec', async () 
       )
     )
   ).rejects.toThrow('log in first');
+});
+
+it('watches runs, sending a list only when it changed', async () => {
+  const { data } = await makeInstance();
+  const record = join(data, 'r1', 'run.json');
+  writeFileSync(record, readFileSync(record, 'utf8').replace('"id":"r1"', '"id":"r1","issue":1'));
+  const seen = await callLocal(makeInstanceHost({ data }), client =>
+    client.watch({}).pipe(
+      Stream.tap(() =>
+        Effect.sync(() =>
+          writeFileSync(record, readFileSync(record, 'utf8').replace('"status":"done"', '"status":"running"'))
+        )
+      ),
+      Stream.take(2),
+      Stream.runCollect
+    )
+  );
+  expect(seen.map(runs => runs.map(run => run.status))).toEqual([['done'], ['running']]);
 });

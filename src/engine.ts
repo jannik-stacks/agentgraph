@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { Effect, Layer, Schema, Stream } from 'effect';
+import { Effect, Layer, Schedule, Schema, Stream } from 'effect';
 import { HttpRouter } from 'effect/http';
 import { RpcSerialization, RpcServer } from 'effect/rpc';
 import { ActionError, Actions, ActionUser, makeActionClient, userHeader } from './actions.ts';
@@ -107,6 +107,12 @@ export const makeInstanceHost = (
   const actions = Actions.of({
     runs: ({ id }): Effect.Effect<unknown, typeof ActionError.Type> => Effect.succeed(id === undefined ? [] : null),
     results: (): Effect.Effect<unknown, typeof ActionError.Type> => Effect.succeed({ fields: [], runs: [] }),
+    watch: ({ issue }) =>
+      Stream.fromEffectSchedule(store.list(issue === undefined ? {} : { issue }), Schedule.spaced('1 second')).pipe(
+        Stream.changesWith((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+        Stream.buffer({ capacity: 1, strategy: 'sliding' }),
+        Stream.mapError(fail)
+      ),
     show: ({ issue }) =>
       Effect.gen(function* () {
         const runs = yield* store.list(issue === undefined ? {} : { issue });
