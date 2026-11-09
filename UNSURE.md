@@ -25,3 +25,10 @@ Decisions made without being sure. Each names what was picked and what would cha
 - `InstanceHost` is exported from `@jannik-stacks/agi/trackers`, not `/plugins`. `src/plugin.ts` must stay a
   leaf for the import-cycle lint, and the host type pulls in the tracker and store. A reader types its own
   host parameter; `makePlugin` infers it, so nothing checks that the served host matches at compile time.
+- **Studio auth is one gate for every served instance.** Each instance's env file and graph may pick it, but a studio
+  of several refuses to start unless they agree on the name, the plugin settings and every `AGENTGRAPH_AUTH` and
+  `AGENTGRAPH_STUDIO_*` value. A host-level studio setting would be simpler if multi-instance studios get hosted.
+- **The start token also signs sessions** when `AGENTGRAPH_STUDIO_KEY` is unset, which saves a second generated
+  secret. Anyone with the token can log in anyway, so it gives nothing extra away.
+- **The gate knows two names**: it prints the login URL for `token` and warns for `none` beyond loopback. A plugin
+  hook for start-up lines would remove that, but nothing else needs one yet.

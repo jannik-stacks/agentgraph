@@ -1,5 +1,4 @@
-import { request } from 'node:http';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,25 +19,12 @@ const makeSettingsDir = async (text: string) => {
   return dir;
 };
 
-const upgrade = (base: string, cookie = '') =>
-  new Promise<string>(resolve => {
-    const req = request(`${base}/`, {
-      headers: {
-        connection: 'Upgrade',
-        upgrade: 'websocket',
-        'sec-websocket-version': '13',
-        'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
-        'sec-websocket-protocol': 'vite-hmr',
-        cookie,
-      },
-    });
-    req.on('upgrade', (_res, socket) => {
-      socket.destroy();
-      resolve('open');
-    });
-    req.on('response', res => resolve(String(res.statusCode)));
-    req.on('error', () => resolve('closed'));
-    req.end();
+const openSocket = (base: string, cookie?: string) =>
+  new Promise<WebSocket | undefined>(resolve => {
+    const init = { protocols: ['vite-hmr'], headers: cookie ? { cookie } : {} };
+    const socket = new WebSocket(base.replace(/^http/, 'ws'), init as unknown as string[]);
+    socket.onopen = () => resolve(socket);
+    socket.onerror = () => resolve(undefined);
   });
 
 afterEach(() => {
@@ -101,6 +87,8 @@ describe('built-in auth', () => {
 
 describe('studio gate', () => {
   it('locks the API, the page and the live socket until the start token logs in', async () => {
+    const data = await mkdtemp(join(tmpdir(), 'agentgraph-auth-data-'));
+    vi.stubEnv('AGI_STUDIO_DATA', data);
     vi.stubEnv('AGENTGRAPH_AUTH', 'token');
     vi.stubEnv('AGI_STUDIO_TOKEN', 'start-token');
     vi.stubEnv('AGENTGRAPH_STUDIO_API_TOKEN', 'script-token');
@@ -123,6 +111,15 @@ describe('studio gate', () => {
         headers: { cookie: session, origin: 'https://evil.example', 'content-type': 'application/json' },
         body: '[1,"hi"]',
       });
+      const refusedSocket = await openSocket(base);
+      const socket = await openSocket(base, session);
+      const changed = new Promise<string>(resolve => {
+        socket!.onmessage = event => String(event.data).includes('agi:changed') && resolve(String(event.data));
+      });
+      await mkdir(join(data, 'run-1'));
+      await writeFile(join(data, 'run-1', 'record.json'), '{}');
+      const live = await changed;
+      socket!.close();
       expect({
         api: [api.status, await api.json()],
         page: [page.status, page.headers.get('location')],
@@ -134,7 +131,7 @@ describe('studio gate', () => {
         bearer: bearer.status,
         forged: forged.status,
         crossSite: crossSite.status,
-        socket: [await upgrade(base), await upgrade(base, session)],
+        socket: [refusedSocket, JSON.parse(live).data.topics],
       }).toEqual({
         api: [401, { error: 'log in first', login: '/auth/login' }],
         page: [302, '/auth/login'],
@@ -146,7 +143,7 @@ describe('studio gate', () => {
         bearer: 200,
         forged: 401,
         crossSite: 403,
-        socket: ['401', 'open'],
+        socket: [undefined, ['data', 'bench']],
       });
     } finally {
       await server.close();

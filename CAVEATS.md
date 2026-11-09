@@ -21,3 +21,9 @@ Rough edges known at merge time.
   next to the existing studio tsconfig path. A published `.d.ts` for the studio entry is still missing.
 - `/api/logs` now returns 404 for an instance whose `instance.yaml` fails to load, where it used to read the
   data folder anyway.
+- `/api/actions` checks same-origin against `http://<host>`, so actions fail behind an HTTPS proxy; the auth gate
+  already compares only the host. Fix in the route handlers after fix/studio-cleanup lands.
+- Password logins have no rate limit; put Cloudflare Access in front of a studio on the internet.
+- `vite preview` is not gated, and there is no logout route; a session ends after an hour idle or at restart.
+- `agi studio` has no `--auth` flag; use `AGENTGRAPH_AUTH` or `npm run dev -- --auth`.
+- The live socket stays open after its session expires; it carries only change topics.
