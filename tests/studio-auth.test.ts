@@ -196,7 +196,7 @@ describe('studio gate', () => {
     }
   });
 
-  it('opens the live socket without a login under none and words the login page per auth', async () => {
+  it('opens the live socket without a login under none', async () => {
     vi.stubEnv('AGENTGRAPH_AUTH', 'none');
     const { server, base } = await startStudioServer();
     try {
