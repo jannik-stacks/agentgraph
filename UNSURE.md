@@ -42,7 +42,8 @@ Decisions made without being sure. Each names what was picked and what would cha
 - **Studio auth is one gate for every served instance.** Each instance's env file and graph may pick it, but a studio
   of several refuses to start unless they agree on the name, the plugin settings and every `AGENTGRAPH_AUTH` and
   `AGENTGRAPH_STUDIO_*` value. A host-level studio setting would be simpler if multi-instance studios get hosted.
-- **The start token also signs sessions** when `AGENTGRAPH_STUDIO_KEY` is unset, which saves a second generated
-  secret. Anyone with the token can log in anyway, so it gives nothing extra away.
+- **The session key is a hash of every `AGENTGRAPH_AUTH` and `AGENTGRAPH_STUDIO_*` value**, so rotating any of
+  them logs everyone out, and the start token stands in for a key when `AGENTGRAPH_STUDIO_KEY` is unset. A random
+  start token changes on every restart, so `token` sessions do too, which matches its login URL.
 - **The gate knows two names**: it prints the login URL for `token` and warns for `none` beyond loopback. A plugin
   hook for start-up lines would remove that, but nothing else needs one yet.

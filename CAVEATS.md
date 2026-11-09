@@ -22,3 +22,5 @@ Rough edges known at merge time.
 - `vite preview` is not gated.
 - `agi studio` has no `--auth` flag; use `AGENTGRAPH_AUTH` or `npm run dev -- --auth`.
 - The live socket stays open after its session expires; it carries only change topics.
+- The `token` login URL carries the start token, so it lands in browser history and proxy logs. With `AGI_HOST`
+  beyond loopback, prefer `password` or Cloudflare Access.
