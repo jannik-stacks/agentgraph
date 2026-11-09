@@ -78,7 +78,8 @@ Decisions made without being sure. Each names what was picked and what would cha
   record no `image` and no `harnesses`.
 - **Claude's usage `model` is the `modelUsage` key**, one per model the session used; `assistant.message.model` is not
   read, since usage only comes from the result line. Through the proxy both name what Claude Code asked for, and pi
-  reports its configured model id too, so `harness-model` often repeats the alias.
+  reports its configured model id too. A `harness-model` label would repeat the alias, so there is none; the usage
+  `model` stays because it prices Claude Code's helper model apart from the main one.
 - **opencode and codex report no model.** Their JSON streams carry none; opencode keeps `modelID` in its session
   storage and codex the configured model in its rollout file, both the alias it was given. Reading the proxy's
   response or spend log would name the upstream model; left out until bench needs it.

@@ -127,16 +127,7 @@ describe('results', () => {
       writeFileSync(join(data, id, 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
       writeFileSync(join(data, id, 'checks.jsonl'), entries.map(e => JSON.stringify(e)).join('\n'));
     };
-    put(
-      'r1',
-      'done',
-      [
-        { at: '1', step: 'code', event: { type: 'start' } },
-        { at: '1', step: 'code', event: { type: 'usage', input: 1, output: 1, model: 'gpt-y' } },
-        { at: '1', step: 'code', event: { type: 'usage', input: 1, output: 1, model: 'gpt-x' } },
-      ],
-      [entry('2', 1), entry('3', 2, 'v0')]
-    );
+    put('r1', 'done', [{ at: '1', step: 'code', event: { type: 'start' } }], [entry('2', 1), entry('3', 2, 'v0')]);
     put('r2', 'stopped', [], []);
     writeFileSync(join(data, 'r2', 'labels.jsonl'), '{"key":"engine","value":"written"}\n');
     const { fields, runs } = readRunResults(data, {
@@ -149,12 +140,7 @@ describe('results', () => {
       meta: { engine: { origin: { plugin: 'bench' } } },
     });
     expect(runs.map(r => r.axes)).toEqual([
-      expect.objectContaining({
-        engine: 'v1-dirty',
-        image: '0123456789ab',
-        harnesses: 'pi@1.1.0',
-        'harness-model': 'gpt-x, gpt-y',
-      }),
+      expect.objectContaining({ engine: 'v1-dirty', image: '0123456789ab', harnesses: 'pi@1.1.0' }),
       expect.objectContaining({ engine: 'written', harnesses: 'pi@1.1.0' }),
     ]);
     expect(runs.find(r => r.key === 'r1')!.results['run-stats']).toEqual({ at: '2', pass: true, value: { usd: 1 } });

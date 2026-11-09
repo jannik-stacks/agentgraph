@@ -131,7 +131,6 @@ export const readRunUsage = (data: string, id: string) => {
   const checks = readJsonlRows(join(data, id, 'checks.jsonl')) as CheckEntry[];
   const sessions = traces.flatMap(t => (t.session ? [t.session as { usd: number }] : []));
   const models: Record<string, string> = {};
-  const reportedModels = new Set<string>();
   const tokens: Record<string, TokenCounts> = {};
   const split = { agent: 0, tools: 0, setup: 0, checks: 0 };
   for (const e of checks) if (e.item === undefined && !e.later) split.checks += e.check.ms ?? 0;
@@ -151,7 +150,6 @@ export const readRunUsage = (data: string, id: string) => {
     if (t.session && Number.isFinite(when - opened[key]!)) split.agent += when - opened[key]!;
     if (e.type === 'start' && e.model) models[key] = e.model;
     if (e.type !== 'usage') continue;
-    if (e.model) reportedModels.add(e.model);
     const [read, write] = [e.cacheRead ?? 0, e.cacheWrite ?? 0];
     const sum = (tokens[models[key] ?? 'unknown'] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
     sum.input += (e.input ?? 0) - read - write;
@@ -166,7 +164,6 @@ export const readRunUsage = (data: string, id: string) => {
     ms: times.length ? Math.max(...times) - Math.min(...times) : 0,
     tokens,
     split,
-    reportedModels: [...reportedModels],
   };
 };
 
@@ -280,7 +277,6 @@ const readRow = (
       const sum = (tokens[m] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
       for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) sum[k] += t[k];
     }
-  const reportedModels = [...new Set(usage.flatMap(u => u.reportedModels ?? []))].toSorted();
   const total = (k: 'usd' | 'checkUsd' | 'sessions' | 'ms') => getRounded(usage.reduce((n, u) => n + u[k], 0));
   const part = (k: keyof (typeof usage)[number]['split']) => usage.reduce((n, u) => n + u.split[k], 0);
   const split = {
@@ -297,7 +293,6 @@ const readRow = (
   return {
     labels: {
       ...makeVersionLabels(run.versions),
-      ...(reportedModels.length > 0 && { 'harness-model': reportedModels.join(', ') }),
       ...labels,
       ...readCaseLabels(set, id),
       ...setup?.labels,
