@@ -775,7 +775,7 @@ describe('scanIssuesAndRunningRuns', () => {
     expect(most).toBe(2);
   });
 
-  it('parks a run whose session dies with a runner error and drives the others on', async () => {
+  it('parks a run whose session dies with an engine error and drives the others on', async () => {
     const where = world();
     writeIssueAt(
       issuePath(where.tracker, 8),
@@ -792,7 +792,7 @@ describe('scanIssuesAndRunningRuns', () => {
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status, r.reason]).toSorted()).toEqual([
       [7, 'waiting', 'Which file?'],
-      [8, 'waiting', 'Stopped by a runner error.'],
+      [8, 'waiting', 'Stopped by an engine error.'],
     ]);
   });
 });

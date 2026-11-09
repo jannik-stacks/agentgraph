@@ -57,7 +57,7 @@ no-comment src/github.ts 20
 no-comment src/graph.ts 3
 no-comment src/harnesses.ts 5
 no-comment src/main.ts 1
-no-comment src/proposal.ts 3
+no-comment src/proposal.ts 2
 no-comment src/run/attempt.ts 10
 no-comment src/run/check.ts 8
 no-comment src/run/checkout.ts 4
@@ -163,6 +163,7 @@ verb-first bench/start-runs.ts nodePath
 verb-first bench/start-runs.ts spendGuard
 verb-first bin/bench.ts codexUsed
 verb-first bin/bench.ts couplings
+verb-first bin/bench.ts engineError
 verb-first bin/bench.ts failureClass
 verb-first bin/bench.ts harnessError
 verb-first bin/bench.ts hiddenShare
@@ -171,7 +172,6 @@ verb-first bin/bench.ts orders
 verb-first bin/bench.ts pad
 verb-first bin/bench.ts plant
 verb-first bin/bench.ts repoint
-verb-first bin/bench.ts runnerError
 verb-first bin/bench.ts scrub
 verb-first bin/bench.ts stats
 verb-first bin/bench.ts unpriced

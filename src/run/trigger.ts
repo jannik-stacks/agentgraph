@@ -1,6 +1,6 @@
 import { matchesGlob } from 'node:path';
 import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
-import { formatEventLine, stoppedByRunner } from '../context.ts';
+import { formatEventLine, stoppedByEngine } from '../context.ts';
 import { Tracker, TrackerError, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
@@ -114,7 +114,7 @@ export const instruct = (
           yield* store.lock(before.id);
           const run = yield* store.get(before.id);
           if (!run || !isParked(run))
-            return yield* new TrackerError({ message: `run ${before.id} is not parked by a runner error` });
+            return yield* new TrackerError({ message: `run ${before.id} is not parked by an engine error` });
           const workflow = graph.workflows[run.workflow];
           if (!workflow?.steps.some(s => s.name === run.step))
             return yield* new TrackerError({ message: `the graph has no step ${run.workflow}/${run.step}` });
@@ -213,13 +213,13 @@ export const issueDebounceMs = 30_000;
 
 const logged = (r: Run) => (e: StoreError) => Effect.as(Effect.logError(`run ${r.id}`, e), r);
 
-const runnerRetry = 'Tried again after a runner error. Go on from where the run was.';
+const engineRetry = 'Tried again after an engine error. Go on from where the run was.';
 
-const isRunnerRetryDue = (id: string) =>
+const isEngineRetryDue = (id: string) =>
   Effect.map(
     Effect.flatMap(Store, s => Stream.runCollect(s.read(id))),
     trace => {
-      const tries = trace.filter(t => 'outcome' in t && t.outcome.kind === 'answer' && t.outcome.text === runnerRetry);
+      const tries = trace.filter(t => 'outcome' in t && t.outcome.kind === 'answer' && t.outcome.text === engineRetry);
       const last = trace.at(-1)?.at;
       return tries.length < 5 && (!last || Date.now() - Date.parse(last) >= 600_000 * 2 ** tries.length);
     }
@@ -443,7 +443,7 @@ export const tick = (
                         again: true,
                       };
                     return {
-                      run: yield* writeStatus(w, { ...seen, reason: `${stoppedByRunner}.`, retried: true }, graph),
+                      run: yield* writeStatus(w, { ...seen, reason: `${stoppedByEngine}.`, retried: true }, graph),
                       again: true,
                     };
                   })
@@ -477,9 +477,9 @@ export const tick = (
         const child = all.find(
           c => c.by === parent.id && parent.reason === formatWaitingOn(c) && c.status !== 'running'
         );
-        const due = !child && parent.reason?.startsWith(stoppedByRunner) && (yield* isRunnerRetryDue(parent.id));
+        const due = !child && parent.reason?.startsWith(stoppedByEngine) && (yield* isEngineRetryDue(parent.id));
         if (!w || (!child && !due)) return;
-        const outcome: Outcome = { kind: 'answer', text: child ? formatSettled(child) : runnerRetry };
+        const outcome: Outcome = { kind: 'answer', text: child ? formatSettled(child) : engineRetry };
         const next = transition(w, parent, outcome);
         yield* record(parent, outcome, child ? next : yield* writeMovedStatus(w, parent, next, graph));
       }).pipe(Effect.scoped);

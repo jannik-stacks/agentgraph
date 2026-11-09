@@ -109,7 +109,7 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
   };
 }
 
-export const stoppedByRunner = 'Stopped by a runner error';
+export const stoppedByEngine = 'Stopped by an engine error';
 
 const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
   run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)
@@ -144,7 +144,7 @@ export function proposeQuestion(before: Run | undefined, run: Run, t: IssueWithP
   const events = [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.trusted && !bot(m));
   const pull = (t.pull ?? (t.issue.pull ? t.issue : undefined))?.url;
   const who = events.toSorted((a, b) => a.at.localeCompare(b.at)).at(-1)?.actor ?? t.issue.author;
-  const text = `@${who} ${run.reason.startsWith(stoppedByRunner) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;
+  const text = `@${who} ${run.reason.startsWith(stoppedByEngine) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;
   return [{ kind: 'comment' as const, body: formatUpdate(text, run, pull, studio) }];
 }
 

@@ -74,7 +74,7 @@ const table: [verb: string, args: string | undefined, flags: (keyof typeof own)[
   ['export', 'n', ['as', 'patch'], "writes issue n's branch into your repo again"],
   ['close', 'n', [], 'closes issue n'],
   ['check', 'check', ['runs', 'issue', 'workflow'], 'validates the graph, or runs checks again on ended runs'],
-  ['resume', 'run', ['parked'], 'queues runs parked by runner errors for the next loop pass'],
+  ['resume', 'run', ['parked'], 'queues runs parked by engine errors for the next loop pass'],
   ['dispatch', 'n text', ['workflow', 'step'], 'starts any workflow on issue n, asked the text; --step picks the step'],
   ['studio', undefined, [], 'starts the studio for this repo and prints its URL'],
   ['prune-logs', undefined, ['apply'], 'counts the check logs no run names, or deletes them'],

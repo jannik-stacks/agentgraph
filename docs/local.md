@@ -49,7 +49,7 @@ Without a graph, commands that need one stop with a copy command. An `.agentgrap
 
 `start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends. While an `agi loop` holds the checkout's lock, they only post and the loop picks the issue up. Only one loop runs per checkout; one loop can serve several, see [below](#one-loop-for-several-instances). <!-- code: src/owner.ts#createLoopLock src/owner.ts#readLoopHolder -->
 
-After a drive the CLI prints why the run waits or stopped and the next commands. A runner error, such as a harness that cannot reach its model, makes the run wait; the drive and `agi show <n>` print its cause and trace path. A login the provider rejects stops the run, and for `claude` the CLI says how to drop the saved token. <!-- code: src/status.ts#formatRunnerError -->
+After a drive the CLI prints why the run waits or stopped and the next commands. An engine error, such as a harness that cannot reach its model, makes the run wait; the drive and `agi show <n>` print its cause and trace path. A login the provider rejects stops the run, and for `claude` the CLI says how to drop the saved token. <!-- code: src/status.ts#formatEngineError -->
 
 Ctrl-C stops a drive; the run goes on at the next drive, such as `agi say 1 "go on"`. A second Ctrl-C quits at once. <!-- code: src/main.ts#start -->
 

@@ -98,7 +98,7 @@ export type Run = {
   answers?: { asked: string; said: string }[];
   reason?: string;
   restarted?: true;
-  /** A runner error has already been retried at this step. */
+  /** An engine error has already been retried at this step. */
   retried?: true;
   /** The time of the newest event the run has taken in: its start, answers, and everything its sessions were shown. */
   seen?: string;

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { stoppedByRunner } from '../src/context.ts';
+import { stoppedByEngine } from '../src/context.ts';
 import { instruct, tick } from '../src/run/trigger.ts';
 import { Tracker } from '../src/tracker.ts';
 import { isOnIssue } from '../src/graph.ts';
@@ -26,7 +26,7 @@ const graph = { ...small, workflows: { retro: flow } };
 const parked = (id: string): Run => ({
   ...begin(flow, { id, issue: 7, started: '2026-10-16T00:00:01.000Z' }),
   status: 'waiting',
-  reason: `${stoppedByRunner} (SessionStop). Reply to try implement again from where it was.`,
+  reason: `${stoppedByEngine} (SessionStop). Reply to try implement again from where it was.`,
   retried: true,
   feedback: 'Keep the original feedback.',
 });
@@ -77,7 +77,7 @@ describe('resume', () => {
       await run(settleLongAgo('issue-7'));
       const { reason: _reason, ...working } = parked('retro-7');
       const paused = await run(runWorkflow(flow, { ...working, status: 'running' }, combined));
-      expect(paused.reason).toContain(stoppedByRunner);
+      expect(paused.reason).toContain(stoppedByEngine);
       expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual(['/agent']);
       expect(findStatus(where.tracker, 7)).toBe('done');
       const next = services(where, [[start('r'), reply()]]);
@@ -93,17 +93,17 @@ describe('resume', () => {
         findRunsWaitingOnPeople([paused])
           .flatMap(r => formatNextSteps(r))
           .join('\n')
-      ).toContain('retro-7 retro #7 is waiting: Stopped by a runner error.');
+      ).toContain('retro-7 retro #7 is waiting: Stopped by an engine error.');
     },
     60_000
   );
 
-  it('selects only runner errors when resuming all parked runs', async () => {
+  it('selects only engine errors when resuming all parked runs', async () => {
     const { run } = services(world(), []);
     const { retried: _retried, ...notRetried } = parked('not-retried');
     const runs: Run[] = [
       parked('retro-1'),
-      { ...parked('retro-2'), reason: `${stoppedByRunner} (SandboxError). Reply to try again.` },
+      { ...parked('retro-2'), reason: `${stoppedByEngine} (SandboxError). Reply to try again.` },
       { ...parked('question'), reason: 'Which version?' },
       { ...parked('cancelled'), reason: 'Cancelled by a person.' },
       { ...parked('done'), status: 'done' },
@@ -135,7 +135,7 @@ describe('resume', () => {
 
   it.each([
     ['missing', 'no run absent'],
-    ['question', 'run question is not parked by a runner error'],
+    ['question', 'run question is not parked by an engine error'],
     ['unknown-step', 'the graph has no step retro/gone'],
   ])('rejects %s without changing the run', async (id, message) => {
     const { run } = services(world(), []);

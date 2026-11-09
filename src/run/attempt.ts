@@ -77,7 +77,7 @@ export const shapes: Record<Said['kind'], string> = {
   ].join('\n'),
   ask: [
     '{"kind":"ask","question":"<for the maintainer, about the change: a decision only they can make>"}',
-    '{"kind":"ask","runner":"<what in the sandbox, checkout, network or tools blocks you; the runner retries it, no person is asked>"}',
+    '{"kind":"ask","runner":"<what in the sandbox, checkout, network or tools blocks you; the engine retries it, no person is asked>"}',
   ].join('\n'),
   back: '{"kind":"back","why":"..."}',
   run: '{"kind":"run","workflow":"<name of a agentgraph workflow to start; run a command with your shell tool instead>","issue":1,"step":"<optional: the step to start at>"}',
@@ -230,7 +230,7 @@ export const pickTryOutcome = (o: {
     return fail([
       ...problems,
       unpushed
-        ? 'files changed but nothing was pushed: end with a push proposal, which the runner commits and pushes, or ask'
+        ? 'files changed but nothing was pushed: end with a push proposal, which the engine commits and pushes, or ask'
         : 'a pass needs a pull request or an ask',
     ]);
   if (
@@ -348,7 +348,7 @@ export const runAttempt = (
       const diff = step.back && !step.each && !kept ? yield* readCheckoutDiff(work) : '';
       if (agent.reads) yield* writeTraces(graph, run.issue, run.id, work);
       const ending = [
-        'End your reply with a fenced agentgraph block holding a JSON array of proposals. The runner commits, pushes,',
+        'End your reply with a fenced agentgraph block holding a JSON array of proposals. The engine commits, pushes,',
         'opens pull requests and posts comments from them, so do not commit, push or run gh yourself. The shape of each kind:',
         ...kinds.map(k => shapes[k as keyof typeof shapes]),
       ].join('\n');
@@ -366,7 +366,7 @@ export const runAttempt = (
           `Work on the branch ${own ?? formatTemplate(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? formatTemplate(w.base, issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         step.checks.length > 0 &&
-          `When you stop, the runner checks the change: ${step.checks
+          `When you stop, the engine checks the change: ${step.checks
             .map(n => (graph.checks[n]?.run ? `${n} runs \`${graph.checks[n].run}\`` : n))
             .join(', ')}.`,
         answering &&

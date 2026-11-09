@@ -52,7 +52,7 @@ import {
   formatIssueList,
   formatIssueTimeline,
   formatNextSteps,
-  formatRunnerError,
+  formatEngineError,
   formatShellWord,
 } from '../src/status.ts';
 import { isOnIssue } from '../src/graph.ts';
@@ -117,17 +117,17 @@ const relabel = async (data: string) => {
 const listRuns = (data: string, filter: Parameters<Store['Service']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
 const printRuns = (runs: RunRecord[], tag = '') => {
-  if (verb === 'resume' && !runs.length) console.log('0 runs parked by runner errors');
+  if (verb === 'resume' && !runs.length) console.log('0 runs parked by engine errors');
   for (const run of runs)
     console.log(`${tag}${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
-const formatRunnerErrors = async (data: string, runs: Run[]) => {
+const formatEngineErrors = async (data: string, runs: Run[]) => {
   const lines: string[] = [];
   for (const run of runs.filter(r => r.status === 'waiting' && r.retried)) {
     const trace = await Effect.runPromise(
       Effect.flatMap(Store, s => Stream.runCollect(s.read(run.id))).pipe(Effect.provide(fileStore(data)))
     );
-    lines.push(...formatRunnerError([...trace], join(data, run.id, 'trace.jsonl')));
+    lines.push(...formatEngineError([...trace], join(data, run.id, 'trace.jsonl')));
   }
   return lines;
 };
@@ -710,7 +710,7 @@ async function report(
       if (why) console.log(why);
     }
   }
-  for (const line of await formatRunnerErrors(i.data, runs)) console.log(line);
+  for (const line of await formatEngineErrors(i.data, runs)) console.log(line);
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
   const steps = merged
     ? merge
@@ -961,7 +961,7 @@ async function showAll(i: Instance, tracker: Tracker['Service']) {
     ...findRunsWaitingOnPeople(runs).flatMap(run =>
       formatNextSteps(run, scope.env.AGENTGRAPH_TRACKER === 'github' ? scope.env.AGENTGRAPH_REPO : undefined, selected)
     ),
-    ...(await formatRunnerErrors(i.data, runs)),
+    ...(await formatEngineErrors(i.data, runs)),
   ];
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
   console.log(formatIssueList(await Effect.runPromise(tracker.issues())));
@@ -974,7 +974,7 @@ async function showIssue(tracker: Tracker['Service'], issue: number, i: Instance
     const diff = join(findIssueDir(i.tracker, k), 'diff.patch');
     console.log(formatIssueTimeline(t, existsSync(diff) ? readFileSync(diff, 'utf8') : ''));
   }
-  for (const line of await formatRunnerErrors(i.data, await listRuns(i.data, { issue }))) console.log(line);
+  for (const line of await formatEngineErrors(i.data, await listRuns(i.data, { issue }))) console.log(line);
 }
 
 async function showInstances(root: string) {

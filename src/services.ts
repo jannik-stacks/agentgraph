@@ -143,7 +143,7 @@ const readHostPlugins = async (graph?: PluginGraph) => {
 };
 
 const whereLoaded = {
-  runner: 'a runner loads it only from a graph on the host, with --dir',
+  runner: 'the engine loads it only from a graph on the host, with --dir',
   auth: 'the studio loads it only from a graph on the host',
 };
 
@@ -237,7 +237,7 @@ export const pickTracker = async (
   const dir = named ? undefined : resolve(name);
   if (named && graph?.fromRepo && !builtins.some(b => b.name === name))
     return {
-      problem: `tracker ${name} is a plugin of a graph read from the repo; a runner loads it only from a graph on the host, with --dir`,
+      problem: `tracker ${name} is a plugin of a graph read from the repo; the engine loads it only from a graph on the host, with --dir`,
     };
   if (!named && names.includes(name)) return { problem: `plugin ${name} has no tracker` };
   if (dir !== undefined && !existsSync(dir))

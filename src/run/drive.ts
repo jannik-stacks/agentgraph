@@ -5,7 +5,7 @@ import type { Graph } from '../folder.ts';
 import { type StoreError, Store } from '../store.ts';
 import { type TrackerError, Tracker } from '../tracker.ts';
 import { type SessionStop, makeOutcomeLine } from '../trace.ts';
-import { stoppedByRunner, context } from '../context.ts';
+import { stoppedByEngine, context } from '../context.ts';
 import { Sandbox, SandboxError, formatCause } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout } from '../git.ts';
 import {
@@ -71,7 +71,7 @@ const rejected = 'the model provider rejected the key or login. Fix it, then sta
 
 /**
  * Hears what was said while the run waited, runs the graph's setup, tries until the run stops running, then runs the end
- * checks it left owed. A runner error is retried once, then parks the run at its step, so an
+ * checks it left owed. An engine error is retried once, then parks the run at its step, so an
  * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
  */
 export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Services> =>
@@ -200,7 +200,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     });
     const halt = (e: SandboxError | SessionStop | TrackerError) => {
       const why = formatFailure(e);
-      const said = `${stoppedByRunner}.`;
+      const said = `${stoppedByEngine}.`;
       if (e._tag === 'SessionStop' && e.reason === 'human')
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: 'Stopped by a person.' }));
       if (e._tag === 'SessionStop' && e.reason === 'login')

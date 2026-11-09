@@ -9,19 +9,19 @@ Agents have no GitHub token. They ask the engine for writes with proposals: a re
 
 ## Kinds
 
-| Kind           | Fields                                                                            | Effect                                                                                                                                        |
-| -------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `comment`      | `body`, optional `under`                                                          | [Reply](#comments) where a person spoke                                                                                                       |
-| `label`        | `add`, `remove`                                                                   | Change labels, except trigger labels                                                                                                          |
-| `push`         | `branch`, `message`                                                               | [Commit and push](#pushes) the checkout                                                                                                       |
-| `pull_request` | `branch`, `base`, `title`, `body`                                                 | Open a pull request, or update the open one for that branch                                                                                   |
-| `merge`        | `number`, `head`                                                                  | Merge the run's pull request if its head still matches                                                                                        |
-| `issue`        | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues)                                                                                                               |
-| `ask`          | `question`                                                                        | Post a question and wait                                                                                                                      |
-| `ask`          | `runner`                                                                          | Report a sandbox, checkout, network or tool problem; the engine handles it as a [runner error](workflows.md#order-and-limits) and asks no one |
-| `back`         | `why`                                                                             | [Return to an earlier step](workflows.md#tries-and-going-back)                                                                                |
-| `run`          | `workflow`, `issue`, optional `step`                                              | [Dispatch](workflows.md#dispatch) a workflow and wait                                                                                         |
-| `tell`         | `issue`, `text`                                                                   | [Forward text](workflows.md#routing) to a live run                                                                                            |
+| Kind           | Fields                                                                            | Effect                                                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `comment`      | `body`, optional `under`                                                          | [Reply](#comments) where a person spoke                                                                                                        |
+| `label`        | `add`, `remove`                                                                   | Change labels, except trigger labels                                                                                                           |
+| `push`         | `branch`, `message`                                                               | [Commit and push](#pushes) the checkout                                                                                                        |
+| `pull_request` | `branch`, `base`, `title`, `body`                                                 | Open a pull request, or update the open one for that branch                                                                                    |
+| `merge`        | `number`, `head`                                                                  | Merge the run's pull request if its head still matches                                                                                         |
+| `issue`        | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues)                                                                                                                |
+| `ask`          | `question`                                                                        | Post a question and wait                                                                                                                       |
+| `ask`          | `runner`                                                                          | Report a sandbox, checkout, network or tool problem; the engine handles it as an [engine error](workflows.md#order-and-limits) and asks no one |
+| `back`         | `why`                                                                             | [Return to an earlier step](workflows.md#tries-and-going-back)                                                                                 |
+| `run`          | `workflow`, `issue`, optional `step`                                              | [Dispatch](workflows.md#dispatch) a workflow and wait                                                                                          |
+| `tell`         | `issue`, `text`                                                                   | [Forward text](workflows.md#routing) to a live run                                                                                             |
 
 An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, `ask` and `back` included, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#Kind src/proposal.ts#Proposal src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
 
@@ -34,7 +34,7 @@ An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a ste
 
 A missing block, invalid JSON, wrong fields or a kind the step may not use fails the try, with the expected shape as feedback. A kind it may not use fails the try before anything applies, an `ask` included. <!-- code: src/run/attempt.ts#runAttempt -->
 
-A refused write fails the try. Any other GitHub error is a [runner error](workflows.md#order-and-limits), never a question to the person. The try's sessions are kept, so the retry resumes them. A push that hits such an error still lets the thread replies after it post first.
+A refused write fails the try. Any other GitHub error is an [engine error](workflows.md#order-and-limits), never a question to the person. The try's sessions are kept, so the retry resumes them. A push that hits such an error still lets the thread replies after it post first.
 
 ## Comments
 

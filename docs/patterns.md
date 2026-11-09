@@ -1,6 +1,6 @@
 # Engine and code
 
-The engine is the runner code in `src/`. [STYLE.md](../STYLE.md) has the code rules.
+The engine is the code in `src/`. [STYLE.md](../STYLE.md) has the code rules.
 
 ## Where everything lives
 
@@ -11,7 +11,7 @@ The engine is the runner code in `src/`. [STYLE.md](../STYLE.md) has the code ru
       │                          v
 ┌─────────────────────────────────────────────────────────────────┐
 │ host                                                            │
-│  runner process = the engine                                    │
+│  engine process                                                 │
 │    looks at the repo, begins and drives runs                    │
 │    pushes and opens pull requests through the Git API           │
 │         │                                 │                     │

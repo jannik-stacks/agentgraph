@@ -438,7 +438,7 @@ describe('a run branch that moved', () => {
     );
     const ended = await drive();
     expect(ended.status).toBe(status);
-    expect(ended.reason?.startsWith('Stopped by a runner error') ?? false).toBe(status === 'waiting');
+    expect(ended.reason?.startsWith('Stopped by an engine error') ?? false).toBe(status === 'waiting');
     expect(await replies()).toEqual([
       [`Socket Firewall.\n\n${unpushed}`, 'r1'],
       ...(status === 'done' ? [] : [[expect.stringMatching(/^@morgan Paused on an agentgraph problem/), undefined]]),
