@@ -11,7 +11,12 @@
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@jannik-stacks/agi/plugins": ["./src/plugin.ts"],
+      "@jannik-stacks/agi/trackers": ["./src/trackers.ts"],
+      "@jannik-stacks/agi/runners": ["./src/runners.ts"]
+    }
   },
-  "include": ["src", "tests", "bin", "tune", "bench", "harnesses", "agentgraph.config.ts"]
+  "include": ["src", "tests", "bin", "tune", "bench", "harnesses", "agentgraph.config.ts", "examples/plugins"]
 }

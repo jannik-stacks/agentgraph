@@ -41,7 +41,7 @@ export const makeBoxRunner = (
         secrets: Record<string, string>,
         network: Command['network'],
         id: string
-      ) => Stream.Stream<string, SandboxError>;
+      ) => Stream.Stream<string | Pick<CommandExit, 'code'>, SandboxError>;
     },
     SandboxError,
     Scope.Scope
@@ -247,8 +247,8 @@ export const makeBoxRunner = (
                     return { code };
                   });
                   return box.run(argv, secrets, c.network, id).pipe(
-                    Stream.filter(line => {
-                      code = line.startsWith(exitFrame) ? Number(line.slice(exitFrame.length)) : undefined;
+                    Stream.filter((piece): piece is string => {
+                      code = typeof piece === 'string' ? undefined : piece.code;
                       return code === undefined;
                     }),
                     Stream.concat(Stream.fromEffect(ended)),
@@ -361,7 +361,13 @@ export const boxRunner = (o: { url: string; data: string }): Layer.Layer<Runner>
               return Stream.fromReadableStream({
                 evaluate: () => response.body!,
                 onError: e => infra(`box run: ${(e as Error).message}`),
-              }).pipe(Stream.decodeText(), Stream.splitLines);
+              }).pipe(
+                Stream.decodeText(),
+                Stream.splitLines,
+                Stream.map(line =>
+                  line.startsWith(exitFrame) ? { code: Number(line.slice(exitFrame.length)) } : line
+                )
+              );
             })
           ),
       };

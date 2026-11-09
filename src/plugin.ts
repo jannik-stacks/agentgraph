@@ -113,14 +113,23 @@ export const tool = <A, I, S = undefined>(definition: {
   });
 };
 
-export const makePlugin = <S = undefined, D = unknown, I = D, T = unknown, E = undefined, H = never>(
+export const makePlugin = <
+  S = undefined,
+  D = unknown,
+  I = D,
+  T = unknown,
+  E = undefined,
+  H = never,
+  RH = never,
+  R = unknown,
+>(
   definition: Omit<
     typeof PluginFile.Type,
     'settingsSchema' | 'tools' | 'studio' | 'on' | 'tracker' | 'engine' | 'runner'
   > & {
     tracker?: (host: TrackerHost) => T;
     engine?: (host: H, settings: S) => E;
-    runner?: (host: never, settings: S) => unknown;
+    runner?: (host: RH, settings: S) => R;
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Codec<D, I>;
       read: (settings: S, engine: E) => Effect.Effect<D, unknown>;

@@ -142,8 +142,21 @@ How boxes differ from docker:
 
 - One checkout has one box. The work tree, home and graph go in before each command, and changes come back as git objects. Ignored folders such as `node_modules` stay in the box.
 - A box's egress follows the commands running in it, so a check beside a session shares its reach.
-- A graph `image` is refused. A restarted box gets files and toolchain back, but not `setup`.
+- `agi check` refuses a graph `image`, memory or cpu limits and host tools. A restarted box gets files and toolchain back, but not `setup`.
 - A box idle for 30 minutes saves `/work` and `/homes` to `kept/<id>.tgz` in the bucket.
 - Processes are found by `AGENTGRAPH_RUN` in their environment; one that drops it outlives its command.
 
 `/data` is restored from R2 at start and saved every five minutes and on stop, with the previous copy kept. A crash can lose five minutes of run state. A failed restore stops the engine instead of starting empty. The studio does not run here, and a ChatGPT login needs a LiteLLM elsewhere as the gateway.
+
+## Modal
+
+`examples/plugins/modal/modal.ts` is a [runner plugin](plugins.md#runners) that runs each checkout in a Modal sandbox. Copy it into the host graph's `plugins/`, run `npm install modal` in that graph folder, and set `AGENTGRAPH_RUNNER=modal`, `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the instance's env file. `settings.yaml` names the image, which Modal pulls from a registry and which needs `git`, `setpriv` and `timeout`:
+
+```yaml
+plugins:
+  modal:
+    image: ghcr.io/you/agentgraph-sandbox:1
+network: models
+```
+
+The engine stays on your host with the checkouts; only commands run in Modal. A Modal sandbox has one network for its life, so a box reaches either nothing or the model gateway's addresses. `agi check` refuses a graph that runs sessions on the egress network, sessions beside checks or steps that run commands without network, or a gateway that is not a public HTTPS URL. Boxes left from a crash are terminated when the runner next starts. <!-- code: examples/plugins/modal/modal.ts#makeModalRunner examples/plugins/modal/modal.ts#whyModalRefuses -->

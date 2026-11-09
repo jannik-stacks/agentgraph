@@ -57,6 +57,8 @@ const toolTests = [
   'tests/propose.test.ts',
   'tests/provider-guidance.test.ts',
   'tests/readonly.e2e.test.ts',
+  'tests/runner-contract.test.ts',
+  'tests/modal.test.ts',
   'tests/record-root.test.ts',
   'tests/remote.test.ts',
   'tests/result.test.ts',
@@ -87,6 +89,14 @@ const toolTests = [
 ];
 
 export default defineConfig({
+  resolve: {
+    alias: Object.fromEntries(
+      ['plugins', 'trackers', 'runners'].map(name => [
+        `@jannik-stacks/agi/${name}`,
+        new URL(`./src/${name === 'plugins' ? 'plugin' : name}.ts`, import.meta.url).pathname,
+      ])
+    ),
+  },
   plugins: [
     {
       name: 'studio-page-manifest-tests',

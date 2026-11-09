@@ -5,6 +5,7 @@ import { boxRunner } from './remote.ts';
 import { SandboxError } from './sandbox.ts';
 
 export { makeBoxRunner } from './remote.ts';
+export { Runner, SandboxError } from './sandbox.ts';
 
 export const local = makePlugin({
   name: 'local',
