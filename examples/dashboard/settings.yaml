@@ -1,0 +1,20 @@
+plugins:
+  dashboard:
+    data: /path/to/instance/data
+    widgets:
+      - title: Runs this week
+        type: counter
+        source: runs
+        days: 7
+      - title: Check attempts
+        type: bar
+        source: checks
+        days: 14
+      - title: Tokens
+        type: line
+        source: tokens
+        days: 7
+      - title: Reported cost
+        type: table
+        source: cost
+        days: 7

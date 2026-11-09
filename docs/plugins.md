@@ -187,6 +187,13 @@ studio after registrations change. Preview needs a host API for live data.
 
 The header lists the studio's own pages first: Graph, Runs, the built-in Results and Bench, then Docs. Page plugins from the graph sit in a second group beside them, which shows only when there is one.
 
+The [dashboard experiment](../examples/dashboard/README.md) uses this same seam for configurable
+run states, check attempts, tokens and reported cost. Its `plugins.dashboard` settings select a
+data folder and a list of counter, line, bar or table widgets with UTC time windows.
+It reads the existing store and refreshes through the studio's existing live connection.
+It adds no storage or chart dependency.
+<!-- code: examples/dashboard/plugins/dashboard.ts examples/dashboard/plugins/dashboard/read.ts#readDashboard -->
+
 Results and Bench are built-in plugins using this same descriptor, data endpoint and hook. They keep
 `/results` and `/bench` and need no graph-local file; both names are reserved. Bench is one page over
 every served instance and every set from `npm run dev -- --bench <sets>` ([Bench](bench.md#cost-against-quality)). Results
