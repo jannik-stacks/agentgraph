@@ -3,6 +3,7 @@ import { type Workflow, transition, isRunDone } from '../workflow.ts';
 import type { Issue } from '../event.ts';
 import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
+import { readEngineVersions } from '../meta.ts';
 import { Tracker } from '../tracker.ts';
 import { makeOutcomeLine } from '../trace.ts';
 import { stoppedByRunner, context } from '../context.ts';
@@ -134,8 +135,20 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       const made = yield* Effect.flatMap(Sandbox, s =>
         s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, { ...graph, readonly })
       );
-      if (current.graphTree === undefined)
-        yield* store.put((current = { ...current, graphTree: yield* ensureGraphRef(made.git, graph.dir) }));
+      if (current.graphTree === undefined) {
+        const image = made.image;
+        const versions = {
+          ...(yield* readEngineVersions),
+          ...(image && {
+            image: image.id,
+            harnesses: Object.fromEntries(
+              Object.values(graph.agents).map(a => [a.harness, (a.package && image.packages[a.package]) || 'unknown'])
+            ),
+          }),
+        };
+        const graphTree = yield* ensureGraphRef(made.git, graph.dir);
+        yield* store.put((current = { ...current, graphTree, versions }));
+      }
       if (own && made.saved) {
         const message = yield* readGit(made.git, ['log', '-1', '--format=%B', made.saved]);
         const from =

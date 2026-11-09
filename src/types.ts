@@ -94,6 +94,14 @@ const RunFields = {
   onto: Schema.optionalKey(Schema.Struct({ sha: Schema.String, merge: Flag })),
   graph: Text,
   graphTree: Text,
+  versions: Schema.optionalKey(
+    Schema.Struct({
+      engine: Schema.String,
+      config: Text,
+      image: Text,
+      harnesses: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+    })
+  ),
   blocked: Schema.optionalKey(Schema.Struct({ base: Schema.String, head: Schema.String, graph: Schema.String })),
   by: Text,
   checkout: Schema.optionalKey(Schema.Struct({ branch: Text, base: Schema.String })),
@@ -165,7 +173,6 @@ export type Checkout = {
   news: string;
   /** How many files the checkout's commands wrote over the shared cache so far, when the sandbox can tell. */
   written?: () => Promise<number | undefined>;
-  /** The Docker image the checkout runs in and its global npm packages with their versions. */
   image?: { id: string; packages: Record<string, string> };
 };
 

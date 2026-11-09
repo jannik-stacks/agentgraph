@@ -260,6 +260,40 @@ describe('drive', () => {
     expect((globalThis as { found?: unknown }).found).toEqual(expect.any(Array));
   });
 
+  it('stamps the image and the harness versions it holds', async () => {
+    const docker = fakeDocker({ 'image inspect': 'sha256:stamped' });
+    const where = world();
+    const small = makeTestGraph('graph');
+    const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
+    const agents = Object.fromEntries(
+      Object.entries(small.agents).map(([n, a]) => [n, { ...a, package: 'opencode-ai' }])
+    );
+    const layer = Layer.mergeAll(
+      folderTracker(where.tracker),
+      fileStore(where.data),
+      dockerSandbox({ data: where.data, origin: where.origin, cache: '' }),
+      replaySession([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]])
+    );
+    const asked = await Effect.runPromise(
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), { ...small, agents }).pipe(
+        Effect.provide(layer)
+      )
+    ).finally(docker.restore);
+    expect(asked.versions).toMatchObject({ image: 'sha256:stamped', harnesses: { opencode: '1.19.0' } });
+  });
+
+  it('stamps what produced the run once, without an image on the host, and keeps it across a resume', async () => {
+    const where = world();
+    const ask = [start('a'), reply({ kind: 'ask', question: 'Continue?' })];
+    const { run } = services(where, [ask, ask]);
+    const asked = await run(runWorkflow(w, fresh(), graph));
+    const resumed = await run(driveStored(w, { ...asked, status: 'running', versions: { engine: 'earlier' } }, graph));
+    expect([asked.versions, resumed.versions]).toEqual([
+      { engine: expect.stringMatching(/\S/), ...(process.env.AGENTGRAPH_CONFIG && { config: expect.any(String) }) },
+      { engine: 'earlier' },
+    ]);
+  });
+
   it('drives the run as stored once it holds the lock, not the snapshot it was given', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);

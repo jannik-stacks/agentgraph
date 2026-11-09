@@ -102,3 +102,23 @@ describe('agent tools', () => {
     ).rejects.toThrow('tool grep is a harness built-in');
   });
 });
+
+describe('agent package', () => {
+  it.each([
+    [undefined, 'custom-cli'],
+    ['other', 'other-cli'],
+  ])('follows the harness override %s to %s', async (harness, expected) => {
+    const dir = await makeGraphDir(files(['issues']));
+    const graph = await Effect.runPromise(
+      loadGraph(
+        dir,
+        [
+          { name: 'custom', package: 'custom-cli', classify: () => undefined },
+          { name: 'other', package: 'other-cli', classify: () => undefined },
+        ],
+        harness
+      ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: {} })))
+    );
+    expect(graph.agents.a?.package).toBe(expected);
+  });
+});
