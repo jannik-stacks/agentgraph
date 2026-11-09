@@ -115,6 +115,26 @@ describe('the Modal runner', () => {
       'one network',
     ],
     [
+      'a check that judges the lines of a command beside sessions',
+      {
+        ...talks,
+        network: 'models',
+        checks: {
+          lines: {
+            name: 'lines',
+            path: 'checks/lines.md',
+            body: '',
+            version: '',
+            mode: 'info',
+            each: 'ls',
+            agent: 'judge',
+          },
+        },
+      },
+      gateway,
+      'one network',
+    ],
+    [
       'a gateway that is not public HTTPS',
       { ...talks, network: 'models' },
       { urls: ['http://gw.example'], direct: [] },

@@ -47,9 +47,10 @@ const readBytes = (stream: ReadableStream<Uint8Array>) =>
 
 export const whyModalRefuses = (gateway: Gateway) => (graph: Graph) => {
   const steps = Object.values(graph.workflows).flatMap(w => w.steps);
+  const isCommand = (each = 'files') => !['files', 'hunks'].includes(each);
   const quiet =
-    Object.values(graph.checks).some(c => c.run !== undefined) ||
-    steps.some(s => 'run' in s.does || !['files', 'hunks'].includes(s.each ?? 'files'));
+    Object.values(graph.checks).some(c => c.run !== undefined || isCommand(c.each)) ||
+    steps.some(s => 'run' in s.does || isCommand(s.each));
   const talks = graph.setup !== undefined || steps.some(s => 'agent' in s.does);
   if (graph.network !== 'models')
     return talks ? 'a Modal box holds no egress allowlist; set network: models in settings.yaml' : undefined;
