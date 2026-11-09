@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { connectedAtom, dataParam, instances, navigateAtom, pageAtom, shown } from './state.ts';
+import { connectedAtom, dataParam, instances, navigateAtom, pageAtom, shown, studioPages } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
 import { accent, Button, cx, Link, Loading, Muted, Select } from './ui.tsx';
@@ -11,15 +11,11 @@ const pages = {
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
 };
 
-const studio = declared.filter(page => page.instance === undefined);
-
 const instance = shown?.name ?? '';
 
 const across = instances.length > 0 && !shown;
 
-const own = across
-  ? []
-  : declared.filter(page => (page.instance ?? (page.builtin ? instance : undefined)) === instance);
+const own = declared.filter(page => page.instance === instance);
 
 const custom = own.filter(page => !page.builtin);
 
@@ -40,7 +36,7 @@ const NavTabs = ({
   links: readonly { href: string; title: string }[];
   here: string;
   className: string;
-  reload: boolean;
+  reload?: boolean;
 }) => {
   const Anchor = reload ? 'a' : Link;
   return (
@@ -67,7 +63,7 @@ const NavTabs = ({
   );
 };
 
-const plugins = new Map([...own, ...(instance ? [] : studio)].map(page => [page.href, lazy(page.load)]));
+const plugins = new Map([...own, ...(instance ? [] : studioPages)].map(page => [page.href, lazy(page.load)]));
 
 const Unknown = () => (
   <Muted>
@@ -125,22 +121,19 @@ export const App = () => {
           <AgentgraphLogo className="size-5" />
           agentgraph
         </Link>
-        {!across && (
-          <NavTabs label="Pages" links={official} here={here} reload={false} className="bg-zinc-100 dark:bg-zinc-900" />
-        )}
+        {!across && <NavTabs label="Pages" links={official} here={here} className="bg-zinc-100 dark:bg-zinc-900" />}
         {custom.length > 0 && (
           <NavTabs
             label="Plugin pages"
             links={custom}
             here={here}
-            reload={false}
             className="border border-dashed border-zinc-300 dark:border-zinc-700"
           />
         )}
-        {studio.length > 0 && (
+        {studioPages.length > 0 && (
           <NavTabs
             label="Studio pages"
-            links={studio}
+            links={studioPages}
             here={instance ? '' : here}
             reload={!!instance}
             className="border border-zinc-200 dark:border-zinc-800"

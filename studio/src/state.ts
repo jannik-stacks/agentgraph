@@ -8,6 +8,8 @@ import { pages } from 'virtual:agentgraph-pages';
 
 export const instances = served.filter(one => one.name);
 
+export const studioPages = pages.filter(page => page.instance === undefined);
+
 export const shown = instances.length ? instances.find(one => one.name === location.pathname.split('/')[1]) : served[0];
 
 const prefix = shown?.name ? `/${shown.name}` : '';
@@ -128,14 +130,7 @@ export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof mak
 
 const opened = new Map<string, object>();
 const openOnce = <T>(url: string, data?: string | null) => {
-  if (!opened.has(url))
-    opened.set(
-      url,
-      makeLiveJsonAtom<T>(
-        url,
-        data ? pages.flatMap(page => (page.instance === undefined ? [page.name] : [])) : ['data']
-      )
-    );
+  if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<T>(url, data ? studioPages.map(page => page.name) : ['data']));
   return opened.get(url) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
 
