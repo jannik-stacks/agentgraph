@@ -5,7 +5,7 @@ import type { InstanceHost } from '../../src/engine.ts';
 import { makeApiHref, makeLiveJsonAtom } from './state.ts';
 
 export { queryParam, navigateAtom } from './state.ts';
-export { Button, Link, Loading, Muted, Select, Field, Fields, Help } from './ui.tsx';
+export { Badge, Button, Disclosure, Field, Fields, Help, Link, Live, Loading, Muted, Select, Tooltip } from './ui.tsx';
 export { ResultTable } from './results/ResultTable.tsx';
 export const ResultChart = lazy(() => import('./results/ResultChart.tsx'));
 
