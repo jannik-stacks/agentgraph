@@ -5,6 +5,8 @@ description: Tune the agentgraph graph of your own repo. Replays your merged pul
 
 # Tune a graph on your repo
 
+Tune is experimental, with little test coverage and unstable commands and files.
+
 The graph, `.agentgraph/`, is what agentgraph runs on your issues. This skill finds a better one. It replays
 issues your team already solved and scores each result against what the human merged; 1 means as good as the
 human on the hidden tests.
