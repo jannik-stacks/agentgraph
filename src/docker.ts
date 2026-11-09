@@ -3,7 +3,7 @@ import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { lstat, mkdir } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Cache, Cause, Duration, Effect, Layer, Queue, Redacted, Schema, Stream } from 'effect';
 import { isIP } from 'node:net';
@@ -25,7 +25,7 @@ import {
 import { ensureFreeDisk, writeEnvRefs } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Checkout, type Command, type Exit, inside, Runner, type Sandbox, SandboxError } from './sandbox.ts';
-import { makeHostEnv, readGit } from './git.ts';
+import { makeHostEnv, readGit, readWorktreeAdmin } from './git.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
@@ -704,7 +704,10 @@ export const dockerRunner = (o: {
                 mounts => Effect.promise(() => discard(mounts))
               )
             : [];
-          const admin = join(mirror, 'worktrees', basename(work.dir));
+          const admin = yield* Effect.try({
+            try: () => readWorktreeAdmin(mirror, work.dir),
+            catch: e => infra((e as Error).message),
+          });
           yield* Effect.acquireRelease(
             Effect.sync(() =>
               made.set(work.dir, {
@@ -713,7 +716,7 @@ export const dockerRunner = (o: {
                 ...(graph?.network !== undefined && { network: graph.network }),
                 sharedMounts,
                 mounts: [
-                  { src: mirror, dst: mirror, readonly: true },
+                  { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
                   { src: admin, dst: admin },
                   { src: news, dst: inside.news, readonly: true },
                   { src: scratch, dst: inside.scratch },
