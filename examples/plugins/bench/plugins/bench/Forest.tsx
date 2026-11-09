@@ -1,9 +1,12 @@
 import { scaleLinear } from 'd3-scale';
-import { Fragment, type ReactNode } from 'react';
-import { atLink, cx, Tooltip } from '@jannik-stacks/agi/studio';
+import { Fragment, type ReactNode, useState } from 'react';
+import { Effect } from 'effect';
+import { atLink, Button, cx, Muted, Tooltip } from '@jannik-stacks/agi/studio';
+import { runActions } from '../../../../../src/actions.ts';
 import { getMean } from '../../../../../src/stats.ts';
 import type { BenchRow } from './data.ts';
 import {
+  formatBenchLabelCommand,
   formatLabel,
   formatMinutes,
   formatUsd,
@@ -31,6 +34,52 @@ export const BenchRunLink = ({
     {children}
   </a>
 );
+
+export const BenchExcludeButton = ({ row }: { row: BenchRow }) => {
+  const [note, setNote] = useState('');
+  const excluded = row.labels.exclude !== undefined;
+  const write = (why: string | null, command = formatBenchLabelCommand(row, why)) =>
+    row.instance === undefined
+      ? navigator.clipboard.writeText(command).then(
+          () => setNote(`copied: ${command}`),
+          () => setNote(command)
+        )
+      : Effect.runPromise(
+          runActions(
+            new URL(`/api/actions?instance=${encodeURIComponent(row.instance)}`, location.href).href,
+            (input, init) => fetch(input, init),
+            actions => actions.label({ id: row.run, patch: { exclude: why } })
+          )
+        ).then(
+          () => setNote(''),
+          (e: Error) => setNote(e.message)
+        );
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Tooltip
+        tip={
+          row.instance === undefined
+            ? 'This run is read through ?data= and stays read-only here. Copies a local agi label command.'
+            : excluded
+              ? 'Removes the exclude label.'
+              : 'Labels the run exclude with your reason. It stays listed under Excluded.'
+        }
+      >
+        <Button
+          onClick={() => {
+            if (excluded) return void write(null);
+            const why = prompt('Why exclude this run?')?.trim();
+            if (why) void write(why);
+          }}
+        >
+          {excluded ? 'undo exclude' : 'exclude'}
+          {row.instance === undefined && ', copy command'}
+        </Button>
+      </Tooltip>
+      {note && <Muted>{note}</Muted>}
+    </span>
+  );
+};
 
 const [width, height, pad] = [280, 20, 14];
 const fmt = (v: number) => v.toFixed(2);
@@ -229,7 +278,7 @@ const Runs = ({ point }: { point: Point }) => (
   <table className="text-xs whitespace-nowrap tabular-nums">
     <thead className="text-zinc-500">
       <tr>
-        {['case', 'repeat', 'quality', 'hidden tests', 'judges', 'cost', 'time', 'trace'].map(h => (
+        {['case', 'repeat', 'quality', 'hidden tests', 'judges', 'cost', 'time', 'trace', 'excluded'].map(h => (
           <th key={h} className="py-0.5 pr-3 text-left font-medium">
             {h}
           </th>
@@ -257,6 +306,10 @@ const Runs = ({ point }: { point: Point }) => (
             >
               run
             </BenchRunLink>,
+            <span key="exclude" className="inline-flex items-center gap-2">
+              {row.labels.exclude}
+              <BenchExcludeButton row={row} />
+            </span>,
           ];
           return (
             <tr key={getRowKey(row)} className="text-zinc-600 dark:text-zinc-400">

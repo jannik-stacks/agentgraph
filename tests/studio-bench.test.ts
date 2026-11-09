@@ -16,6 +16,7 @@ import {
   findBenchNumericFields,
   cost,
   defaultBenchScoreWeights,
+  formatBenchLabelCommand,
   frontier,
   getQualitySpread,
   getRowKey,
@@ -215,6 +216,28 @@ describe('bench score', () => {
       { key: 'tied', x: 4, y: 0.8 },
     ];
     expect(frontier(points)).toEqual(['cheap', 'better']);
+  });
+
+  it('leaves excluded runs out of points, counts and denominators unless kept, and drops infra ones too', () => {
+    const exclude = (why: string) => ({ labels: { ...row({}).labels, exclude: why } });
+    const rows = [
+      row({ case: 'a', hidden: 1, suite: 1 }),
+      row({ case: 'b', hidden: 0, ...exclude('flaky docker') }),
+      row({ case: 'c', infra: 'docker unreachable', ...exclude('host down') }),
+    ];
+    const lens = { w: defaultBenchScoreWeights, x: (r: Row) => r.minutes, infraZero: true };
+    const shown = (keepExcluded: boolean) =>
+      summarise(rows, { ...lens, keepExcluded }).map(p => [p.n, p.repeats, p.completion, p.y]);
+    expect([shown(false), shown(true)]).toEqual([[[1, 1, 1, 1]], [[3, 3, 2 / 3, 1 / 3]]]);
+    expect(findBenchNumericFields([rows[1]!], lens)).toEqual([]);
+  });
+
+  it('copies a local label command for a run read through its store', () => {
+    const at = { data: "/sets/it's/data", run: 'issue-1' };
+    expect([formatBenchLabelCommand(at, 'flaky docker'), formatBenchLabelCommand(at, null)]).toEqual([
+      `agi label '/sets/it'\\''s/data/issue-1' 'exclude=flaky docker'`,
+      `agi label '/sets/it'\\''s/data/issue-1' exclude-`,
+    ]);
   });
 
   it('reports judge-only cases as their own point, never averaged with tested ones', () => {

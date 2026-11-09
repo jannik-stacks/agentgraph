@@ -256,7 +256,10 @@ describe.skipIf(!chrome)(`bench controls in Chrome${chrome ? '' : ' (Chrome/Chro
         ),
         isHelpIconShown: [...document.querySelectorAll('aside span')].some(span => span.textContent?.trim() === '?'),
       }))
-    ).toEqual({ headings: ['Weights', 'Axis', 'Filter', 'Group by', 'Infra', 'Judges'], isHelpIconShown: false });
+    ).toEqual({
+      headings: ['Weights', 'Axis', 'Filter', 'Group by', 'Infra', 'Excluded', 'Judges'],
+      isHelpIconShown: false,
+    });
     await browser.evaluate(() => document.querySelector<HTMLElement>('aside h3 [tabindex="0"]')!.focus());
     await vi.waitFor(async () =>
       expect(await browser.evaluate(() => document.querySelector('[role="tooltip"]:popover-open')?.textContent)).toBe(

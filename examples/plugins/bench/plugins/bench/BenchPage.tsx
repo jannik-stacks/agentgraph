@@ -35,7 +35,7 @@ import {
   isBenchMatch,
   readBenchRowResults,
 } from '../../../../../bench/score.ts';
-import { Forest, BenchRunLink } from './Forest.tsx';
+import { Forest, BenchRunLink, BenchExcludeButton } from './Forest.tsx';
 import { Scatter } from './Scatter.tsx';
 
 const params = {
@@ -46,6 +46,7 @@ const params = {
   color: queryParam('color'),
   cache: queryParam('cache'),
   infra: queryParam('infra'),
+  excluded: queryParam('excluded'),
   drop: queryParam('drop'),
   point: queryParam('point'),
   name: queryParam('name'),
@@ -117,6 +118,16 @@ const Control = ({ label, tip, children }: { label: string; tip: string; childre
   </div>
 );
 
+const BenchRunReason = ({ row, why, children }: { row: Row; why: string | undefined; children?: ReactNode }) => (
+  <li className="space-y-0.5 break-words">
+    <BenchRunLink row={row} className="underline underline-offset-2">
+      {row.labels.model} / {row.labels.harness} / {row.case} / repeat {row.repeat}
+    </BenchRunLink>
+    <p className="text-zinc-500 [overflow-wrap:anywhere]">{why}</p>
+    {children}
+  </li>
+);
+
 const BenchPage = () => <Live state={usePluginData('bench', BenchData)}>{value => <Bench value={value} />}</Live>;
 
 const Bench = ({ value }: { value: BenchData }) => {
@@ -137,6 +148,8 @@ const Bench = ({ value }: { value: BenchData }) => {
   const color = colorParam ?? 'harness';
   const [cache, setCache] = useAtom(params.cache);
   const [infra, setInfra] = useAtom(params.infra);
+  const [excluded, setExcluded] = useAtom(params.excluded);
+  const keepExcluded = excluded === 'include';
   const [drop, setDrop] = useAtom(params.drop);
   const [picked, setPicked] = useAtom(params.point);
   const [nameParam, setNames] = useAtom(params.name);
@@ -154,12 +167,20 @@ const Bench = ({ value }: { value: BenchData }) => {
     key,
     values: [...new Set(rows.flatMap(r => (r.labels[key] === undefined ? [] : [r.labels[key]!])))].toSorted(),
   }));
-  const infraRows = rows.filter(r => r.infra && isBenchMatch(r, {}));
-  const matchingInfraRows = infraRows.filter(r => isBenchMatch(r, where));
   const scoring = useMemo(
-    () => ({ where, w: weights, judges: judges.filter(j => !dropped.includes(j)), infraZero: infra === 'zero' }),
-    [where, weights, judges, dropped, infra]
+    () => ({
+      where,
+      keepExcluded,
+      w: weights,
+      judges: judges.filter(j => !dropped.includes(j)),
+      infraZero: infra === 'zero',
+    }),
+    [where, keepExcluded, weights, judges, dropped, infra]
   );
+  const infraRows = rows.filter(r => r.infra && isBenchMatch(r, { keepExcluded }));
+  const matchingInfraRows = infraRows.filter(r => isBenchMatch(r, scoring));
+  const excludedRows = rows.filter(r => r.labels.exclude !== undefined && isBenchMatch(r, { keepExcluded: true }));
+  const matchingExcludedRows = excludedRows.filter(r => isBenchMatch(r, { where, keepExcluded: true }));
   const numericFields = findBenchNumericFields(rows, scoring);
   const xAxis = getBenchAxis(selectedAxis, numericFields);
   const minutes = xAxis === 'minutes';
@@ -331,12 +352,33 @@ const Bench = ({ value }: { value: BenchData }) => {
           <Disclosure summary={`Inspect infra runs (${matchingInfraRows.length})`}>
             <ul className="mt-2 space-y-2">
               {matchingInfraRows.map(row => (
-                <li key={getRowKey(row)} className="space-y-0.5 break-words">
-                  <BenchRunLink row={row} className="underline underline-offset-2">
-                    {row.labels.model} / {row.labels.harness} / {row.case} / repeat {row.repeat}
-                  </BenchRunLink>
-                  <p className="text-zinc-500 [overflow-wrap:anywhere]">{row.infra}</p>
-                </li>
+                <BenchRunReason key={getRowKey(row)} row={row} why={row.infra} />
+              ))}
+            </ul>
+          </Disclosure>
+        </Control>
+        <Control
+          label="Excluded"
+          tip="Runs labelled exclude, with their reason. They stay out of points, rows, results and counts unless included. Exclude a run from the runs of a picked row."
+        >
+          <p className="text-zinc-500">
+            {matchingExcludedRows.length} of {excludedRows.length} excluded runs match filters
+          </p>
+          <label className="flex items-start gap-1.5 text-zinc-600 dark:text-zinc-400">
+            <input
+              className="mt-0.5 shrink-0"
+              type="checkbox"
+              checked={keepExcluded}
+              onChange={e => setExcluded(e.target.checked ? 'include' : null)}
+            />
+            Include excluded runs
+          </label>
+          <Disclosure summary={`Inspect excluded runs (${matchingExcludedRows.length})`}>
+            <ul className="mt-2 space-y-2">
+              {matchingExcludedRows.map(row => (
+                <BenchRunReason key={getRowKey(row)} row={row} why={row.labels.exclude}>
+                  <BenchExcludeButton row={row} />
+                </BenchRunReason>
               ))}
             </ul>
           </Disclosure>
@@ -437,7 +479,7 @@ const Bench = ({ value }: { value: BenchData }) => {
             onPick={setPicked}
           />
         </div>
-        <BenchResults runs={rows.filter(row => isBenchMatch(row, where)).map(readBenchRowResults)} value={value} />
+        <BenchResults runs={rows.filter(row => isBenchMatch(row, scoring)).map(readBenchRowResults)} value={value} />
       </div>
     </div>
   );
