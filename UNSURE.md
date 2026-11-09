@@ -47,3 +47,7 @@ Decisions made without being sure. Each names what was picked and what would cha
   start token changes on every restart, so `token` sessions do too, which matches its login URL.
 - **The gate knows two names**: it prints the login URL for `token` and warns for `none` beyond loopback. A plugin
   hook for start-up lines would remove that, but nothing else needs one yet.
+- **Studio pages are registered by folder, not per plugin**: `npm run dev -- --plugins <dir>` reads a folder with a
+  graph's layout, and every page in it reads every served instance. Left out for now: `runAction` from a studio
+  page (it has no instance to post to), `agi studio` forwarding `--plugins`, and reserving the instance name
+  `plugins`, which shadows studio pages. Bench still uses the `engine` member until it moves.
