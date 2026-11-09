@@ -3,12 +3,11 @@ import { type Workflow, transition, isRunDone } from '../workflow.ts';
 import type { Issue } from '../event.ts';
 import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
-import { readEngineVersions } from '../meta.ts';
 import { Tracker } from '../tracker.ts';
 import { makeOutcomeLine } from '../trace.ts';
 import { stoppedByRunner, context } from '../context.ts';
 import { Sandbox, SandboxError } from '../sandbox.ts';
-import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout } from '../git.ts';
+import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout, readEngineVersions } from '../git.ts';
 import {
   findPullNumber,
   formatTemplate,

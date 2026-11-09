@@ -1,9 +1,4 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Config, Effect, Option, Schema } from 'effect';
-import { getSha } from './hash.ts';
+import { Option, Schema } from 'effect';
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -91,18 +86,3 @@ export const makeContinuedMeta = (
   const origin = getRunOrigin(input);
   return { ...before, ...input, engine: { ...engine, ...(origin && { continued: { ...origin, at } }) } };
 };
-
-const engineRoot = fileURLToPath(new URL('..', import.meta.url));
-let engine: string | undefined;
-
-const describeEngine = (): string =>
-  existsSync(join(engineRoot, '.git'))
-    ? execFileSync('git', ['-C', engineRoot, 'describe', '--always', '--dirty', '--abbrev=12'], {
-        encoding: 'utf8',
-      }).trim()
-    : JSON.parse(readFileSync(join(engineRoot, 'package.json'), 'utf8')).version;
-
-export const readEngineVersions = Effect.gen(function* () {
-  const file = yield* Effect.orDie(Config.String('AGENTGRAPH_CONFIG').pipe(Config.withDefault('')));
-  return { engine: (engine ??= describeEngine()), ...(file && { config: getSha(readFileSync(resolve(file)), 12) }) };
-});

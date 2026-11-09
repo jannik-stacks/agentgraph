@@ -89,7 +89,7 @@ count(-1) should throw.
 
 ## run.json
 
-<!-- code: src/types.ts#Run src/meta.ts#readEngineVersions -->
+<!-- code: src/types.ts#Run src/git.ts#readEngineVersions -->
 
 Every run is saved first under a lock on its id, and only when no run has that id yet, so two passes that begin the same run save it once. The lock stays held while the engine shows the run's first status and gives its eyes reaction, so no other pass drives the run until both are saved. A new run is saved as `unshown` until its first status lands, so a later pass shows that status when the first write fails. <!-- code: src/run/start.ts#startRun --> A run another run proposes takes a fresh id when its id is taken, and the proposal fails when three ids in a row are taken. <!-- code: src/run/start.ts#startProposedRun -->
 

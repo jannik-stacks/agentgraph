@@ -15,7 +15,7 @@ import { claim, onStop, readFileOrEmpty, release, startChildProcess } from '../b
 import type * as BenchModule from '../bin/bench.ts';
 import { Effect } from 'effect';
 import { parseLabelPatch, parseLabels } from '../src/labels.ts';
-import { readEngineVersions } from '../src/meta.ts';
+import { readEngineVersions } from '../src/git.ts';
 import { readImage, sandboxImage } from '../src/docker.ts';
 import { readHarnessSettings } from '../src/harnesses.ts';
 import type { RunRecord } from '../src/types.ts';

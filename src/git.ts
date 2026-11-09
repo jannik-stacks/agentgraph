@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { Effect, Semaphore } from 'effect';
+import { fileURLToPath } from 'node:url';
+import { Config, Effect, Semaphore } from 'effect';
+import { getSha } from './hash.ts';
 import { SandboxError } from './sandbox.ts';
 import { type Checkout } from './types.ts';
 
@@ -235,3 +237,18 @@ export const mergeTreeOnto = (work: Checkout, onto: string, head: string, base?:
       return { tree, files: files.filter(Boolean) };
     }
   );
+
+const engineRoot = fileURLToPath(new URL('..', import.meta.url));
+let engine: string | undefined;
+
+const describeEngine = (): string =>
+  existsSync(join(engineRoot, '.git'))
+    ? execFileSync('git', ['-C', engineRoot, 'describe', '--always', '--dirty', '--abbrev=12'], {
+        encoding: 'utf8',
+      }).trim()
+    : JSON.parse(readFileSync(join(engineRoot, 'package.json'), 'utf8')).version;
+
+export const readEngineVersions = Effect.gen(function* () {
+  const file = yield* Effect.orDie(Config.String('AGENTGRAPH_CONFIG').pipe(Config.withDefault('')));
+  return { engine: (engine ??= describeEngine()), ...(file && { config: getSha(readFileSync(resolve(file)), 12) }) };
+});
