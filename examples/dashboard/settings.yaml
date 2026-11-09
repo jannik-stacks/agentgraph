@@ -1,6 +1,5 @@
 plugins:
   dashboard:
-    data: /path/to/instance/data
     widgets:
       - title: Runs this week
         type: counter
@@ -18,3 +17,7 @@ plugins:
         type: table
         source: cost
         days: 7
+      - title: Issue activity
+        type: line
+        source: issues
+        days: 14

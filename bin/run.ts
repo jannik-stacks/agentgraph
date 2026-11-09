@@ -19,7 +19,7 @@ import { Config, ConfigProvider, Effect, Redacted, Semaphore, Stream } from 'eff
 import { readArgs } from '../src/cli.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
+import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit, writeAgentComment } from '../src/tracker.ts';
 import { readConfiguredGraph, readHarnessSettings, splitNames, type Provider } from '../src/harnesses.ts';
 import {
   ensureInstanceGraph,
@@ -490,12 +490,10 @@ async function runOnInstance(
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
       if (values.line) await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
-      else {
-        const posted = await Effect.runPromise(
-          (await getTracker()).apply(n, { kind: 'comment', body: formatAgentComment(said()) })
+      else
+        await Effect.runPromise(writeAgentComment(n, said()).pipe(Effect.provide(setup.layer(trust, i.owner)))).catch(
+          (e: Error) => fail(e.message)
         );
-        if (!posted.ok) fail(posted.reason ?? 'comment was refused');
-      }
       if (values.label)
         await Effect.runPromise((await getTracker()).apply(issue, { kind: 'label', add: values.label, remove: [] }));
       return drive(i, issue, graph, provider);

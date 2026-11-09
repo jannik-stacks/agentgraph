@@ -166,20 +166,34 @@ what in a graph it cannot run. `makeBoxRunner` in `@jannik-stacks/agi/runners` b
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect
-Schema for its data and a read-only `read(settings)` effect. Optional `watch(settings)` returns data
-roots. The reader and watch receive only this plugin's decoded settings. Loading declarations does
-not execute readers or import TSX. Host code remains trusted; namespaces are not isolation.
-<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins -->
+Schema for its data and a read-only `read(settings, host)` effect. Optional `watch(settings, host)` returns
+data roots outside the instance. The reader gets this plugin's decoded settings and the read side of the
+instance's host: `store` (`listRecords`, `getRecord`, `read`, `readChecks`, `readLog`), `tracker`
+(`issues`, `issue`, `since`) and `readRuns()`, each run with its labels and latest checks. These are the
+reads the studio's own Runs and Graph pages use, scoped to the one instance the page is served
+for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/trackers`, as in
+`read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations does not execute readers or import TSX. Host code remains trusted; namespaces
+are not isolation.
+<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/engine.ts#InstanceHost src/engine.ts#makeInstanceHost -->
 
 A page default-exports a React component. Set `page: new URL('./Page.tsx', import.meta.url)`;
 Vite compiles it and its CSS. Import `usePluginData` from `@jannik-stacks/agi/studio` in the page.
 Pass its plugin name and a browser-safe data schema shared with the host reader. The studio also
-exports its UI, query/navigation atoms and results components through that browser entry.
+exports its UI (`Live`, `Loading`, `Muted`, `Button`, `Select`, `Badge`, `Disclosure`, `Tooltip` and more),
+query/navigation atoms and results components through that browser entry.
+
+A page acts with `runAction(verb, ...args)`, which calls the host function behind the CLI verb of that
+name on the page's instance: `runAction('say', 12, 'go on')` posts `/agent go on` like `agi say`, and
+`runAction('label', runId, { arm: 'base' })` sets run labels like `agi label`. `say` takes the same
+[commands](workflows.md#commands), so `':restart:implement'` or `':stop'` reach a run under the graph's
+`commands` gate. It posts only to a local tracker and never drives; a running loop picks the comment up.
+The studio accepts actions only as same-origin JSON posts to `/api/actions/<verb>`. Readers get no actions.
+<!-- code: studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 
 Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named
 instances they sit under `/<instance>`, and each reads its own instance's plugin with `?instance=<instance>`. One SSE
-connection invalidates all mounted readers when main data or declared roots change. A failed
+connection refreshes every mounted reader when the instance's run data or its declared roots change. A failed
 refresh keeps the last good data and shows an error. Snapshots are capped at 16 MiB.
 Host readers, settings and data roots never enter the page manifest. Pages share the studio origin
 and its API authority; review them like host plugins. Registering a page starts no job. Restart the
@@ -188,9 +202,9 @@ studio after registrations change. Preview needs a host API for live data.
 The header lists the studio's own pages first: Graph, Runs, the built-in Results and Bench, then Docs. Page plugins from the graph sit in a second group beside them, which shows only when there is one.
 
 The [dashboard experiment](../examples/dashboard/README.md) uses this same seam for configurable
-run states, check attempts, tokens and reported cost. Its `plugins.dashboard` settings select a
-data folder and a list of counter, line, bar or table widgets with UTC time windows.
-It reads the existing store and refreshes through the studio's existing live connection.
+run states, check attempts, tokens, reported cost and tracker activity. Its `plugins.dashboard` settings
+list counter, line, bar or table widgets with UTC time windows. It reads through the instance host, imports
+only `@jannik-stacks/agi/plugins`, and refreshes through the studio's existing live connection.
 It adds no storage or dependency. Its charts use d3-scale, which the studio shares with page plugins
 the way it shares React.
 <!-- code: examples/dashboard/plugins/dashboard.ts examples/dashboard/plugins/dashboard/read.ts#readDashboard -->
@@ -198,8 +212,8 @@ the way it shares React.
 Results and Bench are built-in plugins using this same descriptor, data endpoint and hook. They keep
 `/results` and `/bench` and need no graph-local file; both names are reserved. Bench is one page over
 every served instance and every set from `npm run dev -- --bench <sets>` ([Bench](bench.md#cost-against-quality)). Results
-reads one sheet from the selected data folder and shows an error when it fails. Results watches that
-folder; Bench watches every store it reads. Both remain available when the graph cannot load; the
+reads one sheet from the selected data folder and shows an error when it fails. Results refreshes with
+the instance's run data; Bench watches every store it reads. Both remain available when the graph cannot load; the
 Graph page still shows configuration problems.
 <!-- code: studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage studio/src/bench/data.ts#BenchData -->
 
@@ -212,5 +226,7 @@ reads a store's runs with their labels and latest checks (`readRuns`), and start
 plugin cannot pose as another. Whatever `engine` returns is passed to the studio page's `read` and
 `watch`. The studio's host only reads; submitting works where the operator's command builds a
 submitting host, as `bin/bench.ts` does. A graph plugin file that declares `engine` is refused, so
-graph tools never get access to other instances.
+graph tools never get access to other instances. Every other plugin reads only its own instance, and only
+the page, acting as the person using the studio, can call actions. Loop verbs such as `stop` and `restart`
+stay with the CLI, since one loop serves several instances.
 <!-- code: src/engine.ts#EngineHost src/engine.ts#makeEngineHost -->

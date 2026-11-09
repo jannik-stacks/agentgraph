@@ -15,6 +15,9 @@ const tones: Record<string, string> = {
   input: 'text-sky-600 dark:text-sky-400',
   output: 'text-violet-600 dark:text-violet-400',
   USD: 'text-sky-600 dark:text-sky-400',
+  comment: 'text-sky-600 dark:text-sky-400',
+  closed: 'text-zinc-400 dark:text-zinc-500',
+  merged: 'text-violet-600 dark:text-violet-400',
 };
 const readTone = (series: string) => tones[series] ?? 'text-zinc-500 dark:text-zinc-400';
 
@@ -234,7 +237,9 @@ const WidgetCard = ({ widget }: { widget: DashboardWidget }) => {
             ? 'Current state by start day'
             : widget.source === 'checks'
               ? 'All check attempts by check day'
-              : 'Reported usage by event day'}
+              : widget.source === 'issues'
+                ? 'Tracker comments, closes and merges by event day'
+                : 'Reported usage by event day'}
         </p>
       </header>
       {widget.type === 'counter' ? (

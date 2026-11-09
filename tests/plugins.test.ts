@@ -8,6 +8,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { ConfigProvider, Effect, Layer, Schema } from 'effect';
 import { asSchema } from 'ai';
 import { loadGraph } from '../src/folder.ts';
+import { makeInstanceHost } from '../src/engine.ts';
 import { makePlugin, readPlugins, type RunnerHost, tool } from '../src/plugin.ts';
 import { Runner } from '../src/sandbox.ts';
 import { whyRunnerRefuses } from '../src/services.ts';
@@ -140,7 +141,7 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
         },
       },
     });
-    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, undefined))).toBe(2);
+    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, makeInstanceHost({ data: dir })))).toBe(2);
     const registry = await readCheckedPlugins(dir, { count: { limit: '7' } });
     const page = registry.pages[0]!;
     const data = await Effect.runPromise(page.read());
@@ -191,7 +192,7 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
         read: (_settings, engine) => Effect.succeed(engine.configs),
       },
     });
-    const loaded = await readPlugins(undefined, {}, undefined, [bench], host);
+    const loaded = await readPlugins(undefined, {}, undefined, [bench], { engine: host });
     expect(named).toEqual(['bench']);
     expect(loaded.pages[0]!.watch).toEqual(['0']);
     expect(await Effect.runPromise(loaded.pages[0]!.read())).toBe(0);
