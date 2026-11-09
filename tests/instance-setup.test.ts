@@ -20,7 +20,7 @@ import { getCachePath } from '../src/env.ts';
 import { readInstanceEnv, start } from '../src/main.ts';
 import { createLoopLock, findLoopLock } from '../src/owner.ts';
 import { settings, makeTrackerSetup } from '../src/services.ts';
-import { ensureDockerHost } from '../src/docker.ts';
+import { local } from '../src/runners.ts';
 import { makeServedGraphs } from '../studio/served.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { folderTracker, writeIssueFile } from '../src/tracker.ts';
@@ -295,7 +295,9 @@ it('checks model readiness of the local model hosts', async () => {
   const path = process.env.PATH;
   process.env.PATH = `${bin}:${path ?? ''}`;
   try {
-    const exit = await Effect.runPromiseExit(ensureDockerHost({ direct: ['missing-model'] }));
+    const exit = await Effect.runPromiseExit(
+      Effect.scoped(Layer.build(local.runner!({ data: w.root, direct: ['missing-model'] }, undefined)))
+    );
     expect(JSON.stringify(exit)).toContain('Nothing answers to missing-model');
   } finally {
     if (path === undefined) delete process.env.PATH;
