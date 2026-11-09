@@ -66,10 +66,7 @@ export function context(t: IssueWithPull): string {
 const bot = (m: Event) => m.actor.endsWith('[bot]');
 const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined ? m.comment.id : undefined);
 
-const update = /^(Opened a pull request|Done|Stopped)\.$/;
-
-const isEngineStatus = (m: Event) =>
-  bot(m) && (m.kind === 'label' || m.kind === 'unlabel' || update.test(m.comment?.body.split('\n')[0] ?? ''));
+const isEngineStatus = (m: Event) => bot(m) && (m.kind === 'label' || m.kind === 'unlabel');
 
 export function formatRequest(t: IssueWithPull, started: string): string {
   const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);

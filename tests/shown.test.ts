@@ -176,7 +176,7 @@ describe('the provenance mark', () => {
 });
 
 describe('the agent context', () => {
-  it('leaves out the updates and shrinks older entries past its size cap', () => {
+  it('keeps a bot comment and shrinks older entries past its size cap', () => {
     const said = (actor: string, body: string, at: string) => ({
       ...spoke(actor),
       at,
@@ -193,7 +193,7 @@ describe('the agent context', () => {
         ],
       },
     });
-    expect(text).not.toContain('Done.');
+    expect(text).toContain('Done.');
     expect(text).not.toContain('b'.repeat(10));
     expect(text).toContain(`${'a'.repeat(100)}`);
     expect(text).toContain('Thanks');
