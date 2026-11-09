@@ -6,7 +6,6 @@ import { pages as declared } from 'virtual:agentgraph-pages';
 import { accent, Button, cx, Link, Loading, Muted, Select } from './ui.tsx';
 
 const pages = {
-  inbox: lazy(() => import('./runs/InboxPage.tsx').then(m => ({ default: m.InboxPage }))),
   graph: lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage }))),
   runs: lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage }))),
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
@@ -14,11 +13,46 @@ const pages = {
 
 const own = declared.filter(page => page.instance === undefined || page.instance === shown?.name);
 
-const nav = [
-  ...(['inbox', 'graph', 'runs'] as const).map(r => ({ href: `/${r}`, title: r })),
-  ...own,
+const custom = own.filter(page => !page.builtin);
+
+const official = [
+  ...(['graph', 'runs'] as const).map(r => ({ href: `/${r}`, title: r })),
+  ...own.filter(page => page.builtin),
   { href: '/docs', title: 'docs' },
 ];
+
+const NavTabs = ({
+  label,
+  links,
+  here,
+  className,
+}: {
+  label: string;
+  links: readonly { href: string; title: string }[];
+  here: string;
+  className: string;
+}) => (
+  <nav
+    aria-label={label}
+    className={cx('inline-flex min-w-0 gap-0.5 overflow-x-auto rounded-lg p-0.5 text-[13px] leading-5', className)}
+  >
+    {links.map(({ href, title }) => (
+      <Link
+        key={href}
+        href={href}
+        aria-current={href === here ? 'page' : undefined}
+        className={cx(
+          'rounded-md px-2 py-0.5 capitalize',
+          href === here
+            ? 'bg-white font-medium shadow-sm dark:bg-zinc-700'
+            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+        )}
+      >
+        {title}
+      </Link>
+    ))}
+  </nav>
+);
 
 const plugins = new Map(own.map(page => [page.href, lazy(page.load)]));
 
@@ -74,23 +108,15 @@ export const App = () => {
           <AgentgraphLogo className="size-5" />
           agentgraph
         </Link>
-        <nav className="inline-flex min-w-0 gap-0.5 overflow-x-auto rounded-lg bg-zinc-100 p-0.5 text-[13px] leading-5 dark:bg-zinc-900">
-          {nav.map(({ href, title }) => (
-            <Link
-              key={href}
-              href={href}
-              aria-current={href === here ? 'page' : undefined}
-              className={cx(
-                'rounded-md px-2 py-0.5 capitalize',
-                href === here
-                  ? 'bg-white font-medium shadow-sm dark:bg-zinc-700'
-                  : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
-              )}
-            >
-              {title}
-            </Link>
-          ))}
-        </nav>
+        <NavTabs label="Pages" links={official} here={here} className="bg-zinc-100 dark:bg-zinc-900" />
+        {custom.length > 0 && (
+          <NavTabs
+            label="Plugin pages"
+            links={custom}
+            here={here}
+            className="border border-dashed border-zinc-300 dark:border-zinc-700"
+          />
+        )}
         {instances.length > 1 && shown && (
           <Select
             label="Instance"

@@ -57,7 +57,7 @@ The GitHub tracker uses these built-in triggers: <!-- code: src/workflow.ts#isIs
 
 To start a run by hand, use `agi dispatch 12 --workflow issue`. Runs can also start from an agent's [dispatch](#dispatch), a [retro](#retros), or a [conflict](#when-the-base-or-the-graph-moves). <!-- code: src/run/trigger.ts#instruct -->
 
-More triggers are planned through [plugins](extending.md#plugins-in-progress); `pull_request` and `branches` are accepted but do not trigger runs yet. <!-- code: src/workflow.ts#Front -->
+More triggers are planned through [plugins](extending.md#plugins); `pull_request` and `branches` are accepted but do not trigger runs yet. <!-- code: src/workflow.ts#Front -->
 
 With several comment workflows, `/agent` starts the first. Comments without the marker are context. Comments on the issue's pull request count for the issue; bot comments never do. An eyes reaction marks the comment or issue until the engine replies. <!-- code: src/run/trigger.ts#tick -->
 
@@ -207,7 +207,7 @@ The issue body, and the pull request body once there is one, starts with a statu
 
 The engine reads the body right before each edit and replaces only the section between its `<!-- agentgraph status -->` and `<!-- end agentgraph status -->` markers, so the rest stays as people wrote it, and agents never see the header. When GitHub refuses the edit, the engine logs one warning for that issue and leaves it. A [tracker folder](runs.md#the-tracker-folder) writes the same header into `issue.md`. <!-- code: src/github.ts#githubTracker src/tracker.ts#folderTracker -->
 
-The only new comment the engine posts on its own is a [question](#waiting), when a run needs someone, since a question must notify. It goes on the issue until the run has a pull request, then on the pull request. Steps, tries and checks stay silent; the studio shows them, with the cost. Workflows without a `branch`, such as a router or triage, speak only through their own replies and questions. Comments an older engine posted stay as they are. <!-- code: src/context.ts#proposeQuestion -->
+The only new comment the engine posts on its own is a [question](#waiting), when a run needs someone, since a question must notify. It goes on the issue until the run has a pull request, then on the pull request. Steps, tries and checks stay silent; the studio shows them, with the cost. Workflows without a `branch`, such as a router or triage, speak only through their own replies and questions. <!-- code: src/context.ts#proposeQuestion -->
 
 The `status` setting renames the labels, or the folders. A status missing from the map gets no label, and the others are still cleared. `status: false` turns status labels off; status hooks still fire. A folder tracker's default names are the bare statuses, since `:` is not valid in a Windows path.
 

@@ -1,0 +1,16 @@
+import { makePlugin } from '@jannik-stacks/agi/plugins';
+import type { InstanceHost } from '@jannik-stacks/agi/trackers';
+import { DashboardData, DashboardSettings } from './dashboard/data.ts';
+import { readDashboard } from './dashboard/read.ts';
+
+export default makePlugin({
+  name: 'dashboard',
+  settingsSchema: DashboardSettings,
+  studio: {
+    title: 'Dashboard',
+    page: new URL('./dashboard/DashboardPage.tsx', import.meta.url),
+    dataSchema: DashboardData,
+    read: readDashboard,
+    watch: (_settings, host: InstanceHost | undefined) => (host ? [host.data] : []),
+  },
+});

@@ -8,11 +8,12 @@ Locally, each repo gets an instance under the data root. As a runner (`--tracker
 
 ```
 ~/.agentgraph/                      --data, else AGENTGRAPH_DATA
-  left-pad-7c1e2a-local/            <repo folder>-<hash of its path>-local, the instance's records
+  left-pad/                         checkout basename, or --instance <name>
     instance.yaml                   repo, base, owner, provider, refs written into the repo
-    tracker/                          issues, timelines, origin.git (the checkouts' git and run refs)
+    tracker/                        issues, timelines, origin.git (the checkouts' git and run refs)
     data/                           the runs folder:
-      <run id>/run.json               current state
+      <run id>/run.json              current state
+      <run id>/checks.jsonl          check results, .zst once idle
       <run id>/trace.jsonl            append-only events, .zst once idle
       <run id>/labels.jsonl           run labels, see below
       files/<sha256>                  uploaded files
@@ -22,7 +23,7 @@ Locally, each repo gets an instance under the data root. As a runner (`--tracker
       cache/                          rebuilt on demand: graphs/, work/, index/, news/, scratch/, sync/
 ```
 
-A data folder inside the repo is refused, and so is an instance whose `tracker/origin.git` is missing. A moved repo is a new instance. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
+A data folder inside the repo is refused. An instance using a local tracker needs its `tracker/origin.git`. A name already bound to another checkout is refused; edit `checkout` in `instance.yaml` when moving the repo. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
 
 Each pass of `loop` compresses `trace.jsonl` and `checks.jsonl` of a run that ended and was not written for `AGENTGRAPH_COMPRESS_DAYS` days (14) to `trace.jsonl.zst` and `checks.jsonl.zst`. Readers open either; a new line unpacks the file first. Check logs are gzipped from the start. <!-- code: src/store.ts#writeIdleRunsCompressed src/store.ts#readRecord -->
 
@@ -31,41 +32,37 @@ Each pass of `loop` compresses `trace.jsonl` and `checks.jsonl` of a run that en
 An instance folder holds every record of its repo; a runner's runs folder holds every record of the runner, with `mirror.git` keeping its run refs. Anything under `cache/` comes back on the next run, as do Docker images and dependency volumes. Back up while no loop or run is driving, so the SQLite files in harness homes are copied with their `-wal` files intact:
 
 ```sh
-tar -czf left-pad.tgz -C ~/.agentgraph --exclude left-pad-7c1e2a-local/data/cache left-pad-7c1e2a-local
-restic backup ~/.agentgraph/left-pad-7c1e2a-local --exclude ~/.agentgraph/left-pad-7c1e2a-local/data/cache
+tar -czf left-pad.tgz -C ~/.agentgraph --exclude left-pad/data/cache left-pad
+restic backup ~/.agentgraph/left-pad --exclude ~/.agentgraph/left-pad/data/cache
 ```
 
-Restore by unpacking into the data root, `tar -xzf left-pad.tgz -C ~/.agentgraph`, with the repo at the same path, since the folder name and `instance.yaml` name it. Homes may also hold a harness's own `.cache/` or `.npm/`, which a backup may skip too. <!-- code: src/mirror.ts#makeSandbox src/instance.ts#ensureGraph -->
-
-Folders made before `cache/` existed move by hand, with nothing driving:
-
-```sh
-cd ~/.agentgraph/left-pad-7c1e2a-local
-mkdir -p data/cache && mv graphs data/cache/
-for d in work index news scratch sync; do [ -e data/$d ] && mv data/$d data/cache/; done
-git --git-dir tracker/origin.git worktree prune
-```
-
-A runner's runs folder moves the same way, without `graphs`, then prunes `mirror.git` instead.
+Restore by unpacking into the data root, `tar -xzf left-pad.tgz -C ~/.agentgraph`, with the repo at the same path, since `instance.yaml` records its checkout path. Homes may also hold a harness's own `.cache/` or `.npm/`, which a backup may skip too. <!-- code: src/mirror.ts#makeSandbox src/instance.ts#ensureGraph -->
 
 ## instance.yaml
 
-Written by the first command in a repo. <!-- code: src/instance.ts#Instance -->
+Written by the first command in a repo. Unknown fields fail. `checkout`, `graph` and `env` paths resolve against the instance folder. <!-- code: src/instance.ts#Instance src/settings.ts#InstanceFile -->
 
-| Field      | Default                                                        | Meaning                                                                                                                                                                                           |
-| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repo`     | the repo                                                       | The checkout the base syncs from and branches go to                                                                                                                                               |
-| `base`     | the branch checked out first                                   | The branch agentgraph's base fast-forwards to                                                                                                                                                     |
-| `owner`    | `git config user.name` at the first command, else your OS user | The author of every local verb and the only trusted login                                                                                                                                         |
-| `tracker`  | `folder`                                                       | The [tracker plugin](plugins.md#trackers) the instance works on, from the built-ins or its graph's `plugins/`; it keeps its files in the instance's `tracker/`, and a folder path here is refused |
-| `runner`   | `local`                                                        | The [runner](sandbox.md#runners) that executes commands, from the built-ins or the host graph's `plugins/`                                                                                        |
-| `provider` | none                                                           | The saved [provider](cli.md#picking-a-provider)                                                                                                                                                   |
-| `exported` | none                                                           | Where agentgraph last wrote each ref into the repo                                                                                                                                                |
-| `readonly` | off                                                            | `true` writes nothing to the repo; `--read-only` sets it                                                                                                                                          |
+| Field             | Default                                                        | Meaning                                                                                                                                                                                           |
+| ----------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`            | empty                                                          | The tracker repository name                                                                                                                                                                       |
+| `checkout`        | the checkout path                                              | The repo the base syncs from and branches go to                                                                                                                                                   |
+| `graph`           | checkout `.agentgraph/`                                        | Graph folder; relative paths resolve against the instance folder                                                                                                                                  |
+| `env`             | none                                                           | Env file; relative paths resolve against the instance folder                                                                                                                                      |
+| `loop`            | `false`                                                        | Include this instance in a loop started outside a repo without `--instance`                                                                                                                       |
+| `trust`           | instance owner                                                 | Trusted logins                                                                                                                                                                                    |
+| `image`           | graph image                                                    | Sandbox image override                                                                                                                                                                            |
+| `limits.parallel` | graph limit                                                    | Concurrent drives for this instance                                                                                                                                                               |
+| `base`            | the branch checked out first                                   | The branch agentgraph's base fast-forwards to                                                                                                                                                     |
+| `owner`           | `git config user.name` at the first command, else your OS user | The author of every local verb and the only trusted login                                                                                                                                         |
+| `tracker`         | `folder`                                                       | The [tracker plugin](plugins.md#trackers) the instance works on, from the built-ins or its graph's `plugins/`; it keeps its files in the instance's `tracker/`, and a folder path here is refused |
+| `runner`          | `local`                                                        | The [runner](sandbox.md#runners) that executes commands, from the built-ins or the host graph's `plugins/`                                                                                        |
+| `provider`        | none                                                           | The saved [provider](cli.md#picking-a-provider)                                                                                                                                                   |
+| `exported`        | none                                                           | Where agentgraph last wrote each ref into the repo                                                                                                                                                |
+| `readonly`        | off                                                            | `true` writes nothing to the repo; `--read-only` sets it                                                                                                                                          |
 
 ## The tracker folder
 
-A tracker folder stands in for GitHub. Each issue is a folder `<n>/` with `issue.md`, its `events.jsonl` timeline and its `reactions`; `pull.json` and `diff.patch` make it a pull request. A bare `origin.git` holds the branches. Unlike GitHub, it refuses a whole push that touches `.github/`. `--tracker <dir>` runs the CLI on one directly. <!-- code: src/tracker.ts#folderTracker -->
+A tracker folder stands in for GitHub. Each issue is a folder `<n>/` with `issue.md`, its `events.jsonl` timeline and its `reactions`; `pull.json` and `diff.patch` make it a pull request. A bare `origin.git` holds the branches. It holds changes under `.github/` for a maintainer and pushes the other files; see [Pushes](proposals.md#pushes). `--tracker <dir>` runs the CLI on one directly. <!-- code: src/tracker.ts#folderTracker -->
 
 ```
 tracker/

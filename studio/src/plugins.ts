@@ -1,10 +1,25 @@
 import { useAtomValue } from 'jotai';
 import { lazy } from 'react';
 import { Effect, Schema } from 'effect';
-import { makeLiveJsonAtom } from './state.ts';
+import type { InstanceHost } from '../../src/engine.ts';
+import { makeApiHref, makeLiveJsonAtom } from './state.ts';
 
 export { queryParam, navigateAtom } from './state.ts';
-export { Button, Link, Loading, Muted, Select, Field, Fields, Help } from './ui.tsx';
+export {
+  accent,
+  Badge,
+  Button,
+  Disclosure,
+  Field,
+  Fields,
+  Help,
+  Link,
+  Live,
+  Loading,
+  Muted,
+  Select,
+  Tooltip,
+} from './ui.tsx';
 export { ResultTable } from './results/ResultTable.tsx';
 export const ResultChart = lazy(() => import('./results/ResultChart.tsx'));
 
@@ -28,4 +43,19 @@ export const usePluginData = <D, I>(name: string, schema: Schema.Codec<D, I>) =>
     data.set(name, cached);
   }
   return useAtomValue(cached.atom) as ReturnType<ReturnType<typeof makeLiveJsonAtom<D>>['read']>;
+};
+
+export const runAction = async <V extends keyof InstanceHost['actions']>(
+  verb: V,
+  ...args: InstanceHost['actions'][V]['args']['Type']
+) => {
+  const response = await fetch(makeApiHref(`/api/actions/${verb}`), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const body: unknown = await response.json();
+  if (!response.ok)
+    throw new Error((body as { error?: string } | null)?.error ?? `${verb} answered ${response.status}`);
+  return body;
 };

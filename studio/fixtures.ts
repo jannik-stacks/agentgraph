@@ -2,24 +2,18 @@ import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
-import { makeServedGraphs, readBenchSets, readQuery, servedIds } from './served.ts';
+import { Effect, Result, Schema, Stream } from 'effect';
+import { makeServedGraphs, readBenchSets, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as StoreModule from '../src/store.ts';
+import type * as EngineModule from '../src/engine.ts';
+import type * as ToolsModule from '../src/tools.ts';
 import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
-
-const root = new URL('../', import.meta.url);
-const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
-
-const json = (res: ServerResponse, value: unknown, status = 200) => {
-  res.statusCode = status;
-  res.setHeader('content-type', 'application/json');
-  res.end(JSON.stringify(value));
-};
 
 const isInside = async (path: string, roots: string[]) => {
   const [real, ...reals] = await Promise.all([path, ...roots].map(p => realpath(p).catch(() => undefined)));
@@ -27,6 +21,11 @@ const isInside = async (path: string, roots: string[]) => {
 };
 
 class StudioRequestError extends Error {}
+
+type HostAction = {
+  readonly args: Schema.Codec<readonly unknown[], unknown>;
+  run(...args: readonly unknown[]): Effect.Effect<unknown, unknown>;
+};
 
 const readPath = (req: IncomingMessage) => (req.url ?? '/').split('?')[0]!.slice(1);
 
@@ -42,9 +41,10 @@ const pickServed = async (req: IncomingMessage, reader: ReturnType<typeof makeSe
 const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
   const served = await pickServed(req, reader);
   const bench = readQuery(req).get('data');
-  if (!bench) return { served, data: served?.data, bench: undefined };
+  if (!bench) return { served, data: served?.data, store: served?.host?.store, bench: undefined };
   if (!(await isInside(bench, readBenchSets()))) throw new StudioRequestError('data is outside the bench dirs');
-  return { served, data: bench, bench };
+  const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
+  return { served, data: bench, store: makeInstanceHost({ data: bench }).store, bench };
 };
 
 const bodies = (docs: Record<string, { body: string }>) =>
@@ -58,70 +58,81 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
       const use = (path: string, handle: (req: IncomingMessage, res: ServerResponse) => Promise<unknown>) =>
         server.middlewares.use(path, (req, res) => {
           void handle(req, res).catch((e: Error & { _tag?: string }) =>
-            json(res, { error: e.message || e._tag }, e instanceof StudioRequestError ? 400 : 500)
+            writeJson(res, { error: e.message || e._tag }, e instanceof StudioRequestError ? 400 : 500)
           );
         });
+      use('/api/actions', async (req, res) => {
+        if (req.method !== 'POST') return writeJson(res, { error: 'POST required' }, 405);
+        if (!req.headers['content-type']?.startsWith('application/json'))
+          return writeJson(res, { error: 'actions take JSON' }, 415);
+        const verb = readPath(req);
+        const host = (await pickServed(req, reader))?.host;
+        const actions: Readonly<Record<string, HostAction>> = host?.actions ?? {};
+        if (!Object.hasOwn(actions, verb)) return writeJson(res, { error: `no action ${verb}` }, 404);
+        const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
+        const text = await readRequestBody(req);
+        if (text === undefined) throw new StudioRequestError('the body is over 64 KiB');
+        const { args, run } = actions[verb]!;
+        const act = Effect.try(() => JSON.parse(text)).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(args)),
+          Effect.flatMap(decoded => run(...decoded))
+        );
+        writeJson(
+          res,
+          await Effect.runPromise(act).catch((e: Error) => {
+            throw new StudioRequestError(e.message);
+          })
+        );
+      });
       use('/api/results', async (req, res) => {
         const { served, data } = await readDataDir(req, reader);
-        const { readRunResults } = await from<typeof ResultsModule>('bin/results.ts');
-        json(res, readRunResults(data, served?.graph));
+        const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
+        writeJson(res, readRunResults(data, served?.graph));
       });
       use('/api/logs', async (req, res) => {
-        const { data } = await readDataDir(req, reader);
-        const { Effect } = await import('effect');
-        const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
-        const hash = readPath(req);
-        const text =
-          data &&
-          (await Effect.runPromise(Effect.flatMap(Store, s => s.readLog(hash)).pipe(Effect.provide(fileStore(data)))));
+        const { store } = await readDataDir(req, reader);
+        const text = store && (await Effect.runPromise(store.readLog(readPath(req))));
         res.statusCode = text === undefined || text === '' ? 404 : 200;
         res.setHeader('content-type', 'text/plain; charset=utf-8');
         res.end(text || '');
       });
       use('/api/locate', async (req, res) => {
-        const { Effect, Result } = await import('effect');
-        const { fileStore, locate }: typeof StoreModule = await from('src/store.ts');
+        const { locate } = await readModule<typeof StoreModule>('src/store.ts');
         const gh = readQuery(req).get('gh');
-        for (const { name, data } of await reader.read()) {
-          if (!data) continue;
-          const found = await Effect.runPromise(Effect.result(locate({ gh })).pipe(Effect.provide(fileStore(data))));
-          if (Result.isFailure(found)) return json(res, { error: found.failure.message }, 400);
-          if (found.success) return json(res, { ...found.success, instance: name });
+        for (const { name, host } of await reader.read()) {
+          if (!host) continue;
+          const found = await Effect.runPromise(Effect.result(locate({ gh }, host.store)));
+          if (Result.isFailure(found)) return writeJson(res, { error: found.failure.message }, 400);
+          if (found.success) return writeJson(res, { ...found.success, instance: name });
         }
-        json(res, null, 404);
+        writeJson(res, null, 404);
       });
       use('/api/verdicts', async (req, res) => {
         const served = await pickServed(req, reader);
-        const data = served?.data;
         const query = readQuery(req);
         const [fixture, step, check] = [query.get('fixture'), query.get('step'), query.get('check')];
-        if (!fixture || !step || !check) return json(res, { error: 'verdicts take fixture, step and check' }, 400);
-        if (!data || !served) return json(res, []);
-        const { Effect } = await import('effect');
-        const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
+        if (!fixture || !step || !check) return writeJson(res, { error: 'verdicts take fixture, step and check' }, 400);
+        const store = served?.host?.store;
+        if (!store) return writeJson(res, []);
         const runs = await Effect.runPromise(
           Effect.gen(function* () {
-            const store = yield* Store;
             const records = (yield* store.listRecords()).filter(run => `${served.title}/${run.workflow}` === fixture);
             return yield* Effect.forEach(records, run =>
               Effect.map(store.readChecks(run.id), checks => ({ run, checks }))
             );
-          }).pipe(Effect.provide(fileStore(data)))
+          })
         );
-        json(res, findCheckVerdicts(runs, step, check));
+        writeJson(res, findCheckVerdicts(runs, step, check));
       });
       use('/api/runs', async (req, res) => {
-        const { served, data, bench } = await readDataDir(req, reader);
+        const { served, data, store, bench } = await readDataDir(req, reader);
         const one = decodeURIComponent(readPath(req));
-        if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
-        const { Effect, Stream } = await import('effect');
-        const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
-        const { readRunLabels }: typeof LabelsModule = await from('src/labels.ts');
-        if (!data || (!served?.dir && !bench)) return json(res, one ? null : []);
+        if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return writeJson(res, { error: 'bad run id' }, 400);
+        const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
+        if (!data || !store || (!served?.dir && !bench)) return writeJson(res, one ? null : []);
         const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data, id), [data]));
         const answer = await Effect.runPromise(
           Effect.gen(function* () {
-            const store = yield* Store;
             const entry = (run: WorkflowModule.RunRecord, all: boolean, body = false) =>
               Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
                 const lines = mergeCheckEntries(trace, checks);
@@ -148,9 +159,9 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
             }
             const run = (yield* keep(one)) ? yield* store.getRecord(one) : undefined;
             return run ? yield* entry(run, true) : null;
-          }).pipe(Effect.provide(fileStore(data)))
+          })
         );
-        json(res, answer, answer === null ? 404 : 200);
+        writeJson(res, answer, answer === null ? 404 : 200);
       });
     },
     async load(source) {
@@ -167,8 +178,8 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         };
       }
       if (source !== '\0virtual:fixtures') return;
-      const { graphs, fixture }: typeof FixturesModule = await from('tests/fixtures.ts');
-      const engine: typeof WorkflowModule = await from('src/workflow.ts');
+      const { graphs, fixture }: typeof FixturesModule = await readModule('tests/fixtures.ts');
+      const engine: typeof WorkflowModule = await readModule('src/workflow.ts');
       const all: Fixture[] = graphs.flatMap(graph => {
         const { checks, workflows } = fixture(graph);
         return Object.values(workflows).map(workflow => ({

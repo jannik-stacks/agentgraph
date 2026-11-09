@@ -18,6 +18,7 @@ declare module 'virtual:agentgraph-pages' {
     name: string;
     title: string;
     href: string;
+    builtin: boolean;
     instance?: string;
     load: () => Promise<{ default: import('react').ComponentType }>;
   }[];

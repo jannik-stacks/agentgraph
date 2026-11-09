@@ -8,6 +8,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { ConfigProvider, Effect, Layer, Schema } from 'effect';
 import { asSchema } from 'ai';
 import { loadGraph } from '../src/folder.ts';
+import { makeInstanceHost } from '../src/engine.ts';
 import { makePlugin, readPlugins, type RunnerHost, tool } from '../src/plugin.ts';
 import { Runner } from '../src/sandbox.ts';
 import { whyRunnerRefuses } from '../src/services.ts';
@@ -140,7 +141,7 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
         },
       },
     });
-    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, undefined))).toBe(2);
+    expect(await Effect.runPromise(typed.studio!.read({ limit: 2 }, makeInstanceHost({ data: dir })))).toBe(2);
     const registry = await readCheckedPlugins(dir, { count: { limit: '7' } });
     const page = registry.pages[0]!;
     const data = await Effect.runPromise(page.read());
@@ -164,11 +165,12 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
         },
       },
     });
-    const loaded = await readPlugins(dir, {}, undefined, [page]);
+    const loaded = await readPlugins(dir, {}, { builtins: [page] });
     expect(await Effect.runPromise(loaded.pages[0]!.read())).toBe('ok');
-    await expect(readPlugins(dir, {}, undefined, [page, page])).rejects.toThrow('plugin results already defined');
+    expect(loaded.pages.map(page => page.builtin)).toEqual([true]);
+    await expect(readPlugins(dir, {}, { builtins: [page, page] })).rejects.toThrow('plugin results already defined');
     await expect(
-      readPlugins(dir, {}, undefined, [{ ...page, studio: { ...page.studio, extra: true } }])
+      readPlugins(dir, {}, { builtins: [{ ...page, studio: { ...page.studio, extra: true } }] })
     ).rejects.toThrow('extra');
   });
 
@@ -191,15 +193,15 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
         read: (_settings, engine) => Effect.succeed(engine.configs),
       },
     });
-    const loaded = await readPlugins(undefined, {}, undefined, [bench], host);
+    const loaded = await readPlugins(undefined, {}, { builtins: [bench], engine: host });
     expect(named).toEqual(['bench']);
     expect(loaded.pages[0]!.watch).toEqual(['0']);
     expect(await Effect.runPromise(loaded.pages[0]!.read())).toBe(0);
-    expect((await readPlugins(undefined, {}, undefined, [bench])).pages).toEqual([]);
+    expect((await readPlugins(undefined, {}, { builtins: [bench] })).pages).toEqual([]);
   });
 
   it.each([
-    ['empty', {}, 'no tools, studio, hooks, tracker, engine or runner'],
+    ['empty', {}, 'none of tools, hooks, studio, tracker, engine, runner, auth'],
     [
       'remote',
       {
@@ -219,7 +221,7 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
     ],
   ])('rejects an invalid page: %s', async (_name, parts, error) => {
     const dir = await makePluginDir({});
-    await expect(readPlugins(dir, {}, undefined, [{ name: 'page', ...parts }])).rejects.toThrow(error);
+    await expect(readPlugins(dir, {}, { builtins: [{ name: 'page', ...parts }] })).rejects.toThrow(error);
   });
 
   it('loads engine packages from an external graph without node_modules and shares Effect schemas', async () => {

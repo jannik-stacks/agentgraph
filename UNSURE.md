@@ -9,3 +9,41 @@ Decisions made without being sure. Each names what was picked and what would cha
 - **The Modal client type is written from the libmodal sources**, not checked against an installed SDK; nothing was installed. The live smoke test is the check, and it was not run here.
 - **Modal reads `box.sh` from `examples/deploy/cloudflare/`**, so a copied plugin needs that file beside it or a path change.
 - **`makeBoxRunner` takes `data` first**, for its host-side sync dirs, and a box's `run` now yields a final `{ code }` instead of the exit frame line, so a runner that is not HTTP never formats a frame.
+- `resume` is not an action yet. Its function, `instruct` with a resume instruction, needs the engine's full
+  services (`start` with a tracker setup and harness choice). Running that inside the studio process felt too
+  heavy. `say <n> ":restart"` and `":stop"` cover the per-issue cases through the `commands` gate.
+- `stop` and `restart` stay CLI-only: they signal or spawn a loop process that may serve several instances.
+- Actions are offered to every page and every reader, graph-local or operator: the maintainer chose no
+  distinction for now. Pages share the studio origin anyway, so a gate on the page's name would be forgeable.
+- `say` posts where `agi say` does: only to a local tracker (`origin.local` of the tracker setup). A plain
+  studio (`--dir --data --tracker <folder>`) wires the folder through the folder plugin's setup and posts as
+  the local user, since it has no instance owner. Named instances post as the instance owner.
+- The dashboard caches its tracker `since` read per window start for one minute, in the example's own reader
+  (a map per host tracker). A cache inside the host's `tracker.since` would serve every page, but it would
+  key on cursor and columns and change what the core read means for one consumer, so the smaller reader-side
+  cache won.
+- The dashboard skips runs that ended before its widest window and runs no widget names, before reading
+  traces. `listRecords({ workflow })` would not help: it reads every `run.json` before filtering, and one
+  filter cannot express widgets with different workflows.
+- The dashboard watches its instance's data folder, so it still re-reads after any run write. That is the
+  refresh it needs for live counts; the tracker read inside it is cached, so a live run no longer repeats
+  GitHub scans back to back.
+- `readStudioPages` hands the instance host to graph plugins whose graph may come from the repo. Reads there
+  add no authority beyond what host code already has, but it is worth a second look.
+- `/api/results` and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
+  `readRunResults` onto the instance store would make one path; it reads sync files today.
+- `InstanceHost` is exported from `@jannik-stacks/agi/trackers`, not `/plugins`. `src/plugin.ts` must stay a
+  leaf for the import-cycle lint, and the host type pulls in the tracker and store. A reader types its own
+  host parameter; `makePlugin` infers it, so nothing checks that the served host matches at compile time.
+- Left from the studio review: the dashboard keeps its `why` field (the page would derive it from source and
+  skips), `InstanceHost` keeps `tracker.issues`/`issue` and `store.readLog`/`getRecord` (the trim waits on the
+  types refactor), and a bench data folder still gets a whole instance host for its store. The `ResultBadge`
+  wrapper stays: `runRow` is a plain function, so the hook needs that component.
+- **Studio auth is one gate for every served instance.** Each instance's env file and graph may pick it, but a studio
+  of several refuses to start unless they agree on the name, the plugin settings and every `AGENTGRAPH_AUTH` and
+  `AGENTGRAPH_STUDIO_*` value. A host-level studio setting would be simpler if multi-instance studios get hosted.
+- **The session key is a hash of every `AGENTGRAPH_AUTH` and `AGENTGRAPH_STUDIO_*` value**, so rotating any of
+  them logs everyone out, and the start token stands in for a key when `AGENTGRAPH_STUDIO_KEY` is unset. A random
+  start token changes on every restart, so `token` sessions do too, which matches its login URL.
+- **The gate knows two names**: it prints the login URL for `token` and warns for `none` beyond loopback. A plugin
+  hook for start-up lines would remove that, but nothing else needs one yet.

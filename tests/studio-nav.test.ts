@@ -6,12 +6,13 @@ type Store = { get: (atom: Atom) => unknown; set: (atom: Atom, value: unknown) =
 type CreateElement = (type: unknown, props?: object | null, ...children: unknown[]) => unknown;
 
 let render: (path: string) => string;
-let renderInbox: (runs: object[]) => string;
+let renderRuns: (runs: object[], path: string) => string;
 let renderPicker: (keys: string[], hidden: string[]) => string;
 let makeStore: () => Store;
 let makeHiddenKeysAtom: (name: string) => Atom;
 const stored = new Map<string, string>();
-const routes = ['inbox', 'graph', 'runs', 'plugins/count', 'docs'];
+const official = ['graph', 'runs', 'docs'];
+const routes = [...official, 'plugins/count'];
 
 beforeAll(async () => {
   Object.assign(globalThis, {
@@ -26,20 +27,21 @@ beforeAll(async () => {
   const { renderToString } = await studioDependency<{ renderToString: (node: unknown) => string }>('react-dom/server');
   const jotai = await studioDependency<{ createStore: () => Store; Provider: unknown }>('jotai');
   const { App } = await studioModule<{ App: () => unknown }>('App.tsx');
-  const state = await studioModule<{ locationAtom: Atom }>('state.ts');
+  const state = await studioModule<{ locationAtom: Atom; runsAtom: Atom }>('state.ts');
   render = path => {
     const store = jotai.createStore();
     store.set(state.locationAtom, { path, query: new URLSearchParams() });
     return renderToString(createElement(jotai.Provider, { store }, createElement(App)));
   };
-  const { InboxPage } = await studioModule<{ InboxPage: () => unknown }>('runs/InboxPage.tsx');
-  const { runsAtom } = await studioModule<{ runsAtom: Atom }>('state.ts');
-  renderInbox = runs => {
+  const { RunsPage } = await studioModule<{ RunsPage: () => unknown }>('runs/RunsPage.tsx');
+  renderRuns = (runs, path) => {
     const store = jotai.createStore();
-    store.set(runsAtom, {
+    const url = new URL(path, 'http://studio');
+    store.set(state.locationAtom, { path: url.pathname, query: url.searchParams });
+    store.set(state.runsAtom, {
       value: runs.map(run => ({ fixture: '', repo: '', labels: {}, run, usd: 0, trail: [], urls: [], checks: [] })),
     });
-    return renderToString(createElement(jotai.Provider, { store }, createElement(InboxPage)));
+    return renderToString(createElement(jotai.Provider, { store }, createElement(RunsPage)));
   };
   const ui = await studioModule<{ KeyPicker: unknown; makeHiddenKeysAtom: (name: string) => Atom }>('ui.tsx');
   renderPicker = (keys, hidden) =>
@@ -61,15 +63,13 @@ const links = (html: string) =>
 const navs = (html: string) => [...html.matchAll(/<nav\b[\s\S]*?<\/nav>/g)].map(m => m[0]);
 
 describe('studio navigation', () => {
-  it('links every route from the header in order, plugin pages before docs, and marks the one shown', () => {
-    for (const route of routes) {
-      const [header = ''] = navs(render(`/${route}`));
-      expect(links(header)).toEqual(routes.map(other => ({ href: `/${other}`, current: other === route })));
-    }
+  it.each(routes)('links official pages, then plugin pages in their own group, marking %s', route => {
+    expect(navs(render(`/${route}`)).map(links)).toEqual(
+      [official, ['plugins/count']].map(group => group.map(other => ({ href: `/${other}`, current: other === route })))
+    );
   });
 
-  it('links a declared plugin page and marks its route', () => {
-    expect(links(navs(render('/plugins/count'))[0]!)).toContainEqual({ href: '/plugins/count', current: true });
+  it('shows a declared plugin page', () => {
     expect(render('/plugins/count')).not.toContain('Page not found.');
   });
 
@@ -77,15 +77,23 @@ describe('studio navigation', () => {
     expect(render(`/plugins/${name}`)).toContain('Page not found.');
   });
 
-  it('lists the runs that wait on a person with what to do, and not those that wait on another run', () => {
+  it('filters the runs to those that wait on a person, with what to do, and not those that wait on another run', () => {
     const base = { workflow: 'issue', step: 'merge', tries: 0, rounds: {}, usd: 0, started: '2026-10-25T10:00:00Z' };
-    expect(renderInbox([{ ...base, id: 'done-1', issue: 1, status: 'done' }])).toContain('Nothing waits for you.');
-    const html = renderInbox([
-      { ...base, id: 'issue-2', issue: 2, status: 'waiting' },
-      { ...base, id: 'router-3', issue: 3, status: 'waiting', reason: 'waiting on triage-3' },
-      { ...base, id: 'triage-3', issue: 3, status: 'running', by: 'router-3' },
-      { ...base, id: 'router-4', issue: 4, status: 'waiting', reason: 'Hello or hi?' },
-    ]);
+    const done = { ...base, id: 'done-1', issue: 1, status: 'done' };
+    expect(renderRuns([done], '/runs?waiting=you')).toContain('Nothing waits for you.');
+    expect(renderRuns([done], '/runs')).not.toContain('need');
+    const html = renderRuns(
+      [
+        { ...base, id: 'issue-2', issue: 2, status: 'waiting' },
+        { ...base, id: 'router-3', issue: 3, status: 'waiting', reason: 'waiting on triage-3' },
+        { ...base, id: 'triage-3', issue: 3, status: 'running', by: 'router-3' },
+        { ...base, id: 'router-4', issue: 4, status: 'waiting', reason: 'Hello or hi?' },
+        done,
+      ],
+      '/runs?waiting=you'
+    );
+    expect(html).toContain('2 need you');
+    expect(html).not.toContain('/runs/done-1');
     expect(html).toContain('Review the PR linked from');
     expect(html).toContain('Hello or hi?');
     expect(html).toContain('/runs/issue-2');

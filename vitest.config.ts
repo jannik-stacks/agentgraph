@@ -77,6 +77,7 @@ const toolTests = [
   'tests/sessions.test.ts',
   'tests/sized.test.ts',
   'tests/skill.test.ts',
+  'tests/studio-auth.test.ts',
   'tests/studio-controls.e2e.test.ts',
   'tests/studio-instances.test.ts',
   'tests/studio-pages.test.ts',
@@ -120,7 +121,7 @@ export default defineConfig({
   test: {
     globalSetup: ['tests/setup/global.ts'],
     setupFiles: ['tests/setup/processes.ts'],
-    env: { AGENTGRAPH_CACHE_VOLUME: '', AGENTGRAPH_MIN_FREE_GB: '0' },
+    env: { AGENTGRAPH_CACHE_VOLUME: '', AGENTGRAPH_MIN_FREE_GB: '0', AGENTGRAPH_AUTH: 'none' },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts', 'harnesses/*.ts'],

@@ -1,0 +1,12 @@
+{
+  "extends": "../../studio/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@jannik-stacks/agi/studio": ["../../studio/src/plugins.ts"],
+      "react": ["../../studio/node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["../../studio/node_modules/@types/react/jsx-runtime.d.ts"],
+      "d3-scale": ["../../studio/node_modules/@types/d3-scale/index.d.ts"]
+    }
+  },
+  "include": ["plugins/dashboard/DashboardPage.tsx", "../../studio/src/virtual.d.ts"]
+}

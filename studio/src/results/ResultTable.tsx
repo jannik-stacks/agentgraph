@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
-import { cx, Link, Tooltip } from '../ui.tsx';
+import { Badge, cx, Link, Tooltip } from '../ui.tsx';
 import {
   type CheckField,
   formatResultValue,
@@ -241,20 +241,40 @@ export const ResultTable = ({
   );
 };
 
-export const ResultsLink = ({ query, children }: { query: string; children: string }) => (
-  <Link href={query ? `/results?${query}` : '/results'} className="underline underline-offset-2">
+const ResultsLink = ({ run, children }: { run: string; children: ReactNode }) => (
+  <Link href={`/results?run=${encodeURIComponent(run)}`} className="underline underline-offset-2">
     {children}
   </Link>
 );
+
+const findFailedGates = (run: RunResults, fields: CheckField[]) =>
+  Object.entries(run.results).filter(
+    ([check, r]) => !r.pass && !r.na && fields.some(f => f.check === check && f.mode !== 'info')
+  );
+
+export const RunResultBadge = ({ run, fields }: { run: RunResults; fields: CheckField[] }) => {
+  const checks = Object.keys(run.results);
+  if (!checks.length) return null;
+  const failed = findFailedGates(run, fields).map(([check]) => check);
+  return (
+    <Tooltip
+      tip={`gates ${failed.length ? `failed: ${failed.join(', ')}` : `passed: ${checks.join(', ')}`}, click for the results`}
+    >
+      <ResultsLink run={run.key}>
+        <Badge>
+          {failed.length ? <span className={amber}>{`${failed.length} of ${checks.length} fail`}</span> : 'pass'}
+        </Badge>
+      </ResultsLink>
+    </Tooltip>
+  );
+};
 
 const when = (r: RunResult) => (r.later ? `checked later ${r.at.slice(0, 10)}` : 'at run end');
 
 export const RunResultLines = ({ run, fields }: { run: RunResults; fields: CheckField[] }) => {
   const checks = Object.entries(run.results);
   if (!checks.length) return null;
-  const failed = checks.filter(
-    ([check, r]) => !r.pass && !r.na && fields.some(f => f.check === check && f.mode !== 'info')
-  );
+  const failed = findFailedGates(run, fields);
   const na = checks.filter(([, r]) => r.na).map(([check]) => check);
   const past = (f: CheckField) => {
     const v = readFieldValue(run, f);
@@ -292,7 +312,7 @@ export const RunResultLines = ({ run, fields }: { run: RunResults; fields: Check
         <span className="text-zinc-500">results </span>
         {values.join(', ') || 'no values'}
         <span className="text-zinc-500">, {times.join(' and ')} </span>
-        <ResultsLink query={`run=${encodeURIComponent(run.key)}`}>all results &gt;</ResultsLink>
+        <ResultsLink run={run.key}>all results &gt;</ResultsLink>
       </p>
     </div>
   );

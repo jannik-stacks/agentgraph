@@ -19,7 +19,7 @@ import { Config, ConfigProvider, Effect, Redacted, Semaphore, Stream } from 'eff
 import { readArgs } from '../src/cli.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
-import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
+import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit, writeAgentComment } from '../src/tracker.ts';
 import { readConfiguredGraph, readHarnessSettings, splitNames, type Provider } from '../src/harnesses.ts';
 import {
   ensureInstanceGraph,
@@ -66,7 +66,7 @@ import {
   whyRunnerRefuses,
 } from '../src/services.ts';
 import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
-import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
+import { parseLabelPatch, parseLabels, writeStoredRunLabels } from '../src/labels.ts';
 import type { Run, RunRecord } from '../src/workflow.ts';
 
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
@@ -107,12 +107,8 @@ const startLabels = (() => {
 })();
 const relabel = async (data: string) => {
   const [id = '', ...words] = rest;
-  if (!(await Effect.runPromise(Effect.flatMap(Store, s => s.getRecord(id)).pipe(Effect.provide(fileStore(data))))))
-    fail(`no run ${id || '<run id>'} in ${data}`);
   try {
-    const labels = words.length
-      ? await Effect.runPromise(writeRunLabels(data, id, parseLabelPatch(words)))
-      : readRunLabels(data, id);
+    const labels = await Effect.runPromise(writeStoredRunLabels(data, id, parseLabelPatch(words)));
     for (const [key, value] of Object.entries(labels)) console.log(`${key}=${value}`);
   } catch (e) {
     fail((e as Error).message);
@@ -449,8 +445,7 @@ async function runOnInstance(
   graph: string
 ) {
   trackerSetup = setup;
-  const { trust } = current;
-  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, setup.layer(trust, i.owner)));
+  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, setup.layer(current.trust, i.owner)));
   const synced = async () => {
     const why = setup.origin.local && (await ensureBase(i));
     if (why) fail(why, 1);
@@ -490,12 +485,10 @@ async function runOnInstance(
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
       if (values.line) await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
-      else {
-        const posted = await Effect.runPromise(
-          (await getTracker()).apply(n, { kind: 'comment', body: formatAgentComment(said()) })
+      else
+        await Effect.runPromise(Effect.provideService(writeAgentComment(n, said()), Tracker, await getTracker())).catch(
+          (e: Error) => fail(e.message)
         );
-        if (!posted.ok) fail(posted.reason ?? 'comment was refused');
-      }
       if (values.label)
         await Effect.runPromise((await getTracker()).apply(issue, { kind: 'label', add: values.label, remove: [] }));
       return drive(i, issue, graph, provider);

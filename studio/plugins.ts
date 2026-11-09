@@ -15,6 +15,7 @@ import {
   makeServedTopic,
   makeUnservedFilter,
   readBenchSets,
+  readModule,
   readQuery,
   servedIds,
   startWatch,
@@ -27,7 +28,7 @@ const manifest = 'virtual:agentgraph-pages';
 const entry = 'virtual:agentgraph-page/';
 
 const makeResultsPlugin = async (served: ServedGraph) => {
-  const { makePlugin }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
+  const { makePlugin } = await readModule<typeof PluginModule>('src/plugin.ts');
   const { data } = served;
   return makePlugin({
     name: 'results',
@@ -38,9 +39,7 @@ const makeResultsPlugin = async (served: ServedGraph) => {
       watch: () => (data ? [data] : []),
       read: () =>
         Effect.gen(function* () {
-          const { readRunResults }: typeof ResultsModule = yield* Effect.promise(
-            () => import(new URL('../bin/results.ts', import.meta.url).href)
-          );
+          const { readRunResults } = yield* Effect.promise(() => readModule<typeof ResultsModule>('bin/results.ts'));
           try {
             return Schema.decodeUnknownSync(ResultsData)({ kind: 'ready', sheet: readRunResults(data, served.graph) });
           } catch {
@@ -62,28 +61,28 @@ const readBenchConfigs = (served: ServedGraph[]) => {
 };
 
 const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
-  const { readPlugins }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
-  const { makeEngineHost }: typeof EngineModule = await import(new URL('../src/engine.ts', import.meta.url).href);
-  const { default: bench }: typeof BenchModule = await import(new URL('./src/bench/plugin.ts', import.meta.url).href);
-  const builtins = new Set(['results', 'bench']);
+  const { readPlugins } = await readModule<typeof PluginModule>('src/plugin.ts');
+  const { makeEngineHost } = await readModule<typeof EngineModule>('src/engine.ts');
+  const { default: bench } = await readModule<typeof BenchModule>('studio/src/bench/plugin.ts');
   const all = await served.read();
   const scoped = await Promise.all(
     all.map(async one => {
-      const { pages } = await readPlugins(one.graph?.dir, one.graph?.plugins, undefined, [
-        await makeResultsPlugin(one),
-        bench,
-      ]);
+      const { pages } = await readPlugins(one.graph?.dir, one.graph?.plugins, {
+        builtins: [await makeResultsPlugin(one), bench],
+        ...(one.host && { instance: one.host }),
+      });
       return pages.map(page => ({ ...page, instance: one.name }));
     })
   );
   const configs = readBenchConfigs(all);
-  const { pages: shared } = await readPlugins(undefined, undefined, undefined, [bench], name =>
-    makeEngineHost(name, configs)
-  );
+  const { pages: shared } = await readPlugins(undefined, undefined, {
+    builtins: [bench],
+    engine: name => makeEngineHost(name, configs),
+  });
   return [...scoped.flat(), ...shared.map(page => ({ ...page, instance: undefined }))].map(page => ({
     ...page,
     key: page.instance ? `${page.instance}/${page.name}` : page.name,
-    href: builtins.has(page.name) ? `/${page.name}` : `/plugins/${page.name}`,
+    href: page.builtin ? `/${page.name}` : `/plugins/${page.name}`,
   }));
 };
 
@@ -125,7 +124,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
       return {
         resolve: {
           alias: { '@jannik-stacks/agi/studio': fileURLToPath(new URL('./src/plugins.ts', import.meta.url)) },
-          dedupe: ['react', 'react-dom', 'jotai', 'effect'],
+          dedupe: ['react', 'react-dom', 'jotai', 'effect', 'd3-scale'],
         },
         server: {
           fs: { allow: loaded.map(page => dirname(fileURLToPath(page.page))) },
@@ -143,7 +142,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
         return `export const pages = [${loaded
           .map(
             page =>
-              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.href)},instance:${JSON.stringify(page.instance)},load:()=>import(${JSON.stringify(entry + page.key)})}`
+              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.href)},builtin:${page.builtin},instance:${JSON.stringify(page.instance)},load:()=>import(${JSON.stringify(entry + page.key)})}`
           )
           .join(',')}];`;
       const page = id.startsWith(`\0${entry}`) && loaded.find(page => page.key === id.slice(entry.length + 1));
@@ -192,7 +191,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
       await watch();
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
-        const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
+        const name = /^\/([^/?]+)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
         const instance = readQuery(req).get('instance') ?? '';
         const page = loaded.find(page => page.name === name && (page.instance ?? instance) === instance);
         if (!page) {

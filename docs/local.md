@@ -67,20 +67,24 @@ The base is the branch checked out on first use, or `origin`'s default on a deta
 
 ## The studio
 
-The studio shows the graph, every run and the Results tab. It only reads. Inside a repo, `agi studio` starts it for that repo's instance; it needs a clone of agentgraph and installs the studio's dependencies on first use. By hand, from a clone:
+The studio shows the graph, runs, results and Bench. Its [actions](plugins.md#studio-pages) post local comments and set run labels. A running loop picks up the comments. Inside a repo, `agi studio` starts it for that repo's instance; it needs a clone of agentgraph and installs the studio's dependencies on first use. By hand, from a clone:
 
 ```sh
 cd studio && npm install
 npm run dev -- --instance left-pad --instance right-pad
 ```
 
-It serves on port 5182, or `AGI_PORT`, and restarts when engine code under `src` or `bin` changes. One studio serves several instances of one data root: each `--instance <name>` adds one, and with none of `--instance`, `--repo` and `--dir` it serves every instance under the root. Each instance's pages live under its name, as `/<name>/runs` and `/<name>/graph`, and the header switches between instances. Graph, Runs, Inbox and Results read only that instance. An address that names no served instance lists the ones served. An instance that fails to load shows why on its pages, and the others keep working. Each instance reads its settings as the loop does, so a studio of several ignores the per-instance settings in the shell, listed under [One loop for several instances](#one-loop-for-several-instances). <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown src/main.ts#removeShellSettings -->
+The studio listens on `127.0.0.1:5182`. Set `AGI_HOST` or `AGI_PORT` to change the address. Token auth is the default and prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the studio.
 
-`--repo <dir>` reads or makes that repo's instance. `--dir <graph>` picks the graph of a single instance; when serving several, set `graph` in each `instance.yaml`. `--dir <dir> --data <dir>` without an instance shows that graph and run store at `/runs`, and `--tracker <dir>` then makes the Inbox show local commands. The [Bench](bench.md#cost-against-quality) tab shows the runs of every served instance, `npm run dev -- --bench <sets>` adds bench sets to it and a tune's runs show with `--dir <graph> --data <tune dir>/data`.
+One studio serves several instances of one data root: each `--instance <name>` adds one, and with none of `--instance`, `--repo` and `--dir` it serves every instance under the root. Each instance's pages live under its name, as `/<name>/runs` and `/<name>/graph`, and the header switches between instances. Graph, Runs and Results read only that instance. An address that names no served instance lists the ones served. An instance that fails to load shows why on its pages, and the others keep working. Each instance reads its settings as the loop does, so a studio of several ignores the per-instance settings in the shell, listed under [One loop for several instances](#one-loop-for-several-instances). <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown src/main.ts#removeShellSettings -->
+
+`--repo <dir>` reads or makes that repo's instance. `--dir <graph>` picks the graph of a single instance; when serving several, set `graph` in each `instance.yaml`. `--dir <dir> --data <dir>` without an instance shows that graph and run store at `/runs`, and `--tracker <dir>` then makes the runs that need you show local commands. The [Bench](bench.md#cost-against-quality) tab shows the runs of every served instance, `npm run dev -- --bench <sets>` adds bench sets to it and a tune's runs show with `--dir <graph> --data <tune dir>/data`.
 
 Set `AGENTGRAPH_STUDIO_URL` to the studio's address once, in the shell or an instance `env` file. An instance's posts link to `<address>/<name>/runs/<id>`, so a loop that drives several instances links each to its own runs. <!-- code: src/main.ts#readInstanceEnv -->
 
-The Inbox lists runs that wait for a person, with the commands `agi show` prints. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->
+The header groups Graph, Runs, Results, Bench and Docs together. Pages from the graph's plugins appear in a separate group. [Studio pages](plugins.md#studio-pages) describes how the `builtin` flag selects the group. <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom -->
+
+On the Runs page, the "need you" button narrows the list to runs that wait for a person, each with the commands `agi show` prints. Each run row carries a small badge for its gates that opens its results. <!-- code: studio/src/runs/RunsPage.tsx#RunsPage src/status.ts#findRunsWaitingOnPeople studio/src/results/ResultTable.tsx#RunResultBadge -->
 
 ## Named instances and settings
 
@@ -97,7 +101,7 @@ record it cannot read with a one-line warning. <!-- code: src/instance.ts#ensure
 
 The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),
 `base`, `owner`, `exported`, and `loop` (boolean, initially false). Optional fields are
-`graph`, `tracker` (plugin name), `trust` (logins), `env` (secrets/env file), `provider`,
+`graph`, `tracker` and `runner` (plugin names), `trust` (logins), `env` (secrets/env file), `provider`,
 `readonly`, `image`, and `limits.parallel`. Relative `checkout`, `graph`, and `env` paths resolve
 against the instance folder. Omitted `graph` means the checkout's `.agentgraph/`.
 Edit the record to change saved defaults; flags apply to one command. `loop: true` puts the
@@ -115,6 +119,7 @@ instance's `env` file (and the App env file it names), `instance.yaml`, the shel
 | Trust              |              | `trust`               | `AGENTGRAPH_TRUST`    | instance `owner`, tracker collaborators                        |
 | Image              |              | `image`               | `AGENTGRAPH_IMAGE`    | graph `image`, stock sandbox image                             |
 | Tracker            | `--tracker`  | `tracker`             | `AGENTGRAPH_TRACKER`  | `github` with App credentials, folder                          |
+| Runner             | `--runner`   | `runner`              | `AGENTGRAPH_RUNNER`   | `local`                                                        |
 | Provider           | `--provider` | `provider`            | `AGENTGRAPH_PROVIDER` | harness config                                                 |
 | Graph path         | `--dir`      | `graph`               | `AGENTGRAPH_DIR`      | checkout `.agentgraph/`                                        |
 | Harness config     |              |                       | `AGENTGRAPH_CONFIG`   | data root `config.ts`, engine config                           |
@@ -127,6 +132,12 @@ graph `settings.yaml` rejects `repo` and `trust`. Image and parallel remain grap
 file. `AGENTGRAPH_DATA` selects the root. There is no engine `AGENTGRAPH_PARALLEL`;
 `AGENTGRAPH_BASE` remains a check-script input. `--logs` beats `AGENTGRAPH_CHECK_LOGS` everywhere.
 <!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#start -->
+
+Studio reloads resolve the instance graph and env file again and refresh their watch roots.
+An explicit `--dir` keeps selecting that graph until the studio exits. CLI tracker setup and execution
+use the same selected graph snapshot; stored-data commands do not discover graph plugins.
+CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
+<!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->
 
 ### One loop for several instances
 
@@ -171,31 +182,3 @@ instance with `--instance <name> --repo <worktree>`. A second loop on a checkout
 holder died is taken over at once on the same host, and after its two-minute heartbeat from another
 host; runs go on where they were.
 <!-- code: bin/run.ts#stopLoops bin/run.ts#detach src/owner.ts#createLoopLock src/owner.ts#isOwnerRunning -->
-
-### Migrating an existing instance
-
-Stop its loop before moving its folder. Choose a plain name, then run:
-
-```sh
-mv "$root/$old_name" "$root/$name"
-```
-
-For a graph with `repo:` and `image:`, delete only `repo: owner/name` from `settings.yaml`
-and add `repo: owner/name` to the renamed folder's `instance.yaml`. Rename its checkout
-line from `repo: <checkout path>` to `checkout: <checkout path>` first. Keep graph `image:` and `limits.parallel:` unchanged; they remain defaults.
-If graph `trust:` exists, delete it there and add the same list as `trust:` in the instance.
-Keep `base`, `owner`, `provider`, and `exported`; add `loop: false`. For an external graph,
-add `graph: <absolute graph path>` to the instance. Add `tracker: github` and
-`env: <App env file>` for a GitHub instance; local instances may omit `tracker`.
-Use `--instance <name>` on subsequent commands when the name differs from the checkout
-basename. Folder migration is manual. Tracker flags and App variables select a backend for this same
-instance; every command keeps its data directory and trust. GitHub instances use their
-`env` file for App credentials. Local origin confinement and branch export apply to local
-trackers. Provider callbacks, validation and studio reloads read the same scoped environment.
-<!-- code: src/main.ts#readInstanceEnv src/services.ts#makeTrackerSetup src/status.ts#formatInstanceFlags studio/served.ts#readInstanceServed -->
-
-Studio reloads resolve the instance graph and env file again and refresh their watch roots.
-An explicit `--dir` keeps selecting that graph until the studio exits. CLI tracker setup and execution
-use the same selected graph snapshot; stored-data commands do not discover graph plugins.
-CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
-<!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->

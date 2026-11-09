@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, it, vi } from 'vitest';
 import { createStudioServer, startStudioServer, studioDir } from './studio.ts';
+import { writeIssueFile } from '../src/tracker.ts';
 
 it('encodes page data, hides reader failures and sends change topics per watch root', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-pages-'));
@@ -52,7 +53,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
   const { server, base } = await startStudioServer();
   try {
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('7');
-    expect(await (await fetch(`${base}/src/runs/InboxPage.tsx`)).text()).not.toContain('FAKE-private-plugin-value');
+    expect(await (await fetch(`${base}/src/runs/RunsPage.tsx`)).text()).not.toContain('FAKE-private-plugin-value');
     const snapshot = await (await fetch(`${base}/api/plugins/results/data`)).json();
     expect(snapshot.kind).toBe('ready');
     expect(JSON.stringify(snapshot)).not.toContain(external);
@@ -238,5 +239,82 @@ dataSchema: Schema.String, read: () => Effect.succeed('') } });
   } finally {
     vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it.each(['team-dashboard', 'snake_case', 'A1-b_2'])('serves the data route of plugin %s', async name => {
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-plugin-name-'));
+  const dir = join(root, 'graph');
+  mkdirSync(join(dir, 'plugins', 'pages'), { recursive: true });
+  writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
+  writeFileSync(join(dir, 'plugins/pages/Page.tsx'), 'export default function Page() { return null; }');
+  writeFileSync(
+    join(dir, 'plugins', `${name}.ts`),
+    `import { makePlugin } from ${JSON.stringify(pathToFileURL(join(studioDir, '../src/plugin.ts')).href)};
+import { Effect, Schema } from ${JSON.stringify(import.meta.resolve('effect'))};
+export default makePlugin({ name: '${name}', studio: { title: 'Mine', page: new URL('./pages/Page.tsx', import.meta.url),
+dataSchema: Schema.String, read: () => Effect.succeed('${name}') } });
+`
+  );
+  vi.stubEnv('AGI_STUDIO_DIR', dir);
+  vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
+  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  const { server, base } = await startStudioServer();
+  try {
+    expect(await (await fetch(`${base}/api/plugins/${name}/data`)).json()).toBe(name);
+  } finally {
+    await server.close();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('runs instance actions only for same-origin JSON and reports refusals', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-actions-'));
+  const dir = join(root, 'graph');
+  mkdirSync(dir);
+  mkdirSync(join(root, 'data', 'r1'), { recursive: true });
+  mkdirSync(join(root, 'tracker'));
+  const issue = await writeIssueFile(join(root, 'tracker'), { title: 'Ask', author: 'morgan', labels: [] }, '');
+  writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
+  writeFileSync(
+    join(root, 'data', 'r1', 'run.json'),
+    JSON.stringify({ id: 'r1', workflow: 'w', status: 'done', started: 'now' })
+  );
+  vi.stubEnv('AGI_STUDIO_DIR', dir);
+  vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
+  vi.stubEnv('AGI_STUDIO_TRACKER', join(root, 'tracker'));
+  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  const { server, base } = await startStudioServer();
+  const post = async (verb: string, body: unknown, headers: Record<string, string> = {}) => {
+    const response = await fetch(`${base}/api/actions/${verb}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+    return [response.status, await response.json()];
+  };
+  try {
+    expect([
+      await post('label', ['r1', { arm: 'base' }]),
+      await post('label', ['r1', { arm: 'x' }], { 'sec-fetch-site': 'cross-site' }),
+      await post('label', ['r1', { arm: 'x' }], { 'content-type': 'text/plain' }),
+      await post('label', ['r1']),
+      await post('say', [issue, 'hi']),
+      await post('merge', [1]),
+      [(await fetch(`${base}/api/actions/label`)).status, null],
+    ]).toEqual([
+      [200, { arm: 'base' }],
+      [403, { error: 'cross-origin request' }],
+      [415, { error: 'actions take JSON' }],
+      [400, { error: expect.stringContaining('Missing key') }],
+      [200, expect.objectContaining({ ok: true })],
+      [404, { error: 'no action merge' }],
+      [405, null],
+    ]);
+  } finally {
+    await server.close();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
   }
 });

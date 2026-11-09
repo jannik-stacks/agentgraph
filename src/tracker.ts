@@ -153,6 +153,17 @@ export const makeCommentWithAgentRequest = (c: Comment): Comment => {
 
 export const formatAgentComment = (text: string) => (text.startsWith(':') ? `/agent${text}` : `/agent ${text}`);
 
+export const writeProposal = (issue: number, proposal: Proposal) =>
+  Effect.flatMap(Tracker, tracker => tracker.apply(issue, proposal)).pipe(
+    Effect.filterOrFail(
+      applied => applied.ok,
+      applied => new TrackerError({ message: applied.reason ?? `${proposal.kind} was refused` })
+    )
+  );
+
+export const writeAgentComment = (issue: number, text: string) =>
+  writeProposal(issue, { kind: 'comment', body: formatAgentComment(text) });
+
 /** Whether an issue passes the `issues` filter. */
 export const matches =
   (filter: NonNullable<Parameters<Tracker['Service']['issues']>[0]> = {}) =>

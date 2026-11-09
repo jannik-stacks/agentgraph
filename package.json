@@ -51,7 +51,7 @@
     "check": "sh bin/check.sh",
     "check:static": "oxfmt --check src harnesses agentgraph.config.ts tests bin bench studio tune && oxlint && npm run -s knip && npm run -s check:docs && npm run -s check:examples && sh bin/precommit.sh && tsc --noEmit && tsc --noEmit -p studio",
     "check:docs": "node bin/refs.mjs >/dev/null && node bin/commands.mjs && node bin/fields.mjs && node bin/style.mjs",
-    "check:examples": "node bin/merge-grants.mjs && for dir in examples/*/; do [ -e \"${dir}settings.yaml\" ] || continue; node bin/run.ts check --dir \"$dir\" --provider litellm || exit 1; done",
+    "check:examples": "node bin/merge-grants.mjs && for dir in examples/*/; do [ -e \"${dir}settings.yaml\" ] || continue; node bin/run.ts check --dir \"$dir\" --provider litellm || exit 1; done && tsc --noEmit -p examples/dashboard",
     "test": "vitest run",
     "lint": "oxlint",
     "knip": "knip && knip --production --exports --files",
@@ -63,6 +63,7 @@
     "@modelcontextprotocol/sdk": "1.32.1",
     "ai": "7.0.148",
     "effect": "4.0.6",
+    "jose": "6.2.13",
     "yaml": "2.9.1"
   },
   "devDependencies": {
