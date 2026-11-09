@@ -98,8 +98,8 @@ run)
       *) break ;;
       esac
     done
-    [ "$mode" != rw ] || chown -R 1000:1000 "$root/work"
-    set -- setpriv --reuid="$uid" --regid="$uid" --clear-groups "$@"
+    if [ "$mode" = rw ]; then chown -R 1000:1000 "$root/work"; else chmod -R go-w "$root/work"; fi
+    set -- setpriv --reuid="$uid" --regid="$uid" --clear-groups --no-new-privs "$@"
   elif [ "$mode" != rw ]; then
     echo "agentgraph: a read-only command needs a box that starts it as root" >&2
     exit 126
