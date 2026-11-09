@@ -13,7 +13,7 @@ A repo keeps its graph in `.agentgraph/`: Markdown files whose frontmatter the e
   plugins/issues.ts      reviewed tools, hooks and host plugins
 ```
 
-`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words, among others. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#loadGraph src/folder.ts#compile src/folder.ts#retiredIn src/workflow.ts#compileWorkflow -->
+`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words, among others. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#Graph src/folder.ts#loadGraph src/folder.ts#compile src/folder.ts#retiredIn src/workflow.ts#compileWorkflow -->
 
 Nothing here is stable yet; `CHANGELOG.md` lists renames and removals.
 
