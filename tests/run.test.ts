@@ -14,7 +14,7 @@ import { begin, getEventOutcome, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { fakeDocker, harnesses, makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { findStatus, git, issuePath, writeIssueAt } from './kit.ts';
+import { findStatus, git, issuePath, tmp, writeIssueAt } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
   graph,
@@ -31,6 +31,7 @@ import {
   fresh,
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { readEngineVersion } from '../src/git.ts';
 import { writeStatus } from '../src/run/settle.ts';
 import { type Checkout, type Command, type Run, type SessionEvent } from '../src/types.ts';
 
@@ -280,6 +281,17 @@ describe('drive', () => {
       )
     ).finally(docker.restore);
     expect(asked.versions).toMatchObject({ image: 'sha256:stamped', harnesses: { opencode: '1.19.0' } });
+  });
+
+  it.each([
+    ['its package version', '{"version":"1.2.3"}', '1.2.3'],
+    ['unknown without a version', '{}', 'unknown'],
+    ['unknown without a package.json', undefined, 'unknown'],
+  ])('falls back from a failing git describe to %s', (_, pkg, version) => {
+    const root = tmp('engine-root');
+    writeFileSync(join(root, '.git'), 'gitdir: /nonexistent\n');
+    if (pkg) writeFileSync(join(root, 'package.json'), pkg);
+    expect(readEngineVersion(root)).toBe(version);
   });
 
   it('stamps what produced the run once, without an image on the host, and keeps it across a resume', async () => {

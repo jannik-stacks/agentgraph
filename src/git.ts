@@ -241,10 +241,22 @@ export const mergeTreeOnto = (work: Checkout, onto: string, head: string, base?:
 const engineRoot = fileURLToPath(new URL('..', import.meta.url));
 let engine: string | undefined;
 
+export const readEngineVersion = (root = engineRoot): string => {
+  try {
+    if (existsSync(join(root, '.git')))
+      return execFileSync('git', ['-C', root, 'describe', '--always', '--dirty', '--abbrev=12'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+  } catch {}
+  try {
+    return (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version?: string }).version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+};
+
 export const readEngineVersions = Effect.gen(function* () {
   const file = yield* Effect.orDie(Config.String('AGENTGRAPH_CONFIG').pipe(Config.withDefault('')));
-  engine ??= existsSync(join(engineRoot, '.git'))
-    ? execFileSync('git', ['-C', engineRoot, 'describe', '--always', '--dirty', '--abbrev=12'], { encoding: 'utf8' })
-    : (JSON.parse(readFileSync(join(engineRoot, 'package.json'), 'utf8')) as { version: string }).version;
-  return { engine: engine.trim(), ...(file && { config: getSha(readFileSync(resolve(file)), 12) }) };
+  return { engine: (engine ??= readEngineVersion()), ...(file && { config: getSha(readFileSync(resolve(file)), 12) }) };
 });
