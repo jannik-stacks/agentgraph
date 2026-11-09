@@ -52,7 +52,7 @@ export function context(t: IssueWithPull): string {
     pull &&
       `## Pull request #${pull.number} ${pull.title}\n\n${pull.pull?.branch} into ${pull.pull?.base}\n\n${pull.body}`,
   ].filter(Boolean);
-  const lines = timeline(t, m => !isRunnerStatus(m));
+  const lines = timeline(t, m => !isEngineStatus(m));
   let size = [...heads, ...lines].join('\n\n').length;
   for (let i = 0; i < lines.length && size > cap; i++) {
     const short = `${lines[i]!.split('\n')[0]!.slice(0, 120)} ...`;
@@ -68,7 +68,7 @@ const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined 
 
 const update = /^(Opened a pull request|Done|Stopped)\.$/;
 
-const isRunnerStatus = (m: Event) =>
+const isEngineStatus = (m: Event) =>
   bot(m) && (m.kind === 'label' || m.kind === 'unlabel' || update.test(m.comment?.body.split('\n')[0] ?? ''));
 
 export function formatRequest(t: IssueWithPull, started: string): string {

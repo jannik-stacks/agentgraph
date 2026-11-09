@@ -109,7 +109,7 @@ describe('a run branch that moved', () => {
     expect(applied.filter(p => p.kind === 'push')).toHaveLength(1);
   });
 
-  it('posts a repeated runner question after a new human answer', async () => {
+  it('posts a repeated question after a new human answer', async () => {
     const where = world();
     const { run } = services(where, [
       [start('a'), reply({ kind: 'ask', question: 'Which?' })],
