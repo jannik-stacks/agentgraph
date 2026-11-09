@@ -2,6 +2,7 @@ import { Effect, Layer, Schema } from 'effect';
 import { FetchHttpClient } from 'effect/http';
 import { Rpc, RpcClient, RpcGroup, RpcMiddleware, RpcSerialization } from 'effect/rpc';
 import { Event, Issue } from './event.ts';
+import { Proposal } from './proposal.ts';
 import { Run, RunRecord } from './types.ts';
 
 export const ActionError = Schema.TaggedStruct('ActionError', { message: Schema.String });
@@ -35,8 +36,22 @@ export const Actions = RpcGroup.make(
     success: Schema.Record(Schema.String, Schema.String),
     error,
   }),
-  Rpc.make('resume', {
-    payload: Schema.Union([Schema.Struct({ id: Schema.String }), Schema.Struct({ parked: Schema.Literal(true) })]),
+  Rpc.make('instruct', {
+    payload: Schema.Union([
+      Schema.Struct({
+        ...Proposal.members[10].fields,
+        kind: Schema.Literal('dispatch'),
+        text: Schema.optionalKey(Schema.String),
+      }),
+      Schema.Struct({
+        kind: Schema.Literal('check'),
+        checks: Schema.Array(Schema.String),
+        workflow: Schema.optionalKey(Schema.String),
+        issue: Schema.optionalKey(Count),
+      }),
+      Schema.Struct({ kind: Schema.Literal('resume'), id: Schema.String }),
+      Schema.Struct({ kind: Schema.Literal('resume'), parked: Schema.Literal(true) }),
+    ]),
     success: Schema.Array(RunRecord),
     error,
   })

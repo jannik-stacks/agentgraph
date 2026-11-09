@@ -303,7 +303,8 @@ const trapInterrupt = (release?: () => Promise<void>) => {
 
 let trackerSetup: Awaited<ReturnType<typeof makeTrackerSetup>>;
 
-const instruction = (verb === 'check' && values.runs) || verb === 'dispatch' ? instructed() : undefined;
+const instruction =
+  (verb === 'check' && values.runs) || verb === 'resume' || verb === 'dispatch' ? instructed() : undefined;
 const host = await readHostSettings({ data: values.data }).catch((e: Error) => fail(e.message));
 const root = host.data;
 const defaults = {
@@ -409,11 +410,16 @@ async function openTracker(instance: Instance, scope: InstanceEnv) {
   return { i, setup, current };
 }
 
-function instructed(): Instruction {
+function instructed() {
+  if (verb === 'resume') {
+    if (values.parked && rest.length === 0) return { kind: 'resume', parked: true } as const;
+    if (!values.parked && rest.length === 1) return { kind: 'resume', id: rest[0]! } as const;
+    return fail('usage: agi resume <run id>|--parked');
+  }
   if (verb === 'dispatch') {
     if (!values.workflow) fail('dispatch takes --workflow <name>');
     return {
-      kind: 'dispatch',
+      kind: 'dispatch' as const,
       issue: numbered(),
       workflow: values.workflow!,
       ...(values.step && { step: values.step }),
@@ -424,7 +430,7 @@ function instructed(): Instruction {
   const issue = Number(values.issue);
   if (values.issue !== undefined && !isIssueNumber(issue)) fail('--issue takes an issue number');
   return {
-    kind: 'check',
+    kind: 'check' as const,
     checks: rest,
     ...(values.workflow !== undefined && { workflow: values.workflow }),
     ...(values.issue !== undefined && { issue }),
@@ -578,19 +584,11 @@ async function runOnInstance(
       for (const line of shown.notes) console.log(line);
       return;
     }
-    case 'resume': {
-      const selection =
-        values.parked && !rest.length
-          ? ({ parked: true } as const)
-          : !values.parked && rest.length === 1
-            ? { id: rest[0]! }
-            : fail('usage: agi resume <run id>|--parked');
-      return printRuns(await act(client => client.resume(selection)));
-    }
     case 'check':
+    case 'resume':
     case 'dispatch': {
       if (verb === 'check' && !values.runs) return checkGraph(await synced(), i);
-      return printRuns(await startInstruction(instruction!));
+      return printRuns(await act(client => client.instruct(instruction!)));
     }
     case 'loop':
       return loop([i]);

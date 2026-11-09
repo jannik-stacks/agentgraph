@@ -225,7 +225,7 @@ A page acts with `runAction(use)`, which hands `use` a typed client for the page
 are one Effect RPC group, and the CLI calls the same group in process through the same HTTP codec, so each
 action has one input schema, one output schema and one error. `runAction(a => a.say({ issue: 12, text: 'go on' }))`
 posts `/agent go on` like `agi say`, `a.label({ id: runId, patch: { arm: 'base' } })` sets run labels like
-`agi label`, `a.show({ issue: 12 })` reads what `agi show 12` prints, and `a.resume({ parked: true })` resumes
+`agi label`, `a.show({ issue: 12 })` reads what `agi show 12` prints, and `a.instruct({ kind: 'resume', parked: true })` resumes
 parked runs like `agi resume --parked` in a studio of named instances. `say` takes the same
 [commands](workflows.md#commands), so `':restart:implement'` or `':stop'` reach a run under the graph's
 `commands` gate. It posts only to a local tracker; a running loop picks the comment up. The studio accepts

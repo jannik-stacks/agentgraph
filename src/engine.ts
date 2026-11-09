@@ -109,9 +109,9 @@ export const makeInstanceHost = (
         : Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
       ).pipe(Effect.asVoid, Effect.mapError(fail)),
     label: ({ id, patch }) => writeStoredRunLabels(data, id, patch).pipe(Effect.mapError(fail)),
-    resume: selection =>
+    instruct: instruction =>
       drive
-        ? Effect.tryPromise({ try: () => drive({ kind: 'resume', ...selection }), catch: fail })
+        ? Effect.tryPromise({ try: () => drive(instruction), catch: fail })
         : Effect.fail(ActionError.make({ message: 'this host does not drive runs' })),
   });
   return { ...host, actions };

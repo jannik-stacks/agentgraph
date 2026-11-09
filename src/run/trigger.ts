@@ -90,7 +90,7 @@ const decodeRunMeta = (meta: Run['meta']) =>
 export type Instruction =
   | { kind: 'say'; issue: number; text: string; comment?: string }
   | ({ kind: 'dispatch'; text?: string } & Omit<Extract<Proposal, { kind: 'run' }>, 'kind'>)
-  | { kind: 'check'; checks: string[]; workflow?: string; issue?: number }
+  | { kind: 'check'; checks: readonly string[]; workflow?: string; issue?: number }
   | ({ kind: 'resume' } & (Pick<Run, 'id'> | { parked: true }));
 
 /** CLI instructions use the event handling and dispatch checks of router proposals. */
@@ -134,7 +134,7 @@ export const instruct = (
       const unknown = checks.filter(name => !(name in graph.checks));
       if (unknown.length) return yield* new TrackerError({ message: `the graph has no check ${unknown.join(', ')}` });
       const ended = (yield* Effect.flatMap(Store, s => s.listRecords(where))).filter(isRunDone);
-      const runs = yield* Effect.forEach(ended, r => runLaterChecks(graph, r.id, checks), {
+      const runs = yield* Effect.forEach(ended, r => runLaterChecks(graph, r.id, [...checks]), {
         concurrency: graph.limits.parallel,
       });
       return runs.filter(r => r !== undefined);

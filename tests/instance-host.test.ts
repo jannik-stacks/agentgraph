@@ -86,7 +86,11 @@ it.each([
   ['labels a missing run', (client: LocalClient) => client.label({ id: 'r9', patch: { arm: 'x' } }), 'no run r9'],
   ['reads without a tracker', (client: LocalClient) => client.show({}), 'serves no tracker'],
   ['says without a tracker', (client: LocalClient) => client.say({ issue: 1, text: 'hi' }), 'serves no tracker'],
-  ['resumes without a drive', (client: LocalClient) => client.resume({ parked: true }), 'does not drive runs'],
+  [
+    'instructs without a drive',
+    (client: LocalClient) => client.instruct({ kind: 'resume', parked: true }),
+    'does not drive runs',
+  ],
 ])('refuses when it %s', async (_name, act, error) => {
   const { data } = await makeInstance();
   await expect(
@@ -128,7 +132,7 @@ it('resumes a parked run through the engine services the host was given', async 
     )
   );
   const host = makeInstanceHost({ data: where.data }, undefined, instruction => run(instruct(graph, instruction)));
-  const resumed = await callLocal(host, client => client.resume({ parked: true }));
+  const resumed = await callLocal(host, client => client.instruct({ kind: 'resume', parked: true }));
   expect(resumed.map(r => [r.id, r.status, r.retried])).toEqual([['retro-7', 'running', undefined]]);
 });
 
