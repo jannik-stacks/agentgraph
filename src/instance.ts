@@ -266,7 +266,7 @@ export const ensureInstanceGraph = async (i: Instance, flag?: string) => {
   return ensureGraph(i, flag);
 };
 
-const isCommittedGraph = (i: Instance, graph: string) => graph.startsWith(getCachePath(i.data, 'graphs'));
+export const isCommittedGraph = (i: Instance, graph: string) => graph.startsWith(getCachePath(i.data, 'graphs'));
 
 export const whyGraphUncommitted = async (i: Instance, graph: string) => {
   if (!isCommittedGraph(i, graph)) return undefined;

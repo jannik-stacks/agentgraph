@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { builtinModules } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
+import { makeStudioAuthPlugin } from './auth.ts';
 import { makeStudioDevApiPlugin } from './fixtures.ts';
 import { makeStudioPagesPlugin } from './plugins.ts';
 import { makeServedGraphs } from './served.ts';
@@ -23,7 +24,12 @@ const noNodeInBrowser = (): Plugin => ({
 });
 
 const served = makeServedGraphs();
-const server = { host: '127.0.0.1', port: Number(process.env.AGI_PORT) || 5182, strictPort: true };
+const server = {
+  host: process.env.AGI_HOST || '127.0.0.1',
+  ...(process.env.AGI_ALLOWED_HOSTS && { allowedHosts: process.env.AGI_ALLOWED_HOSTS.split(',') }),
+  port: Number(process.env.AGI_PORT) || 5182,
+  strictPort: true,
+};
 const allow = ['./', '../src/', '../node_modules/'].map(dir => fileURLToPath(new URL(dir, import.meta.url)));
 const deny = ['.env', '.env.*', '*.env', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**'];
 
@@ -31,7 +37,14 @@ export default defineConfig({
   appType: 'spa',
   envPrefix: [],
   cacheDir: `node_modules/.vite-${server.port}`,
-  plugins: [noNodeInBrowser(), makeStudioPagesPlugin(served), makeStudioDevApiPlugin(served), react(), tailwindcss()],
+  plugins: [
+    makeStudioAuthPlugin(served),
+    noNodeInBrowser(),
+    makeStudioPagesPlugin(served),
+    makeStudioDevApiPlugin(served),
+    react(),
+    tailwindcss(),
+  ],
   resolve: { dedupe: ['yaml'] },
   optimizeDeps: { entries: ['index.html', 'src/**/*.tsx'], include: ['agentation', 'fumadocs-core/highlight'] },
   server: { ...server, fs: { allow, deny }, warmup: { clientFiles: ['./src/main.tsx'] } },
