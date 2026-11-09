@@ -108,6 +108,17 @@ const RunFields = {
 export const Run = Schema.Struct({ ...RunFields, issue: Schema.Number });
 export type Run = Types.Mutable<typeof Run.Type>;
 
+export const Verdict = Schema.Struct({
+  run: Schema.String,
+  issue: Schema.optional(Schema.Number),
+  at: Schema.String,
+  pass: Schema.Boolean,
+  empty: Schema.Boolean,
+  findings: Schema.optional(Schema.String),
+  items: Schema.Number,
+  failed: Schema.Number,
+});
+
 export const RunRecord = Schema.Struct({ ...RunFields, issue: Schema.optionalKey(Schema.Number) });
 export type RunRecord = Types.Mutable<typeof RunRecord.Type>;
 

@@ -22,7 +22,7 @@ import type { Instruction } from './run/trigger.ts';
 import { formatRunnerError } from './status.ts';
 import { fileStore, readJsonlRows, readRecordSync, Store } from './store.ts';
 import { findIssueDir, Tracker, type TrackerSetup, writeAgentComment } from './tracker.ts';
-import { findLatestChecks } from './trace.ts';
+import { findCheckVerdicts, findLatestChecks } from './trace.ts';
 import { type CheckEntry, type InstanceHost, type Run, type RunRecord, TrackerError } from './types.ts';
 
 type EngineConfig = {
@@ -125,6 +125,14 @@ export const makeInstanceHost = (
         Effect.map(text => text ?? ''),
         Effect.mapError(fail)
       ),
+    verdicts: ({ workflow, step, check }) =>
+      Effect.gen(function* () {
+        const records = (yield* store.listRecords({ workflow })).filter(run => run.workflow === workflow);
+        const runs = yield* Effect.forEach(records, run =>
+          Effect.map(store.readChecks(run.id), checks => ({ run, checks }))
+        );
+        return findCheckVerdicts(runs, step, check);
+      }).pipe(Effect.mapError(fail)),
     label: ({ id, patch }) => writeStoredRunLabels(data, id, patch).pipe(Effect.mapError(fail)),
     instruct: instruction => (local ? attempt(() => local.drive(instruction)) : refuse),
     review: ({ issue, verdict, text }) =>

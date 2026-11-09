@@ -1,4 +1,5 @@
-import type { CheckEntry, Exit, Outcome, Run, SessionStop, Trace } from './types.ts';
+import type { Types } from 'effect';
+import type { CheckEntry, Exit, Outcome, Run, RunRecord, SessionStop, Trace, Verdict } from './types.ts';
 
 export const makeOutcomeLine = (step: string, outcome: Outcome, next: Run, failure?: SessionStop['reason']): Trace => ({
   at: new Date().toISOString(),
@@ -26,3 +27,35 @@ export const findLatestChecks = (entries: CheckEntry[], versions: Record<string,
 };
 
 export const pickUsed = (x?: Pick<Exit, 'used'>) => (x?.used ? { used: x.used } : {});
+
+export const findCheckVerdicts = (
+  runs: { run: Pick<RunRecord, 'id' | 'issue'>; checks: CheckEntry[] }[],
+  step: string,
+  check: string
+) => {
+  const byTime = new Map<string, Types.Mutable<typeof Verdict.Type>>();
+  for (const { run, checks } of runs) {
+    for (const line of checks) {
+      if (line.step !== step || line.check.check !== check) continue;
+      const key = `${run.id}@${line.at}`;
+      const v = byTime.get(key) ?? {
+        run: run.id,
+        issue: run.issue,
+        at: line.at,
+        pass: true,
+        empty: false,
+        items: 0,
+        failed: 0,
+      };
+      v.pass &&= line.check.pass;
+      v.empty ||= line.check.empty === true;
+      if (line.item === undefined) v.findings = line.check.findings;
+      else {
+        v.items++;
+        if (!line.check.pass) v.failed++;
+      }
+      byTime.set(key, v);
+    }
+  }
+  return [...byTime.values()].sort((a, b) => b.at.localeCompare(a.at));
+};

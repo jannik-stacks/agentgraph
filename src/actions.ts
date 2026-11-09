@@ -3,7 +3,7 @@ import { FetchHttpClient } from 'effect/http';
 import { Rpc, RpcClient, RpcGroup, RpcMiddleware, RpcSerialization } from 'effect/rpc';
 import { Event, Issue } from './event.ts';
 import { Proposal } from './proposal.ts';
-import { Run, RunRecord } from './types.ts';
+import { Run, RunRecord, Verdict } from './types.ts';
 
 export const ActionError = Schema.TaggedStruct('ActionError', { message: Schema.String });
 
@@ -31,6 +31,11 @@ export const Actions = RpcGroup.make(
     error,
   }),
   Rpc.make('log', { payload: { hash: Schema.String }, success: Schema.String, error }),
+  Rpc.make('verdicts', {
+    payload: { workflow: Schema.String, step: Schema.String, check: Schema.String },
+    success: Schema.Array(Verdict),
+    error,
+  }),
   Rpc.make('say', { payload: { issue: Count, text: Schema.Trimmed.check(Schema.isNonEmpty()) }, error }),
   Rpc.make('label', {
     payload: { id: Schema.String, patch: Schema.Record(Schema.String, Schema.NullOr(Schema.String)) },

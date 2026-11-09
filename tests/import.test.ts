@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Effect } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
 import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
+import { makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
 import { ensureInstance, writeImportedRun } from '../src/instance.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -151,34 +152,37 @@ it('serves verdicts of one check at one step lazily, and an issue body once on i
     }).pipe(Effect.provide(fileStore(data)))
   );
   const ask = serveStudio(data);
-  const verdicts = await ask('?fixture=sandbox/issue&step=implement&check=review', '/api/verdicts');
-  expect(verdicts).toEqual({
-    status: 200,
-    body: [
-      {
-        run: 'new',
-        issue: 7,
-        at: '2026-11-02T01:00:00Z',
-        pass: false,
-        empty: false,
-        findings: 'review at 2026-11-02T01:00:00Z',
-        items: 2,
-        failed: 1,
-      },
-      {
-        run: 'old',
-        issue: 7,
-        at: '2026-11-01T01:00:00Z',
-        pass: true,
-        empty: true,
-        findings: 'review at 2026-11-01T01:00:00Z',
-        items: 0,
-        failed: 0,
-      },
-    ],
-  });
-  expect((await ask('?fixture=sandbox/issue&step=review&check=lint', '/api/verdicts')).body).toEqual([]);
-  expect((await ask('?fixture=sandbox/issue&step=implement', '/api/verdicts')).status).toBe(400);
+  const verdicts = (step: string, check: string) =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(makeLocalActionClient(makeInstanceHost({ data })), actions =>
+          actions.verdicts({ workflow: 'issue', step, check })
+        )
+      )
+    );
+  expect(await verdicts('implement', 'review')).toEqual([
+    {
+      run: 'new',
+      issue: 7,
+      at: '2026-11-02T01:00:00Z',
+      pass: false,
+      empty: false,
+      findings: 'review at 2026-11-02T01:00:00Z',
+      items: 2,
+      failed: 1,
+    },
+    {
+      run: 'old',
+      issue: 7,
+      at: '2026-11-01T01:00:00Z',
+      pass: true,
+      empty: true,
+      findings: 'review at 2026-11-01T01:00:00Z',
+      items: 0,
+      failed: 0,
+    },
+  ]);
+  expect(await verdicts('review', 'lint')).toEqual([]);
   const list = (await ask('/')).body as { run: { id: string; body?: string; sessions?: object } }[];
   expect(list.filter(r => r.run.body !== undefined).map(r => [r.run.id, r.run.body])).toEqual([
     ['other', 'body of other'],

@@ -5,7 +5,8 @@ import { getVerdictsAtom } from '../state.ts';
 import { accent, cx, Disclosure, Field, Fields, Link, Live } from '../ui.tsx';
 import { Crumbs, checkModeTips, Section, Term, To } from './panel.tsx';
 import type { Fixture } from './scenarios.ts';
-import { findAgentUses, type findCheckVerdicts } from './trail.ts';
+import { findAgentUses } from './trail.ts';
+import type { Verdict } from '../../../src/types.ts';
 
 const latest = 12;
 
@@ -17,7 +18,7 @@ const Verdicts = ({ fixture, step, name }: { fixture: string; step: string; name
   </Live>
 );
 
-const VerdictList = ({ verdicts }: { verdicts: ReturnType<typeof findCheckVerdicts> }) => {
+const VerdictList = ({ verdicts }: { verdicts: readonly (typeof Verdict.Type)[] }) => {
   if (!verdicts.length) return <p className="text-zinc-500">No run has run it here yet.</p>;
   const failed = verdicts.filter(v => !v.empty && !v.pass).length;
   const skipped = verdicts.filter(v => v.empty).length;

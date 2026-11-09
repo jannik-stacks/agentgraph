@@ -8,7 +8,6 @@ import { Effect, Result, Stream } from 'effect';
 import { readRequestUser } from './auth.ts';
 import { makeServedGraphs, readBenchSets, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
-import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as StoreModule from '../src/store.ts';
@@ -103,23 +102,6 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
           if (found.success) return writeJson(res, { ...found.success, instance: name });
         }
         writeJson(res, null, 404);
-      });
-      use('/api/verdicts', async (req, res) => {
-        const served = await pickServed(req, reader);
-        const query = readQuery(req);
-        const [fixture, step, check] = [query.get('fixture'), query.get('step'), query.get('check')];
-        if (!fixture || !step || !check) return writeJson(res, { error: 'verdicts take fixture, step and check' }, 400);
-        const store = served?.host?.store;
-        if (!store) return writeJson(res, []);
-        const runs = await Effect.runPromise(
-          Effect.gen(function* () {
-            const records = (yield* store.listRecords()).filter(run => `${served.title}/${run.workflow}` === fixture);
-            return yield* Effect.forEach(records, run =>
-              Effect.map(store.readChecks(run.id), checks => ({ run, checks }))
-            );
-          })
-        );
-        writeJson(res, findCheckVerdicts(runs, step, check));
       });
       use('/api/runs', async (req, res) => {
         const { served, data, store, bench } = await readDataDir(req, reader);
