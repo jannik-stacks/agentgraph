@@ -27,12 +27,11 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
     const trace = readJsonl<Trace>(join(data, id, 'trace.jsonl'));
     const dead = isOnIssue(run) ? findDeadReason(run, trace) : undefined;
     const started = trace.flatMap(line => ('event' in line && line.event.type === 'start' ? [line.event] : []));
-    const reported = trace.flatMap(line =>
-      'event' in line && line.event.type === 'usage' && line.event.model ? [line.event.model] : []
-    );
-    const dimensions = (values: string[]) => [...new Set(values.filter(Boolean))].toSorted().join(', ');
+    const used = trace.flatMap(line => ('event' in line && line.event.type === 'usage' ? [line.event.model] : []));
+    const dimensions = (values: (string | undefined)[]) => [...new Set(values.filter(Boolean))].toSorted().join(', ');
     const model = dimensions(started.map(event => event.model));
     const harness = dimensions(started.map(event => event.harness));
+    const harnessModel = dimensions(used);
     const latest = findLatestChecks(readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')), versions);
     return [
       {
@@ -48,7 +47,7 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
           status: run.status,
           ...(run.graph && { graph: run.graph }),
           ...(model && { model }),
-          ...(reported.length > 0 && { 'harness-model': dimensions(reported) }),
+          ...(harnessModel && { 'harness-model': harnessModel }),
           ...(harness && { harness }),
           ...(origin && { plugin: origin.plugin, job: origin.job }),
         },

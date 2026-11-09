@@ -648,8 +648,9 @@ export const readCaseImage = async (
   graph = findCaseGraphDir(c),
   labels: Record<string, string> = options.labels
 ) => {
-  const labelled = Object.keys(labels).length > 0;
-  const pin = labelled ? `image-${getSha(JSON.stringify(Object.entries(labels).toSorted()), 8)}.json` : 'image.json';
+  const pin = Object.keys(labels).length
+    ? `image-${getSha(JSON.stringify(Object.entries(labels).toSorted()), 8)}.json`
+    : 'image.json';
   const file = join(findCaseWorkDir(set, c), pin);
   const release = await waitForLock(`bench-image-${hash(file)}`);
   try {

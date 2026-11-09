@@ -166,7 +166,7 @@ export const readRunUsage = (data: string, id: string) => {
     ms: times.length ? Math.max(...times) - Math.min(...times) : 0,
     tokens,
     split,
-    reportedModels: [...reportedModels].toSorted(),
+    reportedModels: [...reportedModels],
   };
 };
 
