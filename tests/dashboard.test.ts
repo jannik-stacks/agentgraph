@@ -23,6 +23,11 @@ const makeData = () => {
 afterEach(() => folders.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 
 const now = new Date('2026-11-09T12:00:00Z');
+
+const readFirstWidgetRows = (sections: typeof DashboardData.Type) =>
+  sections.map(section =>
+    'why' in section ? section.why : section.widgets[0]!.rows.filter(row => row.value).map(row => row.series)
+  );
 const makeSettings = () =>
   Schema.decodeUnknownSync(DashboardSettings)({
     widgets: [
@@ -139,9 +144,7 @@ it('registers the example page, reuses settings and reads a changed run', async 
   const before = (await Effect.runPromise(pages[0]!.read())) as typeof DashboardData.Type;
   writeRun('done');
   const after = (await Effect.runPromise(pages[0]!.read())) as typeof DashboardData.Type;
-  expect(
-    [before, after].map(([snapshot]) => snapshot!.widgets[0]!.rows.filter(row => row.value).map(row => row.series))
-  ).toEqual([['waiting'], ['done']]);
+  expect([before, after].map(readFirstWidgetRows)).toEqual([[['waiting']], [['done']]]);
 });
 
 it.each([
@@ -209,9 +212,7 @@ it('serves the example page and refreshes it through the existing change path', 
       expect(sent).toHaveBeenCalledWith('agi:changed', { topics: expect.arrayContaining(['dashboard']) })
     );
     const after = await read();
-    expect(
-      [before, after].map(([snapshot]) => snapshot!.widgets[0]!.rows.filter(row => row.value).map(row => row.series))
-    ).toEqual([['waiting'], ['done']]);
+    expect([before, after].map(readFirstWidgetRows)).toEqual([[['waiting']], [['done']]]);
   } finally {
     await server.close();
     vi.unstubAllEnvs();
@@ -238,7 +239,7 @@ it('serves the example as one studio page over every served instance', async () 
     );
     writeStatusRun(i.data, 'r1', 'waiting');
   }
-  vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root, names: ['live', 'bench'] }));
+  vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root, names: ['live', 'bench', 'gone'] }));
   vi.stubEnv('AGI_STUDIO_PLUGINS', join(import.meta.dirname, '../examples/dashboard'));
   const { server, base } = await startStudioServer();
   const read = async (query = '') => {
@@ -246,9 +247,7 @@ it('serves the example as one studio page over every served instance', async () 
     return response.ok ? Schema.decodeUnknownSync(DashboardData)(await response.json()) : response.status;
   };
   const count = (snapshot: Awaited<ReturnType<typeof read>>) =>
-    typeof snapshot === 'number'
-      ? snapshot
-      : snapshot.map(({ instance, widgets }) => [instance, widgets[0]!.rows.filter(row => row.value)]);
+    typeof snapshot === 'number' ? snapshot : readFirstWidgetRows(snapshot);
   try {
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     const before = await read();
@@ -257,7 +256,6 @@ it('serves the example as one studio page over every served instance', async () 
     await vi.waitFor(() =>
       expect(sent).toHaveBeenCalledWith('agi:changed', { topics: expect.arrayContaining(['dashboard']) })
     );
-    const day = new Date().toISOString().slice(0, 10);
     expect({
       page: manifest.includes('href:"/plugins/dashboard",builtin:false,instance:undefined'),
       before: count(before),
@@ -265,14 +263,8 @@ it('serves the example as one studio page over every served instance', async () 
       scoped: await read('?instance=live'),
     }).toEqual({
       page: true,
-      before: [
-        ['live', [{ day, series: 'waiting', value: 1 }]],
-        ['bench', [{ day, series: 'waiting', value: 1 }]],
-      ],
-      after: [
-        ['live', [{ day, series: 'waiting', value: 1 }]],
-        ['bench', [{ day, series: 'done', value: 1 }]],
-      ],
+      before: [['waiting'], ['waiting'], `there is no instance gone under ${root}`],
+      after: [['waiting'], ['done'], `there is no instance gone under ${root}`],
       scoped: 404,
     });
   } finally {

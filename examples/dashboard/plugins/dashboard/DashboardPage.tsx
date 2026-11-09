@@ -1,9 +1,9 @@
 import { scaleBand, scaleLinear } from 'd3-scale';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { accent, Live, Muted, usePluginData } from '@jannik-stacks/agi/studio';
-import { DashboardData, sources } from './data.ts';
+import { DashboardData, type DashboardSnapshot, sources } from './data.ts';
 
-type DashboardWidget = (typeof DashboardData.Type)[number]['widgets'][number];
+type DashboardWidget = typeof DashboardSnapshot.Type['widgets'][number];
 
 const tones: Record<string, string> = {
   waiting: 'text-amber-600 dark:text-amber-400',
@@ -302,19 +302,27 @@ const DashboardPage = () => (
         <header>
           <h1 className="text-lg font-semibold">Dashboard</h1>
           <p className="text-xs text-zinc-500">
-            Live snapshot, last read {value[0] ? new Date(value[0].at).toLocaleString() : 'never'}. Days use UTC.
+            Live snapshot, last read {new Date(value.find(section => 'at' in section)?.at ?? Date.now()).toLocaleString()}.
+            Days use UTC.
           </p>
         </header>
         {!value.length ? <Muted>No instance with run data is served.</Muted> : null}
-        {value.map(({ instance, widgets }) => (
-          <section key={instance} className="space-y-3">
-            {value.length > 1 ? <h2 className="font-medium">{instance}</h2> : null}
-            {!widgets.length ? <Muted>No widgets configured in plugins.dashboard.widgets.</Muted> : null}
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,28rem),1fr))] items-start gap-4">
-              {widgets.map((widget, index) => (
-                <WidgetCard key={index} widget={widget} />
-              ))}
-            </div>
+        {value.map(section => (
+          <section key={section.instance} className="space-y-3">
+            {value.length > 1 ? <h2 className="font-medium">{section.instance}</h2> : null}
+            {'why' in section ? (
+              <p role="status" className="text-xs text-amber-600 dark:text-amber-400">
+                Not loaded: {section.why}
+              </p>
+            ) : !section.widgets.length ? (
+              <Muted>No widgets configured in plugins.dashboard.widgets.</Muted>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,28rem),1fr))] items-start gap-4">
+                {section.widgets.map((widget, index) => (
+                  <WidgetCard key={index} widget={widget} />
+                ))}
+              </div>
+            )}
           </section>
         ))}
       </main>

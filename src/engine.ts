@@ -63,6 +63,8 @@ const makeAction = <S extends Schema.Codec<readonly unknown[], unknown>, A, E>(
 
 export type InstanceHost = ReturnType<typeof makeInstanceHost>;
 
+export type InstanceHosts = Readonly<Record<string, InstanceHost | { why: string }>>;
+
 export const makeInstanceHost = (
   config: Pick<EngineConfig, 'data' | 'checks'>,
   tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] }
@@ -82,6 +84,7 @@ export const makeInstanceHost = (
   };
   return {
     data,
+    ...(config.checks && { checks: config.checks }),
     store,
     tracker: reads,
     readRuns: () => readStoredRuns(config),

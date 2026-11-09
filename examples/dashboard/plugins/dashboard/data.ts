@@ -39,4 +39,9 @@ export const DashboardSnapshot = Schema.Struct({
   ),
 });
 
-export const DashboardData = Schema.Array(Schema.Struct({ instance: Schema.String, ...DashboardSnapshot.fields }));
+export const DashboardData = Schema.Array(
+  Schema.Union([
+    Schema.Struct({ instance: Schema.String, ...DashboardSnapshot.fields }),
+    Schema.Struct({ instance: Schema.String, why: Schema.String }),
+  ])
+);

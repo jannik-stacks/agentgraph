@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import { makePlugin } from '@jannik-stacks/agi/plugins';
-import type { InstanceHost } from '@jannik-stacks/agi/trackers';
+import type { InstanceHosts } from '@jannik-stacks/agi/trackers';
 import { DashboardData, DashboardSettings } from './dashboard/data.ts';
 import { readDashboard } from './dashboard/read.ts';
 
@@ -11,10 +11,12 @@ export default makePlugin({
     title: 'Dashboard',
     page: new URL('./dashboard/DashboardPage.tsx', import.meta.url),
     dataSchema: DashboardData,
-    read: (settings, hosts: Readonly<Record<string, InstanceHost>>) =>
+    read: (settings, hosts: InstanceHosts) =>
       Effect.forEach(Object.entries(hosts), ([instance, host]) =>
-        Effect.map(readDashboard(settings, host), snapshot => ({ instance, ...snapshot }))
+        'why' in host
+          ? Effect.succeed({ instance, why: host.why })
+          : Effect.map(readDashboard(settings, host), snapshot => ({ instance, ...snapshot }))
       ),
-    watch: (_settings, hosts) => Object.values(hosts).map(host => host.data),
+    watch: (_settings, hosts) => Object.values(hosts).flatMap(host => ('why' in host ? [] : [host.data])),
   },
 });
