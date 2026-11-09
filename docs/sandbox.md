@@ -14,7 +14,7 @@ limits:
   cpus: 4
 ```
 
-A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. A box cannot enforce them, so `agi check` refuses them under the `box` runner. <!-- code: src/run/follow.ts#runAside src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#makeBoxRunner -->
+A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. A box cannot enforce them, so `agi check` refuses them under the `box` runner. <!-- code: src/run/follow.ts#runAside src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#whyBoxRefused src/services.ts#whyRunnerRefuses -->
 
 | Path          | What                                                                       | Access                                                                   |
 | ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -27,19 +27,21 @@ A workflow step can override either field with `limits: { memory: 8g }`. This ap
 | `/news`       | The news file, check inputs and traces the engine writes                   | read only                                                                |
 | the mirror    | The repo's git objects                                                     | read only                                                                |
 
+<!-- code: src/sandbox.ts#inside src/docker.ts#dockerArgs -->
+
 Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerRunner -->
 
-Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerRunner src/env.ts#removeCheckout -->
+Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/sandbox.ts#inside src/run/attempt.ts#runAttempt src/docker.ts#dockerRunner src/env.ts#getCheckoutPaths src/env.ts#removeCheckout src/mirror.ts#makeSandbox -->
 
 A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user, and the command runs as uid 1001. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
-`infra/local/sandbox` builds the image. <!-- code: tests/doubles/sandbox.ts#hostSandbox -->
+`infra/local/sandbox` builds the image. <!-- code: src/docker.ts#ensureImage -->
 
 ### Runners
 
-A runner executes commands; the engine keeps git, the mirror, worktrees, cleanup and publishing. `local`, the default, runs docker on this host and checks it first: not root, Docker up, the image built, the model hosts answering. `box` sends each checkout to the box server `AGENTGRAPH_SANDBOX_URL` names; see [Hosting](hosting.md#cloudflare). A [runner plugin](plugins.md#runners) in the host graph adds another, such as Modal in `examples/plugins/modal/`.
+A runner executes commands; the engine keeps git, the mirror, worktrees, cleanup and publishing. `local`, the default, runs docker on this host and checks it first: not root, Docker up, the image built, the model hosts answering. `box` sends each checkout to the box server `AGENTGRAPH_SANDBOX_URL` names; see [Hosting](hosting.md#cloudflare). A [runner plugin](plugins.md#runners) in the host graph adds another, such as Modal in `examples/plugins/modal/`. <!-- code: src/sandbox.ts#Runner src/mirror.ts#makeSandbox src/runners.ts#local src/docker.ts#ensureDockerHost src/services.ts#makeRunner src/runners.ts#box src/remote.ts#boxRunner src/plugin.ts#RunnerHost examples/plugins/modal/modal.ts#makeModalRunner -->
 
-`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell, then `local`. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner never runs a read-only command writable and never widens a command's network. <!-- code: src/services.ts#whyRunnerRefuses src/runners.ts src/remote.ts#makeBoxRunner -->
+`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell, then `local`. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner never runs a read-only command writable and never widens a command's network. <!-- code: src/main.ts#readInstanceEnv src/services.ts#hostSettings src/services.ts#whyRunnerRefuses bin/run.ts#loadServedGraph src/remote.ts#whyBoxRefused src/sandbox.ts#Runner -->
 
 ## The network
 
@@ -56,19 +58,19 @@ Graph `setup` installs dependencies, such as `npm ci --no-audit --no-fund`. With
 
 ## Environments
 
-An environment caches a repo's dependencies. A container takes the lockfiles and manifests from the base commit, installs [toolchains](#toolchains), runs `setup`, and keeps the ignored dependency folders such as `node_modules` and `target` in the volume `agentgraph-lower-<key>`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton -->
+An environment caches a repo's dependencies. A container takes the lockfiles and manifests from the base commit, installs [toolchains](#toolchains), runs `setup`, and keeps the ignored dependency folders such as `node_modules` and `target` in the volume `agentgraph-lower-<key>`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton src/env.ts#makeSetupVolumeName -->
 
 Bases of one repo that differ only in source share one. Environments of different repos never share a volume. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerRunner -->
 
 A run whose steps all use agents with only read tools, such as a router or triage, starts from the plain image. It skips the environment, the cache volume and `setup`, so its scripts and checks see no installed dependencies. <!-- code: src/folder.ts#loadGraph src/run/drive.ts#runWorkflow src/docker.ts#dockerRunner -->
 
-`AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. A Docker daemon that does not answer fails as unreachable, not as a missing image. <!-- code: src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
+`AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. A Docker daemon that does not answer fails as unreachable, not as a missing image. <!-- code: src/owner.ts#readStateDir src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
 
 ### Disk
 
 `bin/env.ts` frees disk. It removes unused volumes, environments and cache volumes no run can reuse, and score trees nobody holds (under `--root` or `AGENTGRAPH_GC_ROOTS`), then the least recently used until the total is under `AGENTGRAPH_ENV_CAP` (`60g`). It keeps what a container, a live checkout or a pin uses, and what a live runner used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2). A cache volume stays while any environment built with it is left. <!-- code: src/disk.ts#collect -->
 
-Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `unpin` and `sweep`, which drops dead runners' dependency volumes. Bench collection and automatic low-disk collection only consider environment tags and cache volumes recorded in the case or runner data dir (`.envs/refs.jsonl`). A retained environment keeps its shared lower volume and its cache layer, and a live checkout keeps the environment it reads. Global collection stays an explicit operator action. Collection runs below `AGENTGRAPH_MIN_FREE_GB` (40) free. If that is not enough, `disk low` names what holds the space and bench work waits. <!-- code: src/disk.ts#ensureFreeDisk -->
+Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `unpin` and `sweep`, which drops dead runners' dependency volumes. Bench collection and automatic low-disk collection only consider environment tags and cache volumes recorded in the case or runner data dir (`.envs/refs.jsonl`). A retained environment keeps its shared lower volume and its cache layer, and a live checkout keeps the environment it reads. Global collection stays an explicit operator action. Collection runs below `AGENTGRAPH_MIN_FREE_GB` (40) free. If that is not enough, `disk low` names what holds the space and bench work waits. <!-- code: src/disk.ts#ensureFreeDisk src/env.ts#removeOrphanedVolumes -->
 
 ### Toolchains
 
@@ -78,13 +80,13 @@ The image has toolchain managers and a C compiler. Each repo has its own cache v
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
 ```
 
-A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` sets another name prefix; empty turns off the caches and environments. Changing the image or toolchain starts a new cache volume, and [disk collection](#disk) removes the old one. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#readSandboxSetup src/env.ts#written -->
+A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` sets another name prefix; empty turns off the caches and environments. Changing the image or toolchain starts a new cache volume, and [disk collection](#disk) removes the old one. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#readSandboxSetup src/env.ts#makeLayerVolumeName src/env.ts#written src/services.ts#settings -->
 
 ## A graph's own image
 
 Graph `image` supplies the default local image for every command and environment build. Instance and command overrides follow the [settings table](local.md#named-instances-and-settings). Build it yourself, with the harnesses, for example `FROM agentgraph-sandbox:local` plus an `npm ci` into `/node_modules` on the `PATH`. Those dependencies stay as built even when a pull request changes the lockfile. Pair it with `network: models`.
 
-The runner resolves the tag to its Docker ID once per checkout, including when caches are disabled. Bench uses the same Docker image resolver after selecting its case image; command image overrides still apply. Custom images must run commands directly and include the harnesses and `agi`; missing custom tags fail without building stock contents. Remote boxes still reject graph image selection. <!-- code: src/docker.ts#readImage -->
+The runner resolves the tag to its Docker ID once per checkout, including when caches are disabled. Bench uses the same Docker image resolver after selecting its case image; command image overrides still apply. Custom images must run commands directly and include the harnesses and `agi`; missing custom tags fail without building stock contents. Remote boxes still reject graph image selection. <!-- code: src/docker.ts#readImage src/remote.ts#whyBoxRefused -->
 
 For a repo requiring Node 22, build the derived recipe, whose Node source is pinned by digest:
 
@@ -200,4 +202,4 @@ The sandbox image supplies `agi file put <path>` for selected host-tool sessions
 context. Each handle can be read once by a host tool. Capture outside `/work`, for example in `/tmp`.
 Rebuild custom images to include this command.
 Remote sandboxes still reject host tools and file passing. See [Plugins](plugins.md).
-<!-- code: src/files.ts#makeFiles src/tools.ts#startTools infra/local/sandbox/file.ts#runFile -->
+<!-- code: src/files.ts#makeFiles src/tools.ts#startTools infra/local/sandbox/file.ts#runFile src/remote.ts#whyBoxRefused src/mirror.ts#makeSandbox -->
