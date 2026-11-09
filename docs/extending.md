@@ -21,16 +21,16 @@ The package ships a starter example; the clone has [more example graphs](../READ
 ## Plugins
 
 Reviewed TypeScript files in the graph's `plugins/` folder export `makePlugin(...)`. A plugin can supply agent tools, status hooks, a tracker, a runner, studio auth or a studio page. Its `settingsSchema` decodes `plugins.<name>` in `settings.yaml`. See [Plugins](plugins.md) for each member's interface.
-<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins -->
+<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/plugin.ts#StatusChange src/plugin.ts#TrackerHost src/plugin.ts#RunnerHost src/plugin.ts#AuthHost -->
 
 Plugin code runs on the host and needs review. The engine keeps trust, checks and write permissions. Studio page readers receive the instance host for runs and tracker reads. The studio serves the same typed actions as the CLI. Opening a page starts no work.
 <!-- code: src/engine.ts#makeInstanceHost src/actions.ts#Actions -->
 
-Plugin triggers and proposal actions are planned. The engine's built-in [triggers](workflows.md#what-starts-a-run) and [proposal kinds](proposals.md#kinds) define what workflows can use.
+The engine's built-in [triggers](workflows.md#what-starts-a-run) and [proposal kinds](proposals.md#kinds) define what workflows can use.
 
 ## Bench
 
-[Bench](bench.md) replays merged changes and compares agents. It runs from the clone, with a CLI and a built-in studio page plugin. Add cases and choose graphs and model settings for a comparison. <!-- code: studio/src/bench/plugin.ts bin/bench.ts#runArm -->
+[Bench](bench.md) replays merged changes and compares agents. It runs from the clone, with a CLI and a built-in studio page plugin. Add cases and choose graphs and model settings for a comparison. <!-- code: studio/src/bench/plugin.ts#readBenchData bin/bench.ts#runArm -->
 
 ## Tune
 

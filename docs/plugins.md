@@ -2,7 +2,7 @@
 
 Write a reviewed TypeScript file in the graph's `plugins/` folder. A plugin can supply agent tools, status hooks, a tracker, a runner, studio auth or a studio page.
 For agent tools, Effect Schema types and validates the input; `tool` delegates to the AI SDK.
-<!-- code: src/plugin.ts#readPlugins src/plugin.ts#tool -->
+<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/plugin.ts#tool -->
 
 ```ts
 import { makePlugin, tool } from '@jannik-stacks/agi/plugins';
@@ -43,14 +43,14 @@ handles fail. Uploads are acknowledged only after raw bytes are saved at `data/f
 with a synced temporary file and atomic rename, and the trace is synced. Put/read traces contain
 handle, size, type, hash and the trace session key. Closing a session drops its handles, while durable
 bytes remain available to the store by hash. Durable reads reject a hash mismatch.
-<!-- code: src/files.ts#makeFiles src/store.ts#fileStore src/tools.ts#startTools -->
+<!-- code: src/plugin.ts#ToolContext src/folder.ts#loadGraph src/tracker.ts#parseIssueSearch src/files.ts#makeFiles src/store.ts#fileStore src/tools.ts#startTools -->
 
 Binary uploads reuse session authentication and relay with a separate route: 10 MiB per file,
 32 unread files at once, 64 MiB held, 256 MiB cumulative input and two concurrent uploads per session.
 Chunk counts enforce limits regardless of Content-Length. PNG/JPEG magic bytes are checked;
 no host image parser runs. Isolated decoding and re-encoding remain a later option.
 Host plugins still run as trusted code.
-<!-- code: src/plugin.ts#ToolContext src/folder.ts#loadGraph src/tracker.ts#parseIssueSearch -->
+<!-- code: src/files.ts#makeFiles src/tools.ts#startTools -->
 
 Plugin names may contain letters, digits, underscores and hyphens, starting with a letter.
 A plugin can declare `settingsSchema`; it decodes only `plugins.<name>` in `settings.yaml`.
@@ -69,15 +69,18 @@ a `merge` only from a step whose `returns` lists it.
 The engine supplies `effect`, `ai`, `jose` and the `@jannik-stacks/agi/plugins`, `@jannik-stacks/agi/trackers` and `@jannik-stacks/agi/runners` entries from its own install, including
 Effect and AI SDK subpaths, so plugins share its Effect runtime. Other packages use Node's normal
 resolution from the graph. Keep local helpers in subfolders of `plugins/`; their source contributes
-to the graph hash. Restart after code changes.
+to the graph hash. The loop rereads plugin declarations on each pass; changed plugin files load fresh.
+Restart the loop to rebuild a runner supplied by a plugin. Imported helper modules stay cached
+until the process restarts. The studio reloads plugins when
+a served graph folder changes. <!-- code: bin/run.ts#serve studio/plugins.ts#makeStudioPagesPlugin -->
 <!-- code: src/plugin.ts#readPlugins -->
 
 Each session gets an MCP endpoint listing only its selected tools. Claude Code, Codex, opencode
 and pi receive its URL and an environment reference to its bearer in their MCP configuration.
 The pinned pi version has a built-in MCP transport.
-Remote sandboxes reject host tools. Calls return through MCP and record their name, input,
+The `box` runner refuses a graph whose agent selects a host tool, at `agi check` and before the loop starts. Calls return through MCP and record their name, input,
 result preview and duration in the run's trace.
-<!-- code: src/tools.ts#startTools src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
+<!-- code: src/tools.ts#startTools src/harnesses.ts#harnessSession src/remote.ts#whyBoxRefused src/services.ts#whyRunnerRefuses bin/run.ts#loadServedGraph -->
 
 The listener binds to loopback on macOS, or to the Docker bridge gateway on Linux with peer subnet
 checks. A per-session relay runs as non-root with a read-only root on the sandbox networks and
@@ -118,7 +121,7 @@ export default makePlugin({
 ```
 
 `examples/board/plugins/board.ts` uses it to mirror the status onto fields of a GitHub project board.
-<!-- code: examples/board/plugins/board.ts -->
+<!-- code: examples/board/plugins/board.ts#settings src/plugin.ts#HookContext -->
 
 ## Trackers
 
@@ -150,7 +153,7 @@ with `--tracker my-folder`, `AGENTGRAPH_TRACKER=my-folder` or `tracker: my-folde
 `agi check --dir <graph>` to see that the name resolves to a plugin with a tracker in a graph the host reads. A graph
 plugin named `folder` would replace the built-in, but a new name keeps the swap visible. Turning status off needs no
 fork: `status: false` in settings.yaml.
-<!-- code: src/plugin.ts src/trackers.ts examples/plugins/trackers/my-folder.ts -->
+<!-- code: src/plugin.ts#TrackerHost src/services.ts#pickTracker src/services.ts#makeTrackerSetup src/tracker.ts#folder src/tracker.ts#folderTracker src/trackers.ts examples/plugins/trackers/my-folder.ts -->
 
 ## Runners
 
@@ -161,7 +164,8 @@ what in a graph it cannot run. `makeBoxRunner` in `@jannik-stacks/agi/runners` b
 `box.sh` steps and `run` for a command, so a plugin only moves bytes. Pick it with `--runner <name>`,
 `AGENTGRAPH_RUNNER` in the instance's env file, `runner:` in instance.yaml, `AGENTGRAPH_RUNNER` in the shell, then `local`, in that order. Only plugins of a graph the host reads count, like trackers, and
 `agi check --dir <graph>` says when the name resolves to nothing or the runner refuses the graph.
-`examples/plugins/modal/` runs boxes on Modal. <!-- code: src/plugin.ts#makePlugin src/runners.ts src/remote.ts#makeBoxRunner src/services.ts#whyRunnerRefuses -->
+The built-in [runners](sandbox.md#runners) are `local` and `box`; `box` needs `AGENTGRAPH_SANDBOX_URL`.
+`examples/plugins/modal/` runs boxes on Modal. <!-- code: src/plugin.ts#makePlugin src/plugin.ts#RunnerHost src/sandbox.ts#Runner src/services.ts#pickRunner src/runners.ts#local src/runners.ts#box src/remote.ts#makeBoxRunner src/services.ts#whyRunnerRefuses examples/plugins/modal/modal.ts#makeModalRunner -->
 
 ## Auth
 
@@ -171,9 +175,9 @@ gate. A plugin can provide `auth`: given the host env and its settings, it retur
 `{ kind: 'refuse', why }`. The check runs on every request; a `login` answer falls back to the session, a signed cookie
 for this host and port that lasts an hour and renews while in use, but never past twelve hours after the login. The
 login page shows a form only for an auth that answers `login`, like `token` and `password`. `npm run dev -- --auth <name>`,
-else `AGENTGRAPH_AUTH` in the instance's env file, else `auth:` in settings.yaml, else `AGENTGRAPH_AUTH` in the
-shell, else `token` picks one, from the built-ins and the plugins of a graph on the host. All served instances must choose the same auth name and plugin settings. Studio variables set in more than one instance env file must agree.
-<!-- code: src/plugin.ts#AuthResult src/services.ts#pickAuth studio/auth.ts#makeStudioAuthPlugin -->
+else `AGENTGRAPH_AUTH` in the instance's env file, else `auth:` in the host graph's settings.yaml, else `AGENTGRAPH_AUTH` in the
+shell, else `token` picks one, from the built-ins and the plugins of a graph on the host. A graph read from the repo that sets `auth` is refused. All served instances must choose the same auth name and plugin settings. Studio variables set in more than one instance env file must agree.
+<!-- code: src/plugin.ts#AuthHost src/plugin.ts#AuthRequest src/plugin.ts#AuthResult src/services.ts#pickAuth studio/auth.ts#readStudioAuth studio/auth.ts#makeStudioAuthPlugin -->
 
 ```yaml
 auth: cloudflare-access
@@ -191,7 +195,7 @@ plugins:
 - `examples/plugins/cloudflare-access.ts`: copy this file into the host graph's `plugins/` folder. It checks Cloudflare Access's signed header against the team's keys and
   lets in emails on the listed domains. Set up Google or another login in Cloudflare.
 
-<!-- code: src/auths.ts examples/plugins/cloudflare-access.ts -->
+<!-- code: src/auths.ts#token src/auths.ts#password src/auths.ts#none examples/plugins/cloudflare-access.ts#settings -->
 
 `AGENTGRAPH_STUDIO_TOKEN` sets a fixed login token. `AGENTGRAPH_STUDIO_KEY` supplies a signing secret of at least 32 characters. Scripts can send `AGENTGRAPH_STUDIO_API_TOKEN` as `Authorization: Bearer <token>` when the auth plugin asks for login. Instance env files override the shell for these values.
 
@@ -199,7 +203,7 @@ Sessions are signed with a key derived from the studio variables. Token auth nee
 Secure behind HTTPS. Against cross-site requests the gate refuses the live socket and any request but GET and HEAD
 whose `Origin` names neither `Host` nor `X-Forwarded-Host`, or whose `Sec-Fetch-Site` is cross-site or same-site.
 `POST /auth/logout` ends the session. `AGI_HOST` selects the listen address, `127.0.0.1` by default. `AGI_ALLOWED_HOSTS` is a comma-separated list of allowed hostnames, such as the public hostname of a reverse proxy.
-<!-- code: studio/auth.ts#readStudioAuth studio/auth.ts#makeStudioAuthPlugin studio/vite.config.ts#server -->
+<!-- code: studio/auth.ts#readStudioAuth studio/auth.ts#makeStudioAuthPlugin src/auths.ts#isSameSecret studio/vite.config.ts#server -->
 
 ## Studio pages
 
@@ -211,7 +215,7 @@ settings and the instance's host: its `data` folder, `store` (`list`, `listRecor
 latest checks. These are the
 reads the studio's own Runs and Graph pages use, scoped to the one instance the page is served
 for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/plugins`, as in
-`read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations does not execute readers or import TSX. Host code remains trusted; namespaces
+`read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations calls `watch(settings, host)`, but does not call `read` or import TSX. Host code remains trusted; namespaces
 are not isolation.
 <!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/types.ts#InstanceHost src/engine.ts#makeInstanceHost -->
 
@@ -220,6 +224,7 @@ Vite compiles it and its CSS. Import `usePluginData` from `@jannik-stacks/agi/st
 Pass its plugin name and a browser-safe data schema shared with the host reader. The studio also
 exports its UI (`Live`, `Loading`, `Muted`, `Button`, `Select`, `Badge`, `Disclosure`, `Tooltip` and more),
 query/navigation atoms and results components through that browser entry.
+<!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin studio/src/ui.tsx#Live studio/src/ui.tsx#Badge studio/src/ui.tsx#Disclosure studio/src/ui.tsx#Tooltip studio/src/state.ts#queryParam studio/src/state.ts#navigateAtom studio/src/results/ResultTable.tsx#ResultTable studio/src/plugins.ts#ResultChart -->
 
 The studio serves the instance's actions, the verbs the CLI runs through the same Effect RPC group, as NDJSON
 posts to `/api/actions` behind the [auth](#auth) gate. Every call carries the gate's user and is refused without one.
@@ -231,8 +236,9 @@ instances they sit under `/<instance>`, and each reads its own instance's plugin
 connection refreshes a mounted reader when one of its plugin's watched folders changes. A failed
 refresh keeps the last good data and shows an error. Snapshots are capped at 16 MiB.
 Host readers, settings and data roots never enter the page manifest. Pages share the studio origin
-and its API authority; review them like host plugins. Registering a page starts no job. Restart the
-studio after registrations change. Preview needs a host API for live data.
+and its API authority; review them like host plugins. The studio rereads plugin pages and reloads when a served graph folder changes.
+Imported helper changes need a restart. Preview needs a host API for live data.
+<!-- code: studio/plugins.ts#makeStudioPagesPlugin studio/plugins.ts#readStudioPages studio/plugins.ts#readWatchRoots -->
 
 The loader sets `builtin` on each page descriptor. The header groups Graph, Runs, pages with `builtin: true` (Results and Bench), and Docs together. Pages with `builtin: false` appear in a separate plugin group when any are present.
 <!-- code: src/plugin.ts#readPlugins studio/src/App.tsx#official studio/src/App.tsx#custom -->
@@ -243,7 +249,7 @@ list counter, line, bar or table widgets with UTC time windows. It reads through
 the public plugin and tracker entries, and refreshes through the studio's existing live connection.
 It adds no storage or dependency. Its charts use d3-scale, which the studio shares with page plugins
 the way it shares React.
-<!-- code: examples/dashboard/plugins/dashboard.ts examples/dashboard/plugins/dashboard/read.ts#readDashboard -->
+<!-- code: examples/dashboard/plugins/dashboard.ts examples/dashboard/plugins/dashboard/data.ts#DashboardSettings examples/dashboard/plugins/dashboard/data.ts#sources examples/dashboard/plugins/dashboard/read.ts#readDashboard -->
 
 Results and Bench are built-in plugins using this same descriptor, data endpoint and hook. They keep
 `/results` and `/bench` and need no file in the graph; both names are reserved. Bench is one page over
@@ -251,7 +257,7 @@ every served instance and every set from `npm run dev -- --bench <sets>` ([Bench
 reads one sheet from the selected data folder and shows an error when it fails. Results refreshes with
 the instance's run data; Bench watches every store it reads. Both remain available when the graph cannot load; the
 Graph page still shows configuration problems.
-<!-- code: studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage studio/src/bench/data.ts#BenchData -->
+<!-- code: studio/plugins.ts#makeResultsPlugin studio/src/results/data.ts#ResultsData studio/src/results/ResultsPage.tsx#ResultsPage studio/src/bench/plugin.ts#readBenchData studio/src/bench/data.ts#BenchData -->
 
 ## Engine access
 
@@ -264,4 +270,4 @@ plugin cannot pose as another. Whatever `engine` returns is passed to the studio
 submitting host, as `bin/bench.ts` does. A graph plugin file that declares `engine` is refused, so
 graph tools never get access to other instances. Page readers without an `engine` member receive the instance host, including its scoped reads and typed action map. Browser pages call those actions through `runAction` as the person using the studio. Loop verbs such as `stop` and `restart`
 stay with the CLI, since one loop serves several instances.
-<!-- code: src/engine.ts#EngineHost src/engine.ts#makeEngineHost -->
+<!-- code: src/engine.ts#EngineHost src/engine.ts#Submission src/engine.ts#makeEngineHost src/plugin.ts#readPlugins studio/plugins.ts#readStudioPages -->

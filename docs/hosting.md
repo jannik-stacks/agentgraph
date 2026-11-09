@@ -1,6 +1,6 @@
 # Hosting <!-- untested -->
 
-Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: a named instance in the data root, environment overrides, commands through a [runner](sandbox.md#runners): docker on the host, or the `box` runner and the box server `AGENTGRAPH_SANDBOX_URL` names. <!-- code: src/services.ts#makeProductionLayers -->
+Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: a named instance in the data root, environment overrides, commands through a [runner](sandbox.md#runners): docker on the host, or the `box` runner and the box server `AGENTGRAPH_SANDBOX_URL` names. <!-- code: src/services.ts#makeProductionLayers, src/services.ts#pickRunner, src/runners.ts#box -->
 
 | Folder       | Runs on                                     | Sandbox                        | Tested                                     |
 | ------------ | ------------------------------------------- | ------------------------------ | ------------------------------------------ |
@@ -136,13 +136,13 @@ Values already in the environment are used without asking, so a second `up` only
    keys.internal ----------> the App key, the agent keys and the session variables, read once at start
 ```
 
-The engine is the host image, with `AGENTGRAPH_RUNNER=box` and `AGENTGRAPH_SANDBOX_URL=http://box.internal`. Checkouts stay on the engine's disk. <!-- code: src/remote.ts#makeBoxRunner -->
+The engine is the host image, with `AGENTGRAPH_RUNNER=box` and `AGENTGRAPH_SANDBOX_URL=http://box.internal`. Checkouts stay on the engine's disk. <!-- code: src/runners.ts#box, src/remote.ts#boxRunner, src/remote.ts#makeBoxRunner -->
 
 How boxes differ from docker:
 
 - One checkout has one box. The work tree, home and graph go in before each command, and changes come back as git objects. Ignored folders such as `node_modules` stay in the box.
 - A box's egress follows the commands running in it, so a check beside a session shares its reach.
-- `agi check` refuses a graph `image`, memory or cpu limits and host tools. A restarted box gets files and toolchain back, but not `setup`.
+- `agi check` refuses a graph `image`, memory or cpu limits and host tools. A restarted box gets files and toolchain back, but not `setup`. <!-- code: src/remote.ts#whyBoxRefused -->
 - A box idle for 30 minutes saves `/work` and `/homes` to `kept/<id>.tgz` in the bucket.
 - Processes are found by `AGENTGRAPH_RUN` in their environment; one that drops it outlives its command.
 
@@ -159,4 +159,6 @@ plugins:
 network: models
 ```
 
-The engine stays on your host with the checkouts; only commands run in Modal. A Modal sandbox has one network for its life, so a box reaches either nothing or the model gateway's addresses. `agi check` refuses a graph that runs sessions on the egress network, sessions beside checks or steps that run commands without network, or a gateway that is not a public HTTPS URL. Boxes left from a crash are terminated when the runner next starts. <!-- code: examples/plugins/modal/modal.ts#makeModalRunner examples/plugins/modal/modal.ts#whyModalRefuses -->
+The `app` plugin setting names the Modal app; its default is `agentgraph`. <!-- code: examples/plugins/modal/modal.ts#makeModalRunner -->
+
+The engine stays on your host with the checkouts; only commands run in Modal. A Modal sandbox has one network for its life, so a box reaches either nothing or the model gateway's addresses. `agi check` refuses a graph with sessions or `setup` without `network: models`, sessions beside checks or steps that run commands without network, or a gateway that is not a public HTTPS URL. At startup, the plugin terminates leftover boxes tagged with this data root only when their checkout is gone. <!-- code: examples/plugins/modal/modal.ts#makeModalRunner examples/plugins/modal/modal.ts#whyModalRefuses -->

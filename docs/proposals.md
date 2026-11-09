@@ -23,7 +23,7 @@ Agents have no GitHub token. They ask the engine for writes with proposals: a re
 | `run`          | `workflow`, `issue`, optional `step`                                              | [Dispatch](workflows.md#dispatch) a workflow and wait                                                                                         |
 | `tell`         | `issue`, `text`                                                                   | [Forward text](workflows.md#routing) to a live run                                                                                            |
 
-An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, `ask` and `back` included, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
+An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, `ask` and `back` included, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#Kind src/proposal.ts#Proposal src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
 
 ## Applying
 
@@ -44,13 +44,13 @@ A comment goes where a person started or woke the run, else to the branch's open
 
 ## Pushes
 
-`push` and `pull_request` must name the run's own `agentgraph/` branch. A push is refused if the branch moved since the checkout last saw it, and never forces except to finish a [rebase](workflows.md#when-the-base-or-the-graph-moves).
+`push` and `pull_request` must name the run's own `agentgraph/` branch. A push is refused if the branch moved since the checkout last saw it, and never forces except to finish a [rebase](workflows.md#when-the-base-or-the-graph-moves). <!-- code: src/run/attempt.ts#pickTryOutcome src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
 While the branch has no open pull request, an agent that may return `pull_request` must return one, or an `ask`, a `back`, an `issue` part, or comments answering a finished run. <!-- code: src/run/attempt.ts#runAttempt -->
 
 A `pull_request` on a branch whose pull request is open rewrites its title and body. The description ends with a [⁂ run link](runs.md#run-links) to the trace entry that wrote it, and the engine puts its [status header](workflows.md#status-on-the-issue) back on top after the step. A step of its own after review, with an agent that returns only `pull_request`, keeps the description current each time the change goes round again. <!-- code: src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
-A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/tracker.ts#unpushable -->
+A push takes at most 200 regular files of 1 MiB each. Changes under `.github/` are left out and listed in the pull request for a maintainer. GitHub's Git API writes and signs the commits. <!-- code: src/tracker.ts#pushLimits src/tracker.ts#unpushable -->
 
 Both trackers report held paths in the push result's `held` list, recorded in the trace. The first push holding a path on a branch is incomplete (`ok: false`), even if other files were pushed; its reason tells the agent what landed before it can post replies. Later pushes still list that held path but succeed unless another failure occurs. A held-only push says nothing was pushed and has no `url`. Mixed pushes include the new commit's `url`. After a newly held path, later proposals wait for a corrected reply or an ask. <!-- code: src/event.ts#Applied src/tracker.ts#makePushResult src/run/settle.ts#writeProposals -->
 
