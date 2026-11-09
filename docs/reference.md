@@ -13,9 +13,7 @@ A repo keeps its graph in `.agentgraph/`: Markdown files whose frontmatter the e
   plugins/issues.ts      reviewed tools, hooks and host plugins
 ```
 
-`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words, among others. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#Graph src/folder.ts#loadGraph src/folder.ts#compile src/folder.ts#retiredIn src/workflow.ts#compileWorkflow -->
-
-Nothing here is stable yet; `CHANGELOG.md` lists renames and removals.
+`agi check --dir <dir>` validates a graph. Unknown keys, invalid references and unsupported values fail validation. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#Graph src/folder.ts#loadGraph src/folder.ts#compile src/folder.ts#retiredIn src/workflow.ts#compileWorkflow -->
 
 ## Which graph runs
 
@@ -27,9 +25,7 @@ Locally, the first that exists: <!-- code: src/instance.ts#ensureGraph -->
 
 Without a graph, the engine stops and tells you how to copy an example. See [First run](local.md#first-run). `agi show graph` prints the graph you selected and its files.
 
-To keep a private graph out of a team repo, add `.agentgraph/` to `.git/info/exclude`. Git then ignores it without a change to `.gitignore`, and every command reads it from disk. <!-- code: src/instance.ts#formatGraphName -->
-
-A committed graph with symlinks or submodules is refused. The loop reads `.agentgraph/` from the instance base branch on every pass, so a pull request's graph changes apply once they reach that branch in the instance checkout. Inside the sandbox `AGENTGRAPH_DIR` names the read-only copy of the graph. <!-- code: src/instance.ts#ensureGraph bin/run.ts#serve src/sandbox.ts#inside -->
+A committed graph with symlinks or submodules is refused. The loop reads `.agentgraph/` from the instance base branch on every pass, so a pull request's graph changes apply once they reach that branch in the instance checkout. Inside the sandbox `AGENTGRAPH_DIR` names the read-only copy of the graph. <!-- code: src/instance.ts#ensureGraph src/instance.ts#formatGraphName bin/run.ts#serve src/sandbox.ts#inside -->
 
 ## settings.yaml
 
@@ -60,9 +56,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `parallel`    | integer            | 2       | Concurrent runs; router runs take no slot                                                                            |
 | `sessions`    | integer            | 4       | Concurrent sessions and scripts of one instance, judges included <!-- code: src/run/execute.ts#sessionPermitsRef --> |
 
-Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). The `box` runner refuses resource overrides, a graph `image` and agents with host tools. Step `limits` override only the named fields; other steps keep the graph limits. <!-- code: src/types.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks -->
-
-Sessions, script checks, fan-out commands and setup share permits. Each releases its permit before checks or judges start. In `agi loop`, each instance has its own permits; other commands share one set, sized by the graph in use. Check findings still return together after every check settles. <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#sessionPermitsRef src/run/check.ts#runStepChecks -->
+Step `limits` override named memory and CPU fields. Sessions, scripts and judges share per-instance permits. The `box` runner rejects resource overrides, graph images and host tools. <!-- code: src/types.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks --> <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#sessionPermitsRef src/run/check.ts#runStepChecks -->
 
 ## Workflows
 
@@ -87,9 +81,9 @@ The `issues`, `issue_comment` and `pull_request` triggers hold: <!-- code: src/w
 | `project`  | `owner/number`                   | The one board `column` reads; any board of the repo owner when unset                                                            |
 | `branches` | list of names                    | Accepted, starts nothing yet                                                                                                    |
 
-`dispatch` takes no fields: `on: { issues: { label: triage }, dispatch }`. It lets an agent's `run` proposal start the workflow; a human can dispatch any workflow. See [Dispatch](workflows.md#dispatch).
+`dispatch` takes no fields and permits agent dispatch; humans can dispatch any workflow. See [Dispatch](workflows.md#dispatch).
 
-`feedback` starts a [retro](workflows.md#retros). Its optional `restarts` field defaults to `false`; set it to `true` to include runs stopped by `/agent:restart`: `on: { feedback: { restarts: true } }`. <!-- code: src/run/trigger.ts#feedback src/run/hear.ts#findSettledRuns src/workflow.ts#Front -->
+`feedback` starts a [retro](workflows.md#retros); optional `restarts: true` includes runs stopped by restart (default `false`). <!-- code: src/run/trigger.ts#feedback src/run/hear.ts#findSettledRuns src/workflow.ts#Front -->
 
 ## Steps
 
