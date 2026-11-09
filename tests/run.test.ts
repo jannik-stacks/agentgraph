@@ -553,7 +553,7 @@ describe('drive', () => {
     const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);
     const fan = {
       ...w,
-      steps: [{ name: 'review', does: { agent: 'reviewer' }, checks: [], tries: 1, each: { run: 'seq 21' } }],
+      steps: [{ name: 'review', does: { agent: 'reviewer' }, checks: [], tries: 1, each: 'seq 21' }],
     };
     const done = await run(
       runWorkflow(fan, begin(fan, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), graph)

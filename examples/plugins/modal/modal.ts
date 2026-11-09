@@ -49,7 +49,7 @@ export const whyModalRefuses = (gateway: Gateway) => (graph: Graph) => {
   const steps = Object.values(graph.workflows).flatMap(w => w.steps);
   const quiet =
     Object.values(graph.checks).some(c => c.run !== undefined) ||
-    steps.some(s => 'run' in s.does || typeof s.each === 'object');
+    steps.some(s => 'run' in s.does || !['files', 'hunks'].includes(s.each ?? 'files'));
   const talks = graph.setup !== undefined || steps.some(s => 'agent' in s.does);
   if (graph.network !== 'models')
     return talks ? 'a Modal box holds no egress allowlist; set network: models in settings.yaml' : undefined;

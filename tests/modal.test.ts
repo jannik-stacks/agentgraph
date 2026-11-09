@@ -103,7 +103,7 @@ describe('the Modal runner', () => {
   const each = Object.fromEntries(
     Object.entries(graph.workflows).map(([name, w]) => [
       name,
-      { ...w, steps: w.steps.map(step => ({ ...step, each: { run: 'ls' } })) },
+      { ...w, steps: w.steps.map(step => ({ ...step, each: 'ls' })) },
     ])
   );
   it.each([
