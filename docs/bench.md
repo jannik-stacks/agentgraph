@@ -76,7 +76,7 @@ Each row has one `labels` map containing case attributes, explicit case labels, 
 
 <!-- code: bench/runs.ts#readBenchRows bin/bench.ts#readBenchSetupLabels bench/score.ts#readBenchRowResults -->
 
-The Bench controls discover every label key. URL `where` is a JSON object of label keys to allowed value arrays, `by` is a comma-separated list of grouping keys, and `color` is a label key (empty means no colour). Values within a filter are alternatives; all filtered keys must match. Colour also splits points. For example, `/bench?where=%7B%22repo%22%3A%5B%22stx-labs%2Fexplorer%22%5D%7D&by=model,graph&color=skills` compares model and graph on explorer, coloured by skill presence. Judge-only cases and different sets always stay separate. Omitting `by` groups by harness, model, arm, engine, graph and set; an empty `by` combines them within each set.
+The Bench controls discover every label key. URL `where` is a JSON object of label keys to allowed value arrays, `by` is a comma-separated list of grouping keys, and `color` is a label key (empty means no colour). Values within a filter are alternatives; all filtered keys must match. Colour also splits points. For example, `/plugins/bench?where=%7B%22repo%22%3A%5B%22stx-labs%2Fexplorer%22%5D%7D&by=model,graph&color=skills` compares model and graph on explorer, coloured by skill presence. Judge-only cases and different sets always stay separate. Omitting `by` groups by harness, model, arm, engine, graph and set; an empty `by` combines them within each set.
 
 <!-- code: bench/score.ts#summarise examples/plugins/bench/plugins/bench/BenchPage.tsx#BenchPage examples/plugins/bench/plugins/bench/Forest.tsx#Forest -->
 
