@@ -64,7 +64,7 @@ const readStoredRuns = ({ data, checks = {} }: Pick<EngineConfig, 'data' | 'chec
   return (existsSync(data) ? readdirSync(data) : []).flatMap(id => readStoredRun(data, id, versions) ?? []);
 };
 
-export const readRunnerErrors = (store: Pick<InstanceHost['store'], 'read'>, data: string, runs: readonly Run[]) =>
+export const readEngineErrors = (store: Pick<InstanceHost['store'], 'read'>, data: string, runs: readonly Run[]) =>
   Effect.map(
     Effect.forEach(
       runs.filter(run => run.status === 'waiting' && run.retried),
@@ -113,7 +113,7 @@ export const makeInstanceHost = (
           issue === undefined
             ? yield* reads.issues()
             : yield* Effect.forEach([...new Set([issue, pull?.number ?? issue])], readIssue);
-        return { issues, runs, notes: yield* readRunnerErrors(store, data, runs) };
+        return { issues, runs, notes: yield* readEngineErrors(store, data, runs) };
       }).pipe(Effect.mapError(fail)),
     say: ({ issue, text }) =>
       (!tracker || tracker.origin.local

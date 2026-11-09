@@ -17,7 +17,7 @@ import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Config, ConfigProvider, Effect, Redacted, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
-import { makeInstanceHost, makeLocalActionClient, readRunnerErrors } from '../src/engine.ts';
+import { makeInstanceHost, makeLocalActionClient, readEngineErrors } from '../src/engine.ts';
 import type { Rpc } from 'effect/rpc';
 import type { Action } from '../src/actions.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
@@ -709,7 +709,7 @@ async function report(
       if (why) console.log(why);
     }
   }
-  for (const line of await Effect.runPromise(readRunnerErrors(makeInstanceHost({ data: i.data }).store, i.data, runs)))
+  for (const line of await Effect.runPromise(readEngineErrors(makeInstanceHost({ data: i.data }).store, i.data, runs)))
     console.log(line);
   const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
   const steps = merged
