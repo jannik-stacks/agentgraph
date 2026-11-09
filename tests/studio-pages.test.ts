@@ -49,7 +49,6 @@ export default function Page() { const { value } = usePluginData('count', Schema
   vi.stubEnv('VITE_PRIVATE_CANARY', 'FAKE-private-plugin-value');
   vi.stubEnv('AGI_STUDIO_DIR', graph);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', external);
   const { server, base } = await startStudioServer();
   try {
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('7');
@@ -60,12 +59,6 @@ export default function Page() { const { value } = usePluginData('count', Schema
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     expect(manifest).toContain('/@id/__x00__virtual:agentgraph-page/count');
     expect(manifest).toContain('href:"/results"');
-    expect(manifest).toContain('href:"/bench"');
-    expect(await (await fetch(`${base}/api/plugins/bench/data`)).json()).toEqual({
-      rows: [],
-      fields: [],
-      conflicts: [],
-    });
     expect(manifest).not.toContain(external);
     expect(manifest).not.toContain(graph);
     expect((await fetch(`${base}/@fs${realpathSync(join(graph, 'plugins/pages/Page.tsx'))}`)).status).toBe(200);
@@ -92,7 +85,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
     expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['count']);
     writeFileSync(join(dir, 'data', 'new'), '');
     await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(2));
-    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'data', 'results']);
+    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['data', 'results']);
     expect(server.watcher.listenerCount('all')).toBe(listeners);
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('8');
   } finally {
@@ -122,7 +115,6 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
   );
   vi.stubEnv('AGI_STUDIO_DIR', mode ? dir : undefined);
   vi.stubEnv('AGI_STUDIO_DATA', data);
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     const response = await fetch(`${base}/api/plugins/results/data`);
@@ -137,7 +129,6 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
     expect(text).not.toContain('FAKE-private-results-value');
     const manifest = await (await fetch(`${base}/@id/__x00__virtual:agentgraph-pages`)).text();
     expect(manifest).toContain('href:"/results"');
-    expect(manifest).toContain('href:"/bench"');
     expect(manifest).not.toContain(dir);
     expect((await fetch(`${base}/@id/__x00__virtual:agentgraph-page/results`)).status).toBe(200);
   } finally {
@@ -152,7 +143,6 @@ it('reloads the served graph and its problems when a graph file changes', async 
   writeFileSync(join(dir, 'settings.yaml'), 'unknown: true\n');
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     const served = async () => (await fetch(`${base}/@id/__x00__virtual:served`)).text();
@@ -193,7 +183,6 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   }
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     const described = async () => {
@@ -216,7 +205,8 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   }
 });
 
-it.each(['results', 'bench'])('refuses a graph plugin named after the built-in %s page', async name => {
+it('refuses a graph plugin named after the built-in results page', async () => {
+  const name = 'results';
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-builtin-name-'));
   mkdirSync(join(dir, 'plugins', 'pages'), { recursive: true });
   writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
@@ -231,7 +221,6 @@ dataSchema: Schema.String, read: () => Effect.succeed('') } });
   );
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(dir, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   try {
     await expect(createStudioServer()).rejects.toThrow(
       `plugins/${name}.ts: plugin ${name} already defined in the built-in plugins`
@@ -258,7 +247,6 @@ dataSchema: Schema.String, read: () => Effect.succeed('${name}') } });
   );
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   try {
     expect(await (await fetch(`${base}/api/plugins/${name}/data`)).json()).toBe(name);
@@ -284,7 +272,6 @@ it('runs instance actions only for same-origin JSON and reports refusals', async
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
   vi.stubEnv('AGI_STUDIO_TRACKER', join(root, 'tracker'));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { server, base } = await startStudioServer();
   const post = async (verb: string, body: unknown, headers: Record<string, string> = {}) => {
     const response = await fetch(`${base}/api/actions/${verb}`, {

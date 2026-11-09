@@ -5,10 +5,12 @@ import type { InstanceHost } from '../../src/engine.ts';
 import { makeApiHref, makeLiveJsonAtom } from './state.ts';
 
 export { queryParam, navigateAtom } from './state.ts';
+export { atLink } from './runs/trace.ts';
 export {
   accent,
   Badge,
   Button,
+  cx,
   Disclosure,
   Field,
   Fields,
@@ -16,9 +18,13 @@ export {
   Link,
   Live,
   Loading,
+  MultiSelect,
   Muted,
   Select,
+  TipBubble,
   Tooltip,
+  useScrollFade,
+  useTip,
 } from './ui.tsx';
 export { ResultTable } from './results/ResultTable.tsx';
 export const ResultChart = lazy(() => import('./results/ResultChart.tsx'));

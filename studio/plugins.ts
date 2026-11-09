@@ -4,12 +4,10 @@ import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { Effect, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
-import { readRealPath } from '../src/instance.ts';
 import type * as EngineModule from '../src/engine.ts';
 import type * as FolderModule from '../src/folder.ts';
 import type * as ReadModule from '../src/read.ts';
 import type * as PluginModule from '../src/plugin.ts';
-import type * as BenchModule from './src/bench/plugin.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import { ResultsData } from './src/results/data.ts';
 import {
@@ -17,7 +15,6 @@ import {
   makeServedGraphs,
   makeServedTopic,
   makeUnservedFilter,
-  readBenchSets,
   readModule,
   readQuery,
   servedIds,
@@ -53,20 +50,14 @@ const makeResultsPlugin = async (served: ServedGraph) => {
   });
 };
 
-const readBenchConfigs = (served: ServedGraph[]) => {
-  const seen = new Set<string>();
-  return [
-    ...served.flatMap(({ name, title, data, graph }) =>
-      data ? [{ name: name || title, data, instance: name, ...(graph && { checks: graph.checks }) }] : []
-    ),
-    ...readBenchSets().map(set => ({ name: set, data: join(set, 'data') })),
-  ].filter(({ data }) => !seen.has(readRealPath(data)) && !!seen.add(readRealPath(data)));
-};
+const readHosts = (served: ServedGraph[]): EngineModule.InstanceHosts =>
+  Object.fromEntries(
+    served.flatMap(({ name, host, problems }) =>
+      host || problems.length ? [[name, host ?? { why: problems.map(p => p.message).join('; ') }]] : []
+    )
+  );
 
-const readHosts = (served: ServedGraph[]) =>
-  Object.fromEntries(served.flatMap(one => (one.host ? [[one.name || one.title, one.host] as const] : [])));
-
-const readFolderPages = async (dir: string | undefined, instances: ReturnType<typeof readHosts>) => {
+const readFolderPages = async (dir: string | undefined, instances: EngineModule.InstanceHosts) => {
   if (!dir) return [];
   const { readPlugins } = await readModule<typeof PluginModule>('src/plugin.ts');
   const { parseGraphSettings } = await readModule<typeof FolderModule>('src/folder.ts');
@@ -80,43 +71,28 @@ const readFolderPages = async (dir: string | undefined, instances: ReturnType<ty
 
 const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
   const { readPlugins } = await readModule<typeof PluginModule>('src/plugin.ts');
-  const { makeEngineHost } = await readModule<typeof EngineModule>('src/engine.ts');
-  const { default: bench } = await readModule<typeof BenchModule>('studio/src/bench/plugin.ts');
   const all = await served.read();
   const scoped = await Promise.all(
     all.map(async one => {
       const { pages } = await readPlugins(one.graph?.dir, one.graph?.plugins, {
-        builtins: [await makeResultsPlugin(one), bench],
+        builtins: [await makeResultsPlugin(one)],
         instances: readHosts([one]),
       });
       return pages.map(page => ({ ...page, instance: one.name }));
     })
   );
-  const configs = readBenchConfigs(all);
-  const { pages: shared } = await readPlugins(undefined, undefined, {
-    builtins: [bench],
-    engine: name => makeEngineHost(name, configs),
-  });
   const studio = await readFolderPages(process.env.AGI_STUDIO_PLUGINS, readHosts(all));
-  const pages = [...scoped.flat(), ...[...shared, ...studio].map(page => ({ ...page, instance: undefined }))].map(
-    page => ({
-      ...page,
-      key: page.instance ? `${page.instance}/${page.name}` : page.name,
-      href: page.builtin ? `/${page.name}` : `/plugins/${page.name}`,
-    })
-  );
+  const pages = [...scoped.flat(), ...studio.map(page => ({ ...page, instance: undefined }))].map(page => ({
+    ...page,
+    key: page.instance ? `${page.instance}/${page.name}` : page.name,
+    href: page.builtin ? `/${page.name}` : `/plugins/${page.name}`,
+  }));
   const twice = pages.find((page, i) => pages.findIndex(other => other.key === page.key) !== i);
   if (twice) throw new Error(`studio page ${twice.name} is defined twice`);
   return pages;
 };
 
 const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, served: ServedGraph[]): WatchRoot[] => {
-  const bench = readBenchSets();
-  const rootLayouts = new Map(
-    [...served.flatMap(one => one.data ?? []), ...bench.map(set => join(set, 'data'))].map(
-      root => [root, layouts.data] as const
-    )
-  );
   return [
     ...served.flatMap(one => [
       ...(one.dir ? [{ root: one.dir, topic: makeServedTopic(one.name, 'graph'), layout: layouts.any }] : []),
@@ -130,18 +106,21 @@ const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, serv
       page.watch.map(root => ({
         root,
         topic: makeServedTopic(page.instance ?? '', page.name),
-        layout: rootLayouts.get(root) ?? layouts.any,
+        layout: layouts.data,
       }))
     ),
   ];
 };
 
-export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
+export const makeStudioPagesPlugin = (
+  served = makeServedGraphs()
+): Plugin & { readStores: () => Promise<readonly string[]> } => {
   let pages = readStudioPages(served);
   let roots: WatchRoot[] = [];
   let unserved = makeUnservedFilter(roots);
   let dispose: (() => Promise<void>) | undefined;
   return {
+    readStores: async () => (await pages).flatMap(page => (page.instance === undefined ? page.watch : [])),
     name: 'agentgraph:pages',
     enforce: 'pre',
     async config() {
@@ -220,9 +199,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([^/?]+)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
         const instance = readQuery(req).get('instance') ?? '';
-        const page = loaded.find(
-          page => page.name === name && (page.instance ?? (page.builtin ? instance : '')) === instance
-        );
+        const page = loaded.find(page => page.key === (instance ? `${instance}/${name}` : name));
         if (!page) {
           res.statusCode = 404;
           return res.end('{"error":"Unknown plugin page"}');

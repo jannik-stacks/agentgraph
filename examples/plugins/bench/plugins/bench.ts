@@ -1,11 +1,33 @@
-import { Effect } from 'effect';
-import type { EngineHost } from '../../../src/engine.ts';
-import { makePlugin } from '../../../src/plugin.ts';
-import { findCheckFields, mergeCheckFields } from '../../../src/results.ts';
-import { BenchData } from './data.ts';
-import { readBenchRows } from '../../../bench/runs.ts';
+import { isAbsolute, join } from 'node:path';
+import { Effect, Schema } from 'effect';
+import { makePlugin } from '@jannik-stacks/agi/plugins';
+import type { InstanceHosts } from '@jannik-stacks/agi/trackers';
+import { makeEngineHost } from '../../../../src/engine.ts';
+import { readRealPath } from '../../../../src/instance.ts';
+import { findCheckFields, mergeCheckFields } from '../../../../src/results.ts';
+import { readBenchRows } from '../../../../bench/runs.ts';
+import { BenchData } from './bench/data.ts';
 
-const readBenchData = (host: EngineHost): BenchData => {
+const BenchSettings = Schema.Struct({
+  sets: Schema.Array(Schema.String.check(Schema.makeFilter(isAbsolute, { message: 'set paths are absolute' }))).pipe(
+    Schema.withDecodingDefault(Effect.succeed([]))
+  ),
+});
+
+const makeBenchHost = ({ sets }: typeof BenchSettings.Type, hosts: InstanceHosts) => {
+  const seen = new Set<string>();
+  return makeEngineHost(
+    'bench',
+    [
+      ...Object.entries(hosts).flatMap(([name, host]) =>
+        'why' in host ? [] : [{ name, data: host.data, instance: name, ...(host.checks && { checks: host.checks }) }]
+      ),
+      ...sets.map(set => ({ name: set, data: join(set, 'data') })),
+    ].filter(({ data }) => !seen.has(readRealPath(data)) && !!seen.add(readRealPath(data)))
+  );
+};
+
+const readBenchData = (host: ReturnType<typeof makeBenchHost>): BenchData => {
   const rows = readBenchRows(host);
   return {
     rows,
@@ -22,12 +44,12 @@ const readBenchData = (host: EngineHost): BenchData => {
 
 export default makePlugin({
   name: 'bench',
-  engine: (host: EngineHost) => ({ read: () => readBenchData(host), roots: host.configs.map(c => c.data) }),
+  settingsSchema: BenchSettings,
   studio: {
     title: 'Bench',
-    page: new URL('./BenchPage.tsx', import.meta.url),
+    page: new URL('./bench/BenchPage.tsx', import.meta.url),
     dataSchema: BenchData,
-    watch: (_settings, bench) => bench.roots,
-    read: (_settings, bench) => Effect.sync(bench.read),
+    watch: (settings, hosts: InstanceHosts) => makeBenchHost(settings, hosts).configs.map(c => c.data),
+    read: (settings, hosts) => Effect.sync(() => readBenchData(makeBenchHost(settings, hosts))),
   },
 });

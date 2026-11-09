@@ -24,13 +24,16 @@ const noNodeInBrowser = (): Plugin => ({
 });
 
 const served = makeServedGraphs();
+const pages = makeStudioPagesPlugin(served);
 const server = {
   host: process.env.AGI_HOST || '127.0.0.1',
   ...(process.env.AGI_ALLOWED_HOSTS && { allowedHosts: process.env.AGI_ALLOWED_HOSTS.split(',') }),
   port: Number(process.env.AGI_PORT) || 5182,
   strictPort: true,
 };
-const allow = ['./', '../src/', '../node_modules/'].map(dir => fileURLToPath(new URL(dir, import.meta.url)));
+const allow = ['./', '../src/', '../bench/', '../node_modules/'].map(dir =>
+  fileURLToPath(new URL(dir, import.meta.url))
+);
 const deny = ['.env', '.env.*', '*.env', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**'];
 
 export default defineConfig({
@@ -40,8 +43,8 @@ export default defineConfig({
   plugins: [
     makeStudioAuthPlugin(served),
     noNodeInBrowser(),
-    makeStudioPagesPlugin(served),
-    makeStudioDevApiPlugin(served),
+    pages,
+    makeStudioDevApiPlugin(served, pages.readStores),
     react(),
     tailwindcss(),
   ],

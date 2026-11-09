@@ -4,6 +4,7 @@ import type { RunRecord } from '../../src/workflow.ts';
 import type { findCheckVerdicts } from './graph/trail.ts';
 import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
 import { served } from 'virtual:served';
+import { pages } from 'virtual:agentgraph-pages';
 
 export const instances = served.filter(one => one.name);
 
@@ -127,7 +128,14 @@ export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof mak
 
 const opened = new Map<string, object>();
 const openOnce = <T>(url: string, data?: string | null) => {
-  if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<T>(url, [data ? 'bench' : 'data']));
+  if (!opened.has(url))
+    opened.set(
+      url,
+      makeLiveJsonAtom<T>(
+        url,
+        data ? pages.flatMap(page => (page.instance === undefined ? [page.name] : [])) : ['data']
+      )
+    );
   return opened.get(url) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
 

@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
 import { Effect, Result, Schema, Stream } from 'effect';
-import { makeServedGraphs, readBenchSets, readModule, readQuery, servedIds, writeJson } from './served.ts';
+import { makeServedGraphs, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
@@ -17,7 +17,7 @@ import type * as FixturesModule from '../tests/fixtures.ts';
 
 const isInside = async (path: string, roots: string[]) => {
   const [real, ...reals] = await Promise.all([path, ...roots].map(p => realpath(p).catch(() => undefined)));
-  return !!real && reals.some(root => root !== undefined && real.startsWith(root + sep));
+  return !!real && reals.some(root => root !== undefined && (real === root || real.startsWith(root + sep)));
 };
 
 class StudioRequestError extends Error {}
@@ -38,19 +38,29 @@ const pickServed = async (req: IncomingMessage, reader: ReturnType<typeof makeSe
   return served;
 };
 
-const readDataDir = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
-  const served = await pickServed(req, reader);
-  const bench = readQuery(req).get('data');
-  if (!bench) return { served, data: served?.data, store: served?.host?.store, bench: undefined };
-  if (!(await isInside(bench, readBenchSets()))) throw new StudioRequestError('data is outside the bench dirs');
+const readDataDir = async (
+  req: IncomingMessage,
+  reader: ReturnType<typeof makeServedGraphs>,
+  readStores: () => Promise<readonly string[]>
+) => {
+  const watched = readQuery(req).get('data');
+  if (!watched) {
+    const served = await pickServed(req, reader);
+    return { served, data: served?.data, store: served?.host?.store, watched: undefined };
+  }
+  if (!(await isInside(watched, [...(await readStores())])))
+    throw new StudioRequestError('data is outside the stores the studio pages read');
   const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
-  return { served, data: bench, store: makeInstanceHost({ data: bench }).store, bench };
+  return { served: undefined, data: watched, store: makeInstanceHost({ data: watched }).store, watched };
 };
 
 const bodies = (docs: Record<string, { body: string }>) =>
   Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
 
-export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
+export const makeStudioDevApiPlugin = (
+  reader = makeServedGraphs(),
+  readStores: () => Promise<readonly string[]> = async () => []
+): Plugin => {
   return {
     name: 'agentgraph:fixtures',
     resolveId: source => (servedIds.includes(source) ? `\0${source}` : undefined),
@@ -85,12 +95,12 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         );
       });
       use('/api/results', async (req, res) => {
-        const { served, data } = await readDataDir(req, reader);
+        const { served, data } = await readDataDir(req, reader, readStores);
         const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
         writeJson(res, readRunResults(data, served?.graph));
       });
       use('/api/logs', async (req, res) => {
-        const { store } = await readDataDir(req, reader);
+        const { store } = await readDataDir(req, reader, readStores);
         const text = store && (await Effect.runPromise(store.readLog(readPath(req))));
         res.statusCode = text === undefined || text === '' ? 404 : 200;
         res.setHeader('content-type', 'text/plain; charset=utf-8');
@@ -125,12 +135,12 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         writeJson(res, findCheckVerdicts(runs, step, check));
       });
       use('/api/runs', async (req, res) => {
-        const { served, data, store, bench } = await readDataDir(req, reader);
+        const { served, data, store, watched } = await readDataDir(req, reader, readStores);
         const one = decodeURIComponent(readPath(req));
         if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return writeJson(res, { error: 'bad run id' }, 400);
         const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
-        if (!data || !store || (!served?.dir && !bench)) return writeJson(res, one ? null : []);
-        const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data, id), [data]));
+        if (!data || !store || (!served?.dir && !watched)) return writeJson(res, one ? null : []);
+        const keep = (id: string) => Effect.promise(async () => !watched || isInside(join(data, id), [data]));
         const answer = await Effect.runPromise(
           Effect.gen(function* () {
             const entry = (run: WorkflowModule.RunRecord, all: boolean, body = false) =>
@@ -139,13 +149,13 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
                 const summary = makeRunSummary(run, lines);
                 const { usd, lastAt, urls } = summary;
                 return {
-                  fixture: `${bench ? 'bench' : served!.title}/${run.workflow}`,
+                  fixture: `${watched ? 'store' : served!.title}/${run.workflow}`,
                   repo: served?.graph?.repo ?? '',
                   run: all ? run : pickListedRun(run, body),
                   labels: readRunLabels(data, run.id),
                   ...(all ? { usd, lastAt, urls, trace: lines } : summary),
                   ...findTraceLinks(trace),
-                  ...(bench && { data: bench }),
+                  ...(watched && { data: watched }),
                 };
               });
             if (!one) {

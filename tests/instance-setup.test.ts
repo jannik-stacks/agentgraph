@@ -468,7 +468,6 @@ it.each(STUDIO_PATHS)(
       'AGI_STUDIO_INSTANCES',
       JSON.stringify({ root: w.root, names: ['studio-path'], ...(from === 'explicit' && { graph: w.graph }) })
     );
-    vi.stubEnv('AGI_STUDIO_BENCH', undefined);
     const served = makeServedGraphs();
     const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
     const server = await createServer({
@@ -965,7 +964,6 @@ export default makePlugin({ name: 'count', studio: { title: 'Count',
     );
   }
   vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root: w.root, names: ['pages'] }));
-  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
   const { createServer } = await import(pathToFileURL(join(studioDir, 'node_modules/vite/dist/node/index.js')).href);
   const server = await createServer({
     configFile: false,

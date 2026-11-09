@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { connectedAtom, instances, navigateAtom, pageAtom, shown } from './state.ts';
+import { connectedAtom, dataParam, instances, navigateAtom, pageAtom, shown } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
 import { accent, Button, cx, Link, Loading, Muted, Select } from './ui.tsx';
@@ -11,7 +11,7 @@ const pages = {
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
 };
 
-const studio = declared.filter(page => page.instance === undefined && !page.builtin);
+const studio = declared.filter(page => page.instance === undefined);
 
 const instance = shown?.name ?? '';
 
@@ -109,7 +109,8 @@ export const App = () => {
     plugins.get(here) ?? (route && Object.hasOwn(pages, route) ? pages[route as keyof typeof pages] : undefined);
   const navigate = useSetAtom(navigateAtom);
   const connected = useAtomValue(connectedAtom);
-  const unknown = across && route !== 'plugins';
+  const data = useAtomValue(dataParam);
+  const unknown = across && route !== 'plugins' && !(route === 'runs' && id && data);
   useEffect(() => {
     if (unknown && location.pathname === '/') location.replace(`/${instances[0]!.name}/runs`);
     else if (!route && !unknown) navigate({ href: '/runs', replace: true });
