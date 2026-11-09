@@ -142,19 +142,17 @@ const makeHarnessChoice = (provider: string | undefined) => ({
 const formatUnserved = (provider: Provider, harness: string) =>
   `${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.`;
 const checkGraph = async (graph: string, i: Instance | undefined) => {
-  const runner = scope.env.AGENTGRAPH_DIR;
-  const named = selection;
-  const picked =
-    named && existsSync(graph) && (await pickTracker(named, { dir: graph, fromRepo: !!runner && !isAbsolute(runner) }));
+  const dir = scope.env.AGENTGRAPH_DIR;
+  const host = { dir: graph, fromRepo: !!dir && !isAbsolute(dir) };
+  const picked = selection && existsSync(graph) && (await pickTracker(selection, host));
   const problems = await Effect.runPromise(
-    Effect.zip(readHarnessSettings, readConfiguredGraph(graph, i, overrides)).pipe(
-      Effect.flatMap(([{ providers = [], provider: named }, loaded]) => {
+    Effect.all([readHarnessSettings, readConfiguredGraph(graph, i, overrides), Config.all(hostSettings)]).pipe(
+      Effect.flatMap(([{ providers = [], provider: named }, loaded, s]) => {
         const provider = providers.find(p => p.name === named);
-        const unserved = provider ? findUnserved(provider, loaded) : [];
-        return Config.all(hostSettings).pipe(
-          Effect.flatMap(s => whyRunnerRefuses(s, { dir: graph, fromRepo: !!runner && !isAbsolute(runner) }, loaded)),
-          Effect.map(refused => (refused ? [...unserved, { path: 'runner', message: refused }] : unserved))
-        );
+        return Effect.map(whyRunnerRefuses(s, host, loaded), refused => [
+          ...(provider ? findUnserved(provider, loaded) : []),
+          ...(refused ? [{ path: 'runner', message: refused }] : []),
+        ]);
       }),
       Effect.catchTag('GraphError', e => Effect.succeed(e.problems)),
       Effect.provideService(ConfigProvider.ConfigProvider, scope.config)

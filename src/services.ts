@@ -141,12 +141,7 @@ const readHostPlugins = async (graph?: { dir: string; fromRepo: boolean }) => {
 const findHostGraph = (s: Pick<Settings, 'graph'>) =>
   isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
 
-const pickRunner = async (
-  name: string,
-  graph?: { dir: string; fromRepo: boolean }
-): Promise<
-  { runner: (host: Parameters<typeof dockerRunner>[0]) => Layer.Layer<Runner, SandboxError> } | { problem: string }
-> => {
+const pickRunner = async (name: string, graph?: { dir: string; fromRepo: boolean }) => {
   const { runners, names } = await readHostPlugins(graph);
   if (!Object.hasOwn(runners, name))
     return {
