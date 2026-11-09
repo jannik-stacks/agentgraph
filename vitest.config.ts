@@ -87,6 +87,7 @@ const toolTests = [
 ];
 
 export default defineConfig({
+  resolve: { alias: { '@jannik-stacks/agi/plugins': new URL('./src/plugin.ts', import.meta.url).pathname } },
   plugins: [
     {
       name: 'studio-page-manifest-tests',

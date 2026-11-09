@@ -35,6 +35,7 @@ export type ToolContext<S = undefined> = {
 } & Pick<ToolExecutionOptions<unknown>, 'abortSignal'>;
 
 export { issueStatuses } from './event.ts';
+export type { InstanceHost } from './engine.ts';
 
 export type TrackerHost = {
   repo: string;

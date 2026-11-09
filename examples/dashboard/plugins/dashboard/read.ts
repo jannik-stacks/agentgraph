@@ -1,12 +1,13 @@
-import { isAbsolute } from 'node:path';
-import { Effect, Stream } from 'effect';
-import { Store, fileStore } from '../../../../src/store.ts';
+import { Effect, Result, Stream } from 'effect';
+import type { InstanceHost } from '@jannik-stacks/agi/plugins';
 import type { DashboardData, DashboardSettings } from './data.ts';
 
-export const readDashboard = (settings: typeof DashboardSettings.Type, now = new Date()) =>
+export const readDashboard = (
+  settings: typeof DashboardSettings.Type,
+  { store, tracker }: Pick<InstanceHost, 'store' | 'tracker'>,
+  now = new Date()
+) =>
   Effect.gen(function* () {
-    if (!isAbsolute(settings.data)) return yield* Effect.fail(new Error('dashboard.data must be an absolute path'));
-    const store = yield* Store;
     const runs = yield* store.listRecords();
     const needsChecks = settings.widgets.some(widget => widget.source === 'checks');
     const needsUsage = settings.widgets.some(widget => widget.source === 'tokens' || widget.source === 'cost');
@@ -22,6 +23,12 @@ export const readDashboard = (settings: typeof DashboardSettings.Type, now = new
       })
     );
     const today = Date.parse(now.toISOString().slice(0, 10));
+    const issueDays = Math.max(0, ...settings.widgets.flatMap(widget => (widget.source === 'issues' ? [widget.days] : [])));
+    const tracked = issueDays
+      ? yield* Effect.result(
+          Stream.runCollect(tracker.since(new Date(today - issueDays * 86_400_000).toISOString()))
+        )
+      : Result.succeed([]);
     const widgets = settings.widgets.map(widget => {
       const days = Array.from({ length: widget.days }, (_, i) =>
         new Date(today - (widget.days - i - 1) * 86_400_000).toISOString().slice(0, 10)
@@ -33,7 +40,9 @@ export const readDashboard = (settings: typeof DashboardSettings.Type, now = new
             ? ['pass', 'fail']
             : widget.source === 'tokens'
               ? ['input', 'output']
-              : ['USD'];
+              : widget.source === 'issues'
+                ? ['comment', 'closed', 'merged']
+                : ['USD'];
       const rows = days.flatMap(day => series.map(series => ({ day, series, value: 0 })));
       const lookup = new Map(rows.map(row => [`${row.day}/${row.series}`, row]));
       let skipped = 0;
@@ -48,7 +57,12 @@ export const readDashboard = (settings: typeof DashboardSettings.Type, now = new
         if (!row) throw new Error(`Unknown dashboard series: ${series}`);
         row.value += value;
       };
-      for (const { run, checks, trace } of records) {
+      if (widget.source === 'issues' && Result.isFailure(tracked)) skipped++;
+      if (widget.source === 'issues')
+        for (const event of Result.getOrElse(tracked, () => []))
+          if ((event.kind === 'comment' || event.kind === 'closed' || event.kind === 'merged') && isWithin(event.at))
+            add(event.at, event.kind, 1);
+      for (const { run, checks, trace } of widget.source === 'issues' ? [] : records) {
         if (widget.workflow !== undefined && widget.workflow !== run.workflow) continue;
         if (widget.source === 'runs') {
           if ((widget.step === undefined || widget.step === run.step) && isWithin(run.started))
@@ -75,8 +89,11 @@ export const readDashboard = (settings: typeof DashboardSettings.Type, now = new
         source: widget.source,
         rows,
         skipped,
-        why: 'Usage events without a reported USD cost',
+        why:
+          widget.source === 'issues'
+            ? `Tracker unread: ${Result.isFailure(tracked) ? tracked.failure.message : ''}`
+            : 'Usage events without a reported USD cost',
       };
     });
     return { at: now.toISOString(), widgets } satisfies typeof DashboardData.Type;
-  }).pipe(Effect.provide(fileStore(settings.data)));
+  });

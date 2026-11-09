@@ -5,7 +5,9 @@ import { pathToFileURL } from 'node:url';
 import { Effect, Schema } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
 import { startStudioServer } from './studio.ts';
+import { makeInstanceHost } from '../src/engine.ts';
 import { readPlugins } from '../src/plugin.ts';
+import { findIssueDir, folderTracker, writeIssueFile } from '../src/tracker.ts';
 import { DashboardSettings, DashboardData } from '../examples/dashboard/plugins/dashboard/data.ts';
 import { readDashboard } from '../examples/dashboard/plugins/dashboard/read.ts';
 
@@ -18,18 +20,30 @@ const makeData = () => {
 afterEach(() => folders.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 
 const now = new Date('2026-11-09T12:00:00Z');
-const makeSettings = (data: string) =>
+const makeSettings = () =>
   Schema.decodeUnknownSync(DashboardSettings)({
-    data,
-    widgets: ['runs', 'checks', 'tokens', 'cost'].map(source => ({
-      title: source,
-      type: 'table',
-      source,
-      days: 2,
-      workflow: 'issue',
-      step: 'build',
-    })),
+    widgets: [
+      ...['runs', 'checks', 'tokens', 'cost'].map(source => ({
+        title: source,
+        type: 'table',
+        source,
+        days: 2,
+        workflow: 'issue',
+        step: 'build',
+      })),
+      { title: 'issues', type: 'line', source: 'issues', days: 2 },
+    ],
   });
+
+const makeTracker = async (events: { kind: string; at: string }[]) => {
+  const tracker = makeData();
+  const n = await writeIssueFile(tracker, { title: 'Trend', author: 'morgan', labels: [] }, '');
+  writeFileSync(
+    join(findIssueDir(tracker, n), 'events.jsonl'),
+    events.map(e => `${JSON.stringify({ issue: n, actor: 'morgan', trusted: true, ...e })}\n`).join('')
+  );
+  return { layer: folderTracker(tracker, 'morgan', ['morgan']), local: true };
+};
 
 it('aggregates current run cohorts and dated events, with missing cost counted', async () => {
   const data = makeData();
@@ -61,7 +75,13 @@ it('aggregates current run cohorts and dated events, with missing cost counted',
       .map(row => JSON.stringify(row))
       .join('\n') + '\n'
   );
-  const snapshot = await Effect.runPromise(readDashboard(makeSettings(data), now));
+  const tracker = await makeTracker([
+    { kind: 'comment', at: '2026-11-08T10:00:00Z' },
+    { kind: 'closed', at: '2026-11-09T10:00:00Z' },
+    { kind: 'label', at: '2026-11-09T10:00:00Z' },
+    { kind: 'comment', at: '2026-11-01T10:00:00Z' },
+  ]);
+  const snapshot = await Effect.runPromise(readDashboard(makeSettings(), makeInstanceHost({ data }, tracker), now));
   expect(Schema.is(DashboardData)(snapshot)).toBe(true);
   expect(
     snapshot.widgets.map(widget => ({
@@ -74,6 +94,7 @@ it('aggregates current run cohorts and dated events, with missing cost counted',
     { source: 'checks', sum: 2, skipped: 0 },
     { source: 'tokens', sum: 42, skipped: 0 },
     { source: 'cost', sum: 0.25, skipped: 1 },
+    { source: 'issues', sum: 2, skipped: 0 },
   ]);
   expect(snapshot.widgets[1]!.rows.filter(row => row.value)).toEqual([
     { day: '2026-11-08', series: 'fail', value: 1 },
@@ -84,9 +105,14 @@ it('aggregates current run cohorts and dated events, with missing cost counted',
 
 it('registers the example page, reuses settings and reads a changed run', async () => {
   const data = makeData();
-  const settings = makeSettings(data);
-  const { pages } = await readPlugins(join(import.meta.dirname, '../examples/dashboard'), { dashboard: settings });
-  expect(pages.map(page => ({ name: page.name, watch: page.watch }))).toEqual([{ name: 'dashboard', watch: [data] }]);
+  const { pages } = await readPlugins(
+    join(import.meta.dirname, '../examples/dashboard'),
+    { dashboard: { widgets: [{ title: 'runs', type: 'table', source: 'runs', days: 2 }] } },
+    undefined,
+    [],
+    { instance: makeInstanceHost({ data }) }
+  );
+  expect(pages.map(page => ({ name: page.name, watch: page.watch }))).toEqual([{ name: 'dashboard', watch: [] }]);
   const run = join(data, 'r1');
   mkdirSync(run);
   const writeRun = (status: string) =>
@@ -103,24 +129,31 @@ it('registers the example page, reuses settings and reads a changed run', async 
   ).toEqual([['waiting'], ['done']]);
 });
 
-it.each([{ source: 'unknown' }, { type: 'pie' }, { days: 0 }, { days: 91 }, { days: 1.5 }, { extra: true }])(
-  'rejects unknown or unbounded widget input: %j',
-  invalid => {
-    expect(() =>
-      Schema.decodeUnknownSync(DashboardSettings, { onExcessProperty: 'error' })({
-        data: '/data',
-        widgets: [{ title: 'Runs', type: 'line', source: 'runs', days: 7, ...invalid }],
-      })
-    ).toThrow();
-  }
-);
+it.each([
+  { source: 'unknown' },
+  { type: 'pie' },
+  { days: 0 },
+  { days: 91 },
+  { days: 1.5 },
+  { extra: true },
+  { source: 'issues', workflow: 'issue' },
+])('rejects unknown or unbounded widget input: %j', invalid => {
+  expect(() =>
+    Schema.decodeUnknownSync(DashboardSettings, { onExcessProperty: 'error' })({
+      widgets: [{ title: 'Runs', type: 'line', source: 'runs', days: 7, ...invalid }],
+    })
+  ).toThrow();
+});
 
-it('rejects relative paths and malformed store data', async () => {
-  await expect(Effect.runPromise(readDashboard(makeSettings('relative'), now))).rejects.toThrow('absolute path');
+it('fails on malformed store data and skips issues without a tracker', async () => {
   const data = makeData();
   mkdirSync(join(data, 'r1'));
+  const read = () => Effect.runPromise(readDashboard(makeSettings(), makeInstanceHost({ data }), now));
+  writeFileSync(join(data, 'r1/run.json'), JSON.stringify({ id: 'r1', workflow: 'issue', started: 'x' }));
+  const { skipped, why } = (await read()).widgets.at(-1)!;
   writeFileSync(join(data, 'r1/run.json'), '{');
-  await expect(Effect.runPromise(readDashboard(makeSettings(data), now))).rejects.toThrow();
+  await expect(read()).rejects.toThrow('r1/run.json');
+  expect({ skipped, why }).toEqual({ skipped: 1, why: 'Tracker unread: this studio serves no tracker' });
 });
 
 it('serves the example page and refreshes it through the existing change path', async () => {
@@ -130,7 +163,10 @@ it('serves the example page and refreshes it through the existing change path', 
   mkdirSync(join(data, 'r1'), { recursive: true });
   const source = pathToFileURL(join(import.meta.dirname, '../examples/dashboard/plugins/dashboard.ts')).href;
   writeFileSync(join(graph, 'plugins/dashboard.ts'), `export { default } from ${JSON.stringify(source)};`);
-  writeFileSync(join(graph, 'settings.yaml'), JSON.stringify({ plugins: { dashboard: makeSettings(data) } }));
+  writeFileSync(
+    join(graph, 'settings.yaml'),
+    JSON.stringify({ plugins: { dashboard: { widgets: [{ title: 'runs', type: 'table', source: 'runs', days: 2 }] } } })
+  );
   const writeRun = (status: string) =>
     writeFileSync(
       join(data, 'r1/run.json'),
@@ -155,7 +191,7 @@ it('serves the example page and refreshes it through the existing change path', 
     const sent = vi.spyOn(server.ws, 'send');
     writeRun('done');
     await vi.waitFor(() =>
-      expect(sent).toHaveBeenCalledWith('agi:changed', { topics: expect.arrayContaining(['dashboard']) })
+      expect(sent).toHaveBeenCalledWith('agi:changed', { topics: expect.arrayContaining(['data']) })
     );
     const after = await read();
     expect(

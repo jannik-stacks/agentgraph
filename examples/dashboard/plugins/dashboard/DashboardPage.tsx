@@ -100,7 +100,9 @@ const DashboardPage = () => {
                   ? 'Current state by start day'
                   : widget.source === 'checks'
                     ? 'All check attempts by check day'
-                    : 'Reported usage by event day'}
+                    : widget.source === 'issues'
+                      ? 'Tracker comments, closes and merges by event day'
+                      : 'Reported usage by event day'}
               </p>
               <ul className="dashboard-totals">
                 {totals.map(({ name, value }, index) => (
