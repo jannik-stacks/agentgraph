@@ -69,15 +69,18 @@ a `merge` only from a step whose `returns` lists it.
 The engine supplies `effect`, `ai`, `jose` and the `@jannik-stacks/agi/plugins`, `@jannik-stacks/agi/trackers` and `@jannik-stacks/agi/runners` entries from its own install, including
 Effect and AI SDK subpaths, so plugins share its Effect runtime. Other packages use Node's normal
 resolution from the graph. Keep local helpers in subfolders of `plugins/`; their source contributes
-to the graph hash. Restart after code changes.
+to the graph hash. The loop rereads plugin declarations on each pass; changed plugin files load fresh.
+Restart the loop to rebuild a runner supplied by a plugin. Imported helper modules stay cached
+until the process restarts. The studio reloads plugins when
+a served graph folder changes. <!-- code: bin/run.ts#serve studio/plugins.ts#makeStudioPagesPlugin -->
 <!-- code: src/plugin.ts#readPlugins -->
 
 Each session gets an MCP endpoint listing only its selected tools. Claude Code, Codex, opencode
 and pi receive its URL and an environment reference to its bearer in their MCP configuration.
 The pinned pi version has a built-in MCP transport.
-Remote sandboxes reject host tools. Calls return through MCP and record their name, input,
+The `box` runner refuses a graph whose agent selects a host tool, at `agi check` and before the loop starts. Calls return through MCP and record their name, input,
 result preview and duration in the run's trace.
-<!-- code: src/tools.ts#startTools src/harnesses.ts#harnessSession src/remote.ts#whyBoxRefused -->
+<!-- code: src/tools.ts#startTools src/harnesses.ts#harnessSession src/remote.ts#whyBoxRefused src/services.ts#whyRunnerRefuses bin/run.ts#loadServedGraph -->
 
 The listener binds to loopback on macOS, or to the Docker bridge gateway on Linux with peer subnet
 checks. A per-session relay runs as non-root with a read-only root on the sandbox networks and
@@ -161,7 +164,8 @@ what in a graph it cannot run. `makeBoxRunner` in `@jannik-stacks/agi/runners` b
 `box.sh` steps and `run` for a command, so a plugin only moves bytes. Pick it with `--runner <name>`,
 `AGENTGRAPH_RUNNER` in the instance's env file, `runner:` in instance.yaml, `AGENTGRAPH_RUNNER` in the shell, then `local`, in that order. Only plugins of a graph the host reads count, like trackers, and
 `agi check --dir <graph>` says when the name resolves to nothing or the runner refuses the graph.
-`examples/plugins/modal/` runs boxes on Modal. <!-- code: src/plugin.ts#makePlugin src/plugin.ts#RunnerHost src/sandbox.ts#Runner src/services.ts#pickRunner src/runners.ts#local src/remote.ts#makeBoxRunner src/services.ts#whyRunnerRefuses examples/plugins/modal/modal.ts#makeModalRunner -->
+The built-in [runners](sandbox.md#runners) are `local` and `box`; `box` needs `AGENTGRAPH_SANDBOX_URL`.
+`examples/plugins/modal/` runs boxes on Modal. <!-- code: src/plugin.ts#makePlugin src/plugin.ts#RunnerHost src/sandbox.ts#Runner src/services.ts#pickRunner src/runners.ts#local src/runners.ts#box src/remote.ts#makeBoxRunner src/services.ts#whyRunnerRefuses examples/plugins/modal/modal.ts#makeModalRunner -->
 
 ## Auth
 
@@ -171,8 +175,8 @@ gate. A plugin can provide `auth`: given the host env and its settings, it retur
 `{ kind: 'refuse', why }`. The check runs on every request; a `login` answer falls back to the session, a signed cookie
 for this host and port that lasts an hour and renews while in use, but never past twelve hours after the login. The
 login page shows a form only for an auth that answers `login`, like `token` and `password`. `npm run dev -- --auth <name>`,
-else `AGENTGRAPH_AUTH` in the instance's env file, else `auth:` in settings.yaml, else `AGENTGRAPH_AUTH` in the
-shell, else `token` picks one, from the built-ins and the plugins of a graph on the host. All served instances must choose the same auth name and plugin settings. Studio variables set in more than one instance env file must agree.
+else `AGENTGRAPH_AUTH` in the instance's env file, else `auth:` in the host graph's settings.yaml, else `AGENTGRAPH_AUTH` in the
+shell, else `token` picks one, from the built-ins and the plugins of a graph on the host. A graph read from the repo that sets `auth` is refused. All served instances must choose the same auth name and plugin settings. Studio variables set in more than one instance env file must agree.
 <!-- code: src/plugin.ts#AuthHost src/plugin.ts#AuthRequest src/plugin.ts#AuthResult src/services.ts#pickAuth studio/auth.ts#readStudioAuth studio/auth.ts#makeStudioAuthPlugin -->
 
 ```yaml
@@ -211,7 +215,7 @@ settings and the instance's host: its `data` folder, `store` (`list`, `listRecor
 latest checks, and `actions`. These are the
 reads the studio's own Runs and Graph pages use, scoped to the one instance the page is served
 for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/trackers`, as in
-`read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations does not execute readers or import TSX. Host code remains trusted; namespaces
+`read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations calls `watch(settings, host)`, but does not call `read` or import TSX. Host code remains trusted; namespaces
 are not isolation.
 <!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/engine.ts#InstanceHost src/engine.ts#makeInstanceHost -->
 
@@ -235,8 +239,8 @@ instances they sit under `/<instance>`, and each reads its own instance's plugin
 connection refreshes a mounted reader when one of its plugin's watched folders changes. A failed
 refresh keeps the last good data and shows an error. Snapshots are capped at 16 MiB.
 Host readers, settings and data roots never enter the page manifest. Pages share the studio origin
-and its API authority; review them like host plugins. Registering a page starts no job. Restart the
-studio after registrations change. Preview needs a host API for live data.
+and its API authority; review them like host plugins. The studio rereads plugin pages and reloads when a served graph folder changes.
+Imported helper changes need a restart. Preview needs a host API for live data.
 <!-- code: studio/plugins.ts#makeStudioPagesPlugin studio/plugins.ts#readStudioPages studio/plugins.ts#readWatchRoots -->
 
 The loader sets `builtin` on each page descriptor. The header groups Graph, Runs, pages with `builtin: true` (Results and Bench), and Docs together. Pages with `builtin: false` appear in a separate plugin group when any are present.

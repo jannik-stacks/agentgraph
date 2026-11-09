@@ -26,7 +26,7 @@ Reviewed TypeScript files in the graph's `plugins/` folder export `makePlugin(..
 Plugin code runs on the host and needs review. The engine keeps trust, checks and write permissions. Studio page readers receive the instance host for runs and tracker reads. Pages can post local comments and set run labels through the host's typed actions. Opening a page starts no work.
 <!-- code: src/engine.ts#makeInstanceHost studio/src/plugins.ts#runAction -->
 
-Plugin triggers and proposal actions are planned. The engine's built-in [triggers](workflows.md#what-starts-a-run) and [proposal kinds](proposals.md#kinds) define what workflows can use.
+The engine's built-in [triggers](workflows.md#what-starts-a-run) and [proposal kinds](proposals.md#kinds) define what workflows can use.
 
 ## Bench
 
