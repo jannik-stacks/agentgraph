@@ -8,6 +8,11 @@ import { studioDir, studioModule } from './studio.ts';
 const dependency = <T>(name: string): Promise<T> =>
   import(pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href);
 
+const answerAction = (exit: object) => async (_: unknown, init?: RequestInit) => {
+  const { id } = JSON.parse(new TextDecoder().decode(init!.body as Uint8Array)) as { id: string };
+  return new Response(`${JSON.stringify({ _tag: 'Exit', requestId: id, exit })}\n`);
+};
+
 it('decodes cached plugin snapshots, refetching on its topic with one request in flight and one trailing', async () => {
   vi.stubGlobal('location', new URL('http://studio/plugins/count'));
   const requests: ((response: Response) => void)[] = [];
@@ -141,10 +146,7 @@ it('keeps every opened run atom while it is subscribed, past any number of runs'
 
 it('reads a run the server answers 404 and null for as gone, not as a failure', async () => {
   vi.stubGlobal('location', new URL('http://studio/runs'));
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => Response.json(null, { status: 404 }))
-  );
+  vi.stubGlobal('fetch', vi.fn(answerAction({ _tag: 'Success', value: null })));
   const { createStore } = await dependency<{
     createStore: () => { get: (atom: object) => unknown; sub: (atom: object, listener: () => void) => () => void };
   }>('jotai');
@@ -220,10 +222,16 @@ it('shows an empty failure as a failure', async () => {
 it('keeps a check panel verdicts shown under a refresh note when a refresh fails', async () => {
   vi.stubGlobal('location', new URL('http://studio/graph'));
   const verdict = { run: 'r1', issue: 7, at: '2026-11-01T10:00:00Z', pass: false, empty: false, items: 0, failed: 0 };
-  const answers = [Response.json([verdict]), Response.json({ error: 'checks unreadable' }, { status: 500 })];
+  const answers = [
+    answerAction({ _tag: 'Success', value: [verdict] }),
+    answerAction({
+      _tag: 'Failure',
+      cause: [{ _tag: 'Fail', error: { _tag: 'ActionError', message: 'checks unreadable' } }],
+    }),
+  ];
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => answers.shift()!)
+    vi.fn((input: unknown, init?: RequestInit) => answers.shift()!(input, init))
   );
   const { createElement } = await dependency<{
     createElement: (type: unknown, props: object | null, ...children: unknown[]) => unknown;
@@ -235,13 +243,15 @@ it('keeps a check panel verdicts shown under a refresh note when a refresh fails
     createStore: () => { get: (atom: object) => unknown; sub: (atom: object, listener: () => void) => () => void };
     Provider: unknown;
   }>('jotai');
-  const { getVerdictsAtom, readChanged } = await studioModule<{
+  const { getVerdictsAtom, readChanged, shown } = await studioModule<{
     getVerdictsAtom: (fixture: string, step: string, check: string) => object;
     readChanged: (topics?: string[]) => void;
+    shown?: { title: string };
   }>('state.ts');
+  const id = `${shown?.title}/issue`;
   const { CheckDetails } = await studioModule<{ CheckDetails: unknown }>('graph/OpenedDetails.tsx');
   const store = createStore();
-  const verdicts = getVerdictsAtom('kit/issue', 'implement', 'review');
+  const verdicts = getVerdictsAtom(id, 'implement', 'review');
   const stop = store.sub(verdicts, () => {});
   const show = () =>
     renderToStaticMarkup(
@@ -249,7 +259,7 @@ it('keeps a check panel verdicts shown under a refresh note when a refresh fails
         Provider,
         { store },
         createElement(CheckDetails, {
-          fixture: { id: 'kit/issue', checks: { review: { mode: 'block' } }, agents: {} },
+          fixture: { id, checks: { review: { mode: 'block' } }, agents: {} },
           path: 'issue/implement',
           name: 'review',
         })
