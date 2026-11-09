@@ -1,0 +1,76 @@
+.dashboard-page {
+  padding: 1.5rem;
+  overflow: auto;
+  height: 100%;
+}
+.dashboard-page h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+.dashboard-page p {
+  font-size: 0.8rem;
+  margin: 0.5rem 0 1rem;
+}
+.dashboard-widgets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  gap: 1rem;
+}
+.dashboard-widgets section {
+  border: 1px solid #8886;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  min-width: 0;
+}
+.dashboard-widgets h2 {
+  font-weight: 600;
+}
+.dashboard-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.dashboard-totals strong {
+  font-size: 1.5rem;
+}
+.dashboard-widgets svg {
+  width: 100%;
+}
+.dashboard-widgets svg text {
+  font-size: 11px;
+  fill: currentColor;
+}
+.dashboard-series-0 {
+  color: #0284c7;
+}
+.dashboard-series-1 {
+  color: #b45309;
+}
+.dashboard-series-2 {
+  color: #15803d;
+}
+.dashboard-series-3 {
+  color: #a855f7;
+}
+.dashboard-widgets details {
+  max-height: 20rem;
+  overflow: auto;
+}
+.dashboard-widgets summary {
+  cursor: pointer;
+}
+.dashboard-widgets table {
+  width: 100%;
+  font-size: 0.8rem;
+  text-align: left;
+}
+.dashboard-widgets th,
+.dashboard-widgets td {
+  padding: 0.25rem;
+  border-bottom: 1px solid #8884;
+}
+.dashboard-page button {
+  text-decoration: underline;
+  cursor: pointer;
+}
