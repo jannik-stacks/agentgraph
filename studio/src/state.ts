@@ -108,7 +108,6 @@ export const makeLiveJsonAtom = <T>(
           : fetch(makeApiHref(path)).then(async r => {
               if (r.ok) return read(await r.json());
               const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
-              if (r.status === 404 && body === null) return read(null);
               throw new Error(
                 typeof body?.error === 'string' && body.error ? body.error : `${path} answered ${r.status}`
               );
