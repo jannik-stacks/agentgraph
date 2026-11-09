@@ -1,5 +1,6 @@
 import { Effect } from 'effect';
 import { makePlugin } from '@jannik-stacks/agi/plugins';
+import type { InstanceHosts } from '@jannik-stacks/agi/trackers';
 import { DashboardData, DashboardSettings } from './dashboard/data.ts';
 import { readDashboard } from './dashboard/read.ts';
 
@@ -10,7 +11,7 @@ export default makePlugin({
     title: 'Dashboard',
     page: new URL('./dashboard/DashboardPage.tsx', import.meta.url),
     dataSchema: DashboardData,
-    read: (settings, hosts) =>
+    read: (settings, hosts: InstanceHosts) =>
       Effect.forEach(Object.entries(hosts), ([instance, host]) =>
         'why' in host
           ? Effect.succeed({ instance, why: host.why })

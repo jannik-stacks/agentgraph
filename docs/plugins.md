@@ -213,8 +213,8 @@ folders whose changes refresh the page, such as each instance's `host.data`, wat
 settings and one host per instance, keyed by instance name. Each host has its `data` folder, `store` (`list`, `listRecords`, `getRecord`, `read`,
 `readChecks`, `readLog`), `tracker` (`issues`, `issue`, `since`), `readRuns()`, each run with its labels and
 latest checks, and `actions`. These are the
-reads the studio's own Runs and Graph pages use. `makePlugin` types the hosts as `InstanceHosts`, which
-`@jannik-stacks/agi/trackers` exports for helpers. An instance that failed to load appears as `{ why }` instead of a host,
+reads the studio's own Runs and Graph pages use. Type the hosts with `InstanceHosts` from `@jannik-stacks/agi/trackers`,
+as in `read(settings, hosts: InstanceHosts)`. An instance that failed to load appears as `{ why }` instead of a host,
 so a page can show the reason. Loading declarations calls `watch`, but does not call `read` or import TSX. Host code
 remains trusted; namespaces are not isolation.
 
