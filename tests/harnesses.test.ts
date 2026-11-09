@@ -254,7 +254,7 @@ describe('the session loop', () => {
     expect(
       (await session({ ...spec, harness: 'custom', tools: ['inspect'] }, [], settings)).command.env.CUSTOM_AUTH
     ).toBe('custom-native');
-    expect(await settings.providers![0]!.ready({ image: 'image', sandbox: 'sandbox', env: {} })).toBe(true);
+    expect(await settings.providers![0]!.ready({ image: 'image', env: {} })).toBe(true);
     mkdirSync(join(dir, 'agents'));
     mkdirSync(join(dir, 'workflows'));
     writeFileSync(join(dir, 'workflows', 'issue.md'), '---\non: issues\nsteps:\n  work: { agent: a }\n---\n');

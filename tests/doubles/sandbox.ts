@@ -11,18 +11,27 @@ import { Sandbox, SandboxError, type Checkout, type Command, type Exit } from '.
 
 const git = promisify(execFile);
 
+const newsDirs = new Map<string, string>();
+
+const placeNews = (command: Command, text: string) =>
+  text.replace(/(?<![\w./-])\/news(?=\/)/g, newsDirs.get(command.dir) ?? join(dirname(command.dir), 'news'));
+
 const spawned = (command: Command) =>
-  spawn(command.cmd, command.args, {
-    cwd: command.dir,
-    env: {
-      ...process.env,
-      ...command.env,
-      ...(command.graph !== undefined && { AGENTGRAPH_DIR: command.graph }),
-      ...(command.home !== undefined && { HOME: command.home }),
-      ...Object.fromEntries(Object.entries(command.secrets ?? {}).map(([k, v]) => [k, Redacted.value(v)])),
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  spawn(
+    command.cmd,
+    command.args.map(arg => placeNews(command, arg)),
+    {
+      cwd: command.dir,
+      env: {
+        ...process.env,
+        ...Object.fromEntries(Object.entries(command.env).map(([k, v]) => [k, placeNews(command, v)])),
+        ...(command.graph !== undefined && { AGENTGRAPH_DIR: command.graph }),
+        ...(command.home !== undefined && { HOME: command.home }),
+        ...Object.fromEntries(Object.entries(command.secrets ?? {}).map(([k, v]) => [k, Redacted.value(v)])),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }
+  );
 
 const late = (command: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `${command.cmd} ran past ${command.minutes} minutes` });
@@ -57,6 +66,7 @@ export const hostSandbox = (repo: string, data = dirname(repo)): Layer.Layer<San
             const [dir, news] = await Promise.all(
               ['agentgraph-work-', 'agentgraph-news-'].map(p => mkdtemp(join(tmpdir(), p)))
             );
+            newsDirs.set(dir!, news!);
             return {
               dir: dir!,
               base: '',
@@ -136,6 +146,7 @@ export const hostSandbox = (repo: string, data = dirname(repo)): Layer.Layer<San
       ).pipe(
         Effect.map(
           ({ dir, base, from, kept, news }) =>
+            newsDirs.set(dir, news) &&
             (checked = {
               dir,
               base,

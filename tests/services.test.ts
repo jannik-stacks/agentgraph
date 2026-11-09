@@ -57,13 +57,22 @@ export default { ...folder, name: 'mine' };
         Effect.provideService(
           ConfigProvider.ConfigProvider,
           ConfigProvider.fromEnv({
-            env: { AGENTGRAPH_REPO: 'o/r', AGENTGRAPH_TRUST: 'alice', AGENTGRAPH_DIR: graph, ...vars },
+            env: {
+              AGENTGRAPH_REPO: 'o/r',
+              AGENTGRAPH_TRUST: 'alice',
+              AGENTGRAPH_DIR: graph,
+              AGENTGRAPH_RUNNER: 'box',
+              ...vars,
+            },
           })
         )
       )
     );
     const issues = Effect.flatMap(Tracker, t => t.issues());
-    return Effect.runPromise(Effect.provide(issues, makeProductionLayers()(s))).then(all => all.map(i => i.title));
+    vi.stubEnv('AGENTGRAPH_SANDBOX_URL', 'http://unused');
+    return Effect.runPromise(Effect.provide(issues, makeProductionLayers()(s)))
+      .then(all => all.map(i => i.title))
+      .finally(() => vi.unstubAllEnvs());
   };
   expect(await titles({ AGENTGRAPH_TRACKER: 'mine', AGENTGRAPH_TRACKER_DIR: mine })).toEqual(['from mine']);
   expect(await titles({ AGENTGRAPH_TRACKER: other })).toEqual(['from the folder']);

@@ -2,7 +2,7 @@ import { join, dirname } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { Effect, Stream, Result } from 'effect';
 import { type Result as ResultValue, defaultReturns, findMismatch, defaultPass, readScriptResult } from '../result.ts';
-import { type Checkout, type Exit, type Sandbox, SandboxError } from '../sandbox.ts';
+import { type Checkout, type Exit, inside, type Sandbox, SandboxError } from '../sandbox.ts';
 import type { Graph, Check } from '../folder.ts';
 import type { StoreError } from '../store.ts';
 import { Store } from '../store.ts';
@@ -18,20 +18,20 @@ import { isRetro } from './hear.ts';
 import { EachFailed, findFanOutItems, readCheckoutDiff, most } from './checkout.ts';
 import { makeAgentSessionSpec, runShell, runJudge } from './execute.ts';
 
-export const getTraceFiles = (work: Checkout) => ({
-  AGENTGRAPH_TRACES: join(dirname(work.news), 'traces.md'),
-  AGENTGRAPH_RUN_TRACE: join(dirname(work.news), 'trace.jsonl'),
+export const getTraceFiles = (dir: string) => ({
+  AGENTGRAPH_TRACES: join(dir, 'traces.md'),
+  AGENTGRAPH_RUN_TRACE: join(dir, 'trace.jsonl'),
 });
 
 /**
  * What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it,
  * the reply, the traces of the runs on the issue and this run's raw trace.
  */
-const getCheckFiles = (work: Checkout) => ({
-  AGENTGRAPH_PROPOSALS: join(dirname(work.news), 'proposals.json'),
-  AGENTGRAPH_CONTEXT: join(dirname(work.news), 'context.md'),
-  AGENTGRAPH_REPLY: join(dirname(work.news), 'reply.md'),
-  ...getTraceFiles(work),
+const getCheckFiles = (dir: string) => ({
+  AGENTGRAPH_PROPOSALS: join(dir, 'proposals.json'),
+  AGENTGRAPH_CONTEXT: join(dir, 'context.md'),
+  AGENTGRAPH_REPLY: join(dir, 'reply.md'),
+  ...getTraceFiles(dir),
 });
 
 export const makeScriptEnv = (work: Pick<Checkout, 'base'>, issue: number | undefined) => ({
@@ -54,7 +54,7 @@ export const writeTraces = (graph: Graph, issue: number, run: string, work: Chec
       }))
     );
     const own = yield* Stream.runCollect(store.read(run));
-    const files = getTraceFiles(work);
+    const files = getTraceFiles(dirname(work.news));
     yield* Effect.promise(() =>
       Promise.all([
         writeFile(files.AGENTGRAPH_TRACES, transcript(issue, read)),
@@ -64,8 +64,7 @@ export const writeTraces = (graph: Graph, issue: number, run: string, work: Chec
   });
 
 /** The prompt line that points an agent that reads traces at them. */
-export const formatTracesPrompt = (work: Checkout) =>
-  `The traces of the runs on this issue are in \`${getTraceFiles(work).AGENTGRAPH_TRACES}\`, an absolute path outside the checkout: open it exactly as written. Per session they hold the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
+export const tracesPrompt = `The traces of the runs on this issue are in \`${getTraceFiles(inside.news).AGENTGRAPH_TRACES}\`, an absolute path outside the checkout: open it exactly as written. Per session they hold the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
 
 /** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
 export type Left = Checkout & {
@@ -105,7 +104,7 @@ const passes = new WeakMap<object, Set<string>>();
 
 export const writeCheckFiles = (graph: Graph, left: Left, traces: boolean) =>
   Effect.gen(function* () {
-    const files = getCheckFiles(left);
+    const files = getCheckFiles(dirname(left.news));
     yield* Effect.promise(() =>
       Promise.all([
         writeFile(files.AGENTGRAPH_PROPOSALS, JSON.stringify(left.proposals)),
@@ -133,7 +132,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
     const info = check.mode === 'info';
     const started = Date.now();
     const minutes = graph.limits.minutes;
-    const base = { ...makeScriptEnv(work, work.issue), ...getCheckFiles(work) };
+    const base = { ...makeScriptEnv(work, work.issue), ...getCheckFiles(inside.news) };
     const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
       ? findFanOutItems(check.each, graph, work, minutes, base)
       : Effect.succeed([undefined]);
@@ -198,7 +197,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
           check.body,
           out?.output ?? item ?? formatSqueezed(diff, 200_000),
           formatAnswers(work.answers),
-          reads && formatTracesPrompt(work),
+          reads && tracesPrompt,
           'Call the result tool once you have decided.',
         ]
           .filter(Boolean)
@@ -219,7 +218,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
             check: check.name,
             returns,
             prompt,
-            ...(reads && { read: [dirname(work.news)] }),
+            ...(reads && { read: [inside.news] }),
           },
           item
         ).pipe(

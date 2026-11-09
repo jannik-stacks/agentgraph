@@ -322,6 +322,7 @@ describe('githubTracker', () => {
     });
     const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => f.fetch(String(url), init));
     try {
+      vi.stubEnv('AGENTGRAPH_SANDBOX_URL', 'http://unused');
       const make = makeProductionLayers();
       const configured = Effect.runSync(
         settings.pipe(
@@ -334,6 +335,7 @@ describe('githubTracker', () => {
                 ['AGENTGRAPH_APP_KEY', privateKey],
                 ['AGENTGRAPH_TRUST', 'alice'],
                 ['AGENTGRAPH_DATA', tmp('github-layers')],
+                ['AGENTGRAPH_RUNNER', 'box'],
               ]),
             })
           )
@@ -359,6 +361,7 @@ describe('githubTracker', () => {
       expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(2);
     } finally {
       spy.mockRestore();
+      vi.unstubAllEnvs();
     }
   });
 

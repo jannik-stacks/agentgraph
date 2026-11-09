@@ -16,7 +16,7 @@ import {
 import { basename, delimiter, join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { dockerSandbox } from '../src/docker.ts';
+import { dockerSandbox } from './docker-fixtures.ts';
 import { findDeadCheckouts } from '../src/env.ts';
 import { folderTracker } from '../src/tracker.ts';
 import {

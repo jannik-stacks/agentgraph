@@ -77,14 +77,14 @@ and pi receive its URL and an environment reference to its bearer in their MCP c
 The pinned pi version has a built-in MCP transport.
 Remote sandboxes reject host tools. Calls return through MCP and record their name, input,
 result preview and duration in the run's trace.
-<!-- code: src/tools.ts#startTools src/harnesses.ts#harnessSession src/remote.ts#remoteSandbox -->
+<!-- code: src/tools.ts#startTools src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
 The listener binds to loopback on macOS, or to the Docker bridge gateway on Linux with peer subnet
 checks. A per-session relay runs as non-root with a read-only root on the sandbox networks and
 forwards only that host port. It is needed because the isolated sandbox cannot reach the host
 listener directly. The relay holds no bearer.
 Both listener and relay close when the session ends; cancellation traces finish before closure.
-<!-- code: src/docker.ts#dockerSandbox src/docker.ts#dockerArgs -->
+<!-- code: src/docker.ts#dockerRunner src/docker.ts#dockerArgs -->
 
 Every request needs its unpredictable path, 256-bit bearer and matching Host header; an Origin
 header must match when present. Limits are eight TCP connections, four HTTP requests and four tool
@@ -138,22 +138,8 @@ labels, `folder` moves the issue's folder. A status the tracker refuses is shown
 ### Your own tracker
 
 The built-ins ship as `folder` and `github` in `@jannik-stacks/agi/trackers`, so a graph plugin can wrap one under a
-new name:
-
-```ts
-// .agentgraph/plugins/my-folder.ts
-import { makePlugin } from '@jannik-stacks/agi/plugins';
-import { folder } from '@jannik-stacks/agi/trackers';
-
-export default makePlugin({
-  ...folder,
-  name: 'my-folder',
-  tracker: host => {
-    const setup = folder.tracker!(host);
-    return { ...setup, layer: (trust: readonly string[] = []) => setup.layer([...trust, 'ci-bot']) };
-  },
-});
-```
+new name. `examples/plugins/trackers/my-folder.ts` wraps `folder` and adds `ci-bot` to the trusted logins; copy it
+into the graph's `plugins/`.
 
 On an instance the tracker keeps the folder it is given: `agi` and the loop, on every graph change, refuse one whose `origin.git` lies elsewhere, since
 merge and export work on that remote. The CLI verbs write your side, issues, comments, reviews and closes, straight to
@@ -164,7 +150,18 @@ with `--tracker my-folder`, `AGENTGRAPH_TRACKER=my-folder` or `tracker: my-folde
 `agi check --dir <graph>` to see that the name resolves to a plugin with a tracker in a graph the host reads. A graph
 plugin named `folder` would replace the built-in, but a new name keeps the swap visible. Turning status off needs no
 fork: `status: false` in settings.yaml.
-<!-- code: src/plugin.ts src/trackers.ts -->
+<!-- code: src/plugin.ts src/trackers.ts examples/plugins/trackers/my-folder.ts -->
+
+## Runners
+
+A plugin can provide `runner` instead of tools. It receives the host, `RunnerHost` (`{ data, image, cache, direct }`),
+and its own settings, and returns a layer that provides the `Runner`; the engine checks that it does when it builds
+the layer: `open` starts a box for one checkout and `whyRefused` names
+what in a graph it cannot run. `makeBoxRunner` in `@jannik-stacks/agi/runners` builds one from two calls, `op` for the
+`box.sh` steps and `run` for a command, so a plugin only moves bytes. Pick it with `--runner <name>`,
+`AGENTGRAPH_RUNNER` or `runner:` in instance.yaml. Only plugins of a graph the host reads count, like trackers, and
+`agi check --dir <graph>` says when the name resolves to nothing or the runner refuses the graph.
+`examples/plugins/modal/` runs boxes on Modal. <!-- code: src/plugin.ts#makePlugin src/runners.ts src/remote.ts#makeBoxRunner src/services.ts#whyRunnerRefuses -->
 
 ## Studio pages
 

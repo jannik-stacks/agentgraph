@@ -304,6 +304,7 @@ await runLocked(dir, async () => {
       NODE_OPTIONS: '',
       AGENTGRAPH_PROVIDER: 'litellm',
       AGENTGRAPH_PROXY_KEYS: '*=test',
+      AGENTGRAPH_RUNNER: 'box',
       AGENTGRAPH_SANDBOX_URL: 'http://unused',
     };
     const resumed = spawnSync(process.execPath, [runTs, 'resume', 'triage-1', ...flags], {
@@ -361,6 +362,7 @@ await runLocked(dir, async () => {
           NODE_OPTIONS: '',
           AGENTGRAPH_PROVIDER: 'litellm',
           AGENTGRAPH_PROXY_KEYS: '*=test',
+          AGENTGRAPH_RUNNER: 'box',
           AGENTGRAPH_SANDBOX_URL: 'http://unused',
         },
       }
@@ -412,6 +414,7 @@ await runLocked(dir, async () => {
           NODE_OPTIONS: '',
           AGENTGRAPH_PROVIDER: 'litellm',
           AGENTGRAPH_PROXY_KEYS: '*=test',
+          AGENTGRAPH_RUNNER: 'box',
           AGENTGRAPH_SANDBOX_URL: 'http://unused',
         },
       }
@@ -890,6 +893,7 @@ describe('the CLI flags', () => {
           AGENTGRAPH_TRACKER: '',
           AGENTGRAPH_APP_ENV: '',
           AGENTGRAPH_PROXY_KEYS: 'implementor=test,reviewer=test',
+          AGENTGRAPH_RUNNER: 'box',
           AGENTGRAPH_SANDBOX_URL: 'http://unused.invalid',
         },
       }
@@ -958,6 +962,7 @@ describe('the CLI flags', () => {
           AGENTGRAPH_TRACKER: '',
           AGENTGRAPH_APP_ENV: '',
           AGENTGRAPH_PROXY_KEYS: 'implementor=test,reviewer=test',
+          AGENTGRAPH_RUNNER: 'box',
           AGENTGRAPH_SANDBOX_URL: 'http://unused.invalid',
         },
         encoding: 'utf8',
@@ -1033,6 +1038,12 @@ describe('the tracker selection', () => {
     const checked = cli({ AGENTGRAPH_TRACKER: '__nope__' }, 'check', '--dir', sandboxGraph, '--provider', 'litellm');
     expect(checked.code).toBe(1);
     expect(checked.err).toMatch(/^tracker: no tracker plugin __nope__ and no folder /m);
+  });
+
+  it('checks the graph against the runner --runner names', () => {
+    const checked = cli({}, 'check', '--dir', sandboxGraph, '--provider', 'litellm', '--runner', 'nope');
+    expect(checked.code).toBe(1);
+    expect(checked.err).toMatch(/^runner: no runner plugin nope; runners: local, box/m);
   });
 
   it('keeps a folder AGENTGRAPH_TRACKER names over the App env, so show asks nothing of GitHub', () => {

@@ -2,9 +2,10 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
-import { Config, ConfigProvider, Effect, Layer, Option, Redacted, Schema, Struct } from 'effect';
+import { Config, ConfigProvider, Context, Effect, Layer, Option, Redacted, Schema, Struct } from 'effect';
 import { folder, type TrackerSetup } from './tracker.ts';
-import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
+import { sandboxImage } from './docker.ts';
+import { makeSandbox } from './mirror.ts';
 import { github } from './github.ts';
 import {
   type HarnessSettings,
@@ -15,10 +16,11 @@ import {
   readOverrides,
   readHarnessSettings,
 } from './harnesses.ts';
-import { parseGraphSettings } from './folder.ts';
-import { readPlugins, type TrackerHost } from './plugin.ts';
+import { parseGraphSettings, type Graph } from './folder.ts';
+import { readPlugins, type RunnerHost, type TrackerHost } from './plugin.ts';
 import { readOrUndefined } from './read.ts';
-import { remoteSandbox } from './remote.ts';
+import { box, local } from './runners.ts';
+import { Runner, SandboxError } from './sandbox.ts';
 import { priceTable } from './prices.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
@@ -35,7 +37,7 @@ export type Settings = {
   /** The name prefix of each repo's docker volume for toolchains and package caches; empty for none. */
   cache: string;
   image: string;
-  sandbox: string;
+  runner: string;
   checkLogs: (typeof checkLogs)[number];
   /** The studio's URL that posted bodies link back to; empty for none. */
   studio: string;
@@ -84,7 +86,7 @@ export const hostSettings = {
     'AGENTGRAPH_COMPRESS_DAYS'
   ).pipe(Config.withDefault(14)),
   image: Config.String('AGENTGRAPH_IMAGE').pipe(Config.withDefault(sandboxImage)),
-  sandbox: Config.String('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
+  runner: Config.String('AGENTGRAPH_RUNNER').pipe(Config.withDefault('local')),
 };
 
 const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
@@ -129,6 +131,72 @@ export const settings = Config.all({
   trackerDir: Config.String('AGENTGRAPH_TRACKER_DIR').pipe(Config.withDefault('')),
 }).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
 
+const builtins = [github, folder, local, box];
+
+const readHostPlugins = async (graph?: { dir: string; fromRepo: boolean }) => {
+  const text = graph && (await readFile(join(graph.dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
+  return readPlugins(graph?.dir, parseGraphSettings(text, () => {})?.plugins, undefined, builtins);
+};
+
+const findHostGraph = (s: Pick<Settings, 'graph'>) =>
+  isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
+
+const pickRunner = async (name: string, graph?: { dir: string; fromRepo: boolean }) => {
+  const { runners, names } = await readHostPlugins(graph);
+  if (!Object.hasOwn(runners, name))
+    return {
+      problem: names.includes(name)
+        ? `plugin ${name} has no runner`
+        : `no runner plugin ${name}; runners: ${Object.keys(runners).join(', ')}`,
+    };
+  if (graph?.fromRepo && !builtins.some(b => b.name === name))
+    return {
+      problem: `runner ${name} is a plugin of a graph read from the repo; a runner loads it only from a graph on the host, with --dir`,
+    };
+  const plugin = runners[name]!;
+  const fail = (detail: string) => new SandboxError({ reason: 'infra', detail });
+  return {
+    runner: (host: RunnerHost) =>
+      Layer.effect(
+        Runner,
+        Layer.build(plugin(host)).pipe(
+          Effect.mapError(e => (e instanceof SandboxError ? e : fail(`runner ${name}: ${String(e)}`))),
+          Effect.flatMap(context =>
+            Effect.fromOption(Context.getOption(context, Runner), () => fail(`runner ${name} provides no Runner`))
+          )
+        )
+      ),
+  };
+};
+
+const makeRunnerHost = (s: Pick<Settings, 'data' | 'cache' | 'image' | 'proxy'>): RunnerHost => ({
+  data: s.data,
+  cache: s.cache,
+  image: s.image,
+  direct: findLocalModelHosts(s.proxy.url),
+});
+
+const buildRunner = (name: string, graph: Parameters<typeof pickRunner>[1], host: RunnerHost) =>
+  Effect.gen(function* () {
+    const picked = yield* Effect.promise(() => pickRunner(name, graph));
+    if ('problem' in picked) return yield* Effect.fail(new Error(picked.problem));
+    return Context.get(yield* Layer.build(picked.runner(host)), Runner);
+  });
+
+export const makeRunner = (s: Settings) => Effect.scoped(buildRunner(s.runner, findHostGraph(s), makeRunnerHost(s)));
+
+export const whyRunnerRefuses = (
+  s: Pick<Settings, 'runner' | 'data' | 'image'>,
+  graph: Parameters<typeof pickRunner>[1],
+  loaded: Graph
+) =>
+  s.runner === 'local'
+    ? Effect.succeed(undefined)
+    : Effect.scoped(buildRunner(s.runner, graph, { data: s.data, image: loaded.image ?? s.image })).pipe(
+        Effect.map(runner => runner.whyRefused?.(loaded)),
+        Effect.catch(e => Effect.succeed('detail' in e ? e.detail : e.message))
+      );
+
 /**
  * The tracker plugin `name` names, from the built-ins and the plugins of `graph`, else a tracker folder at that path.
  * A graph read from the repo cannot bring its own tracker. Reads only; nothing is set up.
@@ -138,14 +206,7 @@ export const pickTracker = async (
   graph?: { dir: string; fromRepo: boolean }
 ): Promise<{ tracker: (host: TrackerHost) => TrackerSetup; dir?: string } | { problem: string }> => {
   if (!name) return { problem: 'name a tracker with AGENTGRAPH_TRACKER or set the App env' };
-  const text = graph && (await readFile(join(graph.dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
-  const builtins = [github, folder];
-  const { trackers, names } = await readPlugins(
-    graph?.dir,
-    parseGraphSettings(text, () => {})?.plugins,
-    undefined,
-    builtins
-  );
+  const { trackers, names } = await readHostPlugins(graph);
   const named = Object.hasOwn(trackers, name);
   const dir = named ? undefined : resolve(name);
   if (named && graph?.fromRepo && !builtins.some(b => b.name === name))
@@ -161,8 +222,7 @@ export const pickTracker = async (
 export const makeTrackerSetup = async (
   s: Pick<Settings, 'repo' | 'studio' | 'app' | 'graph' | 'tracker' | 'trackerDir'>
 ) => {
-  const graph = isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
-  const picked = await pickTracker(s.tracker, graph);
+  const picked = await pickTracker(s.tracker, findHostGraph(s));
   if ('problem' in picked) throw new Error(picked.problem);
   const dir = picked.dir ?? s.trackerDir;
   const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(dir && { dir }) });
@@ -178,20 +238,11 @@ const findLocalModelHosts = (url: string) =>
     .flatMap(at => (URL.canParse(at) ? [new URL(at).hostname] : []))
     .filter(host => !host.includes('.') || host.endsWith('.internal'));
 
-export const whyModelHostsMissing = Effect.gen(function* () {
-  const missing = yield* findMissingModelHosts(
-    findLocalModelHosts(yield* proxyUrl).filter(host => !host.includes('.'))
-  );
-  if (missing.length === 0) return undefined;
-  return [
-    `Nothing answers to ${missing.join(' or ')} on the sandbox network, so sessions cannot reach a model.`,
-    'Start the model stack with `npm run up` in the agentgraph checkout (infra/local/README.md), or pick another provider.',
-  ].join('\n');
-});
-
 export const makeProductionLayers = (setup?: TrackerSetup) => {
   let previous: string | undefined;
   let place: ReturnType<typeof makeTrackerSetup>;
+  let chosen: string | undefined;
+  let picked: ReturnType<typeof pickRunner>;
   return (s: Settings): Layer.Layer<Services> => {
     const key = JSON.stringify([
       s.repo,
@@ -206,18 +257,19 @@ export const makeProductionLayers = (setup?: TrackerSetup) => {
       previous = key;
     }
     const current = place;
+    if (chosen !== JSON.stringify([s.runner, s.graph])) {
+      picked = pickRunner(s.runner, findHostGraph(s));
+      chosen = JSON.stringify([s.runner, s.graph]);
+    }
+    const runner = picked;
     return Layer.unwrap(
       Effect.gen(function* () {
         const { layer: tracker, origin } = yield* Effect.promise(() => current);
-        const sandbox = s.sandbox
-          ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
-          : dockerSandbox({
-              data: s.data,
-              cache: s.cache,
-              image: s.image,
-              direct: findLocalModelHosts(s.proxy.url),
-              ...origin,
-            });
+        const found = yield* Effect.promise(() => runner);
+        if ('problem' in found) return yield* Effect.die(new Error(found.problem));
+        const sandbox = makeSandbox({ data: s.data, ...origin }).pipe(
+          Layer.provide(Layer.orDie(found.runner(makeRunnerHost(s))))
+        );
         const config = yield* readHarnessSettings.pipe(
           Effect.catch(e =>
             Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {

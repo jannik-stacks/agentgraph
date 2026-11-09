@@ -4,7 +4,7 @@ cd "$(dirname "$0")/../../.."
   echo "provision $AGENTGRAPH_DATA/live/instance.yaml and its checkout before starting the engine; see docs/hosting.md" >&2
   exit 1
 }
-if [ -z "${AGENTGRAPH_SANDBOX_URL:-}" ]; then
+if [ "${AGENTGRAPH_RUNNER:-local}" = local ]; then
   tries=0
   until docker info > /dev/null 2>&1; do
     tries=$((tries + 1))

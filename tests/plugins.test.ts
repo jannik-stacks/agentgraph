@@ -1,13 +1,17 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { access, mkdtemp, mkdir, writeFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { Effect, Schema } from 'effect';
+import { ConfigProvider, Effect, Layer, Schema } from 'effect';
 import { asSchema } from 'ai';
 import { loadGraph } from '../src/folder.ts';
-import { makePlugin, readPlugins, tool } from '../src/plugin.ts';
+import { makePlugin, readPlugins, type RunnerHost, tool } from '../src/plugin.ts';
+import { Runner } from '../src/sandbox.ts';
+import { whyRunnerRefuses } from '../src/services.ts';
+import { makeTestGraph } from './fixtures.ts';
 
 const source = (name = 'search', toolName = 'issues') => `
 import { makePlugin, readPlugins, tool } from '${pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href}';
@@ -51,11 +55,12 @@ export default makePlugin({ name: 'external', settingsSchema: Input, tools: {
 } });
 `;
 
-it('lets a graph plugin wrap the built-in trackers by their package paths', async () => {
+it('loads the tracker example, which wraps a built-in by its package path, under its own name', async () => {
   const dir = await makePluginDir({
-    'plugins/mine.ts': `import { folder } from '@jannik-stacks/agi/trackers';
-export default { ...folder, name: 'mine' };
-`,
+    'plugins/my-folder.ts': readFileSync(
+      join(import.meta.dirname, '../examples/plugins/trackers/my-folder.ts'),
+      'utf8'
+    ),
   });
   const picked = execFileSync(
     process.execPath,
@@ -66,7 +71,7 @@ export default { ...folder, name: 'mine' };
 import { readPlugins } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href)};
 const { trackers } = await readPlugins(${JSON.stringify(dir)}, {});
 const { github } = await import('@jannik-stacks/agi/trackers');
-console.log(trackers.mine({ dir: '/t' }).origin.origin, github.name);
+console.log(trackers['my-folder']({ dir: '/t' }).origin.origin, github.name);
 `,
     ],
     { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
@@ -194,7 +199,7 @@ read: settings => Effect.succeed(settings.limit), watch: settings => [String(set
   });
 
   it.each([
-    ['empty', {}, 'no tools, studio, hooks, tracker or engine'],
+    ['empty', {}, 'no tools, studio, hooks, tracker, engine or runner'],
     [
       'remote',
       {
@@ -470,5 +475,46 @@ describe('tool input schemas', () => {
     const advertised = (await schema.jsonSchema) as Json;
     expect(advertised.$defs).toHaveProperty('Node');
     expect(matches(advertised, value)).toBe((await schema.validate!(value)).success);
+  });
+});
+
+describe('runner plugins', () => {
+  const runnerSource = `import { Effect, Layer } from '${import.meta.resolve('effect')}';
+import { Runner } from '${pathToFileURL(join(import.meta.dirname, '../src/sandbox.ts')).href}';
+export default { name: 'mine', runner: () => Layer.succeed(Runner, { open: () => Effect.die('unused'), whyRefused: graph => graph.image && 'mine runs no custom image' }) };
+`;
+  const graph = { ...makeTestGraph('graph'), image: 'custom:1' };
+  const why = async (runner: string, dir?: string, fromRepo = false) =>
+    Effect.runPromise(
+      whyRunnerRefuses({ runner, data: '/unused', image: 'unused' }, dir ? { dir, fromRepo } : undefined, graph).pipe(
+        Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: {} }))
+      )
+    );
+
+  it('refuses a graph by the selected runner at check time, from the built-ins and the host graph only', async () => {
+    const dir = await makePluginDir({ 'plugins/mine.ts': runnerSource });
+    await writeFile(join(dir, 'settings.yaml'), 'plugins: {}\n');
+    expect(await why('local')).toBeUndefined();
+    expect(await why('mine', dir)).toBe('mine runs no custom image');
+    expect(await why('mine', dir, true)).toContain('runner mine is a plugin of a graph read from the repo');
+    expect(await why('github')).toBe('plugin github has no runner');
+    expect(await why('nope')).toBe('no runner plugin nope; runners: local, box');
+    expect(await why('box')).toContain('the box runner needs');
+  });
+
+  it('refuses a runner whose layer provides no Runner', async () => {
+    const dir = await makePluginDir({
+      'plugins/mine.ts': `import { Layer } from '${import.meta.resolve('effect')}';\nexport default { name: 'mine', runner: () => Layer.empty };\n`,
+    });
+    await writeFile(join(dir, 'settings.yaml'), 'plugins: {}\n');
+    expect(await why('mine', dir)).toBe('runner mine provides no Runner');
+  });
+
+  it('types the runner host and the layer a runner returns', () => {
+    type Member = NonNullable<Parameters<typeof makePlugin>[0]['runner']>;
+    const runner = Layer.succeed(Runner, { open: () => Effect.die('unused') });
+    expectTypeOf<(host: Pick<RunnerHost, 'data'>) => typeof runner>().toExtend<Member>();
+    expectTypeOf<(host: { url: string }) => typeof runner>().not.toExtend<Member>();
+    expectTypeOf<(host: RunnerHost) => string>().not.toExtend<Member>();
   });
 });

@@ -8,7 +8,7 @@ npm install -g @jannik-stacks/agi
 
 `npx @jannik-stacks/agi <verb>` runs it without installing. The unscoped `agentgraph` package on npm is unrelated.
 
-Before it files anything, `agi` checks Docker, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress`, builds missing or changed images and starts an egress proxy. It stops early when Docker is down, when it runs as root, or when the provider's gateway is a sandbox-network name no container answers to. The first build takes about 3 minutes. `AGENTGRAPH_SANDBOX_URL` skips this. <!-- code: src/docker.ts#ensureDocker -->
+Before it files anything, `agi` checks Docker, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress`, builds missing or changed images and starts an egress proxy. It stops early when Docker is down, when it runs as root, or when the provider's gateway is a sandbox-network name no container answers to. The first build takes about 3 minutes. Another [runner](sandbox.md#runners) skips this. <!-- code: src/docker.ts#ensureDocker -->
 
 ## Models
 
@@ -57,7 +57,7 @@ Ctrl-C stops a drive; the run goes on at the next drive, such as `agi say 1 "go 
 
 When a drive ends, the branch shows up in your repo as `agentgraph/<n>`, and the CLI prints the diff stat and next commands. Your checkout, index and HEAD never move, and no other branch does. A branch you moved or checked out stays yours, and one you deleted stays deleted until `agi export <n>`; the CLI says how to export under another name. <!-- code: src/instance.ts#writePullToRepo -->
 
-Agentgraph only reads your repo, except for that branch: it adds the run's objects as one pack and moves `refs/heads/agentgraph/<n>` only from where it last wrote it. It never runs your hooks, signs, starts a gc or takes your index lock, and its checkouts live in the instance, not in your repo's worktrees. <!-- code: src/git.ts#hostGit src/docker.ts#dockerSandbox -->
+Agentgraph only reads your repo, except for that branch: it adds the run's objects as one pack and moves `refs/heads/agentgraph/<n>` only from where it last wrote it. It never runs your hooks, signs, starts a gc or takes your index lock, and its checkouts live in the instance, not in your repo's worktrees. <!-- code: src/git.ts#hostGit src/mirror.ts#makeSandbox -->
 
 For a repo agentgraph must not write to at all, pass `--read-only` on first use. Then nothing goes into the repo, and `agi export <n> --patch <file>` hands you the change. <!-- code: src/instance.ts#ensureInstance -->
 

@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Exit } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { dockerSandbox, sandboxImage } from '../src/docker.ts';
+import { sandboxImage } from '../src/docker.ts';
+import { dockerSandbox } from './docker-fixtures.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { git, tmp } from './kit.ts';
 

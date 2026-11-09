@@ -4,7 +4,7 @@ if [ -f "$ca" ]; then
   cat /etc/ssl/certs/ca-certificates.crt "$ca" > /tmp/agentgraph-ca.crt
   export SSL_CERT_FILE=/tmp/agentgraph-ca.crt NODE_EXTRA_CA_CERTS=/tmp/agentgraph-ca.crt GIT_SSL_CAINFO=/tmp/agentgraph-ca.crt
 fi
-export AGENTGRAPH_SANDBOX_URL=http://box.internal AGENTGRAPH_PROXY_URL=${AGENTGRAPH_PROXY_URL:-http://gateway.internal/v1} \
+export AGENTGRAPH_RUNNER=box AGENTGRAPH_SANDBOX_URL=http://box.internal AGENTGRAPH_PROXY_URL=${AGENTGRAPH_PROXY_URL:-http://gateway.internal/v1} \
   AGENTGRAPH_CACHE_VOLUME= AGENTGRAPH_MIN_FREE_GB=1
 data=$AGENTGRAPH_DATA
 mkdir -p "$data" /tmp/keys

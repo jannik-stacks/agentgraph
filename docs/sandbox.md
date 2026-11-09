@@ -14,7 +14,7 @@ limits:
   cpus: 4
 ```
 
-A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. Remote boxes reject resource overrides. <!-- code: src/run/follow.ts#runAside src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#remoteSandbox -->
+A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. A box cannot enforce them, so `agi check` refuses them under the `box` runner. <!-- code: src/run/follow.ts#runAside src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#makeBoxRunner -->
 
 | Path          | What                                                                       | Access                                                                   |
 | ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -24,15 +24,22 @@ A workflow step can override either field with `limits: { memory: 8g }`. This ap
 | `/home/agent` | The session home                                                           | writable                                                                 |
 | `/graph`      | The graph, `AGENTGRAPH_DIR`; scripts and setup only                        | read only                                                                |
 | `/cache`      | The repo's toolchain cache                                                 | overlay                                                                  |
+| `/news`       | The news file, check inputs and traces the engine writes                   | read only                                                                |
 | the mirror    | The repo's git objects                                                     | read only                                                                |
 
-Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerSandbox -->
+Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerRunner -->
 
-Docker advertises its `scratch` path in agent prompts. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerSandbox src/env.ts#removeCheckout -->
+Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerRunner src/env.ts#removeCheckout -->
 
-A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box server can't enforce that, so it refuses read-only sessions. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#remoteSandbox -->
+A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user, and the command runs as uid 1001. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
 `infra/local/sandbox` builds the image. <!-- code: tests/doubles/sandbox.ts#hostSandbox -->
+
+### Runners
+
+A runner executes commands; the engine keeps git, the mirror, worktrees, cleanup and publishing. `local`, the default, runs docker on this host and checks it first: not root, Docker up, the image built, the model hosts answering. `box` sends each checkout to the box server `AGENTGRAPH_SANDBOX_URL` names; see [Hosting](hosting.md#cloudflare). A [runner plugin](plugins.md#runners) in the host graph adds another, such as Modal in `examples/plugins/modal/`.
+
+`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner never runs a read-only command writable and never widens a command's network. <!-- code: src/services.ts#whyRunnerRefuses src/runners.ts src/remote.ts#makeBoxRunner -->
 
 ## The network
 
@@ -51,9 +58,9 @@ Graph `setup` installs dependencies, such as `npm ci --no-audit --no-fund`. With
 
 An environment caches a repo's dependencies. A container takes the lockfiles and manifests from the base commit, installs [toolchains](#toolchains), runs `setup`, and keeps the ignored dependency folders such as `node_modules` and `target` in the volume `agentgraph-lower-<key>`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton -->
 
-Bases of one repo that differ only in source share one. Environments of different repos never share a volume. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox -->
+Bases of one repo that differ only in source share one. Environments of different repos never share a volume. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerRunner -->
 
-A run whose steps all use agents with only read tools, such as a router or triage, starts from the plain image. It skips the environment, the cache volume and `setup`, so its scripts and checks see no installed dependencies. <!-- code: src/folder.ts#loadGraph src/run/drive.ts#runWorkflow src/docker.ts#dockerSandbox -->
+A run whose steps all use agents with only read tools, such as a router or triage, starts from the plain image. It skips the environment, the cache volume and `setup`, so its scripts and checks see no installed dependencies. <!-- code: src/folder.ts#loadGraph src/run/drive.ts#runWorkflow src/docker.ts#dockerRunner -->
 
 `AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. A Docker daemon that does not answer fails as unreachable, not as a missing image. <!-- code: src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
 
@@ -186,7 +193,7 @@ The harness adapters accept an engine tool endpoint and allow only its named too
 
 Session output and transcripts share credential redaction before storage. Known values and common credential patterns are hidden; this cannot detect every secret. <!-- code: src/context.ts#formatRedactedText src/harnesses.ts#harnessSession src/services.ts#settings -->
 
-Host tools use a session TCP relay on the sandbox's selected internal network. It forwards one port to a loopback listener on macOS or the egress bridge gateway on Linux. The listener checks the relay's source subnet. The relay holds no bearer token and is removed with the session. <!-- code: src/docker.ts#dockerSandbox src/sandbox.ts#Sandbox src/harnesses.ts#harnessSession -->
+Host tools use a session TCP relay on the sandbox's selected internal network. It forwards one port to a loopback listener on macOS or the egress bridge gateway on Linux. The listener checks the relay's source subnet. The relay holds no bearer token and is removed with the session. <!-- code: src/docker.ts#dockerRunner src/sandbox.ts#Sandbox src/harnesses.ts#harnessSession -->
 
 The sandbox image supplies `agi file put <path>` for selected host-tool sessions. It uses
 `AGENTGRAPH_TOOL_URL` and the reserved session bearer to stream a local PNG/JPEG to the session endpoint and prints an opaque handle, with no path or image bytes in model

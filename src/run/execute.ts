@@ -128,7 +128,7 @@ export const runSession = <A = never, R = never>(
               const registry = await readPlugins(graph.dir, graph.plugins);
               const tools = Object.fromEntries(custom.map(name => [name, registry.tools[name]!]));
               const route =
-                Option.isSome(box) && box.value.tools ? await Effect.runPromise(box.value.tools) : undefined;
+                Option.isSome(box) && box.value.tools ? await Effect.runPromise(box.value.tools(spec.dir)) : undefined;
               return startTools(
                 tools,
                 {

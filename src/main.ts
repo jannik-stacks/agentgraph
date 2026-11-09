@@ -73,6 +73,7 @@ const readInstanceVars = (i: Partial<Instance>): Vars => ({
   AGENTGRAPH_IMAGE: i.image,
   AGENTGRAPH_PROVIDER: i.provider,
   AGENTGRAPH_TRACKER: i.trackerName,
+  AGENTGRAPH_RUNNER: i.runner,
   AGENTGRAPH_DIR: i.graph,
 });
 

@@ -17,7 +17,6 @@ import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Config, ConfigProvider, Effect, Redacted, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
-import { ensureDocker, whyRoot } from '../src/docker.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
 import type { Graph } from '../src/folder.ts';
 import { findIssueDir, formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
@@ -62,8 +61,9 @@ import {
   pickTracker,
   readHostSettings,
   hostSettings,
+  makeRunner,
   settings,
-  whyModelHostsMissing,
+  whyRunnerRefuses,
 } from '../src/services.ts';
 import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
@@ -142,15 +142,17 @@ const makeHarnessChoice = (provider: string | undefined) => ({
 const formatUnserved = (provider: Provider, harness: string) =>
   `${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.`;
 const checkGraph = async (graph: string, i: Instance | undefined) => {
-  const runner = scope.env.AGENTGRAPH_DIR;
-  const named = selection;
-  const picked =
-    named && existsSync(graph) && (await pickTracker(named, { dir: graph, fromRepo: !!runner && !isAbsolute(runner) }));
+  const dir = scope.env.AGENTGRAPH_DIR;
+  const host = { dir: graph, fromRepo: !!dir && !isAbsolute(dir) };
+  const picked = selection && existsSync(graph) && (await pickTracker(selection, host));
   const problems = await Effect.runPromise(
-    Effect.zip(readHarnessSettings, readConfiguredGraph(graph, i, overrides)).pipe(
-      Effect.map(([{ providers = [], provider: named }, loaded]) => {
+    Effect.all([readHarnessSettings, readConfiguredGraph(graph, i, overrides), Config.all(hostSettings)]).pipe(
+      Effect.flatMap(([{ providers = [], provider: named }, loaded, s]) => {
         const provider = providers.find(p => p.name === named);
-        return provider ? findUnserved(provider, loaded) : [];
+        return Effect.map(whyRunnerRefuses(s, host, loaded), refused => [
+          ...(provider ? findUnserved(provider, loaded) : []),
+          ...(refused ? [{ path: 'runner', message: refused }] : []),
+        ]);
       }),
       Effect.catchTag('GraphError', e => Effect.succeed(e.problems)),
       Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
@@ -241,33 +243,22 @@ const connect = async (i: Instance, graph: string, after: string, local: boolean
     )(at).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   scope = await applySettings(provider, i, scope).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
   scope.env.AGENTGRAPH_DIR = graph;
-  const resolved = await Effect.runPromise(
-    Effect.all({ host: Config.all(hostSettings), graph: readConfiguredGraph(graph, i, overrides) }).pipe(
-      Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
-    )
+  const runner = await Effect.runPromise(
+    Effect.gen(function* () {
+      const s = yield* settings;
+      const { image = s.image } = yield* readConfiguredGraph(graph, i, overrides);
+      return yield* makeRunner({ ...s, image });
+    }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
   ).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
-  if (!resolved.host.sandbox) {
-    const root = whyRoot();
-    if (root) fail(`${root}\n${after}`, 1);
-    const missing = await Effect.runPromise(
-      whyModelHostsMissing.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
-    ).catch((e: Error) => fail(e.message, 1));
-    if (missing) fail(`${missing}\n${after}`, 1);
-    const docker = await Effect.runPromise(
-      ensureDocker(line => console.log(`${tag}sandbox  ${line}`), resolved.graph.image ?? resolved.host.image).pipe(
-        Effect.provideService(ConfigProvider.ConfigProvider, scope.config)
-      )
-    ).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
-    console.log(`${tag}sandbox  docker ${docker}`);
-  }
+  console.log(`${tag}runner   ${scope.env.AGENTGRAPH_RUNNER ?? 'local'}`);
   const aliases = new Map(
     splitNames(scope.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
   );
-  return { provider, scope, ...(values.model && { model: aliases.get(values.model) ?? values.model }) };
+  return { provider, scope, runner, ...(values.model && { model: aliases.get(values.model) ?? values.model }) };
 };
 
 const loadServedGraph = async (
-  { provider, model }: Awaited<ReturnType<typeof connect>>,
+  { provider, model, runner }: Awaited<ReturnType<typeof connect>>,
   graph: string,
   instance: Instance,
   scope: InstanceEnv
@@ -283,6 +274,8 @@ const loadServedGraph = async (
       .join(',');
   const unserved = findUnserved(provider, loaded);
   if (unserved.length) throw new Error(unserved.map(p => `${p.path}: ${p.message}`).join('\n'));
+  const refused = runner.whyRefused?.(loaded);
+  if (refused) throw new Error(`runner: ${refused}`);
   return loaded;
 };
 
@@ -321,6 +314,7 @@ const defaults = {
 const commandEnv = {
   ...(values.logs !== undefined && { AGENTGRAPH_CHECK_LOGS: values.logs }),
   ...(values.tracker !== undefined && { AGENTGRAPH_TRACKER: values.tracker }),
+  ...(values.runner !== undefined && { AGENTGRAPH_RUNNER: values.runner }),
 };
 const named = values.instance ?? [];
 if (verb === 'stop' || verb === 'restart') {
@@ -341,7 +335,7 @@ if (verb === 'stop' || verb === 'restart') {
 }
 if (named.length > 1 && verb !== 'loop') fail(`${verb} takes one --instance\n${usage}`);
 if (verb === 'loop' && (named.length > 1 || (!named.length && !values.repo && !(await findRepo(resolve('.')))))) {
-  for (const flag of ['repo', 'dir', 'base', 'tracker', 'read-only'] as const)
+  for (const flag of ['repo', 'dir', 'base', 'tracker', 'runner', 'read-only'] as const)
     if (values[flag]) fail(`--${flag} applies to one instance; set it in each instance.yaml`);
   const served = named.length
     ? await Promise.all(named.map(name => readPickedInstance(root, name, false))).catch((e: Error) => fail(e.message))

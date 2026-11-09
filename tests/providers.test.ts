@@ -23,7 +23,7 @@ const writeLogin = (access: string) => {
 };
 
 const readSessionAuth = async () =>
-  JSON.parse((await chatgpt.settings!({ image: '', sandbox: '', env: {} })).AGENTGRAPH_CHATGPT_AUTH!);
+  JSON.parse((await chatgpt.settings!({ image: '', env: {} })).AGENTGRAPH_CHATGPT_AUTH!);
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -33,7 +33,7 @@ describe('chatgpt', () => {
     writeLogin(access);
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
-    const settings = await chatgpt.settings!({ image: '', sandbox: '', env: {} });
+    const settings = await chatgpt.settings!({ image: '', env: {} });
     expect(fetch).not.toHaveBeenCalled();
     expect(settings).toMatchObject({
       AGENTGRAPH_PROXY_URL: '*=',
@@ -82,7 +82,7 @@ const PROVIDER_KEYS = [
 it.each(PROVIDER_KEYS)('uses scoped credentials and model choices for %s', async (name, key) => {
   const provider = makeProviders().find(p => p.name === name)!;
   const env = { [key]: 'only-in-scope', AGENTGRAPH_MODELS: '*=scoped' };
-  const host = { image: '', sandbox: '', env };
+  const host = { image: '', env };
   expect(await provider.ready(host)).toBe(true);
   expect(await provider.ready({ ...host, env: { [`${key}_FILE`]: '/unused/scoped-secret' } })).toBe(true);
   const settings = await provider.settings!(host);
@@ -94,9 +94,9 @@ it.each(PROVIDER_KEYS)('uses scoped credentials and model choices for %s', async
 
 it('keeps proxy credentials scoped while supplying its default model map', async () => {
   const proxy = makeProviders().find(p => p.name === 'litellm')!;
-  expect(await proxy.ready({ image: '', sandbox: '', env: {} })).toBe(false);
-  expect(await proxy.ready({ image: '', sandbox: '', env: { AGENTGRAPH_PROXY_KEYS: '*=scoped' } })).toBe(true);
-  expect(await proxy.settings!({ image: '', sandbox: '', env: {} })).toEqual({ AGENTGRAPH_MODELS: '*=smart' });
+  expect(await proxy.ready({ image: '', env: {} })).toBe(false);
+  expect(await proxy.ready({ image: '', env: { AGENTGRAPH_PROXY_KEYS: '*=scoped' } })).toBe(true);
+  expect(await proxy.settings!({ image: '', env: {} })).toEqual({ AGENTGRAPH_MODELS: '*=smart' });
 });
 
 const PROVIDER_COMMANDS = [
@@ -116,7 +116,7 @@ printf '%s %s\\n' "$SCOPED_TOKEN" "$*" > "$SCOPED_LOG"
   );
   const env = { PATH: bin, SCOPED_TOKEN: 'only-in-scope', SCOPED_LOG: log };
   const provider = makeProviders().find(p => p.name === name)!;
-  expect(await provider.detect!({ image: '', sandbox: '', env })).toBe(true);
+  expect(await provider.detect!({ image: '', env })).toBe(true);
   expect(readFileSync(log, 'utf8').trim()).toBe(`only-in-scope ${args.join(' ')}`);
 });
 
@@ -138,7 +138,7 @@ printf '%s|%s|%s\\n' "$SCOPED_TOKEN" "$CODEX_HOME" "$*" >> "$SCOPED_LOG"
   try {
     await chatgpt.login!({
       image: '',
-      sandbox: '',
+
       env: { PATH: bin, SCOPED_TOKEN: 'only-in-scope', SCOPED_LOG: log },
     });
   } finally {

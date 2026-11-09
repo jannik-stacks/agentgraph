@@ -14,6 +14,7 @@ sync() {
     [ "$1" = /work ] || printf '/.cache/\n' > "$git/info/exclude"
   fi
   export GIT_DIR="$git" GIT_WORK_TREE="$dir" GIT_INDEX_FILE="$git/agentgraph-index"
+  export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'
   mkdir -p "$dir"
 }
 
@@ -28,8 +29,9 @@ start)
   exec sleep infinity
   ;;
 init)
-  mkdir -p "$root/work" "$root/homes"
-  [ "$(id -u)" != 0 ] || chown 1000:1000 "$root/work" "$root/homes"
+  [ -d "$root/work" ] || echo fresh
+  mkdir -p "$root/work" "$root/homes" "$root/scratch"
+  chmod 1777 "$root/scratch"
   ;;
 push)
   sync "$1"
@@ -81,11 +83,29 @@ reap)
   ;;
 run)
   minutes=$1
-  shift
+  mode=$2
+  shift 2
   [ ! -f "$env" ] || . "$env"
   cd "$root/work"
-  if command -v timeout > /dev/null; then exec timeout -k 10s -s KILL "${minutes}m" env "$@"; fi
-  exec env "$@"
+  set -- env "$@"
+  if [ "$(id -u)" = 0 ]; then
+    uid=1000
+    [ "$mode" = rw ] || uid=1001
+    for arg; do
+      case $arg in
+      HOME=*/homes/*) chown -R "$uid:$uid" "${arg#HOME=}" ;;
+      env | *=*) ;;
+      *) break ;;
+      esac
+    done
+    [ "$mode" != rw ] || chown -R 1000:1000 "$root/work"
+    set -- setpriv --reuid="$uid" --regid="$uid" --clear-groups "$@"
+  elif [ "$mode" != rw ]; then
+    echo "agentgraph: a read-only command needs a box that starts it as root" >&2
+    exit 126
+  fi
+  if command -v timeout > /dev/null; then exec timeout -k 10s -s KILL "${minutes}m" "$@"; fi
+  exec "$@"
   ;;
 *)
   echo "unknown op $op" >&2

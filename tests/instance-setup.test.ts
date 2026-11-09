@@ -19,7 +19,8 @@ import { ensureInstance, formatGraphName, readInstance } from '../src/instance.t
 import { getCachePath } from '../src/env.ts';
 import { readInstanceEnv, start } from '../src/main.ts';
 import { createLoopLock, findLoopLock } from '../src/owner.ts';
-import { settings, makeTrackerSetup, whyModelHostsMissing } from '../src/services.ts';
+import { settings, makeTrackerSetup } from '../src/services.ts';
+import { local } from '../src/runners.ts';
 import { makeServedGraphs } from '../studio/served.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { folderTracker, writeIssueFile } from '../src/tracker.ts';
@@ -69,6 +70,7 @@ const makeInstance = async (name: string) => {
         PATH: process.env.PATH,
         NODE_OPTIONS: '',
         AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+        AGENTGRAPH_RUNNER: 'box',
         AGENTGRAPH_SANDBOX_URL: 'http://unused',
         ...env,
       },
@@ -285,29 +287,18 @@ it('resolves independent instance environments without changing the engine envir
   expect(process.env).toEqual(before);
 });
 
-it('checks model readiness using the instance env file', async () => {
+it('checks model readiness of the local model hosts', async () => {
   const w = await makeInstance('models');
-  const file = join(w.root, 'models.env');
-  writeFileSync(file, 'AGENTGRAPH_PROXY_URL=https://models.example.com\n');
-  const scope = await readInstanceEnv({ ...w.instance, env: file });
-  expect(
-    await Effect.runPromise(
-      whyModelHostsMissing.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
-    )
-  ).toBeUndefined();
   const bin = join(w.root, 'bin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-  writeFileSync(file, 'AGENTGRAPH_PROXY_URL=http://missing-model:4000\n');
-  const local = await readInstanceEnv({ ...w.instance, env: file });
   const path = process.env.PATH;
   process.env.PATH = `${bin}:${path ?? ''}`;
   try {
-    expect(
-      await Effect.runPromise(
-        whyModelHostsMissing.pipe(Effect.provideService(ConfigProvider.ConfigProvider, local.config))
-      )
-    ).toContain('Nothing answers to missing-model');
+    const exit = await Effect.runPromiseExit(
+      Effect.scoped(Layer.build(local.runner!({ data: w.root, direct: ['missing-model'] }, undefined)))
+    );
+    expect(JSON.stringify(exit)).toContain('Nothing answers to missing-model');
   } finally {
     if (path === undefined) delete process.env.PATH;
     else process.env.PATH = path;
@@ -372,12 +363,12 @@ writeFileSync(${JSON.stringify(marker)}, 'imported'); throw new Error('unexpecte
 });
 
 const PREFLIGHT = ['local', 'remote'] as const;
-it.each(PREFLIGHT)('uses scoped provider and %s sandbox settings in CLI preflight', async sandbox => {
+it.each(PREFLIGHT)('uses scoped provider and %s runner settings in CLI preflight', async sandbox => {
   const w = await makeInstance('preflight');
   const file = join(w.root, 'keys.env');
   writeFileSync(
     file,
-    `ANTHROPIC_API_KEY=only-in-file\n${sandbox === 'remote' ? 'AGENTGRAPH_SANDBOX_URL=http://unused\n' : ''}`
+    `ANTHROPIC_API_KEY=only-in-file\n${sandbox === 'remote' ? 'AGENTGRAPH_RUNNER=box\nAGENTGRAPH_SANDBOX_URL=http://unused\n' : ''}`
   );
   w.save({ env: file, provider: 'anthropic' });
   writeFileSync(join(w.graph, 'settings.yaml'), 'image: sandbox:scoped\n');
@@ -393,7 +384,7 @@ printf egress
     { mode: 0o755 }
   );
   const result = w.runWithEnv(
-    { PATH: `${bin}:${process.env.PATH}`, AGENTGRAPH_SANDBOX_URL: undefined },
+    { PATH: `${bin}:${process.env.PATH}`, AGENTGRAPH_RUNNER: undefined, AGENTGRAPH_SANDBOX_URL: undefined },
     'loop',
     '--once'
   );
@@ -616,6 +607,7 @@ exec "$NODE_EXECUTABLE" "$@" --once
     STARTUP_ARGS: args,
     AGENTGRAPH_DATA: w.root,
     AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+    AGENTGRAPH_RUNNER: 'box',
     AGENTGRAPH_SANDBOX_URL: 'http://unused',
   };
   const result = spawnSync('sh', [join(entry, 'start.sh')], { encoding: 'utf8', env: environment });
@@ -699,6 +691,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
         PATH: process.env.PATH,
         NODE_OPTIONS: '',
         AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+        AGENTGRAPH_RUNNER: 'box',
         AGENTGRAPH_SANDBOX_URL: 'http://unused',
       },
     }
@@ -742,6 +735,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
       PATH: process.env.PATH,
       NODE_OPTIONS: '',
       AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+      AGENTGRAPH_RUNNER: 'box',
       AGENTGRAPH_SANDBOX_URL: 'http://unused',
     },
   });
@@ -813,6 +807,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
         PATH: process.env.PATH,
         NODE_OPTIONS: '',
         AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+        AGENTGRAPH_RUNNER: 'box',
         AGENTGRAPH_SANDBOX_URL: 'http://unused',
       },
     });
@@ -829,6 +824,7 @@ it('serves every loop instance in one process and keeps going when one fails to 
       PATH: process.env.PATH,
       NODE_OPTIONS: '',
       AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+      AGENTGRAPH_RUNNER: 'box',
       AGENTGRAPH_SANDBOX_URL: 'http://unused',
     },
   });
@@ -910,6 +906,7 @@ layer: (trust, as) => Layer.unwrap(Effect.map(Effect.all({ settings, harness: re
         PATH: process.env.PATH,
         NODE_OPTIONS: '',
         AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+        AGENTGRAPH_RUNNER: 'box',
         AGENTGRAPH_SANDBOX_URL: 'http://unused',
         AGENTGRAPH_APP_ID: 'shell-app',
         AGENTGRAPH_APP_KEY: 'shell-key',

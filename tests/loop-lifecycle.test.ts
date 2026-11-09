@@ -68,6 +68,7 @@ layer: (trust, as) => { writeFileSync(${JSON.stringify(ready)}, 'ready'); return
       PATH: process.env.PATH,
       NODE_OPTIONS: '',
       AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE,
+      AGENTGRAPH_RUNNER: 'box',
       AGENTGRAPH_SANDBOX_URL: 'http://unused',
     },
   };

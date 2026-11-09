@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync
 import { basename, delimiter, dirname, join } from 'node:path';
 import { Effect, Exit, Layer, Logger, Redacted, type Scope, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { dockerSandbox, dockerArgs, readImage } from '../src/docker.ts';
+import { dockerArgs, readImage } from '../src/docker.ts';
 import { ensureInstance } from '../src/instance.ts';
 import { commitCheckoutOnce } from '../src/git.ts';
 import {
@@ -29,7 +29,12 @@ const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Service']) => Ef
 const sortOutputLines = <A extends { output: string }, E>(exit: Exit.Exit<A, E>) =>
   Exit.map(exit, e => ({ ...e, output: e.output.split('\n').toSorted().join('\n') }));
 
-import { makeDockerOrigin as origin, makeDockerCommand as command, makeDockerClient } from './docker-fixtures.ts';
+import {
+  dockerSandbox,
+  makeDockerOrigin as origin,
+  makeDockerCommand as command,
+  makeDockerClient,
+} from './docker-fixtures.ts';
 
 describe('docker with a stand-in docker client', () => {
   const { log, layer, logged } = makeDockerClient();
@@ -136,8 +141,8 @@ describe('docker with a stand-in docker client', () => {
     try {
       const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere', cache: '' }), s =>
         Effect.gen(function* () {
-          const first = yield* s.tools!;
-          const second = yield* s.tools!;
+          const first = yield* s.tools!('');
+          const second = yield* s.tools!('');
           yield* s.exec(
             command(tmp('work'), {
               network: 'proxy',
@@ -335,9 +340,7 @@ describe('docker with a stand-in docker client', () => {
     expect(binds).toHaveLength(5);
     expect(binds[1]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror},dst=.*,readonly$`));
     expect(binds[2]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror}/worktrees/\\w+,dst=`));
-    expect(binds[3]).toMatch(
-      new RegExp(`^type=bind,src=${data}/cache/news/(\\w+),dst=${data}/cache/news/\\1,readonly$`)
-    );
+    expect(binds[3]).toMatch(new RegExp(`^type=bind,src=${data}/cache/news/\\w+,dst=/news,readonly$`));
   });
 
   it.each([
@@ -358,7 +361,6 @@ describe('docker with a stand-in docker client', () => {
         yield* s.exec(command(first.dir, { readonly: true }));
         const mounts = logged().filter(a => a.startsWith('type=bind'));
         const result = {
-          path: s.scratch,
           mount: mounts.find(m => m.endsWith('dst=/scratch')),
           work: mounts.find(m => m.includes('dst=/work')),
           separate: readdirSync(join(data, 'cache', 'scratch', basename(second.dir))),
@@ -370,7 +372,6 @@ describe('docker with a stand-in docker client', () => {
     const result = Exit.isSuccess(exit) ? exit.value : Exit.isFailure(exit) && exit.cause;
     expect(JSON.stringify(result)).toContain(`type=bind,src=${scratch},dst=/scratch`);
     expect(JSON.stringify(result)).toContain('dst=/work,readonly');
-    expect(JSON.stringify(result)).toContain('"path":"/scratch"');
     expect(JSON.stringify(result)).toContain('"separate":[]');
     expect(JSON.stringify(result)).not.toContain('capture.png');
     expect(existsSync(scratch)).toBe(false);
@@ -1131,7 +1132,7 @@ describe('deployment image startup', () => {
       PATH: `${bin}${delimiter}${process.env.PATH}`,
       AGENTGRAPH_DATA: data,
       AGENTGRAPH_IMAGE: 'custom:missing',
-      AGENTGRAPH_SANDBOX_URL: '',
+      AGENTGRAPH_RUNNER: 'local',
     };
     const unprovisioned = spawnSync('sh', [script], { encoding: 'utf8', env });
     expect([unprovisioned.status, unprovisioned.stderr]).toEqual([1, expect.stringContaining('provision')]);

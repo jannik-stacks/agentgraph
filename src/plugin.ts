@@ -5,12 +5,25 @@ import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
-import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue, SchemaRepresentation } from 'effect';
+import {
+  Effect,
+  type Layer,
+  type Option,
+  type Redacted,
+  Result,
+  Schema,
+  SchemaIssue,
+  SchemaRepresentation,
+} from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    const local = { '@jannik-stacks/agi/plugins': 'plugin', '@jannik-stacks/agi/trackers': 'trackers' }[specifier];
+    const local = {
+      '@jannik-stacks/agi/plugins': 'plugin',
+      '@jannik-stacks/agi/trackers': 'trackers',
+      '@jannik-stacks/agi/runners': 'runners',
+    }[specifier];
     if (local)
       return { url: new URL(`./${local}${extname(import.meta.filename)}`, import.meta.url).href, shortCircuit: true };
     if (['effect', 'ai'].some(name => specifier === name || specifier.startsWith(`${name}/`))) {
@@ -43,6 +56,10 @@ export type TrackerHost = {
 };
 
 type TrackerMember = (host: TrackerHost) => unknown;
+
+export type RunnerHost = { data: string; image?: string; cache?: string; direct?: string[] };
+
+type RunnerMember<S, L = Layer.Layer<never, unknown>> = (host: RunnerHost, settings: S) => L;
 
 export type StatusChange = { issue: number; repo: string; from?: IssueStatus; to: IssueStatus };
 
@@ -109,10 +126,22 @@ export const tool = <A, I, S = undefined>(definition: {
   });
 };
 
-export const makePlugin = <S = undefined, D = unknown, I = D, T = unknown, E = undefined, H = never>(
-  definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'studio' | 'on' | 'tracker' | 'engine'> & {
+export const makePlugin = <
+  S = undefined,
+  D = unknown,
+  I = D,
+  T = unknown,
+  E = undefined,
+  H = never,
+  L extends Layer.Layer<never, unknown> = Layer.Layer<never, unknown>,
+>(
+  definition: Omit<
+    typeof PluginFile.Type,
+    'settingsSchema' | 'tools' | 'studio' | 'on' | 'tracker' | 'engine' | 'runner'
+  > & {
     tracker?: (host: TrackerHost) => T;
     engine?: (host: H, settings: S) => E;
+    runner?: RunnerMember<S, L>;
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Codec<D, I>;
       read: (settings: S, engine: E) => Effect.Effect<D, unknown>;
@@ -150,6 +179,7 @@ const PluginFile = Schema.Struct({
   engine: Schema.optional(
     Schema.declare((value): value is (host: unknown, settings: unknown) => unknown => typeof value === 'function')
   ),
+  runner: Schema.optional(Schema.declare((value): value is RunnerMember<unknown> => typeof value === 'function')),
   on: Schema.optional(
     Schema.Struct({
       status: Schema.optional(Schema.declare((value): value is StatusHook<unknown> => typeof value === 'function')),
@@ -181,6 +211,7 @@ export const readPlugins = async (
   const tools: Record<string, { tool: Tool; settings: unknown; plugin: string }> = {};
   const hooks: { plugin: string; settings: unknown; status: StatusHook<unknown> }[] = [];
   const trackers: Record<string, NonNullable<typeof PluginFile.Type.tracker>> = {};
+  const runners: Record<string, (host: RunnerHost) => Layer.Layer<never, unknown>> = {};
   const pages: (Pick<typeof StudioPage.Type, 'title' | 'page' | 'dataSchema'> & {
     name: string;
     read: () => ReturnType<(typeof StudioPage.Type)['read']>;
@@ -228,10 +259,12 @@ export const readPlugins = async (
       decoded = result.success;
     }
     const names = Object.keys(plugin.tools);
-    if (!names.length && !plugin.studio && !plugin.on?.status && !plugin.tracker && !plugin.engine)
-      throw new Error(`${file}: plugin has no tools, studio, hooks, tracker or engine`);
+    if (!names.length && !plugin.studio && !plugin.on?.status && !plugin.tracker && !plugin.engine && !plugin.runner)
+      throw new Error(`${file}: plugin has no tools, studio, hooks, tracker, engine or runner`);
     if (plugin.engine && file !== builtin) throw new Error(`${file}: only operator-registered plugins get an engine`);
     if (plugin.tracker) trackers[plugin.name] = plugin.tracker;
+    const { runner } = plugin;
+    if (runner) runners[plugin.name] = host => runner(host, decoded);
     if (plugin.on?.status) hooks.push({ plugin: plugin.name, settings: decoded, status: plugin.on.status });
     const engine = plugin.engine && host && plugin.engine(host(plugin.name), decoded);
     if (plugin.studio && (!plugin.engine || host)) {
@@ -268,5 +301,5 @@ export const readPlugins = async (
   for (const name of Object.keys(settings)) {
     if (!plugins.has(name)) throw new Error(`plugins.${name}: unknown plugin`);
   }
-  return { tools, pages, hooks, trackers, names: [...plugins.keys()] };
+  return { tools, pages, hooks, trackers, runners, names: [...plugins.keys()] };
 };
