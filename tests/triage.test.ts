@@ -240,6 +240,20 @@ describe('triage', () => {
     expect((await runs(where)).map(r => [r.workflow, r.issue, r.status])).toEqual([['triage', 1, 'done']]);
   });
 
+  it('files a follow-up only under the "## Done when" heading triage-brief reads, CRLF or not', async () => {
+    const filed = async (body: string) => {
+      const where = world();
+      where.label(1);
+      const proposed = turn({ kind: 'label', add: ['size/S'] }, { ...follow('Tidy the README'), body });
+      await run(where, Array(3).fill(proposed), tick(unbounded));
+      return (await issues(where)).length;
+    };
+    const counts = await Promise.all(
+      ['Tidy it.\n\n### Done when\n\n- it is tidy', 'Tidy it.\r\n\r\n## Done when\r\n\r\n- it is tidy'].map(filed)
+    );
+    expect(counts).toEqual([1, 2]);
+  });
+
   it('files a graph change like a follow-up, labelled graph', async () => {
     const where = world();
     where.label(1);

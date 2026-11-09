@@ -24,7 +24,7 @@ else {
     problems.push(`${file} is outside what the change may touch (${roots.join(', ')}); leave it out of scope or ask`);
   for (const file of new Set(files))
     for (const why of findSafetyRejections(file, !existsSync(file))) problems.push(`${file}: the safety check would fail it: ${why}`);
-  const done = /^## Done when\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(findIssue() ?? '')?.[1] ?? '';
+  const done = /^## Done when[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/im.exec(findIssue() ?? '')?.[1] ?? '';
   for (const path of new Set(done.match(/`[\w.-]+\/[\w./-]*`/g)?.map(quoted => quoted.slice(1, -1))))
     if (!inside(path) && !outOfScope.some(line => line.includes(path)))
       problems.push(

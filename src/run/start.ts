@@ -75,7 +75,8 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       if (issue.body === withheld(issue.author, 'issue text')) return `#${run.issue} is withheld text from an outsider`;
       if (isPart(p) && open.has(p.title.trim().toLowerCase()) && !cached[i])
         return `${p.title}: an open issue has this title`;
-      if (!/^#+\s*done when\b/im.test(p.body)) return `${p.title}: say when it is done under a "Done when" heading`;
+      if (!/^## Done when[ \t]*\r?$/im.test(p.body))
+        return `${p.title}: say when it is done under a "## Done when" heading`;
       if (!isPart(p)) return;
       if (depth >= deepest) return `#${run.issue} sits ${depth} issues deep; split it by hand`;
       const named = [...(p.stacks_on === undefined ? [] : [p.stacks_on]), ...(p.depends_on ?? [])];
