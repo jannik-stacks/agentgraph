@@ -72,7 +72,7 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     let shown = true;
     if (!isQuiet(w)) {
       const before = yield* store.get(run.id);
-      const t = yield* readIssueWithPull(w, run);
+      const t = yield* readIssueWithPull(w, run, graph);
       const pulled = (t.pull ?? t.issue.pull) !== undefined;
       const others = (yield* store.list({ issue: run.issue })).filter(r => {
         const of = graph.workflows[r.workflow];

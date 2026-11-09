@@ -40,10 +40,28 @@ export const readEarlierBranch = (w: Workflow, run: Run, named: string) =>
     return { before, branch, pull };
   });
 
-/** The run's issue and the pull request on its branch, or for a run with no branch the one it was asked on, fetched before every session. */
+const readWorkedPull = (graph: Graph, issue: Issue) =>
+  Effect.gen(function* () {
+    const branch = (yield* (yield* Store).list({ issue: issue.number }))
+      .flatMap(r => {
+        const named = r.checkout?.branch ?? graph.workflows[r.workflow]?.branch;
+        return named === undefined ? [] : [{ started: r.started, branch: formatTemplate(named, issue) }];
+      })
+      .toSorted((a, b) => a.started.localeCompare(b.started))
+      .at(-1)?.branch;
+    return branch === undefined
+      ? undefined
+      : (yield* (yield* Tracker).issues({ branch })).toSorted((a, b) => b.number - a.number)[0]?.number;
+  });
+
+/**
+ * The run's issue and the pull request on its branch, fetched before every session. A run with no branch gets the one it
+ * was asked on, and a retro the one the work on its issue is on.
+ */
 export const readIssueWithPull = (
   w: Workflow,
-  run: Run
+  run: Run,
+  graph: Graph
 ): Effect.Effect<IssueWithPull, TrackerError | StoreError, Tracker | Store> =>
   Effect.gen(function* () {
     const tracker = yield* Tracker;
@@ -51,7 +69,8 @@ export const readIssueWithPull = (
     const pull = issue.pull
       ? undefined
       : w.branch === undefined
-        ? run.said?.find(s => s.issue !== run.issue)?.issue
+        ? (run.said?.find(s => s.issue !== run.issue)?.issue ??
+          (w.on.feedback ? yield* readWorkedPull(graph, issue) : undefined))
         : findPullNumber(w, run, yield* tracker.issues(isRunDone(run) ? {} : { state: 'open' }));
     const spoken = (yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
       'spoken' in t ? [t.spoken] : []
