@@ -3,7 +3,7 @@ import { lazy } from 'react';
 import { Effect, Schema } from 'effect';
 import { makeLiveJsonAtom } from './state.ts';
 
-export { queryParam, navigateAtom } from './state.ts';
+export { queryParam, navigateAtom, runAction } from './state.ts';
 export {
   accent,
   Badge,
