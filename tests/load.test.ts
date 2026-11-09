@@ -187,7 +187,7 @@ describe('compileWorkflow', () => {
   });
 
   it('reports unknown keys and wrong values by path, one message per path', () => {
-    const problems = messages(file('on: issues\njobs: {}\nsteps:\n  a: { agent: implementor, tries: 0, each: lines }'));
+    const problems = messages(file('on: issues\njobs: {}\nsteps:\n  a: { agent: implementor, tries: 0, each: [lines] }'));
     expect(problems).toHaveLength(3);
     expect(problems[0]).toMatch(/^jobs: /);
     expect(problems.some(p => p.startsWith('steps.a.tries: '))).toBe(true);
