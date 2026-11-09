@@ -5,7 +5,7 @@ import { findLatestChecks } from '../src/trace.ts';
 import { isOnIssue } from '../src/graph.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { findCheckFields } from '../src/results.ts';
-import { readRunLabels } from '../src/labels.ts';
+import { makeVersionLabels, readRunLabels } from '../src/labels.ts';
 import type { RunResults } from '../studio/src/results/result.ts';
 import { readFileOrEmpty, readJsonl } from './resume.ts';
 import { type CheckEntry, type RunRecord, type Trace } from '../src/types.ts';
@@ -27,8 +27,12 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
     const trace = readJsonl<Trace>(join(data, id, 'trace.jsonl'));
     const dead = isOnIssue(run) ? findDeadReason(run, trace) : undefined;
     const started = trace.flatMap(line => ('event' in line && line.event.type === 'start' ? [line.event] : []));
-    const dimensions = (key: 'model' | 'harness') =>
-      [...new Set(started.map(event => event[key]).filter(Boolean))].toSorted().join(', ');
+    const reported = trace.flatMap(line =>
+      'event' in line && line.event.type === 'usage' && line.event.model ? [line.event.model] : []
+    );
+    const dimensions = (values: string[]) => [...new Set(values.filter(Boolean))].toSorted().join(', ');
+    const model = dimensions(started.map(event => event.model));
+    const harness = dimensions(started.map(event => event.harness));
     const latest = findLatestChecks(readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')), versions);
     return [
       {
@@ -37,13 +41,15 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
         href: `/runs/${encodeURIComponent(id)}`,
         ...(dead && { dead }),
         axes: {
+          ...makeVersionLabels(run.versions),
           ...readRunLabels(data, id),
           ...(run.issue !== undefined && { issue: `#${run.issue}` }),
           workflow: run.workflow,
           status: run.status,
           ...(run.graph && { graph: run.graph }),
-          ...(dimensions('model') && { model: dimensions('model') }),
-          ...(dimensions('harness') && { harness: dimensions('harness') }),
+          ...(model && { model }),
+          ...(reported.length > 0 && { 'harness-model': dimensions(reported) }),
+          ...(harness && { harness }),
           ...(origin && { plugin: origin.plugin, job: origin.job }),
         },
         ...(run.meta && { meta: run.meta }),

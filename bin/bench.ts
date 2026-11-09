@@ -500,7 +500,6 @@ const makeArmRunLabels = (set: string, input: BenchInput) => {
     ...(harness && model && { harness, model }),
     repeat: String(input.repeat),
     ...(input.attempt !== undefined && { attempt: String(input.attempt) }),
-    engine: sh('git', ['-C', agentgraphDir, 'rev-parse', 'HEAD']).trim(),
     ...options.labels,
   });
 };

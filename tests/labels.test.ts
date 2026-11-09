@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
-import { readRunLabels, writeRunLabels } from '../src/labels.ts';
+import { makeVersionLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { tmp } from './kit.ts';
 
 const cut = '{"key":"arm","value":"v2"}\n{"key":"note","value":';
@@ -84,5 +84,34 @@ describe('run labels log', () => {
   it('fails on a malformed line before the last', () => {
     const data = seed('{"key":"arm",\n{"key":"note","value":"x"}\n');
     expect(() => readRunLabels(data, 'run-1')).toThrow(SyntaxError);
+  });
+});
+
+describe('version labels', () => {
+  it.each([
+    [
+      'a full record',
+      {
+        engine: 'v0.0.2-14-gabc123def456-dirty',
+        config: '0123456789ab',
+        image: 'sha256:fedcba9876543210fedcba',
+        harnesses: { pi: '1.1.0', opencode: '1.19.0', claude: 'unknown' },
+      },
+      {
+        engine: 'v0.0.2-14-gabc123def456-dirty',
+        config: '0123456789ab',
+        image: 'fedcba987654',
+        harnesses: 'claude@unknown,opencode@1.19.0,pi@1.1.0',
+      },
+    ],
+    ['a host run', { engine: '0.0.2' }, { engine: '0.0.2' }],
+    [
+      'an image without harnesses',
+      { engine: 'abc', image: 'sha256:0123', harnesses: {} },
+      { engine: 'abc', image: '0123' },
+    ],
+    ['an older run', undefined, {}],
+  ])('derives labels from %s', (_, versions, labels) => {
+    expect(makeVersionLabels(versions)).toEqual(labels);
   });
 });

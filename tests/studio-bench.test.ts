@@ -296,8 +296,14 @@ describe('the bench page data', () => {
     const data = join(out, 'data');
     mkdirSync(join(data, 'issue-1'), { recursive: true });
     const origin = { plugin: 'bench', version: 'v', job: 'set', input };
-    const run = { id: 'issue-1', started: at, workflow: 'issue', meta: { engine: { origin } } };
+    const versions = { engine: 'abc123', harnesses: { opencode: '1.19.0' } };
+    const run = { id: 'issue-1', started: at, workflow: 'issue', meta: { engine: { origin } }, versions };
     writeFileSync(join(data, 'issue-1', 'run.json'), '{');
+    writeFileSync(join(data, 'issue-1', 'labels.jsonl'), '{"key":"engine","value":"written"}\n');
+    writeFileSync(
+      join(data, 'issue-1', 'trace.jsonl'),
+      `${JSON.stringify({ at, step: 'code', key: 's', event: { type: 'usage', input: 1, output: 1, model: 'gpt-y' } })}\n`
+    );
     vi.stubEnv('AGI_STUDIO_DIR', undefined);
     vi.stubEnv('AGI_STUDIO_BENCH', out);
     const routes: Record<string, (req: unknown, res: unknown) => void> = {};
@@ -327,6 +333,11 @@ describe('the bench page data', () => {
       );
       const { rows } = (await ask()).body;
       expect(rows.map(r => [r.run, r.data, r.labels.arm, r.minutes])).toEqual([['issue-1', data, 'v2', 1]]);
+      expect(rows[0]!.labels).toMatchObject({
+        engine: 'written',
+        harnesses: 'opencode@1.19.0',
+        'harness-model': 'gpt-y',
+      });
     } finally {
       vi.unstubAllEnvs();
       rmSync(out, { recursive: true, force: true });

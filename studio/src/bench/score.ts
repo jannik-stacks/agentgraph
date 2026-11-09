@@ -12,7 +12,7 @@ export const formatUsd = (v: number) => `$${v.toFixed(3)}`;
 export const formatLabel = (v: string | undefined) =>
   v === undefined ? '(missing)' : /^[0-9a-f]{7,}$/.test(v) ? v.slice(0, 6) : v;
 
-export const defaultBenchBy = ['harness', 'model', 'arm', 'engine', 'graph', 'set'];
+export const defaultBenchBy = ['harness', 'harnesses', 'model', 'arm', 'engine', 'graph', 'set'];
 
 export const defaultBenchScoreWeights = { test: 0.5, judge: 0.35, suite: 0.15, crit: 0.1, help: 0.1 };
 export const presets: Record<string, typeof defaultBenchScoreWeights> = {
