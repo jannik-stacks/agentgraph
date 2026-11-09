@@ -3,13 +3,11 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/http';
 import { Rpc, RpcClient, type RpcClientError, RpcGroup, RpcMiddleware, RpcSerialization } from 'effect/rpc';
 import { Event, Issue } from './event.ts';
 import { Proposal } from './proposal.ts';
-import { Run, RunRecord, Verdict } from './types.ts';
+import { Count, Run, RunRecord, Verdict } from './types.ts';
 
 export const ActionError = Schema.TaggedStruct('ActionError', { message: Schema.String });
 
 export class ActionUser extends RpcMiddleware.Service<ActionUser>()('ActionUser', { error: ActionError }) {}
-
-const Count = Schema.Int.check(Schema.isGreaterThan(0));
 
 export const Actions = RpcGroup.make(
   Rpc.make('show', {
@@ -27,7 +25,7 @@ export const Actions = RpcGroup.make(
     }),
     error: ActionError,
   }),
-  Rpc.make('log', { payload: { hash: Schema.String }, success: Schema.String, error: ActionError }),
+  Rpc.make('log', { payload: { hash: Schema.String }, success: Schema.NullOr(Schema.String), error: ActionError }),
   Rpc.make('runs', { payload: { id: Schema.optionalKey(Schema.String) }, success: Schema.Unknown, error: ActionError }),
   Rpc.make('results', { success: Schema.Unknown, error: ActionError }),
   Rpc.make('watch', {

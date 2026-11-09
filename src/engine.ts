@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Effect, Layer, Schedule, Schema, Stream } from 'effect';
 import { HttpRouter } from 'effect/http';
@@ -103,15 +103,14 @@ export const makeInstanceHost = (
   const owned = local && folder ? Effect.succeed(local.instance) : refuse;
   const readIssue = (n: number) =>
     Effect.map(reads.issue(n), issue => {
-      const diff = folder ? join(findIssueDir(folder, n), 'diff.patch') : '';
-      return { ...issue, diff: diff && existsSync(diff) ? readFileSync(diff, 'utf8') : '' };
+      return { ...issue, diff: folder ? readRecordSync(join(findIssueDir(folder, n), 'diff.patch')) : '' };
     });
   const actions = Actions.of({
-    runs: ({ id }): Effect.Effect<unknown, typeof ActionError.Type> => Effect.succeed(id === undefined ? [] : null),
-    results: (): Effect.Effect<unknown, typeof ActionError.Type> => Effect.succeed({ fields: [], runs: [] }),
+    runs: (_: { id?: string }): Effect.Effect<unknown, typeof ActionError.Type> => refuse,
+    results: (): Effect.Effect<unknown, typeof ActionError.Type> => refuse,
     watch: ({ issue }) =>
       Stream.fromEffectSchedule(store.list(issue === undefined ? {} : { issue }), Schedule.spaced('1 second')).pipe(
-        Stream.changesWith((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+        Stream.changes,
         Stream.buffer({ capacity: 1, strategy: 'sliding' }),
         Stream.mapError(fail)
       ),
@@ -132,7 +131,7 @@ export const makeInstanceHost = (
       ).pipe(Effect.asVoid, Effect.mapError(fail)),
     log: ({ hash }) =>
       store.readLog(hash).pipe(
-        Effect.map(text => text ?? ''),
+        Effect.map(text => text ?? null),
         Effect.mapError(fail)
       ),
     verdicts: ({ workflow, step, check }) =>

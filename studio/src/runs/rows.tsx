@@ -114,7 +114,7 @@ const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }
       className="font-sans text-[10px] text-sky-600 underline"
       onClick={() =>
         runAction(actions => actions.log({ hash: log.hash }), data).then(
-          text => setText(text || 'not in the data dir'),
+          text => setText(text ?? 'not in the data dir'),
           (e: Error) => setText(e.message)
         )
       }

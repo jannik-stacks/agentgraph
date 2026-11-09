@@ -4,6 +4,8 @@ import { PluginMetadata } from './meta.ts';
 import { Kind, Proposal } from './proposal.ts';
 import { CheckMode, type Result, ResultType } from './result.ts';
 
+export const Count = Schema.Int.check(Schema.isGreaterThan(0));
+
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
   harness: Schema.String.pipe(Schema.withDecodingDefaultType(Effect.succeed(''))),
@@ -26,7 +28,7 @@ export const Check = Schema.Struct({
   each: Schema.optionalKey(Schema.String),
   run: Schema.optionalKey(Schema.String),
   agent: Schema.optionalKey(Schema.String),
-  max: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+  max: Schema.optionalKey(Count),
 });
 export type Check = typeof Check.Type;
 

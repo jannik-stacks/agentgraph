@@ -1,6 +1,7 @@
 import { Effect, Schema } from 'effect';
 import { GraphSettings, type Graph } from './folder.ts';
 import type { Workflow } from './workflow.ts';
+import { Count } from './types.ts';
 
 export const InstanceFile = Schema.Struct({
   checkout: Schema.String,
@@ -17,7 +18,7 @@ export const InstanceFile = Schema.Struct({
   readonly: Schema.optionalKey(Schema.Boolean),
   exported: Schema.mutableKey(Schema.Record(Schema.String, Schema.String)),
   image: GraphSettings.fields.image,
-  limits: Schema.optionalKey(Schema.Struct({ parallel: Schema.Int.check(Schema.isGreaterThan(0)) })),
+  limits: Schema.optionalKey(Schema.Struct({ parallel: Count })),
 });
 
 export const getSettings = (

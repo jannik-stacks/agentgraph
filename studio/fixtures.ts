@@ -64,47 +64,48 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
         const body = await readRequestBody(req);
         if (body === undefined) throw new StudioRequestError('the body is over 64 KiB');
-        const { makeActionWebHandler } = await readModule<typeof EngineModule>('src/engine.ts');
-        const { ActionError } = await readModule<typeof ActionsModule>('src/actions.ts');
-        const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
-        const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
-        const results = () => Effect.sync(() => readRunResults(data, served?.graph));
-        const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data!, id), [data!]));
-        const entry = (run: RunRecord, all: boolean, body = false) =>
-          Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
-            const lines = mergeCheckEntries(trace, checks);
-            const { trail, ...summary } = makeRunSummary(run, lines);
-            return {
-              fixture: `${bench ? 'bench' : served!.title}/${run.workflow}`,
-              repo: served?.graph?.repo ?? '',
-              run: all ? run : pickListedRun(run, body),
-              labels: readRunLabels(data!, run.id),
-              ...summary,
-              ...(all ? { trace: lines } : { trail }),
-              ...findTraceLinks(trace),
-              ...(bench && { data: bench }),
-            };
-          });
-        const runs = ({ id }: { id?: string }) =>
-          Effect.gen(function* () {
-            if (id === undefined) {
-              const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
-              const told = new Map<number, string>();
-              for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
-                if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
-              return yield* Effect.forEach(runs, run =>
-                entry(run, false, run.issue !== undefined && told.get(run.issue) === run.id)
-              );
-            }
-            if (!/^(?!\.+$)[\w.-]+$/.test(id)) return yield* Effect.fail(new Error('bad run id'));
-            const run = (yield* keep(id)) ? yield* store.getRecord(id) : undefined;
-            return run ? yield* entry(run, true) : null;
-          }).pipe(Effect.mapError(e => ActionError.make({ message: e.message })));
-        const web =
-          handlers.get(host) ??
-          handlers
-            .set(host, makeActionWebHandler(host, { results, ...((served?.dir || bench) && { runs }) }))
-            .get(host)!;
+        let web = handlers.get(host);
+        if (!web) {
+          const { makeActionWebHandler } = await readModule<typeof EngineModule>('src/engine.ts');
+          const { ActionError } = await readModule<typeof ActionsModule>('src/actions.ts');
+          const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
+          const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
+          const results = () => Effect.sync(() => readRunResults(data, served?.graph));
+          const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data!, id), [data!]));
+          const entry = (run: RunRecord, all: boolean, body = false) =>
+            Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
+              const lines = mergeCheckEntries(trace, checks);
+              const { trail, ...summary } = makeRunSummary(run, lines);
+              return {
+                fixture: `${bench ? 'bench' : served!.title}/${run.workflow}`,
+                repo: served?.graph?.repo ?? '',
+                run: all ? run : pickListedRun(run, body),
+                labels: readRunLabels(data!, run.id),
+                ...summary,
+                ...(all ? { trace: lines } : { trail }),
+                ...findTraceLinks(trace),
+                ...(bench && { data: bench }),
+              };
+            });
+          const runs = ({ id }: { id?: string }) =>
+            Effect.gen(function* () {
+              if (!served?.dir && !bench) return id === undefined ? [] : null;
+              if (id === undefined) {
+                const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
+                const told = new Map<number, string>();
+                for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
+                  if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
+                return yield* Effect.forEach(runs, run =>
+                  entry(run, false, run.issue !== undefined && told.get(run.issue) === run.id)
+                );
+              }
+              if (!/^(?!\.+$)[\w.-]+$/.test(id)) return yield* Effect.fail(new Error('bad run id'));
+              const run = (yield* keep(id)) ? yield* store.getRecord(id) : undefined;
+              return run ? yield* entry(run, true) : null;
+            }).pipe(Effect.mapError(e => ActionError.make({ message: e.message })));
+          web = makeActionWebHandler(host, { results, runs });
+          handlers.set(host, web);
+        }
         const response = await web(
           new Request('http://studio/', { method: 'POST', headers: { 'content-type': 'application/ndjson' }, body }),
           readRequestUser(req)
