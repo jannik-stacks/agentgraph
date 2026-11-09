@@ -16,6 +16,7 @@ const { values, positionals } = parseArgs({
     repo: { type: 'string' },
     bench: { type: 'string', multiple: true },
     auth: { type: 'string' },
+    plugins: { type: 'string' },
   },
 });
 const quit = (e: Error) => {
@@ -48,6 +49,7 @@ if (names.length) {
   if (values.tracker) process.env.AGI_STUDIO_TRACKER = resolve(values.tracker);
 }
 if (values.auth) process.env.AGI_STUDIO_AUTH = values.auth;
+if (values.plugins) process.env.AGI_STUDIO_PLUGINS = resolve(values.plugins);
 if (values.bench) process.env.AGI_STUDIO_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
 
 for (const one of await makeServedGraphs().read()) {

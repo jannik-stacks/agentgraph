@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
@@ -5,6 +6,8 @@ import { Effect, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
 import { readRealPath } from '../src/instance.ts';
 import type * as EngineModule from '../src/engine.ts';
+import type * as FolderModule from '../src/folder.ts';
+import type * as ReadModule from '../src/read.ts';
 import type * as PluginModule from '../src/plugin.ts';
 import type * as BenchModule from './src/bench/plugin.ts';
 import type * as ResultsModule from '../bin/results.ts';
@@ -60,6 +63,21 @@ const readBenchConfigs = (served: ServedGraph[]) => {
   ].filter(({ data }) => !seen.has(readRealPath(data)) && !!seen.add(readRealPath(data)));
 };
 
+const readHosts = (served: ServedGraph[]) =>
+  Object.fromEntries(served.flatMap(one => (one.host ? [[one.name || one.title, one.host] as const] : [])));
+
+const readFolderPages = async (dir: string | undefined, instances: ReturnType<typeof readHosts>) => {
+  if (!dir) return [];
+  const { readPlugins } = await readModule<typeof PluginModule>('src/plugin.ts');
+  const { parseGraphSettings } = await readModule<typeof FolderModule>('src/folder.ts');
+  const { readOrUndefined } = await readModule<typeof ReadModule>('src/read.ts');
+  const text = await readFile(join(dir, 'settings.yaml'), 'utf8').catch(readOrUndefined);
+  const settings = parseGraphSettings(text, message => {
+    throw new Error(`${dir}/settings.yaml: ${message}`);
+  });
+  return (await readPlugins(dir, settings?.plugins, { instances })).pages;
+};
+
 const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
   const { readPlugins } = await readModule<typeof PluginModule>('src/plugin.ts');
   const { makeEngineHost } = await readModule<typeof EngineModule>('src/engine.ts');
@@ -69,7 +87,7 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
     all.map(async one => {
       const { pages } = await readPlugins(one.graph?.dir, one.graph?.plugins, {
         builtins: [await makeResultsPlugin(one), bench],
-        ...(one.host && { instance: one.host }),
+        instances: readHosts([one]),
       });
       return pages.map(page => ({ ...page, instance: one.name }));
     })
@@ -79,11 +97,17 @@ const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
     builtins: [bench],
     engine: name => makeEngineHost(name, configs),
   });
-  return [...scoped.flat(), ...shared.map(page => ({ ...page, instance: undefined }))].map(page => ({
-    ...page,
-    key: page.instance ? `${page.instance}/${page.name}` : page.name,
-    href: page.builtin ? `/${page.name}` : `/plugins/${page.name}`,
-  }));
+  const studio = await readFolderPages(process.env.AGI_STUDIO_PLUGINS, readHosts(all));
+  const pages = [...scoped.flat(), ...[...shared, ...studio].map(page => ({ ...page, instance: undefined }))].map(
+    page => ({
+      ...page,
+      key: page.instance ? `${page.instance}/${page.name}` : page.name,
+      href: page.builtin ? `/${page.name}` : `/plugins/${page.name}`,
+    })
+  );
+  const twice = pages.find((page, i) => pages.findIndex(other => other.key === page.key) !== i);
+  if (twice) throw new Error(`studio page ${twice.name} is defined twice`);
+  return pages;
 };
 
 const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, served: ServedGraph[]): WatchRoot[] => {
@@ -99,6 +123,9 @@ const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, serv
       ...one.files.map(root => ({ root, topic: makeServedTopic(one.name, 'graph'), layout: () => false })),
       ...(one.data ? [{ root: one.data, topic: makeServedTopic(one.name, 'data'), layout: layouts.data }] : []),
     ]),
+    ...(process.env.AGI_STUDIO_PLUGINS
+      ? [{ root: process.env.AGI_STUDIO_PLUGINS, topic: 'graph', layout: layouts.any }]
+      : []),
     ...pages.flatMap(page =>
       page.watch.map(root => ({
         root,
@@ -193,7 +220,9 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
         res.setHeader('content-type', 'application/json');
         const name = /^\/([^/?]+)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
         const instance = readQuery(req).get('instance') ?? '';
-        const page = loaded.find(page => page.name === name && (page.instance ?? instance) === instance);
+        const page = loaded.find(
+          page => page.name === name && (page.instance ?? (page.builtin ? instance : '')) === instance
+        );
         if (!page) {
           res.statusCode = 404;
           return res.end('{"error":"Unknown plugin page"}');

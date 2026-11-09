@@ -220,12 +220,12 @@ export const readPlugins = async (
     isReserved = () => false,
     builtins = [],
     engine: host,
-    instance,
+    instances = {},
   }: {
     isReserved?: (name: string) => boolean;
     builtins?: readonly unknown[];
     engine?: (plugin: string) => unknown;
-    instance?: unknown;
+    instances?: Readonly<Record<string, unknown>>;
   } = {}
 ) => {
   const plugins = new Map<string, string>();
@@ -291,7 +291,7 @@ export const readPlugins = async (
     const { auth } = plugin;
     if (auth) auths[plugin.name] = host => auth(host, decoded);
     if (plugin.on?.status) hooks.push({ plugin: plugin.name, settings: decoded, status: plugin.on.status });
-    const engine = plugin.engine && host ? plugin.engine(host(plugin.name), decoded) : instance;
+    const engine = plugin.engine && host ? plugin.engine(host(plugin.name), decoded) : instances;
     if (plugin.studio && (!plugin.engine || host)) {
       const { title, dataSchema, page, read, watch } = plugin.studio;
       const actual = await realpath(fileURLToPath(page));

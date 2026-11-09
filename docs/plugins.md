@@ -208,14 +208,20 @@ whose `Origin` names neither `Host` nor `X-Forwarded-Host`, or whose `Sec-Fetch-
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect
-Schema for its data and a `read(settings, host)` effect. Optional `watch(settings, host)` returns the
-folders whose changes refresh the page, such as the instance's `host.data`. The reader gets this plugin's decoded
-settings and the instance's host: its `data` folder, `store` (`list`, `listRecords`, `getRecord`, `read`,
+Schema for its data and a `read(settings, hosts)` effect. Optional `watch(settings, hosts)` returns the
+folders whose changes refresh the page, such as each instance's `host.data`. The reader gets this plugin's decoded
+settings and one host per instance, keyed by instance name. Each host has its `data` folder, `store` (`list`, `listRecords`, `getRecord`, `read`,
 `readChecks`, `readLog`), `tracker` (`issues`, `issue`, `since`), `readRuns()`, each run with its labels and
 latest checks, and `actions`. These are the
-reads the studio's own Runs and Graph pages use, scoped to the one instance the page is served
-for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/trackers`, as in
-`read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations calls `watch(settings, host)`, but does not call `read` or import TSX. Host code remains trusted; namespaces
+reads the studio's own Runs and Graph pages use. Type each host with `InstanceHost` from `@jannik-stacks/agi/trackers`, as in
+`read(settings, hosts: Readonly<Record<string, InstanceHost>>)`.
+
+Where a plugin is registered decides how many hosts it gets. A plugin in an instance's graph is an instance page and
+gets only that instance. A plugin in the folder `npm run dev -- --plugins <dir>` names is a studio page and gets every
+served instance. That folder has the layout of a graph: plugins in `plugins/`, their settings under `plugins:` in
+`settings.yaml`. The operator names it, so a repo's graph never reads another instance.
+<!-- code: studio/plugins.ts#readFolderPages studio/plugins.ts#readHosts --> Loading declarations calls `watch(settings, host)`, but does not call `read` or import TSX. Host code remains trusted; namespaces
+
 are not isolation.
 <!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/engine.ts#InstanceHost src/engine.ts#makeInstanceHost -->
 
@@ -235,7 +241,9 @@ comment up. The studio accepts actions only as JSON posts to `/api/actions/<verb
 <!-- code: src/engine.ts#makeInstanceHost src/engine.ts#makeAction studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
 
 Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named
-instances they sit under `/<instance>`, and each reads its own instance's plugin with `?instance=<instance>`. The studio's live WebSocket
+instances, instance pages sit under `/<instance>` and each reads its own instance's plugin with `?instance=<instance>`.
+Studio pages stay at `/plugins/<name>`, where the header shows no instance tabs and the instance picker reads
+`all instances`. A page name used twice at one address fails. The studio's live WebSocket
 connection refreshes a mounted reader when one of its plugin's watched folders changes. A failed
 refresh keeps the last good data and shows an error. Snapshots are capped at 16 MiB.
 Host readers, settings and data roots never enter the page manifest. Pages share the studio origin
@@ -243,7 +251,7 @@ and its API authority; review them like host plugins. The studio rereads plugin 
 Imported helper changes need a restart. Preview needs a host API for live data.
 <!-- code: studio/plugins.ts#makeStudioPagesPlugin studio/plugins.ts#readStudioPages studio/plugins.ts#readWatchRoots -->
 
-The loader sets `builtin` on each page descriptor. The header groups Graph, Runs, pages with `builtin: true` (Results and Bench), and Docs together. Pages with `builtin: false` appear in a separate plugin group when any are present.
+The loader sets `builtin` on each page descriptor. The header groups Graph, Runs, pages with `builtin: true` (Results and Bench), and Docs together. Instance pages with `builtin: false` appear in a separate plugin group when any are present, and studio pages in a third.
 <!-- code: src/plugin.ts#readPlugins studio/src/App.tsx#official studio/src/App.tsx#custom -->
 
 The [dashboard experiment](../examples/dashboard/README.md) uses this same seam for configurable

@@ -82,7 +82,7 @@ One studio serves several instances of one data root: each `--instance <name>` a
 
 Set `AGENTGRAPH_STUDIO_URL` to the studio's address once, in the shell or an instance `env` file. An instance's posts link to `<address>/<name>/runs/<id>`, so a loop that drives several instances links each to its own runs. <!-- code: src/main.ts#readInstanceEnv -->
 
-The header groups Graph, Runs, Results, Bench and Docs together. Pages from the graph's plugins appear in a separate group. [Studio pages](plugins.md#studio-pages) describes how the `builtin` flag selects the group. <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom -->
+The header groups Graph, Runs, Results, Bench and Docs together. Pages from the graph's plugins appear in a separate group. `npm run dev -- --plugins <dir>` adds [studio pages](plugins.md#studio-pages), which read every served instance and sit at `/plugins/<name>`, outside any instance. [Studio pages](plugins.md#studio-pages) describes how the `builtin` flag selects the group. <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom -->
 
 On the Runs page, the "need you" button narrows the list to runs that wait for a person, each with the commands `agi show` prints. Each run row carries a small badge for its gates that opens its results. <!-- code: studio/src/runs/RunsPage.tsx#RunsPage src/status.ts#findRunsWaitingOnPeople studio/src/results/ResultTable.tsx#RunResultBadge -->
 

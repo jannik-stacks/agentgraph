@@ -3,7 +3,7 @@ import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { accent, Live, Muted, usePluginData } from '@jannik-stacks/agi/studio';
 import { DashboardData, sources } from './data.ts';
 
-type DashboardWidget = (typeof DashboardData.Type)['widgets'][number];
+type DashboardWidget = (typeof DashboardData.Type)[number]['widgets'][number];
 
 const tones: Record<string, string> = {
   waiting: 'text-amber-600 dark:text-amber-400',
@@ -298,19 +298,25 @@ const WidgetCard = ({ widget }: { widget: DashboardWidget }) => {
 const DashboardPage = () => (
   <Live state={usePluginData('dashboard', DashboardData)}>
     {value => (
-      <main className="h-full space-y-4 overflow-auto p-6">
+      <main className="h-full space-y-6 overflow-auto p-6">
         <header>
           <h1 className="text-lg font-semibold">Dashboard</h1>
           <p className="text-xs text-zinc-500">
-            Live snapshot, last read {new Date(value.at).toLocaleString()}. Days use UTC.
+            Live snapshot, last read {value[0] ? new Date(value[0].at).toLocaleString() : 'never'}. Days use UTC.
           </p>
         </header>
-        {!value.widgets.length ? <Muted>No widgets configured in plugins.dashboard.widgets.</Muted> : null}
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,28rem),1fr))] items-start gap-4">
-          {value.widgets.map((widget, index) => (
-            <WidgetCard key={index} widget={widget} />
-          ))}
-        </div>
+        {!value.length ? <Muted>No instance with run data is served.</Muted> : null}
+        {value.map(({ instance, widgets }) => (
+          <section key={instance} className="space-y-3">
+            {value.length > 1 ? <h2 className="font-medium">{instance}</h2> : null}
+            {!widgets.length ? <Muted>No widgets configured in plugins.dashboard.widgets.</Muted> : null}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,28rem),1fr))] items-start gap-4">
+              {widgets.map((widget, index) => (
+                <WidgetCard key={index} widget={widget} />
+              ))}
+            </div>
+          </section>
+        ))}
       </main>
     )}
   </Live>
