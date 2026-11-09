@@ -241,6 +241,7 @@ export const mergeTreeOnto = (work: Checkout, onto: string, head: string, base?:
 const engineRoot = fileURLToPath(new URL('..', import.meta.url));
 let engine: string | undefined;
 
+/** @internal */
 export const readEngineVersion = (root = engineRoot): string => {
   try {
     if (existsSync(join(root, '.git')))
