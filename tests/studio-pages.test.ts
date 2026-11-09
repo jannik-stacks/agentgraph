@@ -367,20 +367,20 @@ it('reads ?data= only inside the stores a studio page watches, and reloads with 
   }
 });
 
-it.each([['count', studio('count'), 'studio page count is defined twice']])(
-  'refuses a plugins folder with %s',
-  async (name, member, error) => {
-    const root = mkdtempSync(join(tmpdir(), 'agentgraph-studio-refused-'));
-    writePagePlugin(join(root, 'graph'), 'count', root);
-    writePagePlugin(join(root, 'pages'), name, root, member);
-    vi.stubEnv('AGI_STUDIO_DIR', join(root, 'graph'));
-    vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
-    vi.stubEnv('AGI_STUDIO_PLUGINS', join(root, 'pages'));
-    try {
-      await expect(createStudioServer()).rejects.toThrow(error);
-    } finally {
-      vi.unstubAllEnvs();
-      rmSync(root, { recursive: true, force: true });
-    }
+it.each([
+  ['count', studio('count'), 'studio page count is defined twice'],
+  ['lonely', 'tracker: () => ({})', 'lonely serve no studio page, the only member read here'],
+])('refuses a plugins folder with %s', async (name, member, error) => {
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-studio-refused-'));
+  writePagePlugin(join(root, 'graph'), 'count', root);
+  writePagePlugin(join(root, 'pages'), name, root, member);
+  vi.stubEnv('AGI_STUDIO_DIR', join(root, 'graph'));
+  vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
+  vi.stubEnv('AGI_STUDIO_PLUGINS', join(root, 'pages'));
+  try {
+    await expect(createStudioServer()).rejects.toThrow(error);
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
   }
-);
+});

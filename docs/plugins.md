@@ -221,7 +221,7 @@ remains trusted; namespaces are not isolation.
 Where a plugin is registered decides how many hosts it gets. A plugin in an instance's graph is an instance page and
 gets only that instance. A plugin in the studio's plugins folder is a studio page and gets every served instance.
 `agi studio --plugins <dir>` or `npm run dev -- --plugins <dir>` names that folder, else `AGENTGRAPH_STUDIO_PLUGINS`
-in the shell. It has the layout of a graph: plugins in `plugins/`, their settings under `plugins:` in `settings.yaml`.
+in the shell. It has the layout of a graph: plugins in `plugins/`, their settings under `plugins:` in `settings.yaml`. Every plugin there needs a studio page, since pages are all the folder serves.
 Only the operator names it, so a repo's graph never reads another instance.
 <!-- code: studio/plugins.ts#readFolderPages studio/plugins.ts#readHosts studio/dev.ts src/engine.ts#InstanceHosts -->
 <!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/engine.ts#InstanceHost src/engine.ts#makeInstanceHost -->

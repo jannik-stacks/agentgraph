@@ -66,7 +66,10 @@ const readFolderPages = async (dir: string | undefined, instances: EngineModule.
   const settings = parseGraphSettings(text, message => {
     throw new Error(`${dir}/settings.yaml: ${message}`);
   });
-  return (await readPlugins(dir, settings?.plugins, { instances })).pages;
+  const { pages, names } = await readPlugins(dir, settings?.plugins, { instances });
+  const idle = names.filter(name => !pages.some(page => page.name === name));
+  if (idle.length) throw new Error(`${dir}: ${idle.join(', ')} serve no studio page, the only member read here`);
+  return pages;
 };
 
 const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
