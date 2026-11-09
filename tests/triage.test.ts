@@ -750,9 +750,9 @@ describe('router input', () => {
 describe('a run parked by an engine error', () => {
   const retried = 'Tried again after an engine error. Go on from where the run was.';
   it.each([
-    ['tries again once the wait is over', 0, at(9), 'done'],
-    ['waits ten minutes, doubled with each try', 1, new Date(Date.now() - 900_000).toISOString(), 'waiting'],
-    ['stops trying after five tries', 5, at(9), 'waiting'],
+    ['tries again once the wait is over', 0, () => at(9), 'done'],
+    ['waits ten minutes, doubled with each try', 1, () => new Date(Date.now() - 900_000).toISOString(), 'waiting'],
+    ['stops trying after five tries', 5, () => at(9), 'waiting'],
   ])('%s', async (_, tries, last, status) => {
     const where = world();
     await putRun(where, {
@@ -769,7 +769,7 @@ describe('a run parked by an engine error', () => {
         outcome: { kind: 'answer' as const, text: retried },
         run: { step, status: 'running' as const, tries: 0, rounds: {} },
       })),
-      { at: last, step, saved: { status: 'waiting' as const } },
+      { at: last(), step, saved: { status: 'waiting' as const } },
     ];
     await Effect.runPromise(
       Effect.flatMap(Store, s => s.trace('router-1', ...lines)).pipe(Effect.provide(fileStore(where.data)))
