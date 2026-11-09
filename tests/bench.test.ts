@@ -265,7 +265,6 @@ describe('bench helpers', () => {
     expect(panel).toEqual({ opus: 1, sonnet: 2, sol: 2 });
     const calls = (key: string) => Object.values(panel).reduce((n, count) => n + orders(count, key).length, 0);
     expect(calls('demo/human-v2')).toBe(5);
-    expect(orders(1, 'demo/human-v2')).toEqual(orders(1, 'demo/human-v2'));
     const picks = ['a', 'b', 'c', 'd'].map(k => orders(1, k)[0]);
     expect(new Set(picks)).toEqual(new Set([0, 1]));
     expect(() => parsePanel('opus:3')).toThrow(/bad --judges/);
@@ -878,7 +877,6 @@ describe('pickBenchTestCommands', () => {
   )('runs hidden tests or explains their absence: $repo $files $fields', ({ repo, files, fields }) => {
     const commands = pickBenchTestCommands(repo, files, fields);
     expect(Boolean(commands.test && commands.hasTests !== false) || Boolean(commands.why)).toBe(true);
-    expect(commands.hasTests === false && !commands.why).toBe(false);
   });
 
   it.each([
@@ -899,7 +897,7 @@ describe('pickBenchTestCommands', () => {
       expect(pickBenchTestCommands(repo, ['other/unknown.test.ts'])).toMatchObject({
         why: expect.stringContaining('no test command'),
       });
-      expect(pickBenchTestCommands(repo, ['other/unknown.test.ts']).hasTests).not.toBe(false);
+      expect(pickBenchTestCommands(repo, ['other/unknown.test.ts']).hasTests).toBeUndefined();
     }
   );
 

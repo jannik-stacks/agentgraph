@@ -268,7 +268,9 @@ describe('a run branch that moved', () => {
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(current)).pipe(Effect.provide(fileStore(where.data))));
     appendFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'broken record\n');
     const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
-    await expect(run(runWorkflow(flow, current, small))).rejects.toThrow();
+    await expect(run(runWorkflow(flow, current, small))).rejects.toThrow(
+      `${join(where.data, 'run-7', 'trace.jsonl')}: Unexpected token 'b', "broken record" is not valid JSON`
+    );
   });
 
   it('keeps the human answer in a fresh session after a failed try', async () => {

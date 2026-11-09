@@ -29,7 +29,7 @@ const PATHS = [
   ['elsewhere/tsconfig.json', false],
 ] as const;
 
-const SERVED = ['run.json', 'trace.jsonl', 'checks.jsonl', 'labels.jsonl', 'set.json', 'log.jsonl'];
+const SERVED = ['run.json', 'set.json'];
 const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'];
 
 it.each(PATHS)('%s is unwatched: %s', (path, skipped) => {

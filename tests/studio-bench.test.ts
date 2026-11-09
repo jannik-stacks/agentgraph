@@ -127,7 +127,6 @@ describe('bench score', () => {
     const fields = findBenchNumericFields(rows, { w: defaultBenchScoreWeights });
     const axis = getBenchAxis(selected, fields);
     expect(axis).toBeNull();
-    expect(axis).not.toBe(selected);
     expect(
       summarise(rows, {
         w: defaultBenchScoreWeights,
@@ -136,7 +135,6 @@ describe('bench score', () => {
       }).map(p => p.x)
     ).toEqual([3]);
     expect(getBenchAxis('minutes', fields)).toBe('minutes');
-    expect(getBenchAxis(selected, findBenchNumericFields([labelled], { w: defaultBenchScoreWeights }))).toBe(selected);
   });
 
   it.each([

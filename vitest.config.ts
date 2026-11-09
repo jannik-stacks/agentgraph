@@ -112,7 +112,7 @@ export default defineConfig({
       resolveId: id => (id === 'virtual:agentgraph-pages' || id === 'virtual:served' ? `\0${id}` : undefined),
       load: id =>
         id === '\0virtual:agentgraph-pages'
-          ? 'export const pages = [{ name: "count", title: "Count", href: "/plugins/count", load: async () => ({ default: () => null }) }];'
+          ? 'export const pages = [{ name: "count", title: "Count", href: "/plugins/count", load: async () => ({ default: () => "the count page" }) }];'
           : id === '\0virtual:served'
             ? 'export const served = globalThis.studioServed ?? [];'
             : undefined,

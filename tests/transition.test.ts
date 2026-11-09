@@ -226,11 +226,11 @@ describe('transition, waiting', () => {
     expect(makeRunWithFreshRound(w, { ...asked, rounds: { merge: 9 } })).toEqual({ ...asked, rounds: { merge: 9 } });
   });
 
-  it('stop (closed): stopped', () => {
-    expect(transition(w, waiting, { kind: 'stop', why: 'closed' })).toMatchObject({
-      status: 'stopped',
-      reason: 'closed',
-    });
+  it.each([
+    ['at a human step', waiting],
+    ['on a question', at('implement', { status: 'waiting', reason: 'which API?' })],
+  ])('stop %s: stopped', (_name, run) => {
+    expect(transition(w, run, { kind: 'stop', why: 'closed' })).toMatchObject({ status: 'stopped', reason: 'closed' });
   });
 
   it('ignores an outcome a waiting run cannot have', () => {
@@ -264,14 +264,6 @@ describe('transition, waiting for an answer', () => {
       status: 'running',
       tries: 1,
       rounds: {},
-    });
-  });
-
-  it('stop: stopped', () => {
-    const asked = at('implement', { status: 'waiting', reason: 'which API?' });
-    expect(transition(w, asked, { kind: 'stop', why: 'not now' })).toMatchObject({
-      status: 'stopped',
-      reason: 'not now',
     });
   });
 });

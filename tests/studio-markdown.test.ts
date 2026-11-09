@@ -82,6 +82,8 @@ describe('Markdown in the studio', () => {
   });
 
   it('renders GitHub tables', () => {
-    expect(render({ text: '| a | b |\n| - | - |\n| `x` | 2 |' })).toContain('<table>');
+    const html = render({ text: '| a | b |\n| - | - |\n| `x` | 2 |' });
+    expect(html).toContain('<th>a</th>');
+    expect(html).toContain('<td><code>x</code></td>');
   });
 });

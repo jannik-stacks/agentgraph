@@ -14,44 +14,43 @@ describe('compileWorkflow', () => {
     expect(Object.keys(workflows).length).toBeGreaterThan(0);
   });
 
-  it('fills the defaults of the kit issue workflow', () => {
-    const w = fixture('kit').workflows.issue!;
-    expect(w.name).toBe('issue');
-    expect(w.on).toEqual({ issue_comment: {} });
-    expect(w.branch).toBe('agentgraph/{issue}');
-    expect(w.body).toMatch(/^A maintainer says `\/agent`/);
-    expect(w.steps.map(s => s.name)).toEqual(['triage', 'implement', 'review', 'merge']);
-    const [triage, implement, review, merge] = w.steps;
-    expect(triage).toEqual({ name: 'triage', does: { agent: 'triager', skill: 'triage' }, checks: [], tries: 1 });
-    expect(implement!.tries).toBe(4);
-    expect(review).toEqual({
-      name: 'review',
-      does: { agent: 'reviewer', skill: 'review-hunk' },
-      checks: [],
-      tries: 1,
-      back: { to: 'implement', until: 'no hunk needs a change before it can merge', rounds: 2 },
-      each: 'hunks',
-    });
-    expect(merge).toEqual({
-      name: 'merge',
-      does: { wait: 'human' },
-      checks: [
-        'safety',
-        'rules',
-        'names',
-        'lint',
-        'types',
-        'tests',
-        'kit-types',
-        'early-names',
-        'api-fresh',
-        'dash-taglines',
-        'callouts',
-      ],
-      tries: 1,
-      back: { to: 'implement' },
-      follow: 'rebase',
-    });
+  it('fills the defaults of a workflow and its steps', () => {
+    const { workflow, problems } = compileWorkflow(
+      'workflows/issue.md',
+      file(
+        [
+          'on: issue_comment',
+          'steps:',
+          '  triage: { agent: implementor }',
+          '  implement: { agent: implementor, checks: [types, tests] }',
+          '  review: { agent: reviewer, back: implement, until: done }',
+          '  merge: { wait: human, back: implement }',
+        ].join('\n')
+      ),
+      names
+    );
+    expect(problems).toEqual([]);
+    expect(workflow).toMatchObject({ name: 'issue', on: { issue_comment: {} }, concurrency: 'steer', checks: [] });
+    expect(workflow!.branch).toBeUndefined();
+    expect(workflow!.steps).toEqual([
+      { name: 'triage', does: { agent: 'implementor' }, checks: [], tries: 1 },
+      { name: 'implement', does: { agent: 'implementor', skill: 'implement' }, checks: ['types', 'tests'], tries: 3 },
+      {
+        name: 'review',
+        does: { agent: 'reviewer' },
+        checks: [],
+        tries: 1,
+        back: { to: 'implement', until: 'done', rounds: 3 },
+      },
+      {
+        name: 'merge',
+        does: { wait: 'human' },
+        checks: ['types', 'tests'],
+        tries: 1,
+        back: { to: 'implement' },
+        follow: 'merge',
+      },
+    ]);
   });
 
   it.each([true, false])('reads carry: %s on a step', carry => {
@@ -74,12 +73,6 @@ describe('compileWorkflow', () => {
     });
     expect(problems).toEqual([]);
     expect(workflow!.on).toEqual({ feedback: trigger });
-  });
-
-  it('gives a step with checks three tries and an agent way back three rounds', () => {
-    const w = fixture('loop').workflows.align!;
-    expect(w.steps.find(s => s.name === 'write')!.tries).toBe(3);
-    expect(w.steps.find(s => s.name === 'align')!.back!.rounds).toBe(3);
   });
 
   it('reads a script step and branch filters', () => {

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { appendBenchResults, makeBenchInput, writeAttemptImport } from '../bin/bench.ts';
@@ -14,9 +14,19 @@ afterEach(() => {
 
 describe('start-runs helpers', () => {
   it('finds node on PATH at each spawn', () => {
-    const node = nodePath();
-    expect(node.startsWith('/')).toBe(true);
-    expect(existsSync(node)).toBe(true);
+    const [first, second] = ['first', 'second'].map(name => {
+      const dir = tmp(name);
+      dirs.push(dir);
+      writeFileSync(join(dir, 'node'), '', { mode: 0o755 });
+      return dir;
+    });
+    const path = process.env.PATH;
+    const found = [first, second].map(dir => {
+      process.env.PATH = `${dir}:${path}`;
+      return nodePath();
+    });
+    process.env.PATH = path;
+    expect(found).toEqual([join(first!, 'node'), join(second!, 'node')]);
   });
 
   it('logs a job to its file and returns its exit code', async () => {
