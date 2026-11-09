@@ -322,15 +322,16 @@ describe('a deep link into a run', () => {
 
   it('shows an n/a check as n/a, not as a failed gate, and a run with no issue without a number', async () => {
     const { createElement } = await dependency<{ createElement: (...args: unknown[]) => unknown }>('react');
-    const { RunResultLines } = await studioModule<{ RunResultLines: (p: unknown) => unknown }>(
-      'results/ResultTable.tsx'
-    );
-    const html = renderToStaticMarkup(
-      createElement(RunResultLines, {
-        run: { key: 'import-1', at, axes: {}, results: { judge: { at, pass: false, empty: true, na: true } } },
-        fields: [{ check: 'judge', field: 'pass', type: 'boolean', mode: 'warn' }],
-      })
-    );
+    const { RunResultLines, RunResultBadge } = await studioModule<{
+      RunResultLines: (p: unknown) => unknown;
+      RunResultBadge: (p: unknown) => unknown;
+    }>('results/ResultTable.tsx');
+    const props = {
+      run: { key: 'import-1', at, axes: {}, results: { judge: { at, pass: false, empty: true, na: true } } },
+      fields: [{ check: 'judge', field: 'pass', type: 'boolean', mode: 'warn' }],
+    };
+    const html = renderToStaticMarkup(createElement(RunResultLines, props));
+    expect(renderToStaticMarkup(createElement(RunResultBadge, props))).toContain('>pass<');
     expect(html).toContain('all passed');
     expect(html).toContain('judge n/a');
     expect(html).not.toContain('warned');

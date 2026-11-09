@@ -52,7 +52,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
   const { server, base } = await startStudioServer();
   try {
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('7');
-    expect(await (await fetch(`${base}/src/runs/InboxPage.tsx`)).text()).not.toContain('FAKE-private-plugin-value');
+    expect(await (await fetch(`${base}/src/runs/RunsPage.tsx`)).text()).not.toContain('FAKE-private-plugin-value');
     const snapshot = await (await fetch(`${base}/api/plugins/results/data`)).json();
     expect(snapshot.kind).toBe('ready');
     expect(JSON.stringify(snapshot)).not.toContain(external);

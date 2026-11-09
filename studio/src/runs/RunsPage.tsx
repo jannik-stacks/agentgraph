@@ -1,9 +1,10 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useEffect, useMemo, useState } from 'react';
-import { pageAtom, navigateAtom, queryParam, runResultsAtom, runsAtom, shown } from '../state.ts';
+import { isOnIssue } from '../../../src/graph.ts';
+import { findRunsWaitingOnPeople, formatNextSteps } from '../../../src/status.ts';
+import { pageAtom, navigateAtom, queryParam, runsAtom, shown } from '../state.ts';
 import { Problems } from '../Problems.tsx';
-import { Combobox, KeyPicker, Live, makeHiddenKeysAtom, Loading, Muted } from '../ui.tsx';
-import { ResultsLink, ResultTable } from '../results/ResultTable.tsx';
+import { accent, Button, Combobox, KeyPicker, Live, makeHiddenKeysAtom, Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { RunPage } from './RunPage.tsx';
 import { type ServedRun, isGitHubRef, locatedLink } from './trace.ts';
@@ -13,6 +14,8 @@ const issueParam = queryParam('issue');
 const labelParam = queryParam('label');
 const hiddenLabelKeysAtom = makeHiddenKeysAtom('agentgraph.hiddenLabelKeys');
 const ghParam = queryParam('gh');
+const waitingParam = queryParam('waiting');
+const flags = shown?.name ? ` --instance ${shown.name}` : '';
 
 /** Opens what a GitHub link or comment id names, as the server's `locate` finds it. */
 const Locate = ({ gh }: { gh: string }) => {
@@ -67,24 +70,19 @@ const RunList = () => {
   return gh ? <Locate gh={gh} /> : <RunListLive />;
 };
 
-const RunResults = ({ ids }: { ids: string[] }) => {
-  const { value } = useAtomValue(runResultsAtom());
-  const runs = useMemo(() => value?.runs.filter(r => ids.includes(r.key)) ?? [], [value, ids]);
-  if (!value || !runs.length) return null;
-  return (
-    <section className="space-y-1">
-      <ResultTable runs={runs} fields={value.fields} />
-      <p className="text-xs text-zinc-500">
-        <ResultsLink query="">all results</ResultsLink>
-      </p>
-    </section>
-  );
-};
+const NextSteps = ({ run, repo }: { run: Parameters<typeof formatNextSteps>[0]; repo: string }) => (
+  <pre className="py-1 whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
+    {[run.reason, ...formatNextSteps(run, shown?.local ? undefined : repo || '<owner>/<repo>', flags).slice(1)]
+      .filter(Boolean)
+      .join('\n')}
+  </pre>
+);
 
 const Runs = ({ runs }: { runs: ServedRun[] }) => {
   const [issue, setIssue] = useAtom(issueParam);
   const [label, setLabel] = useAtom(labelParam);
   const [hidden, setHidden] = useAtom(hiddenLabelKeysAtom);
+  const [onlyWaiting, setOnlyWaiting] = useAtom(waitingParam);
   const navigate = useSetAtom(navigateAtom);
   const options = useMemo(() => splitRunsByIssue(runs), [runs]);
   const labels = useMemo(
@@ -95,14 +93,20 @@ const Runs = ({ runs }: { runs: ServedRun[] }) => {
     [runs]
   );
   const keys = useMemo(() => [...new Set(runs.flatMap(r => Object.keys(r.labels)))].toSorted(), [runs]);
+  const waiting = useMemo(
+    () => new Map(findRunsWaitingOnPeople(runs.map(r => r.run).filter(isOnIssue)).map(run => [run.id, run])),
+    [runs]
+  );
   if (!runs.length) return <Muted>No runs in this data dir.</Muted>;
-  const shown = runs
+  const listed = runs
     .filter(r => issue === null || String(r.run.issue) === issue)
     .filter(r => label === null || Object.entries(r.labels).some(([k, v]) => `${k}=${v}` === label))
+    .filter(r => onlyWaiting === null || waiting.has(r.run.id))
     .toSorted((a, b) => b.run.started.localeCompare(a.run.started));
   return (
     <>
       <div
+        className="flex flex-wrap items-center gap-3"
         onPaste={e => {
           const text = e.clipboardData.getData('text').trim();
           if (!isGitHubRef(text)) return;
@@ -117,6 +121,15 @@ const Runs = ({ runs }: { runs: ServedRun[] }) => {
           options={options}
           onChange={setIssue}
         />
+        {(waiting.size > 0 || onlyWaiting !== null) && (
+          <Button
+            aria-pressed={onlyWaiting !== null}
+            className="aria-pressed:border-current aria-pressed:bg-zinc-100 dark:aria-pressed:bg-zinc-800"
+            onClick={() => setOnlyWaiting(onlyWaiting === null ? 'you' : null)}
+          >
+            <span className={accent.text}>{`${waiting.size} ${waiting.size === 1 ? 'needs' : 'need'} you`}</span>
+          </Button>
+        )}
       </div>
       {labels.length > 0 && (
         <>
@@ -124,12 +137,20 @@ const Runs = ({ runs }: { runs: ServedRun[] }) => {
           <KeyPicker label="Labels" keys={keys} hidden={hidden} onChange={setHidden} />
         </>
       )}
-      <RunResults ids={shown.map(r => r.run.id)} />
-      <Rows
-        rows={shown.map(r =>
-          runRow({ ...r, labels: Object.fromEntries(Object.entries(r.labels).filter(([k]) => !hidden.includes(k))) })
-        )}
-      />
+      {onlyWaiting !== null && !listed.length ? (
+        <Muted>Nothing waits for you.</Muted>
+      ) : (
+        <Rows
+          rows={listed.map(r => {
+            const row = runRow({
+              ...r,
+              labels: Object.fromEntries(Object.entries(r.labels).filter(([k]) => !hidden.includes(k))),
+            });
+            const run = onlyWaiting === null ? undefined : waiting.get(r.run.id);
+            return run ? { ...row, open: true, children: [], body: <NextSteps run={run} repo={r.repo} /> } : row;
+          })}
+        />
+      )}
     </>
   );
 };

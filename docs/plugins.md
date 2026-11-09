@@ -188,7 +188,7 @@ Host readers, settings and data roots never enter the page manifest. Pages share
 and its API authority; review them like host plugins. Registering a page starts no job. Restart the
 studio after registrations change. Preview needs a host API for live data.
 
-The header lists Inbox, Graph and Runs, then every page plugin, then Docs.
+The header lists the studio's own pages first: Graph, Runs, the built-in Results and Bench, then Docs. Page plugins from the graph sit in a second group beside them, which shows only when there is one.
 
 Results and Bench are built-in plugins using this same descriptor, data endpoint and hook. They keep
 `/results` and `/bench` and need no graph-local file; both names are reserved. Bench is one page over
