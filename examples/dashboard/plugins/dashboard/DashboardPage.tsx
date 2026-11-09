@@ -6,20 +6,16 @@ import { DashboardData } from './data.ts';
 type DashboardWidget = (typeof DashboardData.Type)['widgets'][number];
 
 const tones: Record<string, string> = {
-  running: 'text-sky-600 dark:text-sky-400',
   waiting: 'text-amber-600 dark:text-amber-400',
   done: 'text-emerald-600 dark:text-emerald-400',
   stopped: 'text-zinc-400 dark:text-zinc-500',
   pass: 'text-emerald-600 dark:text-emerald-400',
   fail: 'text-rose-600 dark:text-rose-400',
-  input: 'text-sky-600 dark:text-sky-400',
   output: 'text-violet-600 dark:text-violet-400',
-  USD: 'text-sky-600 dark:text-sky-400',
-  comment: 'text-sky-600 dark:text-sky-400',
   closed: 'text-zinc-400 dark:text-zinc-500',
   merged: 'text-violet-600 dark:text-violet-400',
 };
-const readTone = (series: string) => tones[series] ?? 'text-zinc-500 dark:text-zinc-400';
+const readTone = (series: string) => tones[series] ?? 'text-sky-600 dark:text-sky-400';
 
 const formatValue = (source: DashboardWidget['source'], value: number, compact = Math.abs(value) >= 10_000) =>
   value.toLocaleString(undefined, {

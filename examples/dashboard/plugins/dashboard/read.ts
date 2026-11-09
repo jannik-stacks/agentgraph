@@ -46,6 +46,7 @@ export const readDashboard = (
       const rows = days.flatMap(day => series.map(series => ({ day, series, value: 0 })));
       const lookup = new Map(rows.map(row => [`${row.day}/${row.series}`, row]));
       let skipped = 0;
+      let why = '';
       const isWithin = (at: string) => {
         const time = Date.parse(at);
         if (!Number.isFinite(time)) throw new Error(`Invalid dashboard timestamp: ${at}`);
@@ -57,7 +58,10 @@ export const readDashboard = (
         if (!row) throw new Error(`Unknown dashboard series: ${series}`);
         row.value += value;
       };
-      if (widget.source === 'issues' && Result.isFailure(tracked)) skipped++;
+      if (widget.source === 'issues' && Result.isFailure(tracked)) {
+        skipped++;
+        why = ['Tracker unread', tracked.failure.message].filter(Boolean).join(': ');
+      }
       if (widget.source === 'issues')
         for (const event of Result.getOrElse(tracked, () => []))
           if ((event.kind === 'comment' || event.kind === 'closed' || event.kind === 'merged') && isWithin(event.at))
@@ -78,8 +82,10 @@ export const readDashboard = (
             if (widget.source === 'tokens') {
               add(line.at, 'input', line.event.input);
               add(line.at, 'output', line.event.output);
-            } else if (line.event.usd === undefined) skipped++;
-            else add(line.at, 'USD', line.event.usd);
+            } else if (line.event.usd === undefined) {
+              skipped++;
+              why = 'Usage events without a reported USD cost';
+            } else add(line.at, 'USD', line.event.usd);
           }
         }
       }
@@ -89,10 +95,7 @@ export const readDashboard = (
         source: widget.source,
         rows,
         skipped,
-        why:
-          widget.source === 'issues'
-            ? `Tracker unread: ${Result.isFailure(tracked) ? tracked.failure.message : ''}`
-            : 'Usage events without a reported USD cost',
+        why,
       };
     });
     return { at: now.toISOString(), widgets } satisfies typeof DashboardData.Type;

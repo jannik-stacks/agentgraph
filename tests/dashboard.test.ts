@@ -88,13 +88,14 @@ it('aggregates current run cohorts and dated events, with missing cost counted',
       source: widget.source,
       sum: widget.rows.reduce((sum, row) => sum + row.value, 0),
       skipped: widget.skipped,
+      why: widget.why,
     }))
   ).toEqual([
-    { source: 'runs', sum: 0, skipped: 0 },
-    { source: 'checks', sum: 2, skipped: 0 },
-    { source: 'tokens', sum: 42, skipped: 0 },
-    { source: 'cost', sum: 0.25, skipped: 1 },
-    { source: 'issues', sum: 2, skipped: 0 },
+    { source: 'runs', sum: 0, skipped: 0, why: '' },
+    { source: 'checks', sum: 2, skipped: 0, why: '' },
+    { source: 'tokens', sum: 42, skipped: 0, why: '' },
+    { source: 'cost', sum: 0.25, skipped: 1, why: 'Usage events without a reported USD cost' },
+    { source: 'issues', sum: 2, skipped: 0, why: '' },
   ]);
   expect(snapshot.widgets[1]!.rows.filter(row => row.value)).toEqual([
     { day: '2026-11-08', series: 'fail', value: 1 },
