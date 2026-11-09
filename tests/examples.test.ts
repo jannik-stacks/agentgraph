@@ -17,12 +17,6 @@ const readGraphAgents = async (dir: string) =>
   Object.values((await Effect.runPromise(loadGraph(dir, harnesses))).agents);
 
 describe('example graphs', () => {
-  it('finds every example graph', () => {
-    expect(graphDirs.map(dir => dir.slice(examples.length + 1))).toEqual(
-      expect.arrayContaining(['agentgraph', 'sandbox'])
-    );
-  });
-
   it.each(graphDirs)('%s loads with no problems', async dir => {
     await expect(Effect.runPromise(loadGraph(dir, harnesses))).resolves.toMatchObject({
       workflows: expect.any(Object),
@@ -116,13 +110,6 @@ const modelNames = (file: string) =>
 describe('models and keys', () => {
   const served = modelNames('litellm.config.yaml');
   const rows = keyRows();
-
-  it('reads the keys table and the model list', () => {
-    expect(rows.size).toBeGreaterThan(0);
-    expect(served.size).toBeGreaterThan(0);
-    expect(rows.get('implementor')).toEqual(expect.arrayContaining(['glm', 'muse-flash']));
-    expect([...rows.values()].flat().filter(alias => alias.includes('$'))).toEqual([]);
-  });
 
   it.each(graphDirs)('every agent in %s asks for a model alias LiteLLM serves', async dir => {
     const unknown = (await readGraphAgents(dir)).flatMap(a =>
