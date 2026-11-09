@@ -15,7 +15,7 @@ import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { Config, ConfigProvider, Effect, Fiber, Redacted, Semaphore, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Fiber, Redacted, Schedule, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { makeInstanceHost, readEngineErrors, runLocalActions } from '../src/engine.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
@@ -623,11 +623,11 @@ function watchRuns(i: Instance, issue: number) {
           })
         )
       )
-    ).pipe(Effect.catch(e => Effect.sync(() => console.error(`Could not read runs: ${e.message}`))));
-  const fiber = Effect.runFork(follow());
+    ).pipe(Effect.tapError(e => Effect.sync(() => console.error(`Could not read runs: ${e.message}`))));
+  const fiber = Effect.runFork(follow().pipe(Effect.retry(Schedule.spaced('1 second'))));
   return async () => {
     await Effect.runPromise(Fiber.interrupt(fiber));
-    await Effect.runPromise(follow(1));
+    await Effect.runPromise(Effect.ignore(follow(1)));
   };
 }
 
