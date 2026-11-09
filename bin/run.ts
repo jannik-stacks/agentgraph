@@ -64,7 +64,7 @@ import {
   settings,
   whyRunnerRefuses,
 } from '../src/services.ts';
-import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
+import { fileStore, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeStoredRunLabels } from '../src/labels.ts';
 import { type RunRecord } from '../src/types.ts';
 
@@ -349,7 +349,14 @@ if (!i) {
   else fail(`${verb} runs inside a git repo, or pass --repo <dir>\n${usage}`);
 } else {
   if (verb === 'prune-logs') {
-    await prune(i.data);
+    const { files, bytes } = await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(makeLocalActionClient(makeInstanceHost({ data: i.data })), client =>
+          client.prune({ apply: !!values.apply })
+        )
+      )
+    );
+    console.log(`${values.apply ? 'deleted' : 'would delete'} ${files} unreferenced log(s), ${bytes} bytes`);
     process.exit(0);
   }
   if (verb === 'label') {
@@ -421,11 +428,6 @@ function instructed() {
     ...(values.workflow !== undefined && { workflow: values.workflow }),
     ...(values.issue !== undefined && { issue }),
   };
-}
-
-async function prune(data: string) {
-  const { files, bytes } = await pruneLogs(data, values.apply);
-  console.log(`${values.apply ? 'deleted' : 'would delete'} ${files} unreferenced log(s), ${bytes} bytes`);
 }
 
 async function runOnInstance(

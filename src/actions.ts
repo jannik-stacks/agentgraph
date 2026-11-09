@@ -69,6 +69,11 @@ export const Actions = RpcGroup.make(
     ),
     error,
   }),
+  Rpc.make('prune', {
+    payload: { apply: Schema.Boolean },
+    success: Schema.Struct({ files: Schema.Number, bytes: Schema.Number }),
+    error,
+  }),
   Rpc.make('close', { payload: { issue: Count }, success: Schema.Array(Schema.Number), error }),
   Rpc.make('instruct', {
     payload: Schema.Union([

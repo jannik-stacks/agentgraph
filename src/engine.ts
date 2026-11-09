@@ -21,7 +21,7 @@ import type * as MainModule from './main.ts';
 import type { JsonValue } from './meta.ts';
 import type { Instruction } from './run/trigger.ts';
 import { formatRunnerError } from './status.ts';
-import { fileStore, readJsonlRows, readRecordSync, Store } from './store.ts';
+import { fileStore, pruneLogs, readJsonlRows, readRecordSync, Store } from './store.ts';
 import { findIssueDir, Tracker, type TrackerSetup, writeAgentComment } from './tracker.ts';
 import { findCheckVerdicts, findLatestChecks } from './trace.ts';
 import { type CheckEntry, type InstanceHost, type Run, type RunRecord, TrackerError } from './types.ts';
@@ -149,6 +149,7 @@ export const makeInstanceHost = (
     merge: ({ issue }) => Effect.flatMap(owned, i => attempt(() => mergePull(i, issue))),
     export: ({ issue, ...to }) =>
       Effect.flatMap(owned, i => attempt(async () => (await writePullToRepo(i, issue, to)) ?? null)),
+    prune: ({ apply }) => attempt(() => pruneLogs(data, apply)),
     close: ({ issue }) =>
       Effect.gen(function* () {
         const i = yield* owned;
