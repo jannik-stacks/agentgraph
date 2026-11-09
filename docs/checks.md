@@ -68,7 +68,7 @@ A `reads: traces` check gets an empty folder beside the run's traces, so it work
 
 ## The Results tab
 
-The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result under its current version. If none exists, it uses the latest older-version result, marked `older`. Run labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage src/results.ts#ResultSheet src/trace.ts#findLatestChecks -->
+The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result under its current version. If none exists, it uses the latest older-version result, marked `older`, and the run's result line names those checks. Run labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage src/results.ts#ResultSheet src/trace.ts#findLatestChecks studio/src/results/ResultTable.tsx#RunResultLines -->
 
 The table has one row per result field: runs that gave it, failed results, values outside `pass`, the median, one dot per run, and a trend. `by` splits a field by workflow, model, tune or another dimension, and a field's `unit` sets how it reads. Runs that ended before any step passed or session started are dead and hidden by default. The chart draws a field against time, order, a dimension or another field, one dot per run. <!-- code: src/results.ts#findCheckFields bin/results.ts#findDeadReason -->
 

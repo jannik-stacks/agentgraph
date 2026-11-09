@@ -276,6 +276,7 @@ export const RunResultLines = ({ run, fields }: { run: RunResults; fields: Check
   if (!checks.length) return null;
   const failed = findFailedGates(run, fields);
   const na = checks.filter(([, r]) => r.na).map(([check]) => check);
+  const older = checks.filter(([, r]) => r.older).map(([check]) => check);
   const past = (f: CheckField) => {
     const v = readFieldValue(run, f);
     if (typeof v !== 'number' || !f.limit) return;
@@ -307,6 +308,7 @@ export const RunResultLines = ({ run, fields }: { run: RunResults; fields: Check
               );
             })}
         {na.length > 0 && <span className="text-zinc-500">, {na.join(', ')} n/a</span>}
+        {older.length > 0 && <span className="text-zinc-500">, {older.join(', ')} from an older version</span>}
       </p>
       <p className="min-w-0 overflow-x-auto whitespace-nowrap">
         <span className="text-zinc-500">results </span>
