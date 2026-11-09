@@ -38,7 +38,7 @@ it('reads the instance from the first path segment and keeps every in-app link u
   const hrefs = [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(m => m[1]);
   expect(hrefs).toContain('/bench/runs');
   expect(hrefs).toContain('/bench/graph');
-  expect(hrefs.filter(href => href?.startsWith('/') && !href.startsWith('/bench/'))).toEqual([]);
+  expect(hrefs.filter(href => href?.startsWith('/') && !href.startsWith('/bench/'))).toEqual(['/plugins/count']);
   expect(html).toMatch(/<option value="live">live<\/option><option value="bench" selected="">bench<\/option>/);
 });
 
