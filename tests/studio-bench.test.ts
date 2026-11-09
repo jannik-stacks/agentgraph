@@ -10,7 +10,7 @@ import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { makeStudioPagesPlugin } from '../studio/plugins.ts';
 import type { BenchData, BenchRow } from '../studio/src/bench/data.ts';
 import { getQuantile } from '../studio/src/results/result.ts';
-import { studioDir, studioModule } from './studio.ts';
+import { runStudioAction, startStudioServer, studioDir, studioModule } from './studio.ts';
 import { tmp } from './kit.ts';
 import {
   bootstrap,
@@ -429,16 +429,15 @@ describe('a bench data dir', () => {
         routes[route]!({ url }, res);
       });
     const q = (dir: string) => `?data=${encodeURIComponent(dir)}`;
+    const { server, base } = await startStudioServer();
     try {
-      expect(await ask('/api/runs', `/${q(join(out, '..'))}`)).toMatchObject({ status: 400 });
-      expect(await ask('/api/runs', `/${q(join(out, 'linked'))}`)).toMatchObject({ status: 400 });
-      const listed = JSON.parse((await ask('/api/runs', `/${q(data)}`)).body) as { run: Run; data: string }[];
+      const runs = (dir: string, id?: string) =>
+        runStudioAction(`${base}/api/actions${q(dir)}`, actions => actions.runs(id === undefined ? {} : { id }));
+      for (const dir of [join(out, '..'), join(out, 'linked')]) await expect(runs(dir)).rejects.toThrow();
+      const listed = (await runs(data)) as { run: Run; data: string }[];
       expect(listed.map(r => [r.run.id, r.data])).toEqual([['issue-1', data]]);
-      expect(await ask('/api/runs', `/issue-2${q(data)}`)).toMatchObject({ status: 404 });
-      const one = JSON.parse((await ask('/api/runs', `/issue-1${q(data)}`)).body) as {
-        data: string;
-        trace: { event?: { text?: string } }[];
-      };
+      expect(await runs(data, 'issue-2')).toBeNull();
+      const one = (await runs(data, 'issue-1')) as { data: string; trace: { event?: { text?: string } }[] };
       expect([one.data, one.trace.find(l => l.event)?.event?.text]).toEqual([data, 'from the bench']);
       expect(
         await Effect.runPromise(
@@ -450,6 +449,7 @@ describe('a bench data dir', () => {
       const results = await ask('/api/results', `/?data=${encodeURIComponent(data)}`);
       expect((JSON.parse(results.body) as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
     } finally {
+      await server.close();
       vi.unstubAllEnvs();
       rmSync(out, { recursive: true, force: true });
       rmSync(elsewhere, { recursive: true, force: true });

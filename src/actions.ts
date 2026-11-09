@@ -1,5 +1,5 @@
 import { Effect, Layer, Schema } from 'effect';
-import { FetchHttpClient } from 'effect/http';
+import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/http';
 import { Rpc, RpcClient, RpcGroup, RpcMiddleware, RpcSerialization } from 'effect/rpc';
 import { Event, Issue } from './event.ts';
 import { Proposal } from './proposal.ts';
@@ -31,6 +31,7 @@ export const Actions = RpcGroup.make(
     error,
   }),
   Rpc.make('log', { payload: { hash: Schema.String }, success: Schema.String, error }),
+  Rpc.make('runs', { payload: { id: Schema.optionalKey(Schema.String) }, success: Schema.Unknown, error }),
   Rpc.make('verdicts', {
     payload: { workflow: Schema.String, step: Schema.String, check: Schema.String },
     success: Schema.Array(Verdict),
@@ -75,10 +76,14 @@ export const Actions = RpcGroup.make(
 
 export type Action = RpcGroup.Rpcs<typeof Actions>;
 
-export const makeActionClient = (url: string, fetch: typeof globalThis.fetch) =>
-  RpcClient.make(Actions).pipe(
+export const makeActionClient = (href: string, fetch: typeof globalThis.fetch) => {
+  const url = new URL(href);
+  return RpcClient.make(Actions).pipe(
     Effect.provide(
-      RpcClient.layerProtocolHttp({ url }).pipe(
+      RpcClient.layerProtocolHttp({
+        url: url.origin + url.pathname,
+        transformClient: HttpClient.mapRequest(HttpClientRequest.setUrlParams(url.searchParams)),
+      }).pipe(
         Layer.provide([
           FetchHttpClient.layer.pipe(Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetch))),
           RpcSerialization.layerNdjson,
@@ -86,3 +91,4 @@ export const makeActionClient = (url: string, fetch: typeof globalThis.fetch) =>
       )
     )
   );
+};

@@ -142,7 +142,7 @@ export const makeLiveJsonAtom = <T>(
 
 /** Every run of the served graph as the run list reads it, with its trail and no trace. */
 export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof makeRunSummary>, 'trail'>)[]>(
-  '/api/runs',
+  () => runAction(actions => actions.runs({})),
   ['data']
 );
 
@@ -158,7 +158,11 @@ export const runResultsAtom = (data?: string | null) =>
   openOnce<ReturnType<typeof readRunResults>>(makeDataHref('/api/results', data), data);
 
 export const runAtom = (id: string, data?: string | null) =>
-  openOnce<(ServedRun & { run: RunRecord }) | null>(makeDataHref(`/api/runs/${encodeURIComponent(id)}`, data), data);
+  openOnce(
+    makeDataHref(`run ${id}`, data),
+    data,
+    () => runAction(actions => actions.runs({ id }), data) as Promise<(ServedRun & { run: RunRecord }) | null>
+  );
 
 export const getVerdictsAtom = (fixture: string, step: string, check: string) =>
   openOnce(`verdicts ${fixture} ${step} ${check}`, undefined, () =>

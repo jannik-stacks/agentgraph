@@ -5,7 +5,7 @@ import { readInstanceEnv } from '../src/main.ts';
 import { ensureInstance } from '../src/instance.ts';
 import { seeded } from './fixtures.ts';
 import { removeAfter } from './world.ts';
-import { startStudioServer } from './studio.ts';
+import { runStudioAction, startStudioServer } from './studio.ts';
 import { makeServedGraphs } from '../studio/served.ts';
 
 const starter = join(import.meta.dirname, '..', 'examples', 'starter');
@@ -49,18 +49,18 @@ it('serves each named instance under its own name, with no run crossing over', a
     return [response.status, await response.json()];
   };
   try {
-    const listed = async (name: string) => {
-      const [status, runs] = await get(`/api/runs?instance=${name}`);
-      return [status, runs.map((r: { fixture: string; run: { id: string } }) => `${r.fixture} ${r.run.id}`)];
-    };
-    expect(await listed('live')).toEqual([200, ['live/issue run-live']]);
-    expect(await listed('bench')).toEqual([200, ['bench/issue run-bench']]);
-    expect(await get('/api/runs/run-bench?instance=live')).toEqual([404, null]);
-    expect((await get('/api/runs/run-bench?instance=bench'))[0]).toBe(200);
-    const refused = ['/api/runs', '/api/runs?instance=other', '/api/plugins/results/data'];
-    expect(await Promise.all(refused.map(async path => (await fetch(`${base}${path}`)).status))).toEqual([
-      400, 400, 404,
-    ]);
+    const runs = (query: string, id?: string) =>
+      runStudioAction(`${base}/api/actions${query}`, actions => actions.runs(id === undefined ? {} : { id }));
+    const listed = async (name: string) =>
+      ((await runs(`?instance=${name}`)) as { fixture: string; run: { id: string } }[]).map(
+        r => `${r.fixture} ${r.run.id}`
+      );
+    expect(await listed('live')).toEqual(['live/issue run-live']);
+    expect(await listed('bench')).toEqual(['bench/issue run-bench']);
+    expect(await runs('?instance=live', 'run-bench')).toBeNull();
+    expect(await runs('?instance=bench', 'run-bench')).not.toBeNull();
+    for (const query of ['', '?instance=other']) await expect(runs(query)).rejects.toThrow();
+    expect((await fetch(`${base}/api/plugins/results/data`)).status).toBe(404);
     const [, results] = await get('/api/plugins/results/data?instance=bench');
     expect(results.sheet.runs.map((r: { key: string }) => r.key)).toEqual(['run-bench']);
     const [, benched] = await get('/api/plugins/bench/data?instance=bench');

@@ -104,7 +104,8 @@ export const makeInstanceHost = (
       const diff = folder ? join(findIssueDir(folder, n), 'diff.patch') : '';
       return { ...issue, diff: diff && existsSync(diff) ? readFileSync(diff, 'utf8') : '' };
     });
-  const actions = Actions.toLayer({
+  const actions = Actions.of({
+    runs: ({ id }): Effect.Effect<unknown, typeof ActionError.Type> => Effect.succeed(id === undefined ? [] : null),
     show: ({ issue }) =>
       Effect.gen(function* () {
         const runs = yield* store.list(issue === undefined ? {} : { issue });
@@ -155,10 +156,13 @@ const requireUser = Layer.succeed(ActionUser)((effect, { headers }) =>
   headers[userHeader] ? effect : Effect.fail(ActionError.make({ message: 'log in first' }))
 );
 
-export const makeActionWebHandler = (host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>) =>
+export const makeActionWebHandler = (
+  host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>,
+  runs = host.actions.runs
+) =>
   HttpRouter.toWebHandler(
     RpcServer.layerHttp({ group: Actions, path: '/', protocol: 'http' }).pipe(
-      Layer.provide([host.actions, requireUser, RpcSerialization.layerNdjson])
+      Layer.provide([Actions.toLayer({ ...host.actions, runs }), requireUser, RpcSerialization.layerNdjson])
     ),
     { disableLogger: true }
   );

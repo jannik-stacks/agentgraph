@@ -2,38 +2,29 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
-import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { makeInstanceHost, makeLocalActionClient } from '../src/engine.ts';
 import { ensureInstance, writeImportedRun } from '../src/instance.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { seeded } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
+import { runStudioAction, startStudioServer } from './studio.ts';
 
 const dirs: string[] = [];
-afterEach(() => {
+const servers: { close: () => Promise<void> }[] = [];
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map(server => server.close()));
   vi.unstubAllEnvs();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-const serveStudio = (data: string) => {
+const serveStudio = async (data: string) => {
   vi.stubEnv('AGI_STUDIO_DIR', join(import.meta.dirname, '..', 'examples', 'sandbox'));
   vi.stubEnv('AGI_STUDIO_DATA', data);
-  const routes: Record<string, (req: unknown, res: unknown) => void> = {};
-  const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
-  plugin({
-    watcher: { add: () => {}, on: () => {} },
-    middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) },
-  });
-  return (url: string, route = '/api/runs') =>
-    new Promise<{ status: number; body: unknown }>(done => {
-      const res = {
-        statusCode: 200,
-        setHeader: () => {},
-        end: (body: string) => done({ status: res.statusCode, body: JSON.parse(body) }),
-      };
-      routes[route]!({ url }, res);
-    });
+  const { server, base } = await startStudioServer();
+  servers.push(server);
+  return (id?: string) =>
+    runStudioAction(`${base}/api/actions`, actions => actions.runs(id === undefined ? {} : { id }));
 };
 
 it('keeps a commit or a patch as an ended run with no issue, once per import', async () => {
@@ -77,32 +68,24 @@ it('serves an imported run in the studio run list and on its own page', async ()
   dirs.push(w.root);
   const i = await ensureInstance(join(w.root, 'agentgraph'), 'test', w.seed);
   const id = await writeImportedRun(i, 'HEAD', { version: '0.0.1', from: 'HEAD' });
-  const ask = serveStudio(i.data);
-  const list = await ask('/');
-  expect(list).toMatchObject({
-    status: 200,
-    body: [{ run: { id, workflow: 'import' }, usd: 0, urls: [] }],
-  });
-  expect((list.body as object[])[0]).not.toHaveProperty('trace');
-  expect((list.body as object[])[0]).not.toHaveProperty('checks');
-  expect((list.body as { run: object }[])[0]!.run).not.toHaveProperty('startCommit');
-  const one = await ask(`/${id}`);
+  const runs = await serveStudio(i.data);
+  const list = (await runs()) as { run: object }[];
+  expect(list).toMatchObject([{ run: { id, workflow: 'import' }, usd: 0, urls: [] }]);
+  expect(list[0]).not.toHaveProperty('trace');
+  expect(list[0]).not.toHaveProperty('checks');
+  expect(list[0]!.run).not.toHaveProperty('startCommit');
+  const one = (await runs(id)) as object;
   expect(one).toMatchObject({
-    status: 200,
-    body: {
-      run: { id, status: 'done', startCommit: expect.any(String) },
-      usd: 0,
-      urls: [],
-      trace: [{ saved: { id } }],
-    },
+    run: { id, status: 'done', startCommit: expect.any(String) },
+    usd: 0,
+    urls: [],
+    trace: [{ saved: { id } }],
   });
-  expect(Object.keys(one.body as object)).not.toEqual(expect.arrayContaining(['trail']));
-  expect(Object.keys(one.body as object)).not.toEqual(expect.arrayContaining(['checks']));
+  expect(Object.keys(one)).not.toEqual(expect.arrayContaining(['trail']));
+  expect(Object.keys(one)).not.toEqual(expect.arrayContaining(['checks']));
   mkdirSync(join(i.data, 'broken'));
   writeFileSync(join(i.data, 'broken', 'run.json'), '{');
-  const broken = await ask('/');
-  expect(broken.status).toBe(500);
-  expect(broken.body).toEqual({ error: expect.stringMatching(/.+/) });
+  await expect(runs()).rejects.toThrow(/.+/);
 }, 30_000);
 
 const run = (id: string, workflow: string, started: string) => ({
@@ -151,7 +134,7 @@ it('serves verdicts of one check at one step lazily, and an issue body once on i
       yield* store.addChecks('other', check('2026-11-03T01:00:00Z', 'implement', 'review', false));
     }).pipe(Effect.provide(fileStore(data)))
   );
-  const ask = serveStudio(data);
+  const runs = await serveStudio(data);
   const verdicts = (step: string, check: string) =>
     Effect.runPromise(
       Effect.scoped(
@@ -183,12 +166,12 @@ it('serves verdicts of one check at one step lazily, and an issue body once on i
     },
   ]);
   expect(await verdicts('review', 'lint')).toEqual([]);
-  const list = (await ask('/')).body as { run: { id: string; body?: string; sessions?: object } }[];
+  const list = (await runs()) as { run: { id: string; body?: string; sessions?: object } }[];
   expect(list.filter(r => r.run.body !== undefined).map(r => [r.run.id, r.run.body])).toEqual([
     ['other', 'body of other'],
   ]);
   expect(list.every(r => r.run.sessions === undefined)).toBe(true);
-  expect((await ask('/old')).body).toMatchObject({
+  expect(await runs('old')).toMatchObject({
     run: { ...run('old', 'issue', '2026-11-01T00:00:00Z') },
   });
 });
