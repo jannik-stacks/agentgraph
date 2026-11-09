@@ -15,7 +15,7 @@ import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
 
-const isInside = async (path: string, roots: string[]) => {
+const isInside = async (path: string, roots: readonly string[]) => {
   const [real, ...reals] = await Promise.all([path, ...roots].map(p => realpath(p).catch(() => undefined)));
   return !!real && reals.some(root => root !== undefined && (real === root || real.startsWith(root + sep)));
 };
@@ -48,7 +48,7 @@ const readDataDir = async (
     const served = await pickServed(req, reader);
     return { served, data: served?.data, store: served?.host?.store, watched: undefined };
   }
-  if (!(await isInside(watched, [...(await readStores())])))
+  if (!(await isInside(watched, await readStores())))
     throw new StudioRequestError('data is outside the stores the studio pages read');
   const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
   return { served: undefined, data: watched, store: makeInstanceHost({ data: watched }).store, watched };
