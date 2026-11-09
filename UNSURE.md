@@ -9,9 +9,13 @@ Decisions made without being sure. Each names what was picked and what would cha
 - **The Modal client type is written from the libmodal sources**, not checked against an installed SDK; nothing was installed. The live smoke test is the check, and it was not run here.
 - **Modal reads `box.sh` from `examples/deploy/cloudflare/`**, so a copied plugin needs that file beside it or a path change.
 - **`makeBoxRunner` takes `data` first**, for its host-side sync dirs, and a box's `run` now yields a final `{ code }` instead of the exit frame line, so a runner that is not HTTP never formats a frame.
-- `resume` is not an action yet. Its function, `instruct` with a resume instruction, needs the engine's full
-  services (`start` with a tracker setup and harness choice). Running that inside the studio process felt too
-  heavy. `say <n> ":restart"` and `":stop"` cover the per-issue cases through the `commands` gate.
+- `resume` is an action only where a host can drive: the CLI and a studio of named instances. A plain studio
+  refuses it with "this host does not drive runs", since it has no instance to start from.
+- The CLI calls actions in process through the same HTTP codec as the studio and never reaches a remote host, so
+  there is no remote write to fall back from. A loop that serves the group (planned) must keep that: a failed
+  remote call is reported, never retried locally.
+- The action layer grew production code by about 130 lines before any caller moved onto it. It was kept
+  because the next step deletes the per-verb routes and reads it replaces; the net is measured over both.
 - `stop` and `restart` stay CLI-only: they signal or spawn a loop process that may serve several instances.
 - Actions are offered to every page and every reader, graph-local or operator: the maintainer chose no
   distinction for now. Pages share the studio origin anyway, so a gate on the page's name would be forgeable.
