@@ -74,7 +74,7 @@ cd studio && npm install
 npm run dev -- --instance left-pad --instance right-pad
 ```
 
-The studio listens on `127.0.0.1:5182`. Set `AGI_HOST` or `AGI_PORT` to change the address. Token auth is the default and prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the studio.
+The studio listens on `127.0.0.1:5182`. Set `AGI_HOST` or `AGI_PORT` to change the address. Token auth is the default and prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the studio. <!-- code: studio/vite.config.ts#server, src/services.ts#pickAuth, studio/watch.ts#restart -->
 
 One studio serves several instances of one data root: each `--instance <name>` adds one, and with none of `--instance`, `--repo` and `--dir` it serves every instance under the root. Each instance's pages live under its name, as `/<name>/runs` and `/<name>/graph`, and the header switches between instances. Graph, Runs and Results read only that instance. An address that names no served instance lists the ones served. An instance that fails to load shows why on its pages, and the others keep working. Each instance reads its settings as the loop does, so a studio of several ignores the per-instance settings in the shell, listed under [One loop for several instances](#one-loop-for-several-instances). <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown src/main.ts#removeShellSettings -->
 
@@ -97,7 +97,7 @@ An unknown `--instance <name>` stops and lists the instances in the root; add `-
 to make the new record. Without `--instance`, a missing record is made only when every other
 folder in the root is an instance of another checkout. Otherwise the command stops and names
 the folders: pass `--instance <name>` to use one. `agi show` outside a repo skips a
-record it cannot read with a one-line warning. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
+record it cannot read with a one-line warning. <!-- code: src/instance.ts#ensureInstance, src/instance.ts#findInstances, src/instance.ts#readPickedInstance -->
 
 The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),
 `base`, `owner`, `exported`, and `loop` (boolean, initially false). Optional fields are
@@ -181,4 +181,4 @@ instance with `--instance <name> --repo <worktree>`. A second loop on a checkout
 `stop` and `restart` commands to run, and waits instead while the holder is stopping. A lock whose
 holder died is taken over at once on the same host, and after its two-minute heartbeat from another
 host; runs go on where they were.
-<!-- code: bin/run.ts#stopLoops bin/run.ts#detach src/owner.ts#createLoopLock src/owner.ts#isOwnerRunning -->
+<!-- code: bin/run.ts#stopLoops, bin/run.ts#detach, src/owner.ts#createLoopLock, src/owner.ts#isOwnerRunning, src/owner.ts#readStateDir -->

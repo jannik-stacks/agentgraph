@@ -1,6 +1,6 @@
 # Hosting <!-- untested -->
 
-Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: a named instance in the data root, environment overrides, commands through a [runner](sandbox.md#runners): docker on the host, or the `box` runner and the box server `AGENTGRAPH_SANDBOX_URL` names. <!-- code: src/services.ts#makeProductionLayers -->
+Each way to host the engine is a folder under `examples/deploy/`. The engine is the same everywhere: a named instance in the data root, environment overrides, commands through a [runner](sandbox.md#runners): docker on the host, or the `box` runner and the box server `AGENTGRAPH_SANDBOX_URL` names. <!-- code: src/services.ts#makeProductionLayers, src/services.ts#pickRunner, src/runners.ts#box -->
 
 | Folder       | Runs on                                     | Sandbox                        | Tested                                     |
 | ------------ | ------------------------------------------- | ------------------------------ | ------------------------------------------ |
@@ -136,13 +136,13 @@ Values already in the environment are used without asking, so a second `up` only
    keys.internal ----------> the App key, the agent keys and the session variables, read once at start
 ```
 
-The engine is the host image, with `AGENTGRAPH_RUNNER=box` and `AGENTGRAPH_SANDBOX_URL=http://box.internal`. Checkouts stay on the engine's disk. <!-- code: src/remote.ts#makeBoxRunner -->
+The engine is the host image, with `AGENTGRAPH_RUNNER=box` and `AGENTGRAPH_SANDBOX_URL=http://box.internal`. Checkouts stay on the engine's disk. <!-- code: src/runners.ts#box, src/remote.ts#boxRunner, src/remote.ts#makeBoxRunner -->
 
 How boxes differ from docker:
 
 - One checkout has one box. The work tree, home and graph go in before each command, and changes come back as git objects. Ignored folders such as `node_modules` stay in the box.
 - A box's egress follows the commands running in it, so a check beside a session shares its reach.
-- `agi check` refuses a graph `image`, memory or cpu limits and host tools. A restarted box gets files and toolchain back, but not `setup`.
+- `agi check` refuses a graph `image`, memory or cpu limits and host tools. A restarted box gets files and toolchain back, but not `setup`. <!-- code: src/remote.ts#whyBoxRefused -->
 - A box idle for 30 minutes saves `/work` and `/homes` to `kept/<id>.tgz` in the bucket.
 - Processes are found by `AGENTGRAPH_RUN` in their environment; one that drops it outlives its command.
 

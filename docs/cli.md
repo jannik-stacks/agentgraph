@@ -1,6 +1,6 @@
 # CLI
 
-Install it with `npm install -g @jannik-stacks/agi`, or run `npx @jannik-stacks/agi <verb>`. It needs Node 24 and Docker. `--help` prints the usage and `--version` the version; `agi <verb> --help` shows the flags that verb takes. A flag the verb does not take is an error (exit 2), and so is a verb's own flag put before the verb: write `agi start --workflow w text`, not `agi --workflow w start text`. Switches such as `--once` and `--read-only` take no value, so the word after them stays an argument.
+Install it with `npm install -g @jannik-stacks/agi`, or run `npx @jannik-stacks/agi <verb>`. It needs Node 24 and Docker. `--help` prints the usage and `--version` the version; `agi <verb> --help` shows the flags that verb takes. A flag the verb does not take is an error (exit 2), and so is a verb's own flag put before the verb: write `agi start --workflow w text`, not `agi --workflow w start text`. Switches such as `--once` and `--read-only` take no value, so the word after them stays an argument. <!-- code: src/cli.ts#readArgs -->
 
 Inside a git repo, `agi <verb>` works on a local instance of it: a folder that stands in for GitHub, plus the runs. Your repo only gets `agentgraph/<n>` branches. With `--tracker` or App credentials in the environment, `agi` runs as a runner instead: `--dir` names the graph and `--data` the runs folder.
 
@@ -75,7 +75,7 @@ Only `start`, `say` and `review changes` drive; see [Who drives](local.md#who-dr
 | `--from <commit>`             | `import`                            | The commit the change is measured from; default the commit's parent, or `HEAD` for a patch                  |
 | `--meta <file>`               | `import`                            | JSON kept as the run's `meta.engine.origin.input`                                                           |
 
-Printed commands carry the `--repo` and `--data` given. Inside a repo, `check --dir` checks against the instance's saved provider. <!-- code: src/services.ts#settings -->
+Printed commands carry the `--repo` and `--data` given. Inside a repo, `check --dir` checks against the instance's saved provider. <!-- code: src/cli.ts#readArgs, src/status.ts#formatInstanceFlags, bin/run.ts#checkGraph -->
 
 ## Picking a provider
 
@@ -89,11 +89,11 @@ agi start --provider anthropic --save "Add a greet function"
 agi loop --tracker github --dir .agentgraph --data ~/agentgraph-data
 ```
 
-The shared `--instance <name>` flag chooses the named instance; only `loop` takes it more than once. See the [settings table](local.md#named-instances-and-settings).
+The shared `--instance <name>` flag chooses the named instance; only `loop` takes it more than once. See the [settings table](local.md#named-instances-and-settings). <!-- code: src/instance.ts#readPickedInstance -->
 
 ## Environment
 
-The runner reads these. Instance defaults and command overrides follow the [settings table](local.md#named-instances-and-settings). <!-- code: src/services.ts#settings -->
+The runner reads these. Instance defaults and command overrides follow the [settings table](local.md#named-instances-and-settings). <!-- code: src/services.ts#settings, src/services.ts#hostSettings, src/services.ts#readTrackerName, src/harnesses.ts#readHarnessSettings, src/harnesses.ts#readOverrides, src/runners.ts#box -->
 
 | Variable                                  | Meaning and default                                                                                         |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -138,4 +138,4 @@ The studio has its own [auth settings](plugins.md#auth). Run `npm run dev -- --a
 | `AGI_PORT`                    | Studio port, 5182                                  |
 | `AGI_ALLOWED_HOSTS`           | Comma-separated allowed hostnames for the studio   |
 
-Instance env files override shell values for auth and studio secrets. A studio serving several instances requires compatible auth settings. <!-- code: studio/auth.ts#readStudioAuth studio/vite.config.ts#server -->
+Instance env files override shell values for auth and studio secrets. A studio serving several instances requires compatible auth settings. <!-- code: studio/auth.ts#readStudioAuth, studio/vite.config.ts#server, src/services.ts#pickAuth, src/auths.ts#token, src/auths.ts#password -->

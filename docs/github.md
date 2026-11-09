@@ -2,7 +2,7 @@
 
 On GitHub, agentgraph acts as one GitHub App. The runner polls the repo, so the App needs no webhook or tunnel. People start work with `/agent` or `@agent` in a comment, with a trigger label, or by moving an issue's card into a project board column; see [Workflows](workflows.md#what-starts-a-run). Commands such as `/agent:stop` are separate from text, and `commands` in `settings.yaml` limits who may use them; see [Commands](workflows.md#commands).
 
-The App is private and asks for four repository permissions: contents write, pull requests write, issues write and metadata read. It never gets workflows or administration. Commits go through the Git API, so GitHub signs them and a "require signed commits" rule passes.
+The App is private and asks for four repository permissions: contents write, pull requests write, issues write and metadata read. It never gets workflows or administration. Commits go through the Git API, so GitHub signs them and a "require signed commits" rule passes. <!-- code: bin/setup-app.ts#makeGithubAppSetupManifest -->
 
 ## Create the App
 
@@ -18,6 +18,8 @@ node bin/setup-app.ts --org acme     # the App belongs to the organization
 3. GitHub sends you to the install page. The command saves `app.env` in `~/.config/agentgraph/<slug>/`, readable only by you.
 4. Pick **Only select repositories**, choose the repo and click **Install**. The runner finds the installation from the repo.
 
+<!-- code: bin/setup-app.ts#setupApp -->
+
 Who must approve the install:
 
 | App owner        | Repo owner       | Install                                                                                                       |
@@ -32,7 +34,7 @@ The tracker offers `searchIssues(query, { state, limit })` to read this repo's i
 
 ## The key
 
-On macOS the private key goes into the login Keychain, which asks before every read, and `app.env` names `/dev/fd/3`. Elsewhere, or when the Keychain refuses, it goes into `key.pem` beside `app.env`, readable only by you. Keys never go in a repo or a log.
+On macOS the private key goes into the login Keychain, which asks before every read, and `app.env` names `/dev/fd/3`. Elsewhere, or when the Keychain refuses, it goes into `key.pem` beside `app.env`, readable only by you. Keys never go in a repo or a log. <!-- code: bin/setup-app.ts#saveKeyInKeychain -->
 
 `with-key` reads the key from the Keychain onto that descriptor and passes the other arguments to `bin/run.ts`. `keychain-import` moves an older `key.pem` into the Keychain and deletes the file.
 
@@ -41,7 +43,7 @@ npm run with-key -- <slug> loop --tracker github --dir examples/sandbox --data ~
 npm run keychain-import -- <slug>
 ```
 
-On other hosts, set `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE`, or point `AGENTGRAPH_APP_ENV` at `app.env`. [Hosting](hosting.md) shows each host.
+On other hosts, set `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE`, or point `AGENTGRAPH_APP_ENV` at `app.env`. [Hosting](hosting.md) shows each host. <!-- code: src/main.ts#readEngineEnv -->
 
 ## Project boards
 
@@ -51,7 +53,7 @@ A workflow with a `column` trigger reads the repo's project boards with your own
 gh auth refresh -s read:project
 ```
 
-The runner then uses `gh auth token`. Where there is no `gh`, set `AGENTGRAPH_PROJECT_TOKEN` to a token with `read:project`. It is only read from the environment and never logged or stored. See [Project boards](workflows.md#project-boards).
+The runner then uses `gh auth token`. Where there is no `gh`, set `AGENTGRAPH_PROJECT_TOKEN` to a token with `read:project`. It is only read from the environment and never logged or stored. <!-- code: src/github.ts#readProjectToken --> See [Project boards](workflows.md#project-boards).
 
 The board plugin also writes card fields, which needs the `project` scope on the same token instead:
 
@@ -70,4 +72,4 @@ AGENTGRAPH_REPO=owner/name agi loop --instance live --repo ~/code/project --trac
 AGENTGRAPH_REPO=owner/name agi show --instance live --tracker github --dir examples/sandbox --data ~/agentgraph-data
 ```
 
-`e2e.sh` writes the keys from the [local stack](../infra/local/README.md) as `AGENTGRAPH_PROXY_KEYS` to `.env` in the data folder and prints the commands to run. The runner does not load that file, so source it first. `loop` without `--dir` uses the repo's [own graph](reference.md#which-graph-runs) and `AGENTGRAPH_REPO`. `show` needs App credentials and warns when the App reaches other repos.
+`e2e.sh` writes the keys from the [local stack](../infra/local/README.md) as `AGENTGRAPH_PROXY_KEYS` to `.env` in the data folder and prints the commands to run. The runner does not load that file, so source it first. `loop` without `--dir` uses the repo's [own graph](reference.md#which-graph-runs) and `AGENTGRAPH_REPO`. `show` needs App credentials and warns when the App reaches other repos. <!-- code: src/github.ts#readInstallationReach -->
