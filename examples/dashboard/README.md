@@ -5,12 +5,14 @@ It adds no engine service, storage or npm dependency.
 Its charts are plain SVG drawn with d3-scale, which the studio provides to page plugins.
 
 Copy `plugins/dashboard.ts` and `plugins/dashboard/` into your graph's `plugins/` folder.
-They import only `@jannik-stacks/agi/plugins`, so they work outside this checkout.
+They use the public plugin entry and the `InstanceHost` type from `@jannik-stacks/agi/trackers`.
 Copy the `plugins.dashboard` block from settings.yaml into your graph's settings.yaml.
-The page reads the runs and tracker of the instance the studio serves it for.
+The page reads runs and tracker events through the instance host. There is no `data` setting in `plugins.dashboard`.
 
 Run `npm run dev -- --dir ../examples/dashboard --data /path/to/instance/data`
-from `studio/`, or start your own graph with the same studio command.
+from `studio/` to read a run store. For the issues widget, use instance mode:
+`npm run dev -- --instance <name> --dir ../examples/dashboard`.
+The instance supplies the tracker.
 Open `/plugins/dashboard`, or choose Dashboard in the header.
 For named instances the page is `/<instance>/plugins/dashboard`.
 Restart after changing plugin code. Settings changes reload through the studio.
@@ -29,12 +31,13 @@ Tokens sum input and output usage events by event day. Input includes cached tok
 Cost sums reported USD from usage events. Missing prices count as visible skips.
 Cost excludes command checks and other charges without usage events.
 Usage and check step filters select the recorded event's step.
-Issues count tracker comments, closes and merges by event day. Without a tracker the widget shows a skip.
+Issues count tracker comments, closes and merges by event day. Instance mode supplies the tracker. Without one, the widget shows a skip and its reason.
 Checks and usage from runs started before the window still count.
 Each chart has a daily values table. Empty days show zero.
 
 The existing studio connection refreshes the snapshot when the instance's run data changes.
-Tracker events alone do not refresh it. Runs read through the studio's own store and tracker reads.
+Tracker events alone do not refresh it. Tracker reads are cached for one minute.
+The reader uses the instance host's store and tracker.
 No polling or new history file is needed.
 Time windows advance on the next data refresh.
 The reader scans the store on each refresh. Keep this experiment to modest stores.

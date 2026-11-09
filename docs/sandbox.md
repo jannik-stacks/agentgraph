@@ -39,7 +39,7 @@ A read-only session also gets the mirror, its worktree's git dir and the depende
 
 A runner executes commands; the engine keeps git, the mirror, worktrees, cleanup and publishing. `local`, the default, runs docker on this host and checks it first: not root, Docker up, the image built, the model hosts answering. `box` sends each checkout to the box server `AGENTGRAPH_SANDBOX_URL` names; see [Hosting](hosting.md#cloudflare). A [runner plugin](plugins.md#runners) in the host graph adds another, such as Modal in `examples/plugins/modal/`.
 
-`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner never runs a read-only command writable and never widens a command's network. <!-- code: src/services.ts#whyRunnerRefuses src/runners.ts src/remote.ts#makeBoxRunner -->
+`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell, then `local`. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner never runs a read-only command writable and never widens a command's network. <!-- code: src/services.ts#whyRunnerRefuses src/runners.ts src/remote.ts#makeBoxRunner -->
 
 ## The network
 

@@ -18,37 +18,20 @@ Claude and ChatGPT subscriptions, Anthropic keys and LiteLLM ship as providers. 
 
 The package ships a starter example; the clone has [more example graphs](../README.md#examples). [Copy one](local.md#first-run) and edit its workflows, agents, skills and checks. The engine requires you to choose a graph. These are plain files; see [The graph folder](reference.md). <!-- code: src/instance.ts#ensureGraph -->
 
-## Plugins, in progress
+## Plugins
 
-[Tool plugins](plugins.md) load now from the graph's `plugins/` folder. Other plugin parts are planned.
-<!-- code: src/plugin.ts#readPlugins -->
+Reviewed TypeScript files in the graph's `plugins/` folder export `makePlugin(...)`. A plugin can supply agent tools, status hooks, a tracker, a runner, studio auth or a studio page. Its `settingsSchema` decodes `plugins.<name>` in `settings.yaml`. See [Plugins](plugins.md) for each member's interface.
+<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins -->
 
-The planned API extends those files. Each exports `makePlugin(...)` with only the parts it needs: tools agents can call, triggers that match events, actions that apply proposals, a tracker, or a studio page.
+Plugin code runs on the host and needs review. The engine keeps trust, checks and write permissions. Studio page readers receive the instance host for runs and tracker reads. Pages can post local comments and set run labels through the host's typed actions. Opening a page starts no work.
+<!-- code: src/engine.ts#makeInstanceHost studio/src/plugins.ts#runAction -->
 
-This example shows the planned shape. It does not run today:
-
-```ts
-import { Schema } from 'effect';
-import { makePlugin, makeTrigger } from '@jannik-stacks/agi/plugins';
-
-export default makePlugin({
-  name: 'labels',
-  triggers: {
-    ready: makeTrigger({
-      inputSchema: Schema.String,
-      match: (label, event) => event.kind === 'label' && event.label === label,
-      describe: label => `When the ${label} label is added`,
-    }),
-  },
-});
-```
-
-Plugin settings will live under `plugins.<name>` in `settings.yaml`. Plugin code runs on the host and needs review. The engine keeps trust, checks and write permissions. A studio page will pair a browser component with a read-only data reader; opening it will start no work.
+Plugin triggers and proposal actions are planned. The engine's built-in [triggers](workflows.md#what-starts-a-run) and [proposal kinds](proposals.md#kinds) define what workflows can use.
 
 ## Bench
 
-[Bench](bench.md) replays merged changes and compares agents. Today it runs from the clone. Add cases and choose graphs and model settings for a comparison. The planned Bench package will keep its own CLI and add a studio page through the plugin API.
+[Bench](bench.md) replays merged changes and compares agents. It runs from the clone, with a CLI and a built-in studio page plugin. Add cases and choose graphs and model settings for a comparison. <!-- code: studio/src/bench/plugin.ts bin/bench.ts#runArm -->
 
 ## Tune
 
-Tune proposes graph changes, tests them through Bench and keeps the ones that improve results. Today it runs from the clone. Edit a graph and submit it with `node bin/tune.ts propose <tune dir> --from <graph dir> --why <text>`. The planned Tune package will depend on Bench and supply its own CLI and studio page. Neither package will be required to run workflows.
+Tune proposes graph changes, tests them through Bench and keeps the ones that improve results. It runs from the clone. Edit a graph and submit it with `node bin/tune.ts propose <tune dir> --from <graph dir> --why <text>`. Tune uses Bench to evaluate candidates. Workflows run without either tool.
