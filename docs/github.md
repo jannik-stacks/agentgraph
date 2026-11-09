@@ -2,7 +2,7 @@
 
 On GitHub, agentgraph acts as one GitHub App. The runner polls the repo, so the App needs no webhook or tunnel. People start work with `/agent` or `@agent` in a comment, with a trigger label, or by moving an issue's card into a project board column; see [Workflows](workflows.md#what-starts-a-run). Commands such as `/agent:stop` are separate from text, and `commands` in `settings.yaml` limits who may use them; see [Commands](workflows.md#commands).
 
-The App is private and asks for four repository permissions: contents write, pull requests write, issues write and metadata read. It never gets workflows or administration. Commits go through the Git API, so GitHub signs them and a "require signed commits" rule passes. <!-- code: bin/setup-app.ts#makeGithubAppSetupManifest -->
+The App is private and asks for six repository permissions: contents write, pull requests write, issues write, metadata read, checks read and statuses read. It never gets workflows or administration. Commits go through the Git API, so GitHub signs them and a "require signed commits" rule passes. <!-- code: bin/setup-app.ts#makeGithubAppSetupManifest -->
 
 ## Create the App
 
@@ -18,6 +18,8 @@ node bin/setup-app.ts --org acme     # the App belongs to the organization
 3. GitHub sends you to the install page. The command saves `app.env` in `~/.config/agentgraph/<slug>/`, readable only by you.
 4. Pick **Only select repositories**, choose the repo and click **Install**. The runner finds the installation from the repo.
 
+`--name` sets the App name (default `agentgraph`), `--dir` the credentials folder (default `~/.config/agentgraph`), and `--port` the local setup port (default 5189).
+
 <!-- code: bin/setup-app.ts#setupApp -->
 
 Who must approve the install:
@@ -28,9 +30,11 @@ Who must approve the install:
 | the organization | the organization | an organization owner installs it, or a repo admin requests it                                                |
 | your account     | an organization  | a repo admin requests it, and an organization owner approves it under the organization's GitHub Apps settings |
 
+## How it talks to GitHub
+
 Each loop pass shares one open-issue listing and shared event polls across issue ticks. Issues with no prior run share a separate history poll, so their catch-up keeps live runs first. The process keeps scoped installation tokens, ETags and write permissions per App and repo, so they last across passes, refreshed session credentials and rebuilt tracker setups. Conditional requests reuse an ETag only with the token and API version that received it. Whether a login may write is asked once per ten minutes. A rate-limit response holds every request, the limited one included, until GitHub's reset time or retry delay, and logs one warning. <!-- code: src/run/trigger.ts#scanIssuesAndRunningRuns src/services.ts#makeProductionLayers src/github.ts#requester src/github.ts#github -->
 
-The tracker offers `searchIssues(query, { state, limit })` to read this repo's issues through the same requester and text trust rules. Queries take keywords up to 256 characters; search qualifiers, operators and punctuation are stripped. Repository and issue scope stay fixed, and returned repository identities are checked. `state` defaults to `open` and also accepts `closed` or `all`; `limit` defaults to 20 and accepts integers from 1 to 100. The folder tracker matches the keywords in issue titles and bodies for local tests. <!-- code: src/tracker.ts#Tracker src/tracker.ts#parseIssueSearch src/tracker.ts#folderTracker src/github.ts#githubTracker -->
+Agent tools can call the tracker's `searchIssues(query, { state, limit })` to read this repo's issues through the same requester and text trust rules. Queries take keywords up to 256 characters; search qualifiers, operators and punctuation are stripped. Repository and issue scope stay fixed, and returned repository identities are checked. `state` defaults to `open` and also accepts `closed` or `all`; `limit` defaults to 20 and accepts integers from 1 to 100. The folder tracker matches the keywords in issue titles and bodies for local tests. <!-- code: src/tracker.ts#Tracker src/tracker.ts#parseIssueSearch src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
 ## The key
 
@@ -39,7 +43,7 @@ On macOS the private key goes into the login Keychain, which asks before every r
 `with-key` reads the key from the Keychain onto that descriptor and passes the other arguments to `bin/run.ts`. `keychain-import` moves an older `key.pem` into the Keychain and deletes the file.
 
 ```sh
-npm run with-key -- <slug> loop --tracker github --dir examples/sandbox --data ~/agentgraph-data
+npm run with-key -- <slug> loop --instance live --data ~/agentgraph-data
 npm run keychain-import -- <slug>
 ```
 

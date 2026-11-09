@@ -133,10 +133,8 @@ file. `AGENTGRAPH_DATA` selects the root. There is no engine `AGENTGRAPH_PARALLE
 `AGENTGRAPH_BASE` remains a check-script input. `--logs` beats `AGENTGRAPH_CHECK_LOGS` everywhere.
 <!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#start -->
 
-Studio reloads resolve the instance graph and env file again and refresh their watch roots.
-An explicit `--dir` keeps selecting that graph until the studio exits. CLI tracker setup and execution
-use the same selected graph snapshot; stored-data commands do not discover graph plugins.
-CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
+On reload, the studio rereads `instance.yaml` and the env file.
+The `--dir` it started with stays in force.
 <!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->
 
 ### One loop for several instances
@@ -144,7 +142,7 @@ CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
 `agi loop --instance a --instance b` drives both in one process. Outside a repo and without
 `--instance`, it drives every instance whose record says `loop: true`. Each instance keeps its own
 graph, data, lock, tracker, trust, env file, provider and session permits, and its output lines start
-with its name. `--repo`, `--dir`, `--base`, `--tracker` and `--read-only` select one instance, so
+with its name. `--repo`, `--dir`, `--base`, `--tracker`, `--runner` and `--read-only` select one instance, so
 they fail here; put them in each `instance.yaml`. `--parallel <n>` caps drives across all of them.
 The App settings (`AGENTGRAPH_APP_ENV`, `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_APP_KEY_FILE`),
 `AGENTGRAPH_TRACKER`, `AGENTGRAPH_REPO`, `AGENTGRAPH_TRUST`, `AGENTGRAPH_DIR` and `AGENTGRAPH_PROVIDER` belong to one
@@ -171,7 +169,8 @@ fails if the loop exits first.
 `agi stop` sends the loop SIGINT and returns once the loop has let go of the checkout; `--force`
 sends SIGTERM, which ends it at once. Without `--instance` it stops the loop of the repo you are in,
 or outside a repo every loop under the data root. When a loop also serves instances you did not
-name, it refuses and prints the command that names them all. `agi restart` stops, then starts the
+name, it refuses and prints the command that names them all. It also refuses a loop running on
+another host and tells you to stop it there. `agi restart` stops, then starts the
 loop again with `--detach`; outside a repo without `--instance` it restarts the `loop: true`
 instances.
 

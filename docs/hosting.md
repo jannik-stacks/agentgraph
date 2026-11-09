@@ -159,4 +159,6 @@ plugins:
 network: models
 ```
 
-The engine stays on your host with the checkouts; only commands run in Modal. A Modal sandbox has one network for its life, so a box reaches either nothing or the model gateway's addresses. `agi check` refuses a graph that runs sessions on the egress network, sessions beside checks or steps that run commands without network, or a gateway that is not a public HTTPS URL. Boxes left from a crash are terminated when the runner next starts. <!-- code: examples/plugins/modal/modal.ts#makeModalRunner examples/plugins/modal/modal.ts#whyModalRefuses -->
+The `app` plugin setting names the Modal app; its default is `agentgraph`. <!-- code: examples/plugins/modal/modal.ts#makeModalRunner -->
+
+The engine stays on your host with the checkouts; only commands run in Modal. A Modal sandbox has one network for its life, so a box reaches either nothing or the model gateway's addresses. `agi check` refuses a graph with sessions or `setup` without `network: models`, sessions beside checks or steps that run commands without network, or a gateway that is not a public HTTPS URL. At startup, the plugin terminates leftover boxes tagged with this data root only when their checkout is gone. <!-- code: examples/plugins/modal/modal.ts#makeModalRunner examples/plugins/modal/modal.ts#whyModalRefuses -->
