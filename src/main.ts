@@ -198,7 +198,7 @@ export const start = (
               ? {
                   ...s,
                   repo: graph.repo,
-                  trust: graph.trust ?? s.trust,
+                  trust: graph.trust,
                   image: graph.image ?? s.image,
                 }
               : s
