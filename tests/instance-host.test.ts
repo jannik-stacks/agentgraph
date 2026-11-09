@@ -169,6 +169,32 @@ it('refuses a call without a user, even through the same codec or with a forged 
   ]);
 });
 
+it('keeps engine writes to the local CLI and lets a studio user say and label', async () => {
+  const { data } = await makeInstance();
+  const handle = makeActionWebHandler(makeInstanceHost({ data }));
+  const asStudio = <A>(use: Parameters<typeof runActions<A, unknown>>[2]) =>
+    Effect.runPromise(
+      runActions('http://local/', (input, init) => handle(new Request(input, init), 'morgan'), use)
+    ).catch((e: Error) => e.message);
+  expect([
+    await asStudio(client => client.instruct({ kind: 'resume', parked: true })),
+    await asStudio(client => client.review({ issue: 1, verdict: 'approved', text: '' })),
+    await asStudio(client => client.merge({ issue: 1 })),
+    await asStudio(client => client.export({ issue: 1 })),
+    await asStudio(client => client.close({ issue: 1 })),
+    await asStudio(client => client.prune({ apply: true })),
+    await asStudio(client => client.label({ id: 'r1', patch: { arm: 'x' } })),
+  ]).toEqual([
+    'instruct runs only from the agi CLI',
+    'review runs only from the agi CLI',
+    'merge runs only from the agi CLI',
+    'export runs only from the agi CLI',
+    'close runs only from the agi CLI',
+    'prune runs only from the agi CLI',
+    { arm: 'x' },
+  ]);
+});
+
 it('watches runs, sending a list only when it changed', async () => {
   const { data } = await makeInstance();
   const record = join(data, 'r1', 'run.json');

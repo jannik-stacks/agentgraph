@@ -431,6 +431,11 @@ describe('a bench data dir', () => {
       ).toBe('full output');
       const results = await runStudioAction(`${base}/api/actions${q(data)}`, actions => actions.results());
       expect((results as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
+      await expect(
+        runStudioAction(`${base}/api/actions${q(data)}`, actions =>
+          actions.label({ id: 'issue-1', patch: { arm: 'x' } })
+        )
+      ).rejects.toThrow('a bench folder is read-only');
     } finally {
       await server.close();
       vi.unstubAllEnvs();

@@ -163,26 +163,38 @@ export const makeInstanceHost = (
 };
 
 const userHeader = 'x-agentgraph-user';
+const localActions = new Set(['instruct', 'review', 'merge', 'export', 'close', 'prune']);
+const writeActions = new Set([...localActions, 'say', 'label']);
 
 export const makeActionWebHandler = (
   host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>,
-  own: Partial<Pick<ReturnType<typeof makeInstanceHost>['actions'], 'runs' | 'results'>> = {}
+  own: Partial<Pick<ReturnType<typeof makeInstanceHost>['actions'], 'runs' | 'results'>> = {},
+  readOnly = false
 ) => {
   const key = randomUUID();
   const { handler } = HttpRouter.toWebHandler(
     RpcServer.layerHttp({ group: Actions, path: '/', protocol: 'http' }).pipe(
       Layer.provide([
         Actions.toLayer({ ...host.actions, ...own }),
-        Layer.succeed(ActionUser)((effect, { headers }) =>
-          headers[userHeader] === key ? effect : Effect.fail(ActionError.make({ message: 'log in first' }))
-        ),
+        Layer.succeed(ActionUser)((effect, { rpc, headers }) => {
+          const given = headers[userHeader] ?? '';
+          const user = given.startsWith(`${key}:`) ? given.slice(key.length + 1) : '';
+          const why = !user
+            ? 'log in first'
+            : readOnly && writeActions.has(rpc._tag)
+              ? `${rpc._tag} refused: a bench folder is read-only`
+              : user !== 'local' && localActions.has(rpc._tag)
+                ? `${rpc._tag} runs only from the agi CLI`
+                : undefined;
+          return why ? Effect.fail(ActionError.make({ message: why })) : effect;
+        }),
         RpcSerialization.layerNdjson,
       ])
     ),
     { disableLogger: true }
   );
   return (request: Request, user: string | undefined) => {
-    request.headers.set(userHeader, user ? key : '');
+    request.headers.set(userHeader, user ? `${key}:${user}` : '');
     return handler(request);
   };
 };

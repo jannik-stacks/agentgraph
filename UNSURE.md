@@ -72,5 +72,3 @@ Decisions made without being sure. Each names what was picked and what would cha
   middleware is a second gate; dropping it would save about 12 lines.
 - `agi` watch output during a drive resubscribes once a second after a failed store read; no test covers the CLI
   watch output, since it only prints during a live drive.
-- A logged-in studio user can `label` and `prune` a bench `?data=` folder; before the action group, bench
-  folders were read-only.

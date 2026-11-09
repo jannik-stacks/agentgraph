@@ -228,6 +228,8 @@ query/navigation atoms and results components through that browser entry.
 
 The studio serves the instance's actions, the verbs the CLI runs through the same Effect RPC group, as NDJSON
 posts to `/api/actions` behind the [auth](#auth) gate. Every call carries the gate's user and is refused without one.
+A studio user gets the reads, `say` and `label`. Resume, dispatch, review, merge, close, export and prune-logs run
+only from the CLI, and a bench `?data=` folder is read-only.
 <!-- code: src/actions.ts#Actions src/engine.ts#makeActionWebHandler src/engine.ts#runLocalActions studio/fixtures.ts#makeStudioDevApiPlugin studio/src/state.ts#runAction -->
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 

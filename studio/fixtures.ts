@@ -103,7 +103,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
               const run = (yield* keep(id)) ? yield* store.getRecord(id) : undefined;
               return run ? yield* entry(run, true) : null;
             }).pipe(Effect.mapError(e => ActionError.make({ message: e.message })));
-          web = makeActionWebHandler(host, { results, runs });
+          web = makeActionWebHandler(host, { results, runs }, !!bench);
           handlers.set(host, web);
         }
         const response = await web(
