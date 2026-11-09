@@ -14,6 +14,7 @@ import {
   ensureBase,
   writeClosed,
   writeComment,
+  writeLineComment,
   writeReview,
   formatGraphName,
   whyGraphUncommitted,
@@ -155,13 +156,34 @@ await Promise.all(Array.from({ length: 50 }, (_, i) => writeTimelineEvent(proces
     const base = () => git(w.root, '--git-dir', w.origin, 'rev-parse', 'refs/heads/main');
     const before = base();
     const free = await holdLock(w.dir);
-    const merging = mergePull({ tracker: w.dir, owner: 'morgan' }, pr);
+    const merging = mergePull({ tracker: w.dir, owner: 'morgan', data: w.data }, pr);
     await new Promise(done => setTimeout(done, 700));
     expect(base()).toBe(before);
     await free();
     expect(await merging).toMatchObject({ base: 'main', head });
     expect(base()).toBe(head);
-    expect(readFileSync(issuePath(w.dir, 1), 'utf8')).toContain('state: closed');
+  });
+
+  it('merges the pull request a run on the issue opened and closes that issue, whatever digits its branch ends in', async () => {
+    const w = world();
+    await w.tracker('init', w.seed);
+    await w.tracker('issue', 'Fix it');
+    await w.tracker('issue', 'Other');
+    git(w.seed, 'commit', '-q', '--allow-empty', '-m', 'fix');
+    git(w.seed, 'push', '-q', w.origin, 'HEAD:refs/heads/agentgraph/1-2');
+    const head = git(w.seed, 'rev-parse', 'HEAD');
+    const pr = await writeIssueFile(w.dir, { title: 'Fix it', author: 'agentgraph[bot]', labels: [] }, '');
+    writeIssueAt(issuePath(w.dir, pr, 'pull.json'), JSON.stringify({ branch: 'agentgraph/1-2', base: 'main', head }));
+    const graph = await Effect.runPromise(loadGraph(sandboxGraph, harnesses));
+    const run = begin(graph.workflows.issue!, { id: 'issue-1', issue: 1, started: '2026-10-16T00:00:01.000Z' });
+    await Effect.runPromise(
+      Effect.flatMap(Store, s => s.put({ ...run, checkout: { branch: 'agentgraph/1-2', base: 'main' } })).pipe(
+        Effect.provide(fileStore(w.data))
+      )
+    );
+    expect(await mergePull({ tracker: w.dir, owner: 'morgan', data: w.data }, 1)).toMatchObject({ head });
+    const states = [1, 2].map(n => /state: (\w+)/.exec(readFileSync(issuePath(w.dir, n), 'utf8'))?.[1]);
+    expect(states).toEqual(['closed', 'open']);
   });
 
   it('waits for another process moving an issue, for both a comment and a scan', async () => {
@@ -699,8 +721,8 @@ export default { name: 'moved', tracker: host => folder.tracker({ ...host, dir: 
     expect(git(w.seed, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
     expect(looks()).toBe(before);
 
-    await writeComment(i.tracker, i.owner, 1, 'say world', 'hello.txt:1');
-    await writeReview(i.tracker, i.owner, 1, 'changes_requested', 'not quite');
+    await writeLineComment(i, 1, 'say world', 'hello.txt:1');
+    await writeReview(i, 1, 'changes_requested', 'not quite');
     const second = await run([
       [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],

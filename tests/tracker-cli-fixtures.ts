@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach } from 'vitest';
 import { folderTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
-import { mergePull, writeClosed, writeComment, writeReview } from '../src/instance.ts';
+import { mergePull, writeClosed, writeComment, writeLineComment, writeReview } from '../src/instance.ts';
 import { formatIssueList, formatIssueTimeline } from '../src/status.ts';
 import { type Instruction } from '../src/run/trigger.ts';
 import { fileStore } from '../src/store.ts';
@@ -62,13 +62,15 @@ export const makeTrackerWorld = () => {
         return '';
       case 'comment': {
         const line = flag('line');
-        await writeComment(dir, as, n, args.slice(1).join(' '), line);
+        const body = args.slice(1).join(' ');
+        await (line
+          ? writeLineComment({ tracker: dir, owner: as, data }, n, body, line)
+          : writeComment(dir, as, n, body));
         return '';
       }
       case 'review':
         await writeReview(
-          dir,
-          as,
+          { tracker: dir, owner: as, data },
           n,
           args[1] === 'approve' ? 'approved' : 'changes_requested',
           args.slice(2).join(' ')
@@ -78,7 +80,7 @@ export const makeTrackerWorld = () => {
         await writeClosed(dir, as, n);
         return '';
       case 'merge': {
-        const pull = await mergePull({ tracker: dir, owner: as }, n);
+        const pull = await mergePull({ tracker: dir, owner: as, data }, n);
         return `${pull.base} at ${pull.head}`;
       }
       case 'show': {

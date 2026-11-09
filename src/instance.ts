@@ -25,7 +25,7 @@ import { gitIdentity, hostGit, makeHostEnv, readGit } from './git.ts';
 import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
 import { formatInstanceFlags, formatShellWord } from './status.ts';
-import { fileStore, writeFileAtomic } from './store.ts';
+import { fileStore, Store, writeFileAtomic } from './store.ts';
 import { startRun } from './run/start.ts';
 import { type RunRecord } from './types.ts';
 
@@ -311,13 +311,20 @@ export const formatGraphName = async (i: Instance, graph: string) => {
 const readIssues = (dir: string) =>
   Effect.runPromise(Effect.flatMap(Tracker, f => f.issues()).pipe(Effect.provide(folderTracker(dir))));
 
-export const findPull = async (dir: string, n: number) => {
-  const pulls = (await readIssues(dir)).filter(
-    (t): t is Issue & Required<Pick<Issue, 'pull'>> =>
-      !!t.pull && (t.number === n || t.pull.branch === `agentgraph/${n}`)
+const readRuns = (data: string) =>
+  Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(data))));
+
+export const findPull = async (i: Pick<Instance, 'tracker' | 'data'>, n: number) => {
+  const [issues, runs] = await Promise.all([readIssues(i.tracker), readRuns(i.data)]);
+  const branches = new Set(runs.flatMap(r => (r.issue === n && r.checkout?.branch ? [r.checkout.branch] : [])));
+  const pulls = issues.filter(
+    (t): t is Issue & Required<Pick<Issue, 'pull'>> => !!t.pull && (t.number === n || branches.has(t.pull.branch))
   );
   return pulls.find(t => t.state === 'open') ?? pulls.at(-1);
 };
+
+const findBranchIssue = async (i: Pick<Instance, 'data'>, branch: string) =>
+  (await readRuns(i.data)).find(r => r.checkout?.branch === branch)?.issue;
 
 const apply = (dir: string, as: string, n: number, p: Proposal) =>
   Effect.runPromise(writeProposal(n, p).pipe(Effect.provide(folderTracker(dir, as))));
@@ -328,30 +335,40 @@ const writeTrustedEvent = (
   m: Omit<Parameters<typeof writeTimelineEvent>[1], 'actor' | 'trusted'>
 ) => runLocked(dir, () => writeTimelineEvent(dir, { ...m, actor: as, trusted: true }));
 
-export const writeComment = async (dir: string, as: string, n: number, body: string, line?: string) => {
-  if (!line) return apply(dir, as, n, { kind: 'comment', body });
+export const writeComment = (dir: string, as: string, n: number, body: string) =>
+  apply(dir, as, n, { kind: 'comment', body });
+
+export const writeLineComment = async (
+  i: Pick<Instance, 'tracker' | 'owner' | 'data'>,
+  n: number,
+  body: string,
+  line: string
+) => {
   const [, path, at] = /^(.+):(\d+)$/.exec(line) ?? [];
   if (!path) throw new Error('--line takes <path>:<line>');
-  const pull = await findPull(dir, n);
+  const pull = await findPull(i, n);
   if (!pull) throw new Error(`#${n} has no pull request`);
-  await writeTrustedEvent(dir, as, { issue: pull.number, kind: 'comment', comment: { body, path, line: Number(at) } });
+  await writeTrustedEvent(i.tracker, i.owner, {
+    issue: pull.number,
+    kind: 'comment',
+    comment: { body, path, line: Number(at) },
+  });
 };
 
-export const findPullIssue = async (i: Pick<Instance, 'tracker'>, n: number) => {
-  const branch = (await findPull(i.tracker, n))?.pull.branch ?? '';
-  return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
+export const findPullIssue = async (i: Pick<Instance, 'tracker' | 'data'>, n: number) => {
+  const pull = await findPull(i, n);
+  return (pull && (await findBranchIssue(i, pull.pull.branch))) ?? n;
 };
 
 export const writeReview = async (
-  dir: string,
-  as: string,
+  i: Pick<Instance, 'tracker' | 'owner' | 'data'>,
   n: number,
   verdict: 'approved' | 'changes_requested',
   text: string
 ) => {
-  const pull = await findPull(dir, n);
+  const pull = await findPull(i, n);
   if (!pull || pull.state !== 'open') throw new Error(`#${n} has no open pull request`);
-  await writeTrustedEvent(dir, as, { issue: pull.number, kind: verdict, comment: { body: text } });
+  await writeTrustedEvent(i.tracker, i.owner, { issue: pull.number, kind: verdict, comment: { body: text } });
 };
 
 export const writeLabels = (dir: string, as: string, n: number, add: string[]) =>
@@ -366,9 +383,9 @@ export const writeClosed = (dir: string, as: string, n: number) =>
     await writeTrustedEvent(dir, as, { issue: n, kind: 'closed' });
   });
 
-export const mergePull = (i: Pick<Instance, 'tracker' | 'owner'>, n: number) =>
+export const mergePull = (i: Pick<Instance, 'tracker' | 'owner' | 'data'>, n: number) =>
   runLocked(i.tracker, async () => {
-    const pr = await findPull(i.tracker, n);
+    const pr = await findPull(i, n);
     if (!pr || pr.state !== 'open') throw new Error(`#${n} has no open pull request`);
     const { base, branch, head } = pr.pull;
     const at = await inTracker(i, ['rev-parse', `refs/heads/${base}`]);
@@ -380,8 +397,8 @@ export const mergePull = (i: Pick<Instance, 'tracker' | 'owner'>, n: number) =>
     for (const t of open)
       if (t.pull?.base === branch)
         writeFileAtomic(join(findIssueDir(i.tracker, t.number), 'pull.json'), { ...t.pull, base });
-    const issue = Number(/(\d+)$/.exec(branch)?.[1]);
-    if (open.some(t => t.number === issue)) await writeClosed(i.tracker, i.owner, issue);
+    const issue = await findBranchIssue(i, branch);
+    if (issue !== undefined && open.some(t => t.number === issue)) await writeClosed(i.tracker, i.owner, issue);
     return pr.pull;
   });
 
@@ -390,7 +407,7 @@ export const writePullToRepo = async (
   n: number,
   to: { as?: string; patch?: string; auto?: boolean } = {}
 ): Promise<{ ref: string; base: string; stat: string } | { why: string } | undefined> => {
-  const pr = await findPull(i.tracker, n);
+  const pr = await findPull(i, n);
   if (!pr) return undefined;
   const { branch, base, head } = pr.pull;
   const stat = await inTracker(i, ['diff', '--stat', '--no-ext-diff', '--no-textconv', `refs/heads/${base}...${head}`]);
