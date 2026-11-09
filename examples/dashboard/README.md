@@ -1,48 +1,32 @@
 # Dashboard experiment
 
-This clone-only example adds a live studio dashboard through a graph plugin.
-It adds no engine service, storage or npm dependency.
-Its charts are plain SVG drawn with d3-scale, which the studio provides to page plugins.
+This clone-only example adds configurable studio widgets through a plugin. It reads instance hosts and uses the studio's shared UI and live connection.
 
-Copy `plugins/dashboard.ts` and `plugins/dashboard/` into your graph's `plugins/` folder.
-They use the public plugin entry and the `InstanceHost` type from `@jannik-stacks/agi/plugins`.
-Copy the `plugins.dashboard` block from settings.yaml into your graph's settings.yaml.
-The page reads runs and tracker events through the instance host. There is no `data` setting in `plugins.dashboard`.
+Copy `plugins/dashboard.ts`, `plugins/dashboard/` and the `plugins.dashboard` settings into your graph. From `studio/`, preview it with:
 
-Run `npm run dev -- --dir ../examples/dashboard --data /path/to/instance/data`
-from `studio/` to read a run store. For the issues widget, use instance mode:
-`npm run dev -- --instance <name> --dir ../examples/dashboard`.
-The instance supplies the tracker.
-Open `/plugins/dashboard`, or choose Dashboard in the header.
-For named instances the page is `/<instance>/plugins/dashboard`.
-To show every served instance on one page, pass this folder as the studio's plugins instead:
-`npm run dev -- --instance a --instance b --plugins ../examples/dashboard`.
-The page is then `/plugins/dashboard`, with one section per instance.
-Restart after changing plugin code. Settings changes reload through the studio.
+```sh
+npm run dev -- --instance <name> --dir ../examples/dashboard
+```
 
-Each widget needs `title`, `type`, `source` and `days`.
-Types are `counter`, `line`, `bar` and `table`.
-Sources are `runs`, `checks`, `tokens`, `cost` and `issues`.
-Optional `workflow` and `step` select one workflow or step; `issues` takes neither.
-There can be at most 24 widgets, each covering 1 to 90 UTC days, including today.
-Unknown keys and source names fail validation.
+The page lives at `/<instance>/plugins/dashboard`. For a standalone run store, use `--dir ../examples/dashboard --data /path/to/data`; issues widgets need an instance tracker.
 
-Runs show their current state, grouped by start day. They do not reconstruct past states.
-A run's step filter selects its current step.
-Checks count all pass and fail attempts by check day, including repeated checks.
-Tokens sum input and output usage events by event day. Input includes cached tokens.
-Cost sums reported USD from usage events. Missing prices count as visible skips.
-Cost excludes command checks and other charges without usage events.
-Usage and check step filters select the recorded event's step.
-Issues count tracker comments, closes and merges by event day. Instance mode supplies the tracker. Without one, the widget shows a skip and its reason.
-Checks and usage from runs started before the window still count.
-Each chart has a daily values table. Empty days show zero.
+To read several served instances on one page:
 
-The existing studio connection refreshes the snapshot when the instance's run data changes.
-Tracker events alone do not refresh it. Tracker reads are cached for one minute.
-The reader uses each instance host's store and tracker.
-No polling or new history file is needed.
-Time windows advance on the next data refresh.
-The reader scans the store on each refresh. Keep this experiment to modest stores.
-It reads runs, all check attempts when needed, traces only for usage widgets,
-and tracker events since the longest issues window.
+```sh
+npm run dev -- --instance a --instance b --plugins ../examples/dashboard
+```
+
+That page lives at `/plugins/dashboard`. Restart after code changes; settings reload through the studio.
+
+Each widget requires `title`, `type`, `source` and `days`:
+
+| Setting | Values |
+| --- | --- |
+| `type` | `counter`, `line`, `bar`, `table` |
+| `source` | `runs`, `checks`, `tokens`, `cost`, `issues` |
+| `days` | 1 to 90 UTC days, including today |
+| `workflow`, `step` | Optional filters, except for issues |
+
+At most 24 widgets are allowed; unknown settings fail validation. Runs show current states by start day; checks count all attempts by check day. Tokens include cached input; cost includes reported usage only. Missing prices or trackers show counted skips with reasons.
+
+Run-data changes refresh the page; tracker events alone do not. Tracker reads cache for a minute. The reader scans the store on refresh, so use modest stores.
