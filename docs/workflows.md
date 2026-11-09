@@ -63,7 +63,7 @@ With several comment workflows, `/agent` starts the first. Comments without the 
 
 ### Commands
 
-`/agent <text>` is always text: a start, an answer or feedback, whatever its first word. A command joins its words to `/agent` with colons and no spaces: <!-- code: src/workflow.ts#pickCommandTarget src/tracker.ts#makeCommentWithAgentRequest -->
+`/agent <text>` is always text: a start, an answer or feedback, whatever its first word. A command joins its words to `/agent` with colons and no spaces: <!-- code: src/workflow.ts#pickCommandTarget src/workflow.ts#commandVerbs src/tracker.ts#makeCommentWithAgentRequest -->
 
 | Comment                              | What it does                                                     |
 | ------------------------------------ | ---------------------------------------------------------------- |
@@ -74,7 +74,7 @@ With several comment workflows, `/agent` starts the first. Comments without the 
 | `/agent:<workflow> [text]`           | Starts that comment workflow, or answers its live run            |
 | `/agent:<workflow>:restart[:<step>]` | Starts that comment workflow again                               |
 
-`commands` in `settings.yaml` says who may use each command; a workflow pick counts under the workflow's name. `true` or no entry lets everyone in `trust` use it, `false` turns it off, and a list of logins keeps it to those trusted logins. The gate holds for every command, from a comment, `agi say` or a router `tell`. A command the router passes on counts as said by the router run, so a list of logins keeps it from the router. <!-- code: src/folder.ts#Graph -->
+`commands` in `settings.yaml` says who may use each command; a workflow pick counts under the workflow's name. `true` or no entry lets everyone in `trust` use it, `false` turns it off, and a list of logins keeps it to those trusted logins. The gate holds for every command, from a comment, `agi say` or a router `tell`. A command the router passes on counts as said by the router run, so a list of logins keeps it from the router. <!-- code: src/workflow.ts#pickCommandTarget src/workflow.ts#CommandSettings -->
 
 ```yaml
 commands:
@@ -84,7 +84,7 @@ commands:
 
 A command goes to one run, even beside a router: the newest run that was live when it was said, a router run only when the issue has no other, or the live run of the workflow it names. A restart starts that run's workflow again once no run of it is live, or the issue's newest workflow when none was live. When the newest pull request of the last run's branch was closed without merging, the new run works on a fresh branch from the base: the template name with the first free `-2`, `-3` suffix. The old branch and pull request stay as they are. The first session sees the closed pull request and how its run ended, and the new pull request says `Replaces #n`. Otherwise a new run keeps the branch of the last run. <!-- code: src/run/drive.ts#runWorkflow src/run/hear.ts#readEarlierBranch src/run/attempt.ts#pickTryOutcome -->
 
-A command that is unknown, names an unknown step, or is turned off or kept from its author does nothing and is not feedback. The engine answers it once on the issue with why, and with the valid commands for an unknown one. A refused `tell` fails the router's proposal with the same reason, and so does a `tell` that names a workflow with no live run. `agi check` fails a workflow named `stop`, `cancel` or `restart`, and a `commands` entry that names neither a command nor a comment workflow. <!-- code: src/run/trigger.ts#tick src/workflow.ts#compileWorkflow -->
+A command that is unknown, names an unknown step, or is turned off or kept from its author does nothing and is not feedback. The engine answers it once on the issue with why, and with the valid commands for an unknown one. A refused `tell` fails the router's proposal with the same reason, and so does a `tell` that names a workflow with no live run. `agi check` fails a workflow named `stop`, `cancel` or `restart`, and a `commands` entry that names neither a command nor a comment workflow. <!-- code: src/run/trigger.ts#tick src/workflow.ts#compileWorkflow src/workflow.ts#commandVerbs src/folder.ts#compile -->
 
 A comment that asks for no work can end the run after one session that only comments, or proposes nothing when a later reply already settles it. The session sees the comment's review thread before and after it. That works without a branch, with an open pull request, or after a finished run of that workflow. Otherwise a first session that may push fails when it changed nothing. <!-- code: src/context.ts#formatRequest src/run/attempt.ts#pickTryOutcome -->
 
@@ -100,7 +100,7 @@ on: { issues: { column: Agent Ready, project: jannik-stacks/1 } } # only this bo
 on: { issues: { label: agent:ready, column: Agent Ready } } # the column adds the label
 ```
 
-GitHub does not say who moved a card, so the board is what is trusted: a board the repo owner owns, or the one `project` names. A card on anyone else's board starts nothing, since anyone can add a public issue to a board of their own.
+GitHub does not say who moved a card, so the board is what is trusted: a board the repo owner owns, or the one `project` names. A card on anyone else's board starts nothing, since anyone can add a public issue to a board of their own. <!-- code: src/workflow.ts#issueSources -->
 
 With both `label` and `column`, either starts the run, and a run started from the column puts the label on the issue. The label stays the one visible sign of agent work, and removing it stops the run as before. Moving the card out of the column does not stop a run. `examples/board` and `examples/board-label` show both. <!-- code: src/run/trigger.ts#tick -->
 
@@ -119,7 +119,7 @@ plugins:
 
 ## Trust and scope
 
-Owners, members and collaborators steer the bot; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins, read at startup. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. Locally, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker -->
+Owners, members and collaborators steer the bot; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins, read at startup. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. Locally, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker src/settings.ts#getSettings src/harnesses.ts#readOverrides -->
 
 The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels, except an `XL` part the engine [triages again](proposals.md#filing-issues). `milestone` limits new runs to issues in that milestone. <!-- code: src/run/check.ts#runStepChecks src/run/hear.ts#isInScope -->
 
@@ -155,15 +155,15 @@ The live run on that issue hears the text as a maintainer comment: feedback, an 
 
 The agent's body becomes the system prompt; opencode uses it in place of its base prompt, the others append it. The prompt holds the skill and its `uses`, the workflow body, the issue, the pull request and reviews, the target branch, `until`, the step's checks, feedback and the allowed proposals. A fresh session of a step with `back` also sees the branch diff. <!-- code: src/context.ts#context -->
 
-Every minute the engine writes new issue activity to a news file, which agents with `read` read before finishing. The news file is `/news/news.md` in the sandbox. A resumed session gets only feedback, new context and that path. <!-- code: src/context.ts#news -->
+Every minute the engine writes new issue activity to a news file, which agents with `read` read before finishing. The news file is `/news/news.md` in the sandbox. A resumed session gets only feedback, new context and that path. <!-- code: src/context.ts#news src/sandbox.ts#inside -->
 
 ## Tries and going back
 
-Set `carry: true` on a step to pass its successful reply text, without proposal blocks, to the next step under `## What the <step> step reported`. Steps omit replies by default; carried text stays in the run record, outside the checkout, and `/agent:restart:<step>` at the next step gets it again. <!-- code: src/run/trigger.ts#tick src/workflow.ts#transition -->
+Set `carry: true` on a step to pass its successful reply text, without proposal blocks, to the next step under `## What the <step> step reported`. Steps omit replies by default; carried text stays in the run record, outside the checkout, and `/agent:restart:<step>` at the next step gets it again. <!-- code: src/run/trigger.ts#tick src/workflow.ts#transition src/workflow.ts#StepFile -->
 
 Failed checks or proposals retry in the same session with the findings as feedback, answered in code, not in a comment. When `tries` run out, the run waits and says why. <!-- code: src/workflow.ts#transition -->
 
-`back: implement` lets a step send the run back with a reason. An agent step with `back` also needs `until`. `rounds` caps the returns, then the run waits. Going forward starts a fresh session; going back resumes the earlier one.
+`back: implement` lets a step send the run back with a reason. An agent step with `back` also needs `until`. `rounds` caps the returns, then the run waits. Going forward starts a fresh session; going back resumes the earlier one. <!-- code: src/workflow.ts#compileWorkflow src/workflow.ts#transition -->
 
 At a `wait: human` step with `back`, a review requesting changes goes back with its line comments. Approval, an `approved` label or a merge passes the step. Other `/agent` comments go to an [aside](#asides). <!-- code: src/workflow.ts#getEventOutcome -->
 
@@ -193,7 +193,7 @@ A stacked run records its parent pull request in `base`. After a refused follow,
 
 Runs waiting at a human step are compared with their base and the graph version. A run with an open pull request that is done, or waits at another step, follows its base too, by the `follow` of its workflow's last human step. It runs no checks, keeps its state on a clean follow, and on a conflict goes back from that step. A parked run, a run already sent back onto a new base, and a run of an older restart do not catch up. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp -->
 
-If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts.
+If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts. <!-- code: src/run/follow.ts#runCatchUp src/folder.ts#loadGraph -->
 
 A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. Setup runs before the markers land. A second conflict at the same base asks for a manual update. <!-- code: src/run/follow.ts#moveCheckoutOnto src/run/drive.ts#runWorkflow -->
 
@@ -209,7 +209,7 @@ The engine reads the body right before each edit and replaces only the section b
 
 The only new comment the engine posts on its own is a [question](#waiting), when a run needs someone, since a question must notify. It goes on the issue until the run has a pull request, then on the pull request. Steps, tries and checks stay silent; the studio shows them, with the cost. Workflows without a `branch`, such as a router or triage, speak only through their own replies and questions. <!-- code: src/context.ts#proposeQuestion -->
 
-The `status` setting renames the labels, or the folders. A status missing from the map gets no label, and the others are still cleared. `status: false` turns status labels off; status hooks still fire. A folder tracker's default names are the bare statuses, since `:` is not valid in a Windows path.
+The `status` setting renames the labels, or the folders. A status missing from the map gets no label, and the others are still cleared. `status: false` turns status labels off; status hooks still fire. A folder tracker's default names are the bare statuses, since `:` is not valid in a Windows path. <!-- code: src/folder.ts#GraphSettings src/tracker.ts#makeStatusLabel -->
 
 ```yaml
 # .agentgraph/settings.yaml

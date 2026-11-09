@@ -13,7 +13,7 @@ A repo keeps its graph in `.agentgraph/`: Markdown files whose frontmatter the e
   plugins/issues.ts      reviewed tools, hooks and host plugins
 ```
 
-`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#loadGraph -->
+`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#loadGraph src/folder.ts#compile src/folder.ts#retiredIn src/workflow.ts#compileWorkflow -->
 
 Nothing here is stable yet; `CHANGELOG.md` lists renames and removals.
 
@@ -29,11 +29,11 @@ Without a graph, the engine stops and tells you how to copy an example. See [Fir
 
 To keep a private graph out of a team repo, add `.agentgraph/` to `.git/info/exclude`. Git then ignores it without a change to `.gitignore`, and every command reads it from disk. <!-- code: src/instance.ts#formatGraphName -->
 
-A committed graph with symlinks or submodules is refused. The loop reads `.agentgraph/` from the instance base branch on every pass, so a pull request's graph changes apply once they reach that branch in the instance checkout. Inside the sandbox `AGENTGRAPH_DIR` names the read-only copy of the graph. <!-- code: src/instance.ts#ensureGraph bin/run.ts#serve -->
+A committed graph with symlinks or submodules is refused. The loop reads `.agentgraph/` from the instance base branch on every pass, so a pull request's graph changes apply once they reach that branch in the instance checkout. Inside the sandbox `AGENTGRAPH_DIR` names the read-only copy of the graph. <!-- code: src/instance.ts#ensureGraph bin/run.ts#serve src/sandbox.ts#inside -->
 
 ## settings.yaml
 
-<!-- code: src/folder.ts#GraphSettings -->
+<!-- code: src/folder.ts#GraphSettings src/docker.ts#sandboxImage src/workflow.ts#CommandSettings src/workflow.ts#commandVerbs src/event.ts#issueStatuses src/tracker.ts#makeStatusLabel src/services.ts#pickAuth src/plugin.ts#readPlugins -->
 
 | Field       | Type                                                            | Default                    | Meaning                                                                       |
 | ----------- | --------------------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------- |
@@ -49,7 +49,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `plugins`   | map                                                             | none                       | Settings decoded by each [plugin's](plugins.md) `settingsSchema`              |
 | `limits`    | map                                                             | below                      | Caps on a run                                                                 |
 
-`limits`: <!-- code: src/folder.ts#Limits -->
+`limits`: <!-- code: src/folder.ts#Limits src/workflow.ts#CommandLimits src/docker.ts#limits -->
 
 | Field         | Type               | Default | Meaning                                                                                                              |
 | ------------- | ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -60,13 +60,13 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `parallel`    | integer            | 2       | Concurrent runs; router runs take no slot                                                                            |
 | `sessions`    | integer            | 4       | Concurrent sessions and scripts of one instance, judges included <!-- code: src/run/execute.ts#sessionPermitsRef --> |
 
-Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). Remote boxes reject resource overrides. Step `limits` override only the named fields; other steps keep the graph limits.
+Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). Remote boxes reject resource overrides. Step `limits` override only the named fields; other steps keep the graph limits. <!-- code: src/workflow.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks -->
 
 Sessions, script checks, fan-out commands and setup share permits. Each releases its permit before checks or judges start. In `agi loop`, each instance has its own permits; other commands share one set, sized by the graph in use. Check findings still return together after every check settles. <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#sessionPermitsRef src/run/check.ts#runStepChecks -->
 
 ## Workflows
 
-`workflows/<name>.md`, named by its file. The body describes it, or is the prompt of its single step. <!-- code: src/workflow.ts#Front -->
+`workflows/<name>.md`, named by its file. The body describes it, or is the prompt of its single step. <!-- code: src/workflow.ts#Front src/workflow.ts#compileWorkflow -->
 
 | Field         | Type                           | Default                                       | Meaning                                                                         |
 | ------------- | ------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -93,7 +93,7 @@ The `issues`, `issue_comment` and `pull_request` triggers hold: <!-- code: src/w
 
 ## Steps
 
-A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.ts#StepFile -->
+A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.ts#StepFile src/workflow.ts#compileWorkflow -->
 
 | Field     | Type                                     | Default                                          | Meaning                                                                              |
 | --------- | ---------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------ |
@@ -125,7 +125,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 ## Checks
 
-`checks/<name>.md`, with `run`, `agent` or both. The body is its description; see [Checks and results](checks.md). <!-- code: src/folder.ts#Check -->
+`checks/<name>.md`, with `run`, `agent` or both. The body is its description; see [Checks and results](checks.md). <!-- code: src/folder.ts#Check src/result.ts#CheckMode src/run/checkout.ts#findFanOutItems src/run/checkout.ts#most -->
 
 | Field     | Type                              | Default        | Meaning                                               |
 | --------- | --------------------------------- | -------------- | ----------------------------------------------------- |
@@ -138,7 +138,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `pass`    | JSON Schema subset                | `pass` is true | The results that pass; not on `info`                  |
 | `reads`   | `traces`                          | none           | Needs only the run's traces, so it runs on old runs   |
 
-The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`, `minimum`, `maximum` and `description`. A number field may name a display `unit`: `usd`, `minutes`, `seconds`, `tokens` or `share`.
+The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`, `minimum`, `maximum` and `description`. A number field may name a display `unit`: `usd`, `minutes`, `seconds`, `tokens` or `share`. <!-- code: src/result.ts#ResultType -->
 
 ## Skills
 

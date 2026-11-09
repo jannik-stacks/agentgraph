@@ -2,7 +2,7 @@
 
 A check looks at a try, or at an ended run, and records a result. After a session, the step's checks run in parallel and their findings come back together as feedback. <!-- code: src/run/check.ts#runStepChecks -->
 
-A check has a `run` script, an `agent` judge, or both; [the graph folder](reference.md#checks) lists the fields.
+A check has a `run` script, an `agent` judge, or both; [the graph folder](reference.md#checks) lists the fields. <!-- code: src/folder.ts#Check src/result.ts#CheckMode -->
 
 | Mode    | On failure                                               |
 | ------- | -------------------------------------------------------- |
@@ -13,9 +13,9 @@ A check has a `run` script, an `agent` judge, or both; [the graph folder](refere
 
 ## Results
 
-A result is a JSON object of the shape the check's `returns` describes. Without `returns` it is `{pass, why}`: `pass` is a boolean and `why` holds the findings.
+A result is a JSON object of the shape the check's `returns` describes. Without `returns` it is `{pass, why}`: `pass` is a boolean and `why` holds the findings. <!-- code: src/result.ts#defaultReturns -->
 
-A result passes when it matches `returns` and `pass`, and its script exited 0. `pass` is written like `returns` and defaults to `{ properties: { pass: { const: true } } }`, so a threshold is a `minimum` or `maximum`. `why` never decides, and an `info` check takes no `pass`.
+A result passes when it matches `returns` and `pass`, and its script exited 0. `pass` is written like `returns` and defaults to `{ properties: { pass: { const: true } } }`, so a threshold is a `minimum` or `maximum`. `why` never decides, and an `info` check takes no `pass`. <!-- code: src/result.ts#defaultPass src/result.ts#findMismatch src/result.ts#whyPassUndecided -->
 
 ```yaml
 mode: block
@@ -24,15 +24,15 @@ pass: { properties: { calls: { maximum: 40 } } }
 run: jq -cs '{calls: map(select(.event.type == "tool")) | length}' "$AGENTGRAPH_RUN_TRACE"
 ```
 
-Without `returns`, a script's exit 0 passes and its output is the findings. With `returns`, its last printed line is the result.
+Without `returns`, a script's exit 0 passes and its output is the findings. With `returns`, its last printed line is the result. <!-- code: src/result.ts#readScriptResult -->
 
-A check with its own `returns` keeps the result as its `value`, such as `{calls: 12}`; one with `each` keeps the `share` of items that passed.
+A check with its own `returns` keeps the result as its `value`, such as `{calls: 12}`; one with `each` keeps the `share` of items that passed. <!-- code: src/workflow.ts#CheckResult -->
 
-A result that cannot be read or does not match `returns` fails the check, except in `info` mode. A `block` check therefore blocks the step. Such results, and unanswered items, are marked `empty` so they stay out of score averages. `empty` does not make a failed check pass. <!-- code: src/run/check.ts#runOneCheck src/run/check.ts#runStepChecks -->
+A result that cannot be read or does not match `returns` fails the check, except in `info` mode. A `block` check therefore blocks the step. Such results, and unanswered items, are marked `empty` so they stay out of score averages. `empty` does not make a failed check pass. <!-- code: src/run/check.ts#runOneCheck src/run/check.ts#runStepChecks src/workflow.ts#CheckResult -->
 
 ## Judges
 
-A judge reads the diff, the item or the script's output, and calls the `result` tool, whose input is `returns`; a call that does not match is refused with the reason. A judge that stops without a result is asked once more, and one that crashes is retried once. If none comes, a `block` or `stop` check parks the run as a runner error, and an `info` or `warn` check records it. <!-- code: src/run/execute.ts#runJudge src/result.ts#makeResultServer -->
+A judge reads the diff, the item or the script's output, and calls the `result` tool, whose input is `returns`; a call that does not match is refused with the reason. A judge that stops without a result is asked once more, and one that crashes is retried once. If none comes, a `block` or `stop` check parks the run as a runner error, and an `info` or `warn` check records it. <!-- code: src/run/execute.ts#runJudge src/result.ts#makeResultServer src/result.ts#resultTool src/result.ts#getRecordedResult -->
 
 With `each`, a judge answers every item on its own, and any failed item fails the check. No items passes; more than `max` fail as one finding that lists the first line of each item; findings are shortened per item, so every failed item reaches the agent; a failing slicer command fails with its output.
 
@@ -40,7 +40,7 @@ Judges start fresh. Within a run, a passed item is reused while the diff and pro
 
 ## Script variables
 
-Scripts run in the checkout, without network, with these variables: <!-- code: src/run/check.ts#runOneCheck -->
+Scripts run in the checkout, without network, with these variables: <!-- code: src/run/check.ts#runOneCheck src/run/check.ts#makeScriptEnv src/run/check.ts#getCheckFiles src/run/check.ts#getTraceFiles -->
 
 | Variable               | Contents                                                        | Given to                                     |
 | ---------------------- | --------------------------------------------------------------- | -------------------------------------------- |
@@ -68,9 +68,9 @@ A `reads: traces` check gets an empty folder beside the run's traces, so it work
 
 ## The Results tab
 
-The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result, and its labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage -->
+The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result, and its labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage src/results.ts#ResultSheet src/trace.ts#findLatestChecks -->
 
-The table has one row per result field: runs that gave it, failed results, values outside `pass`, the median, one dot per run, and a trend. `by` splits a field by workflow, model, tune or another dimension, and a field's `unit` sets how it reads. Runs that ended before any step passed or session started are dead and hidden by default. The chart draws a field against time, order, a dimension or another field, one dot per run.
+The table has one row per result field: runs that gave it, failed results, values outside `pass`, the median, one dot per run, and a trend. `by` splits a field by workflow, model, tune or another dimension, and a field's `unit` sets how it reads. Runs that ended before any step passed or session started are dead and hidden by default. The chart draws a field against time, order, a dimension or another field, one dot per run. <!-- code: src/results.ts#findCheckFields bin/results.ts#findDeadReason -->
 
 A run's page shows the gates that failed, with the fields past their limit, then every field's value, marked "at run end" or "checked later".
 
