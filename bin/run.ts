@@ -66,7 +66,7 @@ import {
   whyRunnerRefuses,
 } from '../src/services.ts';
 import { fileStore, pruneLogs, Store, writeIdleRunsCompressed } from '../src/store.ts';
-import { parseLabelPatch, parseLabels, readRunLabels, writeRunLabels } from '../src/labels.ts';
+import { parseLabelPatch, parseLabels, writeStoredRunLabels } from '../src/labels.ts';
 import type { Run, RunRecord } from '../src/workflow.ts';
 
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
@@ -107,12 +107,8 @@ const startLabels = (() => {
 })();
 const relabel = async (data: string) => {
   const [id = '', ...words] = rest;
-  if (!(await Effect.runPromise(Effect.flatMap(Store, s => s.getRecord(id)).pipe(Effect.provide(fileStore(data))))))
-    fail(`no run ${id || '<run id>'} in ${data}`);
   try {
-    const labels = words.length
-      ? await Effect.runPromise(writeRunLabels(data, id, parseLabelPatch(words)))
-      : readRunLabels(data, id);
+    const labels = await Effect.runPromise(writeStoredRunLabels(data, id, parseLabelPatch(words)));
     for (const [key, value] of Object.entries(labels)) console.log(`${key}=${value}`);
   } catch (e) {
     fail((e as Error).message);
@@ -449,8 +445,8 @@ async function runOnInstance(
   graph: string
 ) {
   trackerSetup = setup;
-  const { trust } = current;
-  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, setup.layer(trust, i.owner)));
+  const layer = setup.layer(current.trust, i.owner);
+  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, layer));
   const synced = async () => {
     const why = setup.origin.local && (await ensureBase(i));
     if (why) fail(why, 1);
@@ -491,8 +487,8 @@ async function runOnInstance(
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
       if (values.line) await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
       else
-        await Effect.runPromise(writeAgentComment(n, said()).pipe(Effect.provide(setup.layer(trust, i.owner)))).catch(
-          (e: Error) => fail(e.message)
+        await Effect.runPromise(writeAgentComment(n, said()).pipe(Effect.provide(layer))).catch((e: Error) =>
+          fail(e.message)
         );
       if (values.label)
         await Effect.runPromise((await getTracker()).apply(issue, { kind: 'label', add: values.label, remove: [] }));

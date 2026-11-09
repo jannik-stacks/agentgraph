@@ -18,6 +18,7 @@ import {
   formatIssueFile,
   parseIssueFile,
   runLocked,
+  writeProposal,
   writeTimelineEvent,
 } from './tracker.ts';
 import { gitIdentity, hostGit, makeHostEnv, readGit } from './git.ts';
@@ -318,12 +319,8 @@ export const findPull = async (dir: string, n: number) => {
   return pulls.find(t => t.state === 'open') ?? pulls.at(-1);
 };
 
-const apply = async (dir: string, as: string, n: number, p: Proposal) => {
-  const applied = await Effect.runPromise(
-    Effect.flatMap(Tracker, f => f.apply(n, p)).pipe(Effect.provide(folderTracker(dir, as)))
-  );
-  if (!applied.ok) throw new Error(applied.reason);
-};
+const apply = (dir: string, as: string, n: number, p: Proposal) =>
+  Effect.runPromise(writeProposal(n, p).pipe(Effect.provide(folderTracker(dir, as))));
 
 const writeTrustedEvent = (
   dir: string,
