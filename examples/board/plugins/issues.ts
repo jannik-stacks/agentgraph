@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import { makePlugin, tool } from '../../../src/plugin.ts';
+import { makePlugin, tool } from '@jannik-stacks/agi/plugins';
 
 export default makePlugin({
   name: 'issues',
