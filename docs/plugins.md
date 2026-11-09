@@ -154,8 +154,9 @@ fork: `status: false` in settings.yaml.
 
 ## Runners
 
-A plugin can provide `runner` instead of tools. It receives the host, `{ data, image, cache, direct }`, and its own
-settings, and returns a layer that provides the `Runner`: `open` starts a box for one checkout and `whyRefused` names
+A plugin can provide `runner` instead of tools. It receives the host, `RunnerHost` (`{ data, image, cache, direct }`),
+and its own settings, and returns a layer that provides the `Runner`; the engine checks that it does when it builds
+the layer: `open` starts a box for one checkout and `whyRefused` names
 what in a graph it cannot run. `makeBoxRunner` in `@jannik-stacks/agi/runners` builds one from two calls, `op` for the
 `box.sh` steps and `run` for a command, so a plugin only moves bytes. Pick it with `--runner <name>`,
 `AGENTGRAPH_RUNNER` or `runner:` in instance.yaml. Only plugins of a graph the host reads count, like trackers, and

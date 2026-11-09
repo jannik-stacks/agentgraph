@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { ConfigProvider, Effect, Schema } from 'effect';
+import { ConfigProvider, Effect, Layer, Schema } from 'effect';
 import { asSchema } from 'ai';
 import { loadGraph } from '../src/folder.ts';
-import { makePlugin, readPlugins, tool } from '../src/plugin.ts';
+import { makePlugin, readPlugins, type RunnerHost, tool } from '../src/plugin.ts';
+import { Runner } from '../src/sandbox.ts';
 import { whyRunnerRefuses } from '../src/services.ts';
 import { makeTestGraph } from './fixtures.ts';
 
@@ -499,5 +500,21 @@ export default { name: 'mine', runner: () => Layer.succeed(Runner, { open: () =>
     expect(await why('github')).toBe('plugin github has no runner');
     expect(await why('nope')).toBe('no runner plugin nope; runners: local, box');
     expect(await why('box')).toContain('the box runner needs');
+  });
+
+  it('refuses a runner whose layer provides no Runner', async () => {
+    const dir = await makePluginDir({
+      'plugins/mine.ts': `import { Layer } from '${import.meta.resolve('effect')}';\nexport default { name: 'mine', runner: () => Layer.empty };\n`,
+    });
+    await writeFile(join(dir, 'settings.yaml'), 'plugins: {}\n');
+    expect(await why('mine', dir)).toBe('runner mine provides no Runner');
+  });
+
+  it('types the runner host and the layer a runner returns', () => {
+    type Member = NonNullable<Parameters<typeof makePlugin>[0]['runner']>;
+    const runner = Layer.succeed(Runner, { open: () => Effect.die('unused') });
+    expectTypeOf<(host: Pick<RunnerHost, 'data'>) => typeof runner>().toExtend<Member>();
+    expectTypeOf<(host: { url: string }) => typeof runner>().not.toExtend<Member>();
+    expectTypeOf<(host: RunnerHost) => string>().not.toExtend<Member>();
   });
 });

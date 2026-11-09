@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { lookup } from 'node:dns/promises';
 import { Config, Effect, Layer, Option, Redacted, Schema, Stream } from 'effect';
 import { makePlugin } from '@jannik-stacks/agi/plugins';
-import { makeBoxRunner, type Runner, SandboxError } from '@jannik-stacks/agi/runners';
+import { makeBoxRunner, type Runner, type RunnerHost, SandboxError } from '@jannik-stacks/agi/runners';
 
 type ModalProcess = {
   stdin: WritableStream<Uint8Array>;
@@ -69,7 +69,7 @@ const readAllowlist = (urls: string[]) =>
 export const makeModalRunner = (
   client: ModalClient,
   settings: typeof ModalSettings.Type,
-  host: { data: string },
+  host: Pick<RunnerHost, 'data'>,
   gateway: Gateway
 ): Layer.Layer<Runner, SandboxError> =>
   Layer.unwrap(
@@ -161,7 +161,7 @@ const sdk = String('modal');
 export default makePlugin({
   name: 'modal',
   settingsSchema: ModalSettings,
-  runner: (host: { data: string; direct?: string[] }, settings: typeof ModalSettings.Type) =>
+  runner: (host, settings) =>
     Layer.unwrap(
       Effect.gen(function* () {
         const { id, secret, proxy } = yield* Config.all({

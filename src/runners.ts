@@ -6,16 +6,16 @@ import { SandboxError } from './sandbox.ts';
 
 export { makeBoxRunner } from './remote.ts';
 export { Runner, SandboxError } from './sandbox.ts';
+export type { RunnerHost } from './plugin.ts';
 
 export const local = makePlugin({
   name: 'local',
-  runner: (host: Parameters<typeof dockerRunner>[0]) =>
-    dockerRunner(host).pipe(Layer.provide(Layer.effectDiscard(ensureDockerHost(host)))),
+  runner: host => dockerRunner(host).pipe(Layer.provide(Layer.effectDiscard(ensureDockerHost(host)))),
 });
 
 export const box = makePlugin({
   name: 'box',
-  runner: (host: Parameters<typeof dockerRunner>[0]) =>
+  runner: host =>
     Layer.unwrap(
       Config.String('AGENTGRAPH_SANDBOX_URL').pipe(
         Effect.mapError(e => new SandboxError({ reason: 'infra', detail: `the box runner needs ${e.message}` })),

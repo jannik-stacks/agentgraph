@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Config, ConfigProvider, Context, Effect, Layer, Option, Redacted, Schema, Struct } from 'effect';
 import { folder, type TrackerSetup } from './tracker.ts';
-import { type dockerRunner, sandboxImage } from './docker.ts';
+import { sandboxImage } from './docker.ts';
 import { makeSandbox } from './mirror.ts';
 import { github } from './github.ts';
 import {
@@ -17,10 +17,10 @@ import {
   readHarnessSettings,
 } from './harnesses.ts';
 import { parseGraphSettings, type Graph } from './folder.ts';
-import { readPlugins, type TrackerHost } from './plugin.ts';
+import { readPlugins, type RunnerHost, type TrackerHost } from './plugin.ts';
 import { readOrUndefined } from './read.ts';
 import { box, local } from './runners.ts';
-import { Runner, type SandboxError } from './sandbox.ts';
+import { Runner, SandboxError } from './sandbox.ts';
 import { priceTable } from './prices.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
@@ -153,17 +153,30 @@ const pickRunner = async (name: string, graph?: { dir: string; fromRepo: boolean
     return {
       problem: `runner ${name} is a plugin of a graph read from the repo; a runner loads it only from a graph on the host, with --dir`,
     };
-  return { runner: runners[name] as (host: Parameters<typeof dockerRunner>[0]) => Layer.Layer<Runner, SandboxError> };
+  const plugin = runners[name]!;
+  const fail = (detail: string) => new SandboxError({ reason: 'infra', detail });
+  return {
+    runner: (host: RunnerHost) =>
+      Layer.effect(
+        Runner,
+        Layer.build(plugin(host)).pipe(
+          Effect.mapError(e => (e instanceof SandboxError ? e : fail(`runner ${name}: ${String(e)}`))),
+          Effect.flatMap(context =>
+            Effect.fromOption(Context.getOption(context, Runner), () => fail(`runner ${name} provides no Runner`))
+          )
+        )
+      ),
+  };
 };
 
-const makeRunnerHost = (s: Pick<Settings, 'data' | 'cache' | 'image' | 'proxy'>) => ({
+const makeRunnerHost = (s: Pick<Settings, 'data' | 'cache' | 'image' | 'proxy'>): RunnerHost => ({
   data: s.data,
   cache: s.cache,
   image: s.image,
   direct: findLocalModelHosts(s.proxy.url),
 });
 
-const buildRunner = (name: string, graph: Parameters<typeof pickRunner>[1], host: Parameters<typeof dockerRunner>[0]) =>
+const buildRunner = (name: string, graph: Parameters<typeof pickRunner>[1], host: RunnerHost) =>
   Effect.gen(function* () {
     const picked = yield* Effect.promise(() => pickRunner(name, graph));
     if ('problem' in picked) return yield* Effect.fail(new Error(picked.problem));

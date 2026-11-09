@@ -26,6 +26,7 @@ import { ensureFreeDisk, writeEnvRefs } from './disk.ts';
 import { waitForLock } from './owner.ts';
 import { type Checkout, type Command, type Exit, inside, Runner, type Sandbox, SandboxError } from './sandbox.ts';
 import { makeHostEnv, readGit, readWorktreeAdmin } from './git.ts';
+import type { RunnerHost } from './plugin.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
@@ -323,7 +324,7 @@ const findMissingModelHosts = (hosts: string[]) =>
 
 const checked = new Set<string>();
 
-export const ensureDockerHost = (o: Pick<Parameters<typeof dockerRunner>[0], 'image' | 'direct'>) =>
+export const ensureDockerHost = (o: Pick<RunnerHost, 'image' | 'direct'>) =>
   Effect.gen(function* () {
     const key = JSON.stringify([o.image, o.direct]);
     if (checked.has(key)) return;
@@ -447,12 +448,7 @@ const readTrustedCommits = (mirror: string, local: boolean, workflows: Graph['wo
  * hash. It starts from the graph's sandbox setup at its base, built once with the toolchain and setup, and holds its
  * dependency directories in volumes, never in the checkout. An empty `cache` turns the cache volumes and sandbox setups off.
  */
-export const dockerRunner = (o: {
-  data: string;
-  image?: string;
-  cache?: string;
-  direct?: string[];
-}): Layer.Layer<Runner> =>
+export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
   Layer.effect(
     Runner,
     Effect.gen(function* () {

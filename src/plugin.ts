@@ -5,7 +5,16 @@ import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
-import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue, SchemaRepresentation } from 'effect';
+import {
+  Effect,
+  type Layer,
+  type Option,
+  type Redacted,
+  Result,
+  Schema,
+  SchemaIssue,
+  SchemaRepresentation,
+} from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
@@ -47,6 +56,10 @@ export type TrackerHost = {
 };
 
 type TrackerMember = (host: TrackerHost) => unknown;
+
+export type RunnerHost = { data: string; image?: string; cache?: string; direct?: string[] };
+
+type RunnerMember<S, L = Layer.Layer<never, unknown>> = (host: RunnerHost, settings: S) => L;
 
 export type StatusChange = { issue: number; repo: string; from?: IssueStatus; to: IssueStatus };
 
@@ -120,8 +133,7 @@ export const makePlugin = <
   T = unknown,
   E = undefined,
   H = never,
-  RH = never,
-  R = unknown,
+  L extends Layer.Layer<never, unknown> = Layer.Layer<never, unknown>,
 >(
   definition: Omit<
     typeof PluginFile.Type,
@@ -129,7 +141,7 @@ export const makePlugin = <
   > & {
     tracker?: (host: TrackerHost) => T;
     engine?: (host: H, settings: S) => E;
-    runner?: (host: RH, settings: S) => R;
+    runner?: RunnerMember<S, L>;
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Codec<D, I>;
       read: (settings: S, engine: E) => Effect.Effect<D, unknown>;
@@ -167,9 +179,7 @@ const PluginFile = Schema.Struct({
   engine: Schema.optional(
     Schema.declare((value): value is (host: unknown, settings: unknown) => unknown => typeof value === 'function')
   ),
-  runner: Schema.optional(
-    Schema.declare((value): value is (host: unknown, settings: unknown) => unknown => typeof value === 'function')
-  ),
+  runner: Schema.optional(Schema.declare((value): value is RunnerMember<unknown> => typeof value === 'function')),
   on: Schema.optional(
     Schema.Struct({
       status: Schema.optional(Schema.declare((value): value is StatusHook<unknown> => typeof value === 'function')),
@@ -201,7 +211,7 @@ export const readPlugins = async (
   const tools: Record<string, { tool: Tool; settings: unknown; plugin: string }> = {};
   const hooks: { plugin: string; settings: unknown; status: StatusHook<unknown> }[] = [];
   const trackers: Record<string, NonNullable<typeof PluginFile.Type.tracker>> = {};
-  const runners: Record<string, (host: unknown) => unknown> = {};
+  const runners: Record<string, (host: RunnerHost) => Layer.Layer<never, unknown>> = {};
   const pages: (Pick<typeof StudioPage.Type, 'title' | 'page' | 'dataSchema'> & {
     name: string;
     read: () => ReturnType<(typeof StudioPage.Type)['read']>;
