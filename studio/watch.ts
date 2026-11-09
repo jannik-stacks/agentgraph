@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { watch } from 'node:fs';
 import { join } from 'node:path';
 
-process.env.AGI_STUDIO_TOKEN ||= randomBytes(32).toString('base64url');
+process.env.AGENTGRAPH_STUDIO_TOKEN ||= randomBytes(32).toString('base64url');
 
 const replaced = new WeakSet<ChildProcess>();
 const serve = () => {

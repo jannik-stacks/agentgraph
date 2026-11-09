@@ -19,10 +19,10 @@ const makeSettingsDir = async (text: string) => {
   return dir;
 };
 
-const openSocket = (base: string, cookie?: string) =>
+const openSocket = (base: string, headers: Record<string, string> = {}, token = '') =>
   new Promise<WebSocket | undefined>(resolve => {
-    const init = { protocols: ['vite-hmr'], headers: cookie ? { cookie } : {} };
-    const socket = new WebSocket(base.replace(/^http/, 'ws'), init as unknown as string[]);
+    const init = { protocols: ['vite-hmr'], headers };
+    const socket = new WebSocket(`${base.replace(/^http/, 'ws')}/?token=${token}`, init as unknown as string[]);
     socket.onopen = () => resolve(socket);
     socket.onerror = () => resolve(undefined);
   });
@@ -33,7 +33,7 @@ afterEach(() => {
 
 describe('built-in auth', () => {
   it('takes the start token from the URL or the form and the password only from the form', async () => {
-    const byToken = token.auth!({ env: { AGI_STUDIO_TOKEN: 'start-token' } }, undefined);
+    const byToken = token.auth!({ env: { AGENTGRAPH_STUDIO_TOKEN: 'start-token' } }, undefined);
     const byPassword = password.auth!({ env: { AGENTGRAPH_STUDIO_PASSWORD: 'shared' } }, undefined);
     const results = await Promise.all([
       ask(byToken, '/'),
@@ -90,9 +90,10 @@ describe('studio gate', () => {
     const data = await mkdtemp(join(tmpdir(), 'agentgraph-auth-data-'));
     vi.stubEnv('AGI_STUDIO_DATA', data);
     vi.stubEnv('AGENTGRAPH_AUTH', 'token');
-    vi.stubEnv('AGI_STUDIO_TOKEN', 'start-token');
+    vi.stubEnv('AGENTGRAPH_STUDIO_TOKEN', 'start-token');
     vi.stubEnv('AGENTGRAPH_STUDIO_API_TOKEN', 'script-token');
     const { server, base } = await startStudioServer();
+    const { port } = new URL(base);
     try {
       const get = (path: string, headers: Record<string, string> = {}) =>
         fetch(`${base}${path}`, { headers, redirect: 'manual' });
@@ -121,8 +122,15 @@ describe('studio gate', () => {
         redirect: 'manual',
         headers: { cookie: session, origin: base },
       });
+      const forwarded = await fetch(`${base}/auth/logout`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { origin: 'https://studio.example', 'x-forwarded-host': 'studio.example' },
+      });
       const refusedSocket = await openSocket(base);
-      const socket = await openSocket(base, session);
+      const { webSocketToken } = server.config;
+      const crossSocket = await openSocket(base, { cookie: session, origin: 'https://evil.example' }, webSocketToken);
+      const socket = await openSocket(base, { cookie: session, origin: base }, webSocketToken);
       const changed = new Promise<string>(resolve => {
         socket!.onmessage = event => String(event.data).includes('agi:changed') && resolve(String(event.data));
       });
@@ -134,7 +142,7 @@ describe('studio gate', () => {
         api: [api.status, await api.json()],
         page: [page.status, page.headers.get('location')],
         form: [form.status, (await form.text()).includes('name="secret"')],
-        wrong: wrong.status,
+        wrong: [wrong.status, (await wrong.text()).includes('name="secret"')],
         login: [login.status, login.headers.get('location')],
         cookie: cookie.replace(/=[^;]+;/, '=<jwt>;'),
         after: after.status,
@@ -142,23 +150,59 @@ describe('studio gate', () => {
         forged: forged.status,
         crossSite: crossSite.status,
         proxied: proxied.status,
+        forwarded: forwarded.status,
         logout: [logout.status, logout.headers.get('location'), logout.headers.get('set-cookie')],
-        socket: [refusedSocket, JSON.parse(live).data.topics.includes('data')],
+        socket: [refusedSocket, crossSocket, JSON.parse(live).data.topics.includes('data')],
       }).toEqual({
         api: [401, { error: 'log in first', login: '/auth/login' }],
         page: [302, '/auth/login'],
         form: [200, true],
-        wrong: 401,
+        wrong: [401, true],
         login: [303, '/'],
-        cookie: 'agi_session=<jwt>; Path=/; Max-Age=3600; HttpOnly; SameSite=Strict',
+        cookie: `agi_session_${port}=<jwt>; Path=/; Max-Age=3600; HttpOnly; SameSite=Strict`,
         after: 200,
         bearer: 200,
         forged: 401,
         crossSite: 403,
         proxied: 400,
-        logout: [303, '/auth/login', 'agi_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict'],
-        socket: [undefined, true],
+        forwarded: 303,
+        logout: [303, '/auth/login', `agi_session_${port}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`],
+        socket: [undefined, undefined, true],
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('ends a refreshed session twelve hours after the login', async () => {
+    vi.stubEnv('AGENTGRAPH_AUTH', 'token');
+    vi.stubEnv('AGENTGRAPH_STUDIO_TOKEN', 'start-token');
+    const { server, base } = await startStudioServer();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const login = await fetch(`${base}/auth/login?token=start-token`, { redirect: 'manual' });
+      let session = login.headers.get('set-cookie')!.split(';')[0]!;
+      const statuses: number[] = [];
+      for (let step = 0; step < 14; step++) {
+        vi.setSystemTime(Date.now() + 55 * 60_000);
+        const response = await fetch(`${base}/api/runs`, { headers: { cookie: session } });
+        statuses.push(response.status);
+        session = response.headers.get('set-cookie')?.split(';')[0] ?? session;
+      }
+      expect(statuses).toEqual([...Array(13).fill(200), 401]);
+    } finally {
+      vi.useRealTimers();
+      await server.close();
+    }
+  });
+
+  it('opens the live socket without a login under none and words the login page per auth', async () => {
+    vi.stubEnv('AGENTGRAPH_AUTH', 'none');
+    const { server, base } = await startStudioServer();
+    try {
+      const socket = await openSocket(base);
+      socket?.close();
+      expect(socket).toBeDefined();
     } finally {
       await server.close();
     }
