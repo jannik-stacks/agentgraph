@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import { type Instance, readRealPath } from '../src/instance.ts';
 import type * as InstanceModule from '../src/instance.ts';
@@ -25,6 +25,12 @@ export type ServedGraph = {
 };
 
 const root = new URL('../', import.meta.url);
+export const writeJson = (res: ServerResponse, value: unknown, status = 200) => {
+  res.statusCode = status;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify(value));
+};
+
 export const readModule = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 
 const makeServedHost = async (

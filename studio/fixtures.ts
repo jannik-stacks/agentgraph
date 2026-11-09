@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import type { Plugin } from 'vite';
 import { Effect, Result, Schema, Stream } from 'effect';
-import { makeServedGraphs, readBenchSets, readModule, readQuery, servedIds } from './served.ts';
+import { makeServedGraphs, readBenchSets, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
@@ -14,12 +14,6 @@ import type * as ToolsModule from '../src/tools.ts';
 import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
-
-const json = (res: ServerResponse, value: unknown, status = 200) => {
-  res.statusCode = status;
-  res.setHeader('content-type', 'application/json');
-  res.end(JSON.stringify(value));
-};
 
 const isInside = async (path: string, roots: string[]) => {
   const [real, ...reals] = await Promise.all([path, ...roots].map(p => realpath(p).catch(() => undefined)));
@@ -64,17 +58,17 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
       const use = (path: string, handle: (req: IncomingMessage, res: ServerResponse) => Promise<unknown>) =>
         server.middlewares.use(path, (req, res) => {
           void handle(req, res).catch((e: Error & { _tag?: string }) =>
-            json(res, { error: e.message || e._tag }, e instanceof StudioRequestError ? 400 : 500)
+            writeJson(res, { error: e.message || e._tag }, e instanceof StudioRequestError ? 400 : 500)
           );
         });
       use('/api/actions', async (req, res) => {
-        if (req.method !== 'POST') return json(res, { error: 'POST required' }, 405);
+        if (req.method !== 'POST') return writeJson(res, { error: 'POST required' }, 405);
         if (!req.headers['content-type']?.startsWith('application/json'))
-          return json(res, { error: 'actions take JSON' }, 415);
+          return writeJson(res, { error: 'actions take JSON' }, 415);
         const verb = readPath(req);
         const host = (await pickServed(req, reader))?.host;
         const actions: Readonly<Record<string, HostAction>> = host?.actions ?? {};
-        if (!Object.hasOwn(actions, verb)) return json(res, { error: `no action ${verb}` }, 404);
+        if (!Object.hasOwn(actions, verb)) return writeJson(res, { error: `no action ${verb}` }, 404);
         const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
         const text = await readRequestBody(req);
         if (text === undefined) throw new StudioRequestError('the body is over 64 KiB');
@@ -83,7 +77,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
           Effect.flatMap(Schema.decodeUnknownEffect(args)),
           Effect.flatMap(decoded => run(...decoded))
         );
-        json(
+        writeJson(
           res,
           await Effect.runPromise(act).catch((e: Error) => {
             throw new StudioRequestError(e.message);
@@ -93,7 +87,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
       use('/api/results', async (req, res) => {
         const { served, data } = await readDataDir(req, reader);
         const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
-        json(res, readRunResults(data, served?.graph));
+        writeJson(res, readRunResults(data, served?.graph));
       });
       use('/api/logs', async (req, res) => {
         const { store } = await readDataDir(req, reader);
@@ -108,18 +102,18 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         for (const { name, host } of await reader.read()) {
           if (!host) continue;
           const found = await Effect.runPromise(Effect.result(locate({ gh }, host.store)));
-          if (Result.isFailure(found)) return json(res, { error: found.failure.message }, 400);
-          if (found.success) return json(res, { ...found.success, instance: name });
+          if (Result.isFailure(found)) return writeJson(res, { error: found.failure.message }, 400);
+          if (found.success) return writeJson(res, { ...found.success, instance: name });
         }
-        json(res, null, 404);
+        writeJson(res, null, 404);
       });
       use('/api/verdicts', async (req, res) => {
         const served = await pickServed(req, reader);
         const query = readQuery(req);
         const [fixture, step, check] = [query.get('fixture'), query.get('step'), query.get('check')];
-        if (!fixture || !step || !check) return json(res, { error: 'verdicts take fixture, step and check' }, 400);
+        if (!fixture || !step || !check) return writeJson(res, { error: 'verdicts take fixture, step and check' }, 400);
         const store = served?.host?.store;
-        if (!store) return json(res, []);
+        if (!store) return writeJson(res, []);
         const runs = await Effect.runPromise(
           Effect.gen(function* () {
             const records = (yield* store.listRecords()).filter(run => `${served.title}/${run.workflow}` === fixture);
@@ -128,14 +122,14 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
             );
           })
         );
-        json(res, findCheckVerdicts(runs, step, check));
+        writeJson(res, findCheckVerdicts(runs, step, check));
       });
       use('/api/runs', async (req, res) => {
         const { served, data, store, bench } = await readDataDir(req, reader);
         const one = decodeURIComponent(readPath(req));
-        if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
+        if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return writeJson(res, { error: 'bad run id' }, 400);
         const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
-        if (!data || !store || (!served?.dir && !bench)) return json(res, one ? null : []);
+        if (!data || !store || (!served?.dir && !bench)) return writeJson(res, one ? null : []);
         const keep = (id: string) => Effect.promise(async () => !bench || isInside(join(data, id), [data]));
         const answer = await Effect.runPromise(
           Effect.gen(function* () {
@@ -167,7 +161,7 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
             return run ? yield* entry(run, true) : null;
           })
         );
-        json(res, answer, answer === null ? 404 : 200);
+        writeJson(res, answer, answer === null ? 404 : 200);
       });
     },
     async load(source) {
