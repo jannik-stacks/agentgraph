@@ -92,8 +92,21 @@ describe.skipIf(!up())('a read-only command in a box', () => {
     const out = spawnSync(
       'docker',
       [
-        ...['run', '--rm', '--network', 'none', '--user', '0', '--env', 'AGENTGRAPH_BOX_ROOT=/box'],
-        ...['--mount', `type=bind,src=${box},dst=/box.sh,readonly`, '--entrypoint', 'sh', sandboxImage, '-c', steps],
+        'run',
+        '--rm',
+        '--network',
+        'none',
+        '--user',
+        '0',
+        '--env',
+        'AGENTGRAPH_BOX_ROOT=/box',
+        '--mount',
+        `type=bind,src=${box},dst=/box.sh,readonly`,
+        '--entrypoint',
+        'sh',
+        sandboxImage,
+        '-c',
+        steps,
       ],
       { encoding: 'utf8' }
     );
