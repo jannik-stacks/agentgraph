@@ -13,6 +13,7 @@ import {
   mergePull,
   readRealPath,
   writeClosed,
+  writePullToRepo,
   writeReview,
 } from './instance.ts';
 import type { Graph } from './folder.ts';
@@ -79,7 +80,7 @@ export const readEngineErrors = (store: Pick<InstanceHost['store'], 'read'>, dat
 export const makeInstanceHost = (
   config: Pick<EngineConfig, 'data' | 'checks'>,
   tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] },
-  local?: { instance: Pick<Instance, 'tracker' | 'owner'>; drive: (instruction: Instruction) => Promise<RunRecord[]> }
+  local?: { instance: Instance; drive: (instruction: Instruction) => Promise<RunRecord[]> }
 ) => {
   const { data } = config;
   const store: InstanceHost['store'] = Effect.runSync(Store.pipe(Effect.provide(fileStore(data))));
@@ -146,6 +147,8 @@ export const makeInstanceHost = (
     review: ({ issue, verdict, text }) =>
       Effect.flatMap(owned, i => attempt(() => writeReview(i.tracker, i.owner, issue, verdict, text))),
     merge: ({ issue }) => Effect.flatMap(owned, i => attempt(() => mergePull(i, issue))),
+    export: ({ issue, ...to }) =>
+      Effect.flatMap(owned, i => attempt(async () => (await writePullToRepo(i, issue, to)) ?? null)),
     close: ({ issue }) =>
       Effect.gen(function* () {
         const i = yield* owned;

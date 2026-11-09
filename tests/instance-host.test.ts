@@ -10,6 +10,7 @@ import { stoppedByRunner } from '../src/context.ts';
 import { instruct } from '../src/run/trigger.ts';
 import { Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
+import type { Instance } from '../src/instance.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { services, world } from './world.ts';
 
@@ -132,7 +133,7 @@ it('resumes a parked run through the engine services the host was given', async 
     )
   );
   const host = makeInstanceHost({ data: where.data }, undefined, {
-    instance: { tracker: where.tracker, owner: 'local' },
+    instance: { tracker: where.tracker, owner: 'local' } as Instance,
     drive: instruction => run(instruct(graph, instruction)),
   });
   const resumed = await callLocal(host, client => client.instruct({ kind: 'resume', parked: true }));

@@ -59,6 +59,16 @@ export const Actions = RpcGroup.make(
     success: Schema.Struct({ base: Schema.String, head: Schema.String }),
     error,
   }),
+  Rpc.make('export', {
+    payload: { issue: Count, as: Schema.optionalKey(Schema.String), patch: Schema.optionalKey(Schema.String) },
+    success: Schema.NullOr(
+      Schema.Union([
+        Schema.Struct({ ref: Schema.String, base: Schema.String, stat: Schema.String }),
+        Schema.Struct({ why: Schema.String }),
+      ])
+    ),
+    error,
+  }),
   Rpc.make('close', { payload: { issue: Count }, success: Schema.Array(Schema.Number), error }),
   Rpc.make('instruct', {
     payload: Schema.Union([

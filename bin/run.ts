@@ -540,11 +540,13 @@ async function runOnInstance(
     }
     case 'export': {
       if (!setup.origin.local) fail('export applies to a local tracker');
-      numbered();
-      const result = await writePullToRepo(i, n, {
-        ...(values.as && { as: values.as }),
-        ...(values.patch && { patch: values.patch }),
-      }).catch((e: Error) => fail(e.message, 1));
+      const result = await act(client =>
+        client.export({
+          issue: numbered(),
+          ...(values.as && { as: values.as }),
+          ...(values.patch && { patch: values.patch }),
+        })
+      );
       if (!result) return fail(`#${n} has no pull request`, 1);
       if ('why' in result)
         return fail(values.patch ? result.why : `${result.why}; try --as <branch> or --patch <file>`, 1);
