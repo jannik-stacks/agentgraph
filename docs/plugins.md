@@ -174,7 +174,8 @@ data roots outside the instance. The reader gets this plugin's decoded settings 
 instance's host: `store` (`listRecords`, `getRecord`, `read`, `readChecks`, `readLog`), `tracker`
 (`issues`, `issue`, `since`) and `readRuns()`, each run with its labels and latest checks. These are the
 reads the studio's own Runs, Inbox and Graph pages use, scoped to the one instance the page is served
-for. Loading declarations does not execute readers or import TSX. Host code remains trusted; namespaces
+for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/trackers`, as in
+`read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations does not execute readers or import TSX. Host code remains trusted; namespaces
 are not isolation.
 <!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/engine.ts#InstanceHost src/engine.ts#makeInstanceHost -->
 

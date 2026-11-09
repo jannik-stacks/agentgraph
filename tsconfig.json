@@ -12,7 +12,7 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "types": ["node"],
-    "paths": { "@jannik-stacks/agi/plugins": ["./src/plugin.ts"] }
+    "paths": { "@jannik-stacks/agi/plugins": ["./src/plugin.ts"], "@jannik-stacks/agi/trackers": ["./src/trackers.ts"] }
   },
   "include": ["src", "tests", "bin", "tune", "bench", "harnesses", "agentgraph.config.ts"]
 }

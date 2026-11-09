@@ -6,7 +6,6 @@ import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
 import { Effect, type Option, type Redacted, Result, Schema, SchemaIssue, SchemaRepresentation } from 'effect';
-import type { InstanceHost } from './engine.ts';
 import type { Issue, IssueStatus } from './event.ts';
 
 registerHooks({
@@ -35,7 +34,6 @@ export type ToolContext<S = undefined> = {
 } & Pick<ToolExecutionOptions<unknown>, 'abortSignal'>;
 
 export { issueStatuses } from './event.ts';
-export type { InstanceHost } from './engine.ts';
 
 export type TrackerHost = {
   repo: string;
@@ -111,20 +109,14 @@ export const tool = <A, I, S = undefined>(definition: {
   });
 };
 
-export const makePlugin = <S = undefined, D = unknown, I = D, T = unknown, E = undefined, H = never>(
+export const makePlugin = <S = undefined, D = unknown, I = D, T = unknown, E = unknown, H = never>(
   definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'studio' | 'on' | 'tracker' | 'engine'> & {
     tracker?: (host: TrackerHost) => T;
     engine?: (host: H, settings: S) => E;
     studio?: Omit<typeof StudioPage.Type, 'dataSchema' | 'read' | 'watch'> & {
       dataSchema: Schema.Codec<D, I>;
-      read: (
-        settings: S,
-        host: [E] extends [undefined] ? Omit<InstanceHost, 'say' | 'label'> : E
-      ) => Effect.Effect<D, unknown>;
-      watch?: (
-        settings: S,
-        host: [E] extends [undefined] ? Omit<InstanceHost, 'say' | 'label'> : E
-      ) => readonly string[];
+      read: (settings: S, host: E) => Effect.Effect<D, unknown>;
+      watch?: (settings: S, host: E) => readonly string[];
     };
     tools?: Record<string, Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, ToolContext<S>>>;
     on?: { status?: StatusHook<S> };
@@ -183,7 +175,7 @@ export const readPlugins = async (
   settings: Record<string, unknown> = {},
   isReserved: (name: string) => boolean = () => false,
   builtins: readonly unknown[] = [],
-  host: { engine?: (plugin: string) => unknown; instance?: InstanceHost } = {}
+  host: { engine?: (plugin: string) => unknown; instance?: unknown } = {}
 ) => {
   const plugins = new Map<string, string>();
   const tools: Record<string, { tool: Tool; settings: unknown; plugin: string }> = {};

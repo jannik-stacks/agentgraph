@@ -13,3 +13,6 @@
   add no authority beyond what host code already has, but it is worth a second look.
 - `/api/results` and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
   `readRunResults` onto the instance store would make one path; it reads sync files today.
+- `InstanceHost` is exported from `@jannik-stacks/agi/trackers`, not `/plugins`. `src/plugin.ts` must stay a
+  leaf for the import-cycle lint, and the host type pulls in the tracker and store. A reader types its own
+  host parameter; `makePlugin` infers it, so nothing checks that the served host matches at compile time.

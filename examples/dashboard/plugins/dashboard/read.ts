@@ -1,5 +1,5 @@
 import { Effect, Result, Stream } from 'effect';
-import type { InstanceHost } from '@jannik-stacks/agi/plugins';
+import type { InstanceHost } from '@jannik-stacks/agi/trackers';
 import type { DashboardData, DashboardSettings } from './data.ts';
 
 export const readDashboard = (
