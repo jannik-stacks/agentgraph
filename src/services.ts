@@ -134,31 +134,38 @@ export const settings = Config.all({
 
 const builtins = [github, folder, local, box, none, token, password];
 
-const readHostPlugins = async (graph?: { dir: string; fromRepo: boolean }) => {
+type PluginGraph = { dir: string; fromRepo: boolean };
+
+const readHostPlugins = async (graph?: PluginGraph) => {
   const text = graph && (await readFile(join(graph.dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
   const settings = parseGraphSettings(text, () => {});
   return { ...(await readPlugins(graph?.dir, settings?.plugins, { builtins })), settings };
 };
 
+const whereLoaded = {
+  runner: 'a runner loads it only from a graph on the host, with --dir',
+  auth: 'the studio loads it only from a graph on the host',
+};
+
 const whyUnpicked = (
-  kind: string,
+  kind: keyof typeof whereLoaded,
   name: string,
   members: object,
   names: string[],
-  graph?: { dir: string; fromRepo: boolean }
+  graph?: PluginGraph
 ) => {
   if (!Object.hasOwn(members, name))
     return names.includes(name)
       ? `plugin ${name} has no ${kind}`
       : `no ${kind} plugin ${name}; ${kind}s: ${Object.keys(members).join(', ')}`;
   if (graph?.fromRepo && !builtins.some(b => b.name === name))
-    return `${kind} ${name} is a plugin of a graph read from the repo; a runner loads it only from a graph on the host, with --dir`;
+    return `${kind} ${name} is a plugin of a graph read from the repo; ${whereLoaded[kind]}`;
 };
 
 const findHostGraph = (s: Pick<Settings, 'graph'>) =>
   isAbsolute(s.graph) && existsSync(s.graph) ? { dir: s.graph, fromRepo: false } : undefined;
 
-const pickRunner = async (name: string, graph?: { dir: string; fromRepo: boolean }) => {
+const pickRunner = async (name: string, graph?: PluginGraph) => {
   const { runners, names } = await readHostPlugins(graph);
   const problem = whyUnpicked('runner', name, runners, names, graph);
   if (problem) return { problem };
@@ -178,7 +185,7 @@ const pickRunner = async (name: string, graph?: { dir: string; fromRepo: boolean
   };
 };
 
-export const pickAuth = async (chosen: string | undefined, graph?: { dir: string; fromRepo: boolean }) => {
+export const pickAuth = async (chosen: string | undefined, graph?: PluginGraph) => {
   const { auths, names, settings } = await readHostPlugins(graph);
   if (graph?.fromRepo && settings?.auth !== undefined)
     return { problem: `auth in ${graph.dir}: a graph read from the repo cannot pick the studio's auth` };
@@ -222,7 +229,7 @@ export const whyRunnerRefuses = (
  */
 export const pickTracker = async (
   name: string,
-  graph?: { dir: string; fromRepo: boolean }
+  graph?: PluginGraph
 ): Promise<{ tracker: (host: TrackerHost) => TrackerSetup; dir?: string } | { problem: string }> => {
   if (!name) return { problem: 'name a tracker with AGENTGRAPH_TRACKER or set the App env' };
   const { trackers, names } = await readHostPlugins(graph);
