@@ -14,21 +14,20 @@ Decisions made without being sure. Each names what was picked and what would cha
 - The CLI calls actions in process through the same HTTP codec as the studio and never reaches a remote host, so
   there is no remote write to fall back from. A loop that serves the group (planned) must keep that: a failed
   remote call is reported, never retried locally.
-- `show`, `say`, `label`, `review`, `merge`, `close` and `instruct` (resume, dispatch, `check --runs`) are actions.
-  Estimates for the rest, as lines added / deleted in production code:
-  - `runs` and `run`: +30 / -11. A schema for the listed run (summary, links, labels) and the run with its trace;
-    the summary helpers move from `studio/src/runs/trace.ts` into `src/`; bench dirs need a host per bench folder.
-  - `log`: +6 / -10. A `log { hash }` action returning text replaces the route and the fetch in `rows.tsx`.
-  - `results`: +20 / -8. Needs a schema for the result tables `bin/results.ts` builds.
-  - `locate`: +8 / -12. It searches every served instance, so the page calls each instance's group in turn.
-  - `verdicts`: +12 / -20. `findCheckVerdicts` moves into `src/`; its rows need a small schema.
-  - plugin data: +6 / -8. Each plugin brings its own schema, so the action returns JSON and the page decodes it;
-    no typing gain.
-  - studio pages: +15 / -12. A browser client and a live atom over it replace the fetch and error parsing in
-    `makeLiveJsonAtom`.
-  - `watch`: +29 / -18. A bounded, coalescing stream replaces the CLI's one-second `watchRuns` poll; replacing the
-    studio's change topics with it as well would delete about 20 more lines but touches every live page.
-  - `start`, `export`, `import`, `prune-logs`: about +10 each, nothing to delete until the studio calls them.
+- `show`, `say`, `label`, `review`, `merge`, `close`, `instruct` (resume, dispatch, `check --runs`), `log`,
+  `verdicts`, `runs`, `results`, `watch`, `export` and `prune` are actions. Left as they are:
+  - `start` and `import` stay CLI code. `start` needs the loaded graph and the CLI's harness checks before it
+    files the issue, and `import` needs the package version; each would add about +10 production lines, past the
+    +260 budget for this branch.
+  - `locate` and plugin data stay routes: `locate` searches every served instance, and plugin data is JSON each
+    page decodes with its own schema, so an action would add no typing.
+  - `runs` and `results` are typed `Schema.Unknown`. Their rows are built by studio helpers
+    (`studio/src/runs/trace.ts`, `bin/results.ts`), so the engine group has an empty default and the studio
+    bridge passes its own handlers to `makeActionWebHandler`. A typed schema would need those helpers in `src/`.
+  - `watch` polls the store once a second on the host, emits only on change, and keeps one sliding slot per
+    subscriber, so a slow client gets the newest full list. A failed read ends the stream; the CLI prints it and
+    stops watching, where the old poll printed and kept polling. The studio keeps its change topics: moving the
+    live pages onto `watch` would not delete more than it adds.
 - A loop that serves the group would listen on `127.0.0.1:0` and write its URL atomically into its lock holder
   file. `agi say` and the other actions would call that URL when a loop holds the instance and report a failed
   call without retrying locally. Run lists would stream as `watch { issue }`, coalesced per tick, with one bounded
@@ -51,7 +50,7 @@ Decisions made without being sure. Each names what was picked and what would cha
   GitHub scans back to back.
 - `readStudioPages` hands the instance host to graph plugins whose graph may come from the repo. Reads there
   add no authority beyond what host code already has, but it is worth a second look.
-- `/api/results` and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
+- The `results` action and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
   `readRunResults` onto the instance store would make one path; it reads sync files today.
 - `InstanceHost` is exported from `@jannik-stacks/agi/trackers`, not `/plugins`. `src/plugin.ts` must stay a
   leaf for the import-cycle lint, and the host type pulls in the tracker and store. A reader types its own
