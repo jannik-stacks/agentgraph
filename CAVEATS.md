@@ -10,3 +10,5 @@ Rough edges known at merge time.
 - A toolchain install runs with network `open`, which a Modal box narrows to its own network, so installs fail in a Modal box without a matching image.
 - The Modal runner terminates leftover boxes only when it starts, by tag; a box from another data root is left alone.
 - The local contract rows run only with `AGENTGRAPH_E2E=1` and the sandbox image built.
+- The `local` runner checks the host when its layer is built, once per image per process. The loop's layers pass `AGENTGRAPH_IMAGE`, so a graph with its own `image` also gets the stock image checked, and built when missing, on its first pass.
+- Tests that build the production layers only for a tracker pick the `box` runner, since `local` would check Docker and the model stack.
