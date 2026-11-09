@@ -33,10 +33,6 @@ type HostAction = {
   run(...args: readonly unknown[]): Effect.Effect<unknown, unknown>;
 };
 
-const isSameOrigin = (req: IncomingMessage) =>
-  [undefined, 'same-origin'].includes(req.headers['sec-fetch-site']) &&
-  [undefined, `http://${req.headers.host}`].includes(req.headers.origin);
-
 const readPath = (req: IncomingMessage) => (req.url ?? '/').split('?')[0]!.slice(1);
 
 const pickServed = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
@@ -73,8 +69,8 @@ export const makeStudioDevApiPlugin = (reader = makeServedGraphs()): Plugin => {
         });
       use('/api/actions', async (req, res) => {
         if (req.method !== 'POST') return json(res, { error: 'POST required' }, 405);
-        if (!req.headers['content-type']?.startsWith('application/json') || !isSameOrigin(req))
-          return json(res, { error: 'actions take same-origin JSON' }, 403);
+        if (!req.headers['content-type']?.startsWith('application/json'))
+          return json(res, { error: 'actions take JSON' }, 415);
         const verb = readPath(req);
         const host = (await pickServed(req, reader))?.host;
         const actions: Readonly<Record<string, HostAction>> = host?.actions ?? {};

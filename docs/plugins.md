@@ -188,12 +188,13 @@ plugins:
 - `none`: no login. Pick it by name; the studio warns when it listens beyond loopback.
 - `examples/plugins/cloudflare-access.ts`: checks Cloudflare Access's signed header against the team's keys and
   lets in emails on the listed domains. Set up Google or another login in Cloudflare.
+
 <!-- code: src/auths.ts examples/plugins/cloudflare-access.ts -->
 
 The env file may also set `AGENTGRAPH_STUDIO_KEY`, which signs sessions so they outlive a restart, and
 `AGENTGRAPH_STUDIO_API_TOKEN`, which scripts send as `Authorization: Bearer <token>`. The cookie is HttpOnly,
 SameSite=Strict, and Secure behind HTTPS. Against cross-site requests the gate refuses any request but GET and HEAD
-whose `Origin` names another host. To host the studio, set `AGI_HOST` and, behind a proxy, `AGI_ALLOWED_HOSTS`.
+whose `Origin` names another host or whose `Sec-Fetch-Site` is cross-site. `POST /auth/logout` ends the session. To host the studio, set `AGI_HOST` and, behind a proxy, `AGI_ALLOWED_HOSTS`.
 
 ## Studio pages
 
@@ -220,7 +221,7 @@ instance. Each action is a schema for its arguments and the function behind the 
 `runAction('label', runId, { arm: 'base' })` sets run labels like `agi label`. `say` takes the same
 [commands](workflows.md#commands), so `':restart:implement'` or `':stop'` reach a run under the graph's
 `commands` gate. Like `agi say`, it posts only to a local tracker and never drives; a running loop picks the
-comment up. The studio accepts actions only as same-origin JSON posts to `/api/actions/<verb>`.
+comment up. The studio accepts actions only as JSON posts to `/api/actions/<verb>`, behind the [auth](#auth) gate's origin check.
 <!-- code: studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 

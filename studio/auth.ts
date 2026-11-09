@@ -48,8 +48,9 @@ const readStudioAuth = async (served: ServedGraph[]) => {
   return { name: chosen[0]!.name, check: chosen[0]!.auth({ env }), env };
 };
 
-const isCrossOrigin = ({ headers: { origin, host } }: IncomingMessage) =>
-  origin !== undefined && (!URL.canParse(origin) || new URL(origin).host !== host);
+const isCrossOrigin = ({ headers }: IncomingMessage) =>
+  ['cross-site', 'same-site'].includes(headers['sec-fetch-site'] ?? '') ||
+  (headers.origin !== undefined && (!URL.canParse(headers.origin) || new URL(headers.origin).host !== headers.host));
 
 const isLoopback = (host: string | boolean | undefined) =>
   host === undefined || ['localhost', '127.0.0.1', '::1'].includes(String(host));
@@ -125,6 +126,10 @@ export const makeStudioAuthPlugin = (served = makeServedGraphs()): Plugin => ({
       const onLogin = url.pathname === loginPath;
       if (!['GET', 'HEAD'].includes(req.method ?? '') && isCrossOrigin(req))
         return send(res, 403, '{"error":"cross-origin request"}');
+      if (url.pathname === '/auth/logout' && req.method === 'POST') {
+        res.setHeader('set-cookie', 'agi_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict');
+        return redirect(res, 303, loginPath);
+      }
       const session = await readSession(req);
       if (session) {
         if (onLogin) return redirect(res, 303, '/');

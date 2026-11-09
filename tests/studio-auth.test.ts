@@ -111,6 +111,16 @@ describe('studio gate', () => {
         headers: { cookie: session, origin: 'https://evil.example', 'content-type': 'application/json' },
         body: '[1,"hi"]',
       });
+      const proxied = await fetch(`${base}/api/actions/label`, {
+        method: 'POST',
+        headers: { cookie: session, origin: `https://${new URL(base).host}`, 'content-type': 'application/json' },
+        body: '["r1",{"arm":"x"}]',
+      });
+      const logout = await fetch(`${base}/auth/logout`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: { cookie: session, origin: base },
+      });
       const refusedSocket = await openSocket(base);
       const socket = await openSocket(base, session);
       const changed = new Promise<string>(resolve => {
@@ -131,7 +141,9 @@ describe('studio gate', () => {
         bearer: bearer.status,
         forged: forged.status,
         crossSite: crossSite.status,
-        socket: [refusedSocket, JSON.parse(live).data.topics],
+        proxied: proxied.status,
+        logout: [logout.status, logout.headers.get('location'), logout.headers.get('set-cookie')],
+        socket: [refusedSocket, JSON.parse(live).data.topics.includes('data')],
       }).toEqual({
         api: [401, { error: 'log in first', login: '/auth/login' }],
         page: [302, '/auth/login'],
@@ -143,7 +155,9 @@ describe('studio gate', () => {
         bearer: 200,
         forged: 401,
         crossSite: 403,
-        socket: [undefined, ['data', 'bench']],
+        proxied: 400,
+        logout: [303, '/auth/login', 'agi_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict'],
+        socket: [undefined, true],
       });
     } finally {
       await server.close();

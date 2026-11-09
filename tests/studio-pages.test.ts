@@ -305,8 +305,8 @@ it('runs instance actions only for same-origin JSON and reports refusals', async
       [(await fetch(`${base}/api/actions/label`)).status, null],
     ]).toEqual([
       [200, { arm: 'base' }],
-      [403, { error: 'actions take same-origin JSON' }],
-      [403, { error: 'actions take same-origin JSON' }],
+      [403, { error: 'cross-origin request' }],
+      [415, { error: 'actions take JSON' }],
       [400, { error: expect.stringContaining('Missing key') }],
       [200, expect.objectContaining({ ok: true })],
       [404, { error: 'no action merge' }],
