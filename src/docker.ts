@@ -237,7 +237,6 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
   });
 
 const checkedImages = new Map<string, NonNullable<Checkout['image']>['packages']>();
-const ready = 'agentgraph-command-ready';
 
 const parseGlobalPackages = (text: string) => {
   try {
@@ -252,6 +251,56 @@ const parseGlobalPackages = (text: string) => {
   }
 };
 
+const runImageProbe = (id: string, command: string) =>
+  Effect.gen(function* () {
+    const uid = yield* Effect.try({ try: user, catch: error => error as SandboxError });
+    const name = `agentgraph-image-${randomBytes(6).toString('hex')}`;
+    return yield* run('docker', [
+      'run',
+      '--rm',
+      '--name',
+      name,
+      '--pull',
+      'never',
+      '--network',
+      'none',
+      '--read-only',
+      '--user',
+      uid,
+      '--tmpfs',
+      '/tmp:rw,exec,nosuid,nodev,size=64m',
+      '--workdir',
+      '/tmp',
+      '-e',
+      'HOME=/tmp',
+      '--memory',
+      limits.memory,
+      '--memory-swap',
+      limits.memory,
+      '--cpus',
+      limits.cpus,
+      '--pids-limit',
+      limits.pids,
+      '--cap-drop=ALL',
+      '--security-opt',
+      'no-new-privileges=true',
+      id,
+      'sh',
+      '-c',
+      command,
+    ]).pipe(
+      Effect.timeoutOrElse({
+        duration: '10 seconds',
+        orElse: () => Effect.fail(infra(`image ${id} did not run the command probe`)),
+      }),
+      Effect.onError(() =>
+        run('docker', ['rm', '-f', name]).pipe(
+          Effect.catch(e => Effect.sync(() => console.error(`1 skipped image probe cleanup: ${e.detail}`)))
+        )
+      )
+    );
+  });
+
 export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxImage, override?: string) =>
   Effect.gen(function* () {
     if ([override, graph.image, fallback].some(value => value !== undefined && typeof value !== 'string'))
@@ -260,58 +309,15 @@ export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxIm
     yield* locked('images', ensureImage(tag));
     const id = yield* run('docker', ['image', 'inspect', '--format', '{{.Id}}', tag]);
     if (!checkedImages.has(id)) {
-      const uid = yield* Effect.try({ try: user, catch: error => error as SandboxError });
-      const name = `agentgraph-image-${randomBytes(6).toString('hex')}`;
-      const out = yield* run('docker', [
-        'run',
-        '--rm',
-        '--name',
-        name,
-        '--pull',
-        'never',
-        '--network',
-        'none',
-        '--read-only',
-        '--user',
-        uid,
-        '--tmpfs',
-        '/tmp:rw,exec,nosuid,nodev,size=64m',
-        '--workdir',
-        '/tmp',
-        '-e',
-        'HOME=/tmp',
-        '--memory',
-        limits.memory,
-        '--memory-swap',
-        limits.memory,
-        '--cpus',
-        limits.cpus,
-        '--pids-limit',
-        limits.pids,
-        '--cap-drop=ALL',
-        '--security-opt',
-        'no-new-privileges=true',
-        id,
-        'sh',
-        '-c',
-        `printf ${ready}; npm ls -g --json --depth=0 2>/dev/null; true`,
-      ]).pipe(
-        Effect.timeoutOrElse({
-          duration: '10 seconds',
-          orElse: () => Effect.fail(infra(`image ${id} did not run the command probe`)),
-        }),
-        Effect.onError(() =>
-          run('docker', ['rm', '-f', name]).pipe(
-            Effect.catch(e => Effect.sync(() => console.error(`1 skipped image probe cleanup: ${e.detail}`)))
-          )
-        )
-      );
-      if (!out.startsWith(ready))
+      if ((yield* runImageProbe(id, 'printf agentgraph-command-ready')) !== 'agentgraph-command-ready')
         return yield* new SandboxError({
           reason: 'host',
           detail: `Image ${id} must run supplied commands directly; check its entrypoint.`,
         });
-      checkedImages.set(id, parseGlobalPackages(out.slice(ready.length)));
+      const listed = yield* runImageProbe(id, 'npm ls -g --json --depth=0 2>/dev/null; true').pipe(
+        Effect.catch(() => Effect.succeed(''))
+      );
+      checkedImages.set(id, parseGlobalPackages(listed));
     }
     return { id, packages: checkedImages.get(id) ?? {} };
   });

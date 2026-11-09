@@ -1166,14 +1166,15 @@ describe('image packages', () => {
     dependencies: { 'opencode-ai': { version: '1.19.0' }, '@openai/codex': { version: '0.162.1' }, broken: {} },
   });
   it.each([
-    ['sha256:listed', listed, { 'opencode-ai': '1.19.0', '@openai/codex': '0.162.1' }],
-    ['sha256:garbage', 'npm ERR! not json', {}],
-    ['sha256:silent', '', {}],
-  ])('reads the global npm packages of %s', async (id, probe, packages) => {
+    ['sha256:listed', `printf '%s' '${listed}'`, { 'opencode-ai': '1.19.0', '@openai/codex': '0.162.1' }],
+    ['sha256:garbage', 'echo npm ERR! not json', {}],
+    ['sha256:silent', 'true', {}],
+    ['sha256:failing', 'exit 1', {}],
+  ])('reads the global npm packages of %s, or none', async (id, npm, packages) => {
     const bin = tmp('image-packages');
     writeFileSync(
       join(bin, 'docker'),
-      `#!/bin/sh\ncase "$1" in image) echo ${id};; run) printf 'agentgraph-command-ready%s' '${probe}';; esac\n`
+      `#!/bin/sh\ncase "$*" in image*) echo ${id};; *printf*) printf agentgraph-command-ready;; *) ${npm};; esac\n`
     );
     chmodSync(join(bin, 'docker'), 0o755);
     const path = process.env.PATH;

@@ -128,7 +128,7 @@ The harnesses and tools in the sandbox image are pinned as exact `ARG <NAME>_VER
 
 `node bin/pins.mjs` lists each pinned package with its ARG, its pin and the latest version npm knows. `node bin/pins.mjs --set OPENCODE_VERSION=1.20.0` rewrites that ARG line wherever a Dockerfile under `infra/local` has it, and refuses anything but an exact version. The package of each ARG comes from its `pkg@${NAME}` install line, so there is no second list. <!-- code: bin/pins.mjs -->
 
-Runs record what the image holds, not what the Dockerfile says. The probe that checks an image once per Docker ID also lists its global npm packages, and the checkout carries the ID and those versions. A per-repo image built on an older `agentgraph-sandbox:local` still shows its old versions until it is rebuilt with the command in [A graph's own image](#a-graphs-own-image). <!-- code: src/docker.ts#readImage src/types.ts#Checkout -->
+Runs record what the image holds, not what the Dockerfile says. After the probe that checks an image once per Docker ID, a second run of the image lists its global npm packages, and the checkout carries the ID and those versions. When that listing fails or times out, the checkout keeps the ID with no packages. A per-repo image built on an older `agentgraph-sandbox:local` still shows its old versions until it is rebuilt with the command in [A graph's own image](#a-graphs-own-image). <!-- code: src/docker.ts#readImage src/types.ts#Checkout -->
 
 ## Models
 
