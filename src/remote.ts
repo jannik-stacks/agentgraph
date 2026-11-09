@@ -5,7 +5,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { Duration, Effect, Layer, Redacted, Schedule, Stream, Semaphore } from 'effect';
-import { dockerSandbox } from './docker.ts';
+import { dockerRunner } from './docker.ts';
+import { makeSandbox } from './mirror.ts';
 import { getCachePath, makeToolchainSetupCommands } from './env.ts';
 import type { TrackerError } from './tracker.ts';
 import { hostGit, indexLock, makeHostEnv } from './git.ts';
@@ -129,7 +130,10 @@ export const remoteSandbox = (o: {
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
-      const host = yield* Effect.provide(Sandbox, dockerSandbox({ ...o, cache: '' }));
+      const host = yield* Effect.provide(
+        Sandbox,
+        makeSandbox(o).pipe(Layer.provide(dockerRunner({ data: o.data, cache: '' })))
+      );
       const boxes = new Map<string, BoxEntry>();
       const syncIndex = (work: Checkout) => getCachePath(o.data, 'sync', `${basename(work.dir)}.index`);
       const workDir = (box: BoxEntry): SyncedDir => ({

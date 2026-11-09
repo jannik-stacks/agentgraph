@@ -84,7 +84,7 @@ checks. A per-session relay runs as non-root with a read-only root on the sandbo
 forwards only that host port. It is needed because the isolated sandbox cannot reach the host
 listener directly. The relay holds no bearer.
 Both listener and relay close when the session ends; cancellation traces finish before closure.
-<!-- code: src/docker.ts#dockerSandbox src/docker.ts#dockerArgs -->
+<!-- code: src/docker.ts#dockerRunner src/docker.ts#dockerArgs -->
 
 Every request needs its unpredictable path, 256-bit bearer and matching Host header; an Origin
 header must match when present. Limits are eight TCP connections, four HTTP requests and four tool

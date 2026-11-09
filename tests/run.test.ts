@@ -4,7 +4,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Effect, Exit, Fiber, Layer, Redacted, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { dockerSandbox } from '../src/docker.ts';
+import { dockerSandbox } from './docker-fixtures.ts';
 import { tick } from '../src/run/trigger.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';

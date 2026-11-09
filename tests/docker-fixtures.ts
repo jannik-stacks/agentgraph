@@ -1,9 +1,44 @@
 import { beforeAll, afterAll } from 'vitest';
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
-import { dockerSandbox } from '../src/docker.ts';
+import { Effect, Layer, Stream } from 'effect';
+import { dockerRunner } from '../src/docker.ts';
+import { makeSandbox } from '../src/mirror.ts';
 import { delimiter, join } from 'node:path';
-import type { Command } from '../src/sandbox.ts';
+import { type Command, type Exit, Runner, Sandbox } from '../src/sandbox.ts';
 import { git, tmp } from './kit.ts';
+
+export const dockerSandbox = (o: Parameters<typeof makeSandbox>[0] & Parameters<typeof dockerRunner>[0]) =>
+  Layer.effect(
+    Sandbox,
+    Effect.gen(function* () {
+      const sandbox = yield* Sandbox;
+      const runner = yield* Runner;
+      const dirs = new Set<string>();
+      const stray = { dir: '', base: '', git: { GIT_DIR: '', GIT_WORK_TREE: '' }, news: '' };
+      const lines = (c: Command) =>
+        dirs.has(c.dir) ? sandbox.lines(c) : Stream.unwrap(Effect.map(runner.open(stray), box => box.lines(c)));
+      return {
+        ...sandbox,
+        checkout: (...args) => Effect.tap(sandbox.checkout(...args), work => Effect.sync(() => dirs.add(work.dir))),
+        tools: dir =>
+          dirs.has(dir)
+            ? sandbox.tools!(dir)
+            : Effect.scoped(Effect.flatMap(runner.open(stray), box => box.tools!(dir))),
+        lines,
+        exec: c =>
+          dirs.has(c.dir)
+            ? sandbox.exec(c)
+            : Effect.scoped(
+                Stream.runFold(
+                  lines(c),
+                  (): Exit => ({ code: 0, output: '' }),
+                  (exit, piece) =>
+                    typeof piece === 'string' ? { ...exit, output: exit.output + piece + '\n' } : { ...exit, ...piece }
+                )
+              ),
+      } satisfies Sandbox['Service'];
+    })
+  ).pipe(Layer.provide(makeSandbox(o)), Layer.provideMerge(dockerRunner(o)));
 
 export const makeDockerOrigin = () => {
   const dir = tmp('origin');

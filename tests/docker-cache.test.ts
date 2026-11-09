@@ -2,7 +2,6 @@ import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, symlinkSync, 
 import { delimiter, join } from 'node:path';
 import { Effect, Exit, type Layer, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { dockerSandbox } from '../src/docker.ts';
 import { readSandboxSetup, makeToolchainSetupCommands } from '../src/env.ts';
 import { startHeartbeat } from '../src/owner.ts';
 import { readEnvRefs } from '../src/disk.ts';
@@ -12,7 +11,12 @@ import { git, tmp, write } from './kit.ts';
 const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Service']) => Effect.Effect<A, E, Scope.Scope>) =>
   Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
 
-import { makeDockerOrigin as origin, makeDockerCommand as command, makeDockerClient } from './docker-fixtures.ts';
+import {
+  dockerSandbox,
+  makeDockerOrigin as origin,
+  makeDockerCommand as command,
+  makeDockerClient,
+} from './docker-fixtures.ts';
 
 describe('docker with a stand-in docker client', () => {
   const { log, layer, logged } = makeDockerClient();

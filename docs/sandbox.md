@@ -26,9 +26,9 @@ A workflow step can override either field with `limits: { memory: 8g }`. This ap
 | `/cache`      | The repo's toolchain cache                                                 | overlay                                                                  |
 | the mirror    | The repo's git objects                                                     | read only                                                                |
 
-Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerSandbox -->
+Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerRunner -->
 
-Docker advertises its `scratch` path in agent prompts. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerSandbox src/env.ts#removeCheckout -->
+Docker advertises its `scratch` path in agent prompts. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerRunner src/env.ts#removeCheckout -->
 
 A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box server can't enforce that, so it refuses read-only sessions. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#remoteSandbox -->
 
@@ -51,9 +51,9 @@ Graph `setup` installs dependencies, such as `npm ci --no-audit --no-fund`. With
 
 An environment caches a repo's dependencies. A container takes the lockfiles and manifests from the base commit, installs [toolchains](#toolchains), runs `setup`, and keeps the ignored dependency folders such as `node_modules` and `target` in the volume `agentgraph-lower-<key>`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton -->
 
-Bases of one repo that differ only in source share one. Environments of different repos never share a volume. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerSandbox -->
+Bases of one repo that differ only in source share one. Environments of different repos never share a volume. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerRunner -->
 
-A run whose steps all use agents with only read tools, such as a router or triage, starts from the plain image. It skips the environment, the cache volume and `setup`, so its scripts and checks see no installed dependencies. <!-- code: src/folder.ts#loadGraph src/run/drive.ts#runWorkflow src/docker.ts#dockerSandbox -->
+A run whose steps all use agents with only read tools, such as a router or triage, starts from the plain image. It skips the environment, the cache volume and `setup`, so its scripts and checks see no installed dependencies. <!-- code: src/folder.ts#loadGraph src/run/drive.ts#runWorkflow src/docker.ts#dockerRunner -->
 
 `AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. A Docker daemon that does not answer fails as unreachable, not as a missing image. <!-- code: src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
 
@@ -186,7 +186,7 @@ The harness adapters accept an engine tool endpoint and allow only its named too
 
 Session output and transcripts share credential redaction before storage. Known values and common credential patterns are hidden; this cannot detect every secret. <!-- code: src/context.ts#formatRedactedText src/harnesses.ts#harnessSession src/services.ts#settings -->
 
-Host tools use a session TCP relay on the sandbox's selected internal network. It forwards one port to a loopback listener on macOS or the egress bridge gateway on Linux. The listener checks the relay's source subnet. The relay holds no bearer token and is removed with the session. <!-- code: src/docker.ts#dockerSandbox src/sandbox.ts#Sandbox src/harnesses.ts#harnessSession -->
+Host tools use a session TCP relay on the sandbox's selected internal network. It forwards one port to a loopback listener on macOS or the egress bridge gateway on Linux. The listener checks the relay's source subnet. The relay holds no bearer token and is removed with the session. <!-- code: src/docker.ts#dockerRunner src/sandbox.ts#Sandbox src/harnesses.ts#harnessSession -->
 
 The sandbox image supplies `agi file put <path>` for selected host-tool sessions. It uses
 `AGENTGRAPH_TOOL_URL` and the reserved session bearer to stream a local PNG/JPEG to the session endpoint and prints an opaque handle, with no path or image bytes in model

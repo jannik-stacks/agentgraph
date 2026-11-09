@@ -15,7 +15,7 @@ const exempt = new Set([
   'githubTracker',
   'fileStore',
   'harnessSession',
-  'dockerSandbox',
+  'dockerRunner',
   'remoteSandbox',
   'opencode',
   'claude',

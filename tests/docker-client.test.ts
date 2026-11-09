@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync
 import { basename, delimiter, dirname, join } from 'node:path';
 import { Effect, Exit, Layer, Logger, Redacted, type Scope, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { dockerSandbox, dockerArgs, readImage } from '../src/docker.ts';
+import { dockerArgs, readImage } from '../src/docker.ts';
 import { ensureInstance } from '../src/instance.ts';
 import { commitCheckoutOnce } from '../src/git.ts';
 import {
@@ -29,7 +29,12 @@ const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Service']) => Ef
 const sortOutputLines = <A extends { output: string }, E>(exit: Exit.Exit<A, E>) =>
   Exit.map(exit, e => ({ ...e, output: e.output.split('\n').toSorted().join('\n') }));
 
-import { makeDockerOrigin as origin, makeDockerCommand as command, makeDockerClient } from './docker-fixtures.ts';
+import {
+  dockerSandbox,
+  makeDockerOrigin as origin,
+  makeDockerCommand as command,
+  makeDockerClient,
+} from './docker-fixtures.ts';
 
 describe('docker with a stand-in docker client', () => {
   const { log, layer, logged } = makeDockerClient();
@@ -136,8 +141,8 @@ describe('docker with a stand-in docker client', () => {
     try {
       const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere', cache: '' }), s =>
         Effect.gen(function* () {
-          const first = yield* s.tools!;
-          const second = yield* s.tools!;
+          const first = yield* s.tools!('');
+          const second = yield* s.tools!('');
           yield* s.exec(
             command(tmp('work'), {
               network: 'proxy',

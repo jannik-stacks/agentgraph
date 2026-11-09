@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Config, ConfigProvider, Effect, Layer, Option, Redacted, Schema, Struct } from 'effect';
 import { folder, type TrackerSetup } from './tracker.ts';
-import { dockerSandbox, findMissingModelHosts, sandboxImage } from './docker.ts';
+import { dockerRunner, findMissingModelHosts, sandboxImage } from './docker.ts';
+import { makeSandbox } from './mirror.ts';
 import { github } from './github.ts';
 import {
   type HarnessSettings,
@@ -211,13 +212,11 @@ export const makeProductionLayers = (setup?: TrackerSetup) => {
         const { layer: tracker, origin } = yield* Effect.promise(() => current);
         const sandbox = s.sandbox
           ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
-          : dockerSandbox({
-              data: s.data,
-              cache: s.cache,
-              image: s.image,
-              direct: findLocalModelHosts(s.proxy.url),
-              ...origin,
-            });
+          : makeSandbox({ data: s.data, ...origin }).pipe(
+              Layer.provide(
+                dockerRunner({ data: s.data, cache: s.cache, image: s.image, direct: findLocalModelHosts(s.proxy.url) })
+              )
+            );
         const config = yield* readHarnessSettings.pipe(
           Effect.catch(e =>
             Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {

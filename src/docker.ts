@@ -1,13 +1,13 @@
 import { getSha } from './hash.ts';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { copyFile, lstat, mkdir, readFile, rename, rm } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { lstat, mkdir } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Cache, Cause, Duration, Effect, Layer, Queue, Redacted, Schema, Semaphore, Stream } from 'effect';
+import { Cache, Cause, Duration, Effect, Layer, Queue, Redacted, Schema, Stream } from 'effect';
 import { isIP } from 'node:net';
-import { isAgentBranch, type TrackerError } from './tracker.ts';
+import { isAgentBranch } from './tracker.ts';
 import type { Graph } from './folder.ts';
 import {
   dependencyDirs,
@@ -17,56 +17,23 @@ import {
   readSetupInputKey,
   createSharedMounts,
   type SharedMount,
-  writeCheckoutOwner,
-  findDeadCheckouts,
-  getCachePath,
   getCheckoutPaths,
-  removeCheckout,
   packageManagerCacheEnv,
   unlogged,
   written,
 } from './env.ts';
-import { ensureFreeDisk, writeEnvRefs, removeBranch } from './disk.ts';
+import { ensureFreeDisk, writeEnvRefs } from './disk.ts';
 import { waitForLock } from './owner.ts';
-import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import {
-  commitCheckout,
-  commitCheckoutOnce,
-  hostGit,
-  makeHostEnv,
-  readGit,
-  readBranches,
-  readWorktreeAdmin,
-} from './git.ts';
+import { type Checkout, type Command, type Exit, inside, Runner, type Sandbox, SandboxError } from './sandbox.ts';
+import { makeHostEnv, readGit } from './git.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
 const egress = 'http://egress:8888';
 const bypass = (direct: string[]) => [...direct, 'localhost', '127.0.0.1'].join(',');
-const inside = {
-  work: '/work',
-  home: '/home/agent',
-  tmp: '/tmp',
-  scratch: '/scratch',
-  graph: '/graph',
-  cache: '/cache',
-};
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
-const outputLimit = 64 << 10;
-/** The mirror takes branches and tags only, so fork code in `refs/pull/*` never reaches a session. */
-const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };
-
-/**
- * The admin dir git just made for the worktree `dir` of `mirror`, read before any container ran in `dir`. It must be
- * `<mirror>/worktrees/<name of dir>`.
- */
-const worktreeAdmin = (mirror: string, dir: string) => {
-  const admin = readWorktreeAdmin(mirror, dir);
-  if (basename(admin) !== basename(dir)) throw new Error(`worktree admin dir ${admin} does not name ${dir}`);
-  return admin;
-};
 
 const infra = (detail: string) => new SandboxError({ reason: 'infra', detail });
 
@@ -404,13 +371,6 @@ export const ensureDocker = (say: (line: string) => void, image: string) =>
     return version;
   });
 
-/** Git config from the environment that sends `token` to github.com, so it stays out of argv and every config file. */
-const auth = (token: string) => ({
-  GIT_CONFIG_COUNT: '1',
-  GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
-  GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`,
-});
-
 /** Starts `docker` with `args` in its own process group; `stop` kills it and removes the container. */
 const start = (args: string[], secrets: Command['secrets'], name: string, on: (chunk: string) => void) => {
   const env = makeHostEnv(
@@ -437,41 +397,52 @@ const start = (args: string[], secrets: Command['secrets'], name: string, on: (c
 const timeout = (c: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
 
-const mirrorLocks = new Map<string, Semaphore.Semaphore>();
+const readTrustedCommits = (mirror: string, local: boolean, workflows: Graph['workflows'] = {}) => {
+  const written = Object.values(workflows).flatMap(w =>
+    w.branch
+      ? [
+          new RegExp(
+            `^${w.branch
+              .split(/\{[^}]*\}/)
+              .map(p => p.replace(/[.*+?^$()|[\]\\]/g, '\\$&'))
+              .join('.+')}$`
+          ),
+        ]
+      : []
+  );
+  const bases = Object.values(workflows).flatMap(w =>
+    w.base && !/[{}]/.test(w.base) && !isAgentBranch(w.base) && !written.some(r => r.test(w.base!)) ? [w.base] : []
+  );
+  return Effect.forEach([local ? 'HEAD' : 'refs/remotes/origin/HEAD', ...bases.map(b => `refs/heads/${b}`)], name =>
+    readGit({ GIT_DIR: mirror }, ['rev-parse', '--verify', '--quiet', `${name}^{commit}`]).pipe(
+      Effect.orElseSucceed(() => '')
+    )
+  );
+};
 
 /**
- * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`, or of
- * `origin` itself when it is a `local` tracker's bare repo. With
- * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. A checkout for a graph
+ * A runner: one container per command over the checkouts of the sandbox. A checkout for a graph
  * mounts its repo's cache volume, named from the prefix `cache` (`agentgraph-cache` by default), the repo and its setup
  * hash. It starts from the graph's sandbox setup at its base, built once with the toolchain and setup, and holds its
  * dependency directories in volumes, never in the checkout. An empty `cache` turns the cache volumes and sandbox setups off.
  */
-export const dockerSandbox = (o: {
+export const dockerRunner = (o: {
   data: string;
-  origin: string;
-  local?: boolean;
   image?: string;
   cache?: string;
   direct?: string[];
-  token?: Effect.Effect<string, TrackerError>;
-}): Layer.Layer<Sandbox> =>
+}): Layer.Layer<Runner> =>
   Layer.effect(
-    Sandbox,
+    Runner,
     Effect.gen(function* () {
       const image = o.image ?? sandboxImage;
       const cache = o.cache ?? 'agentgraph-cache';
-      const mirror = o.local ? o.origin : join(o.data, 'mirror.git');
-      let configured = false;
-      const lock = mirrorLocks.get(mirror) ?? mirrorLocks.set(mirror, Semaphore.makeUnsafe(1)).get(mirror)!;
       const roomy = (base: string) =>
         Effect.tryPromise({
           try: () => ensureFreeDisk({ dir: o.data, ...(cache && { image: base }) }),
           catch: e => infra((e as Error).message),
         });
-      /** Each live checkout as the host made it. */
       const made = new Map<string, CheckoutContainerSpec>();
-      const inMirror = (args: string[], env: Record<string, string> = {}) => readGit({ GIT_DIR: mirror, ...env }, args);
       const internal = yield* Cache.make({
         capacity: 8,
         lookup: (network: string) =>
@@ -611,11 +582,19 @@ export const dockerSandbox = (o: {
               )
             ).pipe(
               Stream.splitLines,
-              Stream.filter(line => {
-                const used = line.startsWith(usedMark) && readUsed(line).used;
-                if (used) measured = used;
-                return !used;
-              }),
+              Stream.mapAccum(
+                () => false,
+                (blank, line) => {
+                  const used = line.startsWith(usedMark) && readUsed(line).used;
+                  if (used) {
+                    measured = used;
+                    return [false, []];
+                  }
+                  const held = blank ? [''] : [];
+                  return line === '' ? [true, held] : [false, [...held, line]];
+                },
+                { onHalt: blank => (blank ? [''] : []) }
+              ),
               Stream.concat(Stream.sync(() => ({ code, ...(measured && { used: measured }) }))),
               Stream.interruptWhen(
                 Effect.andThen(Effect.sleep(Duration.minutes(c.minutes)), Effect.failSync(timeout(c)))
@@ -624,178 +603,51 @@ export const dockerSandbox = (o: {
           })
         );
 
-      const exec = (c: Command) =>
+      const open = (
+        work: Omit<Checkout, 'ready' | 'env' | 'written'>,
+        graph?: Parameters<Sandbox['Service']['checkout']>[3]
+      ) =>
         Effect.gen(function* () {
-          const { name, args } = yield* prepare(c);
-          let output = '';
-          const proc = yield* Effect.acquireRelease(
-            Effect.sync(() =>
-              start(args, c.secrets, name, chunk => void (output = (output + chunk).slice(-outputLimit)))
-            ),
-            proc => proc.stop()
-          );
-          const code = yield* Effect.promise(() => proc.closed).pipe(
-            Effect.timeoutOrElse({ duration: Duration.minutes(c.minutes), orElse: () => Effect.failSync(timeout(c)) })
-          );
-          if (code === 125) return yield* infra(`docker could not start the container: ${output.trim().slice(-2000)}`);
-          return { code, ...readUsed(output) } satisfies Exit;
-        });
-
-      const empty = (graph?: Pick<Graph, 'image' | 'network'>) =>
-        Effect.gen(function* () {
-          const id = randomBytes(6).toString('hex');
-          const { dir, news, scratch } = getCheckoutPaths(o.data, id);
-          const remove = Effect.promise(() => {
-            made.delete(dir);
-            return removeCheckout(o.data, id);
-          });
-          yield* Effect.acquireRelease(
-            Effect.tryPromise({
-              try: async () => {
-                writeCheckoutOwner(dir);
-                await Promise.all([dir, news, scratch].map(p => mkdir(p, { recursive: true })));
-                made.set(dir, {
-                  ...(graph?.image !== undefined && { image: graph.image }),
+          const box = yield* readImage(graph, image);
+          const { news, scratch } = getCheckoutPaths(o.data, basename(work.dir));
+          if (!work.base) {
+            yield* Effect.acquireRelease(
+              Effect.sync(() =>
+                made.set(work.dir, {
+                  image: box,
                   ...(graph?.network !== undefined && { network: graph.network }),
                   sharedMounts: [],
                   mounts: [
                     { src: news, dst: news, readonly: true },
                     { src: scratch, dst: inside.scratch },
                   ],
-                });
-              },
-              catch: e => infra((e as Error).message),
-            }).pipe(Effect.onError(() => remove)),
-            () => remove
-          );
-          return {
-            dir,
-            base: '',
-            git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
-            news: join(news, 'news.md'),
-          };
-        });
-
-      const fetch = lock.withPermits(1)(
-        Effect.gen(function* () {
-          if (o.local) {
-            if (configured) return;
-            for (const [key, value] of Object.entries({
-              'remote.origin.url': mirror,
-              'remote.origin.pushurl': mirror,
-              'receive.autogc': 'false',
-              'receive.denyCurrentBranch': 'ignore',
-              'gc.auto': '0',
-            }))
-              if ((yield* inMirror(['config', '--get-all', key]).pipe(Effect.orElseSucceed(() => ''))) !== value)
-                yield* inMirror(['config', '--replace-all', key, value]);
-            configured = true;
-            return;
+                })
+              ),
+              () => Effect.sync(() => made.delete(work.dir))
+            );
+            return { lines, tools: () => tools };
           }
-          const exists = yield* Effect.promise(() =>
-            readFile(join(mirror, 'HEAD')).then(
-              () => true,
-              () => false
-            )
-          );
-          const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
-          if (!exists) {
-            yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
-            const part = `${mirror}.${randomBytes(4).toString('hex')}`;
-            yield* Effect.asVoid(hostGit({}, ['init', '--bare', '-q', part]));
-            yield* Effect.asVoid(hostGit({ GIT_DIR: part }, ['config', 'remote.origin.url', o.origin]));
-            yield* Effect.promise(() => rename(part, mirror).catch(() => rm(part, { recursive: true, force: true })));
-          }
-          yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', ...fetched], env);
-        })
-      );
-      const verify = (name: string) =>
-        inMirror([
-          'rev-parse',
-          '--verify',
-          '--quiet',
-          `${o.local && name === 'origin/HEAD' ? 'HEAD' : name}^{commit}`,
-        ]).pipe(Effect.orElseSucceed(() => ''));
-      const readTrustedCommits = (workflows: Graph['workflows'] = {}) => {
-        const written = Object.values(workflows).flatMap(w =>
-          w.branch
-            ? [
-                new RegExp(
-                  `^${w.branch
-                    .split(/\{[^}]*\}/)
-                    .map(p => p.replace(/[.*+?^$()|[\]\\]/g, '\\$&'))
-                    .join('.+')}$`
-                ),
-              ]
-            : []
-        );
-        const bases = Object.values(workflows).flatMap(w =>
-          w.base && !/[{}]/.test(w.base) && !isAgentBranch(w.base) && !written.some(r => r.test(w.base!))
-            ? [w.base]
-            : []
-        );
-        return Effect.forEach(
-          [o.local ? 'HEAD' : 'refs/remotes/origin/HEAD', ...bases.map(b => `refs/heads/${b}`)],
-          verify
-        );
-      };
-      const verifyBranch = (ref: string) =>
-        Effect.gen(function* () {
-          return (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
-        });
-      const readHead = (ref: string) =>
-        Effect.gen(function* () {
-          yield* fetch;
-          return (yield* verifyBranch(ref)) || (yield* infra(`no commit for ${ref}`));
-        });
-
-      const checkoutGit = ({ dir, index }: ReturnType<typeof getCheckoutPaths>) => ({
-        GIT_DIR: mirror,
-        GIT_WORK_TREE: dir,
-        GIT_INDEX_FILE: index,
-      });
-      const dead = findDeadCheckouts(o.data);
-      if (dead.length > 0) mkdirSync(getCachePath(o.data, 'index'), { recursive: true });
-      for (const id of dead) {
-        const paths = getCheckoutPaths(o.data, id);
-        yield* commitCheckoutOnce(checkoutGit(paths), `refs/agentgraph/reaped/${id}`, []).pipe(
-          Effect.andThen(Effect.promise(() => removeCheckout(o.data, id))),
-          Effect.catch(e =>
-            existsSync(paths.dir) ? Effect.logWarning(`kept unsaved checkout ${paths.dir}: ${e.detail}`) : Effect.void
-          )
-        );
-      }
-
-      const checkout = (
-        ref: string | undefined,
-        branch?: string,
-        keep?: string,
-        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> &
-          Partial<Pick<Graph, 'repo' | 'workflows'>> & { readonly?: boolean }
-      ) =>
-        Effect.gen(function* () {
-          const box = yield* readImage(graph, image);
-          if (ref === undefined) return yield* empty({ ...graph, image: box });
-          yield* fetch;
-          const saved = keep ? yield* verify(keep) : '';
-          const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
-          const onto = yield* verifyBranch(ref);
-          const rev = own || (saved ? yield* verify(`${saved}^`) : onto);
-          if (!rev) return yield* infra(`no commit for ${ref}`);
-          const base = onto ? yield* inMirror(['merge-base', rev, onto]) : rev;
+          const mirror = work.git.GIT_DIR;
+          const rev = work.head ?? work.base;
           yield* roomy(box);
           const setup = graph?.setup?.includes('AGENTGRAPH_DIR') ? undefined : graph?.setup;
-          const trusted = graph && cache && !graph.readonly ? yield* readTrustedCommits(graph.workflows) : [];
+          const local = mirror !== join(o.data, 'mirror.git');
+          const trusted =
+            graph && cache && !graph.readonly ? yield* readTrustedCommits(mirror, local, graph.workflows) : [];
+          const origin =
+            graph && cache && !graph.readonly
+              ? yield* readGit({ GIT_DIR: mirror }, ['config', 'remote.origin.url'])
+              : '';
           const { cache: repoCache, env } =
             graph && cache && !graph.readonly
               ? yield* Effect.tryPromise({
                   try: () =>
                     readSandboxSetup({
                       repo: graph.repo ?? '',
-                      origin: URL.canParse(o.origin) ? o.origin : resolve(o.origin),
+                      origin: URL.canParse(origin) ? origin : resolve(origin),
                       image: box,
                       git: mirror,
-                      base,
+                      base: work.base,
                       cache,
                       trusted: trusted.filter(Boolean),
                       ...(setup && { setup }),
@@ -815,106 +667,49 @@ export const dockerSandbox = (o: {
                 )
               )
             : false;
-          const id = randomBytes(6).toString('hex');
-          const paths = getCheckoutPaths(o.data, id);
-          const { dir, index, news, scratch } = paths;
-          const work: Checkout = {
-            dir,
-            base,
-            ...(base !== rev && { head: rev }),
-            ...(saved && { saved }),
-            ...(env?.complete && setup && !saved && match && { ready: true }),
-            ...(env && { env: { key: env.key, mode: env.mode, match } }),
-            git: checkoutGit(paths),
-            news: join(news, 'news.md'),
-          };
-          const save = (name: string) =>
-            commitCheckout(
-              work,
-              name,
-              saved,
-              [rev, saved, work.published],
-              name + (work.published ? `\n\nbaseline ${work.published}` : '')
-            ).pipe(
-              Effect.tapError(() => Effect.promise(() => rename(`${dir}.owner`, `${dir}.failed`))),
-              Effect.mapError(
-                e => new Error(`${e.detail}; unsaved checkout preserved at ${dir}, index ${index}`, { cause: e })
-              ),
-              Effect.orDie
-            );
-          let admin = '';
-          let sharedMounts: SharedMount[] = [];
-          const add = Effect.gen(function* () {
-            yield* Effect.try({ try: () => writeCheckoutOwner(dir), catch: e => infra((e as Error).message) });
-            yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
-            admin = yield* Effect.try({
-              try: () => worktreeAdmin(mirror, dir),
-              catch: e => infra((e as Error).message),
-            });
-            yield* Effect.tryPromise({
-              try: async () => {
-                await mkdir(dirname(index), { recursive: true });
-                await mkdir(news, { recursive: true });
-                await mkdir(scratch, { recursive: true });
-                await copyFile(join(admin, 'index'), index);
-              },
-              catch: e => infra((e as Error).message),
-            });
-            if (saved) yield* hostGit(work.git, ['read-tree', '-u', '--reset', saved]);
-            if (repoCache)
-              sharedMounts = yield* Effect.tryPromise({
-                try: async () =>
-                  createSharedMounts(
-                    env ?? { image: box, outputs: [] },
-                    id,
-                    dir,
-                    await dependencyDirs(mirror, rev),
-                    repoCache
-                  ),
-                catch: e => infra((e as Error).message),
-              });
-            const from = env?.image ?? box;
-            work.written = () => written(sharedMounts, from);
-            made.set(dir, {
-              image: from,
-              cache: repoCache,
-              ...(graph?.network !== undefined && { network: graph.network }),
-              sharedMounts,
-              mounts: [
-                { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
-                { src: admin, dst: admin },
-                { src: news, dst: news, readonly: true },
-                { src: scratch, dst: inside.scratch },
-              ],
-            });
-          });
-          const remove = Effect.promise(() => {
-            made.delete(dir);
-            return Promise.all([
-              removeCheckout(o.data, id),
-              admin && rm(admin, { recursive: true, force: true }),
-              discard(sharedMounts),
-            ]);
-          });
-          yield* Effect.acquireRelease(add.pipe(Effect.onError(() => remove)), () =>
-            Effect.andThen(keep ? save(keep) : Effect.void, remove)
+          const sharedMounts = repoCache
+            ? yield* Effect.acquireRelease(
+                Effect.tryPromise({
+                  try: async () =>
+                    createSharedMounts(
+                      env ?? { image: box, outputs: [] },
+                      basename(work.dir),
+                      work.dir,
+                      await dependencyDirs(mirror, rev),
+                      repoCache
+                    ),
+                  catch: e => infra((e as Error).message),
+                }),
+                mounts => Effect.promise(() => discard(mounts))
+              )
+            : [];
+          const admin = join(mirror, 'worktrees', basename(work.dir));
+          yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              made.set(work.dir, {
+                image: env?.image ?? box,
+                cache: repoCache,
+                ...(graph?.network !== undefined && { network: graph.network }),
+                sharedMounts,
+                mounts: [
+                  { src: mirror, dst: mirror, readonly: true },
+                  { src: admin, dst: admin },
+                  { src: news, dst: news, readonly: true },
+                  { src: scratch, dst: inside.scratch },
+                ],
+              })
+            ),
+            () => Effect.sync(() => made.delete(work.dir))
           );
-          return work;
+          return {
+            lines,
+            tools: () => tools,
+            ...(env?.complete && setup && !work.saved && match && { ready: true }),
+            ...(env && { env: { key: env.key, mode: env.mode, match } }),
+            written: () => written(sharedMounts, env?.image ?? box),
+          };
         });
 
-      return {
-        readBranches: () =>
-          readBranches(mirror, o.local ? undefined : '%(if)%(worktreepath)%(then)%(refname:strip=2)%(end)'),
-        readHead,
-        removeBranch: (branch, base, head) =>
-          lock.withPermits(1)(
-            removeBranch(mirror, branch, o.local && base === 'origin/HEAD' ? 'HEAD' : base, head, o.data)
-          ),
-        checkout,
-        exec,
-        lines,
-        tools,
-        scratch: inside.scratch,
-      };
+      return { open };
     })
   );

@@ -62,6 +62,15 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
   }
 }
 
+export const inside = {
+  work: '/work',
+  home: '/home/agent',
+  tmp: '/tmp',
+  scratch: '/scratch',
+  graph: '/graph',
+  cache: '/cache',
+};
+
 /**
  * Where a run's checkout lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
  * checkout starts from the files last kept under that ref, on the run branch when it exists, else on their base.
@@ -73,7 +82,9 @@ export class Sandbox extends Context.Service<
   Sandbox,
   {
     scratch?: string;
-    tools?: Effect.Effect<{ subnet: string } & Pick<NonNullable<Command['tools']>, 'host'>, SandboxError>;
+    tools?: (
+      dir: string
+    ) => Effect.Effect<{ subnet: string } & Pick<NonNullable<Command['tools']>, 'host'>, SandboxError>;
     readBranches: () => Effect.Effect<string[], SandboxError>;
     readHead: (ref: string) => Effect.Effect<string, SandboxError>;
     removeBranch: (branch: string, base: string | undefined, head?: string) => Effect.Effect<void, SandboxError>;
@@ -88,3 +99,16 @@ export class Sandbox extends Context.Service<
     lines: (command: Command) => Stream.Stream<string | Pick<Exit, 'code' | 'used'>, SandboxError, Scope.Scope>;
   }
 >()('agentgraph/Sandbox') {}
+
+export type Box = Pick<Sandbox['Service'], 'lines' | 'tools'> & Pick<Checkout, 'ready' | 'env' | 'written'>;
+
+export class Runner extends Context.Service<
+  Runner,
+  {
+    open: (
+      work: Omit<Checkout, 'ready' | 'env' | 'written'>,
+      graph?: Parameters<Sandbox['Service']['checkout']>[3]
+    ) => Effect.Effect<Box, SandboxError, Scope.Scope>;
+    whyRefused?: (graph: Graph) => string | undefined;
+  }
+>()('agentgraph/Runner') {}

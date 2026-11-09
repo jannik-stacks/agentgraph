@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, rmSync, renameSync } 
 import { join } from 'node:path';
 import { Effect, Logger, Semaphore } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
-import { dockerSandbox } from '../src/docker.ts';
+import { dockerSandbox } from './docker-fixtures.ts';
 import { removeBranch } from '../src/disk.ts';
 import { getCheckoutPaths } from '../src/env.ts';
 import * as host from '../src/git.ts';
