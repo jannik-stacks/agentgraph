@@ -2,6 +2,7 @@
 
 This clone-only example adds a live studio dashboard through a graph plugin.
 It adds no engine service, storage or npm dependency.
+Its charts are plain SVG drawn with d3-scale, which the studio provides to page plugins.
 
 Copy `plugins/dashboard.ts` and `plugins/dashboard/` into your graph's `plugins/` folder.
 Keep the example's relative engine imports when using this graph in this checkout.

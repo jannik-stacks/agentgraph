@@ -6,7 +6,9 @@
     "moduleResolution": "bundler",
     "paths": {
       "@jannik-stacks/agi/studio": ["./src/plugins.ts"],
-      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"]
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
+      "d3-scale": ["./node_modules/@types/d3-scale/index.d.ts"]
     },
     "jsx": "react-jsx",
     "strict": true,

@@ -27,7 +27,7 @@
   "ignoreBinaries": ["continue", "codex", "du", "mkfifo"],
   "ignoreDependencies": [
     "@changesets/cli",
-    "react",
+    "@types/react",
     "react-dom",
     "jotai",
     "@xyflow/react",
@@ -37,7 +37,7 @@
     "@tailwindcss/vite",
     "@vitejs/plugin-react",
     "agentation",
-    "d3-scale",
+    "@types/d3-scale",
     "@observablehq/plot"
   ]
 }
