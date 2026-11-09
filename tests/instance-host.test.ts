@@ -82,13 +82,6 @@ it('reads runs, labels and tracker issues of its one instance and acts through t
   });
 });
 
-it('streams the run list of an issue as it changes', async () => {
-  const { data } = await makeInstance();
-  const host = makeInstanceHost({ data });
-  const seen = await callLocal(host, client => Stream.runCollect(Stream.take(client.watch({}), 1)));
-  expect([...seen].map(runs => runs.map(run => run.id))).toEqual([['r1']]);
-});
-
 it.each([
   ['labels a missing run', (client: LocalClient) => client.label({ id: 'r9', patch: { arm: 'x' } }), 'no run r9'],
   ['reads without a tracker', (client: LocalClient) => client.show({}), 'serves no tracker'],

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { Effect, Layer, Schedule, Schema, Stream } from 'effect';
+import { Effect, Layer, Schema, Stream } from 'effect';
 import { HttpRouter } from 'effect/http';
 import { RpcSerialization, RpcServer } from 'effect/rpc';
 import { ActionError, Actions, ActionUser, makeActionClient, userHeader } from './actions.ts';
@@ -113,14 +113,6 @@ export const makeInstanceHost = (
       drive
         ? Effect.tryPromise({ try: () => drive({ kind: 'resume', ...selection }), catch: fail })
         : Effect.fail(ActionError.make({ message: 'this host does not drive runs' })),
-    watch: ({ issue }) =>
-      Stream.fromEffectSchedule(
-        store.listRecords(issue === undefined ? {} : { issue }),
-        Schedule.spaced('1 second')
-      ).pipe(
-        Stream.changesWith((a, b) => JSON.stringify(a) === JSON.stringify(b)),
-        Stream.mapError(fail)
-      ),
   });
   return { ...host, actions };
 };

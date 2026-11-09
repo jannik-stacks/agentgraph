@@ -39,12 +39,6 @@ export const Actions = RpcGroup.make(
     payload: Schema.Union([Schema.Struct({ id: Schema.String }), Schema.Struct({ parked: Schema.Literal(true) })]),
     success: Schema.Array(RunRecord),
     error,
-  }),
-  Rpc.make('watch', {
-    payload: { issue: Schema.optionalKey(Count) },
-    success: Schema.Array(RunRecord),
-    error,
-    stream: true,
   })
 ).middleware(ActionUser);
 
