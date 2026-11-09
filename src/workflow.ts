@@ -170,7 +170,7 @@ const StepFile = Schema.Struct({
   back: Schema.optionalKey(Schema.String),
   until: Schema.optionalKey(Schema.String),
   rounds: Schema.optionalKey(Count),
-  each: Schema.optionalKey(Schema.String),
+  each: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
   limits: Schema.optionalKey(CommandLimits),
 });
 

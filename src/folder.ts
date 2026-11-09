@@ -115,7 +115,7 @@ export const Check = Schema.Struct({
   returns: Schema.optionalKey(ResultType),
   pass: Schema.optionalKey(ResultType),
   reads: Schema.optionalKey(Schema.Literal('traces')),
-  each: Schema.optionalKey(Schema.String),
+  each: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
   run: Schema.optionalKey(Schema.String),
   agent: Schema.optionalKey(Schema.String),
   max: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
