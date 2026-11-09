@@ -30,7 +30,7 @@ The engine's built-in [triggers](workflows.md#what-starts-a-run) and [proposal k
 
 ## Bench
 
-[Bench](bench.md) replays merged changes and compares agents. It runs from the clone, with a CLI and a built-in studio page plugin. Add cases and choose graphs and model settings for a comparison. <!-- code: studio/src/bench/plugin.ts#readBenchData bin/bench.ts#runArm -->
+[Bench](bench.md) replays merged changes and compares agents. It runs from the clone, with a CLI and a studio page in `examples/plugins/bench`. Add cases and choose graphs and model settings for a comparison. <!-- code: examples/plugins/bench/plugins/bench.ts#readBenchData bin/bench.ts#runArm -->
 
 ## Tune
 
