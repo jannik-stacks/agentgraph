@@ -101,3 +101,8 @@ Decisions made without being sure. Each names what was picked and what would cha
   middleware is a second gate; dropping it would save about 12 lines.
 - `agi` watch output during a drive resubscribes once a second after a failed store read; no test covers the CLI
   watch output, since it only prints during a live drive.
+- **Runs across instances fetch each instance on its own**, so a change in one instance reloads only that group.
+  Left out: issue filter options are merged across instances (`#42` matches #42 in every listed instance) without
+  naming the instances in the option text; graph load problems show only on an instance's own pages, not on `/runs`;
+  Docs stays an instance page, so `/runs` shows only the Runs tab and studio pages. The logo is a `Link` with
+  `instance=""`, the plain studio's name, to reach `/runs` with a full load from an instance page.
