@@ -4,7 +4,7 @@ A run is one workflow on one issue. Its status is `running`, `waiting` (a questi
 
 ## The data folder
 
-Each repo gets an instance under the data root. `--data` selects that root; runs live in `<root>/<name>/data`. <!-- code: src/instance.ts#readInstance -->
+Each repo gets an instance under the data root. `--data` selects that root; runs live in `<root>/<name>/data`.
 
 ```
 ~/.agentgraph/                      --data, else AGENTGRAPH_DATA
@@ -25,26 +25,23 @@ Each repo gets an instance under the data root. `--data` selects that root; runs
       cache/                          rebuilt on demand: graphs/, work/, index/, news/, scratch/, sync/
 ```
 
-<!-- code: src/disk.ts#readEnvRefs src/disk.ts#writeEnvRefs src/mirror.ts#makeSandbox src/services.ts#hostSettings src/env.ts#getCachePath src/env.ts#getCheckoutPaths -->
+Keep data outside the repository. An instance name binds to one checkout; edit `checkout` in its record when moving it. A local tracker requires `tracker/origin.git`.
 
-A data folder inside the repo is refused. An instance using a local tracker needs its `tracker/origin.git`. A name already bound to another checkout is refused; edit `checkout` in `instance.yaml` when moving the repo. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
-
-Each pass of `loop` compresses `trace.jsonl` and `checks.jsonl` of a run that ended and was not written for `AGENTGRAPH_COMPRESS_DAYS` days (14) to `trace.jsonl.zst` and `checks.jsonl.zst`. Readers open either; a new line unpacks the file first. Check logs are gzipped from the start. <!-- code: src/store.ts#writeIdleRunsCompressed src/store.ts#readRecord -->
+Ended runs idle for `AGENTGRAPH_COMPRESS_DAYS` (14) days have their traces and checks compressed to `.zst`. Readers handle either form; appending unpacks first. Check logs are gzipped. <!-- code: src/instance.ts#readInstance --> <!-- code: src/disk.ts#readEnvRefs src/disk.ts#writeEnvRefs src/mirror.ts#makeSandbox src/services.ts#hostSettings src/env.ts#getCachePath src/env.ts#getCheckoutPaths --> <!-- code: src/instance.ts#ensureInstance --> <!-- code: src/store.ts#writeIdleRunsCompressed src/store.ts#readRecord -->
 
 ## Backup and restore
 
-An instance folder holds every record of its repo; on GitHub, its data folder's `mirror.git` keeps the run refs. Anything under `cache/` comes back on the next run, as do Docker images and dependency volumes. Back up while no loop or run is driving, so the SQLite files in harness homes are copied with their `-wal` files intact:
+Back up the instance folder with no drive or loop running, including harness SQLite `-wal` files. Cache contents, Docker images and dependency volumes can be rebuilt:
 
 ```sh
 tar -czf left-pad.tgz -C ~/.agentgraph --exclude left-pad/data/cache left-pad
-restic backup ~/.agentgraph/left-pad --exclude ~/.agentgraph/left-pad/data/cache
 ```
 
-Restore by unpacking into the data root, `tar -xzf left-pad.tgz -C ~/.agentgraph`, with the repo at the same path, since `instance.yaml` records its checkout path. Homes may also hold a harness's own `.cache/` or `.npm/`, which a backup may skip too. <!-- code: src/mirror.ts#makeSandbox src/instance.ts#ensureGraph -->
+Unpack under the data root and keep the checkout at its recorded path, or update `instance.yaml`. <!-- code: src/mirror.ts#makeSandbox src/instance.ts#ensureGraph -->
 
 ## instance.yaml
 
-Written by the first command in a repo. Unknown fields fail. `checkout`, `graph` and `env` paths resolve against the instance folder. <!-- code: src/instance.ts#Instance src/settings.ts#InstanceFile -->
+Written by the first command in a repo. Unknown fields fail. `checkout`, `graph` and `env` paths resolve against the instance folder.
 
 | Field             | Default                                                        | Meaning                                                                                                                                                                                           |
 | ----------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -62,26 +59,17 @@ Written by the first command in a repo. Unknown fields fail. `checkout`, `graph`
 | `runner`          | `local`                                                        | The [runner](sandbox.md#runners) that executes commands, from the built-ins or the host graph's `plugins/`                                                                                        |
 | `provider`        | none                                                           | The saved [provider](cli.md#picking-a-provider)                                                                                                                                                   |
 | `exported`        | none                                                           | Where agentgraph last wrote each ref into the repo                                                                                                                                                |
-| `readonly`        | off                                                            | `true` writes nothing to the repo; `--read-only` sets it                                                                                                                                          |
+| `readonly`        | off                                                            | `true` writes nothing to the repo; `--read-only` sets it                                                                                                                                          | <!-- code: src/instance.ts#Instance src/settings.ts#InstanceFile --> |
 
 ## The tracker folder
 
-A tracker folder stands in for GitHub. Each issue is a folder `<n>/` with `issue.md`, its `events.jsonl` timeline and its `reactions`; `pull.json` and `diff.patch` make it a pull request. A bare `origin.git` holds the branches. It holds changes under `.github/` for a maintainer and pushes the other files; see [Pushes](proposals.md#pushes). `--tracker <dir>` runs the CLI on one directly. <!-- code: src/tracker.ts#folderTracker -->
+The folder tracker keeps each issue in `<n>/issue.md`, with `events.jsonl` and reactions. `pull.json` and `diff.patch` describe a pull request; `origin.git` holds branches. [Push restrictions](proposals.md#pushes) still apply.
 
-```
-tracker/
-  origin.git/
-  12/issue.md, events.jsonl      no status yet
-  working/14/...
-  needs-review/15/...            with pull.json and diff.patch for a pull request
-  done/9/...
-```
+Status determines the issue's parent folder, such as `working/14/` or `needs-review/15/`; the graph's `status` map can rename or disable these folders. Open, closed and merged states stay in issue frontmatter.
 
-An issue's status is the folder it sits in, so `ls needs-review/` shows what needs you. The engine moves the whole folder with one rename; the graph's [`status`](workflows.md#status-on-the-issue) setting names the folders, a status missing from it leaves the issue at the top, and `status: false` keeps every issue there. Open, closed and merged stay in `issue.md`'s `state`. Every read and write, the loop's and `agi say`, `review`, `close` and `merge`, takes the folder's `.tracker.lock`, so a move never loses an event and a scan never misses a moving issue. A new issue is written in a hidden `.new-*` folder that becomes its number once complete. A folder with `<n>.md` or `<n>.jsonl` files at its top is refused. <!-- code: src/tracker.ts#findIssueDir src/tracker.ts#runLocked -->
+Write `issue.md` under an unused number to add an issue, or use `agi start`. A trusted author and configured trigger label start work on the next pass. For example:
 
-Any `<n>/issue.md` you write under an unused number is an issue. Frontmatter with a trusted `author` and a workflow's label starts that workflow on the next look; `agi start` writes such a file. <!-- code: src/tracker.ts#writeIssueFile -->
-
-```md
+````md
 ---
 title: Reject a negative count
 author: morgan
@@ -89,13 +77,12 @@ labels: [agent:ready]
 ---
 
 count(-1) should throw.
-```
+
+```<!-- code: src/tracker.ts#folderTracker --> <!-- code: src/tracker.ts#findIssueDir src/tracker.ts#runLocked --> <!-- code: src/tracker.ts#writeIssueFile -->
 
 ## run.json
 
-<!-- code: src/types.ts#Run src/git.ts#readEngineVersions -->
-
-Every run is saved first under a lock on its id, and only when no run has that id yet, so two passes that begin the same run save it once. The lock stays held while the engine shows the run's first status and gives its eyes reaction, so no other pass drives the run until both are saved. A new run is saved as `unshown` until its first status lands, so a later pass shows that status when the first write fails. <!-- code: src/run/start.ts#startRun --> A run another run proposes takes a fresh id when its id is taken, and the proposal fails when three ids in a row are taken. <!-- code: src/run/start.ts#startProposedRun -->
+The store saves each run under an id lock before showing its initial status. The record includes:
 
 | Field                     | Meaning                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -114,46 +101,31 @@ Every run is saved first under a lock on its id, and only when no run has that i
 | `started`, `ended`        | When the run started and ended                                                                                                                                                                                                                                                                                                                                                                              |
 | `startCommit`             | The commit the run's change is measured from                                                                                                                                                                                                                                                                                                                                                                |
 | `meta`                    | Public JSON keyed by owner, including engine provenance                                                                                                                                                                                                                                                                                                                                                     |
-| `owed`                    | [End checks](checks.md#end-checks) the ended run still has to run                                                                                                                                                                                                                                                                                                                                           |
+| `owed`                    | [End checks](checks.md#end-checks) the ended run still has to run                                                                                                                                                                                                                                                                                                                                           | <!-- code: src/types.ts#Run src/git.ts#readEngineVersions --> <!-- code: src/run/start.ts#startRun --> <!-- code: src/run/start.ts#startProposedRun -->
 
 ## Imported runs
 
-`agi import <commit>|<patch> [<issue file>]` keeps a change made elsewhere, by a person or another tool, as an ended run so `check --runs` can score it beside the agents' runs. A commit comes from your repo and is measured from its parent; a patch is applied onto `--from`, or `HEAD`, and refused when it does not apply. The change is kept at `refs/agentgraph/runs/<run id>` in the tracker's `origin.git`. The issue file's first line becomes `title` and the rest `body`, the text a check reads. `--meta <file>` keeps its JSON as `meta.engine.origin.input`, with `plugin` `agi` and `job` `import`. <!-- code: src/instance.ts#writeImportedRun -->
+`agi import <commit>|<patch> [<issue file>]` saves an external change as an ended run for `check --runs`. Commits are measured from their parent; patches apply to `--from`, else `HEAD`. The optional issue file supplies title and body; `--meta` adds origin input.
 
-An imported run has workflow `import`, status `done`, no `issue` and no trace, so checks of traces are n/a on it. Every import is a new run, even of the same change; pair runs by their origin input. Runs with no issue are left out of everything that follows issues: the loop, `show`, `resume`, `say` and the traces other runs read. Only results, the studio's Runs page and `check --runs` see them. <!-- code: src/store.ts#fileStore src/graph.ts#isOnIssue -->
+Imports have workflow `import`, no issue and no session trace, so trace checks are n/a. Each import creates a separate run. Results, the studio and later checks see it; issue-following commands and the loop do not. <!-- code: src/instance.ts#writeImportedRun --> <!-- code: src/store.ts#fileStore src/graph.ts#isOnIssue -->
 
 ## Metadata
 
-Run and result-row `meta` holds public JSON keyed by plugin name. Each owner decodes its key with
-its own Effect Schema. `meta.engine.origin` has `plugin`, `version`, `job` and `input`; it cannot
-change after creation. Equality follows the stored JSON: object prototypes and negative zero do not survive encoding. `meta.engine.continued` adds `at` for the latest accepted caller input.
-Results can group by the origin's plugin/job and show each owner's JSON under Run metadata.
-<!-- code: src/meta.ts#PluginMetadata src/meta.ts#getRunOrigin src/store.ts#fileStore -->
+Run and result-row `meta` holds public JSON keyed by owner. `meta.engine.origin` stores immutable `plugin`, `version`, `job` and `input`; `meta.engine.continued` records the latest accepted caller input. Owners decode their own schemas.
 
-Each owner has at most 8 KiB and the whole field 32 KiB of UTF-8 JSON. Names start with a letter,
-then letters, digits or underscores. Values use finite numbers and plain JSON, nested at most
-32 containers. Cycles, unsupported values and oversized metadata fail before persistence.
-Never put credentials or secrets here: metadata reaches the studio and traces. Validation checks
-shape and size, not secrecy. Owner names are conventions for trusted host code, not permissions.
-Issues and events have no metadata field.
+Limits are 8 KiB per owner, 32 KiB total and 32 nested containers. Validation rejects unsupported or oversized JSON, but does not detect secrets. Metadata appears in studio and traces; owner names do not grant permissions.
 
-Programmatic `start({ graph, issue, data, meta })` tags new runs before their first save.
-`instruct(graph, instruction, meta)` also accepts metadata. A spoken trace keeps it while an input
-waits; only an accepted input updates the run's latest continuation. Origin stays unchanged.
-Ordinary polls and rejected inputs add no continuation. Bench replays use this same start path.
-<!-- code: src/main.ts#start src/run/trigger.ts#instruct src/run/trigger.ts#tick src/meta.ts#makeContinuedMeta -->
+Programmatic `start({ graph, issue, data, meta })` and `instruct(graph, instruction, meta)` attach metadata before saving. Accepted inputs update continuation; polls and rejected inputs do not. <!-- code: src/meta.ts#PluginMetadata src/meta.ts#getRunOrigin src/store.ts#fileStore --> <!-- code: src/main.ts#start src/run/trigger.ts#instruct src/run/trigger.ts#tick src/meta.ts#makeContinuedMeta -->
 
 ## Run labels
 
-A run label is a `key=value` pair on a run. Labels live in `<run id>/labels.jsonl` beside run.json, an append-only log with one line per key set or removed; a run's labels are what the log adds up to. Keys are a-z, 0-9 and `-`, at most 32 characters; values are one line of at most 128. Labels carry no rules: nothing in the engine reads them, and adding or removing one never changes a run. The engine never writes the log after a run's start, and an edit only appends, so it races neither a run being driven nor another edit. A last line a crash cut short is skipped and counted when read, and moved to a `.partial` file beside the log before the next edit appends; a bad line before the last is an error. Each append holds a lock in the runs folder's `.locks` from that check to its write, so edits from several processes queue. <!-- code: src/owner.ts#waitForLock --> <!-- code: src/store.ts#readJsonlRows src/store.ts#appendJsonlRows -->
+Labels are `key=value` pairs in append-only `labels.jsonl`; they do not change workflow behavior. Keys use lowercase letters, digits and hyphens, up to 32 characters; values are single lines up to 128 characters. Writes are locked. A truncated final line is visibly counted as skipped; other malformed lines fail.
 
-Readers also derive labels from the run's `versions`: `engine`, `image` (the first 12 hex digits of the ID), `config` and `harnesses`, the sorted `name@version` list such as `opencode@1.19.0,pi@1.1.0`. They are never written to the log, and a written label with the same key wins. <!-- code: src/labels.ts#makeVersionLabels bin/results.ts -->
-
-`agi start --run-label k=v` and programmatic `start({ ..., labels })` label each run the call begins, before its first save. `agi label <run id> k=v old-` sets `k` and removes `old` at any time. The [bench](bench.md#run-a-set) labels every run it starts, and the studio shows a run's labels, filters the Runs page by one, and keeps in the browser which label keys a reader hid. <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
+Readers derive `engine`, `image`, `config` and `harnesses` from `versions`; explicit labels override these. `agi start --run-label k=v` labels runs at creation. `agi label <run id> k=v old-` sets `k` and removes `old`. Studio filters and result groups use labels. <!-- code: src/owner.ts#waitForLock --> <!-- code: src/store.ts#readJsonlRows src/store.ts#appendJsonlRows --> <!-- code: src/labels.ts#makeVersionLabels bin/results.ts --> <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
 
 ## The trace
 
-Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session share a `key`. <!-- code: src/types.ts#Trace src/store.ts#fileStore -->
+Each `trace.jsonl` entry has `at`, `step` and an event kind; session entries share a `key`.
 
 | Kind           | Contents                                                                           |
 | -------------- | ---------------------------------------------------------------------------------- |
@@ -168,34 +140,32 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 | `spoken`       | A CLI command, where it came from and where to reply                               |
 | `told`         | Forwarded text, with the sender in `by`: a router run id or `cli`                  |
 
-A usage event carries `model`, the model the harness says answered, when it says one: Claude Code and pi do, opencode and codex print none. The start event's `model` stays the alias the agent asked for. Usage is priced under the reported name first, then the alias. <!-- code: src/types.ts#SessionEvent src/harnesses.ts#priced harnesses/claude.ts#claude harnesses/pi.ts#pi -->
-
-`used` is what the command's container reported from its cgroup as it exited: `peak` memory in bytes, `cpu` time in ms, and `oom` when the kernel killed a process of it for memory. It is missing when the container reported nothing, as on cgroup v1, after a timeout, or from a box server. Studio shows it on the session, setup and check rows. <!-- code: src/docker.ts#dockerArgs src/types.ts#Exit src/remote.ts#makeBoxRunner studio/src/runs/rows.tsx -->
-
-`node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push'` fails on denied tool calls, sessions that cost nothing, and finished workflows without their listed applied kinds.
+Usage events may name the model that answered; pricing uses it before the requested alias. `used` holds reported container peak memory, CPU time and OOM status, when available. <!-- code: src/types.ts#Trace src/store.ts#fileStore --> <!-- code: src/types.ts#SessionEvent src/harnesses.ts#priced harnesses/claude.ts#claude harnesses/pi.ts#pi --> <!-- code: src/docker.ts#dockerArgs src/types.ts#Exit src/remote.ts#makeBoxRunner studio/src/runs/rows.tsx -->
 
 ## The check record
 
-Each `checks.jsonl` line is one result: `at`, `step`, the check's `version`, the result with short findings, `value`, `share`, `empty` or `na`, the item, `usd`, the judging cost, and a script's `exit` and `used`. `later` marks a result from [`check --runs`](checks.md#end-checks), and `log` points at the full output. <!-- code: src/types.ts#CheckEntry src/store.ts#fileStore -->
+Each `checks.jsonl` entry records a check version, result, findings, value or share, empty/n/a flags, cost and optional script exit, resource use and full-output log. `later` marks results from `check --runs`.
 
-The version hashes the check's file, its judge's file, its judge's harness and model, and the graph's scripts. Readers take each check's newest result under its current version, else its newest, marked as older. A run's cost sums its sessions; its checking cost sums its check record. <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
+The version hashes the check, judge, harness, model and graph scripts. Readers prefer the newest result under that version, else mark an older result. Session and checking costs remain separate. <!-- code: src/types.ts#CheckEntry src/store.ts#fileStore --> <!-- code: src/folder.ts#loadGraph src/trace.ts#findLatestChecks -->
 
 ## Run links
 
-Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. Its text ends with ⁂ on the line of its last sentence, or on a line of its own after a code block, table or HTML. With `AGENTGRAPH_STUDIO_URL` set, the ⁂ links to the trace entry in the studio that wrote the text, at `/<instance>/runs/<id>?at=<time>`, the same for a comment and a pull request description, and `/<instance>/runs?gh=<link or comment id>` finds the run behind a write in any instance the studio serves. <!-- code: src/tracker.ts#formatBodyWithRunLink src/event.ts#formatRunMark src/store.ts#locate src/store.ts#Located src/main.ts#readInstanceEnv -->
+Tracker posts carry a hidden run marker and a visible ⁂. Set `AGENTGRAPH_STUDIO_URL` to link it to the run's trace entry. The studio's `/<instance>/runs?gh=<link or comment id>` finds the run behind a post.
 
-An engine that stops between posting and recording finds the post by its operation key and does not post again. <!-- code: src/run/settle.ts#findAppliedBefore -->
+Operation keys prevent duplicate posts after interruption. <!-- code: src/tracker.ts#formatBodyWithRunLink src/event.ts#formatRunMark src/store.ts#locate src/store.ts#Located src/main.ts#readInstanceEnv --> <!-- code: src/run/settle.ts#findAppliedBefore -->
 
 ## Check logs
 
-Each check's full output, the last 64K characters of a script's output or a judge's transcript, is gzipped in `logs/`, one file per distinct content. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`. `agi prune-logs --data <dir>` counts logs no check record names, and `--apply` deletes them; run it while nothing is driven. <!-- code: src/store.ts#checkLogs src/types.ts#Log src/store.ts#pruneLogs -->
+Full check output is gzipped by content under `logs/`. `AGENTGRAPH_CHECK_LOGS` selects `all` (default), `failed` or `off`. With no drive running, `agi prune-logs --data <dir>` reports unreferenced logs; `--apply` deletes them. <!-- code: src/store.ts#checkLogs src/types.ts#Log src/store.ts#pruneLogs -->
 
 ## Checkouts
 
-A run works in a checkout, a worktree of the tracker's `origin.git` in a local instance, or of `mirror.git` in the data folder of a GitHub instance. Its admin dir stays in that repo and its files in `cache/work/`; neither is in your repo. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. The first time it works, it keeps the graph folder, without `node_modules`, as a tree at `refs/agentgraph/graphs/<tree>` and records it as the run's `graphTree`, which never changes after; a run that cannot keep it fails like any other checkout error. <!-- code: src/git.ts#ensureGraphRef --> After every attempt, failed or empty ones too, it also commits the files at `refs/agentgraph/attempts/<run id>/<n>`, so a retry never overwrites an earlier try. On startup, the engine saves checkouts left by dead engine processes: it commits each at `refs/agentgraph/reaped/<checkout id>` and only then removes it with its index, news and scratch dirs. A sweep that repeats keeps the first commit. One it cannot save stays in `cache/work/` with a warning, and the sweep skips a checkout whose engine already failed to save it. <!-- code: src/mirror.ts#makeSandbox src/run/drive.ts#runWorkflow src/git.ts#commitCheckout src/git.ts#commitCheckoutOnce src/env.ts#findDeadCheckouts src/env.ts#removeCheckout -->
+Runs use worktrees under `cache/work/`, backed by the tracker's `origin.git` or the hosted tracker's `mirror.git`. Kept files live at `refs/agentgraph/runs/<id>`; each attempt also has a ref, including failed attempts. The starting graph tree is retained and recorded as `graphTree`.
 
-A run records the resolved `checkout.branch` and `checkout.base` when it creates its checkout. Its pull request is the one on that branch, and a `conflict` run it starts gets the same record. A fresh branch after a closed pull request is recorded the same way, so cleanup matches both the old and the new branch exactly. One cleanup sweep per tracker pass lists local agent branches and matches those records. With a mirror of a remote origin, only branches a checkout uses count, since each fetch restores the rest. A live run or pending end check keeps its branch; a run with no checkout record protects only branches matching its issue or workflow template. Cleanup reuses merged pull request state or reads one bounded page for the remaining branch per pass, falling back to the recorded base. Older runs without a checkout record require a merged PR head that exactly equals the local branch tip. Removed branches cause no tracker lookups. Run records, traces, results, attempt refs and shared caches stay; deleting a checkout removes its own build folders and symlinks without following their targets. Normal session cleanup already removes detached and temporary plain checkouts. <!-- code: src/types.ts#Run src/run/drive.ts#runWorkflow src/git.ts#readBranches src/mirror.ts#makeSandbox src/run/trigger.ts#scanIssuesAndRunningRuns src/tracker.ts#matches src/github.ts#githubTracker -->
+Startup saves dead owners' checkouts at `refs/agentgraph/reaped/<id>` before removing them. A checkout that cannot be saved stays with a warning.
 
-Cleanup only removes worktrees under the engine's checkout root; any other worktree keeps its branch. Cleanup validates the checkout's regular `.git` file against its admin directory under the mirror and the admin directory's backlink and common directory. Symbolic branch refs, missing or redirected metadata, worktree config files, symlinked paths and submodule checkouts are skipped with a log. Ref deletion never follows symbolic refs. Status reads the trusted admin directory and index, with hooks and fsmonitor off, system attributes disabled and every configured clean/process filter disabled. Dirty files, assume-unchanged or skip-worktree flags, and commits outside the merged head and base keep the branch. Removal uses the same trusted Git settings without forcing, so Git refuses edits made after inspection. Ignored dependencies and build folders go with the checkout; an untracked `node_modules` symlink is unlinked first and its target stays. <!-- code: src/disk.ts#removeBranch src/git.ts#hostGit src/git.ts#readWorktreeAdmin -->
+Cleanup uses recorded branches and bases. Live runs, pending checks, dirty files, unmerged commits and worktrees outside the engine root keep their branches. Unsafe or redirected worktree metadata is skipped with a reason; symlink targets are never removed. Run records, traces, checks and attempt refs remain.
 
-Cleanup deletes ignored files in a landed checkout too, so nothing worth keeping should live there. A commit made in a checkout during cleanup can be lost. <!-- code: src/disk.ts#removeBranch -->
+Cleanup removes ignored build files with a landed checkout. Keep no manual work there; concurrent edits can be lost. <!-- code: src/git.ts#ensureGraphRef --> <!-- code: src/mirror.ts#makeSandbox src/run/drive.ts#runWorkflow src/git.ts#commitCheckout src/git.ts#commitCheckoutOnce src/env.ts#findDeadCheckouts src/env.ts#removeCheckout --> <!-- code: src/types.ts#Run src/run/drive.ts#runWorkflow src/git.ts#readBranches src/mirror.ts#makeSandbox src/run/trigger.ts#scanIssuesAndRunningRuns src/tracker.ts#matches src/github.ts#githubTracker --> <!-- code: src/disk.ts#removeBranch src/git.ts#hostGit src/git.ts#readWorktreeAdmin --> <!-- code: src/disk.ts#removeBranch -->
+```
+````
