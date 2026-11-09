@@ -10,7 +10,7 @@ Decisions made without being sure. Each names what was picked and what would cha
 - **Modal reads `box.sh` from `examples/deploy/cloudflare/`**, so a copied plugin needs that file beside it or a path change.
 - **`makeBoxRunner` takes `data` first**, for its host-side sync dirs, and a box's `run` now yields a final `{ code }` instead of the exit frame line, so a runner that is not HTTP never formats a frame.
 - `resume` is an action only where a host can drive: the CLI and a studio of named instances. A plain studio
-  refuses it with "this host does not drive runs", since it has no instance to start from.
+  refuses it with "this host serves no instance", since it has no instance to start from.
 - The CLI calls actions in process through the same HTTP codec as the studio and never reaches a remote host, so
   there is no remote write to fall back from. A loop that serves the group (planned) must keep that: a failed
   remote call is reported, never retried locally.

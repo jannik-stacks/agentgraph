@@ -36,6 +36,16 @@ export const Actions = RpcGroup.make(
     success: Schema.Record(Schema.String, Schema.String),
     error,
   }),
+  Rpc.make('review', {
+    payload: { issue: Count, verdict: Schema.Literals(['approved', 'changes_requested']), text: Schema.String },
+    error,
+  }),
+  Rpc.make('merge', {
+    payload: { issue: Count },
+    success: Schema.Struct({ base: Schema.String, head: Schema.String }),
+    error,
+  }),
+  Rpc.make('close', { payload: { issue: Count }, success: Schema.Array(Schema.Number), error }),
   Rpc.make('instruct', {
     payload: Schema.Union([
       Schema.Struct({

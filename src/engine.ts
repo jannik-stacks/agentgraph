@@ -6,7 +6,15 @@ import { RpcSerialization, RpcServer } from 'effect/rpc';
 import { ActionError, Actions, ActionUser, makeActionClient, userHeader } from './actions.ts';
 import { parseLabels, readRunLabels, writeRunLabels, writeStoredRunLabels } from './labels.ts';
 import { PluginMetadata } from './meta.ts';
-import { findPull, readRealPath } from './instance.ts';
+import {
+  findPull,
+  findPullIssue,
+  type Instance,
+  mergePull,
+  readRealPath,
+  writeClosed,
+  writeReview,
+} from './instance.ts';
 import type { Graph } from './folder.ts';
 import type * as MainModule from './main.ts';
 import type { JsonValue } from './meta.ts';
@@ -59,7 +67,7 @@ const readStoredRuns = ({ data, checks = {} }: Pick<EngineConfig, 'data' | 'chec
 export const makeInstanceHost = (
   config: Pick<EngineConfig, 'data' | 'checks'>,
   tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] },
-  drive?: (instruction: Instruction) => Promise<RunRecord[]>
+  local?: { instance: Pick<Instance, 'tracker' | 'owner'>; drive: (instruction: Instruction) => Promise<RunRecord[]> }
 ) => {
   const { data } = config;
   const store: InstanceHost['store'] = Effect.runSync(Store.pipe(Effect.provide(fileStore(data))));
@@ -76,6 +84,9 @@ export const makeInstanceHost = (
   const host: InstanceHost = { data, store, tracker: reads, readRuns: () => readStoredRuns(config) };
   const folder = tracker?.origin.local ? dirname(tracker.origin.origin) : undefined;
   const fail = (e: unknown) => ActionError.make({ message: e instanceof Error ? e.message : String(e) });
+  const attempt = <A>(act: () => Promise<A>) => Effect.tryPromise({ try: act, catch: fail });
+  const refuse = Effect.fail(ActionError.make({ message: 'this host serves no instance' }));
+  const owned = local && folder ? Effect.succeed(local.instance) : refuse;
   const readNotes = (runs: readonly Run[]) =>
     Effect.map(
       Effect.forEach(
@@ -109,10 +120,19 @@ export const makeInstanceHost = (
         : Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
       ).pipe(Effect.asVoid, Effect.mapError(fail)),
     label: ({ id, patch }) => writeStoredRunLabels(data, id, patch).pipe(Effect.mapError(fail)),
-    instruct: instruction =>
-      drive
-        ? Effect.tryPromise({ try: () => drive(instruction), catch: fail })
-        : Effect.fail(ActionError.make({ message: 'this host does not drive runs' })),
+    instruct: instruction => (local ? attempt(() => local.drive(instruction)) : refuse),
+    review: ({ issue, verdict, text }) =>
+      Effect.flatMap(owned, i => attempt(() => writeReview(i.tracker, i.owner, issue, verdict, text))),
+    merge: ({ issue }) => Effect.flatMap(owned, i => attempt(() => mergePull(i, issue))),
+    close: ({ issue }) =>
+      Effect.gen(function* () {
+        const i = yield* owned;
+        const open = new Set((yield* reads.issues({ state: 'open' }).pipe(Effect.mapError(fail))).map(t => t.number));
+        const [moved, pull] = yield* attempt(() => Promise.all([findPullIssue(i, issue), findPull(i.tracker, issue)]));
+        const closed = [...new Set([issue, moved, pull?.number ?? issue])].filter(k => open.has(k));
+        yield* Effect.forEach(closed, k => attempt(() => writeClosed(i.tracker, i.owner, k)));
+        return closed;
+      }),
   });
   return { ...host, actions };
 };

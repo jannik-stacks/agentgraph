@@ -46,7 +46,11 @@ const makeServedHost = async (
       const { start } = await readModule<typeof MainModule>('src/main.ts');
       return start({ ...driven, issue: 'all', data, instruction, choice: readChoice() });
     });
-  return makeInstanceHost({ data, ...(graph && { checks: graph.checks }) }, tracker, drive);
+  return makeInstanceHost(
+    { data, ...(graph && { checks: graph.checks }) },
+    tracker,
+    drive && driven.instance && { instance: driven.instance, drive }
+  );
 };
 
 export const readQuery = (req: IncomingMessage) => new URL(req.url ?? '/', 'http://studio').searchParams;

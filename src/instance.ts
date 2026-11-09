@@ -337,6 +337,11 @@ export const writeComment = async (dir: string, as: string, n: number, body: str
   await writeTrustedEvent(dir, as, { issue: pull.number, kind: 'comment', comment: { body, path, line: Number(at) } });
 };
 
+export const findPullIssue = async (i: Pick<Instance, 'tracker'>, n: number) => {
+  const branch = (await findPull(i.tracker, n))?.pull.branch ?? '';
+  return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
+};
+
 export const writeReview = async (
   dir: string,
   as: string,

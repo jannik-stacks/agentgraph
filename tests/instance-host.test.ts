@@ -89,7 +89,7 @@ it.each([
   [
     'instructs without a drive',
     (client: LocalClient) => client.instruct({ kind: 'resume', parked: true }),
-    'does not drive runs',
+    'serves no instance',
   ],
 ])('refuses when it %s', async (_name, act, error) => {
   const { data } = await makeInstance();
@@ -131,7 +131,10 @@ it('resumes a parked run through the engine services the host was given', async 
       })
     )
   );
-  const host = makeInstanceHost({ data: where.data }, undefined, instruction => run(instruct(graph, instruction)));
+  const host = makeInstanceHost({ data: where.data }, undefined, {
+    instance: { tracker: where.tracker, owner: 'local' },
+    drive: instruction => run(instruct(graph, instruction)),
+  });
   const resumed = await callLocal(host, client => client.instruct({ kind: 'resume', parked: true }));
   expect(resumed.map(r => [r.id, r.status, r.retried])).toEqual([['retro-7', 'running', undefined]]);
 });

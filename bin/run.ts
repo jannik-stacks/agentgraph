@@ -32,13 +32,10 @@ import {
   readInstance,
   readPickedInstance,
   readRealPath,
-  findPull,
+  findPullIssue,
   findRepo,
-  mergePull,
   ensureBase,
-  writeClosed,
   writeComment,
-  writeReview,
   writeInstanceProvider,
   formatGraphName,
   whyGraphUncommitted,
@@ -479,7 +476,7 @@ async function runOnInstance(
             makeInstanceHost(
               { data: i.data },
               { layer: setup.layer(current.trust, i.owner), origin: setup.origin },
-              startInstruction
+              { instance: i, drive: startInstruction }
             )
           ),
           call
@@ -540,7 +537,7 @@ async function runOnInstance(
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
       const prepared = verdict === 'changes_requested' && (await prepare(i, graph, 'Nothing was posted.'));
-      await writeReview(i.tracker, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
+      await act(client => client.review({ issue: n, verdict, text }));
       if (prepared) return drive(i, issue, graph, prepared.provider);
       console.log(`approved #${n}`);
       return;
@@ -548,7 +545,7 @@ async function runOnInstance(
     case 'merge': {
       if (!setup.origin.local) fail('merge this pull request on the tracker');
       await synced();
-      const pull = await mergePull(i, numbered()).catch((e: Error) => fail(e.message, 1));
+      const pull = await act(client => client.merge({ issue: numbered() }));
       console.log(`${pull.base} at ${pull.head.slice(0, 7)} in agentgraph`);
       return report(i, n, true);
     }
@@ -568,12 +565,7 @@ async function runOnInstance(
     }
     case 'close': {
       if (!setup.origin.local) fail('close this issue on the tracker');
-      const pull = await findPull(i.tracker, numbered());
-      const open = new Set(
-        (await Effect.runPromise((await getTracker()).issues({ state: 'open' }))).map(t => t.number)
-      );
-      const closed = [...new Set([n, await findPullIssue(i, n), pull?.number ?? n])].filter(k => open.has(k));
-      for (const k of closed) await writeClosed(i.tracker, i.owner, k);
+      const closed = await act(client => client.close({ issue: numbered() }));
       console.log(closed.length ? `closed #${closed.join(' and #')}` : `nothing open on #${n}`);
       return;
     }
@@ -628,11 +620,6 @@ function watchRuns(i: Instance, issue: number) {
     clearInterval(timer);
     await look();
   };
-}
-
-async function findPullIssue(i: Instance, n: number) {
-  const branch = (await findPull(i.tracker, n))?.pull.branch ?? '';
-  return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 }
 
 async function drive(i: Instance, issue: number, graph: string, provider: string) {
