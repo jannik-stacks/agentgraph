@@ -72,7 +72,10 @@ const check = async (repositories: string[]) => {
 it('warns about extra repos and lists waiting runs', async () => {
   const { lines, calls, bodies } = await check(['o/r', 'o/other']);
   expect(bodies).toEqual([{ permissions: { metadata: 'read' } }]);
-  expect(lines[0]).toContain('o/other');
+  expect(lines.slice(0, 2)).toEqual([
+    'The installation reaches 1 repo(s) besides o/r: o/other',
+    '  Narrow it at https://github.com/settings/installations',
+  ]);
   expect(lines.filter(l => l.includes('is waiting'))).toHaveLength(2);
   expect(lines.join('\n')).toContain('Answer at https://github.com/o/r/issues/3');
   expect(lines.join('\n')).toContain('Review the PR linked from https://github.com/o/r/issues/4');
@@ -82,7 +85,12 @@ it('warns about extra repos and lists waiting runs', async () => {
 
 it('stays quiet about a single repo', async () => {
   const { lines } = await check(['o/r']);
-  expect(lines.some(l => l.includes('besides'))).toBe(false);
+  expect(lines).toEqual([
+    'a fix #3 is waiting: which one?',
+    '  Answer at https://github.com/o/r/issues/3',
+    'b fix #4 is waiting',
+    '  Review the PR linked from https://github.com/o/r/issues/4',
+  ]);
 });
 
 it('says how to continue on the local tracker, and leaves out a run that waits on its child', () => {
