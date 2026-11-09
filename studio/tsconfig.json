@@ -5,7 +5,6 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
-      "@jannik-stacks/agi/studio": ["./src/plugins.ts"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "d3-scale": ["./node_modules/@types/d3-scale/index.d.ts"]
@@ -23,11 +22,5 @@
     "noEmit": true,
     "types": ["vite/client", "node"]
   },
-  "include": [
-    "src",
-    "dev.ts",
-    "vite.config.ts",
-    "fixtures.ts",
-    "../examples/dashboard/plugins/dashboard/DashboardPage.tsx"
-  ]
+  "include": ["src", "dev.ts", "vite.config.ts", "fixtures.ts"]
 }

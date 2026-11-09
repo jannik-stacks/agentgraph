@@ -368,12 +368,13 @@ export const loadGraph = (
     const registry = settings
       ? yield* Effect.tryPromise({
           try: () =>
-            readPlugins(dir, settings.plugins, name =>
-              harnesses.some(
-                harness =>
-                  typeof harness.classify === 'function' && ['read', 'write'].includes(harness.classify(name) ?? '')
-              )
-            ),
+            readPlugins(dir, settings.plugins, {
+              isReserved: name =>
+                harnesses.some(
+                  harness =>
+                    typeof harness.classify === 'function' && ['read', 'write'].includes(harness.classify(name) ?? '')
+                ),
+            }),
           catch: error => ({ path: 'plugins', message: (error as Error).message }),
         }).pipe(
           Effect.match({

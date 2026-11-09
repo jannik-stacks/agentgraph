@@ -14,6 +14,17 @@ import { makeFiles } from './files.ts';
 import type { SessionEvent } from './trace.ts';
 import type { readPlugins, ToolContext } from './plugin.ts';
 
+export const readRequestBody = async (request: AsyncIterable<Buffer>, limit = 65_536) => {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    if (bytes > limit) return undefined;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString();
+};
+
 export const startTools = async (
   tools: Awaited<ReturnType<typeof readPlugins>>['tools'],
   context: Omit<ToolContext<unknown>, 'settings' | 'abortSignal' | 'readFile'>,
@@ -236,19 +247,14 @@ export const startTools = async (
       return pending.finally(() => calls.delete(pending));
     });
     try {
-      const chunks: Buffer[] = [];
-      let bytes = 0;
-      for await (const chunk of request) {
-        bytes += chunk.length;
-        if (bytes > 65_536) {
-          response.writeHead(413).end();
-          return;
-        }
-        chunks.push(chunk);
+      const text = await readRequestBody(request);
+      if (text === undefined) {
+        response.writeHead(413).end();
+        return;
       }
       received = true;
       controller.signal.throwIfAborted();
-      const body: unknown = JSON.parse(Buffer.concat(chunks).toString());
+      const body: unknown = JSON.parse(text);
       await mcp.connect(transport as Parameters<Server['connect']>[0]);
       await transport.handleRequest(request, response, body);
     } catch {

@@ -13,11 +13,21 @@ Decisions made without being sure. Each names what was picked and what would cha
   services (`start` with a tracker setup and harness choice). Running that inside the studio process felt too
   heavy. `say <n> ":restart"` and `":stop"` cover the per-issue cases through the `commands` gate.
 - `stop` and `restart` stay CLI-only: they signal or spawn a loop process that may serve several instances.
-- Actions are offered to every page, graph-local or operator, because pages share the studio origin anyway.
-  Readers get no actions. If graph-local pages should not act, the route would need the page's name, which
-  any same-origin script can forge.
-- A plain studio (`--dir --data --tracker <folder>`) reads that tracker but refuses `say`, since it has no
-  owner to post as. Named instances post as the instance owner.
+- Actions are offered to every page and every reader, graph-local or operator: the maintainer chose no
+  distinction for now. Pages share the studio origin anyway, so a gate on the page's name would be forgeable.
+- `say` posts where `agi say` does: only to a local tracker (`origin.local` of the tracker setup). A plain
+  studio (`--dir --data --tracker <folder>`) wires the folder through the folder plugin's setup and posts as
+  the local user, since it has no instance owner. Named instances post as the instance owner.
+- The dashboard caches its tracker `since` read per window start for one minute, in the example's own reader
+  (a map per host tracker). A cache inside the host's `tracker.since` would serve every page, but it would
+  key on cursor and columns and change what the core read means for one consumer, so the smaller reader-side
+  cache won.
+- The dashboard skips runs that ended before its widest window and runs no widget names, before reading
+  traces. `listRecords({ workflow })` would not help: it reads every `run.json` before filtering, and one
+  filter cannot express widgets with different workflows.
+- The dashboard watches its instance's data folder, so it still re-reads after any run write. That is the
+  refresh it needs for live counts; the tracker read inside it is cached, so a live run no longer repeats
+  GitHub scans back to back.
 - `readStudioPages` hands the instance host to graph plugins whose graph may come from the repo. Reads there
   add no authority beyond what host code already has, but it is worth a second look.
 - `/api/results` and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
@@ -25,6 +35,10 @@ Decisions made without being sure. Each names what was picked and what would cha
 - `InstanceHost` is exported from `@jannik-stacks/agi/trackers`, not `/plugins`. `src/plugin.ts` must stay a
   leaf for the import-cycle lint, and the host type pulls in the tracker and store. A reader types its own
   host parameter; `makePlugin` infers it, so nothing checks that the served host matches at compile time.
+- Left from the studio review: the dashboard keeps its `why` field (the page would derive it from source and
+  skips), `InstanceHost` keeps `tracker.issues`/`issue` and `store.readLog`/`getRecord` (the trim waits on the
+  types refactor), and a bench data folder still gets a whole instance host for its store. The `ResultBadge`
+  wrapper stays: `runRow` is a plain function, so the hook needs that component.
 - **Studio auth is one gate for every served instance.** Each instance's env file and graph may pick it, but a studio
   of several refuses to start unless they agree on the name, the plugin settings and every `AGENTGRAPH_AUTH` and
   `AGENTGRAPH_STUDIO_*` value. A host-level studio setting would be simpler if multi-instance studios get hosted.

@@ -214,9 +214,17 @@ const PluginFile = Schema.Struct({
 export const readPlugins = async (
   dir: string | undefined,
   settings: Record<string, unknown> = {},
-  isReserved: (name: string) => boolean = () => false,
-  builtins: readonly unknown[] = [],
-  host: { engine?: (plugin: string) => unknown; instance?: unknown } = {}
+  {
+    isReserved = () => false,
+    builtins = [],
+    engine: host,
+    instance,
+  }: {
+    isReserved?: (name: string) => boolean;
+    builtins?: readonly unknown[];
+    engine?: (plugin: string) => unknown;
+    instance?: unknown;
+  } = {}
 ) => {
   const plugins = new Map<string, string>();
   const tools: Record<string, { tool: Tool; settings: unknown; plugin: string }> = {};
@@ -226,6 +234,7 @@ export const readPlugins = async (
   const auths: Record<string, (host: AuthHost) => ReturnType<AuthMember<unknown>>> = {};
   const pages: (Pick<typeof StudioPage.Type, 'title' | 'page' | 'dataSchema'> & {
     name: string;
+    builtin: boolean;
     read: () => ReturnType<(typeof StudioPage.Type)['read']>;
     watch: readonly string[];
   })[] = [];
@@ -288,8 +297,8 @@ export const readPlugins = async (
     const { auth } = plugin;
     if (auth) auths[plugin.name] = host => auth(host, decoded);
     if (plugin.on?.status) hooks.push({ plugin: plugin.name, settings: decoded, status: plugin.on.status });
-    const engine = plugin.engine && host.engine ? plugin.engine(host.engine(plugin.name), decoded) : host.instance;
-    if (plugin.studio && (!plugin.engine || host.engine)) {
+    const engine = plugin.engine && host ? plugin.engine(host(plugin.name), decoded) : instance;
+    if (plugin.studio && (!plugin.engine || host)) {
       const { title, dataSchema, page, read, watch } = plugin.studio;
       const actual = await realpath(fileURLToPath(page));
       if (extname(actual) !== '.tsx' || !(await lstat(actual)).isFile())
@@ -299,6 +308,7 @@ export const readPlugins = async (
         throw new Error(`${file}: studio watch needs paths`);
       pages.push({
         name: plugin.name,
+        builtin: file === builtin,
         title,
         dataSchema,
         page: pathToFileURL(actual),

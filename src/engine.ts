@@ -1,15 +1,14 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, type Layer, Schema, Stream } from 'effect';
-import { parseLabels, readRunLabels, writeRunLabels } from './labels.ts';
-import type { Applied } from './event.ts';
+import { parseLabels, readRunLabels, writeRunLabels, writeStoredRunLabels } from './labels.ts';
 import { PluginMetadata } from './meta.ts';
 import { readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
 import type * as MainModule from './main.ts';
 import type { JsonValue } from './meta.ts';
 import { fileStore, readJsonlRows, readRecordSync, Store } from './store.ts';
-import { Tracker, TrackerError, writeAgentComment } from './tracker.ts';
+import { Tracker, TrackerError, type TrackerSetup, writeAgentComment } from './tracker.ts';
 import { type CheckEntry, findLatestChecks } from './trace.ts';
 import type { RunRecord } from './workflow.ts';
 
@@ -52,45 +51,53 @@ const readStoredRun = (data: string, id: string, versions: Record<string, string
   };
 };
 
-export type InstanceHost = {
-  readonly store: Pick<Store['Service'], 'listRecords' | 'getRecord' | 'read' | 'readChecks' | 'readLog'>;
-  readonly tracker: Pick<Tracker['Service'], 'issues' | 'issue' | 'since'>;
-  readonly readRuns: () => StoredRun[];
-  readonly say: (issue: number, text: string) => Effect.Effect<Applied, TrackerError>;
-  readonly label: (
-    id: string,
-    patch: Parameters<typeof writeRunLabels>[2]
-  ) => Effect.Effect<Effect.Success<ReturnType<typeof writeRunLabels>>, unknown>;
+const readStoredRuns = ({ data, checks = {} }: Pick<EngineConfig, 'data' | 'checks'>) => {
+  const versions = Object.fromEntries(Object.entries(checks).map(([check, c]) => [check, c.version]));
+  return (existsSync(data) ? readdirSync(data) : []).flatMap(id => readStoredRun(data, id, versions) ?? []);
 };
 
+const makeAction = <S extends Schema.Codec<readonly unknown[], unknown>, A, E>(
+  args: S,
+  run: (...args: S['Type']) => Effect.Effect<A, E>
+) => ({ args, run });
+
+export type InstanceHost = ReturnType<typeof makeInstanceHost>;
+
 export const makeInstanceHost = (
-  { data, checks = {} }: Pick<EngineConfig, 'data' | 'checks'>,
-  tracker?: { layer: Layer.Layer<Tracker>; local: boolean }
-): InstanceHost => {
-  const store = Effect.runSync(Store.pipe(Effect.provide(fileStore(data))));
-  const versions = Object.fromEntries(Object.entries(checks).map(([check, c]) => [check, c.version]));
+  config: Pick<EngineConfig, 'data' | 'checks'>,
+  tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] }
+) => {
+  const { data } = config;
+  const store: Pick<Store['Service'], 'list' | 'listRecords' | 'getRecord' | 'read' | 'readChecks' | 'readLog'> =
+    Effect.runSync(Store.pipe(Effect.provide(fileStore(data))));
+  const service = tracker && Effect.runSync(Effect.cached(Effect.provide(Tracker, tracker.layer)));
   const missing = new TrackerError({ message: 'this studio serves no tracker' });
   const provided = <A>(effect: Effect.Effect<A, TrackerError, Tracker>) =>
-    tracker ? Effect.provide(effect, tracker.layer) : Effect.fail(missing);
+    service ? Effect.flatMap(service, t => Effect.provideService(effect, Tracker, t)) : Effect.fail(missing);
+  const reads: Pick<Tracker['Service'], 'issues' | 'issue' | 'since'> = {
+    issues: filter => provided(Effect.flatMap(Tracker, t => t.issues(filter))),
+    issue: n => provided(Effect.flatMap(Tracker, t => t.issue(n))),
+    since: (cursor, columns) =>
+      service ? Stream.unwrap(Effect.map(service, t => t.since(cursor, columns))) : Stream.fail(missing),
+  };
   return {
+    data,
     store,
-    tracker: {
-      issues: filter => provided(Effect.flatMap(Tracker, t => t.issues(filter))),
-      issue: n => provided(Effect.flatMap(Tracker, t => t.issue(n))),
-      since: (cursor, columns) =>
-        tracker
-          ? Stream.unwrap(Effect.map(Tracker, t => t.since(cursor, columns))).pipe(Stream.provide(tracker.layer))
-          : Stream.fail(missing),
-    },
-    readRuns: () => (existsSync(data) ? readdirSync(data) : []).flatMap(id => readStoredRun(data, id, versions) ?? []),
-    say: (issue, text) =>
-      tracker && !tracker.local
-        ? Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
-        : provided(writeAgentComment(issue, text)),
-    label: (id, patch) =>
-      Effect.flatMap(store.getRecord(id), run =>
-        run ? writeRunLabels(data, id, patch) : Effect.fail(new Error(`no run ${id}`))
+    tracker: reads,
+    readRuns: () => readStoredRuns(config),
+    actions: {
+      say: makeAction(
+        Schema.Tuple([Schema.Int.check(Schema.isGreaterThan(0)), Schema.Trimmed.check(Schema.isNonEmpty())]),
+        (issue, text) =>
+          !tracker || tracker.origin.local
+            ? provided(writeAgentComment(issue, text))
+            : Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
       ),
+      label: makeAction(
+        Schema.Tuple([Schema.String, Schema.Record(Schema.String, Schema.NullOr(Schema.String))]),
+        (id, patch) => writeStoredRunLabels(data, id, patch)
+      ),
+    },
   };
 };
 
@@ -109,7 +116,7 @@ export const makeEngineHost = (plugin: string, configs: readonly EngineConfig[],
   };
   return {
     configs,
-    readRuns: name => makeInstanceHost(pick(name)).readRuns(),
+    readRuns: name => readStoredRuns(pick(name)),
     submit: async (name, { labels: given = {}, ...from }, submission) => {
       if (!submitting) throw new Error(`${plugin} cannot submit runs from here`);
       const { data } = pick(name);

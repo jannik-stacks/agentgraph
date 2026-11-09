@@ -5,7 +5,21 @@ import type { InstanceHost } from '../../src/engine.ts';
 import { makeApiHref, makeLiveJsonAtom } from './state.ts';
 
 export { queryParam, navigateAtom } from './state.ts';
-export { Badge, Button, Disclosure, Field, Fields, Help, Link, Live, Loading, Muted, Select, Tooltip } from './ui.tsx';
+export {
+  accent,
+  Badge,
+  Button,
+  Disclosure,
+  Field,
+  Fields,
+  Help,
+  Link,
+  Live,
+  Loading,
+  Muted,
+  Select,
+  Tooltip,
+} from './ui.tsx';
 export { ResultTable } from './results/ResultTable.tsx';
 export const ResultChart = lazy(() => import('./results/ResultChart.tsx'));
 
@@ -20,7 +34,7 @@ export const usePluginData = <D, I>(name: string, schema: Schema.Codec<D, I>) =>
   if (!cached) {
     cached = {
       schema,
-      atom: makeLiveJsonAtom(`/api/plugins/${encodeURIComponent(name)}/data`, [name, 'data'], value =>
+      atom: makeLiveJsonAtom(`/api/plugins/${encodeURIComponent(name)}/data`, [name], value =>
         Effect.runPromise(Schema.decodeUnknownEffect(schema)(value)).catch(() => {
           throw new Error('Invalid plugin data');
         })
@@ -31,7 +45,10 @@ export const usePluginData = <D, I>(name: string, schema: Schema.Codec<D, I>) =>
   return useAtomValue(cached.atom) as ReturnType<ReturnType<typeof makeLiveJsonAtom<D>>['read']>;
 };
 
-export const runAction = async <V extends 'say' | 'label'>(verb: V, ...args: Parameters<InstanceHost[V]>) => {
+export const runAction = async <V extends keyof InstanceHost['actions']>(
+  verb: V,
+  ...args: InstanceHost['actions'][V]['args']['Type']
+) => {
   const response = await fetch(makeApiHref(`/api/actions/${verb}`), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

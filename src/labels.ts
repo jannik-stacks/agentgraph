@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Schema } from 'effect';
 import { appendJsonlRows, readJsonlRows } from './store.ts';
@@ -36,6 +37,13 @@ export const writeRunLabels = (data: string, id: string, patch: Record<string, s
   const rows = Object.entries(patch).map(([key, value]) => ({ at, key, value }));
   return Effect.map(rows.length ? appendJsonlRows(log, rows) : Effect.void, () => readRunLabels(data, id));
 };
+
+export const writeStoredRunLabels = (data: string, id: string, patch: Record<string, string | null>) =>
+  Effect.suspend(() =>
+    existsSync(join(data, id, 'run.json'))
+      ? writeRunLabels(data, id, patch)
+      : Effect.fail(new Error(`no run ${id || '<run id>'} in ${data}`))
+  );
 
 export const parseLabelPatch = (words: readonly string[]): Record<string, string | null> =>
   Object.fromEntries(

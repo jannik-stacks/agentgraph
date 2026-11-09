@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, it, vi } from 'vitest';
 import { createStudioServer, startStudioServer, studioDir } from './studio.ts';
+import { writeIssueFile } from '../src/tracker.ts';
 
 it('encodes page data, hides reader failures and sends change topics per watch root', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-pages-'));
@@ -91,7 +92,7 @@ export default function Page() { const { value } = usePluginData('count', Schema
     expect((sent.mock.calls[0]![1] as { topics: string[] }).topics.toSorted()).toEqual(['count']);
     writeFileSync(join(dir, 'data', 'new'), '');
     await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(2));
-    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'data']);
+    expect((sent.mock.calls[1]![1] as { topics: string[] }).topics.toSorted()).toEqual(['bench', 'data', 'results']);
     expect(server.watcher.listenerCount('all')).toBe(listeners);
     expect(await (await fetch(`${base}/api/plugins/count/data`)).json()).toBe('8');
   } finally {
@@ -274,6 +275,7 @@ it('runs instance actions only for same-origin JSON and reports refusals', async
   mkdirSync(dir);
   mkdirSync(join(root, 'data', 'r1'), { recursive: true });
   mkdirSync(join(root, 'tracker'));
+  const issue = await writeIssueFile(join(root, 'tracker'), { title: 'Ask', author: 'morgan', labels: [] }, '');
   writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
   writeFileSync(
     join(root, 'data', 'r1', 'run.json'),
@@ -298,7 +300,7 @@ it('runs instance actions only for same-origin JSON and reports refusals', async
       await post('label', ['r1', { arm: 'x' }], { 'sec-fetch-site': 'cross-site' }),
       await post('label', ['r1', { arm: 'x' }], { 'content-type': 'text/plain' }),
       await post('label', ['r1']),
-      await post('say', [1, 'hi']),
+      await post('say', [issue, 'hi']),
       await post('merge', [1]),
       [(await fetch(`${base}/api/actions/label`)).status, null],
     ]).toEqual([
@@ -306,7 +308,7 @@ it('runs instance actions only for same-origin JSON and reports refusals', async
       [403, { error: 'actions take same-origin JSON' }],
       [403, { error: 'actions take same-origin JSON' }],
       [400, { error: expect.stringContaining('Missing key') }],
-      [400, { error: 'comment on the tracker; this host does not post there' }],
+      [200, expect.objectContaining({ ok: true })],
       [404, { error: 'no action merge' }],
       [405, null],
     ]);

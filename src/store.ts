@@ -249,7 +249,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     );
   const listRecords = (filter: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>> = {}) =>
     io(dir, () => readdir(dir).catch(e => readOrUndefined(e) ?? [])).pipe(
-      Effect.flatMap(ids => Effect.forEach(ids, readRun)),
+      Effect.flatMap(ids => Effect.forEach(ids, readRun, { concurrency: 8 })),
       Effect.map(runs =>
         runs.filter(
           (run): run is RunRecord =>
@@ -361,10 +361,9 @@ export type Located = { run: string; step: string; at: string } | { issue: numbe
  * wrote, names an issue instead: the one whose run opened it, else the number in the link.
  * @public
  */
-export const locate = (input: unknown) =>
+export const locate = (input: unknown, store: Pick<Store['Service'], 'list' | 'read'>) =>
   Effect.gen(function* () {
     const { gh } = yield* Schema.decodeUnknownEffect(Query)(input);
-    const store = yield* Store;
     const id = /(?:#discussion_r|#issuecomment-|#r|^)(\d+)$/.exec(gh)?.[1];
     const url = gh.replace(/\/+$/, '');
     let found: { run: Run; step: string; at: string } | undefined;

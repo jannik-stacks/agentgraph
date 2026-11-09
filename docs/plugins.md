@@ -198,10 +198,11 @@ whose `Origin` names another host. To host the studio, set `AGI_HOST` and, behin
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect
-Schema for its data and a read-only `read(settings, host)` effect. Optional `watch(settings, host)` returns
-data roots outside the instance. The reader gets this plugin's decoded settings and the read side of the
-instance's host: `store` (`listRecords`, `getRecord`, `read`, `readChecks`, `readLog`), `tracker`
-(`issues`, `issue`, `since`) and `readRuns()`, each run with its labels and latest checks. These are the
+Schema for its data and a `read(settings, host)` effect. Optional `watch(settings, host)` returns the
+folders whose changes refresh the page, such as the instance's `host.data`. The reader gets this plugin's decoded
+settings and the instance's host: its `data` folder, `store` (`list`, `listRecords`, `getRecord`, `read`,
+`readChecks`, `readLog`), `tracker` (`issues`, `issue`, `since`), `readRuns()`, each run with its labels and
+latest checks, and `actions`. These are the
 reads the studio's own Runs and Graph pages use, scoped to the one instance the page is served
 for. Type the reader's host with `InstanceHost` from `@jannik-stacks/agi/trackers`, as in
 `read(settings, host: Pick<InstanceHost, 'store' | 'tracker'>)`. Loading declarations does not execute readers or import TSX. Host code remains trusted; namespaces
@@ -214,18 +215,18 @@ Pass its plugin name and a browser-safe data schema shared with the host reader.
 exports its UI (`Live`, `Loading`, `Muted`, `Button`, `Select`, `Badge`, `Disclosure`, `Tooltip` and more),
 query/navigation atoms and results components through that browser entry.
 
-A page acts with `runAction(verb, ...args)`, which calls the host function behind the CLI verb of that
-name on the page's instance: `runAction('say', 12, 'go on')` posts `/agent go on` like `agi say`, and
+A page acts with `runAction(verb, ...args)`, which runs the host action of that name on the page's
+instance. Each action is a schema for its arguments and the function behind the CLI verb: `runAction('say', 12, 'go on')` posts `/agent go on` like `agi say`, and
 `runAction('label', runId, { arm: 'base' })` sets run labels like `agi label`. `say` takes the same
 [commands](workflows.md#commands), so `':restart:implement'` or `':stop'` reach a run under the graph's
-`commands` gate. It posts only to a local tracker and never drives; a running loop picks the comment up.
-The studio accepts actions only as same-origin JSON posts to `/api/actions/<verb>`. Readers get no actions.
+`commands` gate. Like `agi say`, it posts only to a local tracker and never drives; a running loop picks the
+comment up. The studio accepts actions only as same-origin JSON posts to `/api/actions/<verb>`.
 <!-- code: studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 
 Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named
 instances they sit under `/<instance>`, and each reads its own instance's plugin with `?instance=<instance>`. One SSE
-connection refreshes every mounted reader when the instance's run data or its declared roots change. A failed
+connection refreshes a mounted reader when one of its plugin's watched folders changes. A failed
 refresh keeps the last good data and shows an error. Snapshots are capped at 16 MiB.
 Host readers, settings and data roots never enter the page manifest. Pages share the studio origin
 and its API authority; review them like host plugins. Registering a page starts no job. Restart the

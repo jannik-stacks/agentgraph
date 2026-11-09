@@ -26,13 +26,19 @@ const makeInstance = async () => {
 
 it('reads runs, labels and tracker issues of its one instance and acts through the CLI functions', async () => {
   const { data, tracker, issue } = await makeInstance();
-  const host = makeInstanceHost({ data }, { layer: folderTracker(tracker, 'morgan', ['morgan']), local: true });
+  const host = makeInstanceHost(
+    { data },
+    {
+      layer: folderTracker(tracker, 'morgan', ['morgan']),
+      origin: { origin: join(tracker, 'origin.git'), local: true },
+    }
+  );
   const read = await Effect.runPromise(
     Effect.all({
       records: host.store.listRecords(),
       issues: host.tracker.issues({ state: 'open' }),
-      labels: host.label('r1', { arm: 'base' }),
-      said: host.say(issue, 'go on'),
+      labels: host.actions.label.run('r1', { arm: 'base' }),
+      said: host.actions.say.run(issue, 'go on'),
     })
   );
   const events = await Effect.runPromise(Stream.runCollect(host.tracker.since('')));
@@ -54,13 +60,21 @@ it('reads runs, labels and tracker issues of its one instance and acts through t
 });
 
 it.each([
-  ['labels a missing run', (host: ReturnType<typeof makeInstanceHost>) => host.label('r9', { arm: 'x' }), 'no run r9'],
+  [
+    'labels a missing run',
+    (host: ReturnType<typeof makeInstanceHost>) => host.actions.label.run('r9', { arm: 'x' }),
+    'no run r9',
+  ],
   [
     'reads without a tracker',
     (host: ReturnType<typeof makeInstanceHost>) => host.tracker.issues(),
     'serves no tracker',
   ],
-  ['says without a tracker', (host: ReturnType<typeof makeInstanceHost>) => host.say(1, 'hi'), 'serves no tracker'],
+  [
+    'says without a tracker',
+    (host: ReturnType<typeof makeInstanceHost>) => host.actions.say.run(1, 'hi'),
+    'serves no tracker',
+  ],
 ])('refuses when it %s', async (_name, act, error) => {
   const { data } = await makeInstance();
   await expect(Effect.runPromise(act(makeInstanceHost({ data })) as Effect.Effect<unknown, unknown>)).rejects.toThrow(
@@ -68,8 +82,11 @@ it.each([
   );
 });
 
-it('posts nothing on a tracker it only reads', async () => {
+it('posts nothing on a tracker that is not local, as agi say', async () => {
   const { data, tracker, issue } = await makeInstance();
-  const host = makeInstanceHost({ data }, { layer: folderTracker(tracker), local: false });
-  await expect(Effect.runPromise(host.say(issue, 'hi'))).rejects.toThrow('this host does not post there');
+  const host = makeInstanceHost(
+    { data },
+    { layer: folderTracker(tracker), origin: { origin: 'https://github.com/o/r' } }
+  );
+  await expect(Effect.runPromise(host.actions.say.run(issue, 'hi'))).rejects.toThrow('this host does not post there');
 });

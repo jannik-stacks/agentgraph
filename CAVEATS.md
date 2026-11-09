@@ -12,18 +12,13 @@ Rough edges known at merge time.
 - The local contract rows run only with `AGENTGRAPH_E2E=1` and the sandbox image built.
 - The `local` runner checks the host when its layer is built, once per image per process. The loop's layers pass `AGENTGRAPH_IMAGE`, so a graph with its own `image` also gets the stock image checked, and built when missing, on its first pass.
 - Tests that build the production layers only for a tracker pick the `box` runner, since `local` would check Docker and the model stack.
-- Plugin pages refresh on the instance's `data` topic. Tracker events alone do not refresh them, since the
+- Plugin pages refresh only on their own watched folders. Tracker events alone do not refresh them, since the
   studio does not watch tracker folders. The dashboard's issue widget lags until a run changes.
-- The instance host builds a tracker layer per read call. Fine for the folder tracker; a GitHub tracker pays
-  token setup per call.
-- The dashboard's issue widget counts `since` events, so a GitHub tracker reads every event in the window.
-- The studio check now needs `@jannik-stacks/agi/plugins` aliases in the root tsconfig and vitest config,
-  next to the existing studio tsconfig path. A published `.d.ts` for the studio entry is still missing.
-- `/api/logs` now returns 404 for an instance whose `instance.yaml` fails to load, where it used to read the
-  data folder anyway.
-- `/api/actions` checks same-origin against `http://<host>`, so actions fail behind an HTTPS proxy; the auth gate
-  already compares only the host. Fix in the route handlers after fix/studio-cleanup lands.
+- The dashboard's issue widget counts `since` events, so a GitHub tracker reads every event in the window,
+  at most once a minute per window.
+- The example dashboard page is type-checked by `examples/dashboard/tsconfig.json` in `check:examples`, which
+  maps `@jannik-stacks/agi/studio` to the studio source. A published `.d.ts` for the studio entry is still missing.
 - Password logins have no rate limit; put Cloudflare Access in front of a studio on the internet.
-- `vite preview` is not gated, and there is no logout route; a session ends after an hour idle or at restart.
+- `vite preview` is not gated.
 - `agi studio` has no `--auth` flag; use `AGENTGRAPH_AUTH` or `npm run dev -- --auth`.
 - The live socket stays open after its session expires; it carries only change topics.

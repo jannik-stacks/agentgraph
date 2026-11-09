@@ -1,7 +1,7 @@
 import { scaleBand, scaleLinear } from 'd3-scale';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
-import { usePluginData, Button, Loading, Muted } from '@jannik-stacks/agi/studio';
-import { DashboardData } from './data.ts';
+import { accent, Live, Muted, usePluginData } from '@jannik-stacks/agi/studio';
+import { DashboardData, sources } from './data.ts';
 
 type DashboardWidget = (typeof DashboardData.Type)['widgets'][number];
 
@@ -15,7 +15,7 @@ const tones: Record<string, string> = {
   closed: 'text-zinc-400 dark:text-zinc-500',
   merged: 'text-violet-600 dark:text-violet-400',
 };
-const readTone = (series: string) => tones[series] ?? 'text-sky-600 dark:text-sky-400';
+const readTone = (series: string) => tones[series] ?? accent.text;
 
 const formatValue = (source: DashboardWidget['source'], value: number, compact = Math.abs(value) >= 10_000) =>
   value.toLocaleString(undefined, {
@@ -228,15 +228,7 @@ const WidgetCard = ({ widget }: { widget: DashboardWidget }) => {
     <section className="agi-in min-w-0 space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
       <header>
         <h2 className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">{widget.title}</h2>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
-          {widget.source === 'runs'
-            ? 'Current state by start day'
-            : widget.source === 'checks'
-              ? 'All check attempts by check day'
-              : widget.source === 'issues'
-                ? 'Tracker comments, closes and merges by event day'
-                : 'Reported usage by event day'}
-        </p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">{sources[widget.source].note}</p>
       </header>
       {widget.type === 'counter' ? (
         <>
@@ -303,37 +295,25 @@ const WidgetCard = ({ widget }: { widget: DashboardWidget }) => {
   );
 };
 
-const DashboardPage = () => {
-  const { value, failure, retry } = usePluginData('dashboard', DashboardData);
-  if (!value)
-    return failure ? (
-      <Muted>
-        {failure} <Button onClick={retry}>Retry</Button>
-      </Muted>
-    ) : (
-      <Loading />
-    );
-  return (
-    <main className="h-full space-y-4 overflow-auto p-6">
-      <header>
-        <h1 className="text-lg font-semibold">Dashboard</h1>
-        <p className="text-xs text-zinc-500">
-          Live snapshot, last read {new Date(value.at).toLocaleString()}. Days use UTC.
-        </p>
-      </header>
-      {failure ? (
-        <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
-          Could not refresh. Showing earlier data. {failure} <Button onClick={retry}>Retry</Button>
-        </p>
-      ) : null}
-      {!value.widgets.length ? <Muted>No widgets configured in plugins.dashboard.widgets.</Muted> : null}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,28rem),1fr))] items-start gap-4">
-        {value.widgets.map((widget, index) => (
-          <WidgetCard key={index} widget={widget} />
-        ))}
-      </div>
-    </main>
-  );
-};
+const DashboardPage = () => (
+  <Live state={usePluginData('dashboard', DashboardData)}>
+    {value => (
+      <main className="h-full space-y-4 overflow-auto p-6">
+        <header>
+          <h1 className="text-lg font-semibold">Dashboard</h1>
+          <p className="text-xs text-zinc-500">
+            Live snapshot, last read {new Date(value.at).toLocaleString()}. Days use UTC.
+          </p>
+        </header>
+        {!value.widgets.length ? <Muted>No widgets configured in plugins.dashboard.widgets.</Muted> : null}
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,28rem),1fr))] items-start gap-4">
+          {value.widgets.map((widget, index) => (
+            <WidgetCard key={index} widget={widget} />
+          ))}
+        </div>
+      </main>
+    )}
+  </Live>
+);
 
 export default DashboardPage;

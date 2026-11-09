@@ -137,7 +137,7 @@ const builtins = [github, folder, local, box, none, token, password];
 const readHostPlugins = async (graph?: { dir: string; fromRepo: boolean }) => {
   const text = graph && (await readFile(join(graph.dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
   const settings = parseGraphSettings(text, () => {});
-  return { ...(await readPlugins(graph?.dir, settings?.plugins, undefined, builtins)), settings };
+  return { ...(await readPlugins(graph?.dir, settings?.plugins, { builtins })), settings };
 };
 
 const whyUnpicked = (

@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Effect, Schema } from 'effect';
+import { Effect, Schema, Stream } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
 import { startStudioServer } from './studio.ts';
 import { makeInstanceHost } from '../src/engine.ts';
@@ -42,7 +42,10 @@ const makeTracker = async (events: { kind: string; at: string }[]) => {
     join(findIssueDir(tracker, n), 'events.jsonl'),
     events.map(e => `${JSON.stringify({ issue: n, actor: 'morgan', trusted: true, ...e })}\n`).join('')
   );
-  return { layer: folderTracker(tracker, 'morgan', ['morgan']), local: true };
+  return {
+    layer: folderTracker(tracker, 'morgan', ['morgan']),
+    origin: { origin: join(tracker, 'origin.git'), local: true },
+  };
 };
 
 it('aggregates current run cohorts and dated events, with missing cost counted', async () => {
@@ -104,16 +107,24 @@ it('aggregates current run cohorts and dated events, with missing cost counted',
   expect(JSON.stringify(snapshot)).not.toContain(data);
 });
 
+it('reads the tracker once per window while its last read is fresh', async () => {
+  const host = makeInstanceHost({ data: makeData() });
+  const cursors: string[] = [];
+  const tracker = { ...host.tracker, since: (cursor: string) => (cursors.push(cursor), Stream.empty) };
+  const read = () => Effect.runPromise(readDashboard(makeSettings(), { store: host.store, tracker }, now));
+  await read();
+  await read();
+  expect(cursors).toEqual(['2026-11-07T00:00:00.000Z']);
+});
+
 it('registers the example page, reuses settings and reads a changed run', async () => {
   const data = makeData();
   const { pages } = await readPlugins(
     join(import.meta.dirname, '../examples/dashboard'),
     { dashboard: { widgets: [{ title: 'runs', type: 'table', source: 'runs', days: 2 }] } },
-    undefined,
-    [],
     { instance: makeInstanceHost({ data }) }
   );
-  expect(pages.map(page => ({ name: page.name, watch: page.watch }))).toEqual([{ name: 'dashboard', watch: [] }]);
+  expect(pages.map(page => ({ name: page.name, watch: page.watch }))).toEqual([{ name: 'dashboard', watch: [data] }]);
   const run = join(data, 'r1');
   mkdirSync(run);
   const writeRun = (status: string) =>
@@ -185,14 +196,14 @@ it('serves the example page and refreshes it through the existing change path', 
       `${base}/@fs${join(import.meta.dirname, '../examples/dashboard/plugins/dashboard/DashboardPage.tsx')}`
     );
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain('Current state by start day');
+    expect(await page.text()).toContain('Days use UTC');
     const read = async () =>
       Schema.decodeUnknownSync(DashboardData)(await (await fetch(`${base}/api/plugins/dashboard/data`)).json());
     const before = await read();
     const sent = vi.spyOn(server.ws, 'send');
     writeRun('done');
     await vi.waitFor(() =>
-      expect(sent).toHaveBeenCalledWith('agi:changed', { topics: expect.arrayContaining(['data']) })
+      expect(sent).toHaveBeenCalledWith('agi:changed', { topics: expect.arrayContaining(['dashboard']) })
     );
     const after = await read();
     expect(
