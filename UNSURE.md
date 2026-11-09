@@ -67,3 +67,10 @@ Decisions made without being sure. Each names what was picked and what would cha
   start token changes on every restart, so `token` sessions do too, which matches its login URL.
 - **The gate knows two names**: it prints the login URL for `token` and warns for `none` beyond loopback. A plugin
   hook for start-up lines would remove that, but nothing else needs one yet.
+- The action gate stamps a per-handler random key into the user header, because Effect's HTTP RPC server merges
+  headers a client writes into the NDJSON body. The studio gate already refuses anonymous requests, so the
+  middleware is a second gate; dropping it would save about 12 lines.
+- `agi` watch output during a drive resubscribes once a second after a failed store read; no test covers the CLI
+  watch output, since it only prints during a live drive.
+- A logged-in studio user can `label` and `prune` a bench `?data=` folder; before the action group, bench
+  folders were read-only.
