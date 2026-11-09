@@ -14,8 +14,17 @@ Decisions made without being sure. Each names what was picked and what would cha
 - The CLI calls actions in process through the same HTTP codec as the studio and never reaches a remote host, so
   there is no remote write to fall back from. A loop that serves the group (planned) must keep that: a failed
   remote call is reported, never retried locally.
-- The action layer grew production code by about 130 lines before any caller moved onto it. It was kept
-  because the next step deletes the per-verb routes and reads it replaces; the net is measured over both.
+- The action layer grew production code by about 130 lines, and moving the rest onto it does not pay it back,
+  so only `show`, `say`, `label` and `resume` are actions. The studio reads (`/api/runs`, `logs`, `results`,
+  `locate`, `verdicts`, plugin data) send untyped JSON built from studio helpers; as actions they need output
+  schemas for run summaries, result tables and verdicts, more lines than the routing and fetch code they remove.
+  The other CLI verbs (`review`, `merge`, `export`, `close`, `import`, `prune-logs`, `start`, `dispatch`,
+  `check --runs`) have no studio twin to delete, so each would only gain a schema and a wrapper. Moving them
+  pays off once a second caller exists, such as a loop that serves the group.
+- A loop that serves the group would listen on `127.0.0.1:0` and write its URL atomically into its lock holder
+  file. `agi say` and the other actions would call that URL when a loop holds the instance and report a failed
+  call without retrying locally. Run lists would stream as `watch { issue }`, coalesced per tick, with one bounded
+  queue per subscriber that resets a slow client to a fresh list.
 - `stop` and `restart` stay CLI-only: they signal or spawn a loop process that may serve several instances.
 - Actions are offered to every page and every reader, graph-local or operator: the maintainer chose no
   distinction for now. Pages share the studio origin anyway, so a gate on the page's name would be forgeable.
