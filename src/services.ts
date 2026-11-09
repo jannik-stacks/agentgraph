@@ -135,7 +135,7 @@ const builtins = [github, folder, local, box];
 
 const readHostPlugins = async (graph?: { dir: string; fromRepo: boolean }) => {
   const text = graph && (await readFile(join(graph.dir, 'settings.yaml'), 'utf8').catch(readOrUndefined));
-  return readPlugins(graph?.dir, parseGraphSettings(text, () => {})?.plugins, undefined, builtins);
+  return readPlugins(graph?.dir, parseGraphSettings(text, () => {})?.plugins, { builtins });
 };
 
 const findHostGraph = (s: Pick<Settings, 'graph'>) =>

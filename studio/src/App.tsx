@@ -13,22 +13,22 @@ const pages = {
 
 const own = declared.filter(page => page.instance === undefined || page.instance === shown?.name);
 
-const custom = own.filter(page => page.href.startsWith('/plugins/'));
+const custom = own.filter(page => !page.builtin);
 
 const official = [
   ...(['graph', 'runs'] as const).map(r => ({ href: `/${r}`, title: r })),
-  ...own.filter(page => !custom.includes(page)),
+  ...own.filter(page => page.builtin),
   { href: '/docs', title: 'docs' },
 ];
 
-const Tabs = ({
+const NavTabs = ({
   label,
   links,
   here,
   className,
 }: {
   label: string;
-  links: typeof official;
+  links: readonly { href: string; title: string }[];
   here: string;
   className: string;
 }) => (
@@ -108,9 +108,9 @@ export const App = () => {
           <AgentgraphLogo className="size-5" />
           agentgraph
         </Link>
-        <Tabs label="Pages" links={official} here={here} className="bg-zinc-100 dark:bg-zinc-900" />
+        <NavTabs label="Pages" links={official} here={here} className="bg-zinc-100 dark:bg-zinc-900" />
         {custom.length > 0 && (
-          <Tabs
+          <NavTabs
             label="Plugin pages"
             links={custom}
             here={here}

@@ -15,6 +15,7 @@ import {
   makeServedTopic,
   makeUnservedFilter,
   readBenchSets,
+  readModule,
   readQuery,
   servedIds,
   startWatch,
@@ -27,7 +28,7 @@ const manifest = 'virtual:agentgraph-pages';
 const entry = 'virtual:agentgraph-page/';
 
 const makeResultsPlugin = async (served: ServedGraph) => {
-  const { makePlugin }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
+  const { makePlugin } = await readModule<typeof PluginModule>('src/plugin.ts');
   const { data } = served;
   return makePlugin({
     name: 'results',
@@ -35,11 +36,10 @@ const makeResultsPlugin = async (served: ServedGraph) => {
       title: 'Results',
       page: new URL('./src/results/ResultsPage.tsx', import.meta.url),
       dataSchema: ResultsData,
+      watch: () => (data ? [data] : []),
       read: () =>
         Effect.gen(function* () {
-          const { readRunResults }: typeof ResultsModule = yield* Effect.promise(
-            () => import(new URL('../bin/results.ts', import.meta.url).href)
-          );
+          const { readRunResults } = yield* Effect.promise(() => readModule<typeof ResultsModule>('bin/results.ts'));
           try {
             return Schema.decodeUnknownSync(ResultsData)({ kind: 'ready', sheet: readRunResults(data, served.graph) });
           } catch {
@@ -61,31 +61,28 @@ const readBenchConfigs = (served: ServedGraph[]) => {
 };
 
 const readStudioPages = async (served: ReturnType<typeof makeServedGraphs>) => {
-  const { readPlugins }: typeof PluginModule = await import(new URL('../src/plugin.ts', import.meta.url).href);
-  const { makeEngineHost }: typeof EngineModule = await import(new URL('../src/engine.ts', import.meta.url).href);
-  const { default: bench }: typeof BenchModule = await import(new URL('./src/bench/plugin.ts', import.meta.url).href);
-  const builtins = new Set(['results', 'bench']);
+  const { readPlugins } = await readModule<typeof PluginModule>('src/plugin.ts');
+  const { makeEngineHost } = await readModule<typeof EngineModule>('src/engine.ts');
+  const { default: bench } = await readModule<typeof BenchModule>('studio/src/bench/plugin.ts');
   const all = await served.read();
   const scoped = await Promise.all(
     all.map(async one => {
-      const { pages } = await readPlugins(
-        one.graph?.dir,
-        one.graph?.plugins,
-        undefined,
-        [await makeResultsPlugin(one), bench],
-        one.host && { instance: one.host }
-      );
+      const { pages } = await readPlugins(one.graph?.dir, one.graph?.plugins, {
+        builtins: [await makeResultsPlugin(one), bench],
+        ...(one.host && { instance: one.host }),
+      });
       return pages.map(page => ({ ...page, instance: one.name }));
     })
   );
   const configs = readBenchConfigs(all);
-  const { pages: shared } = await readPlugins(undefined, undefined, undefined, [bench], {
+  const { pages: shared } = await readPlugins(undefined, undefined, {
+    builtins: [bench],
     engine: name => makeEngineHost(name, configs),
   });
   return [...scoped.flat(), ...shared.map(page => ({ ...page, instance: undefined }))].map(page => ({
     ...page,
     key: page.instance ? `${page.instance}/${page.name}` : page.name,
-    href: builtins.has(page.name) ? `/${page.name}` : `/plugins/${page.name}`,
+    href: page.builtin ? `/${page.name}` : `/plugins/${page.name}`,
   }));
 };
 
@@ -145,7 +142,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
         return `export const pages = [${loaded
           .map(
             page =>
-              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.href)},instance:${JSON.stringify(page.instance)},load:()=>import(${JSON.stringify(entry + page.key)})}`
+              `{name:${JSON.stringify(page.name)},title:${JSON.stringify(page.title)},href:${JSON.stringify(page.href)},builtin:${page.builtin},instance:${JSON.stringify(page.instance)},load:()=>import(${JSON.stringify(entry + page.key)})}`
           )
           .join(',')}];`;
       const page = id.startsWith(`\0${entry}`) && loaded.find(page => page.key === id.slice(entry.length + 1));
