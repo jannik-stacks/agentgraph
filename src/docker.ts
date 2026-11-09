@@ -24,7 +24,7 @@ import {
 } from './env.ts';
 import { ensureFreeDisk, writeEnvRefs } from './disk.ts';
 import { waitForLock } from './owner.ts';
-import { inside, Runner, type Sandbox, SandboxError } from './sandbox.ts';
+import { inside, Runner, SandboxError } from './sandbox.ts';
 import { makeHostEnv, readGit, readWorktreeAdmin } from './git.ts';
 import type { RunnerHost } from './plugin.ts';
 import { type Checkout, type Command, type Exit } from './types.ts';
@@ -635,10 +635,7 @@ export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
           })
         );
 
-      const open = (
-        work: Omit<Checkout, 'ready' | 'env' | 'written' | 'image'>,
-        graph?: Parameters<Sandbox['Service']['checkout']>[3]
-      ) =>
+      const open = (work: Parameters<Runner['Service']['open']>[0], graph?: Parameters<Runner['Service']['open']>[1]) =>
         Effect.gen(function* () {
           const found = yield* readImage(graph, image);
           const box = found.id;
