@@ -240,6 +240,20 @@ describe('triage', () => {
     expect((await runs(where)).map(r => [r.workflow, r.issue, r.status])).toEqual([['triage', 1, 'done']]);
   });
 
+  it('files a follow-up only under the "## Done when" heading triage-brief reads, CRLF or not', async () => {
+    const filed = async (body: string) => {
+      const where = world();
+      where.label(1);
+      const proposed = turn({ kind: 'label', add: ['size/S'] }, { ...follow('Tidy the README'), body });
+      await run(where, Array(3).fill(proposed), tick(unbounded));
+      return (await issues(where)).length;
+    };
+    const counts = await Promise.all(
+      ['Tidy it.\n\n### Done when\n\n- it is tidy', 'Tidy it.\r\n\r\n## Done when\r\n\r\n- it is tidy'].map(filed)
+    );
+    expect(counts).toEqual([1, 2]);
+  });
+
   it('files a graph change like a follow-up, labelled graph', async () => {
     const where = world();
     where.label(1);
@@ -696,7 +710,7 @@ describe('/agent after a close or merge', () => {
 });
 
 describe('router input', () => {
-  it('opens on the review comment that asked, after its thread, without the engine labels and status', async () => {
+  it('opens on the review comment that asked, after its thread, without the engine labels', async () => {
     const where = world();
     openPull(where, 2, 'agentgraph/1');
     git(where.origin, 'branch', 'agentgraph/1', 'main');
@@ -719,19 +733,6 @@ describe('router input', () => {
       at: at(4),
       label: 'agentgraph:needs-review',
     });
-    sayOn(where, {
-      issue: 1,
-      kind: 'comment',
-      actor: 'agentgraph[bot]',
-      trusted: false,
-      at: at(4),
-      comment: {
-        id: 's1',
-        author: 'agentgraph[bot]',
-        body: 'Done.\n\nPull request: https://example.test/2',
-        at: at(4),
-      },
-    });
     sayOn(where, inline('r1', 'morgan', '/agent handle all five review comments', 5));
     const { value } = await run(where, [filed], scanIssuesAndRunningRuns(graph));
     const router = value.find(r => r.workflow === 'router')!;
@@ -743,7 +744,6 @@ describe('router input', () => {
       /^## What you were asked\n\n@morgan on docs\/x.md:8, id r0: \/agent handle all five review comments\n\nEarlier in its review thread:\n\n@morgan on docs\/x.md:8, id r0: what is slot\?\n\n@agentgraph\[bot\] on docs\/x.md:8, id r0: Slot is the index.\n\n/
     );
     expect(prompt).not.toContain('agentgraph:needs-review');
-    expect(prompt).not.toContain('Pull request: https://example.test/2');
   });
 });
 

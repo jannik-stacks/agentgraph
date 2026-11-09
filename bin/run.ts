@@ -33,7 +33,7 @@ import {
   findPullIssue,
   findRepo,
   ensureBase,
-  writeComment,
+  writeLineComment,
   writeInstanceProvider,
   formatGraphName,
   whyGraphUncommitted,
@@ -500,7 +500,7 @@ async function runOnInstance(
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
-      if (values.line) await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
+      if (values.line) await writeLineComment(i, n, formatAgentComment(said()), values.line);
       else await act(client => client.say({ issue: n, text: said() }));
       if (values.label)
         await Effect.runPromise((await getTracker()).apply(issue, { kind: 'label', add: values.label, remove: [] }));

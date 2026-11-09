@@ -122,7 +122,7 @@ export const makeInstanceHost = (
     show: ({ issue }) =>
       Effect.gen(function* () {
         const runs = yield* store.list(issue === undefined ? {} : { issue });
-        const pull = issue && folder ? yield* attempt(() => findPull(folder, issue)) : undefined;
+        const pull = issue && folder ? yield* attempt(() => findPull({ tracker: folder, data }, issue)) : undefined;
         const issues =
           issue === undefined
             ? yield* reads.issues()
@@ -149,7 +149,7 @@ export const makeInstanceHost = (
     label: ({ id, patch }) => writeStoredRunLabels(data, id, patch).pipe(Effect.mapError(fail)),
     instruct: instruction => (local ? attempt(() => local.drive(instruction)) : refuse),
     review: ({ issue, verdict, text }) =>
-      Effect.flatMap(owned, i => attempt(() => writeReview(i.tracker, i.owner, issue, verdict, text))),
+      Effect.flatMap(owned, i => attempt(() => writeReview(i, issue, verdict, text))),
     merge: ({ issue }) => Effect.flatMap(owned, i => attempt(() => mergePull(i, issue))),
     export: ({ issue, ...to }) =>
       Effect.flatMap(owned, i => attempt(async () => (await writePullToRepo(i, issue, to)) ?? null)),
@@ -158,7 +158,7 @@ export const makeInstanceHost = (
       Effect.gen(function* () {
         const i = yield* owned;
         const open = new Set((yield* reads.issues({ state: 'open' }).pipe(Effect.mapError(fail))).map(t => t.number));
-        const [moved, pull] = yield* attempt(() => Promise.all([findPullIssue(i, issue), findPull(i.tracker, issue)]));
+        const [moved, pull] = yield* attempt(() => Promise.all([findPullIssue(i, issue), findPull(i, issue)]));
         const closed = [...new Set([issue, moved, pull?.number ?? issue])].filter(k => open.has(k));
         yield* Effect.forEach(closed, k => attempt(() => writeClosed(i.tracker, i.owner, k)));
         return closed;
