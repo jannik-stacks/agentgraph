@@ -14,7 +14,7 @@ limits:
   cpus: 4
 ```
 
-A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. Remote boxes reject resource overrides. <!-- code: src/run/follow.ts#runAside src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#remoteSandbox -->
+A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. Remote boxes reject resource overrides. <!-- code: src/run/follow.ts#runAside src/workflow.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#makeBoxRunner -->
 
 | Path          | What                                                                       | Access                                                                   |
 | ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -31,7 +31,7 @@ Before Docker starts, the runner creates folders for mounts nested inside a bind
 
 Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/docker.ts#dockerRunner src/env.ts#removeCheckout -->
 
-A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box server can't enforce that, so it refuses read-only sessions. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#remoteSandbox -->
+A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user, and the command runs as uid 1001. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
 `infra/local/sandbox` builds the image. <!-- code: tests/doubles/sandbox.ts#hostSandbox -->
 

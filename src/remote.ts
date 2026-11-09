@@ -4,364 +4,357 @@ import { copyFileSync, existsSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { Duration, Effect, Layer, Redacted, Schedule, Stream, Semaphore } from 'effect';
-import { dockerRunner } from './docker.ts';
-import { makeSandbox } from './mirror.ts';
+import { Duration, Effect, Exit, Layer, Redacted, Schedule, Scope, Semaphore, Stream } from 'effect';
 import { getCachePath, makeToolchainSetupCommands } from './env.ts';
-import type { TrackerError } from './tracker.ts';
 import { hostGit, indexLock, makeHostEnv } from './git.ts';
-import type { Graph } from './folder.ts';
-import { type Checkout, type Command, type Exit, inside, Sandbox, SandboxError } from './sandbox.ts';
+import { type Command, type Exit as CommandExit, inside, Runner, SandboxError } from './sandbox.ts';
 
 const exitFrame = '\u0000agentgraph-exit ';
 const freshHeader = 'agentgraph-box-fresh';
-const outputLimit = 64 << 10;
 
 const infra = (detail: string) => new SandboxError({ reason: 'infra', detail });
 
 type SyncedDir = { box: string; git: Record<string, string>; tracked?: Record<string, string> };
 
-type BoxEntry = {
-  url: string;
-  work: Checkout;
-  network: NonNullable<Graph['network']>;
-  trees: Map<string, string>;
-  sync: Semaphore.Semaphore;
-  provisioning: Semaphore.Semaphore;
-  graph?: string;
-  toolchain?: Command;
-  ready?: true;
-  roots?: string;
-  unfinished: Map<string, SyncedDir | undefined>;
-  restarted?: true;
-};
-
-const call = (box: BoxEntry, path: string, init: RequestInit & { signal?: AbortSignal }) =>
-  Effect.tryPromise({
-    try: async signal => {
-      const response = await fetch(box.url + path, { signal, ...init });
-      if (response.headers.has(freshHeader)) box.restarted = true;
-      if (!response.ok) throw new Error(`${response.status} ${(await response.text()).trim().slice(-2000)}`);
-      return response;
+const makeBoxRunner = (
+  data: string,
+  open: (...args: Parameters<Runner['Service']['open']>) => Effect.Effect<
+    {
+      op: (
+        name: 'init' | 'push' | 'pull' | 'put' | 'stop',
+        args: string[],
+        body?: Uint8Array
+      ) => Effect.Effect<Uint8Array, SandboxError>;
+      run: (
+        argv: string[],
+        secrets: Record<string, string>,
+        network: Command['network'],
+        id: string
+      ) => Stream.Stream<string, SandboxError>;
     },
-    catch: e => infra(`box ${init.method ?? 'GET'} ${box.url}${path}: ${(e as Error).message}`),
-  });
-
-const op = (box: BoxEntry, name: string, args: string[], body?: Uint8Array) =>
-  Effect.filterOrFail(
-    call(box, `/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`, {
-      method: 'POST',
-      ...(body && { body: new Uint8Array(body) }),
-    }),
-    response => name === 'init' || !response.headers.has(freshHeader),
-    () => infra(`the box restarted during ${name}`)
-  );
-
-const push = (box: BoxEntry, dir: SyncedDir, roots: string[] = []) =>
-  Effect.gen(function* () {
-    if (dir.tracked) {
-      const paths = yield* hostGit(dir.tracked, ['ls-files', '-z']);
-      yield* hostGit(dir.git, ['update-index', '--add', '--remove', '-z', '--stdin'], { input: paths });
-    }
-    yield* hostGit(dir.git, ['add', '-A']);
-    const tree = (yield* hostGit(dir.git, ['write-tree'])).toString('utf8').trim();
-    const known = box.trees.get(dir.box);
-    if (tree === known) return;
-    const git = { GIT_DIR: dir.git.GIT_DIR! };
-    const objects = known ? [tree, '--not', known] : [...roots, tree];
-    const list = yield* hostGit(git, ['rev-list', '--objects', '--no-walk', ...objects]);
-    const pack = yield* hostGit(git, ['pack-objects', '-q', '--stdout'], { input: list });
-    yield* op(box, 'push', [dir.box, tree, ...(known ? [] : roots)], pack);
-    box.trees.set(dir.box, tree);
-  });
-
-const pull = (box: BoxEntry, dir: SyncedDir) =>
-  Effect.gen(function* () {
-    const known = box.trees.get(dir.box);
-    if (!known) return;
-    const response = yield* op(box, 'pull', [dir.box, known]);
-    const body = Buffer.from(
-      yield* Effect.tryPromise({
-        try: () => response.arrayBuffer(),
-        catch: e => infra(`box pull ${dir.box}: ${(e as Error).message}`),
-      })
-    );
-    const end = body.indexOf(10);
-    const tree = body.subarray(0, end).toString('utf8');
-    if (end < 0 || !/^[0-9a-f]{40,64}$/.test(tree)) return yield* infra(`box pull ${dir.box}: no tree`);
-    if (tree === known) return;
-    yield* hostGit({ GIT_DIR: dir.git.GIT_DIR! }, ['index-pack', '--stdin', '--strict'], {
-      input: body.subarray(end + 1),
-    });
-    yield* indexLock.withPermits(1)(
-      Effect.gen(function* () {
-        yield* hostGit(dir.git, ['read-tree', '-u', '--reset', tree]);
-        if (!dir.tracked) return;
-        const forced = yield* hostGit(dir.git, ['ls-files', '-z', '--cached', '--ignored', '--exclude-standard']);
-        if (forced.length > 0)
-          yield* hostGit(dir.tracked, ['update-index', '--add', '-z', '--stdin'], { input: forced });
-      })
-    );
-    box.trees.set(dir.box, tree);
-  });
-
-const putDir = (box: BoxEntry, from: string, to: string) =>
-  Effect.flatMap(
-    Effect.tryPromise({
-      try: signal =>
-        promisify(execFile)('tar', ['-c', '-f', '-', '-C', from, '.'], {
-          encoding: 'buffer',
-          maxBuffer: Infinity,
-          signal,
-          killSignal: 'SIGKILL',
-          env: makeHostEnv({ COPYFILE_DISABLE: '1' }),
-        }),
-      catch: e => infra(`tar ${from}: ${(e as Error).message}`),
-    }),
-    tar => op(box, 'put', [to], tar.stdout)
-  );
-
-export const remoteSandbox = (o: {
-  url: string;
-  data: string;
-  origin: string;
-  token?: Effect.Effect<string, TrackerError>;
-}): Layer.Layer<Sandbox> =>
+    SandboxError,
+    Scope.Scope
+  >
+): Layer.Layer<Runner> =>
   Layer.effect(
-    Sandbox,
+    Runner,
     Effect.gen(function* () {
-      const host = yield* Effect.provide(
-        Sandbox,
-        makeSandbox(o).pipe(Layer.provide(dockerRunner({ data: o.data, cache: '' })))
-      );
-      const boxes = new Map<string, BoxEntry>();
-      const syncIndex = (work: Checkout) => getCachePath(o.data, 'sync', `${basename(work.dir)}.index`);
-      const workDir = (box: BoxEntry): SyncedDir => ({
-        box: '/work',
-        git: { ...box.work.git, GIT_INDEX_FILE: syncIndex(box.work) },
-        tracked: box.work.git,
-      });
+      yield* Effect.promise(() => mkdir(getCachePath(data, 'sync'), { recursive: true }));
       const homeDir = (home: string) =>
         Effect.gen(function* () {
-          const git = { GIT_DIR: getCachePath(o.data, 'sync', `${basename(home)}.git`), GIT_WORK_TREE: home };
+          const git = { GIT_DIR: getCachePath(data, 'sync', `${basename(home)}.git`), GIT_WORK_TREE: home };
           yield* hostGit({}, ['init', '-q', '--bare', git.GIT_DIR]);
           yield* hostGit(git, ['config', 'core.bare', 'false']);
           yield* Effect.promise(() => writeFile(join(git.GIT_DIR, 'info', 'exclude'), '/.cache/\n'));
           return { box: `/homes/${basename(home)}`, git };
         });
 
-      const pullBack = (box: BoxEntry, home?: SyncedDir) =>
-        Effect.andThen(pull(box, workDir(box)), home ? pull(box, home) : Effect.void);
-
-      const recover = (box: BoxEntry) =>
-        Effect.gen(function* () {
-          const unfinished = [...box.unfinished];
-          yield* Effect.forEach(unfinished, ([id]) => op(box, 'stop', [id]), { discard: true });
-          for (const [id, home] of unfinished) {
-            yield* pullBack(box, home);
-            box.unfinished.delete(id);
-          }
-        });
-
-      const before = (box: BoxEntry, c: Command, home?: SyncedDir) =>
-        box.sync.withPermits(1)(
-          Effect.gen(function* () {
-            if (c.tools) return yield* infra('remote sandboxes do not support host tools');
-            yield* op(box, 'init', []);
-            if (box.restarted) {
-              delete box.restarted;
-              const lost = box.unfinished.size > 0;
-              box.unfinished.clear();
-              box.trees.clear();
-              delete box.graph;
-              delete box.ready;
-              if (lost)
-                return yield* infra(
-                  `the box restarted before its last work came back; look for kept/${basename(box.work.dir)}.tgz in the data bucket`
-                );
-            }
-            yield* recover(box);
-            const { base, head = base } = box.work;
-            const roots = [...new Set([head, base])];
-            if (box.roots !== roots.join(' ')) box.trees.delete('/work');
-            yield* push(box, workDir(box), roots);
-            box.roots = roots.join(' ');
-            if (home) yield* push(box, home);
-            if (c.graph && box.graph !== c.graph) {
-              yield* putDir(box, c.graph, '/graph');
-              box.graph = c.graph;
-            }
-          })
-        );
-
-      const news = (box: BoxEntry) => putDir(box, dirname(box.work.news), inside.news);
-
-      const lines = (c: Command): Stream.Stream<string | Pick<Exit, 'code'>, SandboxError> =>
-        Stream.unwrap(
-          Effect.gen(function* () {
-            const box = boxes.get(c.dir);
-            if (!box) return yield* infra(`${c.dir} is not a checkout of this sandbox`);
-            if (c.limits?.memory !== undefined || c.limits?.cpus !== undefined)
-              return yield* infra('remote sandboxes do not support command resource limits');
-            if (c.readonly)
-              return yield* infra('a box server cannot keep the work tree read-only; run read-only agents on docker');
-            const home = c.home ? yield* homeDir(c.home) : undefined;
-            const late = () => new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
-            const bounded = { duration: Duration.minutes(c.minutes), orElse: () => Effect.failSync(late) };
-            yield* Effect.timeoutOrElse(before(box, c, home), bounded);
-            if (c !== box.toolchain) yield* provision(box);
-            yield* Effect.timeoutOrElse(news(box), bounded);
-            yield* Effect.forkScoped(
-              Effect.repeat(
-                news(box).pipe(Effect.catch(e => Effect.logWarning('box news refresh failed', e))),
-                Schedule.spaced('1 minute')
-              )
-            );
-            const env: Record<string, string> = {
-              TMPDIR: '/tmp',
-              HOME: home?.box ?? '/tmp',
-              GIT_CONFIG_COUNT: '1',
-              GIT_CONFIG_KEY_0: 'safe.directory',
-              GIT_CONFIG_VALUE_0: '*',
-              ...c.env,
-              ...(c.graph && { AGENTGRAPH_DIR: '/graph' }),
-            };
-            const secrets = Object.fromEntries(Object.entries(c.secrets ?? {}).map(([k, v]) => [k, Redacted.value(v)]));
-            const network = c.network === 'proxy' ? box.network : c.network;
-            const argv = [String(c.minutes), ...Object.entries(env).map(([k, v]) => `${k}=${v}`), c.cmd, ...c.args];
-            const id = randomUUID();
-            let code: number | undefined;
-            let pulled = false;
-            yield* Effect.addFinalizer(() =>
-              pulled
-                ? Effect.void
-                : Effect.timeout(
-                    Effect.interruptible(
-                      Effect.retry(
-                        box.sync.withPermits(1)(Effect.andThen(op(box, 'stop', [id]), pullBack(box, home))),
-                        { times: 2 }
-                      )
-                    ),
-                    '5 minutes'
-                  ).pipe(Effect.catchCause(() => Effect.sync(() => box.unfinished.set(id, home))))
-            );
-            const response = yield* Effect.timeoutOrElse(
-              call(box, `/run?network=${network}&id=${id}`, {
-                method: 'POST',
-                body: JSON.stringify({ argv, secrets }),
-              }),
-              bounded
-            );
-            if (response.headers.has(freshHeader)) {
-              pulled = true;
-              return yield* infra('the box restarted before the command ran');
-            }
-            const ended = Effect.gen(function* () {
-              if (code === undefined) return yield* infra('the box stream ended without an exit code');
-              yield* box.sync.withPermits(1)(pullBack(box, home));
-              pulled = true;
-              return { code };
-            });
-            return Stream.fromReadableStream({
-              evaluate: () => response.body!,
-              onError: e => infra(`box run: ${(e as Error).message}`),
-            }).pipe(
-              Stream.decodeText(),
-              Stream.splitLines,
-              Stream.filter(line => {
-                code = line.startsWith(exitFrame) ? Number(line.slice(exitFrame.length)) : undefined;
-                return code === undefined;
-              }),
-              Stream.concat(Stream.fromEffect(ended)),
-              Stream.interruptWhen(Effect.andThen(Effect.sleep(Duration.minutes(c.minutes)), Effect.fail(late())))
-            );
-          })
-        );
-
-      const provision = (box: BoxEntry) =>
-        box.provisioning.withPermits(1)(
-          Effect.gen(function* () {
-            if (box.ready) return;
-            const out = box.toolchain ? yield* exec(box.toolchain) : { code: 0, output: '' };
-            if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
-            box.ready = true;
-          })
-        );
-
-      const exec = (c: Command) =>
-        Stream.runFold(
-          lines(c),
-          (): Exit => ({ code: 0, output: '' }),
-          (exit: Exit, piece) =>
-            typeof piece === 'string'
-              ? { ...exit, output: (exit.output + piece + '\n').slice(-outputLimit) }
-              : { ...exit, ...piece }
-        );
-
-      const checkout = (
-        ref: string | undefined,
-        branch?: string,
-        keep?: string,
-        graph?: Pick<Graph, 'image' | 'network' | 'toolchain' | 'setup'> &
-          Partial<Pick<Graph, 'repo' | 'workflows'>> & { readonly?: boolean }
-      ) =>
-        Effect.gen(function* () {
-          if (graph?.image) return yield* infra(`a remote sandbox runs one image; the graph names ${graph.image}`);
-          const work = yield* host.checkout(ref, branch, keep, graph);
-          const box: BoxEntry = {
-            url: `${o.url}/${basename(work.dir)}`,
-            work,
-            network: graph?.network ?? 'egress',
-            trees: new Map(),
-            sync: yield* Semaphore.make(1),
-            provisioning: yield* Semaphore.make(1),
-            unfinished: new Map(),
-          };
-          if (work.git.GIT_INDEX_FILE && existsSync(work.git.GIT_INDEX_FILE))
-            copyFileSync(work.git.GIT_INDEX_FILE, syncIndex(work));
-          yield* Effect.acquireRelease(
-            Effect.sync(() => boxes.set(work.dir, box)),
-            () =>
-              Effect.gen(function* () {
-                boxes.delete(work.dir);
-                yield* Effect.ignore(
-                  Effect.timeout(Effect.interruptible(box.sync.withPermits(1)(recover(box))), '5 minutes')
-                );
-                rmSync(syncIndex(work), { force: true });
-                if (box.unfinished.size > 0)
-                  return yield* Effect.logWarning(`kept the box ${box.url}: its last work did not come back`);
-                yield* Effect.ignore(
-                  Effect.timeout(Effect.interruptible(call(box, '', { method: 'DELETE' })), '1 minute')
-                );
-              })
-          );
-          if (!graph || graph.readonly || ref === undefined) return work;
-          const files = yield* hostGit(work.git, ['ls-tree', '--name-only', work.head ?? work.base]);
-          const toolchain = [
-            ...makeToolchainSetupCommands(files.toString('utf8').split('\n')),
-            ...(graph.toolchain ? [graph.toolchain] : []),
-          ];
-          if (toolchain.length === 0) return work;
-          box.toolchain = {
-            cmd: 'sh',
-            args: ['-ec', toolchain.join('\n')],
-            dir: work.dir,
-            env: {},
-            network: 'open',
-            minutes: 30,
-          };
-          yield* provision(box);
-          return work;
-        });
-
-      yield* Effect.promise(() => mkdir(getCachePath(o.data, 'sync'), { recursive: true }));
       return {
-        readBranches: host.readBranches,
-        readHead: host.readHead,
-        removeBranch: host.removeBranch,
-        checkout,
-        exec: (c: Command) => Effect.scoped(exec(c)),
-        lines,
+        open: (work, graph) =>
+          Effect.gen(function* () {
+            if (graph?.image) return yield* infra(`a remote sandbox runs one image; the graph names ${graph.image}`);
+            const scope = yield* Scope.make();
+            const box = yield* open(work, graph).pipe(
+              Scope.provide(scope),
+              Effect.onError(cause => Scope.close(scope, Exit.failCause(cause)))
+            );
+            const trees = new Map<string, string>();
+            const unfinished = new Map<string, SyncedDir | undefined>();
+            const sync = yield* Semaphore.make(1);
+            const provisioning = yield* Semaphore.make(1);
+            let graphDir: string | undefined;
+            let roots: string | undefined;
+            let ready = false;
+            let toolchain: Command | undefined;
+            const syncIndex = getCachePath(data, 'sync', `${basename(work.dir)}.index`);
+            const workDir: SyncedDir = {
+              box: inside.work,
+              git: { ...work.git, GIT_INDEX_FILE: syncIndex },
+              tracked: work.git,
+            };
+
+            const push = (dir: SyncedDir, from: string[] = []) =>
+              Effect.gen(function* () {
+                if (dir.tracked) {
+                  const paths = yield* hostGit(dir.tracked, ['ls-files', '-z']);
+                  yield* hostGit(dir.git, ['update-index', '--add', '--remove', '-z', '--stdin'], { input: paths });
+                }
+                yield* hostGit(dir.git, ['add', '-A']);
+                const tree = (yield* hostGit(dir.git, ['write-tree'])).toString('utf8').trim();
+                const known = trees.get(dir.box);
+                if (tree === known) return;
+                const git = { GIT_DIR: dir.git.GIT_DIR! };
+                const objects = known ? [tree, '--not', known] : [...from, tree];
+                const list = yield* hostGit(git, ['rev-list', '--objects', '--no-walk', ...objects]);
+                const pack = yield* hostGit(git, ['pack-objects', '-q', '--stdout'], { input: list });
+                yield* box.op('push', [dir.box, tree, ...(known ? [] : from)], pack);
+                trees.set(dir.box, tree);
+              });
+
+            const pull = (dir: SyncedDir) =>
+              Effect.gen(function* () {
+                const known = trees.get(dir.box);
+                if (!known) return;
+                const body = Buffer.from(yield* box.op('pull', [dir.box, known]));
+                const end = body.indexOf(10);
+                const tree = body.subarray(0, end).toString('utf8');
+                if (end < 0 || !/^[0-9a-f]{40,64}$/.test(tree)) return yield* infra(`box pull ${dir.box}: no tree`);
+                if (tree === known) return;
+                yield* hostGit({ GIT_DIR: dir.git.GIT_DIR! }, ['index-pack', '--stdin', '--strict'], {
+                  input: body.subarray(end + 1),
+                });
+                yield* indexLock.withPermits(1)(
+                  Effect.gen(function* () {
+                    yield* hostGit(dir.git, ['read-tree', '-u', '--reset', tree]);
+                    if (!dir.tracked) return;
+                    const forced = yield* hostGit(dir.git, [
+                      'ls-files',
+                      '-z',
+                      '--cached',
+                      '--ignored',
+                      '--exclude-standard',
+                    ]);
+                    if (forced.length > 0)
+                      yield* hostGit(dir.tracked, ['update-index', '--add', '-z', '--stdin'], { input: forced });
+                  })
+                );
+                trees.set(dir.box, tree);
+              });
+
+            const put = (from: string, to: string) =>
+              Effect.flatMap(
+                Effect.tryPromise({
+                  try: signal =>
+                    promisify(execFile)('tar', ['-c', '-f', '-', '-C', from, '.'], {
+                      encoding: 'buffer',
+                      maxBuffer: Infinity,
+                      signal,
+                      killSignal: 'SIGKILL',
+                      env: makeHostEnv({ COPYFILE_DISABLE: '1' }),
+                    }),
+                  catch: e => infra(`tar ${from}: ${(e as Error).message}`),
+                }),
+                tar => box.op('put', [to], tar.stdout)
+              );
+
+            const pullBack = (home?: SyncedDir) => Effect.andThen(pull(workDir), home ? pull(home) : Effect.void);
+
+            const recover = Effect.gen(function* () {
+              const left = [...unfinished];
+              yield* Effect.forEach(left, ([id]) => box.op('stop', [id]), { discard: true });
+              for (const [id, home] of left) {
+                yield* pullBack(home);
+                unfinished.delete(id);
+              }
+            });
+
+            const before = (c: Command, home?: SyncedDir) =>
+              sync.withPermits(1)(
+                Effect.gen(function* () {
+                  if (c.tools) return yield* infra('remote sandboxes do not support host tools');
+                  if ((yield* box.op('init', [])).length > 0) {
+                    const lost = unfinished.size > 0;
+                    unfinished.clear();
+                    trees.clear();
+                    graphDir = undefined;
+                    ready = false;
+                    if (lost)
+                      return yield* infra(
+                        `the box restarted before its last work came back; look for kept/${basename(work.dir)}.tgz in the data bucket`
+                      );
+                  }
+                  yield* recover;
+                  const { base, head = base } = work;
+                  const from = [...new Set([head, base])];
+                  if (roots !== from.join(' ')) trees.delete(inside.work);
+                  yield* push(workDir, from);
+                  roots = from.join(' ');
+                  if (home) yield* push(home);
+                  if (c.graph && graphDir !== c.graph) {
+                    yield* put(c.graph, inside.graph);
+                    graphDir = c.graph;
+                  }
+                })
+              );
+
+            const news = put(dirname(work.news), inside.news);
+
+            const lines = (c: Command): Stream.Stream<string | Pick<CommandExit, 'code'>, SandboxError> =>
+              Stream.unwrap(
+                Effect.gen(function* () {
+                  if (c.limits?.memory !== undefined || c.limits?.cpus !== undefined)
+                    return yield* infra('remote sandboxes do not support command resource limits');
+                  const home = c.home ? yield* homeDir(c.home) : undefined;
+                  const late = () =>
+                    new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
+                  const bounded = { duration: Duration.minutes(c.minutes), orElse: () => Effect.failSync(late) };
+                  yield* Effect.timeoutOrElse(before(c, home), bounded);
+                  if (c !== toolchain) yield* provision;
+                  yield* Effect.timeoutOrElse(news, bounded);
+                  yield* Effect.forkScoped(
+                    Effect.repeat(
+                      news.pipe(Effect.catch(e => Effect.logWarning('box news refresh failed', e))),
+                      Schedule.spaced('1 minute')
+                    )
+                  );
+                  const env: Record<string, string> = {
+                    TMPDIR: inside.tmp,
+                    HOME: home?.box ?? inside.tmp,
+                    GIT_CONFIG_COUNT: '1',
+                    GIT_CONFIG_KEY_0: 'safe.directory',
+                    GIT_CONFIG_VALUE_0: '*',
+                    ...c.env,
+                    ...(c.graph && { AGENTGRAPH_DIR: inside.graph }),
+                  };
+                  const secrets = Object.fromEntries(
+                    Object.entries(c.secrets ?? {}).map(([k, v]) => [k, Redacted.value(v)])
+                  );
+                  const argv = [
+                    String(c.minutes),
+                    c.readonly ? 'ro' : 'rw',
+                    ...Object.entries(env).map(([k, v]) => `${k}=${v}`),
+                    c.cmd,
+                    ...c.args,
+                  ];
+                  const id = randomUUID();
+                  let code: number | undefined;
+                  let pulled = false;
+                  yield* Effect.addFinalizer(() =>
+                    pulled
+                      ? Effect.void
+                      : Effect.timeout(
+                          Effect.interruptible(
+                            Effect.retry(sync.withPermits(1)(Effect.andThen(box.op('stop', [id]), pullBack(home))), {
+                              times: 2,
+                            })
+                          ),
+                          '5 minutes'
+                        ).pipe(Effect.catchCause(() => Effect.sync(() => unfinished.set(id, home))))
+                  );
+                  const ended = Effect.gen(function* () {
+                    if (code === undefined) return yield* infra('the box stream ended without an exit code');
+                    yield* sync.withPermits(1)(pullBack(home));
+                    pulled = true;
+                    return { code };
+                  });
+                  return box.run(argv, secrets, c.network, id).pipe(
+                    Stream.filter(line => {
+                      code = line.startsWith(exitFrame) ? Number(line.slice(exitFrame.length)) : undefined;
+                      return code === undefined;
+                    }),
+                    Stream.concat(Stream.fromEffect(ended)),
+                    Stream.interruptWhen(Effect.andThen(Effect.sleep(Duration.minutes(c.minutes)), Effect.fail(late())))
+                  );
+                })
+              );
+
+            const provision = provisioning.withPermits(1)(
+              Effect.gen(function* () {
+                if (ready || !toolchain) return;
+                const out = yield* Effect.scoped(
+                  Stream.runFold(
+                    lines(toolchain),
+                    () => ({ code: 0, output: '' }),
+                    (exit, piece) =>
+                      typeof piece === 'string'
+                        ? { ...exit, output: (exit.output + piece + '\n').slice(-2000) }
+                        : { ...exit, ...piece }
+                  )
+                );
+                if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim()}`);
+                ready = true;
+              })
+            );
+
+            if (work.git.GIT_INDEX_FILE && existsSync(work.git.GIT_INDEX_FILE))
+              copyFileSync(work.git.GIT_INDEX_FILE, syncIndex);
+            yield* Effect.addFinalizer(() =>
+              Effect.gen(function* () {
+                yield* Effect.ignore(Effect.timeout(Effect.interruptible(sync.withPermits(1)(recover)), '5 minutes'));
+                rmSync(syncIndex, { force: true });
+                if (unfinished.size > 0)
+                  return yield* Effect.logWarning(
+                    `kept the box of ${basename(work.dir)}: its last work did not come back`
+                  );
+                yield* Effect.ignore(Effect.timeout(Effect.interruptible(Scope.close(scope, Exit.void)), '1 minute'));
+              })
+            );
+            if (graph && !graph.readonly && work.base) {
+              const files = yield* hostGit(work.git, ['ls-tree', '--name-only', work.head ?? work.base]);
+              const steps = [
+                ...makeToolchainSetupCommands(files.toString('utf8').split('\n')),
+                ...(graph.toolchain ? [graph.toolchain] : []),
+              ];
+              if (steps.length > 0) {
+                toolchain = {
+                  cmd: 'sh',
+                  args: ['-ec', steps.join('\n')],
+                  dir: work.dir,
+                  env: {},
+                  network: 'open',
+                  minutes: 30,
+                };
+                yield* provision;
+              }
+            }
+            return { lines };
+          }),
+      };
+    })
+  );
+
+const call = (url: string, init: RequestInit, seen: (fresh: boolean) => void) =>
+  Effect.tryPromise({
+    try: async signal => {
+      const response = await fetch(url, { signal, ...init });
+      seen(response.headers.has(freshHeader));
+      if (!response.ok) throw new Error(`${response.status} ${(await response.text()).trim().slice(-2000)}`);
+      return response;
+    },
+    catch: e => infra(`box ${init.method ?? 'GET'} ${url}: ${(e as Error).message}`),
+  });
+
+export const boxRunner = (o: { url: string; data: string }): Layer.Layer<Runner> =>
+  makeBoxRunner(o.data, (work, graph) =>
+    Effect.gen(function* () {
+      const url = `${o.url}/${basename(work.dir)}`;
+      let restarted = false;
+      const seen = (fresh: boolean) => void (restarted ||= fresh);
+      yield* Effect.addFinalizer(() => Effect.ignore(call(url, { method: 'DELETE' }, () => undefined)));
+      return {
+        op: (name, args, body) =>
+          Effect.gen(function* () {
+            const response = yield* call(
+              `${url}/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`,
+              { method: 'POST', ...(body && { body: new Uint8Array(body) }) },
+              seen
+            );
+            if (name === 'init') {
+              const fresh = restarted;
+              restarted = false;
+              return new TextEncoder().encode(fresh ? 'fresh' : '');
+            }
+            if (response.headers.has(freshHeader)) return yield* infra(`the box restarted during ${name}`);
+            return yield* Effect.tryPromise({
+              try: () => response.arrayBuffer().then(b => new Uint8Array(b)),
+              catch: e => infra(`box ${name} ${url}: ${(e as Error).message}`),
+            });
+          }),
+        run: (argv, secrets, network, id) =>
+          Stream.unwrap(
+            Effect.gen(function* () {
+              const response = yield* call(
+                `${url}/run?network=${network === 'proxy' ? (graph?.network ?? 'egress') : network}&id=${id}`,
+                { method: 'POST', body: JSON.stringify({ argv, secrets }) },
+                seen
+              );
+              if (response.headers.has(freshHeader)) return yield* infra('the box restarted before the command ran');
+              return Stream.fromReadableStream({
+                evaluate: () => response.body!,
+                onError: e => infra(`box run: ${(e as Error).message}`),
+              }).pipe(Stream.decodeText(), Stream.splitLines);
+            })
+          ),
       };
     })
   );

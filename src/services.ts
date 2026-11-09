@@ -19,7 +19,7 @@ import {
 import { parseGraphSettings } from './folder.ts';
 import { readPlugins, type TrackerHost } from './plugin.ts';
 import { readOrUndefined } from './read.ts';
-import { remoteSandbox } from './remote.ts';
+import { boxRunner } from './remote.ts';
 import { priceTable } from './prices.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
@@ -210,13 +210,13 @@ export const makeProductionLayers = (setup?: TrackerSetup) => {
     return Layer.unwrap(
       Effect.gen(function* () {
         const { layer: tracker, origin } = yield* Effect.promise(() => current);
-        const sandbox = s.sandbox
-          ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
-          : makeSandbox({ data: s.data, ...origin }).pipe(
-              Layer.provide(
-                dockerRunner({ data: s.data, cache: s.cache, image: s.image, direct: findLocalModelHosts(s.proxy.url) })
-              )
-            );
+        const sandbox = makeSandbox({ data: s.data, ...origin }).pipe(
+          Layer.provide(
+            s.sandbox
+              ? boxRunner({ url: s.sandbox, data: s.data })
+              : dockerRunner({ data: s.data, cache: s.cache, image: s.image, direct: findLocalModelHosts(s.proxy.url) })
+          )
+        );
         const config = yield* readHarnessSettings.pipe(
           Effect.catch(e =>
             Effect.as(Effect.logError('harness settings failed; sessions cannot start', e), {

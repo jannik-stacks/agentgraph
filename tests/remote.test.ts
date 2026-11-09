@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { Effect, Exit, Fiber, type Layer, Redacted, type Scope, Stream } from 'effect';
+import { Effect, Exit, Fiber, Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { remoteSandbox } from '../src/remote.ts';
+import { makeSandbox } from '../src/mirror.ts';
+import { boxRunner } from '../src/remote.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { startBoxServer } from './doubles/box.ts';
-import { fakeDocker } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
 
 const origin = () => {
@@ -21,6 +21,11 @@ const origin = () => {
   git(dir, 'add', '.');
   git(dir, 'commit', '-q', '-m', 'main');
   return dir;
+};
+
+const remote = (url: string) => {
+  const data = tmp('data');
+  return makeSandbox({ data, origin: origin() }).pipe(Layer.provide(boxRunner({ url, data })));
 };
 
 const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Service']) => Effect.Effect<A, E, Scope.Scope>) =>
@@ -42,9 +47,8 @@ describe('remote sandbox', () => {
   beforeAll(async () => {
     server = await startBoxServer(boxes);
   });
-  beforeAll(() => fakeDocker().restore);
   afterAll(() => server.close());
-  const layer = () => remoteSandbox({ url: server.url, data: tmp('data'), origin: origin() });
+  const layer = () => remote(server.url);
 
   it('keeps a written file for the next command and on the host, and deletes travel both ways', async () => {
     const exit = await use(layer(), s =>
@@ -70,11 +74,21 @@ describe('remote sandbox', () => {
     );
   });
 
-  it('refuses a read-only command, which a box cannot enforce', async () => {
+  it('keeps the work tree read-only for a read-only command, or refuses it in a box that cannot drop to another user', async () => {
     const exit = await use(layer(), s =>
-      Effect.flatMap(s.checkout('main'), work => s.exec({ ...sh(work.dir, 'echo x > a.txt'), readonly: true }))
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        const out = yield* s.exec({ ...sh(work.dir, 'echo x > a.txt'), readonly: true });
+        return { out, file: readFileSync(join(work.dir, 'a.txt'), 'utf8') };
+      })
     );
-    expect(JSON.stringify(exit)).toContain('cannot keep the work tree read-only');
+    const root = process.getuid?.() === 0;
+    expect(exit).toEqual(
+      Exit.succeed({
+        out: expect.objectContaining({ code: root ? 2 : 126 }),
+        file: 'main\n',
+      })
+    );
   });
 
   it.each([{ memory: '8g' }, { cpus: 4 }])('refuses command resource limits %j', async limits => {
@@ -333,7 +347,7 @@ describe('remote sandbox', () => {
 
   it('fails when the stream ends without an exit code', async () => {
     const mute = await startBoxServer(tmp('boxes'), { frame: false });
-    const exit = await use(remoteSandbox({ url: mute.url, data: tmp('data'), origin: origin() }), s =>
+    const exit = await use(remote(mute.url), s =>
       Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true')))
     );
     await mute.close();

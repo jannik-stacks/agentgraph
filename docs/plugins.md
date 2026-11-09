@@ -77,7 +77,7 @@ and pi receive its URL and an environment reference to its bearer in their MCP c
 The pinned pi version has a built-in MCP transport.
 Remote sandboxes reject host tools. Calls return through MCP and record their name, input,
 result preview and duration in the run's trace.
-<!-- code: src/tools.ts#startTools src/harnesses.ts#harnessSession src/remote.ts#remoteSandbox -->
+<!-- code: src/tools.ts#startTools src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
 The listener binds to loopback on macOS, or to the Docker bridge gateway on Linux with peer subnet
 checks. A per-session relay runs as non-root with a read-only root on the sandbox networks and

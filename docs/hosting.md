@@ -136,7 +136,7 @@ Values already in the environment are used without asking, so a second `up` only
    keys.internal ----------> the App key, the agent keys and the session variables, read once at start
 ```
 
-The engine is the host image, with `AGENTGRAPH_SANDBOX_URL=http://box.internal`. Checkouts stay on the engine's disk. <!-- code: src/remote.ts#remoteSandbox -->
+The engine is the host image, with `AGENTGRAPH_SANDBOX_URL=http://box.internal`. Checkouts stay on the engine's disk. <!-- code: src/remote.ts#makeBoxRunner -->
 
 How boxes differ from docker:
 

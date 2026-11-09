@@ -16,7 +16,7 @@ const exempt = new Set([
   'fileStore',
   'harnessSession',
   'dockerRunner',
-  'remoteSandbox',
+  'boxRunner',
   'opencode',
   'claude',
   'pi',

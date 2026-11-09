@@ -183,7 +183,6 @@ export class Box extends Container<Env> {
       }
       if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
       const child = await this.box([op, ...url.searchParams.getAll('arg')], {
-        user: op === 'init' || op === 'put' ? '0:0' : '1000:1000',
         ...(request.body && { stdin: request.body }),
         stderr: op === 'pull' ? 'ignore' : 'pipe',
       });
@@ -210,7 +209,6 @@ export class Box extends Container<Env> {
       this.launches.delete(id);
     };
     const started = this.box(['run', ...argv], {
-      user: '1000:1000',
       env: { ...secrets, AGENTGRAPH_RUN: id },
       stderr: 'combined',
     }).catch(error => {
