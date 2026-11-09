@@ -445,8 +445,7 @@ async function runOnInstance(
   graph: string
 ) {
   trackerSetup = setup;
-  const layer = setup.layer(current.trust, i.owner);
-  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, layer));
+  const getTracker = () => Effect.runPromise(Effect.provide(Tracker, setup.layer(current.trust, i.owner)));
   const synced = async () => {
     const why = setup.origin.local && (await ensureBase(i));
     if (why) fail(why, 1);
@@ -487,8 +486,8 @@ async function runOnInstance(
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
       if (values.line) await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
       else
-        await Effect.runPromise(writeAgentComment(n, said()).pipe(Effect.provide(layer))).catch((e: Error) =>
-          fail(e.message)
+        await Effect.runPromise(Effect.provideService(writeAgentComment(n, said()), Tracker, await getTracker())).catch(
+          (e: Error) => fail(e.message)
         );
       if (values.label)
         await Effect.runPromise((await getTracker()).apply(issue, { kind: 'label', add: values.label, remove: [] }));
