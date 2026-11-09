@@ -52,3 +52,7 @@ Decisions made without being sure. Each names what was picked and what would cha
   `runAction` from a studio page (it has no instance to post to), and naming the folder in an instance env file,
   which would need the agreement check auth uses across instances. The Bench example imports engine modules
   relatively, so it runs from the clone only.
+- **Plain mode keys its one host by the empty name**: studio pages and Bench see `''`, so Bench's `instance` label is
+  empty there where it used to be the graph's title. Keying by title would break the run links, which need the
+  served name. A studio page named `graph` or `data` shares those unscoped change topics, as a plain-mode graph
+  plugin already does; reserving the two names would close it.
