@@ -26,9 +26,9 @@ run: jq -cs '{calls: map(select(.event.type == "tool")) | length}' "$AGENTGRAPH_
 
 Without `returns`, a script's exit 0 passes and its output is the findings. With `returns`, its last printed line is the result. <!-- code: src/result.ts#readScriptResult -->
 
-A check with its own `returns` keeps the result as its `value`, such as `{calls: 12}`; one with `each` keeps the `share` of items that passed. <!-- code: src/workflow.ts#CheckResult -->
+A check with its own `returns` keeps the result as its `value`, such as `{calls: 12}`; one with `each` keeps the `share` of items that passed, except in `info` mode. <!-- code: src/run/check.ts#runOneCheck src/workflow.ts#CheckResult -->
 
-A result that cannot be read or does not match `returns` fails the check, except in `info` mode. A `block` check therefore blocks the step. Such results, and unanswered items, are marked `empty` so they stay out of score averages. `empty` does not make a failed check pass. <!-- code: src/run/check.ts#runOneCheck src/run/check.ts#runStepChecks src/workflow.ts#CheckResult -->
+A result that cannot be read or does not match `returns` fails the check, except in `info` mode. A `block` check therefore blocks the step. Such results, and unanswered items, are marked `empty` so they stay out of score averages. `empty` does not make a failed check pass. A check with `each` whose slicer finds no items passes, marked `empty`, with the findings "Judged nothing: each found no items." <!-- code: src/run/check.ts#runOneCheck src/run/check.ts#runStepChecks src/workflow.ts#CheckResult -->
 
 ## Judges
 
@@ -68,7 +68,7 @@ A `reads: traces` check gets an empty folder beside the run's traces, so it work
 
 ## The Results tab
 
-The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result, and its labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage src/results.ts#ResultSheet src/trace.ts#findLatestChecks -->
+The studio's Results tab, at `/results`, shows what checks gave on the data folder's runs. Each run counts with each check's latest result under its current version. If none exists, it uses the latest older-version result, marked `older`. Run labels are dimensions too. <!-- code: bin/results.ts#readRunResults studio/src/results/ResultsPage.tsx#ResultsPage src/results.ts#ResultSheet src/trace.ts#findLatestChecks -->
 
 The table has one row per result field: runs that gave it, failed results, values outside `pass`, the median, one dot per run, and a trend. `by` splits a field by workflow, model, tune or another dimension, and a field's `unit` sets how it reads. Runs that ended before any step passed or session started are dead and hidden by default. The chart draws a field against time, order, a dimension or another field, one dot per run. <!-- code: src/results.ts#findCheckFields bin/results.ts#findDeadReason -->
 

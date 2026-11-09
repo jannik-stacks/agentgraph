@@ -72,6 +72,8 @@ With several comment workflows, `/agent` starts the first. Comments without the 
 | `/agent:restart`                     | Starts the issue's newest workflow again, with its human answers |
 | `/agent:restart:<step>`              | The same, from that step                                         |
 | `/agent:<workflow> [text]`           | Starts that comment workflow, or answers its live run            |
+| `/agent:<workflow>:stop [reason]` | Ends that workflow's live run |
+| `/agent:<workflow>:cancel` | Parks that workflow's working step and asks how to go on |
 | `/agent:<workflow>:restart[:<step>]` | Starts that comment workflow again                               |
 
 `commands` in `settings.yaml` says who may use each command; a workflow pick counts under the workflow's name. `true` or no entry lets everyone in `trust` use it, `false` turns it off, and a list of logins keeps it to those trusted logins. The gate holds for every command, from a comment, `agi say` or a router `tell`. A command the router passes on counts as said by the router run, so a list of logins keeps it from the router. <!-- code: src/workflow.ts#pickCommandTarget src/workflow.ts#CommandSettings -->
@@ -119,7 +121,7 @@ plugins:
 
 ## Trust and scope
 
-Owners, members and collaborators steer the bot; label actors need write access. `trust` in `settings.yaml` narrows this to a list of logins, read at startup. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. Locally, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker src/settings.ts#getSettings src/harnesses.ts#readOverrides -->
+Owners, members and collaborators steer the bot; label actors need write access. Trust comes from the [instance settings](local.md#named-instances-and-settings): `AGENTGRAPH_TRUST`, the instance file's `trust`, or its `owner`. Graph `settings.yaml` refuses `trust`. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. By default, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker src/settings.ts#getSettings src/harnesses.ts#readOverrides src/settings.ts#InstanceFile src/folder.ts#GraphSettings -->
 
 The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels, except an `XL` part the engine [triages again](proposals.md#filing-issues). `milestone` limits new runs to issues in that milestone. <!-- code: src/run/check.ts#runStepChecks src/run/hear.ts#isInScope -->
 
@@ -193,7 +195,7 @@ A stacked run records its parent pull request in `base`. After a refused follow,
 
 Runs waiting at a human step are compared with their base and the graph version. A run with an open pull request that is done, or waits at another step, follows its base too, by the `follow` of its workflow's last human step. It runs no checks, keeps its state on a clean follow, and on a conflict goes back from that step. A parked run, a run already sent back onto a new base, and a run of an older restart do not catch up. The step's `follow` decides what a moved base does: `merge` (default) merges and pushes, `rebase` force-pushes a rebased branch, `none` leaves it. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on). <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp -->
 
-If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows and scripts. <!-- code: src/run/follow.ts#runCatchUp src/folder.ts#loadGraph -->
+If `git patch-id` shows the same change, the wait step's `checks` run again, with the base changes in `AGENTGRAPH_REPLY`. If the change or graph differs, every check of the `back` target runs. Failed checks send the run back. The graph version hashes `settings.yaml`, agents, skills, checks, workflows, scripts and every file under `plugins/`. <!-- code: src/run/follow.ts#runCatchUp src/folder.ts#loadGraph -->
 
 A conflict sends the run back to a checkout at the new base with the markers left for the agent; leftover markers fail the try. Setup runs before the markers land. A second conflict at the same base asks for a manual update. <!-- code: src/run/follow.ts#moveCheckoutOnto src/run/drive.ts#runWorkflow -->
 

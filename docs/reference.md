@@ -13,7 +13,7 @@ A repo keeps its graph in `.agentgraph/`: Markdown files whose frontmatter the e
   plugins/issues.ts      reviewed tools, hooks and host plugins
 ```
 
-`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#loadGraph src/folder.ts#compile src/folder.ts#retiredIn src/workflow.ts#compileWorkflow -->
+`agi check --dir <dir>` validates a graph. It fails on an unknown key, a missing or unused agent, check or skill, a duplicate name, an end check that is not `info` or `warn`, an unknown proposal kind, and retired words, among others. A graph may also hold `fixtures/`. <!-- code: src/folder.ts#loadGraph src/folder.ts#compile src/folder.ts#retiredIn src/workflow.ts#compileWorkflow -->
 
 Nothing here is stable yet; `CHANGELOG.md` lists renames and removals.
 
@@ -45,7 +45,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `milestone` | milestone title                                                 | none, every open issue     | Scope for new runs                                                            |
 | `commands`  | map of command or comment workflow to `true`, `false` or logins | `true` for each            | Who in `trust` may use each [`/agent:` command](workflows.md#commands)        |
 | `status`    | map of status to name, or `false`                               | `agentgraph:<status>`      | How the tracker shows each [status](workflows.md#status-on-the-issue)         |
-| `auth`      | auth plugin name                                                | `token`                    | Who may open the studio; see [Auth](plugins.md#auth)                          |
+| `auth`      | auth plugin name                                                | `token`                    | Host graph only: who may open the studio; repo graphs cannot pick auth; see [Auth](plugins.md#auth) <!-- code: src/services.ts#pickAuth -->                          |
 | `plugins`   | map                                                             | none                       | Settings decoded by each [plugin's](plugins.md) `settingsSchema`              |
 | `limits`    | map                                                             | below                      | Caps on a run                                                                 |
 
@@ -60,7 +60,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `parallel`    | integer            | 2       | Concurrent runs; router runs take no slot                                                                            |
 | `sessions`    | integer            | 4       | Concurrent sessions and scripts of one instance, judges included <!-- code: src/run/execute.ts#sessionPermitsRef --> |
 
-Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). Remote boxes reject resource overrides. Step `limits` override only the named fields; other steps keep the graph limits. <!-- code: src/workflow.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks -->
+Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). The `box` runner refuses resource overrides, a graph `image` and agents with host tools. Step `limits` override only the named fields; other steps keep the graph limits. <!-- code: src/workflow.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks -->
 
 Sessions, script checks, fan-out commands and setup share permits. Each releases its permit before checks or judges start. In `agi loop`, each instance has its own permits; other commands share one set, sized by the graph in use. Check findings still return together after every check settles. <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#sessionPermitsRef src/run/check.ts#runStepChecks -->
 
@@ -101,6 +101,8 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `run`     | shell command                            | none                                             | A script runs the step                                                               |
 | `returns` | list of proposal kinds                   | `[run]`, `run` steps only                        | What its script may [propose](proposals.md)                                          |
 | `wait`    | `human`                                  | none                                             | The step waits for a person                                                          |
+| `reads` | `traces`, `run` steps only | none | Read the issue's [run traces](checks.md#reading-traces) <!-- code: src/workflow.ts#StepFile src/workflow.ts#compileWorkflow --> |
+| `carry` | boolean | `false` | Pass a successful reply to the next step; see [Tries and going back](workflows.md#tries-and-going-back) <!-- code: src/workflow.ts#StepFile src/workflow.ts#compileWorkflow --> |
 | `skill`   | skill name                               | the skill named like the step                    | Agent instructions                                                                   |
 | `checks`  | list of check names                      | none; at `wait`, its `back` step's script checks | Checks after each try; at `wait`, after a base update                                |
 | `limits`  | map of `memory` and `cpus`               | graph limits                                     | Resource overrides for the step and its checks                                       |
