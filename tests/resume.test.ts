@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { harnessError, runnerError } from '../bin/bench.ts';
+import { harnessError, engineError } from '../bin/bench.ts';
 import { appendJsonl, claim, readJsonl, probeUrl, release, waitWhileServicesDown } from '../bin/resume.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
 import { writeFileAtomic } from '../src/store.ts';
@@ -106,10 +106,10 @@ describe('environment', () => {
     expect(harnessError(data, 'none')).toBeUndefined();
   });
 
-  it('calls a stop on a runner error infra, and an agent outcome not', () => {
-    expect(runnerError('Stopped by a runner error (SessionStop). The details are in the trace.')).toBeTruthy();
-    expect(runnerError('SessionStop: provider down')).toBeTruthy();
-    expect(runnerError('Which file should the fix go in?')).toBeUndefined();
-    expect(runnerError()).toBeUndefined();
+  it('calls a stop on an engine error infra, and an agent outcome not', () => {
+    expect(engineError('Stopped by an engine error (SessionStop). The details are in the trace.')).toBeTruthy();
+    expect(engineError('SessionStop: provider down')).toBeTruthy();
+    expect(engineError('Which file should the fix go in?')).toBeUndefined();
+    expect(engineError()).toBeUndefined();
   });
 });

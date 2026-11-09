@@ -45,8 +45,8 @@ const splitPageSections = page => {
 const sectionAt = (sections, line) => sections.findLast(s => s.from <= line).anchor;
 const where = (page, anchor) => (anchor ? `${page}#${anchor}` : page);
 
-/** Every ref as a pair of a docs section and a symbol. */
-const pairs = pages.flatMap(page => {
+/** Every ref: a docs section and a file, with the symbol it cites when it names one. */
+const refs = pages.flatMap(page => {
   const sections = splitPageSections(page);
   let fenced = false;
   return read(page)
@@ -55,7 +55,7 @@ const pairs = pages.flatMap(page => {
       if (/^(```|~~~)/.test(text)) fenced = !fenced;
       if (fenced) return [];
       return [...text.replace(/`[^`]*`/g, '').matchAll(/<!--\s*code:([^>]*?)-->/g)].flatMap(([, body]) =>
-        [...body.matchAll(/([\w./-]+)#([\w$]+)/g)].map(([, file, symbol]) => ({
+        [...body.matchAll(/([\w./-]+)(?:#([\w$]+))?/g)].map(([, file, symbol]) => ({
           page,
           anchor: sectionAt(sections, i + 1),
           line: i + 1,
@@ -65,6 +65,7 @@ const pairs = pages.flatMap(page => {
       );
     });
 });
+const pairs = refs.filter(r => r.symbol);
 
 const declaration = name =>
   new RegExp(
@@ -266,10 +267,10 @@ else if (args[0] === '--diff') {
   for (const line of diff(args[1], args.includes('--staged'))) console.log(line);
 } else if (args[0] === '--coverage') process.exit(coverage() ? 0 : 1);
 else {
-  const bad = pairs.flatMap(({ page, line, file, symbol }) =>
+  const bad = refs.flatMap(({ page, line, file, symbol }) =>
     !existsSync(join(root, file))
       ? [`${page}:${line}: ${file} does not exist`]
-      : !findDeclarationRange(read(file), symbol)
+      : symbol && !findDeclarationRange(read(file), symbol)
         ? [`${page}:${line}: ${symbol} is not declared at the top of ${file}`]
         : []
   );
@@ -277,5 +278,5 @@ else {
     console.error(bad.join('\n'));
     process.exit(1);
   }
-  console.log(`${pairs.length} code refs ok`);
+  console.log(`${refs.length} code refs ok`);
 }

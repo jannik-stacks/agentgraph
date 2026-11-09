@@ -1,6 +1,6 @@
 # Runs and data
 
-A run is one workflow on one issue. Its status is `running`, `waiting` (a question, tries or rounds used up, or a runner error), `done` or `stopped` (a stop, a closed issue, a removed trigger label or the spend limit).
+A run is one workflow on one issue. Its status is `running`, `waiting` (a question, tries or rounds used up, or an engine error), `done` or `stopped` (a stop, a closed issue, a removed trigger label or the spend limit).
 
 ## The data folder
 
@@ -33,7 +33,7 @@ Each pass of `loop` compresses `trace.jsonl` and `checks.jsonl` of a run that en
 
 ## Backup and restore
 
-An instance folder holds every record of its repo; a runner's runs folder holds every record of the runner, with `mirror.git` keeping its run refs. Anything under `cache/` comes back on the next run, as do Docker images and dependency volumes. Back up while no loop or run is driving, so the SQLite files in harness homes are copied with their `-wal` files intact:
+An instance folder holds every record of its repo; on GitHub, its data folder's `mirror.git` keeps the run refs. Anything under `cache/` comes back on the next run, as do Docker images and dependency volumes. Back up while no loop or run is driving, so the SQLite files in harness homes are copied with their `-wal` files intact:
 
 ```sh
 tar -czf left-pad.tgz -C ~/.agentgraph --exclude left-pad/data/cache left-pad
@@ -179,7 +179,7 @@ The version hashes the check's file, its judge's file, its judge's harness and m
 
 Every comment, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> operation=<key> at=<time> -->`. Its text ends with ⁂ on the line of its last sentence, or on a line of its own after a code block, table or HTML. With `AGENTGRAPH_STUDIO_URL` set, the ⁂ links to the trace entry in the studio that wrote the text, at `/<instance>/runs/<id>?at=<time>`, the same for a comment and a pull request description, and `/<instance>/runs?gh=<link or comment id>` finds the run behind a write in any instance the studio serves. <!-- code: src/tracker.ts#formatBodyWithRunLink src/event.ts#formatRunMark src/store.ts#locate src/store.ts#Located src/main.ts#readInstanceEnv -->
 
-A runner that stops between posting and recording finds the post by its operation key and does not post again. <!-- code: src/run/settle.ts#findAppliedBefore -->
+An engine that stops between posting and recording finds the post by its operation key and does not post again. <!-- code: src/run/settle.ts#findAppliedBefore -->
 
 ## Check logs
 
@@ -187,7 +187,7 @@ Each check's full output, the last 64K characters of a script's output or a judg
 
 ## Checkouts
 
-A run works in a checkout, a worktree of the tracker's `origin.git` in a local instance, or of `mirror.git` in the runs folder on a runner. Its admin dir stays in that repo and its files in `cache/work/`; neither is in your repo. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. The first time it works, it keeps the graph folder, without `node_modules`, as a tree at `refs/agentgraph/graphs/<tree>` and records it as the run's `graphTree`, which never changes after; a run that cannot keep it fails like any other checkout error. <!-- code: src/git.ts#ensureGraphRef --> After every attempt, failed or empty ones too, it also commits the files at `refs/agentgraph/attempts/<run id>/<n>`, so a retry never overwrites an earlier try. A runner that starts finds the checkouts of runners that died, commits each at `refs/agentgraph/reaped/<checkout id>` and only then removes it with its index, news and scratch dirs. A sweep that repeats keeps the first commit. One it cannot save stays in `cache/work/` with a warning, and the sweep skips a checkout whose engine already failed to save it. <!-- code: src/mirror.ts#makeSandbox src/run/drive.ts#runWorkflow src/git.ts#commitCheckout src/git.ts#commitCheckoutOnce src/env.ts#findDeadCheckouts src/env.ts#removeCheckout -->
+A run works in a checkout, a worktree of the tracker's `origin.git` in a local instance, or of `mirror.git` in the data folder of a GitHub instance. Its admin dir stays in that repo and its files in `cache/work/`; neither is in your repo. When the engine is done with it, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. The first time it works, it keeps the graph folder, without `node_modules`, as a tree at `refs/agentgraph/graphs/<tree>` and records it as the run's `graphTree`, which never changes after; a run that cannot keep it fails like any other checkout error. <!-- code: src/git.ts#ensureGraphRef --> After every attempt, failed or empty ones too, it also commits the files at `refs/agentgraph/attempts/<run id>/<n>`, so a retry never overwrites an earlier try. On startup, the engine saves checkouts left by dead engine processes: it commits each at `refs/agentgraph/reaped/<checkout id>` and only then removes it with its index, news and scratch dirs. A sweep that repeats keeps the first commit. One it cannot save stays in `cache/work/` with a warning, and the sweep skips a checkout whose engine already failed to save it. <!-- code: src/mirror.ts#makeSandbox src/run/drive.ts#runWorkflow src/git.ts#commitCheckout src/git.ts#commitCheckoutOnce src/env.ts#findDeadCheckouts src/env.ts#removeCheckout -->
 
 A run records the resolved `checkout.branch` and `checkout.base` when it creates its checkout. Its pull request is the one on that branch, and a `conflict` run it starts gets the same record. A fresh branch after a closed pull request is recorded the same way, so cleanup matches both the old and the new branch exactly. One cleanup sweep per tracker pass lists local agent branches and matches those records. With a mirror of a remote origin, only branches a checkout uses count, since each fetch restores the rest. A live run or pending end check keeps its branch; a run with no checkout record protects only branches matching its issue or workflow template. Cleanup reuses merged pull request state or reads one bounded page for the remaining branch per pass, falling back to the recorded base. Older runs without a checkout record require a merged PR head that exactly equals the local branch tip. Removed branches cause no tracker lookups. Run records, traces, results, attempt refs and shared caches stay; deleting a checkout removes its own build folders and symlinks without following their targets. Normal session cleanup already removes detached and temporary plain checkouts. <!-- code: src/workflow.ts#Run src/run/drive.ts#runWorkflow src/git.ts#readBranches src/mirror.ts#makeSandbox src/run/trigger.ts#scanIssuesAndRunningRuns src/tracker.ts#matches src/github.ts#githubTracker -->
 

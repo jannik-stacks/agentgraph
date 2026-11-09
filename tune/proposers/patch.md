@@ -15,7 +15,7 @@ on the one in front of you.
 - `workflows/issue.md`: front matter `steps:`, a map run in order. A step names one of `agent`, `run` or
   `wait`, and may set `checks` (list of check names that must pass), `tries` (default 3 with checks, else 1),
   `back` (an earlier step it may send work back to, needs `until`: one sentence saying when it is satisfied),
-  `rounds`, `each` (`files`, `hunks` or `{ run: <command> }`: one session per printed item), `skill`.
+  `rounds`, `each` (`files`, `hunks` or a command: one session per printed item), `skill`.
 - `agents/<name>.md`: front matter `harness`, `model`, `tools` (subset of read, edit, write, bash, grep,
   glob, or `'bash(git diff*)'` style limits), `returns` (comment, push, pull_request, ask, back). The body
   is the agent's system prompt.

@@ -6,7 +6,7 @@ import { Effect, Redacted } from 'effect';
 import { expect, it } from 'vitest';
 import type { Run } from '../src/workflow.ts';
 import { readInstallationReach } from '../src/github.ts';
-import { findRunsWaitingOnPeople, formatNextSteps, formatRunnerError } from '../src/status.ts';
+import { findRunsWaitingOnPeople, formatNextSteps, formatEngineError } from '../src/status.ts';
 import { fileStore, Store } from '../src/store.ts';
 
 const { privateKey } = generateKeyPairSync('rsa', {
@@ -100,20 +100,20 @@ it('says how to continue on the local tracker, and leaves out a run that waits o
   expect(lines.join('\n')).not.toContain('#5');
 });
 
-const askedRunnerError = (question: string) => ({
+const askedEngineError = (question: string) => ({
   at: 'x',
   step: 'implement',
   outcome: { kind: 'ask' as const, question },
   run: { step: 'implement', status: 'waiting' as const, tries: 0, rounds: {} },
 });
 
-it('names the last question a runner error asked and the trace file', () => {
+it('names the last question an engine error asked and the trace file', () => {
   expect(
-    formatRunnerError(
+    formatEngineError(
       [
-        askedRunnerError('SessionStop: first'),
+        askedEngineError('SessionStop: first'),
         { at: 'x', step: 'implement', setup: { ms: 1, exit: 0 } },
-        askedRunnerError('SandboxError: root'),
+        askedEngineError('SandboxError: root'),
       ],
       '/d/r/trace.jsonl'
     )

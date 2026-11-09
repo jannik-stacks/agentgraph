@@ -35,19 +35,19 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 
 <!-- code: src/folder.ts#GraphSettings src/docker.ts#sandboxImage src/workflow.ts#CommandSettings src/workflow.ts#commandVerbs src/event.ts#issueStatuses src/tracker.ts#makeStatusLabel src/services.ts#pickAuth src/plugin.ts#readPlugins -->
 
-| Field       | Type                                                            | Default                    | Meaning                                                                       |
-| ----------- | --------------------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------- |
-| `setup`     | shell script                                                    | none                       | Dependency install; see [Environments](sandbox.md#environments)               |
-| `toolchain` | shell script                                                    | none                       | Extra tool installs; see [Toolchains](sandbox.md#toolchains)                  |
-| `image`     | local image name                                                | `agentgraph-sandbox:local` | Base image for run commands                                                   |
-| `network`   | `egress` or `models`                                            | `egress`                   | What sessions and setup reach; see [The network](sandbox.md#the-network)      |
-| `stacks`    | boolean                                                         | `false`                    | Stacked pull requests; see [Proposals](proposals.md#stacks-on-and-depends-on) |
-| `milestone` | milestone title                                                 | none, every open issue     | Scope for new runs                                                            |
-| `commands`  | map of command or comment workflow to `true`, `false` or logins | `true` for each            | Who in `trust` may use each [`/agent:` command](workflows.md#commands)        |
-| `status`    | map of status to name, or `false`                               | `agentgraph:<status>`      | How the tracker shows each [status](workflows.md#status-on-the-issue)         |
-| `auth`      | auth plugin name                                                | `token`                    | Host graph only: who may open the studio; repo graphs cannot pick auth; see [Auth](plugins.md#auth) <!-- code: src/services.ts#pickAuth -->                          |
-| `plugins`   | map                                                             | none                       | Settings decoded by each [plugin's](plugins.md) `settingsSchema`              |
-| `limits`    | map                                                             | below                      | Caps on a run                                                                 |
+| Field       | Type                                                            | Default                    | Meaning                                                                                                                                     |
+| ----------- | --------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `setup`     | shell script                                                    | none                       | Dependency install; see [Environments](sandbox.md#environments)                                                                             |
+| `toolchain` | shell script                                                    | none                       | Extra tool installs; see [Toolchains](sandbox.md#toolchains)                                                                                |
+| `image`     | local image name                                                | `agentgraph-sandbox:local` | Base image for run commands                                                                                                                 |
+| `network`   | `egress` or `models`                                            | `egress`                   | What sessions and setup reach; see [The network](sandbox.md#the-network)                                                                    |
+| `stacks`    | boolean                                                         | `false`                    | Stacked pull requests; see [Proposals](proposals.md#stacks-on-and-depends-on)                                                               |
+| `milestone` | milestone title                                                 | none, every open issue     | Scope for new runs                                                                                                                          |
+| `commands`  | map of command or comment workflow to `true`, `false` or logins | `true` for each            | Who in `trust` may use each [`/agent:` command](workflows.md#commands)                                                                      |
+| `status`    | map of status to name, or `false`                               | `agentgraph:<status>`      | How the tracker shows each [status](workflows.md#status-on-the-issue)                                                                       |
+| `auth`      | auth plugin name                                                | `token`                    | Host graph only: who may open the studio; repo graphs cannot pick auth; see [Auth](plugins.md#auth) <!-- code: src/services.ts#pickAuth --> |
+| `plugins`   | map                                                             | none                       | Settings decoded by each [plugin's](plugins.md) `settingsSchema`                                                                            |
+| `limits`    | map                                                             | below                      | Caps on a run                                                                                                                               |
 
 `limits`: <!-- code: src/folder.ts#Limits src/workflow.ts#CommandLimits src/docker.ts#limits -->
 
@@ -95,23 +95,23 @@ The `issues`, `issue_comment` and `pull_request` triggers hold: <!-- code: src/w
 
 A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.ts#StepFile src/workflow.ts#compileWorkflow -->
 
-| Field     | Type                                     | Default                                          | Meaning                                                                              |
-| --------- | ---------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| `agent`   | agent name                               | none                                             | An agent runs the step in a session                                                  |
-| `run`     | shell command                            | none                                             | A script runs the step                                                               |
-| `returns` | list of proposal kinds                   | `[run]`, `run` steps only                        | What its script may [propose](proposals.md)                                          |
-| `wait`    | `human`                                  | none                                             | The step waits for a person                                                          |
-| `reads` | `traces`, `run` steps only | none | Read the issue's [run traces](checks.md#reading-traces) <!-- code: src/workflow.ts#StepFile src/workflow.ts#compileWorkflow --> |
-| `carry` | boolean | `false` | Pass a successful reply to the next step; see [Tries and going back](workflows.md#tries-and-going-back) <!-- code: src/workflow.ts#StepFile src/workflow.ts#compileWorkflow --> |
-| `skill`   | skill name                               | the skill named like the step                    | Agent instructions                                                                   |
-| `checks`  | list of check names                      | none; at `wait`, its `back` step's script checks | Checks after each try; at `wait`, after a base update                                |
-| `limits`  | map of `memory` and `cpus`               | graph limits                                     | Resource overrides for the step and its checks                                       |
-| `tries`   | positive integer                         | 1 at `wait`, else 3 with checks, else 1          | Attempts, the first included                                                         |
-| `back`    | step name                                | none                                             | This or an earlier step the run may return to                                        |
-| `until`   | sentence                                 | required on an agent step with `back`            | When the step is done                                                                |
-| `rounds`  | positive integer                         | 3, no cap at `wait`                              | Cap on returns                                                                       |
-| `each`    | `files`, `hunks` or `{ run: <command> }` | none                                             | One fresh session per item; past 20 items, one session for all                       |
-| `follow`  | `merge`, `rebase` or `none`              | `merge`, `wait` steps only                       | How the branch [follows a moved base](workflows.md#when-the-base-or-the-graph-moves) |
+| Field     | Type                          | Default                                          | Meaning                                                                                                                                                                         |
+| --------- | ----------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent`   | agent name                    | none                                             | An agent runs the step in a session                                                                                                                                             |
+| `run`     | shell command                 | none                                             | A script runs the step                                                                                                                                                          |
+| `returns` | list of proposal kinds        | `[run]`, `run` steps only                        | What its script may [propose](proposals.md)                                                                                                                                     |
+| `wait`    | `human`                       | none                                             | The step waits for a person                                                                                                                                                     |
+| `reads`   | `traces`, `run` steps only    | none                                             | Read the issue's [run traces](checks.md#reading-traces) <!-- code: src/workflow.ts#StepFile src/workflow.ts#compileWorkflow -->                                                 |
+| `carry`   | boolean                       | `false`                                          | Pass a successful reply to the next step; see [Tries and going back](workflows.md#tries-and-going-back) <!-- code: src/workflow.ts#StepFile src/workflow.ts#compileWorkflow --> |
+| `skill`   | skill name                    | the skill named like the step                    | Agent instructions                                                                                                                                                              |
+| `checks`  | list of check names           | none; at `wait`, its `back` step's script checks | Checks after each try; at `wait`, after a base update                                                                                                                           |
+| `limits`  | map of `memory` and `cpus`    | graph limits                                     | Resource overrides for the step and its checks                                                                                                                                  |
+| `tries`   | positive integer              | 1 at `wait`, else 3 with checks, else 1          | Attempts, the first included                                                                                                                                                    |
+| `back`    | step name                     | none                                             | This or an earlier step the run may return to                                                                                                                                   |
+| `until`   | sentence                      | required on an agent step with `back`            | When the step is done                                                                                                                                                           |
+| `rounds`  | positive integer              | 3, no cap at `wait`                              | Cap on returns                                                                                                                                                                  |
+| `each`    | `files`, `hunks` or a command | none                                             | One fresh session per item; past 20 items, one session for all                                                                                                                  |
+| `follow`  | `merge`, `rebase` or `none`   | `merge`, `wait` steps only                       | How the branch [follows a moved base](workflows.md#when-the-base-or-the-graph-moves)                                                                                            |
 
 ## Agents
 

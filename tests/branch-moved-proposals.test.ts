@@ -109,7 +109,7 @@ describe('a run branch that moved', () => {
     expect(applied.filter(p => p.kind === 'push')).toHaveLength(1);
   });
 
-  it('posts a repeated runner question after a new human answer', async () => {
+  it('posts a repeated question after a new human answer', async () => {
     const where = world();
     const { run } = services(where, [
       [start('a'), reply({ kind: 'ask', question: 'Which?' })],
@@ -438,7 +438,7 @@ describe('a run branch that moved', () => {
     );
     const ended = await drive();
     expect(ended.status).toBe(status);
-    expect(ended.reason?.startsWith('Stopped by a runner error') ?? false).toBe(status === 'waiting');
+    expect(ended.reason?.startsWith('Stopped by an engine error') ?? false).toBe(status === 'waiting');
     expect(await replies()).toEqual([
       [`Socket Firewall.\n\n${unpushed}`, 'r1'],
       ...(status === 'done' ? [] : [[expect.stringMatching(/^@morgan Paused on an agentgraph problem/), undefined]]),

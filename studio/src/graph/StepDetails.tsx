@@ -338,7 +338,7 @@ export const StepDetails = ({
         )}
         {step.each && (
           <Field name={<Term tip="One fresh session per item; past 20 items, one session over them all.">each</Term>}>
-            {typeof step.each === 'string' ? step.each : step.each.run}
+            {step.each}
           </Field>
         )}
         {step.back && (

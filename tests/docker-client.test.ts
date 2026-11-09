@@ -611,7 +611,7 @@ describe('docker checkout', () => {
     expect(git(join(data, 'mirror.git'), 'rev-list', '--count', keep)).toBe('4');
   });
 
-  it('saves a checkout whose runner died before it saved, on the next start', async () => {
+  it('saves a checkout whose engine died before it saved, on the next start', async () => {
     const data = tmp('data');
     const repo = origin();
     let id = '';

@@ -78,7 +78,7 @@ export const formatIssueTimeline = (t: Issue & { events: Event[] }, diff: string
     ...(t.pull ? [`\n${t.pull.branch} into ${t.pull.base} at ${t.pull.head}\n\n${diff}`] : []),
   ].join('\n');
 
-export const formatRunnerError = (trace: Trace[], file: string) => [
+export const formatEngineError = (trace: Trace[], file: string) => [
   `cause    ${trace.flatMap(t => ('outcome' in t && t.outcome.kind === 'ask' ? [t.outcome.question] : [])).at(-1) ?? 'not traced'}`,
   `trace    ${file}`,
 ];

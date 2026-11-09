@@ -37,7 +37,7 @@ steps:
 
 Steps run in order. Each is an `agent` step, a `run` step (a shell command) or a `wait: human` step. An agent step gets the skill named by `skill`, else the one named like the step. A workflow without `steps` is one agent step named after its file, with its body as the prompt. <!-- code: src/workflow.ts#compileWorkflow -->
 
-`each` on an agent step opens one fresh session per changed file (`files`), hunk (`hunks`) or output line of `{ run: <command> }`. These never resume. Past 20 items, one session gets them all. <!-- code: src/run/checkout.ts#most -->
+`each` on an agent step opens one fresh session per changed file (`files`), hunk (`hunks`) or output line of a command. These never resume. Past 20 items, one session gets them all. <!-- code: src/run/checkout.ts#most -->
 
 ### Gates
 
@@ -72,8 +72,8 @@ With several comment workflows, `/agent` starts the first. Comments without the 
 | `/agent:restart`                     | Starts the issue's newest workflow again, with its human answers |
 | `/agent:restart:<step>`              | The same, from that step                                         |
 | `/agent:<workflow> [text]`           | Starts that comment workflow, or answers its live run            |
-| `/agent:<workflow>:stop [reason]` | Ends that workflow's live run |
-| `/agent:<workflow>:cancel` | Parks that workflow's working step and asks how to go on |
+| `/agent:<workflow>:stop [reason]`    | Ends that workflow's live run                                    |
+| `/agent:<workflow>:cancel`           | Parks that workflow's working step and asks how to go on         |
 | `/agent:<workflow>:restart[:<step>]` | Starts that comment workflow again                               |
 
 `commands` in `settings.yaml` says who may use each command; a workflow pick counts under the workflow's name. `true` or no entry lets everyone in `trust` use it, `false` turns it off, and a list of logins keeps it to those trusted logins. The gate holds for every command, from a comment, `agi say` or a router `tell`. A command the router passes on counts as said by the router run, so a list of logins keeps it from the router. <!-- code: src/workflow.ts#pickCommandTarget src/workflow.ts#CommandSettings -->
@@ -219,13 +219,13 @@ status:
   needs-review: review-me
 ```
 
-| Label                     | When                                                                            |
-| ------------------------- | ------------------------------------------------------------------------------- |
-| `agentgraph:working`      | A step runs, or a run waits on a run it started                                 |
-| `agentgraph:needs-review` | A run waits at a `wait: human` step with a pull request to review and merge     |
-| `agentgraph:needs-answer` | A run asked a question, waits with no pull request, or paused on a runner error |
-| `agentgraph:done`         | The latest run finished                                                         |
-| `agentgraph:stopped`      | The latest run stopped                                                          |
+| Label                     | When                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `agentgraph:working`      | A step runs, or a run waits on a run it started                                  |
+| `agentgraph:needs-review` | A run waits at a `wait: human` step with a pull request to review and merge      |
+| `agentgraph:needs-answer` | A run asked a question, waits with no pull request, or paused on an engine error |
+| `agentgraph:done`         | The latest run finished                                                          |
+| `agentgraph:stopped`      | The latest run stopped                                                           |
 
 With several runs on one issue, a question wins over a review, a review over work, and otherwise the newest run's end shows. After each change, [status hooks](plugins.md#status-hooks) hear about it. <!-- code: src/context.ts#findIssueStatus src/run/settle.ts#announce -->
 
@@ -243,7 +243,7 @@ A pass skips a run that is already driving, and the run's lock keeps it to one d
 
 The driven run hears what people say between tries and through its session's minute watch, which [`concurrency`](#comments-while-it-works) turns into a steer, a queue or a cancel. Stopping the loop interrupts its drives and releases their locks, and each run goes on from where it was on its next drive. `agi start` and `loop --once` still drive in the foreground. <!-- code: src/run/drive.ts#runWorkflow src/run/attempt.ts#runAttempt src/main.ts#start -->
 
-Runner errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The run's question says “Paused on an agentgraph problem, not this change. Reply `/agent` to retry.”; a quiet run posts nothing. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs. <!-- code: src/run/drive.ts#runWorkflow src/context.ts#proposeQuestion -->
+Engine errors (timeouts, provider faults, failed setup, exit 127) retry once, then park the run. A missing image parks at once. The run's question says “Paused on an agentgraph problem, not this change. Reply `/agent` to retry.”; a quiet run posts nothing. Details stay in the trace and studio, and the pause remains visible in `show`. A key or login the provider rejects stops the run at once. A reply or `resume --parked` retries parked runs, including quiet runs. <!-- code: src/run/drive.ts#runWorkflow src/context.ts#proposeQuestion -->
 
 ## Retros
 

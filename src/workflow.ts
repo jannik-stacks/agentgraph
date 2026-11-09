@@ -63,7 +63,7 @@ export type Step = {
   tries: number;
   carry?: boolean;
   back?: { to: string; until?: string; rounds?: number };
-  each?: 'files' | 'hunks' | { run: string };
+  each?: string;
 };
 
 /** How one try of a step ended, or what a human said to a waiting run. */
@@ -98,7 +98,7 @@ export type Run = {
   answers?: { asked: string; said: string }[];
   reason?: string;
   restarted?: true;
-  /** A runner error has already been retried at this step. */
+  /** An engine error has already been retried at this step. */
   retried?: true;
   /** The time of the newest event the run has taken in: its start, answers, and everything its sessions were shown. */
   seen?: string;
@@ -170,7 +170,7 @@ const StepFile = Schema.Struct({
   back: Schema.optionalKey(Schema.String),
   until: Schema.optionalKey(Schema.String),
   rounds: Schema.optionalKey(Count),
-  each: Schema.optionalKey(Schema.Union([Schema.Literals(['files', 'hunks']), Schema.Struct({ run: Schema.String })])),
+  each: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
   limits: Schema.optionalKey(CommandLimits),
 });
 

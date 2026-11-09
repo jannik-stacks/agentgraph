@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import { issueStatuses, makePlugin } from '../../../src/plugin.ts';
+import { issueStatuses, makePlugin } from '@jannik-stacks/agi/plugins';
 
 const settings = Schema.Struct({
   project: Schema.String.check(Schema.isPattern(/^[^/]+\/\d+$/)),

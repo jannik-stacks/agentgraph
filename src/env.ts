@@ -204,7 +204,7 @@ const touch = (key: string) => {
 };
 const holdHours = () => Number(process.env.AGENTGRAPH_ENV_HOLD_HOURS || 2);
 
-/** Whether another running runner used the sandbox setup `key` within the hold window. */
+/** Whether another running engine process used the sandbox setup `key` within the hold window. */
 export const held = (key: string) => {
   const dir = join(holds(), key);
   return readDirOrEmpty(dir).some(
@@ -592,7 +592,7 @@ const overlays = (image: string) =>
  * copy of it where docker cannot mount overlays; elsewhere it starts empty. `more` names directories beyond the sandbox setup's
  * outputs. With `cache`, the repo's cache volume, one more overlay at `/cache` over it holds the checkout's own writes, so run
  * code never changes what later runs read; without overlays there is none. Every volume carries this process as its
- * owner, so a sweep finds the ones a dead runner left. The sandbox setup's other outputs are copied into `dir`, where a build may
+ * owner, so a sweep finds the ones a dead engine process left. The sandbox setup's other outputs are copied into `dir`, where a build may
  * delete and remake them.
  */
 export const createSharedMounts = async (
@@ -740,7 +740,7 @@ export const discard = (sharedMounts: SharedMount[], timeout?: number) =>
       )
     : Promise.resolve();
 
-/** Marks the checkout `dir` as this process's, so a sweep in another runner leaves it alone while this one lives. */
+/** Marks the checkout `dir` as this process's, so a sweep in another engine process leaves it alone while this one lives. */
 export const writeCheckoutOwner = (dir: string) => {
   mkdirSync(dirname(dir), { recursive: true });
   writeFileSync(`${dir}.owner`, startHeartbeat());

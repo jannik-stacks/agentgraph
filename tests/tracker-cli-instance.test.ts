@@ -20,7 +20,7 @@ import {
   writeInstanceProvider,
 } from '../src/instance.ts';
 import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
-import { stoppedByRunner } from '../src/context.ts';
+import { stoppedByEngine } from '../src/context.ts';
 import { begin } from '../src/workflow.ts';
 import { loadGraph } from '../src/folder.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -295,7 +295,7 @@ await runLocked(dir, async () => {
       ...begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: '2026-10-16T00:00:01.000Z' }),
       status: 'waiting' as const,
       retried: true as const,
-      reason: `${stoppedByRunner} (SandboxError). Reply to try triage again.`,
+      reason: `${stoppedByEngine} (SandboxError). Reply to try triage again.`,
     };
     await Effect.runPromise(Effect.flatMap(Store, store => store.put(parked)).pipe(Effect.provide(fileStore(data))));
     const flags = ['--dir', sandboxGraph, '--repo', w.seed, '--data', join(w.root, 'instances'), '--tracker', w.dir];

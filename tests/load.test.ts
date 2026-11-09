@@ -187,11 +187,19 @@ describe('compileWorkflow', () => {
   });
 
   it('reports unknown keys and wrong values by path, one message per path', () => {
-    const problems = messages(file('on: issues\njobs: {}\nsteps:\n  a: { agent: implementor, tries: 0, each: lines }'));
+    const problems = messages(
+      file('on: issues\njobs: {}\nsteps:\n  a: { agent: implementor, tries: 0, each: [lines] }')
+    );
     expect(problems).toHaveLength(3);
     expect(problems[0]).toMatch(/^jobs: /);
     expect(problems.some(p => p.startsWith('steps.a.tries: '))).toBe(true);
     expect(problems.some(p => p.startsWith('steps.a.each: '))).toBe(true);
+  });
+
+  it('rejects an empty each command', () => {
+    expect(messages(file('on: issues\nsteps:\n  a: { agent: implementor, each: "" }'))).toEqual([
+      expect.stringMatching(/^steps.a.each: /),
+    ]);
   });
 
   it('reports a missing trigger and broken frontmatter', () => {
