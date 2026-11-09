@@ -1,7 +1,7 @@
 # Bench page
 
-This clone-only folder is the studio page for [Bench](../../../docs/bench.md#cost-against-quality).
-It imports engine and bench modules from the clone, so it runs from here rather than as a copy.
+This example plugin supplies the [Bench studio page](../../../docs/bench.md#cost-against-quality).
+The runner and scorer live separately in the engine clone at `bin/bench.ts` and `bench/`. Run this plugin from the clone; its imports require that layout.
 
 Pass it as the studio's plugins folder:
 `agi studio --plugins examples/plugins/bench`, or from `studio/`,
