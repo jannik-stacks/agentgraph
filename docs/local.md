@@ -74,7 +74,7 @@ cd studio && npm install
 npm run dev -- --instance left-pad --instance right-pad
 ```
 
-The studio listens on `127.0.0.1:5182`. Set `AGI_HOST` or `AGI_PORT` to change the address. Token auth is the default and prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the studio.
+The studio listens on `127.0.0.1:5182`. Set `AGI_HOST` or `AGI_PORT` to change the address. Token auth is the default and prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the studio. <!-- code: studio/vite.config.ts#server, src/services.ts#pickAuth, studio/watch.ts#restart -->
 
 One studio serves several instances of one data root: each `--instance <name>` adds one, and with none of `--instance`, `--repo` and `--dir` it serves every instance under the root. Each instance's pages live under its name, as `/<name>/runs` and `/<name>/graph`, and the header switches between instances. Graph, Runs and Results read only that instance. An address that names no served instance lists the ones served. An instance that fails to load shows why on its pages, and the others keep working. Each instance reads its settings as the loop does, so a studio of several ignores the per-instance settings in the shell, listed under [One loop for several instances](#one-loop-for-several-instances). <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown src/main.ts#removeShellSettings -->
 
@@ -97,7 +97,7 @@ An unknown `--instance <name>` stops and lists the instances in the root; add `-
 to make the new record. Without `--instance`, a missing record is made only when every other
 folder in the root is an instance of another checkout. Otherwise the command stops and names
 the folders: pass `--instance <name>` to use one. `agi show` outside a repo skips a
-record it cannot read with a one-line warning. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances -->
+record it cannot read with a one-line warning. <!-- code: src/instance.ts#ensureInstance, src/instance.ts#findInstances, src/instance.ts#readPickedInstance -->
 
 The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),
 `base`, `owner`, `exported`, and `loop` (boolean, initially false). Optional fields are
@@ -133,10 +133,8 @@ file. `AGENTGRAPH_DATA` selects the root. There is no engine `AGENTGRAPH_PARALLE
 `AGENTGRAPH_BASE` remains a check-script input. `--logs` beats `AGENTGRAPH_CHECK_LOGS` everywhere.
 <!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#start -->
 
-Studio reloads resolve the instance graph and env file again and refresh their watch roots.
-An explicit `--dir` keeps selecting that graph until the studio exits. CLI tracker setup and execution
-use the same selected graph snapshot; stored-data commands do not discover graph plugins.
-CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
+On reload, the studio rereads `instance.yaml` and the env file.
+The `--dir` it started with stays in force.
 <!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->
 
 ### One loop for several instances
@@ -144,7 +142,7 @@ CLI loop passes retain idle-run compression from `AGENTGRAPH_COMPRESS_DAYS`.
 `agi loop --instance a --instance b` drives both in one process. Outside a repo and without
 `--instance`, it drives every instance whose record says `loop: true`. Each instance keeps its own
 graph, data, lock, tracker, trust, env file, provider and session permits, and its output lines start
-with its name. `--repo`, `--dir`, `--base`, `--tracker` and `--read-only` select one instance, so
+with its name. `--repo`, `--dir`, `--base`, `--tracker`, `--runner` and `--read-only` select one instance, so
 they fail here; put them in each `instance.yaml`. `--parallel <n>` caps drives across all of them.
 The App settings (`AGENTGRAPH_APP_ENV`, `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_APP_KEY_FILE`),
 `AGENTGRAPH_TRACKER`, `AGENTGRAPH_REPO`, `AGENTGRAPH_TRUST`, `AGENTGRAPH_DIR` and `AGENTGRAPH_PROVIDER` belong to one
@@ -171,7 +169,8 @@ fails if the loop exits first.
 `agi stop` sends the loop SIGINT and returns once the loop has let go of the checkout; `--force`
 sends SIGTERM, which ends it at once. Without `--instance` it stops the loop of the repo you are in,
 or outside a repo every loop under the data root. When a loop also serves instances you did not
-name, it refuses and prints the command that names them all. `agi restart` stops, then starts the
+name, it refuses and prints the command that names them all. It also refuses a loop running on
+another host and tells you to stop it there. `agi restart` stops, then starts the
 loop again with `--detach`; outside a repo without `--instance` it restarts the `loop: true`
 instances.
 
@@ -181,4 +180,4 @@ instance with `--instance <name> --repo <worktree>`. A second loop on a checkout
 `stop` and `restart` commands to run, and waits instead while the holder is stopping. A lock whose
 holder died is taken over at once on the same host, and after its two-minute heartbeat from another
 host; runs go on where they were.
-<!-- code: bin/run.ts#stopLoops bin/run.ts#detach src/owner.ts#createLoopLock src/owner.ts#isOwnerRunning -->
+<!-- code: bin/run.ts#stopLoops, bin/run.ts#detach, src/owner.ts#createLoopLock, src/owner.ts#isOwnerRunning, src/owner.ts#readStateDir -->

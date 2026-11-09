@@ -39,7 +39,7 @@ The engine reaches the outside only through four services, each with a test stan
 
 - The tracker reads and writes GitHub, or a folder. <!-- code: src/tracker.ts#Tracker -->
 - The store keeps runs and traces. <!-- code: src/store.ts#Store -->
-- The sandbox runs commands in docker, or on the host in tests. <!-- code: src/sandbox.ts#Sandbox tests/doubles/sandbox.ts#hostSandbox -->
+- The sandbox keeps the mirror and checkouts and runs commands through a runner. `local` uses Docker; `box` uses an HTTP server. Plugins can use other hosts. Tests use `hostSandbox`. <!-- code: src/sandbox.ts#Sandbox src/mirror.ts#makeSandbox src/sandbox.ts#Runner tests/doubles/sandbox.ts#hostSandbox -->
 - The session talks to a harness, or replays a script in tests. <!-- code: src/session.ts#Session tests/doubles/session.ts#replaySession -->
 
 ## Engine code and model judgment
