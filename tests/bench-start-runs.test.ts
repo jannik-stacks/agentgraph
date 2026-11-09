@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { appendBenchResults, makeBenchInput, writeAttemptImport } from '../bin/bench.ts';
-import { nodePath, runLogged, runQueue, spendGuard } from '../bench/start-runs.ts';
+import { formatStaleSlots, nodePath, runLogged, runQueue, spendGuard } from '../bench/start-runs.ts';
 import { type BenchInput, isBenchRunDone, makeBenchAttempt, readSlotRun } from '../bench/runs.ts';
 import { git, tmp } from './kit.ts';
 
@@ -13,6 +13,26 @@ afterEach(() => {
 });
 
 describe('start-runs helpers', () => {
+  it('counts done slots that ran another engine or harness version and leaves them done', () => {
+    const now = { engine: 'v2', harnesses: { opencode: '1.20.0', pi: '1.1.0' } };
+    const old = { engine: 'v2', harnesses: { opencode: '1.19.0' } };
+    const done = [
+      { point: 'opencode:luna', versions: old },
+      { point: 'opencode:sol', versions: old },
+      { point: 'opencode:luna', versions: { engine: 'v2', harnesses: { opencode: '1.20.0' } } },
+      { point: 'pi:luna', versions: { engine: 'v1', harnesses: { pi: '1.1.0' } } },
+      { point: 'pi:luna', versions: undefined },
+    ];
+    const before = structuredClone(done);
+    expect(formatStaleSlots(done, now)).toEqual([
+      '2 done slots ran opencode@1.19.0, agentgraph-sandbox:local has 1.20.0; pass --label to run them again',
+      '1 done slots ran engine v1, this checkout is v2; pass --label to run them again',
+      '1 done slots ran engine unknown, this checkout is v2; pass --label to run them again',
+      '1 done slots ran pi@unknown, agentgraph-sandbox:local has 1.1.0; pass --label to run them again',
+    ]);
+    expect(done).toEqual(before);
+  });
+
   it('finds node on PATH at each spawn', () => {
     const node = nodePath();
     expect(node.startsWith('/')).toBe(true);

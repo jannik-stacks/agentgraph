@@ -642,8 +642,15 @@ export const runnerError = (reason = '') =>
 const findCaseGraphDir = (c: Pick<Case, 'repo'>, graph = options.graph) =>
   graph ?? join(agentgraphDir, 'examples', findExampleGraphName(c.repo));
 
-export const readCaseImage = async (c: Case & Commands, set: string, graph = findCaseGraphDir(c)) => {
-  const file = join(findCaseWorkDir(set, c), 'image.json');
+export const readCaseImage = async (
+  c: Case & Commands,
+  set: string,
+  graph = findCaseGraphDir(c),
+  labels: Record<string, string> = options.labels
+) => {
+  const labelled = Object.keys(labels).length > 0;
+  const pin = labelled ? `image-${getSha(JSON.stringify(Object.entries(labels).toSorted()), 8)}.json` : 'image.json';
+  const file = join(findCaseWorkDir(set, c), pin);
   const release = await waitForLock(`bench-image-${hash(file)}`);
   try {
     const saved = JSON.parse(readFileOrEmpty(file) || '{}') as Pick<Commands, 'image'>;
