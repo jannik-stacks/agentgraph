@@ -1,12 +1,12 @@
 import { Effect, Option } from 'effect';
-import { type Workflow, type Run, type Outcome, transition, isRunDone } from '../workflow.ts';
+import { type Workflow, transition, isRunDone } from '../workflow.ts';
 import type { Issue } from '../event.ts';
 import type { Graph } from '../folder.ts';
-import { type StoreError, Store } from '../store.ts';
-import { type TrackerError, Tracker } from '../tracker.ts';
-import { type SessionStop, makeOutcomeLine } from '../trace.ts';
+import { Store } from '../store.ts';
+import { Tracker } from '../tracker.ts';
+import { makeOutcomeLine } from '../trace.ts';
 import { stoppedByEngine, context } from '../context.ts';
-import { Sandbox, SandboxError, formatCause } from '../sandbox.ts';
+import { Sandbox, SandboxError } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout } from '../git.ts';
 import {
   findPullNumber,
@@ -22,6 +22,7 @@ import { removeThreads, writeStatus, readRunSpend, runEndChecks } from './settle
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
+import { type Outcome, type Run, type SessionStop, type StoreError, type TrackerError, formatCause } from '../types.ts';
 
 /** The open pull request a run on `issue` stacks on, from a "Stacks on #n" line naming it or its issue. */
 const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {

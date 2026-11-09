@@ -1,12 +1,12 @@
 import { Effect, Data } from 'effect';
 import type { Graph } from '../folder.ts';
-import { type Checkout, SandboxError } from '../sandbox.ts';
-import type { Run } from '../workflow.ts';
+import { SandboxError } from '../sandbox.ts';
 import { Store } from '../store.ts';
 import { pickUsed } from '../trace.ts';
 import { formatSqueezed } from '../context.ts';
 import { writeCheckoutTree, readGit } from '../git.ts';
 import { runShell } from './execute.ts';
+import { type Checkout, type Run } from '../types.ts';
 
 /** Runs the graph's setup in a checkout, so its checks find what it installs, and traces how long it took. */
 export const runSetup = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>

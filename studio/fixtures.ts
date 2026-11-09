@@ -1,18 +1,22 @@
 import { realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { Plugin } from 'vite';
-import { Effect, Result, Schema, Stream } from 'effect';
+import { Effect, Result, Stream } from 'effect';
+import { readRequestUser } from './auth.ts';
 import { makeServedGraphs, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
-import { findCheckVerdicts } from './src/graph/trail.ts';
 import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as StoreModule from '../src/store.ts';
+import type * as ActionsModule from '../src/actions.ts';
 import type * as EngineModule from '../src/engine.ts';
 import type * as ToolsModule from '../src/tools.ts';
 import type * as LabelsModule from '../src/labels.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
+import type { RunRecord } from '../src/types.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
 
 const isInside = async (path: string, roots: readonly string[]) => {
@@ -22,36 +26,24 @@ const isInside = async (path: string, roots: readonly string[]) => {
 
 class StudioRequestError extends Error {}
 
-type HostAction = {
-  readonly args: Schema.Codec<readonly unknown[], unknown>;
-  run(...args: readonly unknown[]): Effect.Effect<unknown, unknown>;
-};
-
-const readPath = (req: IncomingMessage) => (req.url ?? '/').split('?')[0]!.slice(1);
-
-const pickServed = async (req: IncomingMessage, reader: ReturnType<typeof makeServedGraphs>) => {
-  const name = readQuery(req).get('instance') ?? '';
-  const all = await reader.read();
-  const served = all.find(one => one.name === name);
-  if (!served && (name || all.some(one => one.name)))
-    throw new StudioRequestError(`this studio serves no instance named "${name}"`);
-  return served;
-};
-
 const readDataDir = async (
   req: IncomingMessage,
   reader: ReturnType<typeof makeServedGraphs>,
   readStores: () => Promise<readonly string[]>
 ) => {
   const watched = readQuery(req).get('data');
-  if (!watched) {
-    const served = await pickServed(req, reader);
-    return { served, data: served?.data, store: served?.host?.store, watched: undefined };
+  if (watched) {
+    if (!(await isInside(watched, await readStores())))
+      throw new StudioRequestError('data is outside the stores the studio pages read');
+    const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
+    return { served: undefined, data: watched, host: makeInstanceHost({ data: watched }), watched };
   }
-  if (!(await isInside(watched, await readStores())))
-    throw new StudioRequestError('data is outside the stores the studio pages read');
-  const { makeInstanceHost } = await readModule<typeof EngineModule>('src/engine.ts');
-  return { served: undefined, data: watched, store: makeInstanceHost({ data: watched }).store, watched };
+  const name = readQuery(req).get('instance') ?? '';
+  const all = await reader.read();
+  const served = all.find(one => one.name === name);
+  if (!served && (name || all.some(one => one.name)))
+    throw new StudioRequestError(`this studio serves no instance named "${name}"`);
+  return { served, data: served?.data, host: served?.host, watched: undefined };
 };
 
 const bodies = (docs: Record<string, { body: string }>) =>
@@ -71,40 +63,67 @@ export const makeStudioDevApiPlugin = (
             writeJson(res, { error: e.message || e._tag }, e instanceof StudioRequestError ? 400 : 500)
           );
         });
+      const handlers = new WeakMap<object, ReturnType<typeof EngineModule.makeActionWebHandler>>();
       use('/api/actions', async (req, res) => {
         if (req.method !== 'POST') return writeJson(res, { error: 'POST required' }, 405);
-        if (!req.headers['content-type']?.startsWith('application/json'))
-          return writeJson(res, { error: 'actions take JSON' }, 415);
-        const verb = readPath(req);
-        const host = (await pickServed(req, reader))?.host;
-        const actions: Readonly<Record<string, HostAction>> = host?.actions ?? {};
-        if (!Object.hasOwn(actions, verb)) return writeJson(res, { error: `no action ${verb}` }, 404);
+        if (!/^application\/(x-)?ndjson\b/.test(req.headers['content-type'] ?? ''))
+          return writeJson(res, { error: 'actions take NDJSON' }, 415);
+        const { served, data, host, watched } = await readDataDir(req, reader, readStores);
+        if (!host) return writeJson(res, { error: 'this studio serves no instance host' }, 404);
+        const { store } = host;
         const { readRequestBody } = await readModule<typeof ToolsModule>('src/tools.ts');
-        const text = await readRequestBody(req);
-        if (text === undefined) throw new StudioRequestError('the body is over 64 KiB');
-        const { args, run } = actions[verb]!;
-        const act = Effect.try(() => JSON.parse(text)).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(args)),
-          Effect.flatMap(decoded => run(...decoded))
+        const body = await readRequestBody(req);
+        if (body === undefined) throw new StudioRequestError('the body is over 64 KiB');
+        let web = handlers.get(host);
+        if (!web) {
+          const { makeActionWebHandler } = await readModule<typeof EngineModule>('src/engine.ts');
+          const { ActionError } = await readModule<typeof ActionsModule>('src/actions.ts');
+          const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
+          const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
+          const results = () => Effect.sync(() => readRunResults(data, served?.graph));
+          const keep = (id: string) => Effect.promise(async () => !watched || isInside(join(data!, id), [data!]));
+          const entry = (run: RunRecord, all: boolean, body = false) =>
+            Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
+              const lines = mergeCheckEntries(trace, checks);
+              const { trail, ...summary } = makeRunSummary(run, lines);
+              return {
+                fixture: `${watched ? 'store' : served!.title}/${run.workflow}`,
+                repo: served?.graph?.repo ?? '',
+                run: all ? run : pickListedRun(run, body),
+                labels: readRunLabels(data!, run.id),
+                ...summary,
+                ...(all ? { trace: lines } : { trail }),
+                ...findTraceLinks(trace),
+                ...(watched && { data: watched }),
+              };
+            });
+          const runs = ({ id }: { id?: string }) =>
+            Effect.gen(function* () {
+              if (!served?.dir && !watched) return id === undefined ? [] : null;
+              if (id === undefined) {
+                const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
+                const told = new Map<number, string>();
+                for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
+                  if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
+                return yield* Effect.forEach(runs, run =>
+                  entry(run, false, run.issue !== undefined && told.get(run.issue) === run.id)
+                );
+              }
+              if (!/^(?!\.+$)[\w.-]+$/.test(id)) return yield* Effect.fail(new Error('bad run id'));
+              const run = (yield* keep(id)) ? yield* store.getRecord(id) : undefined;
+              return run ? yield* entry(run, true) : null;
+            }).pipe(Effect.mapError(e => ActionError.make({ message: e.message })));
+          web = makeActionWebHandler(host, { results, runs }, !!watched);
+          handlers.set(host, web);
+        }
+        const response = await web(
+          new Request('http://studio/', { method: 'POST', headers: { 'content-type': 'application/ndjson' }, body }),
+          readRequestUser(req)
         );
-        writeJson(
-          res,
-          await Effect.runPromise(act).catch((e: Error) => {
-            throw new StudioRequestError(e.message);
-          })
-        );
-      });
-      use('/api/results', async (req, res) => {
-        const { served, data } = await readDataDir(req, reader, readStores);
-        const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
-        writeJson(res, readRunResults(data, served?.graph));
-      });
-      use('/api/logs', async (req, res) => {
-        const { store } = await readDataDir(req, reader, readStores);
-        const text = store && (await Effect.runPromise(store.readLog(readPath(req))));
-        res.statusCode = text === undefined || text === '' ? 404 : 200;
-        res.setHeader('content-type', 'text/plain; charset=utf-8');
-        res.end(text || '');
+        res.statusCode = response.status;
+        response.headers.forEach((value, key) => res.setHeader(key, value));
+        if (!response.body) return res.end();
+        await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), res).catch(() => {});
       });
       use('/api/locate', async (req, res) => {
         const { locate } = await readModule<typeof StoreModule>('src/store.ts');
@@ -116,62 +135,6 @@ export const makeStudioDevApiPlugin = (
           if (found.success) return writeJson(res, { ...found.success, instance: name });
         }
         writeJson(res, null, 404);
-      });
-      use('/api/verdicts', async (req, res) => {
-        const served = await pickServed(req, reader);
-        const query = readQuery(req);
-        const [fixture, step, check] = [query.get('fixture'), query.get('step'), query.get('check')];
-        if (!fixture || !step || !check) return writeJson(res, { error: 'verdicts take fixture, step and check' }, 400);
-        const store = served?.host?.store;
-        if (!store) return writeJson(res, []);
-        const runs = await Effect.runPromise(
-          Effect.gen(function* () {
-            const records = (yield* store.listRecords()).filter(run => `${served.title}/${run.workflow}` === fixture);
-            return yield* Effect.forEach(records, run =>
-              Effect.map(store.readChecks(run.id), checks => ({ run, checks }))
-            );
-          })
-        );
-        writeJson(res, findCheckVerdicts(runs, step, check));
-      });
-      use('/api/runs', async (req, res) => {
-        const { served, data, store, watched } = await readDataDir(req, reader, readStores);
-        const one = decodeURIComponent(readPath(req));
-        if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return writeJson(res, { error: 'bad run id' }, 400);
-        const { readRunLabels }: typeof LabelsModule = await readModule('src/labels.ts');
-        if (!data || !store || (!served?.dir && !watched)) return writeJson(res, one ? null : []);
-        const keep = (id: string) => Effect.promise(async () => !watched || isInside(join(data, id), [data]));
-        const answer = await Effect.runPromise(
-          Effect.gen(function* () {
-            const entry = (run: WorkflowModule.RunRecord, all: boolean, body = false) =>
-              Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
-                const lines = mergeCheckEntries(trace, checks);
-                const summary = makeRunSummary(run, lines);
-                const { usd, lastAt, urls } = summary;
-                return {
-                  fixture: `${watched ? 'store' : served!.title}/${run.workflow}`,
-                  repo: served?.graph?.repo ?? '',
-                  run: all ? run : pickListedRun(run, body),
-                  labels: readRunLabels(data, run.id),
-                  ...(all ? { usd, lastAt, urls, trace: lines } : summary),
-                  ...findTraceLinks(trace),
-                  ...(watched && { data: watched }),
-                };
-              });
-            if (!one) {
-              const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
-              const told = new Map<number, string>();
-              for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
-                if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
-              return yield* Effect.forEach(runs, run =>
-                entry(run, false, run.issue !== undefined && told.get(run.issue) === run.id)
-              );
-            }
-            const run = (yield* keep(one)) ? yield* store.getRecord(one) : undefined;
-            return run ? yield* entry(run, true) : null;
-          })
-        );
-        writeJson(res, answer, answer === null ? 404 : 200);
       });
     },
     async load(source) {

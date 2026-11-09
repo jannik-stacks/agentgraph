@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { readRunResults } from '../bin/results.ts';
 import { Schema } from 'effect';
 import { findCheckFields, ResultSheet } from '../src/results.ts';
-import type { CheckEntry } from '../src/trace.ts';
 import { formatResultValue, type RunResults, splitRunsByAxis, getFieldSummary } from '../studio/src/results/result.ts';
 import { tmp } from './kit.ts';
+import { type CheckEntry } from '../src/types.ts';
 
 const run = (key: string, at: string, usd: number, pass = true, dead?: string): RunResults => ({
   key,

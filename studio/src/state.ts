@@ -1,9 +1,10 @@
 import { atom } from 'jotai';
+import { Effect } from 'effect';
+import { runActions } from '../../src/actions.ts';
 import type { readRunResults } from '../../bin/results.ts';
-import type { RunRecord } from '../../src/workflow.ts';
-import type { findCheckVerdicts } from './graph/trail.ts';
 import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
 import { served } from 'virtual:served';
+import { type RunRecord } from '../../src/types.ts';
 import { pages } from 'virtual:agentgraph-pages';
 
 export const instances = served.filter(one => one.name);
@@ -16,8 +17,17 @@ const prefix = shown?.name ? `/${shown.name}` : '';
 
 export const makeInstanceHref = (href: string) => prefix + href;
 
-export const makeApiHref = (href: string) =>
+const makeApiHref = (href: string) =>
   shown?.name ? `${href}${href.includes('?') ? '&' : '?'}instance=${shown.name}` : href;
+
+export const runAction = <A, E>(use: Parameters<typeof runActions<A, E>>[2], data?: string | null) =>
+  Effect.runPromise(
+    runActions(
+      new URL(makeApiHref(makeDataHref('/api/actions', data)), location.href).href,
+      (input, init) => fetch(input, init),
+      use
+    )
+  );
 
 const readLocation = () => ({
   path: location.pathname.slice(prefix.length) || '/',
@@ -77,7 +87,7 @@ connectedAtom.onMount = set => {
 };
 
 export const makeLiveJsonAtom = <T>(
-  path: string,
+  path: string | (() => Promise<unknown>),
   topics: readonly string[],
   read: (value: unknown) => T | Promise<T> = value => value as T
 ) => {
@@ -89,13 +99,17 @@ export const makeLiveJsonAtom = <T>(
     const load = () => {
       if (busy) return void (again = true);
       busy = true;
-      void fetch(makeApiHref(path))
-        .then(async r => {
-          if (r.ok) return read(await r.json());
-          const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
-          if (r.status === 404 && body === null) return read(null);
-          throw new Error(typeof body?.error === 'string' && body.error ? body.error : `${path} answered ${r.status}`);
-        })
+      void (
+        typeof path === 'function'
+          ? path().then(read)
+          : fetch(makeApiHref(path)).then(async r => {
+              if (r.ok) return read(await r.json());
+              const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
+              throw new Error(
+                typeof body?.error === 'string' && body.error ? body.error : `${path} answered ${r.status}`
+              );
+            })
+      )
         .then(
           next => {
             if (active) set({ value: next });
@@ -124,23 +138,36 @@ export const makeLiveJsonAtom = <T>(
 
 /** Every run of the served graph as the run list reads it, with its trail and no trace. */
 export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof makeRunSummary>, 'trail'>)[]>(
-  '/api/runs',
+  () => runAction(actions => actions.runs({})),
   ['data']
 );
 
 const opened = new Map<string, object>();
-const openOnce = <T>(url: string, data?: string | null) => {
-  if (!opened.has(url)) opened.set(url, makeLiveJsonAtom<T>(url, data ? studioPages.map(page => page.name) : ['data']));
-  return opened.get(url) as ReturnType<typeof makeLiveJsonAtom<T>>;
+const openOnce = <T>(key: string, data: string | null | undefined, load: () => Promise<T>) => {
+  if (!opened.has(key))
+    opened.set(key, makeLiveJsonAtom<T>(load, data ? studioPages.map(page => page.name) : ['data']));
+  return opened.get(key) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
 
 export const dataParam = queryParam('data');
 
 export const runResultsAtom = (data?: string | null) =>
-  openOnce<ReturnType<typeof readRunResults>>(makeDataHref('/api/results', data), data);
+  openOnce(
+    makeDataHref('results', data),
+    data,
+    () => runAction(actions => actions.results(), data) as Promise<ReturnType<typeof readRunResults>>
+  );
 
 export const runAtom = (id: string, data?: string | null) =>
-  openOnce<(ServedRun & { run: RunRecord }) | null>(makeDataHref(`/api/runs/${encodeURIComponent(id)}`, data), data);
+  openOnce(
+    makeDataHref(`run ${id}`, data),
+    data,
+    () => runAction(actions => actions.runs({ id }), data) as Promise<(ServedRun & { run: RunRecord }) | null>
+  );
 
 export const getVerdictsAtom = (fixture: string, step: string, check: string) =>
-  openOnce<ReturnType<typeof findCheckVerdicts>>(`/api/verdicts?${new URLSearchParams({ fixture, step, check })}`);
+  openOnce(`verdicts ${fixture} ${step} ${check}`, undefined, () =>
+    fixture.startsWith(`${shown?.title}/`)
+      ? runAction(actions => actions.verdicts({ workflow: fixture.slice(fixture.indexOf('/') + 1), step, check }))
+      : Promise.resolve([])
+  );

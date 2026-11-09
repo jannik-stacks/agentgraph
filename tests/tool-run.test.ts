@@ -8,13 +8,13 @@ import { loadGraph } from '../src/folder.ts';
 import { folderTracker } from '../src/tracker.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
-import type { SessionSpec } from '../src/trace.ts';
 import { begin } from '../src/workflow.ts';
 import { readLocalHttp } from './doubles/http.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { reply, start } from './fixtures.ts';
 import { write } from './kit.ts';
 import { readTrace, world } from './world.ts';
+import { type SessionSpec } from '../src/types.ts';
 
 describe('custom tools in a run', () => {
   it('calls the selected host tool and traces it once without exposing its session secret', async () => {

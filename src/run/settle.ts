@@ -1,19 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { Effect, Stream, Schedule } from 'effect';
-import { type Run, type Workflow, isQuiet } from '../workflow.ts';
-import { currentRunLinkRef, Tracker, type TrackerError } from '../tracker.ts';
+import { type Workflow, isQuiet } from '../workflow.ts';
+import { currentRunLinkRef, Tracker } from '../tracker.ts';
 import { stoppedByEngine, findIssueStatus, formatStatusHeader, proposeQuestion } from '../context.ts';
-import { type StoreError, Store } from '../store.ts';
+import { Store } from '../store.ts';
 import type { Graph } from '../folder.ts';
 import { LockHeldError } from '../owner.ts';
 import { type StatusChange, readPlugins } from '../plugin.ts';
 import type { Proposal } from '../proposal.ts';
 import { getSha } from '../hash.ts';
 import type { Applied } from '../event.ts';
-import type { Checkout } from '../sandbox.ts';
 import type { Services } from './execute.ts';
 import { runEndedChecks } from './evaluate.ts';
 import { readIssueWithPull } from './hear.ts';
+import { type Checkout, type Run, type StoreError, type TrackerError } from '../types.ts';
 
 /** Tracker writes made for `run` at its step by `session`; a mark set for the same run and step outside is kept. */
 export const useRunLink =

@@ -8,10 +8,9 @@ import { issueStatuses, type IssueStatus } from './event.ts';
 import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
-import { CheckMode, defaultPass, defaultReturns, ResultType, whyPassUndecided } from './result.ts';
+import { defaultPass, defaultReturns, whyPassUndecided } from './result.ts';
 import {
   CommandSettings,
-  CommandLimits,
   commandVerbs,
   compileWorkflow,
   formatIssues,
@@ -20,16 +19,7 @@ import {
   type Problem,
   type Workflow,
 } from './workflow.ts';
-
-/** An agent file's frontmatter. */
-export const Agent = Schema.Struct({
-  harness: Schema.String.pipe(Schema.withDecodingDefaultType(Effect.succeed(''))),
-  model: Schema.optionalKey(Schema.String),
-  tools: Schema.mutable(Schema.Array(Schema.String)).pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
-  returns: Schema.mutable(Schema.Array(Kind)).pipe(Schema.withDecodingDefaultType(Effect.succeed(['comment']))),
-  reads: Schema.optionalKey(Schema.Literal('traces')),
-});
-export type Agent = typeof Agent.Type;
+import { Agent, Check, CommandLimits } from './types.ts';
 
 /** The limits block of settings.yaml. */
 const Limits = Schema.Struct({
@@ -105,22 +95,6 @@ export const parseGraphSettings = (text: string | undefined, say: (message: stri
   }
   return decode(GraphSettings, data, say);
 };
-
-/**
- * A check is items, a command and an agent that judges. Each gives a result `returns` describes, which passes when it
- * matches `pass`. `info` only records it, `warn` records a failure, `block` fails the try and `stop` the run.
- */
-export const Check = Schema.Struct({
-  mode: CheckMode,
-  returns: Schema.optionalKey(ResultType),
-  pass: Schema.optionalKey(ResultType),
-  reads: Schema.optionalKey(Schema.Literal('traces')),
-  each: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
-  run: Schema.optionalKey(Schema.String),
-  agent: Schema.optionalKey(Schema.String),
-  max: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
-});
-export type Check = typeof Check.Type;
 
 /** A skill file's frontmatter; `uses` names the skills whose bodies follow its own in the prompt. */
 const SkillFile = Schema.Struct({

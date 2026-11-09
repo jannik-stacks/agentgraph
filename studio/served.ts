@@ -20,7 +20,7 @@ export type ServedGraph = {
   files: string[];
   local: boolean;
   graph?: Graph;
-  host?: EngineModule.InstanceHost;
+  host?: ReturnType<typeof EngineModule.makeInstanceHost>;
   problems: Problem[];
 };
 

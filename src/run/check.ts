@@ -2,14 +2,13 @@ import { join, dirname } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { Effect, Stream, Result } from 'effect';
 import { type Result as ResultValue, defaultReturns, findMismatch, defaultPass, readScriptResult } from '../result.ts';
-import { type Checkout, type Exit, inside, type Sandbox, SandboxError } from '../sandbox.ts';
-import type { Graph, Check } from '../folder.ts';
-import type { StoreError } from '../store.ts';
+import { inside, type Sandbox, SandboxError } from '../sandbox.ts';
+import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
 import { transcript, formatSqueezed } from '../context.ts';
 import type { Proposal } from '../proposal.ts';
-import type { Run, CheckResult, Step, Outcome } from '../workflow.ts';
-import { pickUsed, type Trace, SessionStop } from '../trace.ts';
+import type { Step } from '../workflow.ts';
+import { pickUsed } from '../trace.ts';
 import { getSha } from '../hash.ts';
 import type { Session } from '../session.ts';
 import { getStepReturns } from '../graph.ts';
@@ -17,6 +16,17 @@ import type { Applied } from '../event.ts';
 import { isRetro } from './hear.ts';
 import { EachFailed, findFanOutItems, readCheckoutDiff, most } from './checkout.ts';
 import { makeAgentSessionSpec, runShell, runJudge } from './execute.ts';
+import {
+  type Check,
+  type CheckResult,
+  type Checkout,
+  type Exit,
+  type Outcome,
+  type Run,
+  SessionStop,
+  type StoreError,
+  type Trace,
+} from '../types.ts';
 
 export const getTraceFiles = (dir: string) => ({
   AGENTGRAPH_TRACES: join(dir, 'traces.md'),

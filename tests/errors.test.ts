@@ -1,7 +1,7 @@
 import { Effect } from 'effect';
 import { expect, it } from 'vitest';
 import { SandboxError } from '../src/sandbox.ts';
-import { StoreError } from '../src/store.ts';
+import { StoreError } from '../src/types.ts';
 
 it.each([
   [new StoreError({ path: 'runs/1/run.json', cause: new Error('EACCES') }), 'runs/1/run.json: EACCES'],

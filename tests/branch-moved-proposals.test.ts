@@ -3,12 +3,11 @@ import { join } from 'node:path';
 import { Deferred, Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { tick } from '../src/run/trigger.ts';
-import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
+import { folderTracker, Tracker } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { Sandbox, type Command } from '../src/sandbox.ts';
+import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionEvent } from '../src/trace.ts';
-import { begin, transition, type Run } from '../src/workflow.ts';
+import { begin, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
@@ -27,6 +26,7 @@ import {
   comment,
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { type Command, type Run, type SessionEvent, TrackerError } from '../src/types.ts';
 
 const refuse = (p: Proposal) => Effect.succeed({ proposal: p, ok: false, reason: 'branch moved' });
 

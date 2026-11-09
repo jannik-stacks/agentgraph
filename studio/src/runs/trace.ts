@@ -1,10 +1,9 @@
 import { Struct } from 'effect';
 import type { Located } from '../../../src/store.ts';
 import type { readRunLabels } from '../../../src/labels.ts';
-import type { CheckEntry, Trace } from '../../../src/trace.ts';
-import type { CheckResult, Outcome, RunRecord } from '../../../src/workflow.ts';
 import { isOnIssue } from '../../../src/graph.ts';
 import { makeRunTrail } from '../graph/visits.ts';
+import { type CheckEntry, type CheckResult, type Outcome, type RunRecord, type Trace } from '../../../src/types.ts';
 
 export const formatNumber = (n: number) =>
   Math.abs(n) >= 1e6
@@ -61,7 +60,7 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
 
 export const makeRunSummary = (run: RunRecord, lines: Line[]) => ({
   usd: lines.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0),
-  lastAt: lines.at(-1)?.at,
+  ...(lines.length > 0 && { lastAt: lines.at(-1)!.at }),
   trail: isOnIssue(run) ? makeRunTrail(lines) : [],
   urls: lines.flatMap(line =>
     'applied' in line && line.applied.url && ['issue', 'merge'].includes(line.applied.proposal.kind)

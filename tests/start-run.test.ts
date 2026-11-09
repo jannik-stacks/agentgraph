@@ -1,10 +1,11 @@
 import { Effect, Layer } from 'effect';
 import { expect, it } from 'vitest';
-import { Store, StoreError, fileStore } from '../src/store.ts';
+import { Store, fileStore } from '../src/store.ts';
 import type { Graph } from '../src/folder.ts';
 import { begin, type Workflow } from '../src/workflow.ts';
 import { startProposedRun, startRun } from '../src/run/start.ts';
 import { tmp } from './kit.ts';
+import { StoreError } from '../src/types.ts';
 
 const w = {
   name: 'issue',

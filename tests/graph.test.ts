@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { makeWorkflowGraph } from '../src/graph.ts';
-import { begin, type Run } from '../src/workflow.ts';
+import { begin } from '../src/workflow.ts';
 import { fixture, graphs } from './fixtures.ts';
+import { type Run } from '../src/types.ts';
 
 describe('makeWorkflowGraph', () => {
   it.each(graphs)(

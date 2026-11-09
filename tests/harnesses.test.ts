@@ -20,10 +20,10 @@ import { makeCodexHarness } from '../harnesses/codex.ts';
 import { loadGraph } from '../src/folder.ts';
 import { type Harness, type Provider, harnessSession, readHarnessSettings, parseModelUrls } from '../src/harnesses.ts';
 import { getListPriceUsd, isModelPriced, readPrices } from '../src/prices.ts';
-import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
+import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
-import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import { harnesses } from './fixtures.ts';
+import { type Command, type SessionEvent, type SessionSpec } from '../src/types.ts';
 
 const sample = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8').split('\n');
 

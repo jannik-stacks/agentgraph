@@ -1,57 +1,6 @@
-import { Context, Data, type Effect, type Redacted, type Stream, type Scope } from 'effect';
-import { inspect } from 'node:util';
+import { Context, Data, type Effect, type Stream, type Scope } from 'effect';
 import type { Graph } from './folder.ts';
-
-/** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given and, with `readonly`, writable alongside scratch. */
-export type Command = {
-  limits?: Pick<Graph['limits'], 'memory' | 'cpus'>;
-  tools?: { url: string; host: string };
-  cmd: string;
-  args: string[];
-  dir: string;
-  /** The graph directory, readable by the command as `$AGENTGRAPH_DIR`, never writable. */
-  graph?: string;
-  home?: string;
-  readonly?: boolean;
-  env: Record<string, string>;
-  secrets?: Record<string, Redacted.Redacted>;
-  /** `open` reaches any host. */
-  network: 'none' | 'proxy' | 'open';
-  minutes: number;
-};
-
-export type Exit = { code: number; output: string; used?: { peak: number; cpu: number; oom?: true } };
-
-/**
- * A checkout: the work tree `dir`, the commit `base` its change is measured from, and `git`, the repo and index host git
- * uses for it. On an existing branch `base` is where the branch forks from the ref, and `head` is the branch commit the
- * files start from.
- * `git` names only paths the host keeps out of the sandbox's reach. `news` is a file outside `dir` that only the host
- * writes; the sandbox reads it at the same path.
- */
-export type Checkout = {
-  dir: string;
-  base: string;
-  head?: string;
-  saved?: string;
-  published?: string;
-  /** The checkout starts from a sandbox setup that already ran the graph's setup on these files. */
-  ready?: boolean;
-  /** The sandbox setup the checkout starts from, how it was built, and whether it was built from the checkout's own files. */
-  env?: { key: string; mode: 'deps' | 'tree'; match: boolean };
-  git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
-  news: string;
-  /** How many files the checkout's commands wrote over the shared cache so far, when the sandbox can tell. */
-  written?: () => Promise<number | undefined>;
-};
-
-export const formatCause = (cause: unknown): string => {
-  try {
-    return cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : inspect(cause, { depth: 2 });
-  } catch {
-    return 'an unprintable value';
-  }
-};
+import { type Checkout, type Command, type Exit } from './types.ts';
 
 export class SandboxError extends Data.TaggedError('SandboxError')<{
   reason: 'timeout' | 'stalled' | 'infra' | 'host';

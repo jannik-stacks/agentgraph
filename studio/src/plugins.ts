@@ -1,10 +1,9 @@
 import { useAtomValue } from 'jotai';
 import { lazy } from 'react';
 import { Effect, Schema } from 'effect';
-import type { InstanceHost } from '../../src/engine.ts';
-import { makeApiHref, makeLiveJsonAtom } from './state.ts';
+import { makeLiveJsonAtom } from './state.ts';
 
-export { queryParam, navigateAtom } from './state.ts';
+export { queryParam, navigateAtom, runAction } from './state.ts';
 export { atLink } from './runs/trace.ts';
 export {
   accent,
@@ -49,19 +48,4 @@ export const usePluginData = <D, I>(name: string, schema: Schema.Codec<D, I>) =>
     data.set(name, cached);
   }
   return useAtomValue(cached.atom) as ReturnType<ReturnType<typeof makeLiveJsonAtom<D>>['read']>;
-};
-
-export const runAction = async <V extends keyof InstanceHost['actions']>(
-  verb: V,
-  ...args: InstanceHost['actions'][V]['args']['Type']
-) => {
-  const response = await fetch(makeApiHref(`/api/actions/${verb}`), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(args),
-  });
-  const body: unknown = await response.json();
-  if (!response.ok)
-    throw new Error((body as { error?: string } | null)?.error ?? `${verb} answered ${response.status}`);
-  return body;
 };

@@ -8,11 +8,12 @@ import { Tracker } from '../src/tracker.ts';
 import { isOnIssue } from '../src/graph.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
 import { Store } from '../src/store.ts';
-import { begin, type Run } from '../src/workflow.ts';
+import { begin } from '../src/workflow.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { bodies, services, settleLongAgo, world } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { findStatus, issuePath } from './kit.ts';
+import { type Run } from '../src/types.ts';
 
 const small = makeTestGraph('graph');
 const { branch: _branch, ...unbranched } = small.workflows.issue!;

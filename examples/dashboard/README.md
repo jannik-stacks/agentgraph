@@ -5,7 +5,7 @@ It adds no engine service, storage or npm dependency.
 Its charts are plain SVG drawn with d3-scale, which the studio provides to page plugins.
 
 Copy `plugins/dashboard.ts` and `plugins/dashboard/` into your graph's `plugins/` folder.
-They use the public plugin entry and the `InstanceHost` type from `@jannik-stacks/agi/trackers`.
+They use the public plugin entry and the `InstanceHost` type from `@jannik-stacks/agi/plugins`.
 Copy the `plugins.dashboard` block from settings.yaml into your graph's settings.yaml.
 The page reads runs and tracker events through the instance host. There is no `data` setting in `plugins.dashboard`.
 

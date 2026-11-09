@@ -1,7 +1,6 @@
-import type { Agent, Check } from '../../../src/folder.ts';
-import type { Doc, Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
+import type { Doc, Step, Workflow } from '../../../src/workflow.ts';
+import { type Agent, type Check, type Outcome, type Run, type Trace } from '../../../src/types.ts';
 import type * as WorkflowModule from '../../../src/workflow.ts';
-import type { Trace } from '../../../src/trace.ts';
 
 export const makeTrailOutcome = (o: Outcome, after: Pick<Run, 'reason'>) =>
   o.kind === 'failed'

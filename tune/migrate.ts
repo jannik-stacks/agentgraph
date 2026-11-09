@@ -7,7 +7,6 @@ import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { readBenchRun } from '../bench/runs.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { readJsonlRows, writeFileAtomic } from '../src/store.ts';
-import type { RunRecord } from '../src/workflow.ts';
 import {
   getTuneLabel,
   readTuneSteps,
@@ -18,6 +17,7 @@ import {
   writeVariantRun,
   writeVariantTest,
 } from './runs.ts';
+import { type RunRecord } from '../src/types.ts';
 
 type OldStep = Omit<TuneStep, 'parent' | 'base' | 'evals'> & {
   parent: string;

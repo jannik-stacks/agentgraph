@@ -7,7 +7,8 @@ import { promisify } from 'node:util';
 import { Cause, Duration, Effect, Layer, Queue, Redacted, Stream } from 'effect';
 import { gitIdentity, readBranches } from '../../src/git.ts';
 import { removeBranch } from '../../src/disk.ts';
-import { Sandbox, SandboxError, type Checkout, type Command, type Exit } from '../../src/sandbox.ts';
+import { Sandbox, SandboxError } from '../../src/sandbox.ts';
+import { type Checkout, type Command, type Exit } from '../../src/types.ts';
 
 const git = promisify(execFile);
 

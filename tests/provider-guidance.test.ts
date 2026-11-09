@@ -3,8 +3,8 @@ import { cpSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { findLoginProvider } from '../src/status.ts';
-import type { Trace } from '../src/trace.ts';
 import { git, tmp, write } from './kit.ts';
+import { type Trace } from '../src/types.ts';
 
 describe('provider guidance', () => {
   it('finds the provider of the latest failed session by its trace key', () => {

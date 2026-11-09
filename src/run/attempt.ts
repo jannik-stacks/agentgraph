@@ -2,22 +2,13 @@ import { writeFile } from 'node:fs/promises';
 import { Schema, Result, Effect, Option } from 'effect';
 import { Said, type Proposal } from '../proposal.ts';
 import { type IssueWithPull, news, formatSqueezed, formatRequest, context } from '../context.ts';
-import {
-  type Outcome,
-  type Run,
-  type Seen,
-  type Step,
-  unchanged,
-  type Workflow,
-  type CheckResult,
-  pickCommandTarget,
-} from '../workflow.ts';
-import { type Checkout, inside, SandboxError } from '../sandbox.ts';
+import { type Step, unchanged, type Workflow, pickCommandTarget } from '../workflow.ts';
+import { inside, SandboxError } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
 import { getStepReturns } from '../graph.ts';
-import { SessionStop, pickUsed } from '../trace.ts';
-import { type TrackerError, Tracker } from '../tracker.ts';
-import { type StoreError, Store } from '../store.ts';
+import { pickUsed } from '../trace.ts';
+import { Tracker } from '../tracker.ts';
+import { Store } from '../store.ts';
 import { writeCheckoutTree, readGit } from '../git.ts';
 import type { Applied } from '../event.ts';
 import {
@@ -53,6 +44,16 @@ import {
   useRunLink,
   removeThreads,
 } from './settle.ts';
+import {
+  type CheckResult,
+  type Checkout,
+  type Outcome,
+  type Run,
+  type Seen,
+  SessionStop,
+  type StoreError,
+  type TrackerError,
+} from '../types.ts';
 
 const decodeProposal = Schema.decodeUnknownResult(Said, {
   onExcessProperty: 'error',

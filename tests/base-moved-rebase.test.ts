@@ -3,13 +3,14 @@ import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { tick } from '../src/run/trigger.ts';
-import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
+import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Store } from '../src/store.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { git, issuePath, writeIssueAt } from './kit.ts';
 import { graph, services, readTrace } from './world.ts';
 
 import { parked, moved, behind, rebases, merging } from './base-moved-fixtures.ts';
+import { type Command } from '../src/types.ts';
 describe('a base that moved', () => {
   const ran = (commands: Command[], script: string) => commands.some(c => c.args.includes(script));
   it('keeps merge-only edits when file-tracker cannot rebase their history', async () => {

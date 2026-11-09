@@ -6,13 +6,13 @@ import { runPass, scanIssuesAndRunningRuns, scanTrackerEvents, startLoopDrives }
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionSpec } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { issuePath, write, writeIssueAt } from './kit.ts';
 import type { Graph } from '../src/folder.ts';
 import { comment, fresh, readChecks, readTrace, say, services, world } from './world.ts';
+import { type SessionSpec } from '../src/types.ts';
 
 const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
 const flow = {

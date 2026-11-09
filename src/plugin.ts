@@ -17,6 +17,7 @@ import {
   SchemaRepresentation,
 } from 'effect';
 import type { Issue, IssueStatus } from './event.ts';
+import type { InstanceHosts } from './types.ts';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -48,6 +49,7 @@ export type ToolContext<S = undefined> = {
 } & Pick<ToolExecutionOptions<unknown>, 'abortSignal'>;
 
 export { issueStatuses } from './event.ts';
+export type { InstanceHost, InstanceHosts } from './types.ts';
 
 export type TrackerHost = {
   repo: string;
@@ -145,7 +147,7 @@ export const makePlugin = <
   D = unknown,
   I = D,
   T = unknown,
-  H = unknown,
+  H = InstanceHosts,
   L extends Layer.Layer<never, unknown> = Layer.Layer<never, unknown>,
 >(
   definition: Omit<typeof PluginFile.Type, 'settingsSchema' | 'tools' | 'on' | (typeof members)[number]> & {
@@ -218,7 +220,7 @@ export const readPlugins = async (
   }: {
     isReserved?: (name: string) => boolean;
     builtins?: readonly unknown[];
-    instances?: Readonly<Record<string, unknown>>;
+    instances?: InstanceHosts;
   } = {}
 ) => {
   const plugins = new Map<string, string>();

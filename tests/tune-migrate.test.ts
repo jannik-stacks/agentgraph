@@ -4,10 +4,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { readRunLabels } from '../src/labels.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { readRecordSync, writeFileAtomic } from '../src/store.ts';
-import type { RunRecord } from '../src/workflow.ts';
 import { readTuneMigration, writeTuneMigration } from '../tune/migrate.ts';
 import { readTuneSteps } from '../tune/runs.ts';
 import { git, tmp } from './kit.ts';
+import { type RunRecord } from '../src/types.ts';
 
 const dirs: string[] = [];
 afterEach(() => {

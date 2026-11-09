@@ -5,12 +5,12 @@ import { join } from 'node:path';
 import { ConfigProvider, Deferred, Effect, Fiber, Logger, Option, Redacted, Result, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it, vi } from 'vitest';
-import { Tracker, TrackerError, currentRunLinkRef } from '../src/tracker.ts';
+import { Tracker, currentRunLinkRef } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { githubTracker } from '../src/github.ts';
 import { makeProductionLayers, settings } from '../src/services.ts';
-import type { Checkout } from '../src/sandbox.ts';
 import { tmp } from './kit.ts';
+import { type Checkout, TrackerError } from '../src/types.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,

@@ -31,9 +31,8 @@ import { transcript } from '../src/context.ts';
 import { readConfiguredGraph } from '../src/harnesses.ts';
 import type { Graph } from '../src/folder.ts';
 import { writeFileAtomic } from '../src/store.ts';
-import type { CheckEntry, Trace } from '../src/trace.ts';
-import type { Run } from '../src/workflow.ts';
 import { readTuneSteps } from './runs.ts';
+import { type CheckEntry, type Run, type Trace } from '../src/types.ts';
 
 export type Proposer = 'retro' | 'history' | 'structure';
 /** One file edit: `content` writes the file, `old` with `new` replaces one unique snippet, `delete` removes it. */

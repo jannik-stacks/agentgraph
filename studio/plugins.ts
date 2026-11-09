@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { Effect, Schema } from 'effect';
 import { JsonValue } from '../src/meta.ts';
-import type * as EngineModule from '../src/engine.ts';
+import type { InstanceHosts } from '../src/types.ts';
 import type * as FolderModule from '../src/folder.ts';
 import type * as ReadModule from '../src/read.ts';
 import type * as PluginModule from '../src/plugin.ts';
@@ -50,14 +50,14 @@ const makeResultsPlugin = async (served: ServedGraph) => {
   });
 };
 
-const readHosts = (served: ServedGraph[]): EngineModule.InstanceHosts =>
+const readHosts = (served: ServedGraph[]): InstanceHosts =>
   Object.fromEntries(
     served.flatMap(({ name, host, problems }) =>
       host || problems.length ? [[name, host ?? { why: problems.map(p => p.message).join('; ') }]] : []
     )
   );
 
-const readFolderPages = async (dir: string | undefined, instances: EngineModule.InstanceHosts) => {
+const readFolderPages = async (dir: string | undefined, instances: InstanceHosts) => {
   if (!dir) return [];
   const { readPlugins } = await readModule<typeof PluginModule>('src/plugin.ts');
   const { parseGraphSettings } = await readModule<typeof FolderModule>('src/folder.ts');

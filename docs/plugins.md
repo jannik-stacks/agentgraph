@@ -212,8 +212,8 @@ Schema for its data and a `read(settings, hosts)` effect. Optional `watch(settin
 folders whose changes refresh the page, such as each instance's `host.data`, watched two levels deep without run checkouts or caches. The reader gets this plugin's decoded
 settings and one host per instance, keyed by instance name. Each host has its `data` folder, `store` (`list`, `listRecords`, `getRecord`, `read`,
 `readChecks`, `readLog`), `tracker` (`issues`, `issue`, `since`), `readRuns()`, each run with its labels and
-latest checks, and `actions`. These are the
-reads the studio's own Runs and Graph pages use. Type the hosts with `InstanceHosts` from `@jannik-stacks/agi/trackers`,
+latest checks. These are the
+reads the studio's own Runs and Graph pages use. Type the hosts with `InstanceHosts` from `@jannik-stacks/agi/plugins`,
 as in `read(settings, hosts: InstanceHosts)`. An instance that failed to load appears as `{ why }` instead of a host,
 so a page can show the reason. Loading declarations calls `watch`, but does not call `read` or import TSX. Host code
 remains trusted; namespaces are not isolation.
@@ -223,8 +223,8 @@ gets only that instance. A plugin in the studio's plugins folder is a studio pag
 `agi studio --plugins <dir>` or `npm run dev -- --plugins <dir>` names that folder, else `AGENTGRAPH_STUDIO_PLUGINS`
 in the shell. It has the layout of a graph: plugins in `plugins/`, their settings under `plugins:` in `settings.yaml`. Every plugin there needs a studio page, since pages are all the folder serves.
 Only the operator names it, so a repo's graph never reads another instance.
-<!-- code: studio/plugins.ts#readFolderPages studio/plugins.ts#readHosts studio/dev.ts src/engine.ts#InstanceHosts -->
-<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/engine.ts#InstanceHost src/engine.ts#makeInstanceHost -->
+<!-- code: studio/plugins.ts#readFolderPages studio/plugins.ts#readHosts studio/dev.ts src/types.ts#InstanceHosts -->
+<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/types.ts#InstanceHost src/engine.ts#makeInstanceHost -->
 
 A page default-exports a React component. Set `page: new URL('./Page.tsx', import.meta.url)`;
 Vite compiles it and its CSS. Import `usePluginData` from `@jannik-stacks/agi/studio` in the page.
@@ -233,13 +233,13 @@ exports its UI (`Live`, `Loading`, `Muted`, `Button`, `Select`, `Badge`, `Disclo
 query/navigation atoms and results components through that browser entry.
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin studio/src/ui.tsx#Live studio/src/ui.tsx#Badge studio/src/ui.tsx#Disclosure studio/src/ui.tsx#Tooltip studio/src/state.ts#queryParam studio/src/state.ts#navigateAtom studio/src/results/ResultTable.tsx#ResultTable studio/src/plugins.ts#ResultChart -->
 
-A page acts with `runAction(verb, ...args)`, which runs the host action of that name on the page's
-instance. The instance host defines one action map. Each verb has an argument schema and a handler. `runAction('say', 12, 'go on')` posts `/agent go on` like `agi say`, and
-`runAction('label', runId, { arm: 'base' })` sets run labels like `agi label`. `say` takes the same
-[commands](workflows.md#commands), so `':restart:implement'` or `':stop'` reach a run under the graph's
-`commands` gate. It posts only to a local tracker. The studio never drives; a running loop picks the
-comment up. Loop verbs such as `stop` and `restart` stay with the CLI, since one loop serves several instances. The studio accepts actions only as JSON posts to `/api/actions/<verb>`, behind the [auth](#auth) gate's origin check.
-<!-- code: src/engine.ts#makeInstanceHost src/engine.ts#makeAction studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
+The studio serves the instance's actions, the verbs the CLI runs through the same Effect RPC group, as NDJSON
+posts to `/api/actions` behind the [auth](#auth) gate. Every call carries the gate's user and is refused without one.
+A studio user gets the reads, `say` and `label`. Resume, dispatch, review, merge, close, export and prune-logs run
+only from the CLI, and a store read through `?data=` is read-only. Loop verbs such as `stop` and `restart` stay with
+the CLI too, since one loop serves several instances.
+<!-- code: src/actions.ts#Actions src/engine.ts#makeActionWebHandler src/engine.ts#runLocalActions studio/fixtures.ts#makeStudioDevApiPlugin studio/src/state.ts#runAction -->
+<!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 
 Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named
 instances, instance pages sit under `/<instance>` and each reads its own instance's plugin with `?instance=<instance>`.

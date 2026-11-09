@@ -49,7 +49,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `plugins`   | map                                                             | none                       | Settings decoded by each [plugin's](plugins.md) `settingsSchema`                                                                            |
 | `limits`    | map                                                             | below                      | Caps on a run                                                                                                                               |
 
-`limits`: <!-- code: src/folder.ts#Limits src/workflow.ts#CommandLimits src/docker.ts#limits -->
+`limits`: <!-- code: src/folder.ts#Limits src/types.ts#CommandLimits src/docker.ts#limits -->
 
 | Field         | Type               | Default | Meaning                                                                                                              |
 | ------------- | ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -60,7 +60,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `parallel`    | integer            | 2       | Concurrent runs; router runs take no slot                                                                            |
 | `sessions`    | integer            | 4       | Concurrent sessions and scripts of one instance, judges included <!-- code: src/run/execute.ts#sessionPermitsRef --> |
 
-Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). The `box` runner refuses resource overrides, a graph `image` and agents with host tools. Step `limits` override only the named fields; other steps keep the graph limits. <!-- code: src/workflow.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks -->
+Memory sizes use integer bytes or a `b`, `k`, `m` or `g` suffix (case insensitive). The `box` runner refuses resource overrides, a graph `image` and agents with host tools. Step `limits` override only the named fields; other steps keep the graph limits. <!-- code: src/types.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks -->
 
 Sessions, script checks, fan-out commands and setup share permits. Each releases its permit before checks or judges start. In `agi loop`, each instance has its own permits; other commands share one set, sized by the graph in use. Check findings still return together after every check settles. <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#sessionPermitsRef src/run/check.ts#runStepChecks -->
 
@@ -115,7 +115,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 ## Agents
 
-`agents/<name>.md`. The body is added to the harness's system prompt. <!-- code: src/folder.ts#Agent -->
+`agents/<name>.md`. The body is added to the harness's system prompt. <!-- code: src/types.ts#Agent -->
 
 | Field     | Type                   | Default                                       | Meaning                                                                              |
 | --------- | ---------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -127,7 +127,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 ## Checks
 
-`checks/<name>.md`, with `run`, `agent` or both. The body is its description; see [Checks and results](checks.md). <!-- code: src/folder.ts#Check src/result.ts#CheckMode src/run/checkout.ts#findFanOutItems src/run/checkout.ts#most -->
+`checks/<name>.md`, with `run`, `agent` or both. The body is its description; see [Checks and results](checks.md). <!-- code: src/types.ts#Check src/result.ts#CheckMode src/run/checkout.ts#findFanOutItems src/run/checkout.ts#most -->
 
 | Field     | Type                              | Default        | Meaning                                               |
 | --------- | --------------------------------- | -------------- | ----------------------------------------------------- |

@@ -7,8 +7,7 @@ import { getRunOrigin } from '../src/meta.ts';
 import { startRun } from '../src/run/start.ts';
 import { getRounded, sum } from '../src/stats.ts';
 import { fileStore, readJsonlRows, Store } from '../src/store.ts';
-import type { CheckEntry } from '../src/trace.ts';
-import type { CheckResult, RunRecord } from '../src/workflow.ts';
+import { type CheckEntry, type CheckResult, type RunRecord } from '../src/types.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 export type Flip = 'up' | 'down' | 'win' | 'loss';

@@ -11,8 +11,8 @@ import { removeRunLink, type Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { settings, type Settings } from '../src/services.ts';
 import { Session } from '../src/session.ts';
-import { fileStore, Store, StoreError } from '../src/store.ts';
-import { begin, type Run } from '../src/workflow.ts';
+import { fileStore, Store } from '../src/store.ts';
+import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
@@ -21,6 +21,7 @@ import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { graph, w, removeAfter, world, push, pull, services, reactions, fresh, say, comment } from './world.ts';
 
 import { small, issue, merging, waiting } from './tick-fixtures.ts';
+import { type Run, StoreError } from '../src/types.ts';
 const card = (project: string, name: string, trusted: boolean): Event => ({
   issue: 7,
   kind: 'column',

@@ -1,7 +1,7 @@
 import { isAbsolute } from 'node:path';
 import { Effect, Schema } from 'effect';
 import { makePlugin } from '@jannik-stacks/agi/plugins';
-import type { InstanceHosts } from '@jannik-stacks/agi/trackers';
+import type { InstanceHosts } from '@jannik-stacks/agi/plugins';
 import { makeSetHost, readBenchData } from '../../../../bench/runs.ts';
 import { BenchData } from './bench/data.ts';
 

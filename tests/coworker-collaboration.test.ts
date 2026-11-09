@@ -4,12 +4,11 @@ import { Effect, Layer, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
-import { folderTracker, Tracker, TrackerError } from '../src/tracker.ts';
+import { folderTracker, Tracker } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
-import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 import { begin, cancelled, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
@@ -32,6 +31,7 @@ import {
   pullRequest,
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { type SessionEvent, type SessionSpec, TrackerError } from '../src/types.ts';
 
 describe('coworker', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
@@ -530,13 +530,14 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'comment', body: 'Said bye.' })],
     ]);
     const at = () => new Date(Date.now() + 1).toISOString();
-    const review = comment(8, 'morgan', true, '/agent yes, bye too', '');
+    let review = comment(8, 'morgan', true, '/agent yes, bye too', '');
     const [again, done] = await run(
       Effect.gen(function* () {
         yield* runWorkflow(flow, begun(), small);
         say(where, comment(8, 'morgan', true, '/agent hello', at()));
         const [again] = yield* tick(small, 7);
-        review.at = review.comment!.at = review.comment!.id = at();
+        const now = at();
+        review = { ...review, at: now, comment: { ...review.comment!, at: now, id: now } };
         say(where, { ...review, comment: { ...review.comment!, path: 'hello.txt', line: 1 } });
         const [done] = yield* tick(small, 7);
         return [again, done];

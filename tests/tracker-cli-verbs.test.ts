@@ -6,11 +6,11 @@ import type { Proposal } from '../src/proposal.ts';
 import { loadGraph } from '../src/folder.ts';
 import { writeTriggeringIssue } from '../src/main.ts';
 import { folderTracker } from '../src/tracker.ts';
-import type { SessionEvent } from '../src/trace.ts';
 import { harnesses, reply, start, wrote } from './fixtures.ts';
 import { git, issuePath, writeIssueAt } from './kit.ts';
 
 import { makeTrackerWorld as world } from './tracker-cli-fixtures.ts';
+import { type SessionEvent } from '../src/types.ts';
 const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');
 
 describe('the human verbs on a tracker folder', () => {

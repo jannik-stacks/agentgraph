@@ -5,7 +5,8 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { Effect, Semaphore } from 'effect';
-import { SandboxError, type Checkout } from './sandbox.ts';
+import { SandboxError } from './sandbox.ts';
+import { type Checkout } from './types.ts';
 
 export const indexLock = Semaphore.makeUnsafe(1);
 

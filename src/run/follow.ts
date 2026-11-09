@@ -1,14 +1,13 @@
 import { Effect, Stream } from 'effect';
-import { type Checkout, Sandbox } from '../sandbox.ts';
+import { Sandbox } from '../sandbox.ts';
 import { readGit, gitIdentity, writeCheckoutTree, hostGit, mergeTreeOnto } from '../git.ts';
-import { type Workflow, type Run, isRunDone, isHumanWaitStep, formatFailedTryFeedback } from '../workflow.ts';
+import { type Workflow, isRunDone, isHumanWaitStep, formatFailedTryFeedback } from '../workflow.ts';
 import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
 import { Tracker } from '../tracker.ts';
 import type { Issue, Applied } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { context } from '../context.ts';
-import { SessionStop } from '../trace.ts';
 import { getStepReturns } from '../graph.ts';
 import { formatTemplate, readIssueWithPull } from './hear.ts';
 import { writeAppliedTrace, writeStatus, removeThreads, writeProposals, useRunLink } from './settle.ts';
@@ -17,6 +16,7 @@ import { runSetup } from './checkout.ts';
 import { runStepChecks } from './check.ts';
 import { shapes, parseProposals, findUngranted } from './attempt.ts';
 import { makeAgentSessionSpec, runSession } from './execute.ts';
+import { type Checkout, type Run, SessionStop } from '../types.ts';
 
 /** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
 export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =>

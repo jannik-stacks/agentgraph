@@ -1,6 +1,5 @@
 import type { Event, Issue } from './event.ts';
-import type { Trace } from './trace.ts';
-import type { Run } from './workflow.ts';
+import { type Run, type Trace } from './types.ts';
 
 export const findLoginProvider = (trace: Trace[], step: Run['step']) => {
   const outcome = trace.findLast(line => 'outcome' in line);
@@ -29,7 +28,7 @@ export const findLoginProvider = (trace: Trace[], step: Run['step']) => {
 };
 
 export const findRunsWaitingOnPeople = <R extends Pick<Run, 'id' | 'status' | 'reason' | 'by' | 'started'>>(
-  runs: R[]
+  runs: readonly R[]
 ) =>
   runs
     .filter(run => run.status === 'waiting' && !runs.some(c => c.by === run.id && run.reason === `waiting on ${c.id}`))
@@ -58,7 +57,7 @@ export const formatNextSteps = (
   ];
 };
 
-export const formatIssueList = (issues: Issue[]) =>
+export const formatIssueList = (issues: readonly Issue[]) =>
   issues
     .map(
       t =>
@@ -66,7 +65,7 @@ export const formatIssueList = (issues: Issue[]) =>
     )
     .join('\n');
 
-export const formatIssueTimeline = (t: Issue & { events: Event[] }, diff: string) =>
+export const formatIssueTimeline = (t: Issue & { events: readonly Event[] }, diff: string) =>
   [
     `#${t.number} ${t.state} ${t.title} by ${t.author}${t.labels.length ? ` [${t.labels.join(', ')}]` : ''}\n\n${t.body}\n`,
     ...t.events.map(m => {

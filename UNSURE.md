@@ -9,9 +9,29 @@ Decisions made without being sure. Each names what was picked and what would cha
 - **The Modal client type is written from the libmodal sources**, not checked against an installed SDK; nothing was installed. The live smoke test is the check, and it was not run here.
 - **Modal reads `box.sh` from `examples/deploy/cloudflare/`**, so a copied plugin needs that file beside it or a path change.
 - **`makeBoxRunner` takes `data` first**, for its host-side sync dirs, and a box's `run` now yields a final `{ code }` instead of the exit frame line, so a runner that is not HTTP never formats a frame.
-- `resume` is not an action yet. Its function, `instruct` with a resume instruction, needs the engine's full
-  services (`start` with a tracker setup and harness choice). Running that inside the studio process felt too
-  heavy. `say <n> ":restart"` and `":stop"` cover the per-issue cases through the `commands` gate.
+- `resume` is an action only where a host can drive: the CLI and a studio of named instances. A plain studio
+  refuses it with "this host serves no instance", since it has no instance to start from.
+- The CLI calls actions in process through the same HTTP codec as the studio and never reaches a remote host, so
+  there is no remote write to fall back from. A loop that serves the group (planned) must keep that: a failed
+  remote call is reported, never retried locally.
+- `show`, `say`, `label`, `review`, `merge`, `close`, `instruct` (resume, dispatch, `check --runs`), `log`,
+  `verdicts`, `runs`, `results`, `watch`, `export` and `prune` are actions. Left as they are:
+  - `start` and `import` stay CLI code. `start` needs the loaded graph and the CLI's harness checks before it
+    files the issue, and `import` needs the package version; each would add about +10 production lines, past the
+    +260 budget for this branch.
+  - `locate` and plugin data stay routes: `locate` searches every served instance, and plugin data is JSON each
+    page decodes with its own schema, so an action would add no typing.
+  - `runs` and `results` are typed `Schema.Unknown`. Their rows are built by studio helpers
+    (`studio/src/runs/trace.ts`, `bin/results.ts`), so the engine group has an empty default and the studio
+    bridge passes its own handlers to `makeActionWebHandler`. A typed schema would need those helpers in `src/`.
+  - `watch` polls the store once a second on the host, emits only on change, and keeps one sliding slot per
+    subscriber, so a slow client gets the newest full list. A failed read ends the stream; the CLI prints it and
+    stops watching, where the old poll printed and kept polling. The studio keeps its change topics: moving the
+    live pages onto `watch` would not delete more than it adds.
+- A loop that serves the group would listen on `127.0.0.1:0` and write its URL atomically into its lock holder
+  file. `agi say` and the other actions would call that URL when a loop holds the instance and report a failed
+  call without retrying locally. Run lists would stream as `watch { issue }`, coalesced per tick, with one bounded
+  queue per subscriber that resets a slow client to a fresh list.
 - `stop` and `restart` stay CLI-only: they signal or spawn a loop process that may serve several instances.
 - Actions are offered to every page and every reader, graph-local or operator: the maintainer chose no
   distinction for now. Pages share the studio origin anyway, so a gate on the page's name would be forgeable.
@@ -30,14 +50,14 @@ Decisions made without being sure. Each names what was picked and what would cha
   GitHub scans back to back.
 - `readStudioPages` hands the instance host to graph plugins whose graph may come from the repo. Reads there
   add no authority beyond what host code already has, but it is worth a second look.
-- `/api/results` and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
+- The `results` action and the Results plugin still read the same sheet twice through `bin/results.ts`. Moving
   `readRunResults` onto the instance store would make one path; it reads sync files today.
 - `InstanceHost` is exported from `@jannik-stacks/agi/trackers`, not `/plugins`. `src/plugin.ts` must stay a
   leaf for the import-cycle lint, and the host type pulls in the tracker and store. A reader types its own
   host parameter; `makePlugin` infers it, so nothing checks that the served host matches at compile time.
 - Left from the studio review: the dashboard keeps its `why` field (the page would derive it from source and
   skips), `InstanceHost` keeps `tracker.issues`/`issue` and `store.readLog`/`getRecord` (the trim waits on the
-  types refactor), and a bench data folder still gets a whole instance host for its store. The `ResultBadge`
+  types refactor), and a `?data=` store still gets a whole instance host for its store. The `ResultBadge`
   wrapper stays: `runRow` is a plain function, so the hook needs that component.
 - **Studio auth is one gate for every served instance.** Each instance's env file and graph may pick it, but a studio
   of several refuses to start unless they agree on the name, the plugin settings and every `AGENTGRAPH_AUTH` and
@@ -58,3 +78,8 @@ Decisions made without being sure. Each names what was picked and what would cha
   empty there where it used to be the graph's title. Keying by title would break the run links, which need the
   served name. A studio page named `graph` or `data` shares those unscoped change topics, as a plain-mode graph
   plugin already does; reserving the two names would close it.
+- The action gate stamps a per-handler random key into the user header, because Effect's HTTP RPC server merges
+  headers a client writes into the NDJSON body. The studio gate already refuses anonymous requests, so the
+  middleware is a second gate; dropping it would save about 12 lines.
+- `agi` watch output during a drive resubscribes once a second after a failed store read; no test covers the CLI
+  watch output, since it only prints during a live drive.

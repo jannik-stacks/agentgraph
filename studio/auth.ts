@@ -59,6 +59,10 @@ const readStudioAuth = async (served: ServedGraph[]) => {
   return { name, check: chosen[0]!.auth({ env }), env, key };
 };
 
+const users = new WeakMap<IncomingMessage, string>();
+
+export const readRequestUser = (req: IncomingMessage) => users.get(req);
+
 const isCrossOrigin = ({ headers }: IncomingMessage) => {
   if (['cross-site', 'same-site'].includes(headers['sec-fetch-site'] ?? '')) return true;
   if (headers.origin === undefined) return false;
@@ -168,6 +172,7 @@ export const makeStudioAuthPlugin = (served = makeServedGraphs()): Plugin => ({
       const form = body === undefined ? undefined : new URLSearchParams(body);
       const { result, session } = await readAccess(req, url, form);
       if (result.kind === 'user') {
+        users.set(req, result.user);
         if (onLogin && !session) await writeSession(req, res, result.user, Math.floor(Date.now() / 1000));
         if (onLogin) return redirect(res, 303, '/');
         if (session?.stale) await writeSession(req, res, session.user, session.since);

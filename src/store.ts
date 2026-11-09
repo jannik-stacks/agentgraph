@@ -15,13 +15,20 @@ import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'nod
 import { basename, dirname, join } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { gunzip, gzip, zstdCompress, zstdDecompress, zstdDecompressSync } from 'node:zlib';
-import { Context, Data, Effect, Result, Layer, Schema, Stream, type Scope, Semaphore } from 'effect';
+import { Context, Effect, Result, Layer, Schema, Stream, type Scope, Semaphore } from 'effect';
 import { createLock, LockHeldError, waitForLock } from './owner.ts';
-import type { CheckEntry, Log, Trace } from './trace.ts';
-import { isRunDone, type Run, type RunRecord } from './workflow.ts';
+import { isRunDone } from './workflow.ts';
 import { isOnIssue } from './graph.ts';
 import { PluginMetadata, getRunOrigin } from './meta.ts';
-import { formatCause } from './sandbox.ts';
+import {
+  type CheckEntry,
+  type Log,
+  type Run,
+  type RunRecord,
+  StoreError,
+  type Trace,
+  type InstanceHost,
+} from './types.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
 const changes = (before: RunRecord | undefined, next: RunRecord): Trace | undefined => {
@@ -62,30 +69,16 @@ export const writeFileAtomic = (path: string, v: unknown) => {
 /** Which check output the store keeps: every run's, only failing ones', or none. */
 export const checkLogs = ['all', 'failed', 'off'] as const;
 
-export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {
-  override get message() {
-    return `${this.path}: ${formatCause(this.cause)}`;
-  }
-}
-
 /** Runs, traces and run files in the data dir. */
 export class Store extends Context.Service<
   Store,
-  {
+  InstanceHost['store'] & {
     get: (id: string) => Effect.Effect<Run | undefined, StoreError>;
-    getRecord: (id: string) => Effect.Effect<RunRecord | undefined, StoreError>;
-    list: (filter?: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>>) => Effect.Effect<Run[], StoreError>;
-    listRecords: (
-      filter?: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>>
-    ) => Effect.Effect<RunRecord[], StoreError>;
     put: (run: RunRecord) => Effect.Effect<void, StoreError>;
     trace: (id: string, ...lines: Trace[]) => Effect.Effect<void, StoreError>;
-    read: (id: string, from?: number) => Stream.Stream<Trace, StoreError>;
     addChecks: (id: string, ...entries: CheckEntry[]) => Effect.Effect<void, StoreError>;
-    readChecks: (id: string) => Effect.Effect<CheckEntry[], StoreError>;
     lock: (name: string) => Effect.Effect<void, StoreError, Scope.Scope>;
     log: (output: string, pass: boolean) => Effect.Effect<Log | undefined, StoreError>;
-    readLog: (hash: string) => Effect.Effect<string | undefined, StoreError>;
     putFile: (bytes: Uint8Array, signal: AbortSignal) => Effect.Effect<string, StoreError>;
     readFile: (hash: string) => Effect.Effect<Uint8Array, StoreError>;
   }

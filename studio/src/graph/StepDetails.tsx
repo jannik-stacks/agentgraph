@@ -1,9 +1,8 @@
 import { useAtomValue } from 'jotai';
 import { type ReactNode, useState } from 'react';
 import { makeWorkflowGraph } from '../../../src/graph.ts';
-import type { Trace } from '../../../src/trace.ts';
 import type { Line } from '../runs/trace.ts';
-import type { CheckResult, Step, Workflow } from '../../../src/workflow.ts';
+import type { Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunLine } from '../runs/rows.tsx';
 import { runAtom, runsAtom } from '../state.ts';
@@ -11,6 +10,7 @@ import { atLink } from '../runs/trace.ts';
 import { accent, cx, Field, Fields, Link, Live, Tooltip } from '../ui.tsx';
 import { checkModeTips, Section, Term, To } from './panel.tsx';
 import type { Fixture, RunDrawnOnWorkflow } from './scenarios.ts';
+import { type CheckResult, type Trace } from '../../../src/types.ts';
 
 const Prompt = ({ title, text }: { title: string; text: string }) => (
   <Section title={title}>

@@ -26,7 +26,7 @@ import { loadGraph } from '../src/folder.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { start as main, writeTriggeringIssue } from '../src/main.ts';
 import { createLoopLock, findLoopLock, readLoopHolder } from '../src/owner.ts';
-import type { SessionEvent } from '../src/trace.ts';
+import type { SessionEvent } from '../src/types.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, start, wrote } from './fixtures.ts';

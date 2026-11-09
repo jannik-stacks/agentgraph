@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { transcript } from '../src/context.ts';
-import type { CheckEntry, Trace } from '../src/trace.ts';
-import type { Run } from '../src/workflow.ts';
+import { type CheckEntry, type Run, type Trace } from '../src/types.ts';
 
 const run: Run = {
   id: 'issue-21-1',

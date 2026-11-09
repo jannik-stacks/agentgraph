@@ -1,6 +1,5 @@
 import { Schema } from 'effect';
 import type { Harness, Piece } from '../src/harnesses.ts';
-import type { SessionEvent } from '../src/trace.ts';
 import { makeResultServer } from '../src/result.ts';
 import {
   makeCacheCounts,
@@ -10,6 +9,7 @@ import {
   some,
   splitToolPattern,
 } from './helpers.ts';
+import { type SessionEvent } from '../src/types.ts';
 
 const { String: Str, Number: Num, Unknown, Struct, optional: opt } = Schema;
 

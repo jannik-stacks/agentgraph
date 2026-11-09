@@ -1,5 +1,3 @@
-import type { CheckEntry } from '../../../src/trace.ts';
-import type { RunRecord } from '../../../src/workflow.ts';
 import type { Fixture } from './scenarios.ts';
 
 export const splitSelection = (selected: string | null) => {
@@ -9,50 +7,6 @@ export const splitSelection = (selected: string | null) => {
     return (kind === 'check' || kind === 'agent') && name ? [{ kind, name }] : [];
   });
   return { workflow, step, trail };
-};
-
-export const findCheckVerdicts = (
-  runs: { run: Pick<RunRecord, 'id' | 'issue'>; checks: CheckEntry[] }[],
-  step: string,
-  check: string
-) => {
-  const byTime = new Map<
-    string,
-    {
-      run: string;
-      issue: number | undefined;
-      at: string;
-      pass: boolean;
-      empty: boolean;
-      findings?: string | undefined;
-      items: number;
-      failed: number;
-    }
-  >();
-  for (const { run, checks } of runs) {
-    for (const line of checks) {
-      if (line.step !== step || line.check.check !== check) continue;
-      const key = `${run.id}@${line.at}`;
-      const v = byTime.get(key) ?? {
-        run: run.id,
-        issue: run.issue,
-        at: line.at,
-        pass: true,
-        empty: false,
-        items: 0,
-        failed: 0,
-      };
-      v.pass &&= line.check.pass;
-      v.empty ||= line.check.empty === true;
-      if (line.item === undefined) v.findings = line.check.findings;
-      else {
-        v.items++;
-        if (!line.check.pass) v.failed++;
-      }
-      byTime.set(key, v);
-    }
-  }
-  return [...byTime.values()].sort((a, b) => b.at.localeCompare(a.at));
 };
 
 export const findAgentUses = (fixtures: Fixture[], agent: string) => ({

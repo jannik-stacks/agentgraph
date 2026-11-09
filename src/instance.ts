@@ -26,8 +26,8 @@ import type { JsonValue } from './meta.ts';
 import type { Proposal } from './proposal.ts';
 import { formatInstanceFlags, formatShellWord } from './status.ts';
 import { fileStore, writeFileAtomic } from './store.ts';
-import type { RunRecord } from './workflow.ts';
 import { startRun } from './run/start.ts';
+import { type RunRecord } from './types.ts';
 
 export type Instance = Omit<typeof InstanceFile.Type, 'tracker'> & {
   dir: string;
@@ -335,6 +335,11 @@ export const writeComment = async (dir: string, as: string, n: number, body: str
   const pull = await findPull(dir, n);
   if (!pull) throw new Error(`#${n} has no pull request`);
   await writeTrustedEvent(dir, as, { issue: pull.number, kind: 'comment', comment: { body, path, line: Number(at) } });
+};
+
+export const findPullIssue = async (i: Pick<Instance, 'tracker'>, n: number) => {
+  const branch = (await findPull(i.tracker, n))?.pull.branch ?? '';
+  return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 };
 
 export const writeReview = async (

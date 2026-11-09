@@ -39,4 +39,4 @@ Development: [Engine and code](patterns.md), [Bench](bench.md).
 | **retro** | A workflow started by the `feedback` trigger |
 | **trace** | A run's event log |
 
-<!-- code: src/folder.ts#Agent src/folder.ts#SkillFile src/folder.ts#Check src/workflow.ts#Run src/proposal.ts#Said src/run/hear.ts#isRetro src/trace.ts#Trace -->
+<!-- code: src/types.ts#Agent src/folder.ts#SkillFile src/types.ts#Check src/types.ts#Run src/proposal.ts#Said src/run/hear.ts#isRetro src/types.ts#Trace -->

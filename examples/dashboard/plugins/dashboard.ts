@@ -1,6 +1,5 @@
 import { Effect } from 'effect';
-import { makePlugin } from '@jannik-stacks/agi/plugins';
-import type { InstanceHosts } from '@jannik-stacks/agi/trackers';
+import { type InstanceHosts, makePlugin } from '@jannik-stacks/agi/plugins';
 import { DashboardData, DashboardSettings } from './dashboard/data.ts';
 import { readDashboard } from './dashboard/read.ts';
 

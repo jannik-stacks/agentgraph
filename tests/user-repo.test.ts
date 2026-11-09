@@ -33,10 +33,10 @@ import { loadGraph } from '../src/folder.ts';
 import { start as main, writeTriggeringIssue } from '../src/main.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { fileStore } from '../src/store.ts';
-import type { SessionEvent } from '../src/trace.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import { git, tmp } from './kit.ts';
+import { type SessionEvent } from '../src/types.ts';
 
 const sandboxGraph = join(import.meta.dirname, '..', 'examples', 'sandbox');
 const hooks = (
