@@ -231,7 +231,7 @@ parked runs like `agi resume --parked` in a studio of named instances. `say` tak
 `commands` gate. It posts only to a local tracker; a running loop picks the comment up. The studio accepts
 actions only as NDJSON posts to `/api/actions`, behind the [auth](#auth) gate, and every call carries the
 gate's user. A call without one is refused.
-<!-- code: src/actions.ts#Actions src/engine.ts#makeActionWebHandler studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
+<!-- code: src/actions.ts#Actions src/engine.ts#makeActionWebHandler src/engine.ts#makeLocalActionClient studio/src/plugins.ts#runAction studio/fixtures.ts#makeStudioDevApiPlugin src/tracker.ts#writeAgentComment -->
 <!-- code: studio/src/plugins.ts#usePluginData studio/plugins.ts#makeStudioPagesPlugin -->
 
 Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named
