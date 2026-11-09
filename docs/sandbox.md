@@ -33,7 +33,7 @@ Before Docker starts, the runner creates folders for mounts nested inside a bind
 
 Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the runner data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/sandbox.ts#inside src/run/attempt.ts#runAttempt src/docker.ts#dockerRunner src/env.ts#getCheckoutPaths src/env.ts#removeCheckout src/mirror.ts#makeSandbox -->
 
-A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user, and the command runs as uid 1001. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
+A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user and loses its group and other write bits, and the command runs as uid 1001 with no new privileges, so a setuid file left by an earlier command does not help it. Before it starts, the box kills every process an earlier writable command left behind, unless a writable command is still running. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
 `infra/local/sandbox` builds the image. <!-- code: src/docker.ts#ensureImage -->
 
