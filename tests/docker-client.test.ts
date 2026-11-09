@@ -38,15 +38,8 @@ import {
 
 describe('docker with a stand-in docker client', () => {
   const { log, layer, logged } = makeDockerClient();
-  it('still keeps default Docker resources and tmpfs', () => {
-    const args = dockerArgs(command('/work'), 'image', 'name', { mounts: [] });
-    expect(args[args.indexOf('--memory') + 1]).toBe('4g');
-    expect(args[args.indexOf('--memory-swap') + 1]).toBe('4g');
-    expect(args[args.indexOf('--cpus') + 1]).toBe('1.5');
-    expect(args[args.indexOf('--tmpfs') + 1]).toBe('/tmp:rw,exec,nosuid,nodev,size=1g');
-  });
-
   it.each([
+    [{}, '4g', '1.5'],
     [{ memory: '8g' }, '8g', '1.5'],
     [{ cpus: 4 }, '4g', '4'],
     [{ memory: '16g', cpus: 8 }, '16g', '8'],
