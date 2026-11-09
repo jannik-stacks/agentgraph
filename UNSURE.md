@@ -14,10 +14,21 @@ Decisions made without being sure. Each names what was picked and what would cha
 - The CLI calls actions in process through the same HTTP codec as the studio and never reaches a remote host, so
   there is no remote write to fall back from. A loop that serves the group (planned) must keep that: a failed
   remote call is reported, never retried locally.
-- The branch stopped at +300 net lines. `show`, `say`, `label`, `review`, `merge`, `close` and `instruct` (resume,
-  dispatch, `check --runs`) are actions. `start`, `export`, `import` and `prune-logs`, the studio reads
-  (`/api/runs`, `logs`, `results`, `locate`, `verdicts`, plugin data) and `watch` are not yet: the reads need output
-  schemas for run summaries, result tables and verdicts, and `start` needs the loaded graph on the host.
+- `show`, `say`, `label`, `review`, `merge`, `close` and `instruct` (resume, dispatch, `check --runs`) are actions.
+  Estimates for the rest, as lines added / deleted in production code:
+  - `runs` and `run`: +30 / -11. A schema for the listed run (summary, links, labels) and the run with its trace;
+    the summary helpers move from `studio/src/runs/trace.ts` into `src/`; bench dirs need a host per bench folder.
+  - `log`: +6 / -10. A `log { hash }` action returning text replaces the route and the fetch in `rows.tsx`.
+  - `results`: +20 / -8. Needs a schema for the result tables `bin/results.ts` builds.
+  - `locate`: +8 / -12. It searches every served instance, so the page calls each instance's group in turn.
+  - `verdicts`: +12 / -20. `findCheckVerdicts` moves into `src/`; its rows need a small schema.
+  - plugin data: +6 / -8. Each plugin brings its own schema, so the action returns JSON and the page decodes it;
+    no typing gain.
+  - studio pages: +15 / -12. A browser client and a live atom over it replace the fetch and error parsing in
+    `makeLiveJsonAtom`.
+  - `watch`: +29 / -18. A bounded, coalescing stream replaces the CLI's one-second `watchRuns` poll; replacing the
+    studio's change topics with it as well would delete about 20 more lines but touches every live page.
+  - `start`, `export`, `import`, `prune-logs`: about +10 each, nothing to delete until the studio calls them.
 - A loop that serves the group would listen on `127.0.0.1:0` and write its URL atomically into its lock holder
   file. `agi say` and the other actions would call that URL when a loop holds the instance and report a failed
   call without retrying locally. Run lists would stream as `watch { issue }`, coalesced per tick, with one bounded
