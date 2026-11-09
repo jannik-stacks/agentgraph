@@ -121,7 +121,7 @@ plugins:
 
 ## Trust and scope
 
-Owners, members and collaborators steer the bot; label actors need write access. Trust comes from the [instance settings](local.md#named-instances-and-settings): `AGENTGRAPH_TRUST`, the instance file's `trust`, or its `owner`. Graph `settings.yaml` refuses `trust`. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. By default, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker src/settings.ts#getSettings src/harnesses.ts#readOverrides src/settings.ts#InstanceFile src/folder.ts#GraphSettings -->
+Owners, members and collaborators steer the bot; label actors need write access. Trust comes from the [instance settings](local.md#named-instances-and-settings): `AGENTGRAPH_TRUST`, the instance file's `trust`, or its `owner`. A graph that sets `trust` in `settings.yaml` fails to load. Outsiders start nothing and agents never see their text. A graph that fails to load trusts nobody. By default, the instance owner is the only trusted login. <!-- code: src/github.ts#githubTracker src/settings.ts#getSettings src/harnesses.ts#readOverrides src/settings.ts#InstanceFile src/folder.ts#GraphSettings -->
 
 The bot's own comments, labels and issues start nothing, and agents cannot add trigger labels, except an `XL` part the engine [triages again](proposals.md#filing-issues). `milestone` limits new runs to issues in that milestone. <!-- code: src/run/check.ts#runStepChecks src/run/hear.ts#isInScope -->
 

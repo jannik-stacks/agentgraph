@@ -2,7 +2,7 @@
 
 ## The sandbox
 
-Sessions, `run` steps, checks and checkout setup execute through a [runner](#runners). The `local` runner uses throwaway Docker containers and never pulls command images. For `local`, missing Docker or the internal network fails execution. The `box` runner sends commands to a box server over HTTP; plugins can execute them on other hosts. <!-- code: src/docker.ts#dockerArgs src/remote.ts#boxRunner -->
+Sessions, `run` steps, checks and checkout setup execute through a [runner](#runners). The `local` runner uses throwaway Docker containers and never pulls command images. For `local`, missing Docker or the internal network is a [runner error](workflows.md#order-and-limits). The `box` runner sends commands to a box server over HTTP; plugins can execute them on other hosts. <!-- code: src/docker.ts#dockerArgs src/remote.ts#boxRunner -->
 
 A `local` runner container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory and 1.5 CPUs by default, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets its model credentials and, when configured, its own tool bearer. <!-- code: src/docker.ts#dockerArgs -->
 
