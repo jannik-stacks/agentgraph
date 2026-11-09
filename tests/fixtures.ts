@@ -122,7 +122,7 @@ export const fakeDocker = (out: Record<string, string> = {}) => {
     .join('\n');
   writeFileSync(
     join(bin, 'docker'),
-    `#!/bin/sh\necho "$*" >> ${log}\ncase "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; esac\ncase "$*" in\n${cases}\nesac\n`
+    `#!/bin/sh\necho "$*" >> ${log}\ncase "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; *"npm ls -g"*) printf '%s' '{"dependencies":{"opencode-ai":{"version":"1.19.0"}}}'; exit 0;; esac\ncase "$*" in\n${cases}\nesac\n`
   );
   chmodSync(join(bin, 'docker'), 0o755);
   const saved = { PATH: process.env.PATH, AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE };

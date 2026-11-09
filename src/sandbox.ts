@@ -49,13 +49,13 @@ export class Sandbox extends Context.Service<
   }
 >()('agentgraph/Sandbox') {}
 
-export type Box = Pick<Sandbox['Service'], 'lines' | 'tools'> & Pick<Checkout, 'ready' | 'env' | 'written'>;
+export type Box = Pick<Sandbox['Service'], 'lines' | 'tools'> & Pick<Checkout, 'ready' | 'env' | 'written' | 'image'>;
 
 export class Runner extends Context.Service<
   Runner,
   {
     open: (
-      work: Omit<Checkout, 'ready' | 'env' | 'written'>,
+      work: Omit<Checkout, 'ready' | 'env' | 'written' | 'image'>,
       graph?: Parameters<Sandbox['Service']['checkout']>[3]
     ) => Effect.Effect<Box, SandboxError, Scope.Scope>;
     whyRefused?: (graph: Graph) => string | undefined;

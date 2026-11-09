@@ -42,7 +42,7 @@ export default makePlugin({ name: 'search', tools: { issues: search, private: se
         '---\ntitle: Another greeting\nstate: open\nauthor: morgan\nlabels: []\n---\nOutside the selected tracker.\n',
     });
     const graph = await Effect.runPromise(
-      loadGraph(dir, [{ name: 'test', classify: () => undefined }]).pipe(
+      loadGraph(dir, [{ name: 'test', package: 'test', classify: () => undefined }]).pipe(
         Effect.map(graph => ({ ...graph, repo: 'owner/repository' })),
         Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: {} }))
       )

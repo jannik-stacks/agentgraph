@@ -97,6 +97,7 @@ describe('loadGraph', () => {
       path: 'agents/implementor.md',
       body: 'You are implementor.',
       readonly: true,
+      package: 'opencode-ai',
     });
     expect(graph.skills.implement!.description).toBe('Do implement.');
     expect(graph.checks.safety).toMatchObject({ mode: 'stop', run: 'make safety', body: '' });

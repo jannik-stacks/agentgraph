@@ -38,7 +38,7 @@ export type Graph = {
   plugins?: Record<string, unknown>;
   tools?: string[];
   sha: string;
-  agents: Record<string, Doc<Agent> & { readonly?: true }>;
+  agents: Record<string, Doc<Agent> & { readonly?: true; package?: string }>;
   skills: Record<string, Doc<SkillFile>>;
   checks: Record<string, Doc<Check> & { version: string }>;
   workflows: Record<string, Workflow>;
@@ -273,6 +273,7 @@ const compile = (
 
 export type HarnessCheck = {
   name: string;
+  package: string;
   classify: (tool: string) => 'read' | 'write' | undefined;
   check?: (agent: Agent) => string[];
 };
@@ -373,7 +374,7 @@ export const loadGraph = (
         if (kind === 'read' || kind === 'write') checked.push(name);
         else if (registry) problems.push({ path: agent.path, message: `tools: unknown tool ${name}` });
       }
-      if (reads) agents[agent.name] = { ...agent, readonly: true };
+      agents[agent.name] = { ...agent, package: harness.package, ...(reads && { readonly: true as const }) };
       for (const message of harness.check?.({ ...agent, tools: checked }) ?? [])
         problems.push({ path: agent.path, message: `harness: ${harness.name} ${message}` });
     }

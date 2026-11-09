@@ -125,6 +125,11 @@ const READ_ONLY_SESSIONS = [
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 const input = (c: Command) => readFileSync(join(c.home!, '.agentgraph', 'input'), 'utf8');
 
+it.each(harnesses.map(h => [h.name, h.package]))('installs the %s package %s in the sandbox image', (_, name) => {
+  const dockerfile = readFileSync(join(import.meta.dirname, '../infra/local/sandbox/Dockerfile'), 'utf8');
+  expect(dockerfile).toContain(` ${name}@\${`);
+});
+
 describe('model URL pairs', () => {
   it.each(['sol=http://localhost bad', 'sol=http://localhost broken'])('rejects malformed input %s', text => {
     expect(() => parseModelUrls(text)).toThrow('invalid name=value pair');
@@ -739,6 +744,7 @@ describe('claude', () => {
         output: 177,
         cacheRead: 8401,
         cacheWrite: 2340,
+        model: 'claude-haiku-5-5',
         unpriced: 'claude-haiku-5-5',
       },
       { type: 'end', final, ended: 'stop', exit: 0 },
@@ -808,12 +814,23 @@ describe('pi', () => {
     expect(existsSync(join(outside, 'agent'))).toBe(false);
   });
 
+  it('prices usage under the model it reports before the alias', async () => {
+    const prices = join(mkdtempSync(join(tmpdir(), 'agentgraph-prices-')), 'prices.json');
+    writeFileSync(prices, JSON.stringify({ coder: { input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 } }));
+    const { exit } = await session(pi, sample('pi-run.jsonl'), { prices });
+    const usage = Exit.isSuccess(exit) ? exit.value.filter(e => e.type === 'usage') : [];
+    expect(usage.map(u => u.type === 'usage' && [u.model, u.usd])).toEqual([
+      ['coder', expect.closeTo((1200 + 20 * 2) / 1e6)],
+      ['coder', expect.closeTo((1300 + 5 * 2) / 1e6)],
+    ]);
+  });
+
   it('reads a recorded run', async () => {
     const { events: got } = await events(pi, sample('pi-run.jsonl'));
     expect(got).toEqual([
       expect.objectContaining({ type: 'start', session: '01a1301a-3f7c-754a-a9a2-2b8e888e778a', model: 'smart' }),
       { type: 'text', text: 'Listing files.' },
-      { type: 'usage', input: 1200, output: 20, unpriced: 'smart' },
+      { type: 'usage', input: 1200, output: 20, model: 'coder', unpriced: 'coder' },
       {
         type: 'tool',
         id: 'call_mock1',
@@ -823,7 +840,7 @@ describe('pi', () => {
         output: 'hi\n',
       },
       { type: 'text', text: 'done' },
-      { type: 'usage', input: 1300, output: 5, unpriced: 'smart' },
+      { type: 'usage', input: 1300, output: 5, model: 'coder', unpriced: 'coder' },
       { type: 'end', final: 'done', ended: 'stop', exit: 0 },
     ]);
   });

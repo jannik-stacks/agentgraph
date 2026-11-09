@@ -500,7 +500,6 @@ const makeArmRunLabels = (set: string, input: BenchInput) => {
     ...(harness && model && { harness, model }),
     repeat: String(input.repeat),
     ...(input.attempt !== undefined && { attempt: String(input.attempt) }),
-    engine: sh('git', ['-C', agentgraphDir, 'rev-parse', 'HEAD']).trim(),
     ...options.labels,
   });
 };
@@ -643,8 +642,16 @@ export const engineError = (reason = '') =>
 const findCaseGraphDir = (c: Pick<Case, 'repo'>, graph = options.graph) =>
   graph ?? join(agentgraphDir, 'examples', findExampleGraphName(c.repo));
 
-export const readCaseImage = async (c: Case & Commands, set: string, graph = findCaseGraphDir(c)) => {
-  const file = join(findCaseWorkDir(set, c), 'image.json');
+export const readCaseImage = async (
+  c: Case & Commands,
+  set: string,
+  graph = findCaseGraphDir(c),
+  labels: Record<string, string> = options.labels
+) => {
+  const pin = Object.keys(labels).length
+    ? `image-${getSha(JSON.stringify(Object.entries(labels).toSorted()), 8)}.json`
+    : 'image.json';
+  const file = join(findCaseWorkDir(set, c), pin);
   const release = await waitForLock(`bench-image-${hash(file)}`);
   try {
     const saved = JSON.parse(readFileOrEmpty(file) || '{}') as Pick<Commands, 'image'>;
@@ -656,7 +663,7 @@ export const readCaseImage = async (c: Case & Commands, set: string, graph = fin
       const problems: string[] = [];
       const settings = parseGraphSettings(readFileOrEmpty(join(graph, 'settings.yaml')), m => problems.push(m));
       if (!settings || problems.length) throw new Error(`invalid case graph: ${problems.join('; ')}`);
-      selected = await Effect.runPromise(readImage(settings, image, c.image));
+      selected = (await Effect.runPromise(readImage(settings, image, c.image))).id;
       writeFileAtomic(file, { image: selected });
     } else {
       await Effect.runPromise(readImage({ image: selected }));

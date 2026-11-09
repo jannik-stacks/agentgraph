@@ -45,7 +45,12 @@ describe('agent tools', () => {
       'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n  y: { agent: b }\n---\n',
     });
     const graph = await readGraph(dir, [
-      { name: 'custom', classify: name => (['read', 'grep'].includes(name) ? 'read' : undefined), check },
+      {
+        name: 'custom',
+        package: 'custom',
+        classify: name => (['read', 'grep'].includes(name) ? 'read' : undefined),
+        check,
+      },
     ]);
     expect(graph.agents.a!.tools).toEqual(['read', 'issues']);
     expect(graph.agents.b!.tools).toEqual(['grep', 'other']);
@@ -59,7 +64,11 @@ describe('agent tools', () => {
       'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n  y: { agent: b }\n---\n',
     });
     const graph = await readGraph(dir, [
-      { name: 'custom', classify: name => (name === 'edit' ? 'write' : name === 'read' ? 'read' : undefined) },
+      {
+        name: 'custom',
+        package: 'custom',
+        classify: name => (name === 'edit' ? 'write' : name === 'read' ? 'read' : undefined),
+      },
     ]);
     expect(graph.agents.a!.readonly).toBe(true);
     expect(graph.agents.b!.readonly).toBeUndefined();
@@ -68,7 +77,7 @@ describe('agent tools', () => {
   it.each(['missing', 'constructor', 'issues(pattern)'])('reports unknown tool %s plainly', async name => {
     const dir = await makeGraphDir(files(['read', name]));
     await expect(
-      readGraph(dir, [{ name: 'custom', classify: name => (name === 'read' ? 'read' : undefined) }])
+      readGraph(dir, [{ name: 'custom', package: 'custom', classify: name => (name === 'read' ? 'read' : undefined) }])
     ).rejects.toThrow(`agents/a.md: tools: unknown tool ${name}`);
   });
 
@@ -78,7 +87,7 @@ describe('agent tools', () => {
     ['invalid result', () => 'invalid'],
   ])('rejects a classifier that is %s', async (_name, classify) => {
     const dir = await makeGraphDir(files(['issues', 'missing']));
-    const harness = { name: 'custom', classify: () => undefined };
+    const harness = { name: 'custom', package: 'custom', classify: () => undefined };
     Object.defineProperty(harness, 'classify', { value: classify });
     await expect(readGraph(dir, [harness])).rejects.toThrow('agents/a.md: tools: unknown tool missing');
   });
@@ -87,9 +96,29 @@ describe('agent tools', () => {
     const dir = await makeGraphDir({ ...files(['issues']), 'plugins/search.ts': pluginSource(['grep']) });
     await expect(
       readGraph(dir, [
-        { name: 'custom', classify: name => (name === 'read' ? 'read' : undefined) },
-        { name: 'other', classify: name => (name === 'grep' ? 'read' : undefined) },
+        { name: 'custom', package: 'custom', classify: name => (name === 'read' ? 'read' : undefined) },
+        { name: 'other', package: 'other', classify: name => (name === 'grep' ? 'read' : undefined) },
       ])
     ).rejects.toThrow('tool grep is a harness built-in');
+  });
+});
+
+describe('agent package', () => {
+  it.each([
+    [undefined, 'custom-cli'],
+    ['other', 'other-cli'],
+  ])('follows the harness override %s to %s', async (harness, expected) => {
+    const dir = await makeGraphDir(files(['issues']));
+    const graph = await Effect.runPromise(
+      loadGraph(
+        dir,
+        [
+          { name: 'custom', package: 'custom-cli', classify: () => undefined },
+          { name: 'other', package: 'other-cli', classify: () => undefined },
+        ],
+        harness
+      ).pipe(Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env: {} })))
+    );
+    expect(graph.agents.a?.package).toBe(expected);
   });
 });

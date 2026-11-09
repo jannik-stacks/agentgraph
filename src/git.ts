@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { Effect, Semaphore } from 'effect';
+import { fileURLToPath } from 'node:url';
+import { Config, Effect, Semaphore } from 'effect';
+import { getSha } from './hash.ts';
 import { SandboxError } from './sandbox.ts';
 import { type Checkout } from './types.ts';
 
@@ -235,3 +237,27 @@ export const mergeTreeOnto = (work: Checkout, onto: string, head: string, base?:
       return { tree, files: files.filter(Boolean) };
     }
   );
+
+const engineRoot = fileURLToPath(new URL('..', import.meta.url));
+let engine: string | undefined;
+
+/** @internal */
+export const readEngineVersion = (root = engineRoot): string => {
+  try {
+    if (existsSync(join(root, '.git')))
+      return execFileSync('git', ['-C', root, 'describe', '--always', '--dirty', '--abbrev=12'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+  } catch {}
+  try {
+    return (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version?: string }).version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+};
+
+export const readEngineVersions = Effect.gen(function* () {
+  const file = yield* Effect.orDie(Config.String('AGENTGRAPH_CONFIG').pipe(Config.withDefault('')));
+  return { engine: (engine ??= readEngineVersion()), ...(file && { config: getSha(readFileSync(resolve(file)), 12) }) };
+});

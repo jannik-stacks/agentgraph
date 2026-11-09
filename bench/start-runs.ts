@@ -13,8 +13,13 @@ import { join, resolve } from 'node:path';
 import { parseArgs, parseEnv } from 'node:util';
 import { claim, onStop, readFileOrEmpty, release, startChildProcess } from '../bin/resume.ts';
 import type * as BenchModule from '../bin/bench.ts';
+import { Effect } from 'effect';
 import { parseLabelPatch, parseLabels } from '../src/labels.ts';
-import { isBenchCaseValid, isBenchRunDone, readBenchSlots } from './runs.ts';
+import { readEngineVersions } from '../src/git.ts';
+import { readImage, sandboxImage } from '../src/docker.ts';
+import { readHarnessSettings } from '../src/harnesses.ts';
+import type { RunRecord } from '../src/types.ts';
+import { isBenchCaseValid, isBenchRunDone, readBenchSlots, readSlotRun } from './runs.ts';
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
@@ -127,6 +132,34 @@ export const spendGuard = async (cap: number, per: number, usage: () => Promise<
   return { check, finished: () => void done++ };
 };
 
+export const formatStaleSlots = (
+  done: { point: string; versions: RunRecord['versions'] }[],
+  now: Required<Pick<NonNullable<RunRecord['versions']>, 'engine' | 'harnesses'>>
+) => {
+  const lines = done.flatMap(({ point, versions }) => {
+    const harness = point.split(':')[0] ?? '';
+    const [engine, ran, has] = [
+      versions?.engine ?? 'unknown',
+      versions?.harnesses?.[harness] ?? 'unknown',
+      now.harnesses[harness] ?? 'unknown',
+    ];
+    return [
+      ...(engine === now.engine ? [] : [`ran engine ${engine}, this checkout is ${now.engine}`]),
+      ...(ran === has ? [] : [`ran ${harness}@${ran}, ${sandboxImage} has ${has}`]),
+    ];
+  });
+  return Object.entries(Object.groupBy(lines, line => line)).map(
+    ([line, all]) => `${all!.length} done slots ${line}; pass --label to run them again`
+  );
+};
+
+const readCurrentVersions = Effect.gen(function* () {
+  const { engine } = yield* readEngineVersions;
+  const { packages } = yield* readImage();
+  const { harnesses } = yield* readHarnessSettings;
+  return { engine, harnesses: Object.fromEntries(harnesses.map(h => [h.name, packages[h.package] ?? 'unknown'])) };
+});
+
 const list = (text: string) => text.split(',').filter(Boolean);
 
 if (import.meta.main) {
@@ -185,8 +218,19 @@ if (import.meta.main) {
           slots
         )
     );
-  const queue = findLeft();
+  const slots = readBenchSlots(set);
+  const queue = findLeft(slots);
   log(`planned ${wanted.length}, on disk ${wanted.length - queue.length}, starting ${queue.length}`);
+  const done = wanted.flatMap(u => {
+    const input = bench.makeBenchInput(u.c, u.arm, u.repeat, { point: u.point, graph, labels });
+    const found = input.point && !queue.includes(u) && readSlotRun(set, input, slots);
+    return found ? [{ point: u.point, versions: found.run.versions }] : [];
+  });
+  if (done.length)
+    await Effect.runPromise(readCurrentVersions).then(
+      now => formatStaleSlots(done, now).forEach(line => log(line)),
+      (e: unknown) => log(`1 skipped stale slot check: ${String(e).slice(0, 300)}`)
+    );
   if (values.dry) process.exit(0);
   const lock = join(set, 'start-runs');
   if (!claim(lock)) {

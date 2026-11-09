@@ -53,6 +53,7 @@ const claudeTools = (tools: string[]) =>
 
 export const claude = (): Harness => ({
   name: 'claude',
+  package: '@anthropic-ai/claude-code',
   classify: tool => {
     const name = splitToolPattern(tool)[1] ?? tool;
     if (!Object.hasOwn(claudeNames, name)) return undefined;
@@ -144,12 +145,16 @@ export const claude = (): Harness => ({
         ok: false,
         denied: true,
       }));
-      const usage = Object.values(line.modelUsage ?? {}).map(
-        ({ inputTokens = 0, outputTokens = 0, cacheReadInputTokens = 0, cacheCreationInputTokens = 0 }): Piece => ({
+      const usage = Object.entries(line.modelUsage ?? {}).map(
+        ([
+          model,
+          { inputTokens = 0, outputTokens = 0, cacheReadInputTokens = 0, cacheCreationInputTokens = 0 },
+        ]): Piece => ({
           type: 'usage',
           input: inputTokens + cacheReadInputTokens + cacheCreationInputTokens,
           output: outputTokens,
           ...makeCacheCounts(cacheReadInputTokens, cacheCreationInputTokens),
+          model,
         })
       );
       const ended =

@@ -7,7 +7,7 @@ import { Tracker } from '../tracker.ts';
 import { makeOutcomeLine } from '../trace.ts';
 import { stoppedByEngine, context } from '../context.ts';
 import { Sandbox, SandboxError } from '../sandbox.ts';
-import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout } from '../git.ts';
+import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout, readEngineVersions } from '../git.ts';
 import {
   findPullNumber,
   formatTemplate,
@@ -129,8 +129,19 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       const made = yield* Effect.flatMap(Sandbox, s =>
         s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, { ...graph, readonly })
       );
-      if (current.graphTree === undefined)
-        yield* store.put((current = { ...current, graphTree: yield* ensureGraphRef(made.git, graph.dir) }));
+      if (current.graphTree === undefined) {
+        const { image } = made;
+        const versions = {
+          ...(yield* readEngineVersions),
+          ...(image && {
+            image: image.id,
+            harnesses: Object.fromEntries(
+              Object.values(graph.agents).map(a => [a.harness, image.packages[a.package ?? ''] ?? 'unknown'])
+            ),
+          }),
+        };
+        yield* store.put((current = { ...current, graphTree: yield* ensureGraphRef(made.git, graph.dir), versions }));
+      }
       if (own && made.saved) {
         const message = yield* readGit(made.git, ['log', '-1', '--format=%B', made.saved]);
         const from =

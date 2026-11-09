@@ -121,6 +121,7 @@ describe('results', () => {
           status,
           started: '2026-10-01T00:00:00Z',
           meta: { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: { arm: 'candidate' } } } },
+          versions: { engine: 'v1-dirty', image: 'sha256:0123456789abcdef', harnesses: { pi: '1.1.0' } },
         })
       );
       writeFileSync(join(data, id, 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
@@ -128,6 +129,7 @@ describe('results', () => {
     };
     put('r1', 'done', [{ at: '1', step: 'code', event: { type: 'start' } }], [entry('2', 1), entry('3', 2, 'v0')]);
     put('r2', 'stopped', [], []);
+    writeFileSync(join(data, 'r2', 'labels.jsonl'), '{"key":"engine","value":"written"}\n');
     const { fields, runs } = readRunResults(data, {
       checks: { 'run-stats': { ...checks['run-stats'], version: 'v1' } } as never,
     });
@@ -137,6 +139,10 @@ describe('results', () => {
       axes: { plugin: 'bench', job: 'smoke' },
       meta: { engine: { origin: { plugin: 'bench' } } },
     });
+    expect(runs.map(r => r.axes)).toEqual([
+      expect.objectContaining({ engine: 'v1-dirty', image: '0123456789ab', harnesses: 'pi@1.1.0' }),
+      expect.objectContaining({ engine: 'written', harnesses: 'pi@1.1.0' }),
+    ]);
     expect(runs.find(r => r.key === 'r1')!.results['run-stats']).toEqual({ at: '2', pass: true, value: { usd: 1 } });
     expect(runs.find(r => r.key === 'r2')!.dead).toBe('ended before any step passed or any session started');
   });

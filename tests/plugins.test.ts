@@ -308,6 +308,7 @@ exports.cjsTool = require('ai').tool;
       loadGraph(dir, [
         {
           name: 'custom',
+          package: 'custom',
           classify: name => (name === 'read' ? 'read' : undefined),
           check: agent => (agent.tools.includes('issues') ? ['plugin tool reached harness check'] : []),
         },
@@ -324,8 +325,8 @@ exports.cjsTool = require('ai').tool;
     await expect(
       Effect.runPromise(
         loadGraph(dir, [
-          { name: 'custom', classify: () => undefined },
-          { name: 'reader', classify: name => (name === 'read' ? 'read' : undefined) },
+          { name: 'custom', package: 'custom', classify: () => undefined },
+          { name: 'reader', package: 'reader', classify: name => (name === 'read' ? 'read' : undefined) },
         ])
       )
     ).rejects.toThrow('tool read is a harness built-in');

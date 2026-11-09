@@ -109,7 +109,7 @@ A graph opts in with `image: agentgraph-sandbox:browser`. The image sets `PLAYWR
 
 ## Harnesses
 
-An agent's `harness` picks the session program. The operator's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins in `harnesses/`. Graphs may load reviewed [host tools](plugins.md). A harness plugin gives a `name`, its `key` variable, a `command`, a `parse` for output lines, a `classify` that returns `read`, `write` or `undefined` for each tool, and an optional `home` and `check`. A name must be classified by its harness or registered as a plugin tool; other names fail the graph check. The sandbox makes the worktree read-only when all harness tools are classified as read; a command may also request read-only access. <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
+An agent's `harness` picks the session program. The operator's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins in `harnesses/`. Graphs may load reviewed [host tools](plugins.md). A harness plugin gives a `name`, the npm `package` it installs from, its `key` variable, a `command`, a `parse` for output lines, a `classify` that returns `read`, `write` or `undefined` for each tool, and an optional `home` and `check`. A name must be classified by its harness or registered as a plugin tool; other names fail the graph check. The sandbox makes the worktree read-only when all harness tools are classified as read; a command may also request read-only access. <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
 
 The config's `provider` and `harness` select defaults; `AGENTGRAPH_PROVIDER` and `AGENTGRAPH_HARNESS` override them. A selected harness runs every agent. Otherwise an agent without a `harness` gets the provider's first, else the config's first. A graph loads only when every harness is in the config and passes its `check`. <!-- code: src/folder.ts#loadGraph -->
 
@@ -123,6 +123,14 @@ The config's `provider` and `harness` select defaults; `AGENTGRAPH_PROVIDER` and
 An agent with `reads: traces` needs a tool that can read the trace files. The graph author supplies it, and a harness may validate it in `check`. The news file path is included in every agent's prompt and made available to its harness, regardless of tool names.
 
 Agent `tools` defaults to none. Session homes under `homes/` in the data folder persist across resumes; a resume finds its home by name there, so a moved data folder keeps them. <!-- code: src/harnesses.ts#harnessSession -->
+
+### Harness versions
+
+The harnesses and tools in the sandbox image are pinned as exact `ARG <NAME>_VERSION=x.y.z` lines in `infra/local/sandbox/Dockerfile`, and `npm install -g` installs each as `pkg@${NAME}`. A test fails on any `*_VERSION` ARG under `infra/local` that is not an exact version, and on any `@${NAME}` that names no ARG. An update is a one-line pull request that edits the ARG. The next runner start sees the new source hash and rebuilds `agentgraph-sandbox:local`. <!-- code: tests/dockerfile-pins.test.ts src/docker.ts#ensureImage -->
+
+`node bin/pins.mjs` lists each pinned package with its ARG, its pin and the latest version npm knows. `node bin/pins.mjs --set OPENCODE_VERSION=1.20.0` rewrites that ARG line wherever a Dockerfile under `infra/local` has it, and refuses anything but an exact version. The package of each ARG comes from its `pkg@${NAME}` install line, so there is no second list. <!-- code: bin/pins.mjs -->
+
+Runs record what the image holds, not what the Dockerfile says. After the probe that checks an image once per Docker ID, a second run of the image lists its global npm packages, and the checkout carries the ID and those versions. When that listing fails or times out, the checkout keeps the ID with no packages. A per-repo image built on an older `agentgraph-sandbox:local` still shows its old versions until it is rebuilt with the command in [A graph's own image](#a-graphs-own-image). <!-- code: src/docker.ts#readImage src/types.ts#Checkout -->
 
 ## Models
 

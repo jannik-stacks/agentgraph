@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Schema } from 'effect';
 import { appendJsonlRows, readJsonlRows } from './store.ts';
+import type { Run } from './types.ts';
 
 const LabelRecord = Schema.Record(
   Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]{0,31}$/, { message: 'a label key is a-z, 0-9 and -' })),
@@ -54,3 +55,13 @@ export const parseLabelPatch = (words: readonly string[]): Record<string, string
       throw new Error(`${word}: write a label as key=value, or key- to remove it`);
     })
   );
+
+export const makeVersionLabels = (versions: Run['versions']): Record<string, string> => {
+  const harnesses = Object.entries(versions?.harnesses ?? {}).map(([name, version]) => `${name}@${version}`);
+  return {
+    ...(versions && { engine: versions.engine }),
+    ...(versions?.image && { image: versions.image.replace(/^sha256:/, '').slice(0, 12) }),
+    ...(versions?.config && { config: versions.config }),
+    ...(harnesses.length > 0 && { harnesses: harnesses.toSorted().join(',') }),
+  };
+};

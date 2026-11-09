@@ -14,7 +14,7 @@ import { begin, getEventOutcome, transition } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { fakeDocker, harnesses, makeTestGraph, reply, start, wrote } from './fixtures.ts';
-import { findStatus, git, issuePath, writeIssueAt } from './kit.ts';
+import { findStatus, git, issuePath, tmp, writeIssueAt } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
   graph,
@@ -31,6 +31,7 @@ import {
   fresh,
 } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
+import { readEngineVersion } from '../src/git.ts';
 import { writeStatus } from '../src/run/settle.ts';
 import { type Checkout, type Command, type Run, type SessionEvent } from '../src/types.ts';
 
@@ -258,6 +259,51 @@ describe('drive', () => {
       to: 'needs-answer',
     });
     expect((globalThis as { found?: unknown }).found).toEqual(expect.any(Array));
+  });
+
+  it('stamps the image and the harness versions it holds', async () => {
+    const docker = fakeDocker({ 'image inspect': 'sha256:stamped' });
+    const where = world();
+    const small = makeTestGraph('graph');
+    const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
+    const agents = Object.fromEntries(
+      Object.entries(small.agents).map(([n, a]) => [n, { ...a, package: 'opencode-ai' }])
+    );
+    const layer = Layer.mergeAll(
+      folderTracker(where.tracker),
+      fileStore(where.data),
+      dockerSandbox({ data: where.data, origin: where.origin, cache: '' }),
+      replaySession([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]])
+    );
+    const asked = await Effect.runPromise(
+      runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), { ...small, agents }).pipe(
+        Effect.provide(layer)
+      )
+    ).finally(docker.restore);
+    expect(asked.versions).toMatchObject({ image: 'sha256:stamped', harnesses: { opencode: '1.19.0' } });
+  });
+
+  it.each([
+    ['its package version', '{"version":"1.2.3"}', '1.2.3'],
+    ['unknown without a version', '{}', 'unknown'],
+    ['unknown without a package.json', undefined, 'unknown'],
+  ])('falls back from a failing git describe to %s', (_, pkg, version) => {
+    const root = tmp('engine-root');
+    writeFileSync(join(root, '.git'), 'gitdir: /nonexistent\n');
+    if (pkg) writeFileSync(join(root, 'package.json'), pkg);
+    expect(readEngineVersion(root)).toBe(version);
+  });
+
+  it('stamps what produced the run once, without an image on the host, and keeps it across a resume', async () => {
+    const where = world();
+    const ask = [start('a'), reply({ kind: 'ask', question: 'Continue?' })];
+    const { run } = services(where, [ask, ask]);
+    const asked = await run(runWorkflow(w, fresh(), graph));
+    const resumed = await run(driveStored(w, { ...asked, status: 'running', versions: { engine: 'earlier' } }, graph));
+    expect([asked.versions, resumed.versions]).toEqual([
+      { engine: expect.stringMatching(/\S/), ...(process.env.AGENTGRAPH_CONFIG && { config: expect.any(String) }) },
+      { engine: 'earlier' },
+    ]);
   });
 
   it('drives the run as stored once it holds the lock, not the snapshot it was given', async () => {

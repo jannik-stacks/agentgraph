@@ -24,7 +24,7 @@ import {
 } from './env.ts';
 import { ensureFreeDisk, writeEnvRefs } from './disk.ts';
 import { waitForLock } from './owner.ts';
-import { inside, Runner, type Sandbox, SandboxError } from './sandbox.ts';
+import { inside, Runner, SandboxError } from './sandbox.ts';
 import { makeHostEnv, readGit, readWorktreeAdmin } from './git.ts';
 import type { RunnerHost } from './plugin.ts';
 import { type Checkout, type Command, type Exit } from './types.ts';
@@ -236,7 +236,70 @@ const ensureImage = (tag: string, fresh = false, say: (line: string) => void = (
     return true;
   });
 
-const checkedImages = new Set<string>();
+const checkedImages = new Map<string, NonNullable<Checkout['image']>['packages']>();
+
+const parseGlobalPackages = (text: string) => {
+  try {
+    const found: { dependencies?: Record<string, { version?: unknown }> } = JSON.parse(text);
+    return Object.fromEntries(
+      Object.entries(found.dependencies ?? {}).flatMap(([name, { version }]) =>
+        typeof version === 'string' ? [[name, version]] : []
+      )
+    );
+  } catch {
+    return {};
+  }
+};
+
+const runImageProbe = (id: string, command: string) =>
+  Effect.gen(function* () {
+    const uid = yield* Effect.try({ try: user, catch: error => error as SandboxError });
+    const name = `agentgraph-image-${randomBytes(6).toString('hex')}`;
+    return yield* run('docker', [
+      'run',
+      '--rm',
+      '--name',
+      name,
+      '--pull',
+      'never',
+      '--network',
+      'none',
+      '--read-only',
+      '--user',
+      uid,
+      '--tmpfs',
+      '/tmp:rw,exec,nosuid,nodev,size=64m',
+      '--workdir',
+      '/tmp',
+      '-e',
+      'HOME=/tmp',
+      '--memory',
+      limits.memory,
+      '--memory-swap',
+      limits.memory,
+      '--cpus',
+      limits.cpus,
+      '--pids-limit',
+      limits.pids,
+      '--cap-drop=ALL',
+      '--security-opt',
+      'no-new-privileges=true',
+      id,
+      'sh',
+      '-c',
+      command,
+    ]).pipe(
+      Effect.timeoutOrElse({
+        duration: '10 seconds',
+        orElse: () => Effect.fail(infra(`image ${id} did not run the command probe`)),
+      }),
+      Effect.onError(() =>
+        run('docker', ['rm', '-f', name]).pipe(
+          Effect.catch(e => Effect.sync(() => console.error(`1 skipped image probe cleanup: ${e.detail}`)))
+        )
+      )
+    );
+  });
 
 export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxImage, override?: string) =>
   Effect.gen(function* () {
@@ -246,60 +309,17 @@ export const readImage = (graph: Pick<Graph, 'image'> = {}, fallback = sandboxIm
     yield* locked('images', ensureImage(tag));
     const id = yield* run('docker', ['image', 'inspect', '--format', '{{.Id}}', tag]);
     if (!checkedImages.has(id)) {
-      const uid = yield* Effect.try({ try: user, catch: error => error as SandboxError });
-      const name = `agentgraph-image-${randomBytes(6).toString('hex')}`;
-      const out = yield* run('docker', [
-        'run',
-        '--rm',
-        '--name',
-        name,
-        '--pull',
-        'never',
-        '--network',
-        'none',
-        '--read-only',
-        '--user',
-        uid,
-        '--tmpfs',
-        '/tmp:rw,exec,nosuid,nodev,size=64m',
-        '--workdir',
-        '/tmp',
-        '-e',
-        'HOME=/tmp',
-        '--memory',
-        limits.memory,
-        '--memory-swap',
-        limits.memory,
-        '--cpus',
-        limits.cpus,
-        '--pids-limit',
-        limits.pids,
-        '--cap-drop=ALL',
-        '--security-opt',
-        'no-new-privileges=true',
-        id,
-        'sh',
-        '-c',
-        'printf agentgraph-command-ready',
-      ]).pipe(
-        Effect.timeoutOrElse({
-          duration: '10 seconds',
-          orElse: () => Effect.fail(infra(`image ${id} did not run the command probe`)),
-        }),
-        Effect.onError(() =>
-          run('docker', ['rm', '-f', name]).pipe(
-            Effect.catch(e => Effect.sync(() => console.error(`1 skipped image probe cleanup: ${e.detail}`)))
-          )
-        )
-      );
-      if (out !== 'agentgraph-command-ready')
+      if ((yield* runImageProbe(id, 'printf agentgraph-command-ready')) !== 'agentgraph-command-ready')
         return yield* new SandboxError({
           reason: 'host',
           detail: `Image ${id} must run supplied commands directly; check its entrypoint.`,
         });
-      checkedImages.add(id);
+      const listed = yield* runImageProbe(id, 'npm ls -g --json --depth=0 2>/dev/null; true').pipe(
+        Effect.catch(() => Effect.succeed(''))
+      );
+      checkedImages.set(id, parseGlobalPackages(listed));
     }
-    return id;
+    return { id, packages: checkedImages.get(id) ?? {} };
   });
 
 const findMissingModelHosts = (hosts: string[]) =>
@@ -621,12 +641,10 @@ export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
           })
         );
 
-      const open = (
-        work: Omit<Checkout, 'ready' | 'env' | 'written'>,
-        graph?: Parameters<Sandbox['Service']['checkout']>[3]
-      ) =>
+      const open = (work: Parameters<Runner['Service']['open']>[0], graph?: Parameters<Runner['Service']['open']>[1]) =>
         Effect.gen(function* () {
-          const box = yield* readImage(graph, image);
+          const found = yield* readImage(graph, image);
+          const box = found.id;
           const { news, scratch } = getCheckoutPaths(o.data, basename(work.dir));
           if (!work.base) {
             yield* Effect.acquireRelease(
@@ -643,7 +661,7 @@ export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
               ),
               () => Effect.sync(() => made.delete(work.dir))
             );
-            return { lines, tools: () => tools };
+            return { lines, tools: () => tools, image: found };
           }
           const mirror = work.git.GIT_DIR;
           const rev = work.head ?? work.base;
@@ -725,6 +743,7 @@ export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
           return {
             lines,
             tools: () => tools,
+            image: found,
             ...(env?.complete && setup && !work.saved && match && { ready: true }),
             ...(env && { env: { key: env.key, mode: env.mode, match } }),
             written: () => written(sharedMounts, env?.image ?? box),

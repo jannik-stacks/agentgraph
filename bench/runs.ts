@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { getRunOrigin } from '../src/meta.ts';
+import { makeVersionLabels } from '../src/labels.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
 import { getRounded } from '../src/stats.ts';
 import { findLatestChecks } from '../src/trace.ts';
@@ -299,6 +300,7 @@ const readRow = (
   const suite = isPass(base?.get('bench/suite')) === 0 ? undefined : isPass(latest.get('bench/suite'));
   return {
     labels: {
+      ...makeVersionLabels(run.versions),
       ...labels,
       ...readCaseLabels(set, id),
       ...setup?.labels,

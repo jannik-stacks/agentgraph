@@ -3,6 +3,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -330,6 +331,28 @@ describe('case image pins', () => {
         expect(log()).toContain('{{.Id}} graph:2');
       }
     );
+  });
+
+  it('pins a labelled slot apart, so an A/B label picks the current image and older slots keep theirs', async () => {
+    const graph = tmp('graph');
+    const out = tmp('out');
+    writeFileSync(join(graph, 'settings.yaml'), 'image: graph:1\n');
+    const c = { id: 'demo', dir: graph, repo: 'me/demo', base: 'a', merged: 'b', title: '', body: '' };
+    await faked({ 'image inspect': 'sha256:old' }, () => readCaseImage(c, out, graph, {}));
+    const images = await faked(
+      { 'image inspect --format {{.Id}} sha256:old': 'sha256:old', 'image inspect': 'sha256:new' },
+      async () =>
+        [
+          await readCaseImage(c, out, graph, {}),
+          await readCaseImage(c, out, graph, { ab: 'opencode-1.20', x: '1' }),
+          await readCaseImage(c, out, graph, { x: '1', ab: 'opencode-1.20' }),
+        ].map(r => r.image)
+    );
+    expect(images).toEqual(['sha256:old', 'sha256:new', 'sha256:new']);
+    expect(readdirSync(join(out, 'work/demo')).toSorted()).toEqual([
+      expect.stringMatching(/^image-[0-9a-f]{8}\.json$/),
+      'image.json',
+    ]);
   });
 });
 

@@ -5,7 +5,7 @@ import { findLatestChecks } from '../src/trace.ts';
 import { isOnIssue } from '../src/graph.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { findCheckFields } from '../src/results.ts';
-import { readRunLabels } from '../src/labels.ts';
+import { makeVersionLabels, readRunLabels } from '../src/labels.ts';
 import type { RunResults } from '../studio/src/results/result.ts';
 import { readFileOrEmpty, readJsonl } from './resume.ts';
 import { type CheckEntry, type RunRecord, type Trace } from '../src/types.ts';
@@ -37,6 +37,7 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
         href: `/runs/${encodeURIComponent(id)}`,
         ...(dead && { dead }),
         axes: {
+          ...makeVersionLabels(run.versions),
           ...readRunLabels(data, id),
           ...(run.issue !== undefined && { issue: `#${run.issue}` }),
           workflow: run.workflow,
