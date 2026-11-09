@@ -129,6 +129,7 @@ it.each([
   [{ Host: 'untrusted.example' }, 'POST', 403],
   [{ Origin: 'http://untrusted.example' }, 'POST', 403],
   [{ Authorization: 'Bearer wrong' }, 'POST', 401],
+  [{ Authorization: '' }, 'POST', 401],
   [{}, 'GET', 405],
 ] as const)('rejects invalid request headers %j', async (headers, method, status) => {
   const { request } = await open(async () => 'ok');
@@ -205,7 +206,7 @@ it('ends a request whose body never finishes', async () => {
     outgoing.once('error', () => resolve(0));
     outgoing.write('{');
   });
-  expect([0, 408]).toContain(status);
+  expect(status).toBe(408);
 });
 
 it('rejects the wrong session path and peers outside its allowed subnet', async () => {
@@ -226,8 +227,8 @@ it('rejects the wrong session path and peers outside its allowed subnet', async 
   expect((await readLocalHttp(blocked.url, { method: 'POST' })).status).toBe(403);
 });
 
-it('scrubs tool errors and supplied credentials from descriptions and schemas', async () => {
-  const { endpoint, call, trace } = await open(async () => {
+it('scrubs a credential from a tool error in the result and the trace', async () => {
+  const { call, trace } = await open(async () => {
     throw new Error(credential);
   });
   expect((await (await call('error')).json()).result).toMatchObject({
@@ -235,8 +236,6 @@ it('scrubs tool errors and supplied credentials from descriptions and schemas', 
     isError: true,
   });
   expect(trace[0]?.output).toBe('[redacted]');
-  const anonymous = await readLocalHttp(endpoint.url, { method: 'POST' });
-  expect(anonymous.status).toBe(401);
 });
 
 it('does not expose errors thrown by its trace sink', async () => {
