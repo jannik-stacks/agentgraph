@@ -94,7 +94,7 @@ export const makeStudioDevApiPlugin = (
                 ...summary,
                 ...(all ? { trace: lines } : { trail }),
                 ...findTraceLinks(trace),
-                ...(watched && { data: watched }),
+                ...(watched ? { data: watched } : served?.name ? { instance: served.name } : {}),
               };
             });
           const runs = ({ id }: { id?: string }) =>

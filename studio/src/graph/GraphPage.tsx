@@ -6,7 +6,7 @@ import { useMemo } from 'react';
 import { fixtures } from 'virtual:fixtures';
 import { served } from 'virtual:served';
 import { isOnIssue, makeWorkflowGraph } from '../../../src/graph.ts';
-import { queryParam, runsAtom, selectedStepAtom, shown } from '../state.ts';
+import { queryParam, getRunsAtom, selectedStepAtom, shown } from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { accent, AutoHeight, Combobox, Muted, Select } from '../ui.tsx';
 import { layout, type Start } from './layout.ts';
@@ -125,7 +125,7 @@ const placed = (box: { x: number; y: number; width: number; height: number }) =>
 
 /** How many of the served graph's runs stand at each step and are not done, keyed `fixture/step`. */
 const useHere = () => {
-  const { value: runs = [] } = useAtomValue(runsAtom);
+  const { value: runs = [] } = useAtomValue(getRunsAtom());
   return useMemo(() => {
     const here = new Map<string, Record<string, number>>();
     for (const { fixture, run } of runs) {
@@ -308,7 +308,7 @@ const graphs = (() => {
 export const GraphPage = () => {
   const [graphKey, setGraph] = useAtom(graphParam);
   const [runKey, setRun] = useAtom(runParam);
-  const { value: real, failure } = useAtomValue(runsAtom);
+  const { value: real, failure } = useAtomValue(getRunsAtom());
   const status = failure ? `could not load runs: ${failure}` : !real && 'loading runs';
   const [hide, setHide] = useAtom(hideParam);
   const hidden = useMemo(() => new Set(hide?.split(',')), [hide]);

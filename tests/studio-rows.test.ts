@@ -347,9 +347,11 @@ describe('a run fetched on demand', async () => {
     createStore: () => { set: (atom: object, value: unknown) => void };
     Provider: unknown;
   }>('jotai');
-  const state = await studioModule<{ runAtom: (id: string) => object; runsAtom: object; locationAtom: object }>(
-    'state.ts'
-  );
+  const state = await studioModule<{
+    runAtom: (id: string) => object;
+    getRunsAtom: () => object;
+    locationAtom: object;
+  }>('state.ts');
   const { runAtom } = state;
   const { StepDetails } = await studioModule<{ StepDetails: unknown }>('graph/StepDetails.tsx');
   const { RunsPage } = await studioModule<{ RunsPage: unknown }>('runs/RunsPage.tsx');
@@ -375,9 +377,8 @@ describe('a run fetched on demand', async () => {
     };
   };
 
-  const readAtoms = (node: unknown, location?: { path: string; query: URLSearchParams }) => {
+  const readAtoms = (node: unknown) => {
     const store = jotai.createStore() as ReturnType<typeof jotai.createStore> & { get: (atom: object) => unknown };
-    if (location) store.set(state.locationAtom, location);
     const read = new Set<object>();
     const get = store.get.bind(store);
     store.get = atom => {
@@ -401,10 +402,13 @@ describe('a run fetched on demand', async () => {
   it.each([
     ['/runs', true],
     ['/runs?gh=https://github.com/o/r/issues/1', false],
-  ] as const)('reads the run list at %s only when it shows it', (href, reads) => {
+  ] as const)('shows the run list at %s only when it is asked for', (href, shows) => {
     const url = new URL(href, 'http://studio');
-    const read = readAtoms(createElement(RunsPage), { path: url.pathname, query: url.searchParams });
-    expect(read.has(state.runsAtom)).toBe(reads);
+    const store = jotai.createStore();
+    store.set(state.locationAtom, { path: url.pathname, query: url.searchParams });
+    store.set(state.getRunsAtom(), { value: [] });
+    const html = renderToStaticMarkup(createElement(jotai.Provider, { store }, createElement(RunsPage)));
+    expect(html.includes('No runs in this data dir.')).toBe(shows);
   });
 
   it('shows loading while the run is fetched, with the step and its checks around it', () => {
