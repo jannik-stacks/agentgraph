@@ -192,7 +192,7 @@ export const makeStudioPagesPlugin = (served = makeServedGraphs()): Plugin => {
       await watch();
       server.middlewares.use('/api/plugins', (req, res) => {
         res.setHeader('content-type', 'application/json');
-        const name = /^\/([a-zA-Z][a-zA-Z0-9_]*)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
+        const name = /^\/([^/?]+)\/data(?:\?.*)?$/.exec(req.url ?? '')?.[1];
         const instance = readQuery(req).get('instance') ?? '';
         const page = loaded.find(page => page.name === name && (page.instance ?? instance) === instance);
         if (!page) {

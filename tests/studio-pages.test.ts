@@ -240,3 +240,30 @@ dataSchema: Schema.String, read: () => Effect.succeed('') } });
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it.each(['team-dashboard', 'snake_case', 'A1-b_2'])('serves the data route of plugin %s', async name => {
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-plugin-name-'));
+  const dir = join(root, 'graph');
+  mkdirSync(join(dir, 'plugins', 'pages'), { recursive: true });
+  writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
+  writeFileSync(join(dir, 'plugins/pages/Page.tsx'), 'export default function Page() { return null; }');
+  writeFileSync(
+    join(dir, 'plugins', `${name}.ts`),
+    `import { makePlugin } from ${JSON.stringify(pathToFileURL(join(studioDir, '../src/plugin.ts')).href)};
+import { Effect, Schema } from ${JSON.stringify(import.meta.resolve('effect'))};
+export default makePlugin({ name: '${name}', studio: { title: 'Mine', page: new URL('./pages/Page.tsx', import.meta.url),
+dataSchema: Schema.String, read: () => Effect.succeed('${name}') } });
+`
+  );
+  vi.stubEnv('AGI_STUDIO_DIR', dir);
+  vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
+  vi.stubEnv('AGI_STUDIO_BENCH', undefined);
+  const { server, base } = await startStudioServer();
+  try {
+    expect(await (await fetch(`${base}/api/plugins/${name}/data`)).json()).toBe(name);
+  } finally {
+    await server.close();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
