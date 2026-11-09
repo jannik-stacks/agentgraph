@@ -4,7 +4,7 @@ A run is one workflow on one issue. Its status is `running`, `waiting` (a questi
 
 ## The data folder
 
-Locally, each repo gets an instance under the data root. As a runner (`--tracker`), `--data` is the runs folder itself.
+Each repo gets an instance under the data root. `--data` selects that root; runs live in `<root>/<name>/data`. <!-- code: src/instance.ts#readInstance -->
 
 ```
 ~/.agentgraph/                      --data, else AGENTGRAPH_DATA
@@ -16,6 +16,8 @@ Locally, each repo gets an instance under the data root. As a runner (`--tracker
       <run id>/checks.jsonl          check results, .zst once idle
       <run id>/trace.jsonl            append-only events, .zst once idle
       <run id>/labels.jsonl           run labels, see below
+      mirror.git                      git mirror and run refs for a hosted tracker
+      .envs/refs.jsonl                 environment and cache volume references
       files/<sha256>                  uploaded files
       homes/<id>/                     harness homes, kept for resuming and forking
       logs/<sha256>.gz                full check output, shared by content
@@ -23,7 +25,7 @@ Locally, each repo gets an instance under the data root. As a runner (`--tracker
       cache/                          rebuilt on demand: graphs/, work/, index/, news/, scratch/, sync/
 ```
 
-<!-- code: src/services.ts#hostSettings src/env.ts#getCachePath src/env.ts#getCheckoutPaths -->
+<!-- code: src/disk.ts#readEnvRefs src/disk.ts#writeEnvRefs src/mirror.ts#makeSandbox src/services.ts#hostSettings src/env.ts#getCachePath src/env.ts#getCheckoutPaths -->
 
 A data folder inside the repo is refused. An instance using a local tracker needs its `tracker/origin.git`. A name already bound to another checkout is refused; edit `checkout` in `instance.yaml` when moving the repo. A run id is the workflow name, the issue number and a timestamp. <!-- code: src/instance.ts#ensureInstance -->
 

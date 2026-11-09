@@ -2,9 +2,9 @@
 
 ## The sandbox
 
-Sessions, `run` steps, checks and checkout setup run in throwaway Docker containers. Without Docker or the internal network, the run hits a [runner error](workflows.md#order-and-limits). Images are never pulled.
+Sessions, `run` steps, checks and checkout setup execute through a [runner](#runners). The `local` runner uses throwaway Docker containers and never pulls command images. For `local`, missing Docker or the internal network fails execution. The `box` runner sends commands to a box server over HTTP; plugins can execute them on other hosts. <!-- code: src/docker.ts#dockerArgs src/remote.ts#boxRunner -->
 
-A container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory and 1.5 CPUs by default, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets its model credentials and, when configured, its own tool bearer. <!-- code: src/docker.ts#dockerArgs -->
+A `local` runner container has a read-only root, your non-root uid, no capabilities, `no-new-privileges`, 4g of memory and 1.5 CPUs by default, 512 pids and a timeout. No Docker socket or GitHub token enters it; a session gets its model credentials and, when configured, its own tool bearer. <!-- code: src/docker.ts#dockerArgs -->
 
 Set graph-wide resource limits in `settings.yaml`:
 
@@ -39,9 +39,9 @@ A read-only session also gets the mirror, its worktree's git dir and the depende
 
 ### Runners
 
-A runner executes commands; the engine keeps git, the mirror, worktrees, cleanup and publishing. `local`, the default, runs docker on this host and checks it first: not root, Docker up, the image built, the model hosts answering. `box` sends each checkout to the box server `AGENTGRAPH_SANDBOX_URL` names; see [Hosting](hosting.md#cloudflare). A [runner plugin](plugins.md#runners) in the host graph adds another, such as Modal in `examples/plugins/modal/`. <!-- code: src/sandbox.ts#Runner src/mirror.ts#makeSandbox src/runners.ts#local src/docker.ts#ensureDockerHost src/services.ts#makeRunner src/runners.ts#box src/remote.ts#boxRunner src/plugin.ts#RunnerHost examples/plugins/modal/modal.ts#makeModalRunner -->
+A runner executes commands; the engine keeps git, the mirror, worktrees, cleanup and publishing. `local`, the default, runs Docker on this host. It checks that it is not root, that local model hosts answer, then that `docker version` succeeds. It creates three networks, builds the stock sandbox image if selected and the egress image if needed, and starts the `agentgraph-egress` container. `box` sends each checkout to the box server `AGENTGRAPH_SANDBOX_URL` names; see [Hosting](hosting.md#cloudflare). A [runner plugin](plugins.md#runners) in the host graph adds another, such as Modal in `examples/plugins/modal/`. <!-- code: src/sandbox.ts#Runner src/mirror.ts#makeSandbox src/runners.ts#local src/docker.ts#ensureDockerHost src/services.ts#makeRunner src/runners.ts#box src/remote.ts#boxRunner src/plugin.ts#RunnerHost examples/plugins/modal/modal.ts#makeModalRunner -->
 
-`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell, then `local`. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner never runs a read-only command writable and never widens a command's network. <!-- code: src/main.ts#readInstanceEnv src/services.ts#hostSettings src/services.ts#whyRunnerRefuses bin/run.ts#loadServedGraph src/remote.ts#whyBoxRefused src/sandbox.ts#Runner -->
+`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell, then `local`. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner must keep read-only commands read only and must not widen a command's network. `local` and `box` enforce this; plugin runners must uphold the same [requirements](plugins.md#runners). <!-- code: src/main.ts#readInstanceEnv src/services.ts#hostSettings src/services.ts#whyRunnerRefuses bin/run.ts#loadServedGraph src/remote.ts#whyBoxRefused src/sandbox.ts#Runner -->
 
 ## The network
 
@@ -86,7 +86,7 @@ A failed install is a runner error. `AGENTGRAPH_CACHE_VOLUME` sets another name 
 
 Graph `image` supplies the default local image for every command and environment build. Instance and command overrides follow the [settings table](local.md#named-instances-and-settings). Build it yourself, with the harnesses, for example `FROM agentgraph-sandbox:local` plus an `npm ci` into `/node_modules` on the `PATH`. Those dependencies stay as built even when a pull request changes the lockfile. Pair it with `network: models`.
 
-The runner resolves the tag to its Docker ID once per checkout, including when caches are disabled. Bench uses the same Docker image resolver after selecting its case image; command image overrides still apply. Custom images must run commands directly and include the harnesses and `agi`; missing custom tags fail without building stock contents. Remote boxes still reject graph image selection. <!-- code: src/docker.ts#readImage src/remote.ts#whyBoxRefused -->
+The runner resolves the tag to its Docker ID once per checkout, including when caches are disabled. Bench uses the same Docker image resolver after selecting its case image; command image overrides still apply. Custom images must run commands directly and include the harnesses and `agi`; missing custom tags fail without building stock contents. The `box` runner refuses a graph `image`. <!-- code: src/docker.ts#readImage src/remote.ts#whyBoxRefused -->
 
 For a repo requiring Node 22, build the derived recipe, whose Node source is pinned by digest:
 
@@ -201,5 +201,5 @@ The sandbox image supplies `agi file put <path>` for selected host-tool sessions
 `AGENTGRAPH_TOOL_URL` and the reserved session bearer to stream a local PNG/JPEG to the session endpoint and prints an opaque handle, with no path or image bytes in model
 context. Each handle can be read once by a host tool. Capture outside `/work`, for example in `/tmp`.
 Rebuild custom images to include this command.
-Remote sandboxes still reject host tools and file passing. See [Plugins](plugins.md).
+The `box` runner refuses host tools and therefore file passing. A runner whose `Box` has no `tools` fails at session start with "this runner cannot serve host tools". See [Plugins](plugins.md).
 <!-- code: src/files.ts#makeFiles src/tools.ts#startTools infra/local/sandbox/file.ts#runFile src/remote.ts#whyBoxRefused src/mirror.ts#makeSandbox -->
