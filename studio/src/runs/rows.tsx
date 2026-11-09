@@ -5,7 +5,7 @@ import type { Exit } from '../../../src/sandbox.ts';
 import type { RunRecord } from '../../../src/workflow.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
-import { RunResultLines } from '../results/ResultTable.tsx';
+import { RunResultBadge, RunResultLines } from '../results/ResultTable.tsx';
 import { dataParam, makeApiHref, makeInstanceHref, runAtom, runResultsAtom } from '../state.ts';
 import { accent, Badge, cx, Disclosure, Link, Live, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
@@ -471,16 +471,26 @@ const Issue = ({ r }: { r: ServedRun }) =>
     <>#{r.run.issue}</>
   );
 
+const useRunResults = (r: ServedRun) => {
+  const { value } = useAtomValue(runResultsAtom(r.data));
+  const run = value?.runs.find(x => x.key === r.run.id);
+  return value && run ? { run, fields: value.fields } : undefined;
+};
+
+const ResultBadge = ({ r }: { r: ServedRun }) => {
+  const results = useRunResults(r);
+  return results ? <RunResultBadge {...results} /> : null;
+};
+
 const FetchedRaw = ({ r }: { r: ServedRun }) => (
   <Live state={useAtomValue(runAtom(r.run.id, r.data))}>{value => value && <Raw value={value.run} />}</Live>
 );
 
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
 const RunInfo = ({ r }: { r: ServedRun }) => {
-  const { run, data } = r;
+  const { run } = r;
   const [raw, setRaw] = useState(false);
-  const { value } = useAtomValue(runResultsAtom(data));
-  const results = value?.runs.find(x => x.key === run.id);
+  const results = useRunResults(r);
   return (
     <>
       <p className="flex gap-x-2 text-zinc-500">
@@ -490,7 +500,7 @@ const RunInfo = ({ r }: { r: ServedRun }) => {
         </button>
       </p>
       {raw && (r.trace ? <Raw value={run} /> : <FetchedRaw r={r} />)}
-      {value && results && <RunResultLines run={results} fields={value.fields} />}
+      {results && <RunResultLines {...results} />}
       {run.reason && (
         <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
           {run.reason}
@@ -605,6 +615,7 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
         <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, r.run.status === 'running' ? undefined : (run.ended ?? r.lastAt))}
         </Col>
+        <ResultBadge r={r} />
         {Object.entries(r.labels).map(([key, value]) =>
           r.data ? (
             <Badge key={key}>{`${key}=${value}`}</Badge>
