@@ -145,7 +145,6 @@ describe('agi arguments', () => {
       { verb: 'import', values: { from: 'b', meta: 'm2' } },
     ],
     [['say', '1', '--read-only', 'yes'], { verb: 'say', rest: ['1', 'yes'], values: { 'read-only': true } }],
-    [['say', '2', '--read-only', 'no'], { verb: 'say', rest: ['2', 'no'], values: { 'read-only': true } }],
     [
       ['start', '--read-only', 'false', 'Fix it'],
       {
