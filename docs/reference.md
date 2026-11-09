@@ -45,6 +45,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `milestone` | milestone title | none, every open issue | Scope for new runs |
 | `commands` | map of command or comment workflow to `true`, `false` or logins | `true` for each | Who in `trust` may use each [`/agent:` command](workflows.md#commands) |
 | `status` | map of status to name, or `false` | `agentgraph:<status>` | How the tracker shows each [status](workflows.md#status-on-the-issue) |
+| `auth` | auth plugin name | `token` | Who may open the studio; see [Auth](plugins.md#auth) |
 | `plugins` | map | none | Settings decoded by each [plugin's](plugins.md) `settingsSchema` |
 | `limits` | map | below | Caps on a run |
 

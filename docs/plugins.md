@@ -163,6 +163,38 @@ what in a graph it cannot run. `makeBoxRunner` in `@jannik-stacks/agi/runners` b
 `agi check --dir <graph>` says when the name resolves to nothing or the runner refuses the graph.
 `examples/plugins/modal/` runs boxes on Modal. <!-- code: src/plugin.ts#makePlugin src/runners.ts src/remote.ts#makeBoxRunner src/services.ts#whyRunnerRefuses -->
 
+## Auth
+
+Every studio request, the page, its modules, the API, plugin data and actions, and the live socket, passes one
+gate. A plugin can provide `auth`: given the host env and its settings, it returns a function that takes a request
+(`url`, `headers`, and `form` on a login post) and answers `{ user }`, `{ login: url }` or `{ refuse: why }`. The
+studio keeps the session: a signed cookie that lasts an hour and renews while in use. `npm run dev -- --auth <name>`,
+else `AGENTGRAPH_AUTH` in the instance's env file, else `auth:` in settings.yaml, else `AGENTGRAPH_AUTH` in the
+shell, else `token` picks one, from the built-ins and the plugins of a graph on the host. A studio of several
+instances needs them to agree.
+<!-- code: src/plugin.ts#AuthResult src/services.ts#pickAuth studio/auth.ts#makeStudioAuthPlugin -->
+
+```yaml
+auth: cloudflare-access
+plugins:
+  cloudflare-access:
+    team: https://myteam.cloudflareaccess.com
+    audience: <the Access application's AUD tag>
+    domains: [example.com]
+```
+
+- `token`, the default: the studio makes a random token at start and prints a login URL with it.
+- `password`: `AGENTGRAPH_STUDIO_PASSWORD` from the env file, posted from the login form.
+- `none`: no login. Pick it by name; the studio warns when it listens beyond loopback.
+- `examples/plugins/cloudflare-access.ts`: checks Cloudflare Access's signed header against the team's keys and
+  lets in emails on the listed domains. Set up Google or another login in Cloudflare.
+<!-- code: src/auths.ts examples/plugins/cloudflare-access.ts -->
+
+The env file may also set `AGENTGRAPH_STUDIO_KEY`, which signs sessions so they outlive a restart, and
+`AGENTGRAPH_STUDIO_API_TOKEN`, which scripts send as `Authorization: Bearer <token>`. The cookie is HttpOnly,
+SameSite=Strict, and Secure behind HTTPS. Against cross-site requests the gate refuses any request but GET and HEAD
+whose `Origin` names another host. To host the studio, set `AGI_HOST` and, behind a proxy, `AGI_ALLOWED_HOSTS`.
+
 ## Studio pages
 
 A plugin can provide `studio` instead of tools. It declares a title, a local TSX page URL, an Effect
