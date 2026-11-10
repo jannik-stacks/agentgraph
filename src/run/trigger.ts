@@ -60,13 +60,15 @@ import {
 /** Why a run is held: "Depends on" issues not yet closed and "Stacks on" issues without a pull request. */
 const findHold = (w: Workflow, issue: number, open: Issue[]) => {
   if (w.branch === undefined) return undefined;
-  const on = [...(open.find(t => t.number === issue)?.body ?? '').matchAll(/^\s*(stacks|depends) on #(\d+)\s*$/gim)]
-    .map(([, how, n]) => ({ depends: how!.toLowerCase() === 'depends', n: Number(n) }))
-    .filter(
-      ({ depends, n }) =>
-        open.some(t => t.number === n && (depends || !t.pull)) &&
-        (depends || findPullNumber(w, { issue: n }, open) === undefined)
-    );
+  const t = open.find(t => t.number === issue);
+  const on = [
+    ...(t?.stacksOn === undefined ? [] : [{ depends: false, n: t.stacksOn }]),
+    ...(t?.dependsOn ?? []).map(n => ({ depends: true, n })),
+  ].filter(
+    ({ depends, n }) =>
+      open.some(t => t.number === n && (depends || !t.pull)) &&
+      (depends || findPullNumber(w, { issue: n }, open) === undefined)
+  );
   const closes = on.filter(d => d.depends).map(d => `#${d.n}`);
   const pulls = on.filter(d => !d.depends).map(d => `#${d.n}`);
   const parts = [

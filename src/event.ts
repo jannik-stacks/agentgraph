@@ -6,7 +6,10 @@ export type IssueStatus = (typeof issueStatuses)[number];
 
 const Text = Schema.optionalKey(Schema.String);
 
-/** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
+/**
+ * An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. `stacksOn` is the issue or pull
+ * request its work builds on, and `dependsOn` the issues that must close before it starts.
+ */
 export const Issue = Schema.Struct({
   number: Schema.Number,
   title: Schema.String,
@@ -16,6 +19,8 @@ export const Issue = Schema.Struct({
   milestone: Text,
   author: Schema.String,
   parent: Schema.optionalKey(Schema.Number),
+  stacksOn: Schema.optionalKey(Schema.Number),
+  dependsOn: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.Number))),
   pull: Schema.optionalKey(
     Schema.Struct({ branch: Schema.String, base: Schema.String, head: Schema.String, baseSha: Text })
   ),

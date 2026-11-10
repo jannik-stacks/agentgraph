@@ -33,11 +33,10 @@ import {
   formatCause,
 } from '../types.ts';
 
-/** The open pull request a run on `issue` stacks on, from a "Stacks on #n" line naming it or its issue. */
+/** The open pull request a run on `issue` stacks on: the one it names, or the one of the issue it names. */
 const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
-  const n = Number(/^\s*stacks on #(\d+)\s*$/im.exec(issue.body)?.[1]);
-  const on = open.find(t => t.number === n);
-  const pull = on?.pull ? on : open.find(t => t.number === findPullNumber(w, { issue: n }, open));
+  const on = open.find(t => t.number === issue.stacksOn);
+  const pull = on?.pull ? on : open.find(t => t.number === findPullNumber(w, { issue: issue.stacksOn! }, open));
   return (
     pull?.pull && {
       pull: pull.number,

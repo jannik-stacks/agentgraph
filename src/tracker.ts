@@ -164,6 +164,24 @@ export const matches =
     (filter.labels ?? []).every(l => t.labels.includes(l));
 
 /** The text shown in place of a comment, or another `what`, from someone who is not a collaborator. */
+export const parseIssueLinks = (t: Issue): Issue => {
+  const lines = [...t.body.matchAll(/^[ \t]*(stacks|depends) on #(\d+)\.?[ \t]*$/gim)];
+  const stacks = lines.find(([, how]) => how!.toLowerCase() === 'stacks')?.[2];
+  const depends = lines.flatMap(([, how, n]) => (how!.toLowerCase() === 'depends' ? [Number(n)] : []));
+  const dependsOn = [...new Set([...(t.dependsOn ?? []), ...depends])];
+  return {
+    ...t,
+    ...(t.stacksOn === undefined && stacks !== undefined && { stacksOn: Number(stacks) }),
+    ...(dependsOn.length > 0 && { dependsOn }),
+  };
+};
+
+export const formatIssueLinks = (t: Pick<Issue, 'stacksOn' | 'dependsOn'>) =>
+  [
+    ...(t.stacksOn === undefined ? [] : [`Stacks on #${t.stacksOn}`]),
+    ...(t.dependsOn ?? []).map(n => `Depends on #${n}`),
+  ].join('\n');
+
 export const withheld = (author: string, what = 'comment', why = 'not a collaborator') =>
   `(${what} by @${author} withheld: ${why})`;
 
@@ -375,7 +393,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       /** The issue as an agent may read it: an outsider's title and text withheld. */
       const shown = (t: Issue): Issue =>
         t.author === me || (trust ? trust.includes(t.author) : !t.author?.endsWith('[bot]'))
-          ? { ...t, body: removeRunLink(t.body) }
+          ? parseIssueLinks({ ...t, body: removeRunLink(t.body) })
           : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text') };
       const writePull = async (number: number, pull?: Issue['pull']) => {
         if (pull) writeFileAtomic(join(findIssueDir(dir, number), 'pull.json'), pull);

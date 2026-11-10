@@ -28,6 +28,19 @@ describe('folder tracker', () => {
     mkdirSync(join(dir, '2', 'pull.json'), { recursive: true });
     expect(await readOpenNumbers(dir)).toEqual([1]);
   });
+
+  it('reads what an issue stacks on and depends on from its frontmatter and its body lines', async () => {
+    const dir = tmp('tracker-links');
+    await writeIssueFile(
+      dir,
+      { title: 'Bye', author: 'alice', labels: [], dependsOn: [5] },
+      'Add bye.\n\nStacks on #3\nDepends on #4'
+    );
+    const [issue] = await Effect.runPromise(
+      Effect.flatMap(Tracker, tracker => tracker.issues({ state: 'open' })).pipe(Effect.provide(folderTracker(dir)))
+    );
+    expect([issue?.stacksOn, issue?.dependsOn]).toEqual([3, [5, 4]]);
+  });
 });
 
 describe('waitForTrackerEdit', () => {
