@@ -38,7 +38,8 @@ that level first.
 7. Exported functions start with a verb from the fixed set in `docs/patterns.md#names` (`parse`,
    `compile`, `format`, `make`, `get`, `find`, `read`, `write`, `run`, ...).
 8. `is` returns a boolean, `why` returns a reason or undefined: `isAgentBranch`, `whyUnpushable`.
-9. No `xOf`, `xFor` or `xFrom` names: `splitTraceIntoVisitedSteps`, not `visitsOf`.
+9. No `Of`, `For` or `From` anywhere in a name: `splitTraceIntoVisitedSteps`, not `visitsOf`; `parseSetupLabels`, not
+    `envOfLabels`. A preposition right after the leading verb is fine: `waitForLock`.
 10. Types and components are a qualifier plus a noun: `RunLink`, `DiskCacheEntry`, never `Mark` or `Item`.
 11. Spell words out: no `Repo`, `Dep` or `Cfg` in type names. The allowed abbreviations are
     `Dirs`, `Ms`, `Id`, `Url`, `Json`, `Sha`, `Ast`, `Api`, `Cli`, `Pid` and `Env`.
@@ -104,7 +105,7 @@ that level first.
 
 39. Fields users type stay short (`back`, `until`, `tries`, `checks`, `judge`); types may qualify them
     (`CheckJudge`).
-40. Values read as words: `context: summary | resume`.
+40. Values read as words: `session: fresh | same`.
 41. Every field is explainable in one sentence, or it goes.
 42. Borrow shapes people know, such as GitHub Actions `on:` and cancel-in-progress.
 43. A workflow file compiles to one checked state machine; unknown keys fail with their path.
@@ -113,17 +114,36 @@ that level first.
 
 ## Lint and enforcement
 
-46. If a tool can check a rule, a tool checks it. This is the one list of what tools enforce:
-    - `bin/style.mjs` (oxlint) fails `verb-first` (rule 7), `no-of-for` (9), `unique-export` (16),
-      `retired-word` (16) and `no-comment` (18).
-    - The agentgraph example's [rules check](examples/agentgraph/scripts/rules.mjs), over the lines a change adds, fails
-      the prose bans (55), unicode diagram arrows (55), retired terms (16), a two-dot range to
-      `HEAD`, a force push and an `update-ref` without its old sha (59), and a `CLAUDE.md` (38).
-    - `test-guards` fails assertions in loops and branches (34); `bin/refs.mjs` fails dead docs links (20).
-47. Old violations sit in `bin/style-baseline.txt`; after a rename batch run `node bin/style.mjs --write`.
+46. If a tool can check a rule, a tool checks it. This is the one list of what tools enforce. The `bin/` tools,
+    oxlint, knip and tsc run in `npm run check:static`; the agentgraph example's script checks run there through
+    `sh bin/precommit.sh`; `tests/docs.test.ts` runs with the tests.
+
+    | Rule              | Tool                                    | Fails on                                                                                                    |
+    | ----------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+    | 2                 | `enum-copy`                             | a copied list of a union's values; a number both `src/` and a graph script hold                             |
+    | 6                 | `code-shape`                            | a tagged `Schema.Union` whose members share no tag key                                                      |
+    | 7, 9, 13, 16, 18  | `bin/style.mjs` (oxlint)                | `verb-first`, `no-of-for`, `type-suffix`, `unique-export`, `retired-word` and `no-comment`                  |
+    | 16, 38, 55, 59    | `rules`, over the lines a change adds   | prose bans, unicode diagram arrows, retired terms, a `CLAUDE.md`, a two-dot range to `HEAD`, a force push and an `update-ref` without its old sha |
+    | 19, 20, 21        | `bin/refs.mjs`, `tests/docs.test.ts`    | dead docs links and anchors, uncited user-facing names, an unclosed code block, a code anchor inside one, the plugin example drifting from `tests/fixtures/docs/plugins.ts`, an undocumented `run.json` field |
+    | 20                | `docs-sync`                             | a new schema of a user-written file that no docs page names                                                 |
+    | 20                | `bin/commands.mjs`                      | a documented command, npm script or flag that does not exist                                                |
+    | 24                | `propagation` (warn)                    | a renamed or removed name still used elsewhere                                                              |
+    | 25, 48            | knip, `bin/fields.mjs`, `unused-exports` | unused files, exports and dependencies; a schema field `src/` never reads; an addition nothing wires in    |
+    | 34                | `test-guards`                           | assertions in loops and branches, and tests a change drops                                                  |
+    | 35                | oxlint `import/no-cycle` and import bans | an import cycle or an import that goes up a layer                                                          |
+    | 55                | `bin/diagrams.mjs` (warn)               | a misaligned diagram                                                                                        |
+    | 57                | `bin/commit-msg.mjs`                    | a commit message that is not one conventional subject with a short body                                     |
+    | 58                | `hygiene`                               | a home folder, a private email or a denied word in what the bot publishes                                   |
+    | all code          | `lint`, `types`, oxfmt, tsc             | lint errors on added lines, unformatted files and type errors                                               |
+    | studio            | `code-shape`                            | a component defined inside a function, an eagerly loaded route and the studio UI rules                      |
+
+47. Old violations sit in `bin/style-baseline.txt`, a comment by a hash of its text. `node bin/style.mjs --write`
+    only removes the entries a change fixed. A new exception is a line added by hand, with its reason in
+    [Exceptions](#exceptions), so review sees it.
 48. A setting nothing reads can't exist: knip and static analysis run after every big change.
 49. Checks name exact tools and commands; judged checks cover only what no tool decides.
-50. `npm run check` passes before every commit. Rules here carry good and bad examples.
+50. `npm run check:static` passes before every commit; `npm run check` passes once per branch before merge. Rules
+    here carry good and bad examples.
 
 ## Prose in repo docs
 
