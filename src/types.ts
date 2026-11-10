@@ -397,7 +397,8 @@ export class TrackerError extends Data.TaggedError('TrackerError')<{
 
 export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {
   override get message() {
-    return `${this.path}: ${formatCause(this.cause)}`;
+    const cause = formatCause(this.cause);
+    return cause.startsWith(this.path) ? cause : `${this.path}: ${cause}`;
   }
 }
 

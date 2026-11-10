@@ -104,12 +104,13 @@ export const makeStudioDevApiPlugin = (
               const told = new Map<number, string>();
               for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
                 if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
-              return yield* Effect.forEach(runs, run =>
-                Effect.map(
-                  entry(run, run.issue !== undefined && told.get(run.issue) === run.id),
-                  Struct.omit(['trace'])
+              const listed = yield* Effect.forEach(runs, run =>
+                entry(run, run.issue !== undefined && told.get(run.issue) === run.id).pipe(
+                  Effect.map(Struct.omit(['trace'])),
+                  Effect.catch(e => Effect.as(Effect.logWarning(`1 skipped run ${e.message}`), undefined))
                 )
               );
+              return listed.filter(listedRun => listedRun !== undefined);
             }).pipe(Effect.mapError(fail));
           const run = ({ id }: { id: string }) =>
             Effect.gen(function* () {

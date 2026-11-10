@@ -1,4 +1,4 @@
-import { Effect, Stream } from 'effect';
+import { Effect, Logger, Stream } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { fileStore, readChecksSync, readRunSync, Store } from '../src/store.ts';
 import { tmp, write } from './kit.ts';
@@ -27,6 +27,20 @@ it('decodes a stored run and names the file when it does not decode', async () =
   expect(readRunSync(dir, 'r1')).toEqual(run);
   await expect(withStore(dir, s => s.getRecord('r2'))).rejects.toThrow(/r2\/run\.json.*status/s);
   expect(() => readRunSync(dir, 'r2')).toThrow(/r2\/run\.json/);
+});
+
+it('lists the runs that decode and warns about the file and reason of one that does not', async () => {
+  const dir = tmp('store-decode');
+  write(dir, {
+    'r1/run.json': JSON.stringify(run),
+    'r2/run.json': JSON.stringify({ ...run, id: 'r2', status: 'asking' }),
+  });
+  const warnings: string[] = [];
+  const logger = Logger.layer([Logger.make(({ message }) => void warnings.push(String(message)))]);
+  const listed = await withStore(dir, s => s.listRecords().pipe(Effect.provide(logger)));
+  expect(listed).toEqual([run]);
+  expect(warnings).toEqual([expect.stringMatching(/^1 skipped run .*r2\/run\.json: .*status/s)]);
+  await expect(withStore(dir, s => s.getRecord('r2'))).rejects.toThrow(/r2\/run\.json/);
 });
 
 it('names the file and row of a trace or check line that does not decode, and skips an incomplete last row', async () => {

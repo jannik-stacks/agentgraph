@@ -242,14 +242,15 @@ it.each([
   ).toThrow(why);
 });
 
-it('fails on malformed store data and skips issues without a tracker', async () => {
+it('skips a malformed run and issues without a tracker', async () => {
   const data = makeData();
   mkdirSync(join(data, 'r1'));
   const read = () => Effect.runPromise(readDashboard(makeSettings(), makeInstanceHost({ data }), now));
   writeFileSync(join(data, 'r1/run.json'), JSON.stringify(makeRun({ id: 'r1', workflow: 'issue', started: 'x' })));
-  const { skipped, why } = (await read()).widgets.at(-1)!;
+  const before = await read();
   writeFileSync(join(data, 'r1/run.json'), '{');
-  await expect(read()).rejects.toThrow('r1/run.json');
+  expect(await read()).toEqual(before);
+  const { skipped, why } = before.widgets.at(-1)!;
   expect({ skipped, why }).toEqual({ skipped: 1, why: 'Tracker unread: this studio serves no tracker' });
 });
 

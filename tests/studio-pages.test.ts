@@ -276,6 +276,11 @@ it('runs instance actions through the RPC client and refuses foreign requests', 
     join(root, 'data', 'r1', 'run.json'),
     JSON.stringify(makeRun({ id: 'r1', workflow: 'w', status: 'done', started: 'now' }))
   );
+  mkdirSync(join(root, 'data', 'r3'));
+  writeFileSync(join(root, 'data', 'r3', 'run.json'), '{"id":"r3"}');
+  mkdirSync(join(root, 'data', 'r4'));
+  writeFileSync(join(root, 'data', 'r4', 'run.json'), JSON.stringify(makeRun({ id: 'r4', started: 'now' })));
+  writeFileSync(join(root, 'data', 'r4', 'trace.jsonl'), '{"at":"now","step":"s","verdict":{}}\n{}\n');
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
   vi.stubEnv('AGI_STUDIO_TRACKER', join(root, 'tracker'));
@@ -292,6 +297,7 @@ it('runs instance actions through the RPC client and refuses foreign requests', 
   };
   try {
     expect([
+      await act(actions => Effect.map(actions.runs(), runs => runs.map(listed => listed.run.id))),
       await act(actions => actions.label({ id: 'r1', patch: { arm: 'base' } })),
       await act(actions => actions.label({ id: 'r2', patch: { arm: 'x' } })),
       await act(actions => actions.say({ issue, text: 'hi' })),
@@ -300,6 +306,7 @@ it('runs instance actions through the RPC client and refuses foreign requests', 
       await post({ 'content-type': 'text/plain' }),
       [(await fetch(`${base}/api/actions`)).status, null],
     ]).toEqual([
+      ['r1'],
       { arm: 'base' },
       { error: expect.stringContaining('r2') },
       undefined,

@@ -225,7 +225,13 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     );
   const listRecords = (filter: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>> = {}) =>
     io(dir, () => readdir(dir).catch(e => readOrUndefined(e) ?? [])).pipe(
-      Effect.flatMap(ids => Effect.forEach(ids, readRun, { concurrency: 8 })),
+      Effect.flatMap(ids =>
+        Effect.forEach(
+          ids,
+          id => Effect.catch(readRun(id), e => Effect.as(Effect.logWarning(`1 skipped run ${e.message}`), undefined)),
+          { concurrency: 8 }
+        )
+      ),
       Effect.map(runs =>
         runs.filter(
           (run): run is RunRecord =>

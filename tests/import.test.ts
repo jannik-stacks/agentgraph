@@ -87,7 +87,8 @@ it('serves an imported run in the studio run list and on its own page', async ()
   expect(Object.keys(one!)).not.toEqual(expect.arrayContaining(['checks']));
   mkdirSync(join(i.data, 'broken'));
   writeFileSync(join(i.data, 'broken', 'run.json'), '{');
-  await expect(runs()).rejects.toThrow(/.+/);
+  expect((await runs()).map(listed => listed.run.id)).toEqual([id]);
+  await expect(opened('broken')).rejects.toThrow(/broken\/run\.json/);
 }, 30_000);
 
 const run = (id: string, workflow: string, started: string) => ({
