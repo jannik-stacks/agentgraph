@@ -1,4 +1,4 @@
-import { readDirEntriesOrEmpty, readOrUndefined } from './read.ts';
+import { parseJson, readDirEntriesOrEmpty, readOrUndefined } from './read.ts';
 import { type HookContext, makePlugin, type ToolContext } from './plugin.ts';
 import { existsSync } from 'node:fs';
 import { appendFile, link, mkdir, readFile, rename, stat, unlink, watch, writeFile } from 'node:fs/promises';
@@ -16,8 +16,8 @@ import {
   removeRunLink,
   type Applied,
   type Comment,
-  type Event,
-  type Issue,
+  Event,
+  Issue,
   type IssueStatus,
   type RunLink,
 } from './event.ts';
@@ -398,7 +398,9 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           title: front.title ?? first,
           labels: front.labels ?? [],
           body: (front.title === undefined ? rest : body).trim(),
-          ...(pull !== undefined && { pull: JSON.parse(pull) as NonNullable<Issue['pull']> }),
+          ...(pull !== undefined && {
+            pull: parseJson(Issue.fields.pull.schema, pull, join(findIssueDir(dir, n), 'pull.json')),
+          }),
           url: md(n),
         };
       };
@@ -427,7 +429,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         await publish(timelinePath(dir, n), events.map(m => `${JSON.stringify(m)}\n`).join(''));
       };
       const readEvents = async (n: number) =>
-        parseJsonlRows(timelinePath(dir, n), (await readIssueFile(n, 'events.jsonl')) ?? '') as Event[];
+        parseJsonlRows(timelinePath(dir, n), (await readIssueFile(n, 'events.jsonl')) ?? '', Event);
       const readTimeline = async (n: number) => {
         await adopt(n);
         return readEvents(n);

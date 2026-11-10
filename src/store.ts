@@ -1,5 +1,5 @@
 import { getSha } from './hash.ts';
-import { readOrUndefined } from './read.ts';
+import { parseJson, readOrUndefined } from './read.ts';
 import { randomUUID } from 'node:crypto';
 import {
   closeSync,
@@ -20,15 +20,7 @@ import { createLock, LockHeldError, waitForLock } from './owner.ts';
 import { isRunDone } from './workflow.ts';
 import { isOnIssue } from './graph.ts';
 import { PluginMetadata, getRunOrigin } from './meta.ts';
-import {
-  type CheckEntry,
-  type Log,
-  type Run,
-  type RunRecord,
-  StoreError,
-  type Trace,
-  type InstanceHost,
-} from './types.ts';
+import { CheckEntry, type Log, type Run, RunRecord, StoreError, Trace, type InstanceHost } from './types.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
 const changes = (before: RunRecord | undefined, next: RunRecord): Trace | undefined => {
@@ -84,32 +76,6 @@ export class Store extends Context.Service<
   }
 >()('agentgraph/Store') {}
 
-const renamed: Record<string, string> = {
-  brief: 'prompt',
-  carry: 'feedback',
-  thread: 'issue',
-  into: 'base',
-  verdict: 'check',
-  failing: 'checks',
-  rejected: 'proposals',
-  bot: 'agent',
-};
-const values: Record<string, Record<string, string>> = {
-  kind: { reply: 'comment', pull: 'pull_request', refused: 'failed' },
-  status: { asking: 'waiting' },
-};
-
-/** A run or trace line as older versions wrote it, read with today's field names and values. */
-const current = (value: unknown, key = ''): unknown => {
-  if (key === 'meta' || key === 'spoken') return value;
-  if (typeof value === 'string') return values[key]?.[value] ?? value;
-  if (key === 'said' && value && !Array.isArray(value)) return [current(value)];
-  if (Array.isArray(value))
-    return value.map(v => (key === 'cleared' && typeof v === 'string' ? (renamed[v] ?? v) : current(v)));
-  if (!value || typeof value !== 'object' || 'event' in value || key === 'rounds' || key === 'sessions') return value;
-  return Object.fromEntries(Object.entries(value).map(([k, v]) => [renamed[k] ?? k, current(v, k)]));
-};
-
 const absent = (e: unknown) => ['ENOENT', 'ENOTDIR'].includes(String((e as NodeJS.ErrnoException).code));
 
 export const readRecordSync = (path: string) => {
@@ -134,7 +100,7 @@ export const writeIdleRunsCompressed = async (dir: string, days: number) => {
   const before = Date.now() - days * 86_400_000;
   for (const id of await readdir(dir).catch(e => readOrUndefined(e) ?? [])) {
     const idle: string[] = [];
-    for (const path of ['trace.jsonl', 'checks.jsonl'].map(file => join(dir, id, file))) {
+    for (const path of [getRecordPath(dir, id, 'trace'), getRecordPath(dir, id, 'checks')]) {
       const modified = await stat(path).then(
         s => s.mtimeMs,
         e => (absent(e) ? undefined : Promise.reject(e))
@@ -142,8 +108,7 @@ export const writeIdleRunsCompressed = async (dir: string, days: number) => {
       if (modified !== undefined && modified <= before) idle.push(path);
     }
     if (idle.length === 0) continue;
-    const run = await readRecord(join(dir, id, 'run.json'));
-    if (!run || !JSON.parse(run).ended) continue;
+    if (!readRunSync(dir, id)?.ended) continue;
     for (const path of idle) {
       writeFileAtomic(`${path}.zst`, await promisify(zstdCompress)(await readFile(path)));
       await rm(path);
@@ -151,21 +116,39 @@ export const writeIdleRunsCompressed = async (dir: string, days: number) => {
   }
 };
 
-export const parseJsonlRows = (path: string, text: string): unknown[] =>
+export const parseJsonlRows = <S extends Schema.ConstraintDecoder<unknown>>(
+  path: string,
+  text: string,
+  schema: S
+): S['Type'][] =>
   text.split('\n').flatMap((line, i, lines) => {
     if (!line) return [];
-    try {
-      return [JSON.parse(line) as unknown];
-    } catch (e) {
-      if (i === lines.length - 1) {
+    if (i === lines.length - 1)
+      try {
+        JSON.parse(line);
+      } catch (e) {
         console.error(`${path}: 1 skipped incomplete JSONL row at line ${i + 1}: ${String(e)}`);
         return [];
       }
-      throw e;
-    }
+    return [parseJson(schema, line, `${path}:${i + 1}`)];
   });
 
-export const readJsonlRows = (path: string) => parseJsonlRows(path, readRecordSync(path));
+export const readJsonlRows = <S extends Schema.ConstraintDecoder<unknown>>(path: string, schema: S) =>
+  parseJsonlRows(path, readRecordSync(path), schema);
+
+const recordFiles = { run: 'run.json', trace: 'trace.jsonl', checks: 'checks.jsonl' } as const;
+
+export const getRecordPath = (dir: string, id: string, record: keyof typeof recordFiles) =>
+  join(dir, id, recordFiles[record]);
+
+export const readRunSync = (dir: string, id: string) => {
+  const path = getRecordPath(dir, id, 'run');
+  return existsSync(path) ? parseJson(RunRecord, readFileSync(path, 'utf8'), path) : undefined;
+};
+
+export const readTraceSync = (dir: string, id: string) => readJsonlRows(getRecordPath(dir, id, 'trace'), Trace);
+
+export const readChecksSync = (dir: string, id: string) => readJsonlRows(getRecordPath(dir, id, 'checks'), CheckEntry);
 
 const writers = new Map<string, Semaphore.Semaphore>();
 
@@ -231,14 +214,14 @@ export const appendJsonlRows = (path: string, lines: unknown[]) => {
 export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all'): Layer.Layer<Store> => {
   const io = <A>(path: string, f: () => Promise<A>) =>
     Effect.tryPromise({ try: f, catch: cause => new StoreError({ path, cause }) });
-  const runFile = (id: string) => join(dir, id, 'run.json');
-  const traceFile = (id: string) => join(dir, id, 'trace.jsonl');
-  const checksFile = (id: string) => join(dir, id, 'checks.jsonl');
-  const readLines = <A>(path: string) =>
-    io(path, async () => parseJsonlRows(path, await readRecord(path)).map(row => current(row) as A));
+  const runFile = (id: string) => getRecordPath(dir, id, 'run');
+  const traceFile = (id: string) => getRecordPath(dir, id, 'trace');
+  const checksFile = (id: string) => getRecordPath(dir, id, 'checks');
+  const readLines = <S extends Schema.ConstraintDecoder<unknown>>(path: string, schema: S) =>
+    io(path, async () => parseJsonlRows(path, await readRecord(path), schema));
   const readRun = (id: string) =>
     io(runFile(id), () =>
-      readFile(runFile(id), 'utf8').then(text => current(JSON.parse(text)) as RunRecord, readOrUndefined)
+      readFile(runFile(id), 'utf8').then(text => parseJson(RunRecord, text, runFile(id)), readOrUndefined)
     );
   const listRecords = (filter: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>> = {}) =>
     io(dir, () => readdir(dir).catch(e => readOrUndefined(e) ?? [])).pipe(
@@ -319,9 +302,9 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       }),
     trace,
     read: (id, from = 0) =>
-      Stream.fromIterableEffect(Effect.map(readLines<Trace>(traceFile(id)), lines => lines.slice(from))),
+      Stream.fromIterableEffect(Effect.map(readLines(traceFile(id), Trace), lines => lines.slice(from))),
     addChecks: (id, ...entries) => appendJsonlRows(checksFile(id), entries),
-    readChecks: id => readLines<CheckEntry>(checksFile(id)),
+    readChecks: id => readLines(checksFile(id), CheckEntry),
     lock: name => {
       const path = join(dir, '.locks', `${name.replaceAll('/', '_')}.lock`);
       return Effect.asVoid(
@@ -377,8 +360,9 @@ export const locate = (input: unknown, store: Pick<Store['Service'], 'list' | 'r
 export const pruneLogs = async (dir: string, apply = false) => {
   const named = new Set<string>();
   for (const id of await readdir(dir).catch(e => readOrUndefined(e) ?? []))
-    for (const file of ['trace.jsonl', 'checks.jsonl'])
-      for (const [hash] of (await readRecord(join(dir, id, file))).matchAll(/[0-9a-f]{64}/g)) named.add(hash);
+    for (const record of ['trace', 'checks'] as const)
+      for (const [hash] of (await readRecord(getRecordPath(dir, id, record))).matchAll(/[0-9a-f]{64}/g))
+        named.add(hash);
   const unused = { files: 0, bytes: 0 };
   for (const name of await readdir(join(dir, 'logs')).catch(e => readOrUndefined(e) ?? [])) {
     const hash = /^([0-9a-f]{64})\.gz$/.exec(name)?.[1];

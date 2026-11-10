@@ -30,7 +30,7 @@ import { addGraphArgs } from '../src/git.ts';
 import { ConfigProvider, Effect } from 'effect';
 import { writeComment } from '../src/instance.ts';
 import { makeEngineHost, type Submission } from '../src/engine.ts';
-import { appendJsonlRows, readJsonlRows, writeFileAtomic } from '../src/store.ts';
+import { appendJsonlRows, getRecordPath, readChecksSync, readTraceSync, writeFileAtomic } from '../src/store.ts';
 import { parseLabelPatch, parseLabels } from '../src/labels.ts';
 import { parseNamePairs } from '../src/harnesses.ts';
 import {
@@ -530,7 +530,7 @@ export const appendBenchResults = (
 ) =>
   Effect.runPromise(
     appendJsonlRows(
-      join(found.data, found.run.id, 'checks.jsonl'),
+      getRecordPath(found.data, found.run.id, 'checks'),
       checks.map((check, i) => ({
         at: new Date().toISOString(),
         step: 'bench',
@@ -676,12 +676,9 @@ export const readCaseImage = async (
 
 /** The harness's last words when the run's last session ended in an error, as when it cannot reach the proxy. */
 export const harnessError = (data: string, id: string) => {
-  const ends = readJsonl(join(data, id, 'trace.jsonl')).flatMap(t => {
-    const e = t.event as { type?: string; ended?: string; final?: string } | undefined;
-    return e?.type === 'end' ? [e] : [];
-  });
+  const ends = readTraceSync(data, id).flatMap(t => ('event' in t && t.event.type === 'end' ? [t.event] : []));
   const last = ends.at(-1);
-  return last?.ended === 'error' ? `harness error: ${String(last.final ?? '').slice(0, 160)}` : undefined;
+  return last?.ended === 'error' ? `harness error: ${last.final.slice(0, 160)}` : undefined;
 };
 
 /** Environment failures an arm may have before it counts as infra. */
@@ -1623,8 +1620,8 @@ const judge = async (arm: string, caseDir: string, set: string) => {
   );
   const version = hash(JSON.stringify(asks));
   if (isCurrent(found, ['bench/judge'], version)) return;
-  const file = join(found.data, found.run.id, 'checks.jsonl');
-  const calls = () => (readJsonlRows(file) as CheckEntry[]).filter(e => e.item && e.version === version);
+  const file = getRecordPath(found.data, found.run.id, 'checks');
+  const calls = () => readChecksSync(found.data, found.run.id).filter(e => e.item && e.version === version);
   const kept = calls();
   const verdicts = await Promise.all(
     asks.map(async ({ name, order, prompt }) => {

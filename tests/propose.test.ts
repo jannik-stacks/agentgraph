@@ -91,11 +91,28 @@ const trace = [
   {
     at: 't',
     step: 'implement',
-    prompt: { harness: 'opencode', agent: 'implementor', model: 'smart', system: 'Fix it.', prompt: 'Fix #1' },
+    prompt: {
+      harness: 'opencode',
+      agent: 'implementor',
+      model: 'smart',
+      system: 'Fix it.',
+      prompt: 'Fix #1',
+      dir: '/work',
+      tools: [],
+      minutes: 1,
+    },
   },
-  { at: 't', step: 'implement', event: { type: 'tool', name: 'write', input: { path: 'a.test.ts' }, ok: true } },
-  { at: 't', step: 'implement', check: { check: 'tests', pass: false, findings: '1 failing' } },
-  { at: 't', step: 'implement', outcome: { kind: 'pass' }, run: { step: 'merge', status: 'waiting' } },
+  {
+    at: 't',
+    step: 'implement',
+    event: { type: 'tool', id: 't1', name: 'write', input: { path: 'a.test.ts' }, ok: true },
+  },
+  {
+    at: 't',
+    step: 'implement',
+    outcome: { kind: 'pass' },
+    run: { step: 'merge', status: 'waiting', tries: 0, rounds: {} },
+  },
 ];
 
 let dir: string;

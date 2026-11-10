@@ -5,8 +5,8 @@ import { readRunResults } from '../bin/results.ts';
 import { Schema } from 'effect';
 import { findCheckFields, ResultSheet } from '../src/results.ts';
 import { formatResultValue, type RunResults, splitRunsByAxis, getFieldSummary } from '../studio/src/results/result.ts';
-import { tmp } from './kit.ts';
-import { type CheckEntry } from '../src/types.ts';
+import { makeRun, tmp } from './kit.ts';
+import { type CheckEntry, type RunRecord } from '../src/types.ts';
 
 const run = (key: string, at: string, usd: number, pass = true, dead?: string): RunResults => ({
   key,
@@ -86,7 +86,7 @@ describe('results', () => {
     mkdirSync(join(data, 'import-1'));
     writeFileSync(
       join(data, 'import-1', 'run.json'),
-      JSON.stringify({ id: 'import-1', workflow: 'import', status: 'done', started: '2026-10-01T00:00:00Z' })
+      JSON.stringify(makeRun({ id: 'import-1', workflow: 'import', status: 'done', started: '2026-10-01T00:00:00Z' }))
     );
     const na = { ...entry('2', 0), check: { check: 'judge', pass: false, empty: true, na: true as const, ms: 0 } };
     writeFileSync(join(data, 'import-1', 'checks.jsonl'), [entry('2', 1), na].map(e => JSON.stringify(e)).join('\n'));
@@ -110,24 +110,31 @@ describe('results', () => {
 
   it('reads each run of a data dir with the latest result of each check and why a run says nothing', () => {
     const data = tmp('results');
-    const put = (id: string, status: string, trace: object[], entries: CheckEntry[]) => {
+    const put = (id: string, status: RunRecord['status'], trace: object[], entries: CheckEntry[]) => {
       mkdirSync(join(data, id), { recursive: true });
       writeFileSync(
         join(data, id, 'run.json'),
-        JSON.stringify({
-          id,
-          issue: 1,
-          workflow: 'issue',
-          status,
-          started: '2026-10-01T00:00:00Z',
-          meta: { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: { arm: 'candidate' } } } },
-          versions: { engine: 'v1-dirty', image: 'sha256:0123456789abcdef', harnesses: { pi: '1.1.0' } },
-        })
+        JSON.stringify(
+          makeRun({
+            id,
+            issue: 1,
+            workflow: 'issue',
+            status,
+            started: '2026-10-01T00:00:00Z',
+            meta: { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: { arm: 'candidate' } } } },
+            versions: { engine: 'v1-dirty', image: 'sha256:0123456789abcdef', harnesses: { pi: '1.1.0' } },
+          })
+        )
       );
       writeFileSync(join(data, id, 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
       writeFileSync(join(data, id, 'checks.jsonl'), entries.map(e => JSON.stringify(e)).join('\n'));
     };
-    put('r1', 'done', [{ at: '1', step: 'code', event: { type: 'start' } }], [entry('2', 1), entry('3', 2, 'v0')]);
+    put(
+      'r1',
+      'done',
+      [{ at: '1', step: 'code', event: { type: 'start', session: 's', model: 'm', home: '/h' } }],
+      [entry('2', 1), entry('3', 2, 'v0')]
+    );
     put('r2', 'stopped', [], []);
     writeFileSync(join(data, 'r2', 'labels.jsonl'), '{"key":"engine","value":"written"}\n');
     const { fields, runs } = readRunResults(data, {

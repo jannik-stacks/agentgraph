@@ -120,6 +120,20 @@ const noComment = {
   }),
 };
 
+const isJsonParse = node =>
+  node?.type === 'ParenthesizedExpression' || node?.type === 'LogicalExpression'
+    ? isJsonParse(node.expression ?? node.left)
+    : node?.type === 'CallExpression' && node.callee.object?.name === 'JSON' && node.callee.property?.name === 'parse';
+
+const noJsonCast = {
+  create: context => ({
+    TSAsExpression: node => {
+      if (isJsonParse(node.expression) && node.typeAnnotation.type !== 'TSUnknownKeyword')
+        context.report({ node, message: 'JSON.parse(...) as: decode it with parseJson and a schema' });
+    },
+  }),
+};
+
 export default {
   meta: { name: 'style' },
   rules: {
@@ -176,6 +190,7 @@ export default {
       },
     },
     'no-comment': noComment,
+    'no-json-cast': noJsonCast,
   },
 };
 

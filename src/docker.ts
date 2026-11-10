@@ -1,4 +1,5 @@
 import { getSha } from './hash.ts';
+import { parseJson } from './read.ts';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -32,6 +33,8 @@ import { type Checkout, type Command, type Exit } from './types.ts';
 
 /** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
+const Names = Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String)));
+const Networks = Schema.Record(Schema.String, Schema.Struct({ Aliases: Names, DNSNames: Names }));
 const egress = 'http://egress:8888';
 const bypass = (direct: string[]) => [...direct, 'localhost', '127.0.0.1'].join(',');
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
@@ -336,7 +339,7 @@ const findMissingModelHosts = (hosts: string[]) =>
         .split('\n')
         .filter(Boolean)
         .flatMap(line =>
-          Object.entries(JSON.parse(line) as Record<string, { Aliases: string[] | null; DNSNames: string[] | null }>)
+          Object.entries(parseJson(Networks, line, 'docker inspect networks'))
             .filter(([name]) => (Object.values(networks) as string[]).includes(name))
             .flatMap(([, n]) => [...(n.Aliases ?? []), ...(n.DNSNames ?? [])])
         )

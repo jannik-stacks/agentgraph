@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { useAtomValue } from 'jotai';
 import { createContext, type ReactNode, useContext, useState } from 'react';
 import type { Proposal } from '../../../src/proposal.ts';
@@ -20,7 +21,7 @@ import {
   splitTraceIntoVisitedSteps,
 } from './trace.ts';
 import type { sumSpend } from '../../../src/stats.ts';
-import { formatReason, type Exit, type RunRecord } from '../../../src/types.ts';
+import { formatReason, type Exit, type RunRecord, Trace } from '../../../src/types.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {
@@ -98,7 +99,7 @@ const readJudgeSessions = (text: string): Row[] | undefined => {
     const lines = text
       .trim()
       .split('\n')
-      .map(l => JSON.parse(l) as Line);
+      .map(l => Schema.decodeUnknownSync(Schema.fromJsonString(Trace))(l));
     if (!lines.every(l => 'prompt' in l || 'event' in l || 'session' in l)) return;
     return splitTraceIntoVisitedSteps(lines).flatMap(v =>
       v.parts.map(part => ('events' in part ? sessionRow(part, false, false) : lineRow(part)))

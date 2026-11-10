@@ -1,12 +1,12 @@
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { fileStore, locate, Store } from '../src/store.ts';
-import { tmp } from './kit.ts';
-import { type Run, type Trace } from '../src/types.ts';
+import { makeRun, tmp } from './kit.ts';
+import { type Trace } from '../src/types.ts';
 
 const pr = 'https://github.com/o/r/pull/23';
 const run = (id: string, issue: number) =>
-  ({ id, issue, workflow: 'issue', step: 'review', status: 'done', started: '2026-10-16T00:00:00.000Z' }) as Run;
+  makeRun({ id, issue, workflow: 'issue', step: 'review', status: 'done', started: '2026-10-16T00:00:00.000Z' });
 const trace: Trace[] = [
   {
     at: '2026-10-19T15:40:00.000Z',

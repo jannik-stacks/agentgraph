@@ -21,10 +21,10 @@ import type * as MainModule from './main.ts';
 import type { JsonValue } from './meta.ts';
 import type { Instruction } from './run/trigger.ts';
 import { formatEngineError } from './status.ts';
-import { fileStore, pruneLogs, readJsonlRows, readRecordSync, Store } from './store.ts';
+import { fileStore, getRecordPath, pruneLogs, readChecksSync, readRecordSync, readRunSync, Store } from './store.ts';
 import { findIssueDir, Tracker, type TrackerSetup, writeAgentComment } from './tracker.ts';
 import { findCheckVerdicts, findLatestChecks } from './trace.ts';
-import { type CheckEntry, type InstanceHost, type Run, type RunRecord, TrackerError } from './types.ts';
+import { type InstanceHost, type Run, type RunRecord, TrackerError } from './types.ts';
 
 type EngineSettings = {
   readonly name: string;
@@ -50,13 +50,13 @@ export type EngineHost = {
 };
 
 const readStoredRun = (data: string, id: string, versions: Record<string, string> = {}): StoredRun | undefined => {
-  const json = readRecordSync(join(data, id, 'run.json'));
-  if (!json) return undefined;
+  const run = readRunSync(data, id);
+  if (!run) return undefined;
   return {
     data,
-    run: JSON.parse(json) as RunRecord,
+    run,
     labels: readRunLabels(data, id),
-    latest: findLatestChecks(readJsonlRows(join(data, id, 'checks.jsonl')) as CheckEntry[], versions),
+    latest: findLatestChecks(readChecksSync(data, id), versions),
   };
 };
 
@@ -71,7 +71,7 @@ export const readEngineErrors = (store: Pick<InstanceHost['store'], 'read'>, dat
       runs.filter(run => run.status === 'waiting' && run.retried),
       run =>
         Effect.map(Stream.runCollect(store.read(run.id)), trace =>
-          formatEngineError([...trace], join(data, run.id, 'trace.jsonl'))
+          formatEngineError([...trace], getRecordPath(data, run.id, 'trace'))
         )
     ),
     lines => lines.flat()

@@ -328,6 +328,12 @@
       }
     },
     {
+      "files": ["src/**", "harnesses/**", "studio/src/**"],
+      "rules": {
+        "style/no-json-cast": "error"
+      }
+    },
+    {
       "files": ["examples/**", "tests/**", "studio/*.ts"],
       "rules": {
         "style/no-of-for": "error"

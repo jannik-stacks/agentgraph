@@ -5,8 +5,9 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Config, Effect, Semaphore } from 'effect';
+import { Config, Effect, Schema, Semaphore } from 'effect';
 import { getSha } from './hash.ts';
+import { parseJson } from './read.ts';
 import { SandboxError } from './sandbox.ts';
 import { type Checkout } from './types.ts';
 
@@ -251,7 +252,11 @@ export const readEngineVersion = (root = engineRoot): string => {
       }).trim();
   } catch {}
   try {
-    return (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version?: string }).version ?? 'unknown';
+    const path = join(root, 'package.json');
+    return (
+      parseJson(Schema.Struct({ version: Schema.optionalKey(Schema.String) }), readFileSync(path, 'utf8'), path)
+        .version ?? 'unknown'
+    );
   } catch {
     return 'unknown';
   }

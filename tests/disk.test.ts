@@ -85,7 +85,7 @@ const box = {
 describe('inventory', () => {
   it('rejects unreadable inventory instead of reporting an empty cache', async () => {
     await faked({ 'system df': 'broken' }, async () => {
-      await expect(inventory()).rejects.toThrow(SyntaxError);
+      await expect(inventory()).rejects.toThrow(/docker system df/);
     });
   });
 

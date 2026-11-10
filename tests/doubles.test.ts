@@ -145,49 +145,6 @@ describe('fileStore', () => {
     expect((await store(Effect.flatMap(Store, s => s.list()))).map(r => r.id)).toEqual(['r1']);
   });
 
-  it('reads a run.json and trace lines written with older names under the current ones', async () => {
-    const dir = temp();
-    const { issue: _issue, ...run } = begin(w, { id: 'r1', issue: 3, started: 'a' });
-    const old = { ...run, thread: 3, status: 'asking', carry: 'fix it', said: { thread: 4 } };
-    mkdirSync(join(dir, 'r1'));
-    writeFileSync(join(dir, 'r1', 'run.json'), JSON.stringify(old));
-    const lines = [
-      { at: 'a', step: 'triage', brief: { prompt: 'p', bot: 'triager' } },
-      { at: 'b', step: 'triage', event: { type: 'tool', input: { carry: 1 } } },
-      { at: 'c', step: 'triage', saved: {}, cleared: ['carry'] },
-      { at: 'd', step: 'triage', applied: { proposal: { kind: 'pull', into: 'main' }, ok: true } },
-      { at: 'e', step: 'triage', applied: { proposal: { kind: 'reply', body: 'reply' }, ok: true } },
-      { at: 'f', step: 'triage', verdict: { check: 'types', pass: false, ms: 1 } },
-      {
-        at: 'g',
-        step: 'triage',
-        outcome: { kind: 'refused', failing: [{ check: 'types', pass: false, ms: 1 }], rejected: [], problems: [] },
-        run: { step: 'triage', status: 'asking', tries: 1, rounds: { into: 1 } },
-      },
-    ];
-    writeFileSync(join(dir, 'r1', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
-    const [read, trace] = await Effect.runPromise(
-      Effect.flatMap(Store, s => Effect.all([s.get('r1'), Stream.runCollect(s.read('r1'))])).pipe(
-        Effect.provide(fileStore(dir))
-      )
-    );
-    expect(read).toEqual({ ...run, issue: 3, status: 'waiting', feedback: 'fix it', said: [{ issue: 4 }] });
-    expect(trace).toEqual([
-      { at: 'a', step: 'triage', prompt: { prompt: 'p', agent: 'triager' } },
-      lines[1],
-      { at: 'c', step: 'triage', saved: {}, cleared: ['feedback'] },
-      { at: 'd', step: 'triage', applied: { proposal: { kind: 'pull_request', base: 'main' }, ok: true } },
-      { at: 'e', step: 'triage', applied: { proposal: { kind: 'comment', body: 'reply' }, ok: true } },
-      { at: 'f', step: 'triage', check: { check: 'types', pass: false, ms: 1 } },
-      {
-        at: 'g',
-        step: 'triage',
-        outcome: { kind: 'failed', checks: [{ check: 'types', pass: false, ms: 1 }], proposals: [], problems: [] },
-        run: { step: 'triage', status: 'waiting', tries: 1, rounds: { into: 1 } },
-      },
-    ]);
-  });
-
   it('holds a lock for its scope and refuses a second holder', async () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
@@ -502,7 +459,10 @@ describe('folderTracker issue', () => {
         check: { name: 'test', conclusion: 'failure' },
       },
     ];
-    writeIssueAt(issuePath(dir, 8, 'events.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
+    writeIssueAt(
+      issuePath(dir, 8, 'events.jsonl'),
+      lines.map((l, i) => `${JSON.stringify({ id: `8-${i}`, bot: false, ...l })}\n`).join('')
+    );
     const t = await Effect.runPromise(
       Effect.flatMap(Tracker, f => f.issue(8)).pipe(Effect.provide(folderTracker(dir)))
     );

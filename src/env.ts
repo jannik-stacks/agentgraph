@@ -1,8 +1,9 @@
 import { getSha } from './hash.ts';
-import { readDirOrEmpty, readOrUndefined } from './read.ts';
+import { parseJson, readDirOrEmpty, readOrUndefined } from './read.ts';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
+import { Schema } from 'effect';
 import { basename, dirname, join } from 'node:path';
 import { makeHostEnv } from './git.ts';
 import { isOwnerRunning, ownerId, readStateDir, startHeartbeat, waitForLock } from './owner.ts';
@@ -224,10 +225,22 @@ const ifMissing =
   (e: unknown) =>
     /no such (image|volume)/i.test(String((e as { output?: string }).output ?? e)) ? value : Promise.reject(e);
 
+export const DockerLabels = Schema.NullOr(Schema.Record(Schema.String, Schema.String));
+
+const SetupLabels = Schema.Struct({
+  'agentgraph.env': Schema.String,
+  'agentgraph.outputs': Schema.fromJsonString(Schema.mutable(Schema.Array(Schema.String))),
+  'agentgraph.complete': Schema.Literals(['true', 'false']),
+  'agentgraph.mode': Schema.Literals(['deps', 'tree']),
+  'agentgraph.inputs': Schema.String,
+  'agentgraph.layered': Schema.Literals(['true', 'false']),
+});
+
 const labels = async (tag: string) => {
   const out = await runDockerCli(['image', 'inspect', '--format', '{{json .Config.Labels}}', tag]).catch(ifMissing(''));
-  const l = out ? (JSON.parse(out) as Record<string, string> | null) : null;
-  return l?.['agentgraph.env'] ? l : undefined;
+  if (!out) return undefined;
+  const at = `image ${tag} labels`;
+  return parseJson(DockerLabels, out, at)?.['agentgraph.env'] ? parseJson(SetupLabels, out, at) : undefined;
 };
 
 export const makeSetupVolumeName = (key: string) => `agentgraph-lower-${key}`;
@@ -238,14 +251,14 @@ export const parseSetupVolumeKey = (name: string) => name.slice(makeSetupVolumeN
 
 export const isVolumeName = (name: string) => /^\w[\w.-]*$/.test(name);
 
-const parseSetupLabels = (tag: string, l: Record<string, string>): SandboxSetup => ({
+const parseSetupLabels = (tag: string, l: typeof SetupLabels.Type): SandboxSetup => ({
   image: tag,
-  outputs: JSON.parse(l['agentgraph.outputs'] ?? '[]') as string[],
+  outputs: l['agentgraph.outputs'],
   complete: l['agentgraph.complete'] === 'true',
-  lower: makeSetupVolumeName(l['agentgraph.env']!),
-  key: l['agentgraph.env']!,
-  mode: l['agentgraph.mode'] === 'deps' ? 'deps' : 'tree',
-  inputs: l['agentgraph.inputs'] ?? '',
+  lower: makeSetupVolumeName(l['agentgraph.env']),
+  key: l['agentgraph.env'],
+  mode: l['agentgraph.mode'],
+  inputs: l['agentgraph.inputs'],
   layered: l['agentgraph.layered'] === 'true',
 });
 

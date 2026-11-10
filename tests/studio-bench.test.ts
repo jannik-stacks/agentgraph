@@ -8,7 +8,7 @@ import { makeStudioPagesPlugin } from '../studio/plugins.ts';
 import type { BenchData, BenchRow } from '../examples/plugins/bench/plugins/bench/data.ts';
 import { getQuantile } from '../src/stats.ts';
 import { createStudioServer, runStudioAction, startStudioServer, studioDependency } from './studio.ts';
-import { tmp } from './kit.ts';
+import { makeRun, tmp } from './kit.ts';
 import {
   bootstrap,
   getBenchNumbers,
@@ -323,7 +323,7 @@ describe('the bench page data', () => {
     mkdirSync(join(data, 'issue-1'), { recursive: true });
     const origin = { plugin: 'bench', version: 'v', job: 'set', input };
     const versions = { engine: 'abc123', harnesses: { opencode: '1.19.0' } };
-    const run = { id: 'issue-1', started: at, workflow: 'issue', meta: { engine: { origin } }, versions };
+    const run = makeRun({ id: 'issue-1', started: at, workflow: 'issue', meta: { engine: { origin } }, versions });
     writeFileSync(join(data, 'issue-1', 'run.json'), '{');
     writeFileSync(join(data, 'issue-1', 'labels.jsonl'), '{"key":"engine","value":"written"}\n');
     const folder = join(out, 'pages');
@@ -428,16 +428,7 @@ describe('a bench data dir', () => {
     const out = tmp('bench-runs');
     const data = join(out, 'c', 'v2', 'data');
     const elsewhere = tmp('bench-elsewhere');
-    const run = {
-      id: 'issue-1',
-      issue: 1,
-      started: at,
-      workflow: 'issue',
-      step: 'review',
-      status: 'done',
-      tries: 0,
-      rounds: {},
-    } as Run;
+    const run = makeRun({ id: 'issue-1', issue: 1, started: at, workflow: 'issue', step: 'review', status: 'done' });
     const hash = await Effect.runPromise(
       Effect.gen(function* () {
         const store = yield* Store;

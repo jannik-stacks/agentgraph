@@ -6,8 +6,8 @@ import { readBenchRun } from '../bench/runs.ts';
 import { getRunOrigin } from '../src/meta.ts';
 import { startRun } from '../src/run/start.ts';
 import { getRounded, sum } from '../src/stats.ts';
-import { fileStore, readJsonlRows, Store } from '../src/store.ts';
-import { type CheckEntry, type CheckResult, type RunRecord } from '../src/types.ts';
+import { fileStore, readChecksSync, Store } from '../src/store.ts';
+import { type CheckResult, type RunRecord } from '../src/types.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 export type Flip = 'up' | 'down' | 'win' | 'loss';
@@ -174,7 +174,7 @@ export const readTuneSteps = (dir: string) => {
     if (!run || run.workflow !== 'tune' || origin?.plugin !== 'tune') return [];
     const { variant, ...input } = origin.input as Omit<Variant, 'id' | 'rationale'> & { variant: string };
     const v: Variant = { id: variant, ...input, rationale: run.body ?? '' };
-    const checks = readJsonlRows(join(data, id, 'checks.jsonl')) as CheckEntry[];
+    const checks = readChecksSync(data, id);
     const decided = checks.findLast(e => e.check.check === 'tune/decision');
     const tests = checks.flatMap(e => (e.check.check === 'tune/test' ? [e.check.value as Eval] : []));
     const d = decided?.check.value as Pick<TuneStep, 'verdict' | 'why' | 'evals'> | undefined;

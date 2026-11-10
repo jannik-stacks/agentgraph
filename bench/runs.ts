@@ -7,7 +7,7 @@ import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '..
 import { getRounded, sumSpend } from '../src/stats.ts';
 import { findLatestChecks } from '../src/trace.ts';
 import { findCheckFields, mergeCheckFields, type ResultSheet } from '../src/results.ts';
-import { readJsonlRows, readRecordSync, writeFileAtomic } from '../src/store.ts';
+import { readChecksSync, readRecordSync, readRunSync, readTraceSync, writeFileAtomic } from '../src/store.ts';
 import { getSha } from '../src/hash.ts';
 import { readDirOrEmpty } from '../src/read.ts';
 import { type EngineHost, makeEngineHost } from '../src/engine.ts';
@@ -89,8 +89,7 @@ export const readSlotRun = (set: string, input: BenchInput, slots: BenchSlots = 
   return last?.run && { run: last.run, data: last.data, at: last.at };
 };
 
-export const readBenchRun = (data: string, id: string) =>
-  JSON.parse(readRecordSync(join(data, id, 'run.json')) || 'null') as RunRecord | null;
+export const readBenchRun = (data: string, id: string) => readRunSync(data, id) ?? null;
 
 export const readRunChange = (at: string, run: Pick<RunRecord, 'id' | 'startCommit'>) => {
   const r =
@@ -104,7 +103,7 @@ export const readRunChange = (at: string, run: Pick<RunRecord, 'id' | 'startComm
 };
 
 export const readLatestRunChecks = (data: string, id: string) =>
-  new Map(findLatestChecks(readJsonlRows(join(data, id, 'checks.jsonl')) as CheckEntry[]).map(e => [e.check.check, e]));
+  new Map(findLatestChecks(readChecksSync(data, id)).map(e => [e.check.check, e]));
 
 const readSlotChecks = (set: string, input: BenchInput, slots: BenchSlots) => {
   const found = readSlotRun(set, input, slots);
@@ -128,35 +127,32 @@ export const isBenchRunDone = (
 };
 
 export const readRunUsage = (data: string, id: string) => {
-  const traces = readJsonlRows(join(data, id, 'trace.jsonl')) as Record<string, unknown>[];
-  const checks = readJsonlRows(join(data, id, 'checks.jsonl')) as CheckEntry[];
-  const sessions = traces.flatMap(t => (t.session ? [t.session as { usd: number }] : []));
+  const traces = readTraceSync(data, id);
+  const checks = readChecksSync(data, id);
+  const sessions = traces.flatMap(t => ('session' in t ? [t.session] : []));
   const models: Record<string, string> = {};
   const tokens: Record<string, TokenCounts> = {};
   const split = { agent: 0, tools: 0, setup: 0, checks: 0 };
-  for (const e of checks) if (e.item === undefined && !e.later) split.checks += e.check.ms ?? 0;
+  for (const e of checks) if (e.item === undefined && !e.later) split.checks += e.check.ms;
   const opened: Record<string, number> = {};
   const times: number[] = [];
   for (const t of traces) {
-    const e = (t.event ?? {}) as Partial<Record<'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'ms', number>> & {
-      type?: string;
-      model?: string;
-    };
-    const key = String(t.key);
-    split.setup += (t.setup as { ms?: number } | undefined)?.ms ?? 0;
-    if (e.type === 'tool') split.tools += e.ms ?? 0;
-    const when = Date.parse(String(t.at));
+    const e = 'event' in t ? t.event : undefined;
+    const key = String('key' in t ? t.key : undefined);
+    if ('setup' in t) split.setup += t.setup.ms;
+    if (e?.type === 'tool') split.tools += e.ms ?? 0;
+    const when = Date.parse(t.at);
     if (Number.isFinite(when)) times.push(when);
-    if (e.type === 'start') opened[key] = when;
-    if (t.session && Number.isFinite(when - opened[key]!)) split.agent += when - opened[key]!;
-    if (e.type === 'start' && e.model) models[key] = e.model;
-    if (e.type !== 'usage') continue;
+    if (e?.type === 'start') opened[key] = when;
+    if ('session' in t && Number.isFinite(when - opened[key]!)) split.agent += when - opened[key]!;
+    if (e?.type === 'start' && e.model) models[key] = e.model;
+    if (e?.type !== 'usage') continue;
     const [read, write] = [e.cacheRead ?? 0, e.cacheWrite ?? 0];
     const sum = (tokens[models[key] ?? 'unknown'] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
-    sum.input += (e.input ?? 0) - read - write;
+    sum.input += e.input - read - write;
     sum.cacheRead += read;
     sum.cacheWrite += write;
-    sum.output += e.output ?? 0;
+    sum.output += e.output;
   }
   return {
     sessions: sessions.length,

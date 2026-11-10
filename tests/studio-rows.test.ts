@@ -208,15 +208,15 @@ describe('sessions in a trace', () => {
     expect(text(sessions[0])).toContain('resume dropped: no session f');
   });
 
-  it('reads an older trace with briefs and shows every tool call under its session', async () => {
-    const old = await Effect.runPromise(
+  it('reads a stored trace and shows every tool call under its session', async () => {
+    const stored = await Effect.runPromise(
       Effect.flatMap(Store, store => Stream.runCollect(store.read('issue-6'))).pipe(
-        Effect.provide(fileStore(join(import.meta.dirname, 'fixtures', 'brief-trace')))
+        Effect.provide(fileStore(join(import.meta.dirname, 'fixtures', 'session-trace')))
       )
     );
-    const [session] = findSessionRows(old);
+    const [session] = findSessionRows(stored);
     expect(session?.children?.map(c => getLineKind(c.raw as object))).toEqual(
-      old.map(getLineKind).filter(k => k && k !== 'session')
+      stored.map(getLineKind).filter(k => k && k !== 'session')
     );
     expect(session?.children?.filter(c => (c.raw as { event?: { type: string } }).event?.type === 'tool')).toHaveLength(
       10

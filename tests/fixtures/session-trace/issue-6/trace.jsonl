@@ -1,4 +1,4 @@
-{"at": "2026-01-01T05:53:28.886Z", "step": "implement", "brief": {"harness": "opencode", "bot": "implementor", "minutes": 20, "model": "smart", "system": "You fix one issue in Example Kit, a TypeScript library for ex...", "prompt": "A maintainer comments `/agentgraph` on an issue. The implementor...", "dir": "/tmp/agentgraph/checkouts/kit-14/work...", "tools": ["read", "edit"]}}
+{"at":"2026-01-01T05:53:28.886Z","step":"implement","prompt":{"harness":"opencode","agent":"implementor","minutes":20,"model":"smart","system":"You fix one issue in Example Kit, a TypeScript library for ex...","prompt":"A maintainer comments `/agentgraph` on an issue. The implementor...","dir":"/tmp/agentgraph/checkouts/kit-14/work...","tools":["read","edit"]}}
 {"at": "2026-01-01T05:53:32.201Z", "step": "implement", "event": {"type": "start", "session": "ses_issue0006", "model": "smart", "home": "/data/homes/h"}}
 {"at": "2026-01-01T05:53:32.308Z", "step": "implement", "event": {"type": "tool", "id": "call_1", "name": "read", "input": {"filePath": "/work/AGENTS.md"}, "ok": true, "output": "<path>/work/AGENTS.md</path>\n<type>file</type>\n<content>\n1: ..."}}
 {"at": "2026-01-01T05:53:32.372Z", "step": "implement", "event": {"type": "usage", "input": 4914, "output": 24, "usd": 0.0063825}}
@@ -20,4 +20,4 @@
 {"at": "2026-01-01T05:53:53.825Z", "step": "implement", "event": {"type": "usage", "input": 22263, "output": 193, "usd": 0.00801475}}
 {"at": "2026-01-01T05:53:53.866Z", "step": "implement", "event": {"type": "end", "final": "The checkout already implements #6:\n- `kit/src/client.ts:658...", "ended": "stop", "exit": 0}}
 {"at": "2026-01-01T05:53:54.029Z", "step": "implement", "session": {"id": "ses_issue0006", "resumed": false, "ended": "stop", "exit": 0, "usd": 0.04154025}}
-{"at": "2026-01-01T05:53:54.030Z", "step": "implement", "outcome": {"kind": "ask", "question": "The checkout already satisfies #6: kit/src/client.ts validat..."}, "run": {"step": "implement", "status": "asking", "tries": 0, "rounds": {}}}
+{"at":"2026-01-01T05:53:54.030Z","step":"implement","outcome":{"kind":"ask","question":"The checkout already satisfies #6: kit/src/client.ts validat..."},"run":{"step":"implement","status":"waiting","tries":0,"rounds":{}}}

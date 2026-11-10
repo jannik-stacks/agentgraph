@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { Effect } from 'effect';
+import { Effect, Schema } from 'effect';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
 import { readBenchRun } from '../bench/runs.ts';
 import { getRunOrigin } from '../src/meta.ts';
@@ -44,7 +44,7 @@ export const readTuneMigration = (dir: string) => {
   if (!existsSync(join(dir, 'data'))) problems.push('has no data/: run bench/flatten.ts first');
   const found = readTuneSteps(dir);
   if (found.steps.length + found.pending.length) problems.push('already has control runs');
-  const steps = readJsonlRows(join(dir, 'iterations.jsonl')) as OldStep[];
+  const steps = readJsonlRows(join(dir, 'iterations.jsonl'), Schema.Unknown) as OldStep[];
   const done = new Set(steps.map(s => s.id));
   const pending = readNames(join(dir, 'cands')).flatMap(id => {
     const c = done.has(id) ? undefined : readJson<OldCandidate>(join(dir, 'cands', id, 'candidate.json'));

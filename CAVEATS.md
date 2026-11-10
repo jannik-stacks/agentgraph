@@ -24,4 +24,4 @@ Rough edges known at merge time.
 - The live socket stays open after its session expires; it carries only change topics.
 - The `token` login URL carries the start token, so it lands in browser history and proxy logs. With `AGI_HOST`
   beyond loopback, prefer `password` or Cloudflare Access.
-- Action outputs are encoded with their schemas, so a `run.json` written by hand or by an old engine without `tries`, `rounds` or `sessions` fails `resume` with "Missing key".
+- A `run.json`, trace line or check entry written by hand or by an old engine in another shape fails to read, with its file and line.

@@ -15,7 +15,7 @@ import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { Config, ConfigProvider, Effect, Fiber, Redacted, Schedule, Semaphore, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Fiber, Redacted, Schedule, Schema, Semaphore, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { makeInstanceHost, readEngineErrors, runLocalActions } from '../src/engine.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
@@ -40,7 +40,8 @@ import {
   writeImportedRun,
   type Instance,
 } from '../src/instance.ts';
-import type { JsonValue } from '../src/meta.ts';
+import { JsonValue } from '../src/meta.ts';
+import { parseJson } from '../src/read.ts';
 import { removeShellSettings, readInstanceEnv, start, writeTriggeringIssue } from '../src/main.ts';
 import { createLoopLock, LockHeldError, readLoopHolder } from '../src/owner.ts';
 import {
@@ -66,8 +67,12 @@ import { fileStore, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeStoredRunLabels } from '../src/labels.ts';
 import { formatReason, type RunRecord } from '../src/types.ts';
 
-const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
-  .version;
+const manifest = new URL('../package.json', import.meta.url);
+const { version } = parseJson(
+  Schema.Struct({ version: Schema.String }),
+  readFileSync(manifest, 'utf8'),
+  manifest.pathname
+);
 const parsed = await readArgs(process.argv.slice(2), version);
 if (typeof parsed === 'number') process.exit(parsed);
 const { values, rest } = parsed;
@@ -595,7 +600,7 @@ async function runOnInstance(
       if (rest.length < 1 || rest.length > 2)
         fail(`import takes a commit or patch file, then an optional issue file\n${usage}`);
       const input =
-        values.meta === undefined ? undefined : (JSON.parse(readFileSync(values.meta, 'utf8')) as JsonValue);
+        values.meta === undefined ? undefined : parseJson(JsonValue, readFileSync(values.meta, 'utf8'), values.meta);
       const id = await writeImportedRun(i, rest[0]!, {
         version,
         ...(values.from && { from: values.from }),

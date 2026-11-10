@@ -1,5 +1,4 @@
 import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { Graph } from '../src/folder.ts';
 import { findLatestChecks } from '../src/trace.ts';
 import { isOnIssue } from '../src/graph.ts';
@@ -7,8 +6,8 @@ import { getRunOrigin } from '../src/meta.ts';
 import { findCheckFields, sumHumanInteractions } from '../src/results.ts';
 import { makeVersionLabels, readRunLabels } from '../src/labels.ts';
 import type { RunResults } from '../studio/src/results/result.ts';
-import { readFileOrEmpty, readJsonl } from './resume.ts';
-import { type CheckEntry, type RunRecord, type Trace } from '../src/types.ts';
+import { readChecksSync, readRunSync, readTraceSync } from '../src/store.ts';
+import { type RunRecord, type Trace } from '../src/types.ts';
 
 const findDeadReason = (run: RunRecord, trace: Trace[]) =>
   run.status === 'done' || run.status === 'stopped'
@@ -39,16 +38,15 @@ const humans = {
 const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => {
   const versions = Object.fromEntries(Object.entries(graph?.checks ?? {}).map(([name, c]) => [name, c.version]));
   return (existsSync(data) ? readdirSync(data) : []).flatMap(id => {
-    const json = readFileOrEmpty(join(data, id, 'run.json'));
-    if (!json) return [];
-    const run = JSON.parse(json) as RunRecord;
+    const run = readRunSync(data, id);
+    if (!run) return [];
     const origin = getRunOrigin(run.meta);
-    const trace = readJsonl<Trace>(join(data, id, 'trace.jsonl'));
+    const trace = readTraceSync(data, id);
     const dead = isOnIssue(run) ? findDeadReason(run, trace) : undefined;
     const started = trace.flatMap(line => ('event' in line && line.event.type === 'start' ? [line.event] : []));
     const dimensions = (key: 'model' | 'harness') =>
       [...new Set(started.map(event => event[key]).filter(Boolean))].toSorted().join(', ');
-    const latest = findLatestChecks(readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')), versions);
+    const latest = findLatestChecks(readChecksSync(data, id), versions);
     const heard = sumHumanInteractions([{ run, trace }], new Date().toISOString());
     return [
       {

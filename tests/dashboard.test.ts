@@ -13,6 +13,8 @@ import { readPlugins } from '../src/plugin.ts';
 import { findIssueDir, folderTracker, writeIssueFile } from '../src/tracker.ts';
 import { DashboardSettings, DashboardData, DashboardSnapshot } from '../examples/dashboard/plugins/dashboard/data.ts';
 import { readDashboard } from '../examples/dashboard/plugins/dashboard/read.ts';
+import { makeRun } from './kit.ts';
+import type { RunRecord } from '../src/types.ts';
 
 const folders: string[] = [];
 const makeData = () => {
@@ -48,7 +50,11 @@ const makeTracker = async (events: { kind: string; at: string }[]) => {
   const n = await writeIssueFile(tracker, { title: 'Trend', author: 'morgan', labels: [] }, '');
   writeFileSync(
     join(findIssueDir(tracker, n), 'events.jsonl'),
-    events.map(e => `${JSON.stringify({ issue: n, actor: 'morgan', trusted: true, ...e })}\n`).join('')
+    events
+      .map(
+        (e, i) => `${JSON.stringify({ id: `${n}-${i}`, issue: n, actor: 'morgan', bot: false, trusted: true, ...e })}\n`
+      )
+      .join('')
   );
   return {
     layer: folderTracker(tracker, 'morgan', ['morgan']),
@@ -62,16 +68,48 @@ it('aggregates current run cohorts and dated events, with missing cost counted',
   mkdirSync(run);
   writeFileSync(
     join(run, 'run.json'),
-    JSON.stringify({ id: 'r1', workflow: 'issue', step: 'build', status: 'done', started: '2026-10-01T00:00:00Z' })
+    JSON.stringify(
+      makeRun({ id: 'r1', workflow: 'issue', step: 'build', status: 'done', started: '2026-10-01T00:00:00Z' })
+    )
   );
   writeFileSync(
     join(run, 'checks.jsonl'),
     [
-      { at: '2026-11-08T00:00:00Z', step: 'build', check: { check: 'tests', pass: false } },
-      { at: '2026-11-09T12:00:00Z', step: 'build', check: { check: 'tests', pass: true } },
-      { at: '2026-11-09T13:00:00Z', step: 'build', check: { check: 'tests', pass: true } },
-      { at: '2026-11-07T23:59:59Z', step: 'build', check: { check: 'tests', pass: true } },
-      { at: '2026-11-09T01:00:00Z', step: 'review', check: { check: 'tests', pass: true } },
+      {
+        at: '2026-11-08T00:00:00Z',
+        step: 'build',
+        check: { check: 'tests', pass: false, ms: 0 },
+        version: 'v1',
+        usd: 0,
+      },
+      {
+        at: '2026-11-09T12:00:00Z',
+        step: 'build',
+        check: { check: 'tests', pass: true, ms: 0 },
+        version: 'v1',
+        usd: 0,
+      },
+      {
+        at: '2026-11-09T13:00:00Z',
+        step: 'build',
+        check: { check: 'tests', pass: true, ms: 0 },
+        version: 'v1',
+        usd: 0,
+      },
+      {
+        at: '2026-11-07T23:59:59Z',
+        step: 'build',
+        check: { check: 'tests', pass: true, ms: 0 },
+        version: 'v1',
+        usd: 0,
+      },
+      {
+        at: '2026-11-09T01:00:00Z',
+        step: 'review',
+        check: { check: 'tests', pass: true, ms: 0 },
+        version: 'v1',
+        usd: 0,
+      },
     ]
       .map(row => JSON.stringify(row))
       .join('\n') + '\n'
@@ -135,10 +173,10 @@ it('registers the example page, reuses settings and reads a changed run', async 
   expect(pages.map(page => ({ name: page.name, watch: page.watch }))).toEqual([{ name: 'dashboard', watch: [data] }]);
   const run = join(data, 'r1');
   mkdirSync(run);
-  const writeRun = (status: string) =>
+  const writeRun = (status: RunRecord['status']) =>
     writeFileSync(
       join(run, 'run.json'),
-      JSON.stringify({ id: 'r1', workflow: 'issue', step: 'build', status, started: new Date().toISOString() })
+      JSON.stringify(makeRun({ id: 'r1', workflow: 'issue', step: 'build', status, started: new Date().toISOString() }))
     );
   writeRun('waiting');
   const before = (await Effect.runPromise(pages[0]!.read())) as typeof DashboardData.Type;
@@ -160,7 +198,7 @@ it('counts what people did during fully recorded runs and how long runs waited f
     mkdirSync(join(data, id));
     writeFileSync(
       join(data, id, 'run.json'),
-      JSON.stringify({ id, issue: 7, workflow: 'issue', step: 'build', status: 'waiting', started: atHour(1) })
+      JSON.stringify(makeRun({ id, issue: 7, workflow: 'issue', step: 'build', status: 'waiting', started: atHour(1) }))
     );
     writeFileSync(join(data, id, 'trace.jsonl'), trace.map(row => `${JSON.stringify(row)}\n`).join(''));
   };
@@ -208,7 +246,7 @@ it('fails on malformed store data and skips issues without a tracker', async () 
   const data = makeData();
   mkdirSync(join(data, 'r1'));
   const read = () => Effect.runPromise(readDashboard(makeSettings(), makeInstanceHost({ data }), now));
-  writeFileSync(join(data, 'r1/run.json'), JSON.stringify({ id: 'r1', workflow: 'issue', started: 'x' }));
+  writeFileSync(join(data, 'r1/run.json'), JSON.stringify(makeRun({ id: 'r1', workflow: 'issue', started: 'x' })));
   const { skipped, why } = (await read()).widgets.at(-1)!;
   writeFileSync(join(data, 'r1/run.json'), '{');
   await expect(read()).rejects.toThrow('r1/run.json');
@@ -226,10 +264,10 @@ it('serves the example page and refreshes it through the existing change path', 
     join(graph, 'settings.yaml'),
     JSON.stringify({ plugins: { dashboard: { widgets: [{ title: 'runs', type: 'table', source: 'runs', days: 2 }] } } })
   );
-  const writeRun = (status: string) =>
+  const writeRun = (status: RunRecord['status']) =>
     writeFileSync(
       join(data, 'r1/run.json'),
-      JSON.stringify({ id: 'r1', workflow: 'issue', step: 'build', status, started: new Date().toISOString() })
+      JSON.stringify(makeRun({ id: 'r1', workflow: 'issue', step: 'build', status, started: new Date().toISOString() }))
     );
   writeRun('waiting');
   vi.stubEnv('AGI_STUDIO_DIR', graph);
@@ -260,11 +298,11 @@ it('serves the example page and refreshes it through the existing change path', 
   }
 });
 
-const writeStatusRun = (data: string, id: string, status: string) => {
+const writeStatusRun = (data: string, id: string, status: RunRecord['status']) => {
   mkdirSync(join(data, id), { recursive: true });
   writeFileSync(
     join(data, id, 'run.json'),
-    JSON.stringify({ id, workflow: 'issue', step: 'build', status, started: new Date().toISOString() })
+    JSON.stringify(makeRun({ id, workflow: 'issue', step: 'build', status, started: new Date().toISOString() }))
   );
 };
 

@@ -151,7 +151,7 @@ describe('skill benchmark', () => {
     const io = fakeBench(ran);
     const like = await init('demo', s, io);
     const ids = await addBaseline(like, s.root, ['f1', 'v1'], false);
-    for (const id of Object.values(ids)) writeFileSync(join(like, 'data', id, 'trace.jsonl'), '{}\n');
+    for (const id of Object.values(ids)) writeFileSync(join(like, 'data', id, 'trace.jsonl'), '');
     preferRealRows(io!);
     const dir = await skill(like, options(1), io);
 

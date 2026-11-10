@@ -11,7 +11,7 @@ import { getRecordedResult } from '../result.ts';
 import { readPlugins } from '../plugin.ts';
 import { startTools } from '../tools.ts';
 import { formatRedactedText, formatSqueezed } from '../context.ts';
-import { type Aside, type Checkout, type SessionSpec, SessionStop, type Trace, type TrackerError } from '../types.ts';
+import { type Checkout, type SessionSpec, SessionStop, type Trace, type TrackerError } from '../types.ts';
 
 export type Services = Tracker | Store | Session | Sandbox;
 
@@ -108,7 +108,7 @@ const openSession = <A, R>(
   }: Partial<{
     item: string | undefined;
     until: Effect.Effect<A, never, R> | undefined;
-    aside: Aside;
+    aside: Extract<Trace, { prompt: unknown }>['aside'];
     dropped: string;
   }>,
   droppable = false

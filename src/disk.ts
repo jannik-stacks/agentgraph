@@ -1,8 +1,8 @@
-import { readDirEntriesOrEmpty, readDirOrEmpty } from './read.ts';
+import { parseJson, readDirEntriesOrEmpty, readDirOrEmpty } from './read.ts';
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { makeHostEnv, hostGit, readGit, readWorktreeAdmin } from './git.ts';
-import { Effect } from 'effect';
+import { Effect, Schema } from 'effect';
 import {
   appendFileSync,
   existsSync,
@@ -27,6 +27,7 @@ import {
   makeLayerVolumeName,
   makeSetupVolumeName,
   parseSetupVolumeKey,
+  DockerLabels,
   parseDockerLabels,
   unlogged,
   used,
@@ -100,14 +101,16 @@ export const pin = (name: string, match: string[], days: number) => {
 
 export const unpin = (name: string) => rmSync(join(pins(), `${name}.json`), { force: true });
 
+const Pin = Schema.Struct({ match: Schema.Array(Schema.String), until: Schema.String });
+const Layers = Schema.mutable(Schema.Array(Schema.String));
+
 const unexpired = () => {
   const files = readDirOrEmpty(pins()).filter(f => f.endsWith('.json'));
   return files.flatMap(f => {
     try {
-      const p = JSON.parse(readFileSync(join(pins(), f), 'utf8')) as { match: string[]; until: string };
+      const p = parseJson(Pin, readFileSync(join(pins(), f), 'utf8'), join(pins(), f));
       const until = Date.parse(p.until);
-      if (!Number.isFinite(until) || !Array.isArray(p.match) || !p.match.every(g => typeof g === 'string'))
-        throw new Error('pin needs a valid expiry and match patterns');
+      if (!Number.isFinite(until)) throw new Error('pin needs a valid expiry');
       if (until <= Date.now()) return [];
       const globs = p.match.map(
         g =>
@@ -288,10 +291,14 @@ export const removeBranch = (
 
 /** Unique bytes of each image by id and bytes of each volume by name, as `docker system df` counts them. */
 const usage = async () => {
-  const df = JSON.parse(await runDockerCli(['system', 'df', '-v', '--format', 'json'])) as Partial<{
-    Images: { ID: string; UniqueSize: string }[];
-    Volumes: { Name: string; Size: string }[];
-  }>;
+  const df = parseJson(
+    Schema.Struct({
+      Images: Schema.optionalKey(Schema.Array(Schema.Struct({ ID: Schema.String, UniqueSize: Schema.String }))),
+      Volumes: Schema.optionalKey(Schema.Array(Schema.Struct({ Name: Schema.String, Size: Schema.String }))),
+    }),
+    await runDockerCli(['system', 'df', '-v', '--format', 'json']),
+    'docker system df'
+  );
   return {
     images: new Map((df.Images ?? []).map(i => [i.ID, parseByteSize(i.UniqueSize)])),
     volumes: new Map((df.Volumes ?? []).map(v => [v.Name, v.Size.startsWith('-') ? 0 : parseByteSize(v.Size)])),
@@ -318,8 +325,8 @@ export const inventory = async (
     else if (!tag.includes('<none>')) others.add(id);
   }
   const bases = others.size
-    ? lines(await runDockerCli(['image', 'inspect', '--format', '{{json .RootFS.Layers}}', ...others])).map(
-        l => JSON.parse(l) as string[]
+    ? lines(await runDockerCli(['image', 'inspect', '--format', '{{json .RootFS.Layers}}', ...others])).map(l =>
+        parseJson(Layers, l, 'docker image inspect')
       )
     : [];
   const gone = (labels: Record<string, string>, layers: string[]) =>
@@ -367,7 +374,7 @@ export const inventory = async (
     : [];
   for (const l of inspected) {
     const [id = '', created = '', layers = '[]', ...rest] = l.split(' ');
-    const labels = (JSON.parse(rest.join(' ') || 'null') ?? {}) as Record<string, string>;
+    const labels = parseJson(DockerLabels, rest.join(' ') || 'null', `image ${id} labels`) ?? {};
     const key = labels['agentgraph.env'];
     const allTags = tagsById.get(id) ?? [];
     const tags =
@@ -379,7 +386,7 @@ export const inventory = async (
       excluded += allTags.length;
       continue;
     }
-    const why = gone(labels, JSON.parse(layers) as string[]);
+    const why = gone(labels, parseJson(Layers, layers, `image ${id} layers`));
     const unique = df.images.get(id) ?? 0;
     items.push({
       kind: 'env',

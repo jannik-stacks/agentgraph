@@ -5,6 +5,7 @@ import { expect, it, vi } from 'vitest';
 import { readInstanceEnv } from '../src/main.ts';
 import { ensureInstance } from '../src/instance.ts';
 import { seeded } from './fixtures.ts';
+import { makeRun } from './kit.ts';
 import { removeAfter } from './world.ts';
 import { runStudioAction, startStudioServer, studioDir } from './studio.ts';
 import { makeServedGraphs } from '../studio/served.ts';
@@ -15,7 +16,7 @@ const writeRun = (data: string, id: string) => {
   mkdirSync(join(data, id), { recursive: true });
   writeFileSync(
     join(data, id, 'run.json'),
-    JSON.stringify({ id, issue: 1, workflow: 'issue', status: 'done', step: 'done', started: 'now', rounds: {} })
+    JSON.stringify(makeRun({ id, issue: 1, workflow: 'issue', status: 'done', step: 'done', started: 'now' }))
   );
 };
 

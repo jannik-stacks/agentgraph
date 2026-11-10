@@ -83,7 +83,7 @@ describe('run labels log', () => {
 
   it('fails on a malformed line before the last', () => {
     const data = seed('{"key":"arm",\n{"key":"note","value":"x"}\n');
-    expect(() => readRunLabels(data, 'run-1')).toThrow(SyntaxError);
+    expect(() => readRunLabels(data, 'run-1')).toThrow('labels.jsonl:1: ');
   });
 });
 

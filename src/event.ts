@@ -1,5 +1,5 @@
 import { Schema, type Types } from 'effect';
-import type { Proposal } from './proposal.ts';
+import { Proposal } from './proposal.ts';
 
 export const Count = Schema.Int.check(Schema.isGreaterThan(0));
 
@@ -89,18 +89,19 @@ export type Event = Types.Mutable<typeof Event.Type>;
  * given. `at` is when its body was stamped with the run it came from. `moved` marks a push or rebase refused because
  * its branch is no longer where the checkout builds on.
  */
-export type Applied = {
-  operation?: string;
-  issue?: number;
-  proposal: Proposal;
-  ok: boolean;
-  url?: string;
-  held?: string[];
-  id?: string;
-  reason?: string;
-  moved?: true;
-  at?: string;
-};
+export const Applied = Schema.Struct({
+  operation: Text,
+  issue: Schema.optionalKey(Schema.Number),
+  proposal: Proposal,
+  ok: Schema.Boolean,
+  url: Text,
+  held: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
+  id: Text,
+  reason: Text,
+  moved: Schema.optionalKey(Schema.Literal(true)),
+  at: Text,
+});
+export type Applied = Types.Mutable<typeof Applied.Type>;
 
 /** The run, step and session a write to the tracker comes from, and the operation that names one write. */
 export type RunLink = { run: string; step: string; session?: string; operation?: string };

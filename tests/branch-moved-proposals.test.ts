@@ -269,7 +269,7 @@ describe('a run branch that moved', () => {
     appendFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'broken record\n');
     const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     await expect(run(runWorkflow(flow, current, small))).rejects.toThrow(
-      `${join(where.data, 'run-7', 'trace.jsonl')}: Unexpected token 'b', "broken record" is not valid JSON`
+      `${join(where.data, 'run-7', 'trace.jsonl')}:2: Expected a valid JSON string`
     );
   });
 

@@ -390,9 +390,24 @@ const addArmRun = async (set: string, repo: string, base: string, input: BenchIn
     change: patch ? join(at, 'change.patch') : base,
   });
   const trace = [
-    { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', harness: 'opencode', model: 'smart' } },
-    { at: '2026-10-22T10:00:30.000Z', key: 'k', event: { type: 'usage', input: 100, cacheRead: 90, output: 5 } },
-    { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd: 0.25 } },
+    {
+      at: '2026-10-22T10:00:00.000Z',
+      step: 'implement',
+      key: 'k',
+      event: { type: 'start', session: 's', harness: 'opencode', model: 'smart', home: '/home' },
+    },
+    {
+      at: '2026-10-22T10:00:30.000Z',
+      step: 'implement',
+      key: 'k',
+      event: { type: 'usage', input: 100, cacheRead: 90, output: 5 },
+    },
+    {
+      at: '2026-10-22T10:01:00.000Z',
+      step: 'implement',
+      key: 'k',
+      session: { resumed: false, ended: 'stop', usd: 0.25 },
+    },
   ];
   writeFileSync(join(data, id, 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
   const armed = { check: 'bench/arm', pass: true, ms: 0, value: { answers: 0, ms: 60_000 } };

@@ -3,6 +3,18 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { findIssueDir } from '../src/tracker.ts';
+import type { RunRecord } from '../src/types.ts';
+
+export const makeRun = (run: Partial<RunRecord> & Pick<RunRecord, 'id'>): RunRecord => ({
+  workflow: 'issue',
+  step: 'triage',
+  status: 'done',
+  tries: 0,
+  rounds: {},
+  sessions: {},
+  started: '',
+  ...run,
+});
 
 export const tmp = (name: string) => mkdtempSync(join(tmpdir(), `agentgraph-${name}-`));
 

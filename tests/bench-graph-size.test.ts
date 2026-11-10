@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { readGraphSize, writeGraphSizeLabels } from '../bench/graph-size.ts';
 import { readRunLabels } from '../src/labels.ts';
-import { git, tmp, write } from './kit.ts';
+import { git, makeRun, tmp, write } from './kit.ts';
 
 it.each([
   { workflow: 'import', graphTree: 'missing', why: 'imported reference has no graph' },
@@ -16,10 +16,10 @@ it.each([
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     write(join(skipped, 'data', 'run-1'), {
-      'run.json': JSON.stringify({ id: 'run-1', workflow, started: '', graphTree }),
+      'run.json': JSON.stringify(makeRun({ id: 'run-1', workflow, started: '', ...(graphTree && { graphTree }) })),
     });
     write(join(available, 'data', 'run-2'), {
-      'run.json': JSON.stringify({ id: 'run-2', workflow: 'issue', started: '', graphTree: 'available' }),
+      'run.json': JSON.stringify(makeRun({ id: 'run-2', workflow: 'issue', started: '', graphTree: 'available' })),
     });
     write(join(available, 'graph'), { 'agents/a.md': 'Read this.\n' });
     expect(await writeGraphSizeLabels([skipped, available])).toEqual({ written: 1, unchanged: 0, skipped: 1 });
@@ -56,7 +56,9 @@ it('counts graph text and scripts, recovers a tree, and writes labels once', asy
     git(graph, 'add', '.');
     const tree = git(graph, 'write-tree');
     expect(await readGraphSize(join(graph, '.git'), tree)).toEqual(size);
-    write(run, { 'run.json': JSON.stringify({ id: 'run-1', workflow: 'issue', started: '', graphTree: tree }) });
+    write(run, {
+      'run.json': JSON.stringify(makeRun({ id: 'run-1', workflow: 'issue', started: '', graphTree: tree })),
+    });
     expect(await writeGraphSizeLabels([dir])).toEqual({ written: 1, unchanged: 0, skipped: 0 });
     const log = readFileSync(join(run, 'labels.jsonl'), 'utf8');
     expect(readRunLabels(join(dir, 'data'), 'run-1')).toEqual({
@@ -82,12 +84,14 @@ it('labels a graph copy without graphTree and prefers copies over cached trees',
   try {
     roots.forEach((root, i) => {
       write(join(root, 'data', `run-${i}`), {
-        'run.json': JSON.stringify({
-          id: `run-${i}`,
-          workflow: 'issue',
-          started: '',
-          ...(i < 2 && { graphTree: 'same' }),
-        }),
+        'run.json': JSON.stringify(
+          makeRun({
+            id: `run-${i}`,
+            workflow: 'issue',
+            started: '',
+            ...(i < 2 && { graphTree: 'same' }),
+          })
+        ),
       });
       write(join(root, 'graph'), { 'agents/a.md': 'word '.repeat(i + 1) });
     });
@@ -115,7 +119,7 @@ it('keeps edited graph copy counts local when another run recovers the same tree
     write(graph, { 'agents/a.md': 'Edited.\n', 'checks/a.md': 'Check this.\n', 'scripts/a.sh': 'echo edited\n' });
     [first, second].forEach((root, i) => {
       write(join(root, 'data', `run-${i}`), {
-        'run.json': JSON.stringify({ id: `run-${i}`, workflow: 'issue', started: '', graphTree: tree }),
+        'run.json': JSON.stringify(makeRun({ id: `run-${i}`, workflow: 'issue', started: '', graphTree: tree })),
       });
     });
     expect(await writeGraphSizeLabels([first, second], join(graph, '.git'))).toEqual({
@@ -151,7 +155,9 @@ it.each(['tree', 'blob'])('skips a missing promised %s without starting a transp
     git(repository, 'config', 'remote.origin.partialclonefilter', 'blob:none');
     git(repository, 'config', 'core.sshCommand', `sh '${transport}'`);
     const run = join(dir, 'attempt', 'data', 'run-1');
-    write(run, { 'run.json': JSON.stringify({ id: 'run-1', workflow: 'issue', started: '', graphTree: tree }) });
+    write(run, {
+      'run.json': JSON.stringify(makeRun({ id: 'run-1', workflow: 'issue', started: '', graphTree: tree })),
+    });
     expect(await writeGraphSizeLabels([join(dir, 'attempt')], join(repository, '.git'))).toEqual({
       written: 0,
       unchanged: 0,

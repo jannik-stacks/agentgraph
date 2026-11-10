@@ -1,25 +1,30 @@
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { tmp, write } from './kit.ts';
+import { makeRun, tmp, write } from './kit.ts';
 
 const script = join(resolve(import.meta.dirname, '..'), 'bin/traces.mjs');
+const applied = (proposal: object) => JSON.stringify({ at: '', step: 'implement', applied: { ok: true, proposal } });
+const run = (id: string) => JSON.stringify(makeRun({ id }));
 const session = (step: string, s: object) => JSON.stringify({ at: '', step, session: { resumed: false, ...s } });
 
 describe('traces', () => {
-  it('counts invalid trace rows as findings instead of passing an empty trace', () => {
+  it('counts an invalid trace row as a finding instead of passing an empty trace', () => {
     const data = tmp('traces');
-    write(data, { 'a/run.json': '{}', 'a/trace.jsonl': 'broken\n' });
+    write(data, {
+      'a/run.json': run('a'),
+      'a/trace.jsonl': `broken\n${session('review', { ended: 'stop', usd: 0 })}\n`,
+    });
     const result = spawnSync(process.execPath, [script, data], { encoding: 'utf8' });
     expect(result.status).toBe(1);
-    expect(result.stdout).toContain('a: 1 invalid trace rows skipped');
+    expect(result.stdout).toContain('a/trace.jsonl:1: ');
     expect(result.stdout).toContain('1 findings over 0 sessions');
   });
 
   it('fails on a started session that cost nothing, and skips one that never started', () => {
     const data = tmp('traces');
     write(data, {
-      'run-1/run.json': '{}',
+      'run-1/run.json': run('run-1'),
       'run-1/trace.jsonl': [
         JSON.stringify({
           at: '',
@@ -30,7 +35,7 @@ describe('traces', () => {
         session('review', { id: 's2', ended: 'stop', usd: 0.12 }),
         session('review', { ended: 'provider', usd: 0 }),
       ].join('\n'),
-      'run-2/run.json': '{}',
+      'run-2/run.json': run('run-2'),
     });
     const { status, stdout } = spawnSync('node', [script, data], { encoding: 'utf8' });
     expect(status).toBe(1);
@@ -47,21 +52,20 @@ describe('traces', () => {
       JSON.stringify({
         at: '2026-10-16T00:05:00.000Z',
         step: 'implement',
-        event: { type: 'tool', name: 'read', input: { p: 1 }, ok, ...extra },
+        event: { type: 'tool', id: 't', name: 'read', input: { p: 1 }, ok, ...extra },
       });
-    const applied = (kind: string) =>
-      JSON.stringify({ at: '', step: 'implement', applied: { ok: true, proposal: { kind } } });
+    const prompt = { harness: 'pi', system: '', prompt: '', dir: '/w', tools: [], agent: 'a', minutes: 1 };
     write(data, {
-      'a/run.json': JSON.stringify({ workflow: 'issue', status: 'done' }),
+      'a/run.json': run('a'),
       'a/trace.jsonl': [
         JSON.stringify({ at: '2026-10-16T00:00:00.000Z', step: 'implement', saved: {} }),
-        JSON.stringify({ at: '2026-10-16T00:04:00.000Z', step: 'implement', prompt: {} }),
+        JSON.stringify({ at: '2026-10-16T00:04:00.000Z', step: 'implement', prompt }),
         tool(false, { denied: true }),
         tool(true, {}),
-        applied('comment'),
+        applied({ kind: 'comment', body: 'b' }),
       ].join('\n'),
-      'b/run.json': JSON.stringify({ workflow: 'issue', status: 'done' }),
-      'b/trace.jsonl': applied('push'),
+      'b/run.json': run('b'),
+      'b/trace.jsonl': applied({ kind: 'push', branch: 'b', message: 'm' }),
     });
     const { status, stdout } = spawnSync('node', [script, data, 'issue=pull_request|push'], { encoding: 'utf8' });
     expect(status).toBe(1);

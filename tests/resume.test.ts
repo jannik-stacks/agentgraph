@@ -18,6 +18,8 @@ const root = () => {
   return dir;
 };
 const dead = () => spawnSync('true').pid!;
+const end = (ended: string, final: string) =>
+  JSON.stringify({ at: '1', step: 'code', event: { type: 'end', ended, final, exit: 1 } });
 
 describe('crash-safe files', () => {
   it('writes whole files and leaves no temp file', () => {
@@ -95,7 +97,6 @@ describe('environment', () => {
   it('calls a run whose last session ended in a harness error infra', () => {
     const data = root();
     mkdirSync(join(data, 'issue-1'));
-    const end = (ended: string, final: string) => JSON.stringify({ event: { type: 'end', ended, final, exit: 1 } });
     writeFileSync(
       join(data, 'issue-1/trace.jsonl'),
       `${end('stop', 'done')}\n${end('error', 'Cannot connect to API')}\n`

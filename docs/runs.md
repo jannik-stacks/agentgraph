@@ -83,7 +83,9 @@ count(-1) should throw.
 
 ## run.json
 
-The store saves each run under an id lock before showing its initial status. The record includes:
+The store saves each run under an id lock before showing its initial status. It decodes `run.json`, each trace line and each check entry with its schema when it reads them. A record that does not decode fails with its file and line. An incomplete last line is skipped and reported. <!-- code: src/store.ts#parseJsonlRows src/store.ts#readRunSync src/read.ts#parseJson -->
+
+The record includes:
 
 | Field                     | Meaning                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

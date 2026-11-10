@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Schema } from 'effect';
-import { appendJsonlRows, readJsonlRows } from './store.ts';
+import { appendJsonlRows, getRecordPath, readJsonlRows } from './store.ts';
 import type { Run } from './types.ts';
 
 const LabelRecord = Schema.Record(
@@ -10,6 +10,8 @@ const LabelRecord = Schema.Record(
     Schema.isPattern(/^\P{Cc}{1,128}$/u, { message: 'a label value is 1 to 128 characters on one line' })
   )
 );
+
+const LabelRow = Schema.Struct({ key: Schema.String, value: Schema.NullOr(Schema.String) });
 
 export const parseLabels = (value: unknown): typeof LabelRecord.Type =>
   Schema.decodeUnknownSync(LabelRecord, { onExcessProperty: 'error' })(value);
@@ -21,8 +23,7 @@ const labelsLog = (data: string, id: string) => {
 
 export const readRunLabels = (data: string, id: string): typeof LabelRecord.Type => {
   const labels = new Map<string, string>();
-  for (const row of readJsonlRows(labelsLog(data, id))) {
-    const { key, value } = row as { key: string; value: string | null };
+  for (const { key, value } of readJsonlRows(labelsLog(data, id), LabelRow)) {
     if (value === null) labels.delete(key);
     else labels.set(key, value);
   }
@@ -41,7 +42,7 @@ export const writeRunLabels = (data: string, id: string, patch: Record<string, s
 
 export const writeStoredRunLabels = (data: string, id: string, patch: Record<string, string | null>) =>
   Effect.suspend(() =>
-    existsSync(join(data, id, 'run.json'))
+    existsSync(getRecordPath(data, id, 'run'))
       ? writeRunLabels(data, id, patch)
       : Effect.fail(new Error(`no run ${id || '<run id>'} in ${data}`))
   );

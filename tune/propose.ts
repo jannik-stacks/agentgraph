@@ -26,13 +26,13 @@ import {
   readLatestRunChecks,
   readRunChange,
 } from '../bench/runs.ts';
-import { parseJsonl, readFileOrEmpty, readJsonl } from '../bin/resume.ts';
+import { parseJsonl, readFileOrEmpty } from '../bin/resume.ts';
 import { transcript } from '../src/context.ts';
 import { readConfiguredGraph } from '../src/harnesses.ts';
 import type { Graph } from '../src/folder.ts';
-import { writeFileAtomic } from '../src/store.ts';
+import { readChecksSync, readTraceSync, writeFileAtomic } from '../src/store.ts';
 import { readTuneSteps } from './runs.ts';
-import { type CheckEntry, type Run, type Trace } from '../src/types.ts';
+import { type Run } from '../src/types.ts';
 
 export type Proposer = 'retro' | 'history' | 'structure';
 /** One file edit: `content` writes the file, `old` with `new` replaces one unique snippet, `delete` removes it. */
@@ -143,8 +143,8 @@ const failing = (rows: BenchRow[], id: string) => {
 
 const readTraces = (row: Pick<BenchRow, 'data' | 'run'>, run: Run | null) => {
   if (!run) return () => '';
-  const lines = readJsonl<Trace>(join(row.data, row.run, 'trace.jsonl'));
-  const checks = readJsonl<CheckEntry>(join(row.data, row.run, 'checks.jsonl'));
+  const lines = readTraceSync(row.data, row.run);
+  const checks = readChecksSync(row.data, row.run);
   return (budget: number) => transcript(run.issue ?? 1, [{ run, lines, checks }], budget);
 };
 

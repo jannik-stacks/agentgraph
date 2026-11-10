@@ -8,6 +8,7 @@ import { readInstallationReach } from '../src/github.ts';
 import { findRunsWaitingOnPeople, formatNextSteps, formatEngineError } from '../src/status.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { type Run } from '../src/types.ts';
+import { makeRun } from './kit.ts';
 
 const { privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -16,20 +17,8 @@ const { privateKey } = generateKeyPairSync('rsa', {
 });
 const app = { repo: 'o/r', id: '42', key: Redacted.make(privateKey) };
 
-/** A run.json as an older version wrote it: `thread` for the issue, `asking` for a run waiting on an answer. */
-const run = (id: string, thread: number, status: string) =>
-  JSON.stringify({
-    id,
-    workflow: 'fix',
-    thread,
-    step: 's',
-    status,
-    ...(status === 'asking' && { reason: 'which one?' }),
-    tries: 0,
-    rounds: {},
-    sessions: {},
-    started: 'x',
-  });
+const run = (id: string, issue: number, status: Run['status'], reason?: string) =>
+  JSON.stringify(makeRun({ id, workflow: 'fix', issue, step: 's', status, ...(reason && { reason }), started: 'x' }));
 
 const answers: Record<string, unknown> = {
   'GET /repos/o/r/installation': { id: 9 },
@@ -53,13 +42,13 @@ const check = async (repositories: string[]) => {
     return new Response(JSON.stringify(body), { status: body ? 200 : 404 });
   };
   const data = mkdtempSync(join(tmpdir(), 'agentgraph-status-'));
-  for (const [id, issue, status] of [
-    ['a', 3, 'asking'],
+  for (const [id, issue, status, reason] of [
+    ['a', 3, 'waiting', 'which one?'],
     ['b', 4, 'waiting'],
     ['c', 5, 'done'],
   ] as const) {
     mkdirSync(join(data, id));
-    writeFileSync(join(data, id, 'run.json'), run(id, issue, status));
+    writeFileSync(join(data, id, 'run.json'), run(id, issue, status, reason));
   }
   const runs = await Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(data))));
   const lines = [

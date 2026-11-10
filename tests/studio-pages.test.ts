@@ -7,6 +7,7 @@ import { expect, it, vi } from 'vitest';
 import { runActions } from '../src/actions.ts';
 import { createStudioServer, runStudioAction, startStudioServer, studioDir } from './studio.ts';
 import { writeIssueFile } from '../src/tracker.ts';
+import { makeRun } from './kit.ts';
 
 it('encodes page data, hides reader failures and sends change topics per watch root', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-pages-'));
@@ -105,14 +106,15 @@ it.each([undefined, 'invalid'])('keeps Results available without a valid graph: 
   writeFileSync(
     join(data, 'r1/run.json'),
     JSON.stringify({
-      id: 'r1',
-      issue: 1,
-      workflow: 'issue',
-      status: 'done',
-      started: 'now',
-      cwd: dir,
+      ...makeRun({
+        id: 'r1',
+        issue: 1,
+        workflow: 'issue',
+        status: 'done',
+        started: 'now',
+        meta: { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: { arm: 'candidate' } } } },
+      }),
       config: { token: 'FAKE-private-results-value' },
-      meta: { engine: { origin: { plugin: 'bench', version: 'v1', job: 'smoke', input: { arm: 'candidate' } } } },
     })
   );
   vi.stubEnv('AGI_STUDIO_DIR', mode ? dir : undefined);
@@ -171,11 +173,14 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
     'agents/a.md': '---\nharness: opencode\n---\n',
     'checks/lines.md': check('before'),
     'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\nchecks: [lines]\n---\n',
-    '../data/r1/run.json': JSON.stringify({ id: 'r1', issue: 1, workflow: 'w', status: 'done', started: 'now' }),
+    '../data/r1/run.json': JSON.stringify(
+      makeRun({ id: 'r1', issue: 1, workflow: 'w', status: 'done', started: 'now' })
+    ),
     '../data/r1/checks.jsonl': JSON.stringify({
       at: '1',
       step: 'x',
       version: 'v1',
+      usd: 0,
       check: { check: 'lines', pass: true, value: { n: 3 }, ms: 1 },
     }),
   };
@@ -269,7 +274,7 @@ it('runs instance actions through the RPC client and refuses foreign requests', 
   writeFileSync(join(dir, 'settings.yaml'), 'plugins: {}\n');
   writeFileSync(
     join(root, 'data', 'r1', 'run.json'),
-    JSON.stringify({ id: 'r1', workflow: 'w', status: 'done', started: 'now' })
+    JSON.stringify(makeRun({ id: 'r1', workflow: 'w', status: 'done', started: 'now' }))
   );
   vi.stubEnv('AGI_STUDIO_DIR', dir);
   vi.stubEnv('AGI_STUDIO_DATA', join(root, 'data'));
@@ -336,7 +341,7 @@ it('reads ?data= only inside the stores a studio page watches, and reloads with 
     mkdirSync(join(store, 'r1'), { recursive: true });
     writeFileSync(
       join(store, 'r1/run.json'),
-      JSON.stringify({ id: 'r1', workflow: 'w', status: 'done', started: 'now' })
+      JSON.stringify(makeRun({ id: 'r1', workflow: 'w', status: 'done', started: 'now' }))
     );
   }
   writePagePlugin(graph!, 'count', own!);
