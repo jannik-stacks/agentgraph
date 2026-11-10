@@ -17,14 +17,19 @@ export const Agent = Schema.Struct({
 });
 export type Agent = typeof Agent.Type;
 
+const ResultRoot = Schema.Struct({
+  ...Struct.pick(ResultType.fields, ['properties', 'required']),
+  type: Schema.optionalKey(Schema.Literal('object')),
+});
+
 /**
  * A check is items, a command and an agent that judges. Each gives a result `returns` describes, which passes when it
  * matches `pass`. `info` only records it, `warn` records a failure, `block` fails the try and `stop` the run.
  */
 export const Check = Schema.Struct({
   mode: CheckMode,
-  returns: Schema.optionalKey(ResultType),
-  pass: Schema.optionalKey(ResultType),
+  returns: Schema.optionalKey(ResultRoot),
+  pass: Schema.optionalKey(ResultRoot),
   reads: Schema.optionalKey(Schema.Literal('traces')),
   each: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
   run: Schema.optionalKey(Schema.String),

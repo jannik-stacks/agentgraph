@@ -1,6 +1,6 @@
 import { Struct } from 'effect';
+import { listedRunFields, type ServedRun } from '../../../src/actions.ts';
 import type { Located } from '../../../src/store.ts';
-import type { readRunLabels } from '../../../src/labels.ts';
 import { isOnIssue } from '../../../src/graph.ts';
 import { getRunSpend } from '../../../src/trace.ts';
 import { makeRunTrail } from '../graph/visits.ts';
@@ -70,41 +70,13 @@ export const makeRunSummary = (run: RunRecord, lines: Line[]) => ({
   ),
 });
 
-const listedFields = [
-  'id',
-  'workflow',
-  'issue',
-  'title',
-  'body',
-  'step',
-  'status',
-  'tries',
-  'rounds',
-  'reason',
-  'waiting',
-  'said',
-  'by',
-  'started',
-  'ended',
-] as const;
-
 export const pickListedRun = (run: RunRecord, body: boolean) =>
   Struct.pick(
     run,
-    listedFields.filter(k => body || k !== 'body')
+    listedRunFields.filter(k => body || k !== 'body')
   );
 
-/** A run as the dev server answers it: the run, its summary, where it lives, its pull request and branch, and its trace when opened alone. */
-export type ServedRun = {
-  fixture: string;
-  repo: string;
-  run: ReturnType<typeof pickListedRun>;
-  labels: ReturnType<typeof readRunLabels>;
-  trace?: Line[];
-  data?: string;
-  instance?: string;
-} & ReturnType<typeof findTraceLinks> &
-  Omit<ReturnType<typeof makeRunSummary>, 'trail'>;
+export type { ServedRun };
 
 export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
 

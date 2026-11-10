@@ -17,6 +17,8 @@ export type ResultType = {
 
 const nested = Schema.suspend((): Schema.Codec<ResultType> => ResultType);
 
+const appliesTo = { properties: 'object', required: 'object', items: 'array', minimum: 'number', maximum: 'number' };
+
 export const ResultType = Schema.Struct({
   type: Schema.optionalKey(Schema.Literals(['object', 'array', 'string', 'number', 'integer', 'boolean'])),
   properties: Schema.optionalKey(Schema.Record(Schema.String, nested)),
@@ -28,11 +30,17 @@ export const ResultType = Schema.Struct({
   maximum: Schema.optionalKey(Schema.Finite),
   description: Schema.optionalKey(Schema.String),
   unit: Schema.optionalKey(Schema.Literals(['usd', 'minutes', 'seconds', 'tokens', 'share'])),
-});
+}).check(
+  Schema.makeFilter(t => {
+    const type = t.type === 'integer' ? 'number' : t.type;
+    const wrong = Object.entries(appliesTo).find(([key, applies]) => key in t && type && type !== applies);
+    return !wrong || `${wrong[0]} needs type ${wrong[1]}, not ${t.type}`;
+  })
+);
 
 export type Result = Record<string, unknown>;
 
-export const defaultReturns: ResultType = {
+export const defaultReturns = {
   type: 'object',
   required: ['pass'],
   properties: {
@@ -42,9 +50,9 @@ export const defaultReturns: ResultType = {
       description: 'your findings: what you checked and, when it fails, what is wrong, where, and the smallest fix',
     },
   },
-};
+} as const satisfies ResultType;
 
-export const defaultPass: ResultType = { required: ['pass'], properties: { pass: { const: true } } };
+export const defaultPass = { required: ['pass'], properties: { pass: { const: true } } } as const satisfies ResultType;
 
 export const whyPassUndecided = (returns: ResultType, pass: ResultType, at = 'result'): string | undefined => {
   const numeric = returns.type === 'number' || returns.type === 'integer';
@@ -62,13 +70,22 @@ export const whyPassUndecided = (returns: ResultType, pass: ResultType, at = 're
 export const findMismatch = (type: ResultType, value: unknown, at = 'result'): string | undefined => {
   const kind = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
   const said = (t: ResultType | undefined) => (t?.description ? ` (${t.description})` : '');
+  const same = (a: unknown, b: unknown): boolean => {
+    if (a === b) return true;
+    if (typeof a !== 'object' || typeof b !== 'object' || !a || !b || Array.isArray(a) !== Array.isArray(b))
+      return false;
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every(k => Object.hasOwn(b, k) && same(a[k as keyof typeof a], b[k as keyof typeof b]))
+    );
+  };
   if (type.type && type.type !== kind && !(type.type === 'integer' && Number.isInteger(value)))
-    return `${at} must be ${type.type === 'integer' ? 'an integer' : `a ${type.type}`}${said(type)}`;
+    return `${at} must be ${/^[aeiou]/.test(type.type) ? 'an' : 'a'} ${type.type}${said(type)}`;
   if (type.type === 'integer' && !Number.isInteger(value)) return `${at} must be an integer${said(type)}`;
-  if (type.enum && !type.enum.some(e => JSON.stringify(e) === JSON.stringify(value)))
+  if (type.enum && !type.enum.some(e => same(e, value)))
     return `${at} must be one of ${JSON.stringify(type.enum)}${said(type)}`;
-  if ('const' in type && JSON.stringify(type.const) !== JSON.stringify(value))
-    return `${at} must be ${JSON.stringify(type.const)}${said(type)}`;
+  if ('const' in type && !same(type.const, value)) return `${at} must be ${JSON.stringify(type.const)}${said(type)}`;
   if (typeof value === 'number' && type.minimum !== undefined && value < type.minimum)
     return `${at} must be at least ${type.minimum}${said(type)}`;
   if (typeof value === 'number' && type.maximum !== undefined && value > type.maximum)
@@ -124,20 +141,31 @@ require('node:readline')
 
 export const makeResultServer = (returns: ResultType) => ({
   command: 'node',
-  args: ['-e', server, JSON.stringify(returns), 'Records your result for the check. Call it once you have decided.'],
+  args: [
+    '-e',
+    server,
+    JSON.stringify({ ...returns, type: 'object' }),
+    'Records your result for the check. Call it once you have decided.',
+  ],
 });
 
 export const resultTool = 'mcp__agentgraph__result';
 
-export const getRecordedResult = (returns: ResultType, event: { name: string; input: unknown; ok?: boolean }) =>
-  event.ok && (event.name === resultTool || event.name === 'agentgraph_result') && !findMismatch(returns, event.input)
-    ? (event.input as Result)
+const isResult = (value: unknown): value is Result =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+export const getRecordedResult = (
+  returns: ResultType,
+  { name, input, ok }: { name: string; input: unknown; ok?: boolean }
+) =>
+  ok && (name === resultTool || name === 'agentgraph_result') && isResult(input) && !findMismatch(returns, input)
+    ? input
     : undefined;
 
 export const readScriptResult = (output: string) => {
   try {
     const parsed: unknown = JSON.parse(output.trim().split('\n').at(-1) ?? '');
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Result) : undefined;
+    return isResult(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }

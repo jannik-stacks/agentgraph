@@ -51,16 +51,14 @@ it('serves each named instance under its own name, with no run crossing over', a
     return [response.status, await response.json()];
   };
   try {
-    const runs = (query: string, id?: string) =>
-      runStudioAction(`${base}/api/actions${query}`, actions => actions.runs(id === undefined ? {} : { id }));
-    const listed = async (name: string) =>
-      ((await runs(`?instance=${name}`)) as { fixture: string; run: { id: string } }[]).map(
-        r => `${r.fixture} ${r.run.id}`
-      );
+    const runs = (query: string) => runStudioAction(`${base}/api/actions${query}`, actions => actions.runs());
+    const opened = (query: string, id: string) =>
+      runStudioAction(`${base}/api/actions${query}`, actions => actions.run({ id }));
+    const listed = async (name: string) => (await runs(`?instance=${name}`)).map(r => `${r.fixture} ${r.run.id}`);
     expect(await listed('live')).toEqual(['live/issue run-live']);
     expect(await listed('bench')).toEqual(['bench/issue run-bench']);
-    expect(await runs('?instance=bench', 'run-bench')).toMatchObject({ instance: 'bench' });
-    expect(await runs('?instance=live', 'run-bench')).toBeNull();
+    expect(await opened('?instance=bench', 'run-bench')).toMatchObject({ instance: 'bench' });
+    expect(await opened('?instance=live', 'run-bench')).toBeNull();
     for (const query of ['', '?instance=other']) await expect(runs(query)).rejects.toThrow();
     expect((await fetch(`${base}/api/plugins/results/data`)).status).toBe(404);
     const [, results] = await get('/api/plugins/results/data?instance=bench');

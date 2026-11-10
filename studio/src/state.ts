@@ -1,10 +1,8 @@
 import { atom } from 'jotai';
 import { Effect } from 'effect';
 import { runActions } from '../../src/actions.ts';
-import type { readRunResults } from '../../bin/results.ts';
-import { type ServedRun, makeDataHref, type makeRunSummary } from './runs/trace.ts';
+import { makeDataHref } from './runs/trace.ts';
 import { served } from 'virtual:served';
-import { type RunRecord } from '../../src/types.ts';
 import { pages } from 'virtual:agentgraph-pages';
 
 export const instances = served.filter(one => one.name);
@@ -156,34 +154,15 @@ const openOnce = <T>(key: string, data: string | null | undefined, load: () => P
 
 /** Every run of one instance as the run list reads it, with its trail and no trace. */
 export const getRunsAtom = (instance = shown?.name) =>
-  openOnce(
-    'runs',
-    undefined,
-    () =>
-      runAction(actions => actions.runs({}), undefined, instance) as Promise<
-        (ServedRun & Pick<ReturnType<typeof makeRunSummary>, 'trail'>)[]
-      >,
-    instance
-  );
+  openOnce('runs', undefined, () => runAction(actions => actions.runs(), undefined, instance), instance);
 
 export const dataParam = queryParam('data');
 
 export const runResultsAtom = (data?: string | null, instance = shown?.name) =>
-  openOnce(
-    'results',
-    data,
-    () => runAction(actions => actions.results(), data, instance) as Promise<ReturnType<typeof readRunResults>>,
-    instance
-  );
+  openOnce('results', data, () => runAction(actions => actions.results(), data, instance), instance);
 
 export const runAtom = (id: string, data?: string | null, instance = shown?.name) =>
-  openOnce(
-    `run ${id}`,
-    data,
-    () =>
-      runAction(actions => actions.runs({ id }), data, instance) as Promise<(ServedRun & { run: RunRecord }) | null>,
-    instance
-  );
+  openOnce(`run ${id}`, data, () => runAction(actions => actions.run({ id }), data, instance), instance);
 
 export const getVerdictsAtom = (fixture: string, step: string, check: string) =>
   openOnce(`verdicts ${fixture} ${step} ${check}`, undefined, () =>

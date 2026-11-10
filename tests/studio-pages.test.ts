@@ -194,7 +194,7 @@ it('serves a check edit to both result endpoints once the graph reloads', async 
   try {
     const described = async () => {
       const page = await (await fetch(`${base}/api/plugins/results/data`)).json();
-      const runs = (await runStudioAction(`${base}/api/actions`, actions => actions.results())) as { fields: object[] };
+      const runs = await runStudioAction(`${base}/api/actions`, actions => actions.results());
       return [page.sheet.fields, runs.fields].map(
         (fields: { check?: string; description?: string }[]) => fields.find(f => f.check === 'lines')?.description
       );
@@ -355,7 +355,7 @@ it('reads ?data= only inside the stores a studio page watches, and reloads with 
     return [response.status, await response.json()];
   };
   const listed = (store: string) =>
-    runStudioAction(`${base}/api/actions?data=${encodeURIComponent(store)}`, actions => actions.runs({})).then(
+    runStudioAction(`${base}/api/actions?data=${encodeURIComponent(store)}`, actions => actions.runs()).then(
       runs => [200, runs],
       () => [400]
     );

@@ -25,7 +25,7 @@ import {
   readBenchRowResults,
   summarise,
 } from '../bench/score.ts';
-import { type Run, type Trace } from '../src/types.ts';
+import { type Trace } from '../src/types.ts';
 
 type Row = BenchRow;
 const bench = join(import.meta.dirname, '../examples/plugins/bench/plugins/bench.ts');
@@ -453,19 +453,21 @@ describe('a bench data dir', () => {
     const q = (dir: string) => `?data=${encodeURIComponent(dir)}`;
     const { server, base } = await startStudioServer();
     try {
-      const runs = (dir: string, id?: string) =>
-        runStudioAction(`${base}/api/actions${q(dir)}`, actions => actions.runs(id === undefined ? {} : { id }));
+      const runs = (dir: string) => runStudioAction(`${base}/api/actions${q(dir)}`, actions => actions.runs());
+      const opened = (dir: string, id: string) =>
+        runStudioAction(`${base}/api/actions${q(dir)}`, actions => actions.run({ id }));
       for (const dir of [join(out, '..'), join(out, 'linked')]) await expect(runs(dir)).rejects.toThrow();
-      const listed = (await runs(data)) as { run: Run; data: string }[];
+      const listed = await runs(data);
       expect(listed.map(r => [r.run.id, r.data])).toEqual([['issue-1', data]]);
-      expect(await runs(data, 'issue-2')).toBeNull();
-      const one = (await runs(data, 'issue-1')) as { data: string; trace: { event?: { text?: string } }[] };
-      expect([one.data, one.trace.find(l => l.event)?.event?.text]).toEqual([data, 'from the bench']);
+      expect(await opened(data, 'issue-2')).toBeNull();
+      const one = await opened(data, 'issue-1');
+      const said = one?.trace.flatMap(l => ('event' in l && l.event.type === 'text' ? [l.event.text] : []));
+      expect([one?.data, said?.[0]]).toEqual([data, 'from the bench']);
       expect(
         await Effect.runPromise(runLocalActions(makeInstanceHost({ data }), actions => actions.log({ hash })))
       ).toBe('full output');
       const results = await runStudioAction(`${base}/api/actions${q(data)}`, actions => actions.results());
-      expect((results as { runs: { key: string }[] }).runs.map(r => r.key)).toContain('issue-1');
+      expect(results.runs.map(r => r.key)).toContain('issue-1');
       await expect(
         runStudioAction(`${base}/api/actions${q(data)}`, actions =>
           actions.label({ id: 'issue-1', patch: { arm: 'x' } })

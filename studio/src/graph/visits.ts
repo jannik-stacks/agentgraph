@@ -1,6 +1,7 @@
 import type { WorkflowGraph } from '../../../src/graph.ts';
 import { getStepDoerKind } from './chips.ts';
-import { makeTrailOutcome, type RunDrawnOnWorkflow, type Trail } from './scenarios.ts';
+import { makeTrailOutcome, type RunDrawnOnWorkflow } from './scenarios.ts';
+import type { Trail } from '../../../src/actions.ts';
 import { formatReason, type CheckEntry, type Trace } from '../../../src/types.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */

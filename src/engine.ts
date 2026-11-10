@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Effect, Layer, Schedule, Schema, Stream } from 'effect';
 import { HttpRouter } from 'effect/http';
-import { RpcSerialization, RpcServer } from 'effect/rpc';
+import { type Rpc, type RpcGroup, RpcSerialization, RpcServer } from 'effect/rpc';
 import { ActionError, Actions, ActionUser, runActions } from './actions.ts';
 import { parseLabels, readRunLabels, writeRunLabels, writeStoredRunLabels } from './labels.ts';
 import { PluginMetadata } from './meta.ts';
@@ -111,8 +111,9 @@ export const makeInstanceHost = (
       return { ...issue, diff: folder ? readRecordSync(join(findIssueDir(folder, n), 'diff.patch')) : '' };
     });
   const actions = Actions.of({
-    runs: (_: { id?: string }): Effect.Effect<unknown, typeof ActionError.Type> => refuse,
-    results: (): Effect.Effect<unknown, typeof ActionError.Type> => refuse,
+    runs: () => refuse,
+    run: () => refuse,
+    results: () => refuse,
     watch: ({ issue }) =>
       Stream.fromEffectSchedule(store.list(issue === undefined ? {} : { issue }), Schedule.spaced('1 second')).pipe(
         Stream.changes,
@@ -173,7 +174,12 @@ const writeActions = new Set([...localActions, 'say', 'label']);
 
 export const makeActionWebHandler = (
   host: Pick<ReturnType<typeof makeInstanceHost>, 'actions'>,
-  own: Partial<Pick<ReturnType<typeof makeInstanceHost>['actions'], 'runs' | 'results'>> = {},
+  own: {
+    readonly [K in 'runs' | 'run' | 'results']?: Rpc.ToHandlerFn<
+      Rpc.ExtractTag<RpcGroup.Rpcs<typeof Actions>, K>,
+      never
+    >;
+  } = {},
   readOnly = false
 ) => {
   const key = randomUUID();

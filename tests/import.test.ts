@@ -23,8 +23,10 @@ const serveStudio = async (data: string) => {
   vi.stubEnv('AGI_STUDIO_DATA', data);
   const { server, base } = await startStudioServer();
   servers.push(server);
-  return (id?: string) =>
-    runStudioAction(`${base}/api/actions`, actions => actions.runs(id === undefined ? {} : { id }));
+  return {
+    runs: () => runStudioAction(`${base}/api/actions`, actions => actions.runs()),
+    opened: (id: string) => runStudioAction(`${base}/api/actions`, actions => actions.run({ id })),
+  };
 };
 
 it('keeps a commit or a patch as an ended run with no issue, once per import', async () => {
@@ -68,21 +70,21 @@ it('serves an imported run in the studio run list and on its own page', async ()
   dirs.push(w.root);
   const i = await ensureInstance(join(w.root, 'agentgraph'), 'test', w.seed);
   const id = await writeImportedRun(i, 'HEAD', { version: '0.0.1', from: 'HEAD' });
-  const runs = await serveStudio(i.data);
-  const list = (await runs()) as { run: object }[];
+  const { runs, opened } = await serveStudio(i.data);
+  const list = await runs();
   expect(list).toMatchObject([{ run: { id, workflow: 'import' }, usd: 0, urls: [] }]);
   expect(list[0]).not.toHaveProperty('trace');
   expect(list[0]).not.toHaveProperty('checks');
   expect(list[0]!.run).not.toHaveProperty('startCommit');
-  const one = (await runs(id)) as object;
+  const one = await opened(id);
   expect(one).toMatchObject({
     run: { id, status: 'done', startCommit: expect.any(String) },
     usd: 0,
     urls: [],
     trace: [{ saved: { id } }],
   });
-  expect(Object.keys(one)).not.toEqual(expect.arrayContaining(['trail']));
-  expect(Object.keys(one)).not.toEqual(expect.arrayContaining(['checks']));
+  expect(Object.keys(one!)).not.toEqual(expect.arrayContaining(['trail']));
+  expect(Object.keys(one!)).not.toEqual(expect.arrayContaining(['checks']));
   mkdirSync(join(i.data, 'broken'));
   writeFileSync(join(i.data, 'broken', 'run.json'), '{');
   await expect(runs()).rejects.toThrow(/.+/);
@@ -134,7 +136,7 @@ it('serves verdicts of one check at one step lazily, and an issue body once on i
       yield* store.addChecks('other', check('2026-11-03T01:00:00Z', 'implement', 'review', false));
     }).pipe(Effect.provide(fileStore(data)))
   );
-  const runs = await serveStudio(data);
+  const { runs, opened } = await serveStudio(data);
   const verdicts = (step: string, check: string) =>
     Effect.runPromise(
       runLocalActions(makeInstanceHost({ data }), actions => actions.verdicts({ workflow: 'issue', step, check }))
@@ -162,12 +164,12 @@ it('serves verdicts of one check at one step lazily, and an issue body once on i
     },
   ]);
   expect(await verdicts('review', 'lint')).toEqual([]);
-  const list = (await runs()) as { run: { id: string; body?: string; sessions?: object } }[];
+  const list = await runs();
   expect(list.filter(r => r.run.body !== undefined).map(r => [r.run.id, r.run.body])).toEqual([
     ['other', 'body of other'],
   ]);
-  expect(list.every(r => r.run.sessions === undefined)).toBe(true);
-  expect(await runs('old')).toMatchObject({
+  expect(list.every(r => !('sessions' in r.run))).toBe(true);
+  expect(await opened('old')).toMatchObject({
     run: { ...run('old', 'issue', '2026-11-01T00:00:00Z') },
   });
 });

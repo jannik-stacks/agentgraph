@@ -13,7 +13,7 @@ import {
   ResultType,
 } from '../src/result.ts';
 import { harnesses } from './fixtures.ts';
-import { type SessionSpec } from '../src/types.ts';
+import { Check, type SessionSpec } from '../src/types.ts';
 
 const talk = (returns: ResultType, ...messages: (object | string)[]) =>
   spawnSync(process.execPath, makeResultServer(returns).args, {
@@ -31,7 +31,7 @@ const call = (id: number, args: unknown, name = 'result') => ({
   params: { name, arguments: args },
 });
 
-const stuck: ResultType = {
+const stuck = {
   type: 'object',
   required: ['wasted', 'stuck'],
   properties: {
@@ -39,7 +39,7 @@ const stuck: ResultType = {
     stuck: { enum: ['nothing', 'tests'] },
     files: { type: 'array', items: { type: 'string' } },
   },
-};
+} as const satisfies ResultType;
 
 describe('the result server', () => {
   it.each([Infinity, -Infinity, NaN])('rejects non-finite bounds in a check schema: %s', bound => {
@@ -76,6 +76,20 @@ describe('the result server', () => {
     ]);
   });
 
+  it('advertises and checks an object root when returns names no type', () => {
+    const [listed, array, object] = talk(
+      { properties: { n: { type: 'integer' } } },
+      { id: 1, method: 'tools/list' },
+      call(2, [1]),
+      call(3, { n: 1 })
+    );
+    expect([listed.result.tools[0].inputSchema.type, array.result.isError, object.result.isError]).toEqual([
+      'object',
+      true,
+      false,
+    ]);
+  });
+
   it('says what the engine says about every mismatch', () => {
     const values = [
       { wasted: 1, stuck: 'tests' },
@@ -94,9 +108,73 @@ describe('the result server', () => {
       'result.stuck must be one of ["nothing","tests"]. Call result again.',
       'result.files[1] must be a string. Call result again.',
       'result.wasted is missing. Call result again.',
-      'result must be a object. Call result again.',
+      'result must be an object. Call result again.',
     ]);
   });
+});
+
+const decodes = (schema: typeof Check | typeof ResultType, value: unknown) =>
+  Schema.decodeUnknownResult(schema, { onExcessProperty: 'error' })(value)._tag;
+
+describe('a result schema', () => {
+  it('describes an object at its root', () =>
+    expect(
+      [
+        { returns: { required: ['n'], properties: { n: { type: 'integer' } } } },
+        { returns: { type: 'object' }, pass: { properties: { n: { minimum: 1 } } } },
+        { returns: { type: 'array', items: { type: 'string' } } },
+        { returns: { type: 'number' } },
+        { pass: { minimum: 1 } },
+        { pass: { const: { pass: true } } },
+      ].map(c => decodes(Check, { mode: 'warn', ...c }))
+    ).toEqual(['Success', 'Success', 'Failure', 'Failure', 'Failure', 'Failure']));
+
+  it('refuses keywords that cannot apply to its type', () =>
+    expect(
+      [
+        { type: 'string', properties: { a: {} } },
+        { type: 'array', required: ['a'] },
+        { type: 'number', items: { type: 'string' } },
+        { type: 'string', minimum: 1 },
+        { properties: { a: {} }, items: {}, minimum: 0 },
+        { type: 'integer', minimum: 0, maximum: 3 },
+      ].map(t => decodes(ResultType, t))
+    ).toEqual(['Failure', 'Failure', 'Failure', 'Failure', 'Success', 'Success']));
+});
+
+describe('a match', () => {
+  it('compares enum and const values by structure, not key order', () =>
+    expect([
+      findMismatch({ const: { a: 1, b: [1, { c: 2, d: 3 }] } }, { b: [1, { d: 3, c: 2 }], a: 1 }),
+      findMismatch({ enum: ['x', { a: 1, b: 2 }] }, { b: 2, a: 1 }),
+      findMismatch({ const: { a: 1 } }, { a: 1, b: 2 }),
+      findMismatch({ const: [1, 2] }, [2, 1]),
+      findMismatch({ const: [] }, {}),
+    ]).toEqual([undefined, undefined, 'result must be {"a":1}', 'result must be [1,2]', 'result must be []']));
+
+  it('reads nulls, nested requirements and non-object values as JSON Schema does', () =>
+    expect([
+      findMismatch({ type: 'object' }, null),
+      findMismatch({ const: null }, null),
+      findMismatch({ enum: [null, 'x'] }, null),
+      findMismatch({ type: 'string' }, null),
+      findMismatch(
+        { type: 'object', required: ['a'], properties: { a: { type: 'object', required: ['b'] } } },
+        { a: {} }
+      ),
+      findMismatch({ required: ['a'], properties: { a: { type: 'string' } } }, 3),
+      findMismatch({ required: ['a'] }, ['a']),
+      findMismatch({ items: { type: 'string' } }, { a: 1 }),
+    ]).toEqual([
+      'result must be an object',
+      undefined,
+      undefined,
+      'result must be a string',
+      'result.a.b is missing',
+      undefined,
+      undefined,
+      undefined,
+    ]));
 });
 
 describe('a pass', () => {
@@ -213,5 +291,6 @@ describe('a recorded result', () => {
       getRecordedResult(stuck, event('mcp__agentgraph__result', { wasted: true, stuck: 'tests' })),
       getRecordedResult(defaultReturns, event('mcp__agentgraph__result', { pass: true }, false)),
       getRecordedResult(defaultReturns, event('mcp__other__result', { pass: true })),
-    ]).toEqual([{ pass: false, why: 'x' }, { wasted: 3, stuck: 'tests' }, undefined, undefined, undefined]));
+      getRecordedResult({ properties: { a: {} } }, event('mcp__agentgraph__result', ['a'])),
+    ]).toEqual([{ pass: false, why: 'x' }, { wasted: 3, stuck: 'tests' }, undefined, undefined, undefined, undefined]));
 });

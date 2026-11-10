@@ -4,7 +4,7 @@ import { join, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Plugin } from 'vite';
-import { Effect, Result, Stream } from 'effect';
+import { Effect, Result, Stream, Struct } from 'effect';
 import { readRequestUser } from './auth.ts';
 import { makeServedGraphs, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
@@ -82,38 +82,43 @@ export const makeStudioDevApiPlugin = (
           const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
           const results = () => Effect.sync(() => readRunResults(data, served?.graph));
           const keep = (id: string) => Effect.promise(async () => !watched || isInside(join(data!, id), [data!]));
-          const entry = (run: RunRecord, all: boolean, body = false) =>
+          const entry = (run: RunRecord, body: boolean) =>
             Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
               const lines = mergeCheckEntries(trace, checks);
-              const { trail, ...summary } = makeRunSummary(run, lines);
               return {
                 fixture: `${watched ? 'store' : served!.title}/${run.workflow}`,
                 repo: served?.graph?.repo ?? '',
-                run: all ? run : pickListedRun(run, body),
+                run: pickListedRun(run, body),
                 labels: readRunLabels(data!, run.id),
-                ...summary,
-                ...(all ? { trace: lines } : { trail }),
+                ...makeRunSummary(run, lines),
+                trace: lines,
                 ...findTraceLinks(trace),
                 ...(watched ? { data: watched } : served?.name ? { instance: served.name } : {}),
               };
             });
-          const runs = ({ id }: { id?: string }) =>
+          const fail = (e: Error) => ActionError.make({ message: e.message });
+          const runs = () =>
             Effect.gen(function* () {
-              if (!served?.dir && !watched) return id === undefined ? [] : null;
-              if (id === undefined) {
-                const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
-                const told = new Map<number, string>();
-                for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
-                  if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
-                return yield* Effect.forEach(runs, run =>
-                  entry(run, false, run.issue !== undefined && told.get(run.issue) === run.id)
-                );
-              }
+              if (!served?.dir && !watched) return [];
+              const runs = yield* Effect.filter(yield* store.listRecords(), run => keep(run.id));
+              const told = new Map<number, string>();
+              for (const run of runs.toSorted((a, b) => a.started.localeCompare(b.started)))
+                if (run.issue !== undefined && run.body !== undefined) told.set(run.issue, run.id);
+              return yield* Effect.forEach(runs, run =>
+                Effect.map(
+                  entry(run, run.issue !== undefined && told.get(run.issue) === run.id),
+                  Struct.omit(['trace'])
+                )
+              );
+            }).pipe(Effect.mapError(fail));
+          const run = ({ id }: { id: string }) =>
+            Effect.gen(function* () {
+              if (!served?.dir && !watched) return null;
               if (!/^(?!\.+$)[\w.-]+$/.test(id)) return yield* Effect.fail(new Error('bad run id'));
               const run = (yield* keep(id)) ? yield* store.getRecord(id) : undefined;
-              return run ? yield* entry(run, true) : null;
-            }).pipe(Effect.mapError(e => ActionError.make({ message: e.message })));
-          web = makeActionWebHandler(host, { results, runs }, !!watched);
+              return run ? { ...Struct.omit(yield* entry(run, true), ['trail']), run } : null;
+            }).pipe(Effect.mapError(fail));
+          web = makeActionWebHandler(host, { results, runs, run }, !!watched);
           handlers.set(host, web);
         }
         const response = await web(

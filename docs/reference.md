@@ -148,6 +148,8 @@ A resume that fails before the harness starts, or of a session another harness r
 
 The schema subset has `type`, `properties`, `required`, `items`, `enum`, `const`, `minimum`, `maximum` and `description`. A number field may name a display `unit`: `usd`, `minutes`, `seconds`, `tokens` or `share`. <!-- code: src/result.ts#ResultType -->
 
+The root of `returns` and `pass` describes an object, so it takes only `type: object`, `properties` and `required`. A field that names a `type` takes only the keywords for that type: `properties` and `required` for an object, `items` for an array, and `minimum` and `maximum` for a number or integer. A field without a `type` applies each keyword only to values it fits, as JSON Schema does. `enum` and `const` compare by content, so key order does not matter. <!-- code: src/types.ts#ResultRoot src/result.ts#findMismatch -->
+
 ## Skills
 
 `skills/<name>.md` or `skills/<name>/SKILL.md`. The body is the instruction; other frontmatter keys are ignored. <!-- code: src/folder.ts#SkillFile -->
