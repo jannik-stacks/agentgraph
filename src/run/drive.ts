@@ -99,6 +99,8 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
         if (current.status === 'running') yield* admit(Option.getOrUndefined(t)?.issue);
       });
+    const formatTimeout = (limits: NonNullable<Run['limits']>) =>
+      `A command ran past the ${limits.minutes.value}-minute limit, ${formatLimitRaise(graph.limits, limits, 'minutes')}`;
     const waitOnLimits = (why: string, run = current) =>
       settle(
         { kind: 'ask', question: why, waiting: { on: 'limits', why } },
@@ -112,9 +114,11 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
           ? parseIssueLimits(graph.limits, issue)
           : (current.limits ?? parseIssueLimits(graph.limits, { labels: [], events: [] }));
         if ('why' in read) return yield* waitOnLimits(read.why);
-        const limits = read;
+        const timeout = current.limits?.timeout && read.minutes.value <= current.limits.minutes.value;
+        const limits = timeout ? { ...read, timeout } : read;
         if (JSON.stringify(limits) !== JSON.stringify(current.limits))
           yield* store.put((current = { ...current, limits }));
+        if (limits.timeout) return yield* waitOnLimits(formatTimeout(limits));
         const spend = yield* readRunSpend(current.id);
         if (spend.usd >= limits.usdPerRun.value)
           yield* waitOnLimits(
@@ -236,6 +240,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: 'Stopped by a person.' }));
       if (e._tag === 'SessionStop' && e.reason === 'login')
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: rejected }), 'login');
+      if ('reason' in e && e.reason === 'timeout' && current.limits) {
+        const limits = { ...current.limits, timeout: true as const };
+        return waitOnLimits(formatTimeout(limits), { ...current, limits });
+      }
       const host = e._tag === 'SandboxError' && e.reason === 'host';
       if (!current.retried && !host) return settle({ kind: 'ask', question: why }, { ...current, retried: true });
       return settle(

@@ -119,7 +119,7 @@ const RunFields = {
   ),
   reason: Text,
   waiting: Waiting,
-  limits: Schema.optionalKey(Schema.Struct({ usdPerRun: Limit, minutes: Limit })),
+  limits: Schema.optionalKey(Schema.Struct({ usdPerRun: Limit, minutes: Limit, timeout: Flag })),
   restarted: Flag,
   retried: Flag,
   seen: Text,

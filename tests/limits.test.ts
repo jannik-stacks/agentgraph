@@ -5,7 +5,12 @@ import type { Event } from '../src/event.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { tick } from '../src/run/trigger.ts';
 import { Store } from '../src/store.ts';
-import { Effect } from 'effect';
+import { Effect, Layer, Stream } from 'effect';
+import { Session } from '../src/session.ts';
+import { folderTracker } from '../src/tracker.ts';
+import { fileStore } from '../src/store.ts';
+import { SessionStop } from '../src/types.ts';
+import { hostSandbox } from './doubles/sandbox.ts';
 import { getEventOutcome, transition } from '../src/workflow.ts';
 import { fakeDocker, reply, start } from './fixtures.ts';
 import { issuePath } from './kit.ts';
@@ -198,5 +203,29 @@ describe('a run at its limits', () => {
     const { run } = services(where, [spent]);
     const stopped = await run(runWorkflow(quiet, fresh(), capped));
     expect(stopped).toMatchObject({ status: 'stopped', reason: over });
+  });
+
+  it('waits on minutes after a timeout until a higher minutes label', async () => {
+    const where = world();
+    let opened = 0;
+    const late = Layer.succeed(Session, {
+      open: () => {
+        opened++;
+        return Stream.concat(Stream.make(start('t1')), Stream.fail(new SessionStop({ reason: 'timeout' })));
+      },
+    });
+    const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), late);
+    const drive = (r: Parameters<typeof driveStored>[1], h: Graph) =>
+      Effect.runPromise(driveStored(w, r, h).pipe(Effect.provide(layer)));
+    const timed: Graph = { ...capped, limits: { ...capped.limits, max: { minutes: 5 } } };
+    const waited = await drive(fresh(), timed);
+    const why =
+      'A command ran past the 1-minute limit, from settings.yaml. Add agent:minutes:2, up to the max of 5, to continue.';
+    expect(waited).toMatchObject({ status: 'waiting', waiting: { on: 'limits', why }, limits: { timeout: true } });
+    const again = await drive(transition(w, waited, { kind: 'answer', text: '' }), timed);
+    expect([again.waiting, opened]).toEqual([{ on: 'limits', why }, 1]);
+    label(where, 'agent:minutes:2');
+    const raised = await drive(transition(w, again, { kind: 'answer', text: '' }), timed);
+    expect([raised.limits?.minutes.value, raised.limits?.timeout, opened]).toEqual([2, true, 2]);
   });
 });

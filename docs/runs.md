@@ -100,7 +100,7 @@ The record includes:
 | `reported`                | The last report of each step that carries its report to the next step |
 | `restarted`               | A person restarted the run |
 | `retried`                 | The run already asked once after a failure; the next failure leaves it waiting |
-| `limits`                  | The `minutes` and `usd-per-run` the run works with, each with the label that set it, if any |
+| `limits`                  | The `minutes` and `usd-per-run` the run works with, each with the label that set it, if any; `timeout` while a command ran past `minutes` |
 | `answers`                 | Human answers, each with its question                                                                                                                                                                                                                                                                                                                                                                       |
 | `said`, `unshown`         | Where people last spoke, and a status the tracker has yet to show                                                                                                                                                                                                                                                                                                                                           |
 | `seen`                    | When the run last took in events on its issue |

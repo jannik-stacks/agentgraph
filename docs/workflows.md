@@ -127,13 +127,13 @@ A trusted label `agent:usd-per-run:<n>` or `agent:minutes:<n>` sets that limit f
 
 The engine reads the labels before setup and before every try, and records them in `run.limits`. End checks, asides, follows and catch-ups use the recorded values. `minutes` stays a deadline per command, never a time budget for the run. <!-- code: src/run/drive.ts#runWorkflow src/folder.ts#makeRunGraph -->
 
-A run whose spend reached `usd-per-run` waits instead of stopping. Its comment says what to do, for example: <!-- code: src/folder.ts#formatLimitRaise src/context.ts#proposeQuestion -->
+A run whose spend reached `usd-per-run`, or whose command ran past `minutes`, waits instead of stopping. Its comment says what to do, for example: <!-- code: src/folder.ts#formatLimitRaise src/context.ts#proposeQuestion -->
 
 ```text
 Spent $10.04 of the $10 usd-per-run limit, from settings.yaml. Add agent:usd-per-run:15, up to the max of 40, to continue.
 ```
 
-Adding, removing or replacing an `agent:` label resumes the same run, with its spend, sessions and feedback; a plain `/agent` reply does too, for example after raising `max`. The run checks its limits again first and waits again when nothing changed, so it starts no session over its limits. Retros and conflict follows stop at their limits instead. Add a new label to change a limit; renaming a label in the repository settings writes no issue events. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#transition -->
+Adding, removing or replacing an `agent:` label resumes the same run, with its spend, sessions and feedback; a plain `/agent` reply does too, for example after raising `max`. The run checks its limits again first and waits again when nothing changed, so it starts no session over its limits. After a timeout only a higher `minutes` resumes it. Retros and conflict follows stop at their limits instead. Add a new label to change a limit; renaming a label in the repository settings writes no issue events. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#transition -->
 
 ## Asides
 
