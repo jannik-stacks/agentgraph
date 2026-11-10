@@ -164,11 +164,11 @@ export function proposeQuestion(before: Run | undefined, run: Run, t: IssueWithP
 }
 
 const statusWords: Record<IssueStatus, string> = {
-  working: 'working on',
-  'needs-review': 'waiting for review at',
-  'needs-answer': 'waiting for an answer at',
-  done: 'done',
-  stopped: 'stopped at',
+  working: 'Working on',
+  'needs-review': 'Waiting for review at',
+  'needs-answer': 'Waiting for an answer at',
+  done: 'Done',
+  stopped: 'Stopped at',
 };
 
 export const formatStatusHeader = (
@@ -188,8 +188,8 @@ export const formatStatusHeader = (
     status === 'done'
       ? names.length > 1
         ? `${names.length} of ${names.length} steps done`
-        : 'done'
-      : `${statusWords[status]} ${shown.step}${names.length > 1 && at > 0 ? ` (${at} of ${names.length})` : ''}`;
+        : 'Done'
+      : `${statusWords[status]} ${shown.step}${names.length > 1 && at > 0 ? `, step ${at} of ${names.length}` : ''}`;
   const rows = sorted.map(r =>
     [
       r.workflow,
@@ -201,7 +201,7 @@ export const formatStatusHeader = (
     ].join(' | ')
   );
   return [
-    `※ ${line}`,
+    `> ${links.studio ? `[※](${makeStudioRunUrl(links.studio, shown.id)})` : '※'} ${line}`,
     '<details><summary>Runs</summary>',
     [
       '| Workflow | Step | State | Cost | Pull request | Studio |',
