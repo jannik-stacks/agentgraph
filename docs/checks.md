@@ -72,6 +72,8 @@ The studio's `/results` page shows each run's latest results under current check
 
 The table summarizes each result field and its passing values; the chart compares fields over time or by labels. Dead runs are hidden by default. <!-- code: src/results.ts#findCheckFields bin/results.ts#findDeadReason -->
 
+Every run also gets a `humans` row from its trace: comments, reviews, label changes and review requests by people (once each, no bots), and `waitSeconds` spent waiting on a person, not on an engine error or child run (`openWaitSeconds` while still waiting). Runs without a record from their start show `coverage` `missing` or `partial` and no values. <!-- code: src/results.ts#sumHumanInteractions bin/results.ts#readRunResults src/types.ts#isWaitingOnPeople -->
+
 A run's page shows failed gates and field values, marked as checked at run end or later.
 
 ## Reading traces

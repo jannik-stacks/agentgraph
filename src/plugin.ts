@@ -50,6 +50,7 @@ export type ToolContext<S = undefined> = {
 
 export { issueStatuses } from './event.ts';
 export type { InstanceHost, InstanceHosts } from './types.ts';
+export { sumHumanInteractions } from './results.ts';
 
 export type TrackerHost = {
   repo: string;

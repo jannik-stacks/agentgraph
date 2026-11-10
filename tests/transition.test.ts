@@ -289,6 +289,8 @@ describe('transition, settled runs', () => {
 
 describe('getEventOutcome', () => {
   const said = (kind: Event['kind'], more: Partial<Event> = {}): Event => ({
+    id: kind,
+    bot: false,
     issue: 7,
     kind,
     actor: 'morgan',

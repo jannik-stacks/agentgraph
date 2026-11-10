@@ -68,11 +68,14 @@ type RestComment = {
   in_reply_to_id?: number;
 };
 type RestEvent = {
+  id: number;
   event: string;
   actor?: User;
   created_at: string;
   issue?: { number: number };
   label?: { name: string };
+  requested_reviewer: User;
+  requested_team: { slug: string } | null | undefined;
 };
 type RestCommit = {
   sha: string;
@@ -84,6 +87,7 @@ type RestCommit = {
   };
 };
 type RestCheck = {
+  id: number;
   name: string;
   status: string;
   conclusion?: string | null;
@@ -91,7 +95,7 @@ type RestCheck = {
   started_at?: string | null;
   app?: { slug?: string } | null;
 };
-type RestStatus = { context: string; state: string; updated_at: string; creator?: User };
+type RestStatus = { id: number; context: string; state: string; updated_at: string; creator: User };
 type ProjectColumnPage = {
   data?: {
     repository: {
@@ -469,8 +473,10 @@ export const githubTracker = (
 
     const heard = (issue: number, c: RestComment, self: string, kind: Event['kind'] = 'comment'): Event => {
       const comment = toComment(c, self);
-      const trusted = listed(c.user, c.author_association) && !isBot(c.user);
-      return { issue, kind, actor: comment.author, trusted, at: c.created_at, comment };
+      const bot = isBot(c.user);
+      const trusted = listed(c.user, c.author_association) && !bot;
+      const id = `${c.path === undefined ? 'comment' : 'review-comment'}-${c.id}`;
+      return { id, issue, kind, actor: comment.author, bot, trusted, at: c.created_at, comment };
     };
 
     /** A review as an event: its state, or a comment when it only has a body; undefined for an empty comment. */
@@ -478,7 +484,8 @@ export const githubTracker = (
       const kind =
         r.state === 'APPROVED' ? 'approved' : r.state === 'CHANGES_REQUESTED' ? 'changes_requested' : 'comment';
       if (!r.submitted_at || (kind === 'comment' && !visible(r.body).trim())) return undefined;
-      return heard(issue, { ...r, created_at: r.submitted_at, html_url: '' }, self, kind);
+      const m = heard(issue, { ...r, created_at: r.submitted_at, html_url: '' }, self, kind);
+      return { ...m, id: `review-${r.id}`, ...(kind === 'comment' && { review: true }) };
     };
 
     const kinds: Record<string, Event['kind']> = {
@@ -486,6 +493,7 @@ export const githubTracker = (
       closed: 'closed',
       labeled: 'label',
       unlabeled: 'unlabel',
+      review_requested: 'review_requested',
     };
     /** An issue event in our shape, trusted when `may` says its actor may write; undefined for events that say nothing here. */
     const evented = (issue: number, e: RestEvent, merged: boolean) =>
@@ -493,13 +501,17 @@ export const githubTracker = (
         const kind = kinds[e.event];
         if (!kind || (kind === 'closed' && merged) || ((kind === 'label' || kind === 'unlabel') && !e.label))
           return undefined;
+        const reviewer = e.requested_team?.slug ?? e.requested_reviewer?.login;
         return {
+          id: `event-${e.id}`,
           issue,
           kind,
           actor: login(e.actor),
+          bot: isBot(e.actor),
           trusted: (yield* may(e.actor)) && (!trust || trust.includes(login(e.actor))),
           at: e.created_at,
           ...(e.label && { label: e.label.name }),
+          ...(kind === 'review_requested' && reviewer !== undefined && { reviewer }),
         } satisfies Event;
       });
 
@@ -564,17 +576,21 @@ export const githubTracker = (
       ]).pipe(
         Effect.map(([runs, status]): Event[] => [
           ...runs.check_runs.map(c => ({
+            id: `check-run-${c.id}`,
             issue,
             kind: 'check' as const,
             actor: c.app?.slug ?? 'checks',
+            bot: true,
             trusted: false,
             at: c.completed_at ?? c.started_at ?? '',
             check: { name: visible(c.name), conclusion: c.conclusion ?? c.status },
           })),
           ...status.statuses.map(s => ({
+            id: `status-${s.id}`,
             issue,
             kind: 'check' as const,
             actor: login(s.creator),
+            bot: isBot(s.creator),
             trusted: false,
             at: s.updated_at,
             check: { name: visible(s.context), conclusion: s.state },
@@ -616,9 +632,11 @@ export const githubTracker = (
             Effect.map(
               !own ? Effect.succeed(false) : login(c.author) === `${self}[bot]` ? Effect.succeed(true) : may(c.author),
               (shown): Event => ({
+                id: `commit-${c.sha}`,
                 issue: number,
                 kind: 'commit',
                 actor: login(c.author),
+                bot: isBot(c.author),
                 trusted: false,
                 at: c.commit.author?.date ?? '',
                 commit: {
@@ -684,9 +702,11 @@ export const githubTracker = (
                 if (!t || !item || !v?.name) continue;
                 const by = item.project.owner.login ?? 'ghost';
                 found.push({
+                  id: `column-${by}/${item.project.number}-${t.number}-${v.updatedAt}`,
                   issue: t.number,
                   kind: 'column',
                   actor: by,
+                  bot: by.endsWith('[bot]'),
                   trusted: by === owner,
                   at: v.updatedAt,
                   column: { project: `${by}/${item.project.number}`, name: v.name },
@@ -749,9 +769,11 @@ export const githubTracker = (
             const at = c.commit.committer?.date ?? c.commit.author?.date;
             if (after(at) && c.author && login(c.author) !== `${self}[bot]`)
               found.push({
+                id: `commit-${c.sha}`,
                 issue: c.issue,
                 kind: 'commit',
                 actor: login(c.author),
+                bot: isBot(c.author),
                 trusted: true,
                 at,
                 commit: { sha: c.sha, title: visible(c.commit.message.split('\n')[0]) },

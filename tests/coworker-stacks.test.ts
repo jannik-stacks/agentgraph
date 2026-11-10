@@ -345,6 +345,8 @@ describe('compound engineering', () => {
     workflows: { ...small.workflows, retro: { ...unbranched, name: 'retro', on: { feedback: {} } } },
   };
   const pushed = (issue: number, at: string): Event => ({
+    id: `commit-${at}`,
+    bot: false,
     issue,
     kind: 'commit',
     actor: 'morgan',

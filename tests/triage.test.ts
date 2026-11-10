@@ -4,7 +4,7 @@ import { Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
-import { stoppedByEngine } from '../src/context.ts';
+
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { type Graph, loadGraph } from '../src/folder.ts';
@@ -16,7 +16,8 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start } from './fixtures.ts';
 import { appendIssueAt, findStatus, git, issuePath, writeIssueAt } from './kit.ts';
-import { type Run, type SessionEvent } from '../src/types.ts';
+import { stoppedByEngine, type Run, type SessionEvent } from '../src/types.ts';
+import { makeTestEvent } from './world.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));
 
@@ -42,7 +43,7 @@ const world = (issues: [number, string, number?][] = [[1, 'morgan']]) => {
   const label = (issue: number) =>
     appendIssueAt(
       issuePath(tracker, issue, 'events.jsonl'),
-      `${JSON.stringify({ issue, kind: 'label', label: 'triage', actor: 'morgan', trusted: true, at: at(issue) } satisfies Event)}\n`
+      `${JSON.stringify(makeTestEvent({ issue, kind: 'label', label: 'triage', actor: 'morgan', trusted: true, at: at(issue) }))}\n`
     );
   return { origin: join(tracker, 'origin.git'), tracker, data, label };
 };
@@ -441,7 +442,7 @@ describe('dispatch', () => {
   const mention = (where: ReturnType<typeof world>, body: string) =>
     appendIssueAt(
       issuePath(where.tracker, 1, 'events.jsonl'),
-      `${JSON.stringify({ issue: 1, kind: 'comment', actor: 'morgan', trusted: true, at: at(1), comment: { id: 'c1', author: 'morgan', body, at: at(1) } } satisfies Event)}\n`
+      `${JSON.stringify(makeTestEvent({ issue: 1, kind: 'comment', actor: 'morgan', trusted: true, at: at(1), comment: { id: 'c1', author: 'morgan', body, at: at(1) } }))}\n`
     );
 
   it('starts triage from the router, which waits on it quietly and decides once it is done', async () => {
@@ -639,16 +640,17 @@ const openPull = (where: ReturnType<typeof world>, n: number, branch: string) =>
     JSON.stringify({ branch, base: 'main', head: 'x', baseSha: 'b1' })
   );
 };
-const sayOn = (where: ReturnType<typeof world>, m: Event) =>
-  appendIssueAt(issuePath(where.tracker, m.issue, 'events.jsonl'), `${JSON.stringify(m)}\n`);
-const command = (issue: number, body: string, s: number): Event => ({
-  issue,
-  kind: 'comment',
-  actor: 'morgan',
-  trusted: true,
-  at: at(s),
-  comment: { id: `c${s}`, author: 'morgan', body, at: at(s) },
-});
+const sayOn = (where: ReturnType<typeof world>, m: Parameters<typeof makeTestEvent>[0]) =>
+  appendIssueAt(issuePath(where.tracker, m.issue, 'events.jsonl'), `${JSON.stringify(makeTestEvent(m))}\n`);
+const command = (issue: number, body: string, s: number): Event =>
+  makeTestEvent({
+    issue,
+    kind: 'comment',
+    actor: 'morgan',
+    trusted: true,
+    at: at(s),
+    comment: { id: `c${s}`, author: 'morgan', body, at: at(s) },
+  });
 const ended = (workflow: 'issue' | 'triage', issue: number, s: number): Run => ({
   ...begin(graph.workflows[workflow]!, { id: `${workflow}-${issue}`, issue, started: at(s) }),
   status: 'done',
@@ -718,14 +720,23 @@ describe('router input', () => {
     openPull(where, 2, 'agentgraph/1');
     git(where.origin, 'branch', 'agentgraph/1', 'main');
     await putRun(where, ended('issue', 1, 0));
-    const inline = (id: string, actor: string, body: string, s: number): Event => ({
-      issue: 2,
-      kind: 'comment',
-      actor,
-      trusted: !actor.endsWith('[bot]'),
-      at: at(s),
-      comment: { id, author: actor, body, at: at(s), path: 'docs/x.md', line: 8, ...(id !== 'r0' && { under: 'r0' }) },
-    });
+    const inline = (id: string, actor: string, body: string, s: number): Event =>
+      makeTestEvent({
+        issue: 2,
+        kind: 'comment',
+        actor,
+        trusted: !actor.endsWith('[bot]'),
+        at: at(s),
+        comment: {
+          id,
+          author: actor,
+          body,
+          at: at(s),
+          path: 'docs/x.md',
+          line: 8,
+          ...(id !== 'r0' && { under: 'r0' }),
+        },
+      });
     sayOn(where, inline('r0', 'morgan', 'what is slot?', 2));
     sayOn(where, inline('b1', 'agentgraph[bot]', 'Slot is the index.', 3));
     sayOn(where, {

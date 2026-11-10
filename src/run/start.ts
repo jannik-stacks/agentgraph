@@ -15,7 +15,10 @@ export const makeRunId = (w: Pick<Workflow, 'name'>, issue: number, at: string) 
 
 export type Child = Extract<Said, { kind: 'issue' }>;
 
-/** Saves a new run once, under its id's lock and only when no run has that id, then lets `ready` finish it under that lock. */
+/**
+ * Saves a new run once, under its id's lock and only when no run has that id, marks that it records what it hears from
+ * its start, then lets `ready` finish it under that lock.
+ */
 export const startRun = <A extends RunRecord, E = never, R = never>(
   run: A,
   ready: (run: A) => Effect.Effect<A, E, R> = Effect.succeed
@@ -168,9 +171,6 @@ export const formatSettled = (run: Run) =>
           ? `asks: ${run.reason}`
           : 'waits for review'
   }`;
-
-/** The reason a run waits while a run it started works. */
-export const formatWaitingOn = (child: Run) => `waiting on ${child.id}`;
 
 /**
  * Why the `run` proposals may not start: one at a time, on an open issue in scope that no other live run holds. An agent

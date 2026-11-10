@@ -23,10 +23,10 @@ Each widget requires `title`, `type`, `source` and `days`:
 | Setting | Values |
 | --- | --- |
 | `type` | `counter`, `line`, `bar`, `table` |
-| `source` | `runs`, `checks`, `tokens`, `cost`, `issues` |
+| `source` | `runs`, `checks`, `tokens`, `cost`, `issues`, `humans`, `waiting` |
 | `days` | 1 to 90 UTC days, including today |
 | `workflow`, `step` | Optional filters, except for issues |
 
-At most 24 widgets are allowed; unknown settings fail validation. Runs show current states by start day; checks count all attempts by check day. Tokens include cached input; cost includes reported usage only. Missing prices or trackers show counted skips with reasons.
+At most 24 widgets are allowed; unknown settings fail validation. Runs show current states by start day; checks count all attempts by check day. Tokens include cached input; cost includes reported usage only. Humans and waiting count what people did and the minutes runs waited on them, by run start day, from runs recorded from their start. Missing prices or trackers show counted skips with reasons.
 
 Run-data changes refresh the page; tracker events alone do not. Tracker reads cache for a minute. The reader scans the store on refresh, so use modest stores.

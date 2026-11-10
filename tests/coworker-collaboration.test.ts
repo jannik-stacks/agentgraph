@@ -255,6 +255,8 @@ describe('coworker', () => {
 
   const assigned = { ...small, workflows: { issue: { ...flow, on: { issues: { label: 'agentgraph' } } } } };
   const labelled = (actor: string, trusted: boolean, kind: 'label' | 'unlabel', at: string): Event => ({
+    id: `${kind}-${at}`,
+    bot: false,
     issue: 7,
     kind,
     actor,
@@ -301,6 +303,8 @@ describe('coworker', () => {
     workflows: { issue: { ...flow, on: { issue_comment: {}, issues: { label: 'agent:ready' } } } },
   };
   const marked = (actor: string, trusted: boolean, at: string): Event => ({
+    id: `label-${at}`,
+    bot: false,
     issue: 7,
     kind: 'label',
     actor,

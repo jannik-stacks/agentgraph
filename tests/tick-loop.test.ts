@@ -18,18 +18,32 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start, wrote } from './fixtures.ts';
 import { findStatus, git, issuePath, writeIssueAt } from './kit.ts';
 import { readRunLabels, writeRunLabels } from '../src/labels.ts';
-import { graph, w, removeAfter, world, push, pull, services, reactions, fresh, say, comment } from './world.ts';
+import {
+  graph,
+  w,
+  removeAfter,
+  world,
+  push,
+  pull,
+  services,
+  reactions,
+  fresh,
+  say,
+  comment,
+  makeTestEvent,
+} from './world.ts';
 
 import { small, issue, merging, waiting } from './tick-fixtures.ts';
 import { type Run, StoreError } from '../src/types.ts';
-const card = (project: string, name: string, trusted: boolean): Event => ({
-  issue: 7,
-  kind: 'column',
-  actor: project.split('/')[0]!,
-  trusted,
-  at: '2026-10-16T00:00:05.000Z',
-  column: { project, name },
-});
+const card = (project: string, name: string, trusted: boolean): Event =>
+  makeTestEvent({
+    issue: 7,
+    kind: 'column',
+    actor: project.split('/')[0]!,
+    trusted,
+    at: '2026-10-16T00:00:05.000Z',
+    column: { project, name },
+  });
 
 describe('tick', () => {
   it.each([
@@ -711,7 +725,8 @@ describe('scanIssuesAndRunningRuns', () => {
     expect(await run(Effect.flatMap(Store, s => s.list({ issue: 10 })))).toEqual([]);
     expect(specs).toHaveLength(2);
     expect(specs.map(s => s.prompt).join('\n')).toContain('hi');
-    expect(await run(Effect.flatMap(Store, s => s.read('run-9').pipe(Stream.runCollect)))).toHaveProperty('length', 0);
+    const nine = await run(Effect.flatMap(Store, s => s.read('run-9').pipe(Stream.runCollect)));
+    expect(nine.filter(t => !('inputs' in t))).toHaveLength(0);
   });
 
   it('resumes a finished run on a comment that the repo-wide look has already passed', async () => {

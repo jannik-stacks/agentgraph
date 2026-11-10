@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { matchesGlob } from 'node:path';
 import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
-import { formatEventLine, stoppedByEngine } from '../context.ts';
+import { formatEventLine } from '../context.ts';
 import { Tracker, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
@@ -37,13 +38,24 @@ import {
   readContinuedRun,
   readRunEvents,
   getHeardEvent,
+  writeHeardEvents,
 } from './hear.ts';
 import { runLaterChecks } from './evaluate.ts';
 import { isParked, writeMovedStatus, writeStatus, runEndChecks } from './settle.ts';
-import { findUndispatchable, startProposedRun, formatWaitingOn, formatSettled, makeRunId, startRun } from './start.ts';
+import { findUndispatchable, startProposedRun, formatSettled, makeRunId, startRun } from './start.ts';
 import { runAside, runFollow, runCatchUp } from './follow.ts';
 import { runWorkflow } from './drive.ts';
-import { type Outcome, type Run, type RunRecord, SessionStop, type StoreError, TrackerError } from '../types.ts';
+import {
+  stoppedByEngine,
+  formatWaitingOn,
+  type Outcome,
+  type Run,
+  type RunRecord,
+  SessionStop,
+  type StoreError,
+  type Trace,
+  TrackerError,
+} from '../types.ts';
 
 /** Why a run is held: "Depends on" issues not yet closed and "Stacks on" issues without a pull request. */
 const findHold = (w: Workflow, issue: number, open: Issue[]) => {
@@ -65,9 +77,11 @@ const findHold = (w: Workflow, issue: number, open: Issue[]) => {
 };
 
 const spokenByCli = (issue: number, text: string, at: string, parent?: Comment): Event => ({
+  id: randomUUID(),
   issue,
   kind: 'comment',
   actor: 'cli',
+  bot: false,
   trusted: true,
   at,
   source: 'cli',
@@ -211,6 +225,8 @@ export const issueDebounceMs = 30_000;
 
 const logged = (r: Run) => (e: StoreError) => Effect.as(Effect.logError(`run ${r.id}`, e), r);
 
+const findLastMove = (trace: readonly Trace[]) => trace.findLast(t => !('spoken' in t) && !('inputs' in t))?.at;
+
 const engineRetry = 'Tried again after an engine error. Go on from where the run was.';
 
 const isEngineRetryDue = (id: string) =>
@@ -218,7 +234,7 @@ const isEngineRetryDue = (id: string) =>
     Effect.flatMap(Store, s => Stream.runCollect(s.read(id))),
     trace => {
       const tries = trace.filter(t => 'outcome' in t && t.outcome.kind === 'answer' && t.outcome.text === engineRetry);
-      const last = trace.at(-1)?.at;
+      const last = findLastMove(trace);
       return tries.length < 5 && (!last || Date.now() - Date.parse(last) >= 600_000 * 2 ** tries.length);
     }
   );
@@ -297,14 +313,7 @@ export const tick = (
         return Effect.gen(function* () {
           const spoken = { ...m, issue: origin.get(m) ?? m.issue };
           const before = yield* Stream.runCollect(store.read(run.id));
-          const recorded = before.some(
-            t =>
-              'spoken' in t &&
-              t.spoken.source === 'cli' &&
-              t.spoken.at === spoken.at &&
-              t.spoken.issue === spoken.issue &&
-              t.spoken.comment?.body === spoken.comment?.body
-          );
+          const recorded = before.some(t => 'spoken' in t && t.spoken.source === 'cli' && t.spoken.id === m.id);
           if (!recorded) yield* store.trace(run.id, { at: m.at, step: run.step, spoken, ...supplied });
           return run;
         });
@@ -358,21 +367,16 @@ export const tick = (
         const spoken = trace.filter(t => 'spoken' in t);
         const pending = spoken
           .map(t => t.spoken)
-          .filter(
-            m =>
-              !events.some(
-                e =>
-                  e.source === 'cli' &&
-                  e.at === m.at &&
-                  (origin.get(e) ?? e.issue) === m.issue &&
-                  e.comment?.body === m.comment?.body
-              )
-          )
+          .filter(m => m.source === 'cli' && !events.some(e => e.source === 'cli' && e.id === m.id))
           .map(m => {
             const moved = { ...m, issue: run.issue };
             origin.set(moved, m.issue);
             return moved;
           });
+        yield* writeHeardEvents(
+          run,
+          events.filter(m => m.issue === run.issue).map(m => ({ ...m, issue: origin.get(m) ?? m.issue }))
+        );
 
         /** A working run takes only a stop here; what else people say reaches it where it works. */
         const taken = (m: Event, lined: Event[] = []) => {
@@ -393,7 +397,7 @@ export const tick = (
                 m =>
                   m.issue === run.issue &&
                   m.at > at &&
-                  (!isParked(run) || m.at > (trace.at(-1)?.at ?? at)) &&
+                  (!isParked(run) || m.at > (findLastMove(trace) ?? at)) &&
                   !used.has(m) &&
                   taken(m)
               )
@@ -530,8 +534,11 @@ export const tick = (
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
         const run = yield* startRun(begun, run =>
-          Effect.flatMap(run.status === 'running' ? Effect.succeed(run) : writeStatus(w, run, graph), r =>
-            m ? eyes(r, m) : Effect.succeed(r)
+          Effect.andThen(
+            writeHeardEvents(run, m ? [{ ...m, issue: origin.get(m) ?? m.issue }] : [], run.started),
+            Effect.flatMap(run.status === 'running' ? Effect.succeed(run) : writeStatus(w, run, graph), r =>
+              m ? eyes(r, m) : Effect.succeed(r)
+            )
           )
         );
         if (!run) return;
@@ -664,7 +671,8 @@ export const tick = (
             .filter(Boolean)
             .join('\n\n'),
         };
-        if (yield* startRun(begun)) touched.push(begun);
+        const heard = fresh.map(m => ({ ...m, issue: origin.get(m) ?? m.issue }));
+        if (yield* startRun(begun, r => Effect.as(writeHeardEvents(r, heard, r.started), r))) touched.push(begun);
       }
     }
 

@@ -101,7 +101,7 @@ Decisions made without being sure. Each names what was picked and what would cha
   middleware is a second gate; dropping it would save about 12 lines.
 - `agi` watch output during a drive resubscribes once a second after a failed store read; no test covers the CLI
   watch output, since it only prints during a live drive.
-- **Conventions S1 skipped two audit items as not bugs today.** `isPostedBy` matches ` operation=<sha> ` in any
+- **Conventions S1 skipped two audit items as not bugs today.** `isPostedBy` matches `operation=<sha>` in any
   field order, since the run link always closes with ` -->`, and the writer's character filter never changes a hex
   sha. The Docker `agentgraph-used` mark and the `agentgraph-<12 hex>` container name agree between writer and
   reader; one export each is the markers work of S7. The bench and tune YAML prepends only touch
@@ -117,6 +117,18 @@ Decisions made without being sure. Each names what was picked and what would cha
   naming the instances in the option text; graph load problems show only on an instance's own pages, not on `/runs`;
   Docs stays an instance page, so `/runs` shows only the Runs tab and studio pages. The logo is a `Link` with
   `instance=""`, the plain studio's name, to reach `/runs` with a full load from an instance page.
+- **Runs record the tracker events they hear in their trace** (`spoken` lines, deduped by a key over the event id and
+  its revision) after one `inputs` line that says since when. A run started before this records its first `inputs`
+  line on its next read and counts as partial; one with no line counts as missing. Session context reads record the
+  whole timeline, but only events inside the run's window are counted. `writeHeardEvents` reads the whole trace on
+  each call, once a minute while a session is watched; a cached key set would remove that if traces grow large.
+- **"Waiting for people" is status `waiting` minus engine-error parks and waits on a child run.** Dependency holds
+  run as `running` and are not counted. `findRunsWaitingOnPeople` in `status.ts` still counts parked runs and spells
+  the "waiting on" prefix itself; it was left alone because the studio bundle imports it.
+- **The Results `humans` measurement is a built-in info check** with `pass: true`; a graph check named `humans`
+  replaces it. Runs without complete coverage show it empty rather than as a low count.
+- Left out: replaying heard events in the bench (deferred by the ruling), and studio UI for these numbers beyond the
+  generic Results fields and the dashboard example sources.
 
 - **The generic docs merge has no passing full check in the restricted sandbox.** The full check hit denied
   heartbeat writes, process inspection and Docker access. Static checks and the touched triage tests pass.

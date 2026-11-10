@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import {
-  context,
-  findIssueStatus,
-  formatStatusHeader,
-  proposeQuestion,
-  stoppedByEngine,
-  type IssueWithPull,
-} from '../src/context.ts';
+import { context, findIssueStatus, formatStatusHeader, proposeQuestion, type IssueWithPull } from '../src/context.ts';
 import { formatRunMark, makeBodyWithStatus, removeRunLink, type Issue } from '../src/event.ts';
-import { type Run } from '../src/types.ts';
+import { stoppedByEngine, type Run } from '../src/types.ts';
 
 const run: Run = {
   id: 'issue-7',
@@ -29,6 +22,8 @@ const pr: Issue = {
   pull: { branch: 'b', base: 'main', head: 'h' },
 };
 const spoke = (actor: string, trusted = true) => ({
+  id: actor,
+  bot: actor.endsWith('[bot]'),
   issue: 7,
   kind: 'comment' as const,
   actor,

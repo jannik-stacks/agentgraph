@@ -5,7 +5,7 @@ import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
 import { Tracker } from '../tracker.ts';
 import { makeOutcomeLine } from '../trace.ts';
-import { stoppedByEngine, context } from '../context.ts';
+import { context, getEvents } from '../context.ts';
 import { Sandbox, SandboxError } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout, readEngineVersions } from '../git.ts';
 import {
@@ -14,6 +14,7 @@ import {
   readIssueWithPull,
   readHeardOutcome,
   readContinuedRun,
+  writeHeardEvents,
   readEarlierBranch,
 } from './hear.ts';
 import { type Services, formatFailure } from './execute.ts';
@@ -22,7 +23,15 @@ import { removeThreads, writeStatus, readRunSpend, runEndChecks } from './settle
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
-import { type Outcome, type Run, type SessionStop, type StoreError, type TrackerError, formatCause } from '../types.ts';
+import {
+  stoppedByEngine,
+  type Outcome,
+  type Run,
+  type SessionStop,
+  type StoreError,
+  type TrackerError,
+  formatCause,
+} from '../types.ts';
 
 /** The open pull request a run on `issue` stacks on, from a "Stacks on #n" line naming it or its issue. */
 const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
@@ -89,6 +98,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     const hear = (all: boolean) =>
       Effect.gen(function* () {
         const t = yield* Effect.option(readIssueWithPull(w, current, graph));
+        if (Option.isSome(t)) yield* writeHeardEvents(current, getEvents(t.value));
         const queued = Option.isSome(t) ? yield* readHeardOutcome(graph, w, current, t.value) : undefined;
         if (queued && (all || queued.outcome.kind !== 'answer' || w.concurrency === 'cancel'))
           yield* settle(

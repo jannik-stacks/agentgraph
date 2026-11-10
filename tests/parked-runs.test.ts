@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { stoppedByEngine } from '../src/context.ts';
+
 import { instruct, tick } from '../src/run/trigger.ts';
 import { Tracker } from '../src/tracker.ts';
 import { isOnIssue } from '../src/graph.ts';
@@ -13,7 +13,7 @@ import { makeTestGraph, reply, start } from './fixtures.ts';
 import { bodies, services, settleLongAgo, world } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { findStatus, issuePath } from './kit.ts';
-import { type Run } from '../src/types.ts';
+import { stoppedByEngine, type Run } from '../src/types.ts';
 
 const small = makeTestGraph('graph');
 const { branch: _branch, ...unbranched } = small.workflows.issue!;

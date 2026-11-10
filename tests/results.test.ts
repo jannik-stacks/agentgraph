@@ -133,7 +133,13 @@ describe('results', () => {
     const { fields, runs } = readRunResults(data, {
       checks: { 'run-stats': { ...checks['run-stats'], version: 'v1' } } as never,
     });
-    expect(fields.map(f => f.field)).toEqual(['usd']);
+    expect(fields.filter(f => f.check !== 'humans').map(f => f.field)).toEqual(['usd']);
+    expect(fields.find(f => f.field === 'waitSeconds')).toMatchObject({
+      check: 'humans',
+      mode: 'info',
+      unit: 'seconds',
+    });
+    expect(runs[0]!.results.humans).toMatchObject({ empty: true, value: { coverage: 'missing', comments: 0 } });
     expect(Schema.decodeUnknownSync(ResultSheet)({ fields, runs })).toEqual({ fields, runs });
     expect(runs[0]).toMatchObject({
       axes: { plugin: 'bench', job: 'smoke' },

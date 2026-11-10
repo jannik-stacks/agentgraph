@@ -1,6 +1,6 @@
 import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './event.ts';
 import { formatFailedTryFeedback } from './workflow.ts';
-import { type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
+import { stoppedByEngine, type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
 export type IssueWithPull = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
@@ -21,6 +21,8 @@ export const formatEventLine = (m: Event): string => {
       return `${who} approved${said}`;
     case 'changes_requested':
       return `${who} requested changes${said}`;
+    case 'review_requested':
+      return `${who} asked ${m.reviewer ?? 'someone'} for a review`;
     case 'commit':
       return `${who} pushed ${m.commit?.sha.slice(0, 7)} ${m.commit?.title}`;
     case 'check':
@@ -63,13 +65,14 @@ export function context(t: IssueWithPull): string {
   return [...heads, lines.length > 0 && `## Timeline\n\n${lines.join('\n\n')}`].filter(Boolean).join('\n\n');
 }
 
-const bot = (m: Event) => m.actor.endsWith('[bot]');
+export const getEvents = (t: Pick<IssueWithPull, 'issue' | 'pull'>) => [t.issue, t.pull].flatMap(x => x?.events ?? []);
+
 const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined ? m.comment.id : undefined);
 
-const isEngineStatus = (m: Event) => bot(m) && (m.kind === 'label' || m.kind === 'unlabel');
+const isEngineStatus = (m: Event) => m.bot && (m.kind === 'label' || m.kind === 'unlabel');
 
 export function formatRequest(t: IssueWithPull, started: string): string {
-  const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
+  const events = getEvents(t);
   const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
   if (said.length === 0) return '';
   const threads = new Set(said.map(thread).filter(Boolean));
@@ -92,12 +95,12 @@ export function formatRequest(t: IssueWithPull, started: string): string {
 export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen } {
   const pull = (t.pull ?? t.issue).pull;
   const moved = pull?.baseSha !== undefined && seen.base !== undefined && pull.baseSha !== seen.base;
-  const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
+  const events = getEvents(t);
   const answered = (m: Event) =>
-    thread(m) !== undefined && events.some(b => bot(b) && b.at > m.at && thread(b) === thread(m));
+    thread(m) !== undefined && events.some(b => b.bot && b.at > m.at && thread(b) === thread(m));
   const lines = [
     moved && `The base ${pull.base} moved to ${pull.baseSha!.slice(0, 7)}.`,
-    ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || (!bot(m) && !answered(m)))),
+    ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || (!m.bot && !answered(m)))),
   ].filter(Boolean);
   const at = events.reduce((at, m) => (m.at > at ? m.at : at), seen.at);
   return {
@@ -105,8 +108,6 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
     seen: { at, ...(pull?.baseSha !== undefined && { base: pull.baseSha }) },
   };
 }
-
-export const stoppedByEngine = 'Stopped by an engine error';
 
 const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
   run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)
@@ -138,7 +139,7 @@ export function proposeQuestion(before: Run | undefined, run: Run, t: IssueWithP
     (before?.status === 'waiting' && before.reason === run.reason)
   )
     return [];
-  const events = [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.trusted && !bot(m));
+  const events = getEvents(t).filter(m => m.trusted && !m.bot);
   const pull = (t.pull ?? (t.issue.pull ? t.issue : undefined))?.url;
   const who = events.toSorted((a, b) => a.at.localeCompare(b.at)).at(-1)?.actor ?? t.issue.author;
   const text = `@${who} ${run.reason.startsWith(stoppedByEngine) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;

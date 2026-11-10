@@ -270,7 +270,8 @@ export type Aside = { issue?: number; comment?: string; review?: true };
  * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A
  * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed. A session's prompt,
  * event and session lines share its `key`, so sessions running at once stay apart. Check results are not trace lines but
- * entries of the run's check record.
+ * entries of the run's check record. A `spoken` line holds a CLI command or an event the run heard from its tracker, and
+ * the `inputs` line says since when the run records what it hears.
  */
 export type Trace = { at: string; step: string } & (
   | { prompt: SessionSpec; key?: string; item?: string; aside?: Aside }
@@ -297,6 +298,7 @@ export type Trace = { at: string; step: string } & (
     }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
   | ({ spoken: Event } & Pick<Run, 'meta'>)
+  | { inputs: { since: string } }
   | { told: { text: string; by: string } }
 );
 
@@ -356,3 +358,12 @@ export type InstanceHost = {
 };
 
 export type InstanceHosts = Readonly<Record<string, InstanceHost | { why: string }>>;
+
+export const stoppedByEngine = 'Stopped by an engine error';
+
+export const formatWaitingOn = (child: Pick<Run, 'id'>) => `waiting on ${child.id}`;
+
+export const isWaitingOnPeople = (run: Partial<Pick<Run, 'status' | 'reason'>>) =>
+  run.status === 'waiting' &&
+  !run.reason?.startsWith(stoppedByEngine) &&
+  !run.reason?.startsWith(formatWaitingOn({ id: '' }));

@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { Schema, Result, Effect, Option } from 'effect';
 import { Said, type Proposal } from '../proposal.ts';
-import { type IssueWithPull, news, formatSqueezed, formatRequest, context } from '../context.ts';
+import { type IssueWithPull, news, formatSqueezed, formatRequest, context, getEvents } from '../context.ts';
 import { type Step, unchanged, type Workflow, pickCommandTarget } from '../workflow.ts';
 import { inside, SandboxError } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
@@ -18,6 +18,7 @@ import {
   readHeardOutcome,
   makeToldEvent,
   readContinuedRun,
+  writeHeardEvents,
   readEarlierBranch,
   findRouter,
 } from './hear.ts';
@@ -30,7 +31,6 @@ import {
   type Child,
   createIssues,
   startProposedRun,
-  formatWaitingOn,
 } from './start.ts';
 import { type Services, makeAgentSessionSpec, runShell, runSession } from './execute.ts';
 import { writeTraces, makeScriptEnv, getTraceFiles, tracesPrompt, runStepChecks } from './check.ts';
@@ -45,6 +45,7 @@ import {
   removeThreads,
 } from './settle.ts';
 import {
+  formatWaitingOn,
   type CheckResult,
   type Checkout,
   type Outcome,
@@ -271,6 +272,7 @@ export const runAttempt = (
     const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
     const before = asked ? yield* writeCheckoutTree(work) : undefined;
     const t = yield* readIssueWithPull(w, run, graph);
+    yield* writeHeardEvents(run, getEvents(t));
     if ('wait' in step.does) {
       const open = w.branch === undefined || t.issue.pull !== undefined || t.pull !== undefined;
       return done({
@@ -295,6 +297,9 @@ export const runAttempt = (
             continue;
           }
           yield* writeNews(run, work, seen, now.success);
+          yield* writeHeardEvents(run, getEvents(now.success)).pipe(
+            Effect.catch(e => Effect.logWarning(`heard events for run ${run.id}`, e))
+          );
           const cut = yield* readHeardOutcome(graph, w, by, now.success).pipe(
             Effect.catch(e => Effect.as(Effect.logWarning(`interrupt for run ${run.id}`, e), undefined))
           );
@@ -413,7 +418,7 @@ export const runAttempt = (
           spoke = r.id ?? spoke;
           tried = yield* readContinuedRun(
             tried,
-            [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.at > (run.seen ?? run.started))
+            getEvents(t).filter(m => m.at > (run.seen ?? run.started))
           );
           tried = {
             ...tried,
@@ -446,6 +451,7 @@ export const runAttempt = (
       }
       const session = step.each === undefined ? tried.sessions[step.name] : undefined;
       const now = session && Option.getOrUndefined(yield* Effect.option(readIssueWithPull(w, run, graph)));
+      if (now) yield* writeHeardEvents(run, getEvents(now));
       const late = now ? yield* readHeardOutcome(graph, w, tried, now) : undefined;
       if (late && late.outcome.kind !== 'answer')
         return done(late.outcome, yield* readContinuedRun({ ...tried, seen: late.at }, late.events));

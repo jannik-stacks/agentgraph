@@ -1,5 +1,5 @@
 import { Effect, Result, Stream } from 'effect';
-import type { InstanceHost } from '@jannik-stacks/agi/plugins';
+import { type InstanceHost, sumHumanInteractions } from '@jannik-stacks/agi/plugins';
 import { type DashboardSnapshot, type DashboardSettings, sources } from './data.ts';
 
 const findDayStart = (today: number, daysBack: number) => today - daysBack * 86_400_000;
@@ -35,6 +35,7 @@ export const readDashboard = (
       stored.some(widget => widget.workflow === undefined || widget.workflow === run.workflow);
     const needsChecks = stored.some(widget => widget.source === 'checks');
     const needsUsage = stored.some(widget => widget.source === 'tokens' || widget.source === 'cost');
+    const needsTrace = stored.some(widget => widget.source === 'humans' || widget.source === 'waiting');
     const { records, tracked } = yield* Effect.all(
       {
         records: Effect.flatMap(store.listRecords(), runs =>
@@ -44,11 +45,13 @@ export const readDashboard = (
               Effect.all({
                 run: Effect.succeed(run),
                 checks: needsChecks ? store.readChecks(run.id) : Effect.succeed([]),
-                trace: needsUsage
-                  ? Stream.runCollect(
-                      store.read(run.id).pipe(Stream.filter(line => 'event' in line && line.event.type === 'usage'))
-                    )
-                  : Effect.succeed([]),
+                trace: needsTrace
+                  ? Stream.runCollect(store.read(run.id))
+                  : needsUsage
+                    ? Stream.runCollect(
+                        store.read(run.id).pipe(Stream.filter(line => 'event' in line && line.event.type === 'usage'))
+                      )
+                    : Effect.succeed([]),
               }),
             { concurrency: 8 }
           )
@@ -77,7 +80,22 @@ export const readDashboard = (
       }
       if (widget.source === 'issues')
         for (const event of Result.getOrElse(tracked, () => [])) add(event.at, event.kind, 1);
-      for (const { run, checks, trace } of widget.source === 'issues' ? [] : records) {
+      if (widget.source === 'humans' || widget.source === 'waiting') {
+        const runs = records.filter(r => widget.workflow === undefined || widget.workflow === r.run.workflow);
+        for (const day of days) {
+          const started = runs.filter(r => formatDay(r.run.started) === day);
+          const covered = started.filter(r => sumHumanInteractions([r], now.toISOString()).coverage === 'complete');
+          if (covered.length < started.length) {
+            skipped += started.length - covered.length;
+            why = 'Runs without a full record of what people did';
+          }
+          const sums = sumHumanInteractions(covered, now.toISOString());
+          const at = `${day}T00:00:00.000Z`;
+          if (widget.source === 'waiting') add(at, 'minutes', sums.waitSeconds / 60);
+          else for (const name of sources.humans.series) add(at, name, sums[name]);
+        }
+      }
+      for (const { run, checks, trace } of ['issues', 'humans', 'waiting'].includes(widget.source) ? [] : records) {
         if (widget.workflow !== undefined && widget.workflow !== run.workflow) continue;
         if (widget.source === 'runs') {
           if (widget.step === undefined || widget.step === run.step) add(run.started, run.status, 1);

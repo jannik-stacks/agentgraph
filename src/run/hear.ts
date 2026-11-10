@@ -1,13 +1,14 @@
 import { Effect, Stream } from 'effect';
 import type { Issue, Event } from '../event.ts';
+import { getSha } from '../hash.ts';
 import type { Graph } from '../folder.ts';
 import { type Workflow, isRunDone, isQuiet, getEventOutcome, fold, pickCommandTarget } from '../workflow.ts';
-import type { IssueWithPull } from '../context.ts';
+import { type IssueWithPull, getEvents } from '../context.ts';
 import { Tracker } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { makeContinuedMeta } from '../meta.ts';
 import { getStepReturns } from '../graph.ts';
-import { type Run, type StoreError, type TrackerError } from '../types.ts';
+import { type Run, type StoreError, type Trace, type TrackerError } from '../types.ts';
 
 export const formatTemplate = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
@@ -72,7 +73,7 @@ export const readIssueWithPull = (
           (w.on.feedback ? yield* readWorkedPull(graph, issue) : undefined))
         : findPullNumber(w, run, yield* tracker.issues(isRunDone(run) ? {} : { state: 'open' }));
     const spoken = (yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
-      'spoken' in t ? [t.spoken] : []
+      'spoken' in t && t.spoken.source === 'cli' ? [t.spoken] : []
     );
     const review = pull !== undefined ? yield* tracker.issue(pull) : undefined;
     return {
@@ -83,6 +84,36 @@ export const readIssueWithPull = (
     };
   });
 
+const getEventKey = (m: Event) =>
+  getSha(
+    JSON.stringify([
+      m.issue,
+      m.id,
+      m.kind,
+      m.comment?.body,
+      m.comment?.edited,
+      m.label,
+      m.reviewer,
+      m.column?.name,
+      m.commit?.title,
+      m.check?.conclusion,
+    ])
+  );
+
+export const writeHeardEvents = (run: Pick<Run, 'id' | 'step'>, events: readonly Event[], since?: string) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    const lines = yield* Stream.runCollect(store.read(run.id));
+    const known = new Set(lines.flatMap(t => ('spoken' in t ? [getEventKey(t.spoken)] : [])));
+    const heard = new Map(events.filter(m => m.source !== 'cli').map(m => [getEventKey(m), m]));
+    const at = new Date().toISOString();
+    const added: Trace[] = [
+      ...(lines.some(t => 'inputs' in t) ? [] : [{ at, step: run.step, inputs: { since: since ?? at } }]),
+      ...[...heard].flatMap(([key, spoken]) => (known.has(key) ? [] : [{ at, step: run.step, spoken }])),
+    ];
+    if (added.length) yield* store.trace(run.id, ...added);
+  });
+
 export const pickNewest = (...times: (string | undefined)[]) =>
   times
     .filter(t => t !== undefined)
@@ -90,9 +121,11 @@ export const pickNewest = (...times: (string | undefined)[]) =>
     .at(-1);
 
 export const makeToldEvent = (issue: number, told: { text: string; by: string }, at: string): Event => ({
+  id: `told-${at}`,
   issue,
   kind: 'comment',
   actor: told.by,
+  bot: false,
   trusted: true,
   at,
   comment: { id: '', author: told.by, body: told.text, at, agentRequest: told.text },
@@ -112,15 +145,8 @@ export const readContinuedRun = (run: Run, events: Event[]) =>
       .flatMap(line =>
         'spoken' in line &&
         line.meta &&
-        events.some(
-          event =>
-            event.source === 'cli' &&
-            line.spoken.source === 'cli' &&
-            event.issue === line.spoken.issue &&
-            event.at === line.spoken.at &&
-            event.comment?.id === line.spoken.comment?.id &&
-            event.comment?.body === line.spoken.comment?.body
-        )
+        line.spoken.source === 'cli' &&
+        events.some(event => event.source === 'cli' && event.id === line.spoken.id)
           ? [{ meta: line.meta, at: line.spoken.at }]
           : []
       )
@@ -154,7 +180,7 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
     const tells = yield* readRunEvents(run);
     const runs = yield* Effect.flatMap(Store, s => s.list({ issue: run.issue }));
     const since = run.seen ?? run.started;
-    const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => getHeardEvent(router, w, m)), ...tells]
+    const said = [...getEvents(t).map(m => getHeardEvent(router, w, m)), ...tells]
       .filter(m => m.at > since)
       .flatMap(m => {
         const heard = { ...m, issue: run.issue };

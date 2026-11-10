@@ -137,8 +137,11 @@ Each `trace.jsonl` entry has `at`, `step` and an event kind; session entries sha
 | `applied`      | A proposal with its URL or why it failed                                           |
 | `outcome`      | Pass, failure, back, ask, answer or stop, and the next state                       |
 | `saved`        | Changed state fields; `cleared` lists removed ones                                 |
-| `spoken`       | A CLI command, where it came from and where to reply                               |
+| `spoken`       | A CLI command or a tracker event the run heard, where it came from                 |
+| `inputs`       | Since when the run records what it hears                                           |
 | `told`         | Forwarded text, with the sender in `by`: a router run id or `cli`                  |
+
+Runs record each tracker event they hear, once per revision, as a `spoken` line with its tracker `id` and a `bot` flag, after an `inputs` line that says since when. <!-- code: src/run/hear.ts#writeHeardEvents src/run/hear.ts#getEventKey src/run/trigger.ts#tick -->
 
 Usage events may name the model that answered; pricing uses it before the requested alias. `used` holds reported container peak memory, CPU time and OOM status, when available. <!-- code: src/types.ts#Trace src/store.ts#fileStore --> <!-- code: src/types.ts#SessionEvent src/harnesses.ts#priced harnesses/claude.ts#claude harnesses/pi.ts#pi --> <!-- code: src/docker.ts#dockerArgs src/types.ts#Exit src/remote.ts#makeBoxRunner studio/src/runs/rows.tsx -->
 
