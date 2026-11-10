@@ -87,6 +87,7 @@ export function formatRequest(t: IssueWithPull, run: Pick<Run, 'started' | 'sess
       (m.trusted &&
         !m.bot &&
         m.comment &&
+        m.comment.agentRequest?.command === undefined &&
         !around.includes(m) &&
         m.at > since &&
         (looked === undefined || m.at <= looked))

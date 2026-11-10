@@ -70,6 +70,7 @@ type RestComment = {
   line?: number | null;
   in_reply_to_id?: number;
 };
+type RestLineComment = RestComment & { pull_request_review_id: number | null };
 type RestEvent = {
   id: number;
   event: string;
@@ -125,6 +126,14 @@ type RestReview = {
   user?: User;
   author_association: string;
   submitted_at?: string | null;
+};
+
+const submitted = (reviews: RestReview[]) => {
+  const at = new Map(reviews.flatMap(r => (r.submitted_at ? [[r.id, r.submitted_at] as const] : [])));
+  return (c: RestLineComment): RestLineComment => ({
+    ...c,
+    created_at: at.get(c.pull_request_review_id ?? 0) ?? c.created_at,
+  });
 };
 
 const api = 'https://api.github.com';
@@ -628,7 +637,7 @@ export const githubTracker = (
               Effect.map(r => r?.data)
             ),
             isPull ? gh<RestPull>('GET', `${repo}/pulls/${number}`) : Effect.succeed(undefined),
-            isPull ? all<RestComment>(`${repo}/pulls/${number}/comments?per_page=100`) : none,
+            isPull ? all<RestLineComment>(`${repo}/pulls/${number}/comments?per_page=100`) : none,
             isPull ? all<RestReview>(`${repo}/pulls/${number}/reviews?per_page=100`) : none,
             isPull ? all<RestCommit>(`${repo}/pulls/${number}/commits?per_page=100`) : none,
             all<RestEvent>(`${repo}/issues/${number}/events?per_page=100`),
@@ -639,7 +648,7 @@ export const githubTracker = (
         // A fork's commits name their author by email alone, which anyone can claim.
         const own = pull?.head.repo?.full_name === app.repo;
         const timeline: Event[] = [
-          ...[...said, ...lined].map(c => heard(number, c, self)),
+          ...[...said, ...lined.map(submitted(reviews))].map(c => heard(number, c, self)),
           ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
           ...(yield* Effect.forEach(commits, c =>
             Effect.map(
@@ -751,7 +760,7 @@ export const githubTracker = (
           const [said, lined, events, open, board] = yield* Effect.all(
             [
               all<RestComment>(`${repo}/issues/comments?${window}`),
-              all<RestComment>(`${repo}/pulls/comments?${window}`),
+              all<RestLineComment>(`${repo}/pulls/comments?${window}`),
               all<RestEvent>(`${repo}/issues/events?per_page=100`, page => after(page.at(-1)?.created_at)),
               all<RestPull>(`${repo}/pulls?state=open&per_page=100`),
               read ? columns : Effect.succeed([]),
@@ -793,7 +802,8 @@ export const githubTracker = (
               });
           }
           for (const c of said) if (after(c.created_at)) found.push(heard(numberIn(c.issue_url), c, self));
-          for (const c of lined) if (after(c.created_at)) found.push(heard(numberIn(c.pull_request_url), c, self));
+          for (const c of lined.map(submitted(reviews.flat())))
+            if (after(c.created_at)) found.push(heard(numberIn(c.pull_request_url), c, self));
           for (const r of reviews.flat()) {
             const m = after(r.submitted_at) ? reviewed(r.issue, r, self) : undefined;
             if (m) found.push(m);

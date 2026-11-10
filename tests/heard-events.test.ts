@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { Store, fileStore } from '../src/store.ts';
 import { folderTracker } from '../src/tracker.ts';
 import { startRun } from '../src/run/start.ts';
-import { readIssueWithPull, writeHeardEvents } from '../src/run/hear.ts';
+import { readHeardOutcome, readIssueWithPull, writeHeardEvents } from '../src/run/hear.ts';
 
 import type { Event } from '../src/event.ts';
 import { sumHumanInteractions } from '../src/results.ts';
@@ -127,5 +127,47 @@ it('counts each human action once across runs, inside each run, and only waits f
     requests: 1,
     waitSeconds: (4 + 17 + 20) * 60,
     openWaitSeconds: 20 * 60,
+  });
+});
+
+it('sends a changes-requested review back with its line comments when the review has no body', async () => {
+  const run: Run = { ...fresh(), step: 'merge', status: 'waiting', seen: '2026-10-16T00:00:02.000Z' };
+  const sent = '2026-10-16T00:05:00.000Z';
+  const said = (id: string, kind: Event['kind'], body: string, place = {}) =>
+    makeTestEvent({
+      id,
+      issue: 9,
+      kind,
+      actor: 'morgan',
+      trusted: true,
+      at: sent,
+      comment: { id, author: 'morgan', body, at: sent, ...place },
+    });
+  const pull = {
+    number: 9,
+    title: 'fix',
+    body: '',
+    state: 'open' as const,
+    labels: [],
+    author: 'helper[bot]',
+    url: '',
+  };
+  const events = [
+    said('1', 'comment', 'throw when not ready', { path: 'signing.mdx', line: 20 }),
+    said('r1', 'changes_requested', ''),
+    said('2', 'comment', 'find another word', { path: 'signing.mdx', line: 52 }),
+  ];
+  const heard = await Effect.runPromise(
+    Effect.gen(function* () {
+      yield* startRun(run);
+      return yield* readHeardOutcome(graph, w, run, {
+        issue: { ...pull, number: 7, events: [] },
+        pull: { ...pull, events },
+      });
+    }).pipe(Effect.provide(fileStore(tmp('heard-review'))))
+  );
+  expect(heard?.outcome).toEqual({
+    kind: 'back',
+    why: 'changes requested\nsigning.mdx:20, id 1: throw when not ready\nsigning.mdx:52, id 2: find another word',
   });
 });

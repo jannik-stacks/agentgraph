@@ -191,19 +191,18 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
     const tells = yield* readRunEvents(run);
     const runs = yield* Effect.flatMap(Store, s => s.list({ issue: run.issue }));
     const since = run.seen ?? run.started;
-    const said = [...getEvents(t).map(m => getHeardEvent(router, w, m)), ...tells]
-      .filter(m => m.at > since)
-      .flatMap(m => {
-        const heard = { ...m, issue: run.issue };
-        const o = getEventOutcome(
-          w,
-          run,
-          heard,
-          [],
-          pickCommandTarget(graph, runs, heard, router, tells.includes(m) ? run : undefined)
-        );
-        return o ? [{ o, at: m.at, event: m }] : [];
-      });
+    const fresh = [...getEvents(t).map(m => getHeardEvent(router, w, m)), ...tells].filter(m => m.at > since);
+    const said = fresh.flatMap(m => {
+      const heard = { ...m, issue: run.issue };
+      const o = getEventOutcome(
+        w,
+        run,
+        heard,
+        fresh,
+        pickCommandTarget(graph, runs, heard, router, tells.includes(m) ? run : undefined)
+      );
+      return o ? [{ o, at: m.at, event: m }] : [];
+    });
     const outcome = fold(said.map(s => s.o));
     return outcome && { outcome, at: pickNewest(...said.map(s => s.at))!, events: said.map(s => s.event) };
   });
