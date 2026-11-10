@@ -4,7 +4,7 @@ import { Rpc, RpcClient, type RpcClientError, RpcGroup, RpcMiddleware, RpcSerial
 import { Count, Event, Issue } from './event.ts';
 import { Proposal } from './proposal.ts';
 import { ResultSheet } from './results.ts';
-import { type CheckEntry, Run, RunRecord, type Trace, Verdict } from './types.ts';
+import { CheckEntry, Run, RunRecord, Trace, Verdict } from './types.ts';
 
 export const ActionError = Schema.TaggedStruct('ActionError', { message: Schema.String });
 
@@ -26,9 +26,7 @@ export const listedRunFields = [
   'ended',
 ] as const;
 
-const Line = Schema.declare(
-  (u): u is Trace | CheckEntry => typeof u === 'object' && u !== null && 'at' in u && 'step' in u
-);
+const Line = Schema.Union([Trace, CheckEntry]);
 
 export const ServedRun = Schema.Struct({
   fixture: Schema.String,
