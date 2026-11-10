@@ -118,23 +118,32 @@ describe('the status header', () => {
     });
   const line = (runs: Run[], pulled = false, steps = three) => header(runs, pulled, steps).split('\n')[0];
 
-  it('names the status in one line, with the step and where it is among the steps', () => {
-    expect(line([run])).toBe('※ working on implement (2 of 3)');
-    expect(line([{ ...run, step: 'review', status: 'waiting' }], true)).toBe('※ waiting for review at review (3 of 3)');
-    expect(line([{ ...run, step: 'plan', status: 'waiting', reason: 'Which?' }])).toBe(
-      '※ waiting for an answer at plan (1 of 3)'
+  it('names the status in one quoted line, with the step, where it is among the steps and a link to the run', () => {
+    const mark = '> [※](http://studio:5492/runs/issue-7)';
+    expect(line([run])).toBe(`${mark} Working on implement, step 2 of 3`);
+    expect(line([{ ...run, step: 'review', status: 'waiting' }], true)).toBe(
+      `${mark} Waiting for review at review, step 3 of 3`
     );
-    expect(line([{ ...run, status: 'stopped' }])).toBe('※ stopped at implement (2 of 3)');
-    expect(line([{ ...run, status: 'done' }])).toBe('※ 3 of 3 steps done');
-    expect(line([{ ...run, status: 'done' }], false, () => ['implement'])).toBe('※ done');
-    expect(line([run], false, () => ['implement'])).toBe('※ working on implement');
+    expect(line([{ ...run, step: 'plan', status: 'waiting', reason: 'Which?' }])).toBe(
+      `${mark} Waiting for an answer at plan, step 1 of 3`
+    );
+    expect(line([{ ...run, status: 'stopped' }])).toBe(`${mark} Stopped at implement, step 2 of 3`);
+    expect(line([{ ...run, status: 'done' }])).toBe(`${mark} 3 of 3 steps done`);
+    expect(line([{ ...run, status: 'done' }], false, () => ['implement'])).toBe(`${mark} Done`);
+    expect(line([run], false, () => ['implement'])).toBe(`${mark} Working on implement`);
     expect(header([])).toBe('');
+  });
+
+  it('keeps the mark plain without a studio url', () => {
+    expect(formatStatusHeader([run], false, three, () => 0).split('\n')[0]).toBe(
+      '> ※ Working on implement, step 2 of 3'
+    );
   });
 
   it('keeps the runs in a collapsed table after the line', () => {
     expect(header([{ ...run, checkout: { branch: 'b', base: 'main' } }], true)).toBe(
       [
-        '※ working on implement (2 of 3)',
+        '> [※](http://studio:5492/runs/issue-7) Working on implement, step 2 of 3',
         '<details><summary>Runs</summary>',
         '| Workflow | Step | State | Cost | Pull request | Studio |\n| --- | --- | --- | --- | --- | --- |\n| issue | implement | running | $0.42 | https://github.com/o/r/pull/8 | [issue-7](http://studio:5492/runs/issue-7) |',
         '</details>',
@@ -191,6 +200,18 @@ describe('the agent context', () => {
     expect(text).toContain('Done.');
     expect(text).not.toContain('b'.repeat(10));
     expect(text).toContain(`${'a'.repeat(100)}`);
+    expect(text).toContain('Thanks');
+  });
+
+  it('leaves out of the timeline what the request already shows', () => {
+    const said = (body: string, at: string) => ({
+      ...spoke('maintainer'),
+      at,
+      comment: { id: at, author: 'maintainer', body, at },
+    });
+    const request = said('/agent rename the helper', '2026-10-22T10:01:00Z');
+    const text = context({ issue: { ...issue, events: [request, said('Thanks', '2026-10-22T10:03:00Z')] } }, [request]);
+    expect(text).not.toContain('rename the helper');
     expect(text).toContain('Thanks');
   });
 });

@@ -609,10 +609,7 @@ describe('bin/bench.ts score and judge', () => {
       spawnSync(
         process.execPath,
         [cli, 'run', 'v2', kase, set, '--repo', repo, '--graph', graph, '--keys', join(root, 'keys.env')],
-        {
-          encoding: 'utf8',
-          env: hostDocker(),
-        }
+        { encoding: 'utf8', env: { ...hostDocker(), AGENTGRAPH_PROXY_URL: 'claude=' }, timeout: 60_000 }
       );
     const first = run();
     expect(first.status, first.stderr).toBe(0);

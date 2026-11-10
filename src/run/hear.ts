@@ -180,6 +180,9 @@ export const getHeardEvent = (router: string | undefined, w: Workflow, m: Event)
   return { ...m, comment };
 };
 
+export const isHeardBy = (graph: Graph, name: string, m: Pick<Event, 'kind'>) =>
+  m.kind !== 'comment' || !findRouter(graph) || !!graph.workflows[name]?.on.issue_comment;
+
 /** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
 export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWithPull) =>
   Effect.gen(function* () {
