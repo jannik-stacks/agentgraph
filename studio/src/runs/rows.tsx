@@ -1,10 +1,10 @@
 import { useAtomValue } from 'jotai';
-import { type ReactNode, useState } from 'react';
+import { createContext, type ReactNode, useContext, useState } from 'react';
 import type { Proposal } from '../../../src/proposal.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunResultBadge, RunResultLines } from '../results/ResultTable.tsx';
-import { dataParam, makeInstanceHref, runAction, runAtom, runResultsAtom } from '../state.ts';
+import { dataParam, makeInstanceHref, runAction, runAtom, runResultsAtom, shown } from '../state.ts';
 import { accent, Badge, cx, Disclosure, Link, Live, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
 import {
@@ -13,6 +13,7 @@ import {
   detail,
   formatCheckValue,
   graphLink,
+  makeRunKey,
   type Line,
   type TraceLineWithKey,
   type SessionTraceLines,
@@ -66,15 +67,17 @@ const Url = ({ url, text }: { url: string; text?: string }) => (
   </a>
 );
 
+const RunInstance = createContext<string | undefined>(undefined);
+
 /** Copies the full URL of a studio page. */
-const CopyLink = ({ href }: { href: string }) => {
+const CopyLink = ({ href, instance }: { href: string; instance: string | undefined }) => {
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
       className="text-zinc-400 underline hover:text-zinc-900 dark:hover:text-zinc-100"
       onClick={() =>
-        navigator.clipboard.writeText(new URL(makeInstanceHref(href), location.origin).href).then(
+        navigator.clipboard.writeText(new URL(makeInstanceHref(href, instance), location.origin).href).then(
           () => setCopied(true),
           () => undefined
         )
@@ -104,6 +107,7 @@ const readJudgeSessions = (text: string): Row[] | undefined => {
 const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }) => {
   const [text, setText] = useState<string>();
   const data = useAtomValue(dataParam);
+  const instance = useContext(RunInstance);
   if (text !== undefined) {
     const sessions = readJudgeSessions(text);
     return sessions ? <Rows rows={sessions} /> : <Pre text={text} />;
@@ -113,7 +117,7 @@ const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }
       type="button"
       className="font-sans text-[10px] text-sky-600 underline"
       onClick={() =>
-        runAction(actions => actions.log({ hash: log.hash }), data).then(
+        runAction(actions => actions.log({ hash: log.hash }), data, instance).then(
           text => setText(text ?? 'not in the data dir'),
           (e: Error) => setText(e.message)
         )
@@ -471,7 +475,7 @@ const Issue = ({ r }: { r: ServedRun }) =>
   );
 
 const useRunResults = (r: ServedRun) => {
-  const { value } = useAtomValue(runResultsAtom(r.data));
+  const { value } = useAtomValue(runResultsAtom(r.data, r.instance));
   const run = value?.runs.find(x => x.key === r.run.id);
   return value && run ? { run, fields: value.fields } : undefined;
 };
@@ -482,7 +486,7 @@ const ResultBadge = ({ r }: { r: ServedRun }) => {
 };
 
 const FetchedRaw = ({ r }: { r: ServedRun }) => (
-  <Live state={useAtomValue(runAtom(r.run.id, r.data))}>{value => value && <Raw value={value.run} />}</Live>
+  <Live state={useAtomValue(runAtom(r.run.id, r.data, r.instance))}>{value => value && <Raw value={value.run} />}</Live>
 );
 
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
@@ -514,6 +518,7 @@ const RunInfo = ({ r }: { r: ServedRun }) => {
 export const RunLine = ({ r }: { r: ServedRun }) => (
   <Link
     href={atLink(r.run.id, undefined, r.data)}
+    instance={r.instance}
     className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono transition-colors text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
   >
     <Col className="w-[4ch]">{r.run.issue !== undefined && `#${r.run.issue}`}</Col>
@@ -539,7 +544,7 @@ const makeVisitRows = (r: ServedRun, trace: Line[], expand: boolean, target?: Li
       ...('applied' in part && {
         summary: (
           <>
-            {row.summary} <CopyLink href={atLink(run.id, part.applied.at ?? part.at, r.data)} />
+            {row.summary} <CopyLink href={atLink(run.id, part.applied.at ?? part.at, r.data)} instance={r.instance} />
           </>
         ),
       }),
@@ -568,10 +573,12 @@ const makeVisitRows = (r: ServedRun, trace: Line[], expand: boolean, target?: Li
 };
 
 const Visits = ({ r }: { r: ServedRun }) => (
-  <Live state={useAtomValue(runAtom(r.run.id, r.data))}>
+  <Live state={useAtomValue(runAtom(r.run.id, r.data, r.instance))}>
     {value =>
       value?.trace ? (
-        <Rows rows={makeVisitRows(value, value.trace, false)} />
+        <RunInstance value={r.instance}>
+          <Rows rows={makeVisitRows(value, value.trace, false)} />
+        </RunInstance>
       ) : (
         <p className="text-zinc-500">No run {r.run.id}.</p>
       )
@@ -583,16 +590,21 @@ const Visits = ({ r }: { r: ServedRun }) => (
 export const runRow = (r: ServedRun, open = false, expand = false, target?: Line): Row => {
   const { run } = r;
   return {
-    key: run.id,
+    key: makeRunKey(r.instance, run.id),
     open,
     at: run.started,
     summary: (
       <span className="flex min-w-0 items-baseline gap-x-2 text-xs">
+        {r.instance !== undefined && r.instance !== shown?.name && (
+          <Link href={`/runs?instance=${encodeURIComponent(r.instance)}`} title="Runs of this instance">
+            <Badge>{r.instance}</Badge>
+          </Link>
+        )}
         <Col className="w-[4ch]">
           <Issue r={r} />
         </Col>
         <Col className="w-[9ch]">
-          <Link href={atLink(run.id, undefined, r.data)} className="font-medium underline">
+          <Link href={atLink(run.id, undefined, r.data)} instance={r.instance} className="font-medium underline">
             {run.workflow}
           </Link>
         </Col>
@@ -607,7 +619,7 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
           )}
         </Col>
         <Col className="w-[16ch] text-zinc-500">at {run.step}</Col>
-        <Link href={graphLink(r, target?.step ?? run.step)} className="shrink-0 underline">
+        <Link href={graphLink(r, target?.step ?? run.step)} instance={r.instance} className="shrink-0 underline">
           graph
         </Link>
         <Col className="w-[6ch] text-right text-zinc-500">{usd(r.usd)}</Col>

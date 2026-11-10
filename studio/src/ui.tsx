@@ -13,7 +13,7 @@ import {
 } from 'react';
 import { useSetAtom } from 'jotai';
 import { atomWithStorage, createJSONStorage } from 'jotai/utils';
-import { makeInstanceHref, navigateAtom } from './state.ts';
+import { makeInstanceHref, navigateAtom, shown } from './state.ts';
 
 export const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ');
 
@@ -29,16 +29,22 @@ const field =
 
 const isInternal = (href: string | undefined): href is string => !!href?.startsWith('/') && !href.startsWith('//');
 
-/** An anchor that navigates in-app for same-origin paths and leaves everything else to the browser. */
-export const Link = ({ href, onClick, ...props }: ComponentProps<'a'>) => {
+/** An anchor that navigates in-app for same-origin paths under the shown instance and leaves everything else to the browser. */
+export const Link = ({
+  href,
+  instance,
+  onClick,
+  ...props
+}: ComponentProps<'a'> & { instance?: string | undefined }) => {
   const navigate = useSetAtom(navigateAtom);
+  const elsewhere = instance !== undefined && instance !== (shown?.name ?? '');
   return (
     <a
-      href={isInternal(href) ? makeInstanceHref(href) : href}
+      href={isInternal(href) ? makeInstanceHref(href, elsewhere ? instance : undefined) : href}
       {...props}
       onClick={e => {
         onClick?.(e);
-        if (e.defaultPrevented || !isInternal(href)) return;
+        if (e.defaultPrevented || !isInternal(href) || elsewhere) return;
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0 || props.target) return;
         e.preventDefault();
         navigate({ href });

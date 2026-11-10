@@ -243,8 +243,8 @@ the CLI too, since one loop serves several instances.
 
 Pages appear at `/plugins/<name>` and read HTTP snapshots from `/api/plugins/<name>/data`. In a studio of named
 instances, instance pages sit under `/<instance>` and each reads its own instance's plugin with `?instance=<instance>`.
-Studio pages stay at `/plugins/<name>`, where the header shows no instance tabs and the instance picker reads
-`all instances`. A page name used twice at one address fails. The studio's live WebSocket
+Studio pages stay at `/plugins/<name>`, where the header shows no instance tabs, only Runs across
+every instance. A page name used twice at one address fails. The studio's live WebSocket
 connection refreshes a mounted reader when one of its plugin's watched folders changes. A failed
 refresh keeps the last good data and shows an error. Snapshots are capped at 16 MiB.
 Host readers, settings and data roots never enter the page manifest. Pages share the studio origin

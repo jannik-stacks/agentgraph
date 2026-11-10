@@ -58,8 +58,8 @@ it('serves each named instance under its own name, with no run crossing over', a
       );
     expect(await listed('live')).toEqual(['live/issue run-live']);
     expect(await listed('bench')).toEqual(['bench/issue run-bench']);
+    expect(await runs('?instance=bench', 'run-bench')).toMatchObject({ instance: 'bench' });
     expect(await runs('?instance=live', 'run-bench')).toBeNull();
-    expect(await runs('?instance=bench', 'run-bench')).not.toBeNull();
     for (const query of ['', '?instance=other']) await expect(runs(query)).rejects.toThrow();
     expect((await fetch(`${base}/api/plugins/results/data`)).status).toBe(404);
     const [, results] = await get('/api/plugins/results/data?instance=bench');
@@ -135,12 +135,12 @@ it('ignores instance settings from the shell when it serves several instances, a
   }
 });
 
-it('refuses to serve an instance named plugins, which would hide the studio pages', async () => {
-  const { root: dir, seed } = seeded('studio-reserved', { 'README.md': 'hello' });
+it.each(['plugins', 'runs'])('refuses to serve an instance named %s, which would hide a studio page', async name => {
+  const { root: dir, seed } = seeded(`studio-reserved-${name}`, { 'README.md': 'hello' });
   removeAfter(dir);
   const root = join(dir, 'instances');
-  await ensureInstance(root, 'plugins', seed);
-  const ran = spawnSync(process.execPath, [join(studioDir, 'dev.ts'), '--instance', 'plugins', '--data', root], {
+  await ensureInstance(root, name, seed);
+  const ran = spawnSync(process.execPath, [join(studioDir, 'dev.ts'), '--instance', name, '--data', root], {
     encoding: 'utf8',
     env: { ...process.env, NODE_OPTIONS: '' },
     timeout: 20_000,
@@ -148,6 +148,6 @@ it('refuses to serve an instance named plugins, which would hide the studio page
   });
   expect([ran.status, ran.stderr.trim()]).toEqual([
     2,
-    `an instance named plugins would hide the studio pages at /plugins; rename ${join(root, 'plugins')}`,
+    `an instance named ${name} would hide the studio pages at /${name}; rename ${join(root, name)}`,
   ]);
 });

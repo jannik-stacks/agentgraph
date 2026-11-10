@@ -3,7 +3,7 @@ import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { connectedAtom, dataParam, instances, navigateAtom, pageAtom, shown, studioPages } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
-import { accent, Button, cx, Link, Loading, Muted, Select } from './ui.tsx';
+import { accent, Button, cx, Link, Loading, Muted } from './ui.tsx';
 
 const pages = {
   graph: lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage }))),
@@ -19,11 +19,13 @@ const own = declared.filter(page => page.instance === instance);
 
 const custom = own.filter(page => !page.builtin);
 
-const official = [
-  ...(['graph', 'runs'] as const).map(r => ({ href: `/${r}`, title: r })),
-  ...own.filter(page => page.builtin),
-  { href: '/docs', title: 'docs' },
-];
+const official = across
+  ? [{ href: '/runs', title: 'runs' }]
+  : [
+      ...(['graph', 'runs'] as const).map(r => ({ href: `/${r}`, title: r })),
+      ...own.filter(page => page.builtin),
+      { href: '/docs', title: 'docs' },
+    ];
 
 const NavTabs = ({
   label,
@@ -106,22 +108,23 @@ export const App = () => {
   const navigate = useSetAtom(navigateAtom);
   const connected = useAtomValue(connectedAtom);
   const data = useAtomValue(dataParam);
-  const unknown = across && route !== 'plugins' && !(route === 'runs' && id && data);
+  const unknown = across && route !== undefined && route !== 'plugins' && !(route === 'runs' && (!id || data));
   useEffect(() => {
-    if (unknown && location.pathname === '/') location.replace(`/${instances[0]!.name}/runs`);
-    else if (!route && !unknown) navigate({ href: '/runs', replace: true });
-  }, [route, navigate, unknown]);
+    if (!route) navigate({ href: '/runs', replace: true });
+  }, [route, navigate]);
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-zinc-200 px-3 sm:gap-5 sm:px-4 dark:border-zinc-800">
         <Link
-          href={across ? '/' : '/runs'}
+          href="/runs"
+          instance=""
           className="inline-flex shrink-0 items-center gap-1.5 font-semibold tracking-tight"
         >
           <AgentgraphLogo className="size-5" />
           agentgraph
         </Link>
-        {!across && <NavTabs label="Pages" links={official} here={here} className="bg-zinc-100 dark:bg-zinc-900" />}
+        {instance && <span className="shrink-0 text-zinc-500">{instance}</span>}
+        <NavTabs label="Pages" links={official} here={here} className="bg-zinc-100 dark:bg-zinc-900" />
         {custom.length > 0 && (
           <NavTabs
             label="Plugin pages"
@@ -137,17 +140,6 @@ export const App = () => {
             here={instance ? '' : here}
             reload={!!instance}
             className="border border-zinc-200 dark:border-zinc-800"
-          />
-        )}
-        {(instances.length > 1 || across) && (
-          <Select
-            label="Instance"
-            value={shown?.name ?? ''}
-            options={[
-              ...(across ? [{ value: '', label: 'all instances' }] : []),
-              ...instances.map(({ name }) => ({ value: name, label: name })),
-            ]}
-            onChange={name => location.assign(`/${name}/${route === 'plugins' ? 'runs' : (route ?? 'runs')}`)}
           />
         )}
         {!connected && (
