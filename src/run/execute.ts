@@ -236,13 +236,21 @@ const openSession = <A, R>(
   }).pipe(Effect.scoped);
 
 /**
- * A judging session that must record its result with the result tool. A session that fails is tried once more; one that
- * stops cleanly without a valid result is resumed once and told to record it. Without a result after that the check
- * could not be judged.
+ * A judging session that must record its result with the result tool. A session that fails is tried once more, fresh
+ * with `fresh` as its prompt; one that stops cleanly without a valid result is resumed once and told to record it.
+ * Without a result after that the check could not be judged.
  */
-export const runJudge = (graph: Graph, into: Trace[], step: string, spec: SessionSpec, item?: string) => {
-  const judge = (s: SessionSpec) =>
-    runSession(graph, into, step, s, { item }).pipe(
+export const runJudge = (
+  graph: Graph,
+  into: Trace[],
+  step: string,
+  spec: SessionSpec,
+  item?: string,
+  fresh = spec.prompt
+) => {
+  const { resume: _, ...unresumed } = spec;
+  const once = (s: SessionSpec) =>
+    runSession(graph, into, step, s, { item, fresh }).pipe(
       Effect.flatMap(j =>
         j.ended === 'stop'
           ? Effect.succeed(j)
@@ -250,31 +258,27 @@ export const runJudge = (graph: Graph, into: Trace[], step: string, spec: Sessio
               reason: j.ended === 'human' ? 'human' : 'provider',
               detail: `session ${j.ended} (exit ${j.exit ?? 0}), final: ${formatSqueezed(j.final, 200)}`,
             })
-      ),
-      Effect.retry({
-        times: 1,
-        while: e => e._tag === 'SessionStop' && e.reason !== 'human',
-      })
+      )
     );
-  return judge(spec).pipe(
+  const judge = (s: SessionSpec, again = s) =>
+    once(s).pipe(
+      Effect.catchIf(
+        e => e._tag === 'SessionStop' && e.reason !== 'human',
+        () => once(again)
+      )
+    );
+  return judge(spec, { ...unresumed, prompt: fresh }).pipe(
     Effect.flatMap(j =>
       j.result || !j.id
         ? Effect.succeed(j)
-        : Effect.map(
-            judge({
-              ...spec,
-              prompt: nudge,
-              resume: { id: j.id, home: j.home },
-            }),
-            k => ({
-              ...k,
-              usd: j.usd + k.usd,
-            })
-          )
+        : Effect.map(judge({ ...spec, prompt: nudge, resume: { id: j.id, home: j.home } }), k => ({
+            ...k,
+            usd: j.usd + k.usd,
+          }))
     ),
-    Effect.flatMap(({ result, usd, final }) =>
+    Effect.flatMap(({ result, usd, final, id, home }) =>
       result
-        ? Effect.succeed({ ...result, usd })
+        ? Effect.succeed({ value: result, usd, ...(id !== undefined && { id }), home })
         : new SessionStop({
             reason: 'provider',
             detail: `session gave no result, final: ${formatSqueezed(final, 200)}`,

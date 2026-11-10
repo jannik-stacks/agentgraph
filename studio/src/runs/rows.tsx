@@ -429,6 +429,7 @@ const sessionRow = (
         {prompt?.item && muted(`on ${short(prompt.item, 60)}`)}
         {id && muted(id)}
         {(spec?.resume || end?.session.resumed) && muted('resumed')}
+        {end?.session.dropped && muted(`resume dropped: ${short(end.session.dropped, 80)}`)}
         {events.length > 0 && muted(`${events.filter(e => e.event.type === 'tool').length} tool calls`)}
         {usage.length > 0 &&
           muted(

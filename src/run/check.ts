@@ -89,6 +89,7 @@ export type Left = Checkout & {
   proposals: Proposal[];
   answers?: Run['answers'];
   moved?: { from: string; text: string };
+  judges?: Run['judges'];
 };
 
 /** The human answers of a run as a section every check reads, so a judge does not raise again what an answer settled. */
@@ -154,6 +155,9 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
     const listed = yield* all.pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
     const items: (string | undefined)[] = listed instanceof EachFailed ? [] : listed;
     const diff = check.agent && !check.reads ? yield* readCheckoutDiff(work) : '';
+    const same = check.agent !== undefined && graph.agents[check.agent]?.session === 'same';
+    const earlier = same ? work.judges?.[check.name] : undefined;
+    let judge = earlier;
     const settle = (
       item: string | undefined,
       value: ResultValue | undefined,
@@ -234,10 +238,12 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
             ...makeAgentSessionSpec(graph, check.agent, work),
             check: check.name,
             returns,
-            prompt,
+            prompt: judge && judge === earlier ? `${again}\n\n${prompt}` : prompt,
+            ...(judge && { resume: judge }),
             ...(reads && { read: [inside.news] }),
           },
-          item
+          item,
+          prompt
         ).pipe(
           Effect.catchTag('SessionStop', e =>
             (check.mode === 'warn' || info) && e.reason !== 'human' ? Effect.succeed(e) : Effect.fail(e)
@@ -272,8 +278,8 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
             output: transcript(),
             usd: cost(),
           };
-        const { usd: _usd, ...value } = judged;
-        const settled = settle(item, value, undefined, transcript(), cost());
+        if (same && judged.id) judge = { id: judged.id, home: judged.home, harness: agent.harness };
+        const settled = settle(item, judged.value, undefined, transcript(), cost());
         if (settled.pass && !check.returns) passed.add(key);
         return settled;
       });
@@ -295,7 +301,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
                 usd: 0,
               },
             ]
-          : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
+          : yield* Effect.forEach(items, one, { concurrency: same ? 1 : 'unbounded' });
     const usd = results.reduce((sum, r) => sum + r.usd, 0);
     const noted = results.filter(r => !r.pass || r.unread);
     const none = check.each !== undefined && items.length === 0 && !(listed instanceof EachFailed);
@@ -355,8 +361,10 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
         ...(!check.each && logs[0] && { log: logs[0] }),
       }
     );
-    return result;
+    return { result, ...(judge && { judge }) };
   });
+
+const again = 'The change may have moved since you last judged it. Judge it as it is now.';
 
 /**
  * The step's checks over what a try left behind, all at once, so every finding of a try comes back together.
@@ -365,7 +373,11 @@ export const runStepChecks = (
   step: Step,
   left: Left,
   given: Graph
-): Effect.Effect<{ outcome: Outcome }, SandboxError | SessionStop | StoreError, Sandbox | Session | Store> =>
+): Effect.Effect<
+  { outcome: Outcome; judges?: NonNullable<Run['judges']> },
+  SandboxError | SessionStop | StoreError,
+  Sandbox | Session | Store
+> =>
   Effect.gen(function* () {
     const graph = step.limits ? { ...given, limits: { ...given.limits, ...step.limits } } : given;
     const checks = step.checks.map(name => ({ ...graph.checks[name]!, name }));
@@ -373,7 +385,10 @@ export const runStepChecks = (
     const settled = yield* Effect.forEach(checks, c => Effect.result(runOneCheck(step.name, c, left, graph)), {
       concurrency: 'unbounded',
     });
-    const all = settled.flatMap(r => (Result.isSuccess(r) ? [r.success] : []));
+    const done = settled.flatMap(r => (Result.isSuccess(r) ? [r.success] : []));
+    const all = done.map(r => r.result);
+    const kept = done.flatMap(r => (r.judge ? [[r.result.check, r.judge] as const] : []));
+    const judges = kept.length > 0 ? { judges: Object.fromEntries(kept) } : {};
     const failed = (mode: Check['mode']) =>
       all.filter(v => !v.pass && checks.find(c => c.name === v.check)?.mode === mode);
 
@@ -384,6 +399,7 @@ export const runStepChecks = (
           kind: 'stop',
           why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n'),
         },
+        ...judges,
       };
     const error = settled.find(Result.isFailure);
     if (error) return yield* error.failure;
@@ -404,5 +420,5 @@ export const runStepChecks = (
       blocking.length > 0 || proposals.length > 0
         ? { kind: 'failed', checks: blocking, proposals, problems: [] }
         : { kind: 'pass' };
-    return { outcome };
+    return { outcome, ...judges };
   });

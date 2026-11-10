@@ -58,6 +58,12 @@ describe('transition, running', () => {
     expect(next.sessions.triage).toEqual(session('s-triage'));
   });
 
+  it('pass: keeps the next step its session when the agent works in the same session', () => {
+    const same = { ...session('s-implement'), same: true as const };
+    const next = transition(w, at('triage', { sessions: { implement: same } }), { kind: 'pass' });
+    expect(next.sessions.implement).toEqual(same);
+  });
+
   it('drops successful reply text unless the step carries it', () => {
     const next = transition(w, at('triage', { feedback: 'old result' }), { kind: 'pass', text: 'summary' });
     expect(next.feedback).toBeUndefined();

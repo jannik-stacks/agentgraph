@@ -472,6 +472,77 @@ describe('drive', () => {
     expect(transition(w, waiting, getEventOutcome(w, waiting, merged)!)).toMatchObject({ status: 'done' });
   });
 
+  it('starts a fresh agent anew every try and keeps a same agent and judge in one session per run', async () => {
+    const where = world();
+    const sessions = { implementor: 'fresh', reviewer: 'same', 'claim-checker': 'same' } as const;
+    const kinds = {
+      ...graph,
+      agents: {
+        ...graph.agents,
+        ...Object.fromEntries(
+          Object.entries(sessions).map(([name, session]) => [name, { ...graph.agents[name]!, session }])
+        ),
+      },
+    };
+    const { specs, run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
+      [start('i1'), wrote('hello.txt', 'TODO\n'), reply(push, pull)],
+      judged,
+      [start('i2'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
+      judged,
+      [start('r1'), reply({ kind: 'back', why: 'say hello world' })],
+      [start('i3'), wrote('hello.txt', 'hello world\n'), reply(push)],
+      judged,
+      [start('r1'), reply({ kind: 'comment', body: 'Ready to merge.' })],
+    ]);
+    const waiting = await run(runWorkflow(w, fresh(), kinds));
+    expect(waiting).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(specs.map(s => s.resume?.id)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'j',
+      undefined,
+      undefined,
+      'j',
+      'r1',
+    ]);
+    expect(specs[3]!.prompt).toContain('Add hello.txt.');
+    expect(specs[3]!.prompt).toContain('types: ');
+    expect(specs[4]!.prompt).toMatch(/^The change may have moved since you last judged it/);
+    expect(specs[8]!.prompt).toContain('+hello world');
+    expect(waiting.sessions).toMatchObject({
+      implement: { id: 'i3', harness: 'opencode' },
+      review: { id: 'r1', same: true },
+    });
+    expect(waiting.judges).toEqual({ claims: { id: 'j', home: '/homes/j', harness: 'opencode' } });
+  });
+
+  it('judges each item as one more turn of the session of a same agent', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('r'), reply({ kind: 'comment', body: 'One.' })],
+      [start('r'), reply({ kind: 'comment', body: 'Two.' })],
+    ]);
+    const fan = {
+      ...w,
+      steps: [{ name: 'review', does: { agent: 'reviewer' }, checks: [], tries: 1, each: 'seq 2' }],
+    };
+    const same = {
+      ...graph,
+      agents: { ...graph.agents, reviewer: { ...graph.agents.reviewer!, session: 'same' as const } },
+    };
+    const done = await run(
+      runWorkflow(fan, begin(fan, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), same)
+    );
+    expect(done.status).toBe('done');
+    expect(specs.map(s => s.resume?.id)).toEqual([undefined, 'r']);
+    expect(specs[0]!.prompt).toMatch(/## Item\n\n1$/);
+    expect(specs[1]!.prompt).not.toContain('Add hello.txt.');
+    expect(specs[1]!.prompt).toContain('## Item\n\n2');
+  });
+
   it('writes to the tracker under the run, its step, the session that proposed the write and its operation', async () => {
     const where = world();
     const { marks, run } = services(where, [
