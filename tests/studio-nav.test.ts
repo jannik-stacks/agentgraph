@@ -76,7 +76,7 @@ describe('studio navigation', () => {
   });
 
   it.each(['constructor', 'toString', '__proto__', 'missing'])('shows an unknown plugin page: %s', name => {
-    expect(render(`/plugins/${name}`)).toContain('Page not found.');
+    expect(render(`/plugins/${name}`)).toContain(`This studio has no page at /plugins/${name}.`);
   });
 
   it('filters the runs to those that wait on a person, with what to do, and not those that wait on another run', () => {
