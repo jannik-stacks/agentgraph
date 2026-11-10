@@ -2,7 +2,16 @@ import { atom, type ExtractAtomValue, useAtom, useAtomValue, useSetAtom } from '
 import { useEffect, useMemo, useState } from 'react';
 import { isOnIssue } from '../../../src/graph.ts';
 import { findRunsWaitingOnPeople, formatInstanceFlags, formatNextSteps } from '../../../src/status.ts';
-import { getRunsAtom, instances, locationAtom, pageAtom, navigateAtom, queryParam, shown } from '../state.ts';
+import {
+  getRunsAtom,
+  instances,
+  locationAtom,
+  makeInstanceHref,
+  pageAtom,
+  navigateAtom,
+  queryParam,
+  shown,
+} from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { accent, Button, Combobox, KeyPicker, makeHiddenKeysAtom, Loading, Muted, Select } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
@@ -30,7 +39,8 @@ const Locate = ({ gh }: { gh: string }) => {
           if (!current) return;
           if (!found) setFailure(`No run wrote ${gh}.`);
           else if ('error' in found) setFailure(found.error);
-          else if (found.instance !== (shown?.name ?? '')) location.replace(`/${found.instance}${locatedLink(found)}`);
+          else if (found.instance !== (shown?.name ?? ''))
+            location.replace(makeInstanceHref(locatedLink(found), found.instance));
           else navigate({ href: locatedLink(found), replace: true });
         },
         (e: Error) => current && setFailure(e.message)

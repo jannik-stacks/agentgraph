@@ -9,6 +9,8 @@ const files = import.meta.glob<string>('../../../docs/*.md', {
   import: 'default',
   eager: true,
 });
+const onGitHub = 'https://github.com/jannik-stacks/agentgraph/blob/main/docs/';
+
 const pages = Object.fromEntries(Object.entries(files).map(([path, text]) => [/([^/]+)\.md$/.exec(path)![1]!, text]));
 
 /** The sidebar: the index, then each index section with the pages its list items link, then the rest alphabetically. */
@@ -73,7 +75,7 @@ export const DocsPage = () => {
         {name && !text ? (
           <Muted>No docs page named {name}.</Muted>
         ) : (
-          <Markdown text={text ?? pages.index ?? ''} className="max-w-3xl" />
+          <Markdown text={text ?? pages.index ?? ''} className="max-w-3xl" base={onGitHub} />
         )}
       </div>
     </div>

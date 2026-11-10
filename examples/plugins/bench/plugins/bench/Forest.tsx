@@ -1,7 +1,7 @@
 import { scaleLinear } from 'd3-scale';
 import { Fragment, type ReactNode, useState } from 'react';
 import { Effect } from 'effect';
-import { atLink, Button, cx, Muted, Tooltip } from '@jannik-stacks/agi/studio';
+import { atLink, Button, cx, Link, Muted, Tooltip } from '@jannik-stacks/agi/studio';
 import { runActions } from '../../../../../src/actions.ts';
 import { getMean } from '../../../../../src/stats.ts';
 import type { BenchRow } from './data.ts';
@@ -27,12 +27,13 @@ export const BenchRunLink = ({
   children: ReactNode;
   className?: string;
 }) => (
-  <a
-    href={`${row.instance ? `/${row.instance}` : ''}${atLink(row.run, undefined, row.instance === undefined ? row.data : undefined)}`}
+  <Link
+    href={atLink(row.run, undefined, row.instance === undefined ? row.data : undefined)}
+    instance={row.instance}
     className={className}
   >
     {children}
-  </a>
+  </Link>
 );
 
 export const BenchExcludeButton = ({ row }: { row: BenchRow }) => {

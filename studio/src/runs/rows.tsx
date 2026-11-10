@@ -61,11 +61,14 @@ const took = (from: string, to: string | undefined) => {
 const muted = (text: ReactNode) => <span className="text-zinc-500">{text}</span>;
 const flag = (text: ReactNode, on = true) => <span className={cx(on && accent.text)}>{text}</span>;
 const Pre = ({ text }: { text: string }) => <Code code={text} compact wrap lines={16} />;
-const Url = ({ url, text }: { url: string; text?: string }) => (
-  <a className="text-sky-600 underline" href={url} target="_blank" rel="noreferrer">
-    {text ?? url.replace(/^https:\/\/github\.com\/[^/]+\/[^/]+\//, '')}
-  </a>
-);
+const Url = ({ url, text }: { url: string; text?: string }) =>
+  /^https?:\/\//.test(url) ? (
+    <a className="text-sky-600 underline" href={url} target="_blank" rel="noreferrer">
+      {text ?? url.replace(/^https:\/\/github\.com\/[^/]+\/[^/]+\//, '')}
+    </a>
+  ) : (
+    <span className="text-zinc-500">{url}</span>
+  );
 
 const RunInstance = createContext<string | undefined>(undefined);
 
@@ -477,7 +480,7 @@ const Issue = ({ r }: { r: ServedRun }) =>
 const useRunResults = (r: ServedRun) => {
   const { value } = useAtomValue(runResultsAtom(r.data, r.instance));
   const run = value?.runs.find(x => x.key === r.run.id);
-  return value && run ? { run, fields: value.fields } : undefined;
+  return value && run ? { run, fields: value.fields, place: r } : undefined;
 };
 
 const ResultBadge = ({ r }: { r: ServedRun }) => {

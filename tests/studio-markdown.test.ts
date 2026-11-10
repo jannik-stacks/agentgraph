@@ -86,4 +86,12 @@ describe('Markdown in the studio', () => {
     expect(html).toContain('<th>a</th>');
     expect(html).toContain('<td><code>x</code></td>');
   });
+
+  it('resolves a repo file link against base, and keeps it text without one since the studio serves no such page', () => {
+    const text = 'See [style](../STYLE.md#naming).';
+    expect(render({ text, base: 'https://github.com/o/r/blob/main/docs/' })).toContain(
+      'href="https://github.com/o/r/blob/main/STYLE.md#naming"'
+    );
+    expect(render({ text })).not.toContain('<a');
+  });
 });

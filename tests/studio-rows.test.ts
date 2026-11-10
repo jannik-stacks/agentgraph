@@ -157,6 +157,14 @@ describe("a run's pull request and branch", () => {
     );
     expect(head).toContain('href="/runs/issue-1?data=%2Fb%2Fc%2Fv2%2Fdata"');
   });
+
+  it('links only web addresses, so a local tracker path stays text', () => {
+    const head = renderToStaticMarkup(
+      runRow({ fixture: 'kit/issue', repo: '', labels: {}, run, trace, pull: '/data/forge/1.md' }).summary as never
+    );
+    expect(head).toContain('/data/forge/1.md');
+    expect(head).not.toContain('href="/data/forge/1.md"');
+  });
 });
 
 /** Lines from two runs, cut short and scrubbed: an aside, a rebase, a judged check, then two judges that failed to start. */
