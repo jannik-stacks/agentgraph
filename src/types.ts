@@ -13,6 +13,7 @@ export const Agent = Schema.Struct({
   tools: Schema.mutable(Schema.Array(Schema.String)).pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
   returns: Schema.mutable(Schema.Array(Kind)).pipe(Schema.withDecodingDefaultType(Effect.succeed(['comment']))),
   reads: Schema.optionalKey(Schema.Literal('traces')),
+  session: Schema.optionalKey(Schema.Literals(['fresh', 'same'])),
 });
 export type Agent = typeof Agent.Type;
 
@@ -64,6 +65,13 @@ const Strings = Schema.mutable(Schema.Array(Schema.String));
 /** How far a session has read its issues: the time of the last event it saw and the base its pull request was on. */
 export const Seen = Schema.Struct({ at: Schema.String, base: Text });
 export type Seen = Types.Mutable<typeof Seen.Type>;
+const Kept = Schema.Struct({
+  id: Schema.String,
+  home: Schema.String,
+  harness: Schema.optionalKey(Schema.String),
+  same: Schema.optionalKey(Schema.Literal(true)),
+  seen: Schema.optionalKey(Seen),
+});
 
 const RunFields = {
   meta: Schema.optionalKey(PluginMetadata),
@@ -75,15 +83,8 @@ const RunFields = {
   status: Schema.Literals(['running', 'waiting', 'done', 'stopped']),
   tries: Schema.Number,
   rounds: Schema.Record(Schema.String, Schema.Number),
-  sessions: Schema.Record(
-    Schema.String,
-    Schema.Struct({
-      id: Schema.String,
-      home: Schema.String,
-      harness: Schema.optionalKey(Schema.String),
-      seen: Schema.optionalKey(Seen),
-    })
-  ),
+  sessions: Schema.Record(Schema.String, Kept),
+  judges: Schema.optionalKey(Schema.Record(Schema.String, Kept)),
   feedback: Text,
   reported: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   answers: Schema.optionalKey(

@@ -228,12 +228,13 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
       proposals: [],
       answers: run.answers,
       ...(moved && { moved }),
+      ...(run.judges && { judges: run.judges }),
     };
     const own = same && !renewed;
     const judged = (name: string) => graph.checks[name]?.agent !== undefined;
     const scripts = step.checks.filter(c => !judged(c));
     const later = own ? step.checks.filter(judged) : [];
-    let { outcome } = yield* runStepChecks(own ? { ...step, checks: scripts } : to, left, graph);
+    let { outcome, judges } = yield* runStepChecks(own ? { ...step, checks: scripts } : to, left, graph);
     if (outcome.kind === 'pass' && later.length > 0) {
       const reply = [
         `The base ${pull.base} moved from ${from.slice(0, 7)} to ${onto.slice(0, 7)}; the change stays the same.`,
@@ -243,18 +244,20 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
         .join('\n\n');
       const second = yield* runStepChecks({ ...step, checks: later }, { ...left, reply }, graph);
       outcome = second.outcome;
+      judges = { ...judges, ...second.judges };
     }
+    const kept = (r: Run) => (judges ? { ...r, judges: { ...r.judges, ...judges } } : r);
     return outcome.kind === 'failed'
       ? {
-          run: reopened,
+          run: kept(reopened),
           outcome: {
             kind: 'back',
             why: [formatFailedTryFeedback(outcome), moved?.text].filter(Boolean).join('\n\n'),
           } as const,
         }
       : outcome.kind === 'pass'
-        ? { run: current }
-        : { run: current, outcome };
+        ? { run: kept(current) }
+        : { run: kept(current), outcome };
   }).pipe(Effect.scoped);
 
 /**

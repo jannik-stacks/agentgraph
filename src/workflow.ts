@@ -290,7 +290,7 @@ export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started' | '
   };
 }
 
-/** Moves a run to its next state. Entering a step forward drops its session; every other move keeps it. */
+/** Moves a run to its next state. Entering a step forward drops its session unless it is kept `same`; every other move keeps it. */
 export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const i = w.steps.findIndex(s => s.name === run.step);
   const step = w.steps[i];
@@ -309,7 +309,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const forward = (): Run => {
     const next = w.steps[i + 1];
     if (!next) return { ...fresh(run), status: 'done', ...owed };
-    const { [next.name]: _dropped, ...sessions } = run.sessions;
+    const { [next.name]: dropped, ...rest } = run.sessions;
+    const sessions = dropped?.same ? run.sessions : rest;
     return {
       ...fresh(run),
       step: next.name,

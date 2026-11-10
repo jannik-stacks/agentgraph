@@ -119,6 +119,17 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `tools`   | list of tool names     | none                                          | Allowed harness built-ins and [plugin tools](plugins.md)                             |
 | `returns` | list of proposal kinds | `[comment]`                                   | What it may [propose](proposals.md)                                                  |
 | `reads`   | `traces`               | none                                          | [The issue's run traces](checks.md#reading-traces); needs a tool that can read files |
+| `session` | `fresh` or `same`      | none                                          | [How long its session lasts](#sessions)                                              |
+
+### Sessions
+
+Without `session`, a step keeps its session across tries, a `back`, answers and asides, and starts a new one when the run enters it forward again. A step with `each` and a judge start a new session for every item.
+
+`session: same` keeps one session per run for each place the agent works. A step keeps it across tries, backs, answers and forward re-entry, and gets the branch diff again on re-entry. A step with `each` takes its items one after another as turns of that session. A judge keeps one session per check across items, tries and rounds, judges its items one after another, and on a later try is told the change may have moved since it last judged.
+
+`session: fresh` starts a new session every time the agent starts. A judge that ended without its result is still resumed once and told to record it.
+
+A resume that fails before the harness starts, or of a session another harness ran, runs once fresh with the full prompt. <!-- code: src/run/attempt.ts#runAttempt src/run/check.ts#runOneCheck src/workflow.ts#transition -->
 
 ## Checks
 

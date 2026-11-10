@@ -349,7 +349,8 @@ export const runAttempt = (
       const name = step.does.agent;
       const agent = graph.agents[name]!;
       const issue = t.issue;
-      const kept = step.each === undefined ? run.sessions[step.name] : undefined;
+      const keeps = agent.session === 'same' || (step.each === undefined && agent.session !== 'fresh');
+      const kept = keeps ? run.sessions[step.name] : undefined;
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       /** A step that judges the change, and does not fan out over it, opens on the whole of it. */
       const diff = step.back && !step.each ? yield* readCheckoutDiff(work) : '';
@@ -366,13 +367,14 @@ export const runAttempt = (
       const looked = (yield* store.list({ issue: run.issue })).filter(
         r => r.started < run.started && !isRetro(graph, r) && isHeardBy(graph, r.workflow, { kind: 'comment' })
       );
+      const change = diff && `## The change on the branch\n\n\`\`\`\`diff\n${formatSqueezed(diff, 20_000)}\n\`\`\`\``;
       const asked = formatRequest(t, run, pickNewest(...looked.map(r => r.seen ?? r.started)) ?? '');
       const prompt = [
         asked.text,
         ...[step.does.skill, ...(graph.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && graph.skills[s]?.body),
         w.body,
         context(t, asked.shown),
-        diff && `## The change on the branch\n\n\`\`\`\`diff\n${formatSqueezed(diff, 20_000)}\n\`\`\`\``,
+        change,
         w.branch &&
           `Work on the branch ${own ?? formatTemplate(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? formatTemplate(w.base, issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
@@ -426,9 +428,18 @@ export const runAttempt = (
           );
           tried = {
             ...tried,
-            ...(step.each === undefined &&
+            ...((step.each === undefined || keeps) &&
               r.id !== undefined && {
-                sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, harness: agent.harness, seen } },
+                sessions: {
+                  ...tried.sessions,
+                  [step.name]: {
+                    id: r.id,
+                    home: r.home,
+                    harness: agent.harness,
+                    ...(agent.session === 'same' && { same: true as const }),
+                    seen,
+                  },
+                },
               }),
           };
           if (!r.cut && r.ended !== 'stop')
@@ -438,16 +449,17 @@ export const runAttempt = (
             });
           return r;
         });
-      for (const item of items) {
+      for (const [i, item] of items.entries()) {
         yield* writeNews(run, work, caught.seen, t);
         const first = item === undefined ? prompt : `${prompt}\n\n## Item\n\n${item}`;
-        const r = yield* talk(
-          kept ? [run.feedback ?? 'Continue.', caught.text, ...outside, ending].filter(Boolean).join('\n\n') : first,
-          first,
-          caught.seen,
-          kept,
-          item
-        );
+        const resume = keeps ? tried.sessions[step.name] : undefined;
+        const turn = [
+          ...(i === 0 ? [run.feedback ?? 'Continue.', caught.text, ...outside] : []),
+          i === 0 && agent.session === 'same' && change,
+          item !== undefined && `## Item\n\n${item}`,
+          ending,
+        ];
+        const r = yield* talk(resume ? turn.filter(Boolean).join('\n\n') : first, first, caught.seen, resume, item);
         if (r.cut) return done(r.cut.outcome, yield* readContinuedRun({ ...tried, seen: r.cut.at }, r.cut.events));
         replies.push(r.final);
       }
@@ -531,6 +543,7 @@ export const runAttempt = (
               reply: replies.join('\n\n'),
               proposals: world,
               ...(run.answers && { answers: run.answers }),
+              ...(run.judges && { judges: run.judges }),
             },
             graph
           ),
@@ -540,6 +553,7 @@ export const runAttempt = (
     if ('cut' in checked)
       return done(checked.cut.outcome, yield* readContinuedRun({ ...tried, seen: checked.cut.at }, checked.cut.events));
     const { outcome: gated } = checked;
+    if ('judges' in checked && checked.judges) tried = { ...tried, judges: { ...tried.judges, ...checked.judges } };
     if (gated.kind === 'failed' || (gated.kind === 'pass' && problems.length > 0))
       return done(
         gated.kind === 'failed'

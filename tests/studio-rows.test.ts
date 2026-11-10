@@ -194,6 +194,20 @@ describe('sessions in a trace', () => {
     expect(sessions[0]?.raw).toBe(real.find(l => 'session' in l));
   });
 
+  it('says why a resume was dropped on the fresh session that replaced it', () => {
+    const at = '2026-10-16T00:00:01.000Z';
+    const sessions = findSessionRows([
+      { at, step: 'implement', key: 'k1', prompt: { ...real.flatMap(l => ('prompt' in l ? [l.prompt] : []))[0]! } },
+      {
+        at,
+        step: 'implement',
+        key: 'k1',
+        session: { id: 'g', resumed: false, dropped: 'no session f', ended: 'stop', usd: 0 },
+      },
+    ]);
+    expect(text(sessions[0])).toContain('resume dropped: no session f');
+  });
+
   it('reads an older trace with briefs and shows every tool call under its session', async () => {
     const old = await Effect.runPromise(
       Effect.flatMap(Store, store => Stream.runCollect(store.read('issue-6'))).pipe(
