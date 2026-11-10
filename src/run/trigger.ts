@@ -63,26 +63,43 @@ import {
   TrackerError,
 } from '../types.ts';
 
-/** Why a run is held: "Depends on" issues not yet closed and "Stacks on" issues without a pull request. */
-const findHold = (w: Workflow, issue: number, open: Issue[]) => {
-  if (w.branch === undefined) return undefined;
-  const t = open.find(t => t.number === issue);
-  const on = [
-    ...(t?.stacksOn === undefined ? [] : [{ depends: false, n: t.stacksOn }]),
-    ...(t?.dependsOn ?? []).map(n => ({ depends: true, n })),
-  ].filter(
-    ({ depends, n }) =>
-      open.some(t => t.number === n && (depends || !t.pull)) &&
-      (depends || !findBranchPull(open, formatRunBranch(w, { issue: n }, open)))
-  );
-  const closes = on.filter(d => d.depends).map(d => `#${d.n}`);
-  const pulls = on.filter(d => !d.depends).map(d => `#${d.n}`);
-  const parts = [
-    closes.length && `${closes.join(', ')} ${closes.length > 1 ? 'close' : 'closes'}`,
-    pulls.length && `${pulls.join(', ')} ${pulls.length > 1 ? 'have pull requests' : 'has a pull request'}`,
-  ].filter(Boolean);
-  return parts.length ? `until ${parts.join(' and ')}` : undefined;
-};
+/**
+ * Why a run is held: "Depends on" issues not yet closed, and with `stacks` the issue it stacks on while that has no pull
+ * request. One closed without its work landing is reported instead of falling back to the base branch.
+ */
+const findHold = (graph: Graph, r: Run, open: Issue[]) =>
+  Effect.gen(function* () {
+    const w = graph.workflows[r.workflow]!;
+    const t = open.find(t => t.number === r.issue);
+    if (w.branch === undefined || !t) return undefined;
+    const closes = (t.dependsOn ?? []).filter(n => open.some(o => o.number === n)).map(n => `#${n}`);
+    const on = graph.stacks && !r.checkout ? t.stacksOn : undefined;
+    const parent = open.find(o => o.number === on);
+    const waits = parent && !parent.pull && !findBranchPull(open, formatRunBranch(w, { issue: on! }, open));
+    const dropped = on !== undefined && !parent && !(yield* isWorkLanded(w, on));
+    const until = [
+      closes.length && `${closes.join(', ')} ${closes.length > 1 ? 'close' : 'closes'}`,
+      waits && `#${on} has a pull request`,
+    ].filter(Boolean);
+    const why = [
+      until.length && `until ${until.join(' and ')}`,
+      dropped && `#${on}, which it stacks on, closed without a merged pull request`,
+    ].filter(Boolean);
+    return why.length ? why.join('; ') : undefined;
+  });
+
+const isWorkLanded = (w: Workflow, n: number) =>
+  Effect.gen(function* () {
+    const tracker = yield* Tracker;
+    const parent = yield* tracker.issue(n);
+    if (parent.pull) return parent.state === 'merged';
+    const run = (yield* (yield* Store).list({ issue: n }))
+      .filter(r => r.checkout?.branch)
+      .toSorted((a, b) => a.started.localeCompare(b.started))
+      .at(-1);
+    const branch = formatRunBranch(w, run ?? { issue: n }, [parent]);
+    return branch === undefined || (yield* tracker.issues({ branch })).some(p => p.state === 'merged');
+  }).pipe(Effect.catch(e => Effect.as(Effect.logWarning(`stack parent #${n}`, e), true)));
 
 const spokenByCli = (issue: number, text: string, at: string, parent?: Comment): Event => ({
   id: randomUUID(),
@@ -735,7 +752,10 @@ export const tick = (
       );
 
     const live = (yield* store.list({ status: 'running' })).filter(mine).filter(r => graph.workflows[r.workflow]);
-    const hold = (r: Run) => findHold(graph.workflows[r.workflow]!, r.issue, issues);
+    const holds = new Map(
+      yield* Effect.forEach(live, r => Effect.map(findHold(graph, r, issues), why => [r.id, why] as const))
+    );
+    const hold = (r: Run) => holds.get(r.id);
     yield* Effect.forEach(
       live.filter(r => r.reason !== hold(r)),
       before =>
