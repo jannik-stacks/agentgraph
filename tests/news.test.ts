@@ -71,7 +71,7 @@ describe('formatRequest', () => {
   const agent = (minute: number, body = '/agent') =>
     said('morgan', at(minute), { id: `c${minute}`, body, agentRequest: body.slice('/agent'.length).trim() });
   const ask = (t: IssueWithPull, minute: number, runs: Parameters<typeof formatRequest>[2] = []) =>
-    formatRequest(t, { ...run, started: at(minute) }, runs);
+    formatRequest(t, { ...run, started: at(minute) }, runs).text;
 
   it('includes a comment written before a bare /agent in full', () => {
     const text = ask(pull([said('morgan', at(1), { id: 'c1', body: long }), agent(2)]), 2);
@@ -105,9 +105,20 @@ describe('formatRequest', () => {
 
   it('stops at what the run already saw, so a later step does not take a later comment as the request', () => {
     const t = pull([agent(1), said('morgan', at(2), { id: 'c2', body: 'and the tests too' })]);
-    expect(formatRequest(t, { ...run, started: at(1), seen: at(1) }, [])).toBe(
+    expect(formatRequest(t, { ...run, started: at(1), seen: at(1) }, []).text).toBe(
       '## What you were asked\n\n@morgan: /agent'
     );
+  });
+
+  it('returns what it shows, the request and its review thread', () => {
+    const thread = { path: 'kit/package.json', under: '1' };
+    const request = said('morgan', at(2), { id: '2', body: '/agent', agentRequest: '', ...thread });
+    const before = said('morgan', at(1), { id: '1', body: 'hm', path: 'kit/package.json' });
+    const other = said('bot[bot]', at(3), { id: '3', body: 'Opened #18.' });
+    expect(formatRequest(pull([before, request, other]), { ...run, started: at(2) }, []).shown).toEqual([
+      request,
+      before,
+    ]);
   });
 
   it('shows replies that came after the request in its review thread, so a settled ask gets no second answer', () => {
@@ -115,7 +126,7 @@ describe('formatRequest', () => {
     const request = said('morgan', '2026-10-19T17:00:00Z', { id: '2', body: '/agent', agentRequest: '', ...thread });
     const settled = said('morgan', '2026-10-19T17:02:00Z', { id: '3', body: 'Renamed in cb8b13e.', ...thread });
     const elsewhere = said('morgan', '2026-10-19T17:03:00Z', { id: '4', body: 'and this?', path: 'kit/src/a.ts' });
-    const text = formatRequest(
+    const { text } = formatRequest(
       pull([asked, request, settled, elsewhere]),
       { ...run, started: request.at, seen: settled.at },
       [{ ...run, started: '2026-10-19T16:00:00Z', seen: asked.at }]

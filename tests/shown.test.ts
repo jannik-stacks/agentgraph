@@ -193,4 +193,16 @@ describe('the agent context', () => {
     expect(text).toContain(`${'a'.repeat(100)}`);
     expect(text).toContain('Thanks');
   });
+
+  it('leaves out of the timeline what the request already shows', () => {
+    const said = (body: string, at: string) => ({
+      ...spoke('maintainer'),
+      at,
+      comment: { id: at, author: 'maintainer', body, at },
+    });
+    const request = said('/agent rename the helper', '2026-10-22T10:01:00Z');
+    const text = context({ issue: { ...issue, events: [request, said('Thanks', '2026-10-22T10:03:00Z')] } }, [request]);
+    expect(text).not.toContain('rename the helper');
+    expect(text).toContain('Thanks');
+  });
 });
