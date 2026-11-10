@@ -686,7 +686,11 @@ export const tick = (
       const w = graph.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
       if (!r.base || !head || !w) continue;
-      const tip = findBranchPull(issues, formatRunBranch(w, r, issues))?.pull.head;
+      const branch = formatRunBranch(w, r, issues);
+      const tip =
+        findBranchPull(issues, branch)?.pull.head ??
+        (branch &&
+          (yield* Effect.flatMap(Sandbox, s => s.readHead(branch)).pipe(Effect.orElseSucceed(() => undefined))));
       yield* runFollow(w, r, r.base, head, tip, graph).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
@@ -719,7 +723,11 @@ export const tick = (
               : Effect.gen(function* () {
                   const head = yield* sandbox.readHead(pull.branch).pipe(Effect.orElseSucceed(() => pull.head));
                   yield* traceAsk(r, `Catch-up failed: ${formatFailure(e)}`);
-                  return { run: { ...ready, blocked: { base, head, graph: graph.sha } }, outcome: undefined };
+                  const moved = (yield* store.get(r.id))?.moved;
+                  return {
+                    run: { ...ready, ...(moved && { moved }), blocked: { base, head, graph: graph.sha } },
+                    outcome: undefined,
+                  };
                 })
           )
         );

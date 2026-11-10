@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { configDefaults, defineConfig } from 'vitest/config';
 
-for (const name of ['BASE', 'DIR', 'ISSUE', 'PROPOSALS', 'CONTEXT', 'REPLY', 'TRACES', 'RUN_TRACE', 'ITEM'])
+for (const name of ['BASE', 'DIR', 'ISSUE', 'PROPOSALS', 'CONTEXT', 'REPLY', 'TRACES', 'RUN_TRACE', 'ITEM', 'FROM'])
   delete process.env[`AGENTGRAPH_${name}`];
 for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'], { encoding: 'utf8' }).split('\n'))
   if (name) delete process.env[name];
@@ -12,6 +12,7 @@ const toolTests = [
   'tests/agentgraph-ui-checks.test.ts',
   'tests/base-moved-rebase.test.ts',
   'tests/base-moved-checks.test.ts',
+  'tests/base-moved-gain.test.ts',
   'tests/bench-graph-size.test.ts',
   'tests/bench-start-runs.test.ts',
   'tests/bench.test.ts',

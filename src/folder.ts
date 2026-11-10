@@ -245,7 +245,11 @@ const compile = (
     if (loaded.workflow) workflows[loaded.workflow.name] = loaded.workflow;
   }
   for (const w of Object.values(workflows))
-    for (const step of w.steps) if ('agent' in step.does && step.does.skill) used.add(step.does.skill);
+    for (const step of w.steps) {
+      if ('agent' in step.does && step.does.skill) used.add(step.does.skill);
+      if (step.conflict && !['back', 'ask'].includes(step.conflict) && !workflows[step.conflict]?.on.conflict)
+        sayer(w.path)(`steps.${step.name}.conflict: back, ask or a workflow on conflict, not ${step.conflict}`);
+    }
   for (const name of Object.keys(settings?.commands ?? {}))
     if (!commandVerbs.includes(name) && !workflows[name]?.on.issue_comment)
       sayer('settings.yaml')(`commands.${name}: no command or comment workflow is named ${name}`);

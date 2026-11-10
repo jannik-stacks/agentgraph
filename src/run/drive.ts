@@ -19,7 +19,7 @@ import {
 import { type Services, formatFailure } from './execute.ts';
 import { formatSettled } from './start.ts';
 import { removeThreads, writeEyes, writeStatus, readRunSpend, runEndChecks } from './settle.ts';
-import { moveCheckoutOnto } from './follow.ts';
+import { moveCheckoutOnto, readBaseGain } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
 import {
@@ -177,6 +177,11 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
       }
 
+      if (current.moved) {
+        const { moved, ...rest } = current;
+        const gain = yield* readBaseGain(made.git, ref, moved.from, moved.onto);
+        yield* store.put((current = { ...rest, feedback: [rest.feedback, gain].filter(Boolean).join('\n\n') }));
+      }
       if (!w.on.feedback && !readonly) yield* runSetup(graph, made, current);
       const onto = current.onto?.sha ?? (made.saved && !made.head ? current.base?.sha : undefined);
       const work = onto ? yield* moveCheckoutOnto(made, onto, !current.onto || current.tries === 0) : made;

@@ -48,7 +48,16 @@ export class EachFailed extends Data.TaggedError('EachFailed')<{ detail: string 
 
 const lines = (text: string) => text.split('\n').filter(line => line.trim());
 
-/** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
+const splitHunks = (diff: string) =>
+  diff
+    .split(/^(?=diff --git )/m)
+    .filter(Boolean)
+    .flatMap(file => {
+      const [head = '', ...hunks] = file.split(/^(?=@@ )/m);
+      return hunks.map(hunk => `${head}${hunk}`.trimEnd());
+    });
+
+/** The items a fan-out runs over: changed files, diff hunks, hunks the base gained since `AGENTGRAPH_FROM`, or the lines a command prints. */
 export const findFanOutItems = (
   each: string,
   graph: Graph,
@@ -56,16 +65,14 @@ export const findFanOutItems = (
   minutes: number,
   env: Record<string, string> = { AGENTGRAPH_BASE: work.base }
 ) => {
-  if (each === 'hunks')
-    return Effect.map(readCheckoutDiff(work), diff =>
-      diff
-        .split(/^(?=diff --git )/m)
-        .filter(Boolean)
-        .flatMap(file => {
-          const [head = '', ...hunks] = file.split(/^(?=@@ )/m);
-          return hunks.map(hunk => `${head}${hunk}`.trimEnd());
-        })
-    );
+  if (each === 'hunks') return Effect.map(readCheckoutDiff(work), splitHunks);
+  if (each === 'merged')
+    return env.AGENTGRAPH_FROM
+      ? Effect.map(
+          readGit(work.git, ['diff', '--no-color', '--no-ext-diff', '--text', env.AGENTGRAPH_FROM, work.base]),
+          splitHunks
+        )
+      : Effect.succeed([]);
   if (each === 'files') return Effect.map(readCheckoutDiff(work, '--name-only'), lines);
   return Effect.flatMap(runShell(each, graph, work.dir, env, minutes), out =>
     out.code === 0 ? Effect.succeed(lines(out.output)) : Effect.fail(new EachFailed({ detail: out.output.trim() }))
