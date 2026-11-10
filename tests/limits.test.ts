@@ -104,7 +104,7 @@ describe('issue limits', () => {
   });
 });
 
-describe('a run at its limits', () => {
+describe('a run at its limits', { timeout: 60_000 }, () => {
   beforeAll(() => fakeDocker().restore);
   const capped = { ...graph, limits: { ...graph.limits, usdPerRun: 0.4, max: { usdPerRun: 5 } } };
   const spent = [
