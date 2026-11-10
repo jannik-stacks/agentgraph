@@ -212,7 +212,6 @@ export const runAside = (
   number: number
 ) =>
   Effect.gen(function* () {
-    const tracker = yield* Tracker;
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
     if (!to || !('agent' in to.does))
@@ -269,10 +268,9 @@ export const runAside = (
     );
     if (!back && !landed.some(a => a.ok))
       return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
-    const undone = landed.some(a => a.ok) && run.eyes ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
-    yield* writeAppliedTrace(run.id, step.name, [...landed, ...undone]);
-    const { eyes, ...rest } = landed.some(a => a.ok) ? removeThreads(run) : run;
-    const answered = { ...rest, ...(eyes && !undone.length && { eyes }) };
+    yield* writeAppliedTrace(run.id, step.name, landed);
+    const { eyes: _eyes, ...replied } = removeThreads(run);
+    const answered = landed.some(a => a.ok) ? replied : run;
     if (!back || r.id === undefined) return { run: answered };
     const sessions = { ...run.sessions, [to.name]: { id: r.id, home: r.home, ...(kept?.seen && { seen: kept.seen }) } };
     return { run: { ...answered, sessions }, outcome: { kind: 'back', why: back.why } as const };

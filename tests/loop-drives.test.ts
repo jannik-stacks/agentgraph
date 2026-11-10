@@ -180,9 +180,7 @@ describe('loop drives', () => {
         const second = await loop.withStore(s => s.list({ issue: 9 }));
         expect(second).toHaveLength(1);
         expect(
-          readTrace(loop.where.data, second[0]!.id).filter(
-            t => 'applied' in t && t.applied.proposal.kind === 'react' && !t.applied.proposal.remove
-          )
+          readTrace(loop.where.data, second[0]!.id).filter(t => 'applied' in t && t.applied.proposal.kind === 'react')
         ).toHaveLength(1);
       } finally {
         loop.releaseSweep();

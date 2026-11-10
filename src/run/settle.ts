@@ -9,7 +9,7 @@ import { LockHeldError } from '../owner.ts';
 import { type StatusChange, readPlugins } from '../plugin.ts';
 import type { Proposal } from '../proposal.ts';
 import { getSha } from '../hash.ts';
-import type { Applied } from '../event.ts';
+import type { Applied, Event } from '../event.ts';
 import type { Services } from './execute.ts';
 import { runEndedChecks } from './evaluate.ts';
 import { readIssueWithPull } from './hear.ts';
@@ -67,8 +67,6 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       .lock(`status-${run.issue}`)
       .pipe(Effect.retry({ while: e => e.cause instanceof LockHeldError, schedule: Schedule.spaced('50 millis') }));
     const tracker = yield* Tracker;
-    const undone = run.eyes && run.status !== 'running' ? [yield* tracker.apply(run.eyes.issue, run.eyes.undo)] : [];
-    yield* writeAppliedTrace(run.id, run.step, undone);
     let shown = true;
     if (!isQuiet(w)) {
       const before = yield* store.get(run.id);
@@ -113,13 +111,9 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       }
       yield* writeAppliedTrace(run.id, run.step, said);
     }
-    if (undone.length === 0 && shown === !run.unshown) return run;
-    const { eyes, unshown: _unshown, ...rest } = run;
-    const next = {
-      ...rest,
-      ...(eyes && !undone.some(a => a.ok) && { eyes }),
-      ...(!shown && { unshown: true as const }),
-    };
+    if (shown === !run.unshown) return run;
+    const { unshown: _unshown, ...rest } = run;
+    const next = { ...rest, ...(!shown && { unshown: true as const }) };
     yield* store.put(next);
     return next;
   }).pipe(
@@ -127,6 +121,19 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     useRunLink(run),
     Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run))
   );
+
+export const writeEyes = (run: Run, issue: number, m: Event) =>
+  Effect.gen(function* () {
+    if (m.kind !== 'comment' && m.kind !== 'label' && m.kind !== 'column') return;
+    if (m.kind === 'comment' && !m.comment?.id) return;
+    const react: Extract<Proposal, { kind: 'react' }> = {
+      kind: 'react',
+      ...(m.comment && { comment: m.comment.id, ...(m.comment.path !== undefined && { review: true }) }),
+    };
+    const applied = yield* (yield* Tracker).apply(issue, react);
+    yield* (yield* Store).trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
+    return applied.ok ? { issue, undo: react } : undefined;
+  }).pipe(Effect.catchTag('TrackerError', e => Effect.logWarning(`react for run ${run.id}`, e)));
 
 const announce = (graph: Graph, change: StatusChange) =>
   Effect.gen(function* () {

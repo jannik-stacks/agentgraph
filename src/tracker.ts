@@ -636,18 +636,11 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             return { proposal: p, ok: true, url: pr.url };
           }
           case 'react': {
-            const file = join(findIssueDir(dir, n), 'reactions');
             const id = p.comment ?? `#${n}`;
-            if (p.remove === undefined) {
-              await appendFile(file, `eyes ${id}\n`);
-              return { proposal: p, ok: true, id };
-            }
-            const lines = ((await readIssueFile(n, 'reactions')) ?? '').split('\n').filter(Boolean);
-            const at = lines.indexOf(`eyes ${p.remove}`);
-            if (at < 0) return no(`no reaction ${p.remove} of ours on #${n}`);
-            lines.splice(at, 1);
-            writeFileAtomic(file, lines.map(l => `${l}\n`).join(''));
-            return { proposal: p, ok: true };
+            const lines = ((await readIssueFile(n, 'reactions')) ?? '').split('\n');
+            if (!lines.includes(`eyes ${id}`))
+              await appendFile(join(findIssueDir(dir, n), 'reactions'), `eyes ${id}\n`);
+            return { proposal: p, ok: true, id };
           }
           case 'ask':
           case 'back':

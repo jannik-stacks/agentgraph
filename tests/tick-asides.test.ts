@@ -248,11 +248,8 @@ describe('tick', () => {
       { issue: 8, comment: '2026-10-16T00:00:05.000Z' },
     ]);
     expect(marks.flatMap(t => ('session' in t ? [!!t.session.aside] : []))).toEqual([true]);
-    expect(readFileSync(issuePath(where.tracker, 8, 'reactions'), 'utf8')).toBe('');
-    expect(reactions(where.data, 'run-7')).toEqual([
-      [true, undefined],
-      [true, '2026-10-16T00:00:05.000Z'],
-    ]);
+    expect(readFileSync(issuePath(where.tracker, 8, 'reactions'), 'utf8')).toBe('eyes 2026-10-16T00:00:05.000Z\n');
+    expect(reactions(where.data, 'run-7')).toEqual([true]);
   });
 
   it('replies under a review thread on the pull request when the change was asked on the issue', async () => {

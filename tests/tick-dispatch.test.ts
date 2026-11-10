@@ -157,6 +157,22 @@ describe('tick', () => {
     expect(await run(Effect.flatMap(Store, store => store.list()))).toEqual([]);
   });
 
+  it('refreshes the status header and keeps one 👀 per comment when a new run picks the issue up before it is driven', async () => {
+    const where = world();
+    const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
+    expect((await run(tick(small))).map(r => r.status)).toEqual(['done']);
+    const header = () => readFileSync(issuePath(where.tracker, 8), 'utf8').match(/\n> ※ .*/)?.[0];
+    expect(header()).toBe('\n> ※ Done');
+    where.human('/agent once more', '2026-10-17T00:00:00.000Z');
+    const [picked] = await run(tick(small, undefined, false, 0, undefined, () => Effect.void));
+    expect(picked).toMatchObject({ status: 'running', step: 'implement' });
+    expect(header()).toBe('\n> ※ Working on implement');
+    await run(Effect.flatMap(Tracker, f => f.apply(7, { kind: 'react', comment: '2026-10-17T00:00:00.000Z' })));
+    expect(readFileSync(issuePath(where.tracker, 7, 'reactions'), 'utf8')).toBe(
+      'eyes 2026-10-16T00:00:00.000Z\neyes 2026-10-17T00:00:00.000Z\n'
+    );
+  });
+
   it('begins a run from a trusted command, drives it, and begins again only on a new command', async () => {
     const where = world();
     const at = '2026-10-16T00:00:01.000Z';
@@ -181,15 +197,11 @@ describe('tick', () => {
     expect(second.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs).toHaveLength(2);
     expect(specs[1]!.prompt).toContain('@morgan: /agent once more');
-    expect(readFileSync(issuePath(where.tracker, 7, 'reactions'), 'utf8')).toBe('');
-    expect(reactions(where.data, first[0]!.id)).toEqual([
-      [true, undefined],
-      [true, '2026-10-16T00:00:00.000Z'],
-    ]);
-    expect(reactions(where.data, second[0]!.id)).toEqual([
-      [true, undefined],
-      [true, '2026-10-17T00:00:00.000Z'],
-    ]);
+    expect(readFileSync(issuePath(where.tracker, 7, 'reactions'), 'utf8')).toBe(
+      'eyes 2026-10-16T00:00:00.000Z\neyes 2026-10-17T00:00:00.000Z\n'
+    );
+    expect(reactions(where.data, first[0]!.id)).toEqual([true]);
+    expect(reactions(where.data, second[0]!.id)).toEqual([true]);
   });
 
   it.each([

@@ -40,7 +40,7 @@ Configured triggers start runs on these inputs:
 
 `agi dispatch 12 --workflow issue` starts a workflow by hand. Runs can also start through [agent dispatch](#dispatch), [feedback](#retros) or [conflicts](#when-the-base-or-the-graph-moves). `pull_request` and `branches` are accepted but start no runs.
 
-With several comment workflows, `/agent` starts the first. Unmarked comments are context; pull request comments count for their issue, and bot comments start nothing. An eyes reaction marks activity until the engine replies.
+With several comment workflows, `/agent` starts the first. Unmarked comments are context; pull request comments count for their issue, and bot comments start nothing. An eyes reaction stays on each comment a run takes.
 
 A label starts its workflow once per issue; use restart for another run. One work run holds an issue, and removing its trigger label stops it. <!-- code: src/workflow.ts#isIssueTriggered --> <!-- code: src/run/trigger.ts#instruct --> <!-- code: src/workflow.ts#Front --> <!-- code: src/run/trigger.ts#tick -->
 
@@ -149,7 +149,7 @@ Catch-up errors wait for the base, branch or graph to change before retrying. Pa
 
 The engine derives status from run records. GitHub shows a label; the folder tracker moves the issue into a status folder. A question takes priority over review, then work, then the newest ended run. Quiet workflows do not contribute.
 
-A status header in the issue body moves to the pull request once available. The engine replaces only its marked section; other body text remains. Questions notify through comments, while step and check details stay in the studio.
+A status header in the issue body moves to the pull request once available and follows every status change, including a run picking the issue up again. The engine replaces only its marked section; other body text remains. Questions notify through comments, while step and check details stay in the studio.
 
 `status` renames labels or folders; omitted entries get no label, and `status: false` disables them. Status hooks still fire.
 
