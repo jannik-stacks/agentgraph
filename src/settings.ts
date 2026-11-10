@@ -1,7 +1,7 @@
 import { Effect, Schema } from 'effect';
 import { GraphSettings, type Graph } from './folder.ts';
 import type { Workflow } from './workflow.ts';
-import { Count } from './types.ts';
+import { Count } from './event.ts';
 
 export const InstanceFile = Schema.Struct({
   checkout: Schema.String,

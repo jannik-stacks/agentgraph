@@ -112,10 +112,16 @@ describe('the question', () => {
 describe('the status header', () => {
   const three = () => ['plan', 'implement', 'review'];
   const header = (runs: Run[], pulled = false, steps = three) =>
-    formatStatusHeader(runs, pulled, steps, () => 0.4215, {
-      pull: 'https://github.com/o/r/pull/8',
-      studio: 'http://studio:5492/',
-    });
+    formatStatusHeader(
+      runs,
+      pulled,
+      steps,
+      r => (r.id === 'priced' ? { usd: 0.4215 } : { usd: 0.4215, unpriced: 'm' }),
+      {
+        pull: 'https://github.com/o/r/pull/8',
+        studio: 'http://studio:5492/',
+      }
+    );
   const line = (runs: Run[], pulled = false, steps = three) => header(runs, pulled, steps).split('\n')[0];
 
   it('names the status in one quoted line, with the step, where it is among the steps and a link to the run', () => {
@@ -135,17 +141,18 @@ describe('the status header', () => {
   });
 
   it('keeps the mark plain without a studio url', () => {
-    expect(formatStatusHeader([run], false, three, () => 0).split('\n')[0]).toBe(
+    expect(formatStatusHeader([run], false, three, () => ({ usd: 0 })).split('\n')[0]).toBe(
       '> ※ Working on implement, step 2 of 3'
     );
   });
 
   it('keeps the runs in a collapsed table after the line', () => {
+    expect(header([{ ...run, id: 'priced' }])).toContain('| running | $0.42 |');
     expect(header([{ ...run, checkout: { branch: 'b', base: 'main' } }], true)).toBe(
       [
         '> [※](http://studio:5492/runs/issue-7) Working on implement, step 2 of 3',
         '<details><summary>Runs</summary>',
-        '| Workflow | Step | State | Cost | Pull request | Studio |\n| --- | --- | --- | --- | --- | --- |\n| issue | implement | running | $0.42 | https://github.com/o/r/pull/8 | [issue-7](http://studio:5492/runs/issue-7) |',
+        '| Workflow | Step | State | Cost | Pull request | Studio |\n| --- | --- | --- | --- | --- | --- |\n| issue | implement | running | $0.42+ | https://github.com/o/r/pull/8 | [issue-7](http://studio:5492/runs/issue-7) |',
         '</details>',
       ].join('\n\n')
     );

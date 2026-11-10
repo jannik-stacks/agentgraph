@@ -119,6 +119,19 @@ describe('transcript', () => {
     expect(two).toContain('3 thinking: The issue names kit/src/fee.ts.');
   });
 
+  it('counts check spend in the run header and marks a total that leaves out an unpriced model', () => {
+    const unpriced: Trace = {
+      at,
+      step: 'implement',
+      session: { resumed: false, ended: 'stop', usd: 0, unpriced: 'm' },
+    };
+    const judged = [{ ...checks[0]!, usd: 0.25 }];
+    expect(transcript(21, [{ run, lines, checks: judged }])).toContain('(issue, waiting, $0.65)');
+    expect(transcript(21, [{ run, lines: [...lines, unpriced], checks: judged }])).toContain(
+      '(issue, waiting, $0.65+)'
+    );
+  });
+
   it('keeps the newest sessions of a run too long to fit', () => {
     const session = (n: number): Trace[] => [
       { at, step: 'implement', prompt: { ...spec, prompt: `try ${n}` } },

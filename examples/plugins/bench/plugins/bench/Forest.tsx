@@ -163,8 +163,8 @@ export const Forest = ({
             .map(p => {
               const tested = p.perCase.filter(s => s.row.hidden !== undefined);
               const costs = p.perCase.map(s => rowCost(s.row));
-              const mean = getMean(costs);
-              const sd = Math.sqrt(getMean(costs.map(c => (c - mean) ** 2)));
+              const mean = getMean(costs)!;
+              const sd = Math.sqrt(getMean(costs.map(c => (c - mean) ** 2))!);
               const open = p.key === picked;
               const { caseMeans, cases, runs } = spreads.get(p.key)!;
               return (

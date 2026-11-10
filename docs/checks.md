@@ -61,7 +61,7 @@ Scripts run in the checkout, without network, with these variables: <!-- code: s
 
 Workflow `checks` run when the run ends on a throwaway checkout of its kept change, with no tracker access. Only `info` and `warn` modes are allowed, so results cannot change the run status. Inapplicable checks record n/a; checks that cannot run record an empty result. Results enter the [check record](runs.md#the-check-record). <!-- code: src/workflow.ts#transition src/run/evaluate.ts#runEndedChecks -->
 
-The run budget includes session and judge costs. A running run stops after a try that exceeds `usd-per-run`; end-check costs are recorded after it ends. <!-- code: src/run/settle.ts#readRunSpend src/run/drive.ts#runWorkflow -->
+The run budget includes session and judge costs. A running run stops after a try that exceeds `usd-per-run`; end-check costs are recorded after it ends. <!-- code: src/run/settle.ts#readRunSpend src/trace.ts#getRunSpend src/run/drive.ts#runWorkflow -->
 
 `agi check <name>... --runs` does the same on ended runs, `info` checks as `info` and the rest as `warn`; `--workflow` and `--issue` narrow the runs. A check with a later result under its current version is skipped. <!-- code: src/run/evaluate.ts#runLaterChecks --> The studio marks these results "checked later".
 

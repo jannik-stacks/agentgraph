@@ -1,3 +1,4 @@
+import { formatSpend, getRunSpend } from './trace.ts';
 import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './event.ts';
 import { formatFailedTryFeedback } from './workflow.ts';
 import { stoppedByEngine, type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
@@ -176,7 +177,7 @@ export const formatStatusHeader = (
   runs: Run[],
   pulled: boolean,
   steps: (run: Run) => string[],
-  usd: (run: Run) => number,
+  spend: (run: Run) => ReturnType<typeof getRunSpend>,
   links: { pull?: string; studio?: string } = {}
 ) => {
   const status = findIssueStatus(runs, pulled);
@@ -196,7 +197,7 @@ export const formatStatusHeader = (
       r.workflow,
       r.step,
       r.status,
-      `$${usd(r).toFixed(2)}`,
+      formatSpend(spend(r)),
       (r.checkout && links.pull) ?? '',
       links.studio ? `[${r.id}](${makeStudioRunUrl(links.studio, r.id)})` : r.id,
     ].join(' | ')
@@ -249,7 +250,7 @@ const checked = (e: CheckEntry) => {
 /** A trace line as one transcript entry, or nothing for lines a reader does not need. */
 const entry = (t: Trace): string | undefined => {
   if ('prompt' in t) return `prompt: ${clip(t.prompt.prompt, 1500)}`;
-  if ('session' in t) return `session ended ${t.session.ended}, $${t.session.usd.toFixed(2)}`;
+  if ('session' in t) return `session ended ${t.session.ended}, ${formatSpend(t.session)}`;
   if ('applied' in t) {
     const { proposal: p, ok, reason } = t.applied;
     if (p.kind === 'react') return;
@@ -317,8 +318,7 @@ export function transcript(
       if (said) sections.at(-1)!.entries.push(`${n + 1} ${said}`);
     });
     if (checks.length > 0) sections.push({ head: '### Checks', entries: checks.map(checked) });
-    const usd = lines.reduce((sum, t) => sum + ('session' in t ? t.session.usd : 0), 0);
-    const head = `## Run ${run.id} (${run.workflow}, ${run.status}, $${usd.toFixed(2)})`;
+    const head = `## Run ${run.id} (${run.workflow}, ${run.status}, ${formatSpend(getRunSpend([...lines, ...checks]))})`;
     const ends = sections.flatMap(s => s.entries.filter(e => /^\d+ (session|outcome)/.test(e)));
     return {
       full: [head, ...sections.flatMap(s => [s.head, shorten(s.entries).join('\n')].filter(Boolean))].join('\n\n'),

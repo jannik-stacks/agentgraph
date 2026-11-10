@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path';
 import { getRunOrigin } from '../src/meta.ts';
 import { makeVersionLabels } from '../src/labels.ts';
 import { getListPriceUsd, isModelPriced, readPrices, type TokenCounts } from '../src/prices.ts';
-import { getRounded } from '../src/stats.ts';
+import { getRounded, sumSpend } from '../src/stats.ts';
 import { findLatestChecks } from '../src/trace.ts';
 import { findCheckFields, mergeCheckFields, type ResultSheet } from '../src/results.ts';
 import { readJsonlRows, readRecordSync, writeFileAtomic } from '../src/store.ts';
@@ -160,8 +160,8 @@ export const readRunUsage = (data: string, id: string) => {
   }
   return {
     sessions: sessions.length,
-    usd: getRounded(sessions.reduce((a, s) => a + s.usd, 0)),
-    checkUsd: getRounded(checks.filter(e => !e.later).reduce((a, e) => a + e.usd, 0)),
+    usd: getRounded(sumSpend(sessions).usd),
+    checkUsd: getRounded(sumSpend(checks.filter(e => !e.later)).usd),
     ms: times.length ? Math.max(...times) - Math.min(...times) : 0,
     tokens,
     split,

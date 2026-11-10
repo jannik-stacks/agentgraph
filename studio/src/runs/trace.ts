@@ -2,6 +2,7 @@ import { Struct } from 'effect';
 import type { Located } from '../../../src/store.ts';
 import type { readRunLabels } from '../../../src/labels.ts';
 import { isOnIssue } from '../../../src/graph.ts';
+import { getRunSpend } from '../../../src/trace.ts';
 import { makeRunTrail } from '../graph/visits.ts';
 import { type CheckEntry, type CheckResult, type Outcome, type RunRecord, type Trace } from '../../../src/types.ts';
 
@@ -59,7 +60,7 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
 };
 
 export const makeRunSummary = (run: RunRecord, lines: Line[]) => ({
-  usd: lines.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0),
+  ...getRunSpend(lines),
   ...(lines.length > 0 && { lastAt: lines.at(-1)!.at }),
   trail: isOnIssue(run) ? makeRunTrail(lines) : [],
   urls: lines.flatMap(line =>

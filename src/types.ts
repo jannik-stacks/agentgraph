@@ -1,10 +1,11 @@
 import { Data, Effect, Formatter, type Redacted, Schema, type Stream, type Types } from 'effect';
-import type { Applied, Event, Issue } from './event.ts';
+import { type Applied, Count, type Event, type Issue } from './event.ts';
 import { PluginMetadata } from './meta.ts';
 import { Kind, Proposal } from './proposal.ts';
 import { CheckMode, type Result, ResultType } from './result.ts';
+import type { sumSpend } from './stats.ts';
 
-export const Count = Schema.Int.check(Schema.isGreaterThan(0));
+const Tally = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
@@ -81,8 +82,8 @@ const RunFields = {
   body: Text,
   step: Schema.String,
   status: Schema.Literals(['running', 'waiting', 'done', 'stopped']),
-  tries: Schema.Number,
-  rounds: Schema.Record(Schema.String, Schema.Number),
+  tries: Tally,
+  rounds: Schema.Record(Schema.String, Tally),
   sessions: Schema.Record(Schema.String, Kept),
   judges: Schema.optionalKey(Schema.Record(Schema.String, Kept)),
   feedback: Text,
@@ -94,10 +95,10 @@ const RunFields = {
   restarted: Flag,
   retried: Flag,
   seen: Text,
-  said: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.Struct({ issue: Schema.Number, under: Text })))),
-  eyes: Schema.optionalKey(Schema.Struct({ issue: Schema.Number, undo: Proposal.members[1] })),
+  said: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.Struct({ issue: Count, under: Text })))),
+  eyes: Schema.optionalKey(Schema.Struct({ issue: Count, undo: Proposal.members[1] })),
   base: Schema.optionalKey(
-    Schema.Struct({ pull: Schema.Number, branch: Schema.String, sha: Schema.String, from: Text, tip: Text })
+    Schema.Struct({ pull: Count, branch: Schema.String, sha: Schema.String, from: Text, tip: Text })
   ),
   onto: Schema.optionalKey(Schema.Struct({ sha: Schema.String, merge: Flag })),
   moved: Schema.optionalKey(Schema.Struct({ from: Schema.String, onto: Schema.String })),
@@ -122,21 +123,21 @@ const RunFields = {
 };
 
 /** Where one workflow run on one issue stands. */
-export const Run = Schema.Struct({ ...RunFields, issue: Schema.Number });
+export const Run = Schema.Struct({ ...RunFields, issue: Count });
 export type Run = Types.Mutable<typeof Run.Type>;
 
 export const Verdict = Schema.Struct({
   run: Schema.String,
-  issue: Schema.optional(Schema.Number),
+  issue: Schema.optional(Count),
   at: Schema.String,
   pass: Schema.Boolean,
   empty: Schema.Boolean,
   findings: Schema.optional(Schema.String),
-  items: Schema.Number,
-  failed: Schema.Number,
+  items: Tally,
+  failed: Tally,
 });
 
-export const RunRecord = Schema.Struct({ ...RunFields, issue: Schema.optionalKey(Schema.Number) });
+export const RunRecord = Schema.Struct({ ...RunFields, issue: Schema.optionalKey(Count) });
 export type RunRecord = Types.Mutable<typeof RunRecord.Type>;
 
 export const CommandLimits = Schema.Struct({
@@ -285,15 +286,15 @@ export type Trace = { at: string; step: string } & (
   | { event: SessionEvent; key?: string }
   | {
       key?: string;
-      session: Pick<Exit, 'used'> & {
-        id?: string;
-        resumed: boolean;
-        dropped?: string;
-        aside?: true;
-        ended: Extract<SessionEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
-        exit?: number;
-        usd: number;
-      };
+      session: Pick<Exit, 'used'> &
+        ReturnType<typeof sumSpend> & {
+          id?: string;
+          resumed: boolean;
+          dropped?: string;
+          aside?: true;
+          ended: Extract<SessionEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
+          exit?: number;
+        };
     }
   | { setup: Pick<Exit, 'used'> & { ms: number; exit: number } }
   | { cache: { files: number } }
@@ -313,17 +314,17 @@ export type Trace = { at: string; step: string } & (
 /** A check's full output in the store: its sha256 and its length in bytes. */
 export type Log = { hash: string; bytes: number };
 
-export type CheckEntry = Pick<Exit, 'used'> & {
-  at: string;
-  step: string;
-  check: CheckResult;
-  version: string;
-  usd: number;
-  item?: string;
-  exit?: number;
-  log?: Log;
-  later?: true;
-};
+export type CheckEntry = Pick<Exit, 'used'> &
+  ReturnType<typeof sumSpend> & {
+    at: string;
+    step: string;
+    check: CheckResult;
+    version: string;
+    item?: string;
+    exit?: number;
+    log?: Log;
+    later?: true;
+  };
 
 export class TrackerError extends Data.TaggedError('TrackerError')<{
   status?: number;

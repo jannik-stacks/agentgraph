@@ -4,7 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Result, Schema } from 'effect';
 import { parse } from 'yaml';
-import { issueStatuses, type IssueStatus } from './event.ts';
+import { Count, issueStatuses, type IssueStatus } from './event.ts';
 import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
@@ -24,10 +24,10 @@ import { Agent, Check, CommandLimits } from './types.ts';
 /** The limits block of settings.yaml. */
 const Limits = Schema.Struct({
   ...CommandLimits.fields,
-  minutes: Schema.Number.pipe(Schema.withDecodingDefaultType(Effect.succeed(30))),
-  usdPerRun: Schema.Number.pipe(Schema.withDecodingDefaultType(Effect.succeed(10))),
-  parallel: Schema.Int.pipe(Schema.withDecodingDefaultType(Effect.succeed(2))),
-  sessions: Schema.Int.pipe(Schema.withDecodingDefaultType(Effect.succeed(4))),
+  minutes: Schema.Finite.check(Schema.isGreaterThan(0)).pipe(Schema.withDecodingDefaultType(Effect.succeed(30))),
+  usdPerRun: Schema.Finite.check(Schema.isGreaterThan(0)).pipe(Schema.withDecodingDefaultType(Effect.succeed(10))),
+  parallel: Count.pipe(Schema.withDecodingDefaultType(Effect.succeed(2))),
+  sessions: Count.pipe(Schema.withDecodingDefaultType(Effect.succeed(4))),
 }).pipe(Schema.encodeKeys({ usdPerRun: 'usd-per-run' }));
 type Limits = typeof Limits.Type;
 

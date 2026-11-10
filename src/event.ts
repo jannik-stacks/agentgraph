@@ -1,6 +1,8 @@
 import { Schema, type Types } from 'effect';
 import type { Proposal } from './proposal.ts';
 
+export const Count = Schema.Int.check(Schema.isGreaterThan(0));
+
 export const issueStatuses = ['working', 'needs-review', 'needs-answer', 'done', 'stopped'] as const;
 export type IssueStatus = (typeof issueStatuses)[number];
 
@@ -12,17 +14,17 @@ const Text = Schema.optionalKey(Schema.String);
  * outsider's issue whose title and text are replaced.
  */
 export const Issue = Schema.Struct({
-  number: Schema.Number,
+  number: Count,
   title: Schema.String,
   body: Schema.String,
   state: Schema.Literals(['open', 'closed', 'merged']),
   labels: Schema.mutable(Schema.Array(Schema.String)),
   milestone: Text,
   author: Schema.String,
-  parent: Schema.optionalKey(Schema.Number),
+  parent: Schema.optionalKey(Count),
   withheld: Schema.optionalKey(Schema.Literal(true)),
-  stacksOn: Schema.optionalKey(Schema.Number),
-  dependsOn: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.Number))),
+  stacksOn: Schema.optionalKey(Count),
+  dependsOn: Schema.optionalKey(Schema.mutable(Schema.Array(Count))),
   pull: Schema.optionalKey(
     Schema.Struct({ branch: Schema.String, base: Schema.String, head: Schema.String, baseSha: Text })
   ),
@@ -42,7 +44,7 @@ export const Comment = Schema.Struct({
   edited: Text,
   agentRequest: Schema.optionalKey(Schema.Struct({ command: Text, text: Schema.String })),
   path: Text,
-  line: Schema.optionalKey(Schema.Number),
+  line: Schema.optionalKey(Count),
   under: Text,
 });
 export type Comment = Types.Mutable<typeof Comment.Type>;
@@ -54,7 +56,7 @@ export type Comment = Types.Mutable<typeof Comment.Type>;
 export const Event = Schema.Struct({
   source: Schema.optionalKey(Schema.Literal('cli')),
   id: Schema.String,
-  issue: Schema.Number,
+  issue: Count,
   kind: Schema.Literals([
     'comment',
     'approved',

@@ -51,10 +51,10 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | ------------- | ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------- |
 | `memory`      | Docker size string | `4g`    | Memory per Docker command, from `6m` to `64g`                                                                        |
 | `cpus`        | number             | 1.5     | CPUs per Docker command, from 0.01 to 64                                                                             |
-| `minutes`     | number             | 30      | Deadline per session, script or setup                                                                                |
-| `usd-per-run` | number             | 10      | Spend cap per run                                                                                                    |
-| `parallel`    | integer            | 2       | Concurrent runs; router runs take no slot                                                                            |
-| `sessions`    | integer            | 4       | Concurrent sessions and scripts of one instance, judges included <!-- code: src/run/execute.ts#sessionPermitsRef --> |
+| `minutes`     | number             | 30      | Deadline per session, script or setup, above 0                                                                       |
+| `usd-per-run` | number             | 10      | Spend cap per run, above 0                                                                                           |
+| `parallel`    | integer            | 2       | Concurrent runs, at least 1; router runs take no slot                                                                |
+| `sessions`    | integer            | 4       | Concurrent sessions and scripts of one instance, judges included, at least 1 <!-- code: src/run/execute.ts#sessionPermitsRef --> |
 
 Step `limits` override named memory and CPU fields. Sessions, scripts and judges share per-instance permits. The `box` runner rejects resource overrides, graph images and host tools. <!-- code: src/types.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks --> <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#sessionPermitsRef src/run/check.ts#runStepChecks -->
 

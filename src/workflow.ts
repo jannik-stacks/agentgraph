@@ -1,9 +1,9 @@
 import { basename } from 'node:path';
 import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
-import type { Event, Issue } from './event.ts';
+import { Count, type Event, type Issue } from './event.ts';
 import { Kind } from './proposal.ts';
-import { CommandLimits, Count, type Outcome, type Run, type RunRecord } from './types.ts';
+import { CommandLimits, type Outcome, type Run, type RunRecord } from './types.ts';
 
 /** A graph file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };

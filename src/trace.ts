@@ -1,4 +1,5 @@
 import type { Types } from 'effect';
+import { sumSpend } from './stats.ts';
 import type { CheckEntry, Exit, Outcome, Run, RunRecord, SessionStop, Trace, Verdict } from './types.ts';
 
 export const makeOutcomeLine = (step: string, outcome: Outcome, next: Run, failure?: SessionStop['reason']): Trace => ({
@@ -25,6 +26,12 @@ export const findLatestChecks = (entries: CheckEntry[], versions: Record<string,
   }
   return [...latest.values()].map(e => (current(e) ? e : { ...e, older: true as const }));
 };
+
+export const getRunSpend = (lines: (Trace | CheckEntry)[]) =>
+  sumSpend(lines.map(line => ('session' in line ? line.session : 'check' in line ? line : {})));
+
+export const formatSpend = ({ usd, unpriced }: ReturnType<typeof sumSpend>) =>
+  `$${usd.toFixed(2)}${unpriced === undefined ? '' : '+'}`;
 
 export const pickUsed = (x?: Pick<Exit, 'used'>) => (x?.used ? { used: x.used } : {});
 

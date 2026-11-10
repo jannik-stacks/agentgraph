@@ -223,7 +223,12 @@ describe('a base that moved', () => {
   it('keeps what a failing judged check after a rebase cost when it sends the run back', async () => {
     const where = await moved('other.txt');
     const { run } = services(where, [
-      [start('j'), { type: 'usage', input: 1, output: 1, usd: 0.25 }, result({ pass: false, why: 'a claim' })],
+      [
+        start('j'),
+        { type: 'usage', input: 1, output: 1, usd: 0.25 },
+        { type: 'usage', input: 1, output: 1, unpriced: 'mystery' },
+        result({ pass: false, why: 'a claim' }),
+      ],
       [start('i2'), reply({ kind: 'ask', question: 'Which claim?' })],
     ]);
     const strict = {
@@ -234,7 +239,7 @@ describe('a base that moved', () => {
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which claim?' });
     const judging = readChecks(where.data, stored!.id).filter(e => e.check.check === 'claims');
-    expect(judging.at(-1)!.usd).toBeCloseTo(0.25);
+    expect(judging.at(-1)).toMatchObject({ usd: 0.25, unpriced: 'mystery' });
   });
 
   it('does nothing when the branch is up to date', async () => {

@@ -456,7 +456,7 @@ const Bench = ({ value }: { value: BenchData }) => {
                 tip: [
                   varying.map(k => `${k} ${formatLabel(p.labels[k])}`).join(', '),
                   `quality ${fmt(p.y)} ± ${fmt((p.yCi[1] - p.yCi[0]) / 2)}`,
-                  `${formatUsd(getMean(p.perCase.map(s => rowCost(s.row))))} and ${formatMinutes(p.minutes)} per run`,
+                  `${formatUsd(getMean(p.perCase.map(s => rowCost(s.row)))!)} and ${formatMinutes(p.minutes)} per run`,
                   `${p.n} cases, ${p.repeats} runs`,
                   unpricedModels(p.perCase.map(s => s.row)),
                   p.judgeOnly ? 'judged only, so off the line' : '',

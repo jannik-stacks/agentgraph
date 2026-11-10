@@ -9,6 +9,7 @@ import { LockHeldError } from '../owner.ts';
 import { type StatusChange, readPlugins } from '../plugin.ts';
 import type { Proposal } from '../proposal.ts';
 import { getSha } from '../hash.ts';
+import { getRunSpend } from '../trace.ts';
 import type { Applied, Event } from '../event.ts';
 import type { Services } from './execute.ts';
 import { runEndedChecks } from './evaluate.ts';
@@ -31,13 +32,9 @@ export const isParked = (run: Run) =>
 export const readRunSpend = (id: string) =>
   Effect.flatMap(Store, store =>
     Effect.zipWith(
-      Stream.runFold(
-        store.read(id),
-        () => 0,
-        (sum, line) => sum + ('session' in line ? line.session.usd : 0)
-      ),
+      Stream.runCollect(Stream.filter(store.read(id), line => 'session' in line)),
       store.readChecks(id),
-      (work, checks) => checks.reduce((sum, e) => sum + e.usd, work)
+      (sessions, checks) => getRunSpend([...sessions, ...checks])
     )
   );
 
@@ -91,14 +88,14 @@ export const writeStatus = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       if (tracker.writeStatusHeader) {
         const runs = [...others, run];
         const spent = new Map(
-          yield* Effect.forEach(runs, r => Effect.map(readRunSpend(r.id), usd => [r.id, usd] as const))
+          yield* Effect.forEach(runs, r => Effect.map(readRunSpend(r.id), spend => [r.id, spend] as const))
         );
         const pull = t.pull ?? (t.issue.pull ? t.issue : undefined);
         const header = formatStatusHeader(
           runs,
           pulled,
           r => graph.workflows[r.workflow]?.steps.map(s => s.name) ?? [],
-          r => spent.get(r.id) ?? 0,
+          r => spent.get(r.id)!,
           { ...(pull && { pull: pull.url }), ...(tracker.studio && { studio: tracker.studio }) }
         );
         const on = pull?.number ?? run.issue;

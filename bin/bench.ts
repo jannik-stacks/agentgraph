@@ -1575,12 +1575,12 @@ export const makeBenchJudgeResult = (verdicts: JudgedVerdict[], arm: string, hum
       verdicts.map(
         v => (v[v.order[0] === side ? 'A' : 'B']?.findings ?? []).filter(f => f.severity === severity).length
       )
-    );
+    )!;
   const severities = (side: string) => ({ critical: count(side, 'critical'), high: count(side, 'high') });
-  const vsHuman = Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, getMean(ps)]));
+  const vsHuman = Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, getMean(ps)!]));
   return {
     check: 'bench/judge',
-    pass: getMean(Object.values(vsHuman)) >= 0.5,
+    pass: getMean(Object.values(vsHuman))! >= 0.5,
     value: {
       vsHuman,
       findings: severities(arm),

@@ -4,7 +4,7 @@ import type { Issue } from '../event.ts';
 import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
 import { Tracker, findBranchPull } from '../tracker.ts';
-import { makeOutcomeLine } from '../trace.ts';
+import { formatSpend, makeOutcomeLine } from '../trace.ts';
 import { context, getEvents } from '../context.ts';
 import { Sandbox, SandboxError } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout, readEngineVersions } from '../git.ts';
@@ -209,9 +209,9 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
 
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
-        const usd = current.status === 'running' ? yield* readRunSpend(current.id) : 0;
-        if (usd > graph.limits.usdPerRun) {
-          const why = `Spent $${usd.toFixed(2)}, over the graph's usd-per-run of ${graph.limits.usdPerRun}.`;
+        const spend = current.status === 'running' ? yield* readRunSpend(current.id) : undefined;
+        if (spend && spend.usd > graph.limits.usdPerRun) {
+          const why = `Spent ${formatSpend(spend)}, over the graph's usd-per-run of ${graph.limits.usdPerRun}.`;
           yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
         }
         if (!isRunDone(current)) yield* hear(true);

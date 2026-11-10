@@ -218,6 +218,12 @@ describe('bench score', () => {
     expect(frontier(points)).toEqual(['cheap', 'better']);
   });
 
+  it('shows no point for a group without a scored run', () => {
+    const rows = [row({ case: 'a', infra: 'docker unreachable' })];
+    expect(summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes })).toEqual([]);
+    expect(summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes, infraZero: true })).toHaveLength(1);
+  });
+
   it('leaves excluded runs out of points, counts and denominators unless kept, and drops infra ones too', () => {
     const exclude = (why: string) => ({ labels: { ...row({}).labels, exclude: why } });
     const rows = [

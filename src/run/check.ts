@@ -9,6 +9,7 @@ import { transcript, formatSqueezed } from '../context.ts';
 import type { Proposal } from '../proposal.ts';
 import type { Step } from '../workflow.ts';
 import { pickUsed } from '../trace.ts';
+import { sumSpend } from '../stats.ts';
 import { getSha } from '../hash.ts';
 import type { Session } from '../session.ts';
 import { getStepReturns } from '../graph.ts';
@@ -18,6 +19,7 @@ import { EachFailed, findFanOutItems, readCheckoutDiff, most } from './checkout.
 import { makeAgentSessionSpec, runShell, runJudge } from './execute.ts';
 import {
   type Check,
+  type CheckEntry,
   type CheckResult,
   type Checkout,
   type Exit,
@@ -104,16 +106,16 @@ const formatAnswers = (answers: Run['answers'] = []) =>
         ),
       ].join('\n\n');
 
-export type Item = Pick<Exit, 'used'> & {
-  item: string | undefined;
-  pass: boolean;
-  value?: ResultValue;
-  findings: string;
-  exit?: number;
-  output?: string;
-  unread?: true;
-  usd: number;
-};
+export type Item = Pick<Exit, 'used'> &
+  Pick<CheckEntry, 'usd' | 'unpriced'> & {
+    item: string | undefined;
+    pass: boolean;
+    value?: ResultValue;
+    findings: string;
+    exit?: number;
+    output?: string;
+    unread?: true;
+  };
 
 /** The judge prompts that passed per data dir, run, check, judge and diff; the same judge, prompt and diff is not judged again. */
 const passes = new WeakMap<object, Set<string>>();
@@ -163,7 +165,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
       value: ResultValue | undefined,
       exit?: number,
       output?: string,
-      usd = 0
+      spend = sumSpend([])
     ): Item => {
       const exited = exit === undefined ? {} : { exit };
       const unread = value === undefined ? 'its last line is no JSON object' : findMismatch(returns, value);
@@ -175,7 +177,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
           ...exited,
           unread: true,
           ...(output && { output }),
-          usd,
+          ...spend,
         };
       const why = typeof value.why === 'string' ? value.why : '';
       const failed = info ? undefined : exit ? `exit ${exit}` : findMismatch(check.pass ?? defaultPass, value);
@@ -187,7 +189,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
         findings: check.pass && failed ? [failed, why].filter(Boolean).join('\n') : why || failed || '',
         ...exited,
         output: output ?? why,
-        usd,
+        ...spend,
       };
     };
     const one = (item: string | undefined) =>
@@ -229,7 +231,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
         if (!reads && !check.returns && passed.has(key)) return settle(item, { pass: true });
         const lines: Trace[] = [];
         const transcript = () => lines.map(line => JSON.stringify(line) + '\n').join('');
-        const cost = () => lines.reduce((sum, line) => sum + ('session' in line ? line.session.usd : 0), 0);
+        const cost = () => sumSpend(lines.flatMap(line => ('session' in line ? [line.session] : [])));
         const judged = yield* runJudge(
           graph,
           lines,
@@ -261,7 +263,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
                   findings: formatSqueezed(e instanceof SessionStop ? (e.detail ?? e.reason) : String(e)),
                   ms: 0,
                 },
-                usd: cost(),
+                ...cost(),
                 ...(item !== undefined && { item }),
                 ...(log && { log }),
                 ...(later && { later }),
@@ -276,7 +278,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
             findings: judged.detail ?? judged.reason,
             unread: true as const,
             output: transcript(),
-            usd: cost(),
+            ...cost(),
           };
         if (same && judged.id) judge = { id: judged.id, home: judged.home, harness: agent.harness };
         const settled = settle(item, judged.value, undefined, transcript(), cost());
@@ -302,7 +304,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
               },
             ]
           : yield* Effect.forEach(items, one, { concurrency: same ? 1 : 'unbounded' });
-    const usd = results.reduce((sum, r) => sum + r.usd, 0);
+    const spend = sumSpend(results);
     const noted = results.filter(r => !r.pass || r.unread);
     const none = check.each !== undefined && items.length === 0 && !(listed instanceof EachFailed);
     const unread = results.some(r => r.unread);
@@ -346,7 +348,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
             ...((!r.pass || r.unread) && { findings: formatSqueezed(r.findings) }),
             ms: 0,
           },
-          usd: r.usd,
+          ...sumSpend([r]),
           item: r.item!,
           ...(r.exit !== undefined && { exit: r.exit }),
           ...pickUsed(r),
@@ -355,7 +357,7 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
       {
         ...entry,
         check: result,
-        usd: check.each ? 0 : usd,
+        ...(check.each ? sumSpend([]) : spend),
         ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }),
         ...(!check.each && pickUsed(results[0])),
         ...(!check.each && logs[0] && { log: logs[0] }),

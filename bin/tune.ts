@@ -94,11 +94,11 @@ export const paired = (a: number[], b: number[], n = 2000) => {
   const d = b.map((x, i) => x - a[i]!);
   if (!d.length) return { delta: 0, pUp: 0, ci: [0, 0] as [number, number] };
   const next = random(1);
-  const draws = Array.from({ length: n }, () => getMean(d.map(() => d[Math.floor(next() * d.length)]!))).sort(
+  const draws = Array.from({ length: n }, () => getMean(d.map(() => d[Math.floor(next() * d.length)]!))!).toSorted(
     (x, y) => x - y
   );
   return {
-    delta: getRounded(getMean(d)),
+    delta: getRounded(getMean(d)!),
     pUp: getRounded(draws.filter(m => m > 0).length / n),
     ci: [getRounded(draws[Math.floor(n * 0.025)]!), getRounded(draws[Math.floor(n * 0.975)]!)] as [number, number],
   };
@@ -115,7 +115,7 @@ export const flipsOf = (inc: Record<string, number[]>, cand: Record<string, numb
   for (const [c, x] of Object.entries(cand)) {
     const b = inc[c] ?? [];
     if (!b.length || !x.length || Math.max(...b) - Math.min(...b) >= 0.5) continue;
-    const d = getMean(x) - getMean(b);
+    const d = getMean(x)! - getMean(b)!;
     if (Math.abs(d) < 0.5) continue;
     const apart = d > 0 ? Math.min(...x) - Math.max(...b) : Math.min(...b) - Math.max(...x);
     const held = b.length >= runs && x.length >= runs && apart >= 0.5;
@@ -159,7 +159,7 @@ const scores = (rows: BenchRow[], preset: Tune['preset']) => {
     const q = r.infra ? undefined : quality(r, w);
     if (q !== undefined) {
       s.qs.push(q);
-      s.paid.push(r.usd ?? 0);
+      if (r.usd !== undefined) s.paid.push(r.usd);
       s.took.push(r.minutes);
     }
     out.set(r.case, { ...s, runs: s.runs + 1, usd: s.usd + (r.usd ?? 0), min: s.min + r.minutes });
@@ -180,11 +180,14 @@ const evalOf = (
   incumbent?: Scores,
   runs = 3
 ): Eval => {
-  const qs = cases.map(c => getMean(mine.get(c)?.qs ?? []));
-  const per = (s: Scores, k: 'paid' | 'took') => cases.map(c => getMean(s.get(c)?.[k] ?? []));
+  const qs = cases.map(c => getMean(mine.get(c)?.qs ?? []) ?? 0);
+  const per = (s: Scores, k: 'paid' | 'took') => cases.flatMap(c => getMean(s.get(c)?.[k] ?? []) ?? []);
+  const [paid, took] = [getMean(per(mine, 'paid')), getMean(per(mine, 'took'))];
   const both = cases.filter(c => mine.get(c)?.paid.length && incumbent?.get(c)?.paid.length);
   const saving = (k: 'paid' | 'took') => {
-    const s = both.map(c => getRounded(1 - getMean(mine.get(c)![k]) / Math.max(1e-9, getMean(incumbent!.get(c)![k]))));
+    const s = both.map(c =>
+      getRounded(1 - getMean(mine.get(c)![k])! / Math.max(1e-9, getMean(incumbent!.get(c)![k])!))
+    );
     const p = paired(
       s.map(() => 0),
       s
@@ -193,7 +196,7 @@ const evalOf = (
   };
   const p = incumbent && {
     ...paired(
-      cases.map(c => getMean(incumbent.get(c)?.qs ?? [])),
+      cases.map(c => getMean(incumbent.get(c)?.qs ?? []) ?? 0),
       qs
     ),
     flips: flipsOf(qsOf(incumbent, cases), qsOf(mine, cases), runs),
@@ -202,7 +205,7 @@ const evalOf = (
     variant,
     split,
     cases,
-    quality: getRounded(getMean(qs)),
+    quality: getRounded(getMean(qs) ?? 0),
     ci: paired(
       qs.map(() => 0),
       qs
@@ -210,10 +213,7 @@ const evalOf = (
     ...(p && { delta: p.delta, pUp: p.pUp, flips: p.flips }),
     usd: getRounded(sum(cases.map(c => mine.get(c)?.usd ?? 0))),
     minutes: getRounded(sum(cases.map(c => mine.get(c)?.min ?? 0))),
-    perRun: {
-      usd: getRounded(getMean(per(mine, 'paid').filter(Boolean))),
-      minutes: getRounded(getMean(per(mine, 'took').filter(Boolean))),
-    },
+    ...(paid !== undefined && took !== undefined && { perRun: { usd: getRounded(paid), minutes: getRounded(took) } }),
     ...(incumbent &&
       both.length && {
         saved: { usd: saving('paid'), minutes: saving('took') },

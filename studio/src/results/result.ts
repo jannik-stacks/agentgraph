@@ -71,12 +71,12 @@ export const getFieldSummary = (runs: RunResults[], field: CheckField, trend = '
     getQuantile(
       group.map(run => readFieldValue(run, field) as number),
       0.5
-    )
+    )!
   );
   return {
     points,
     values,
-    median: values.length ? getQuantile(values, 0.5) : undefined,
+    median: getQuantile(values, 0.5),
     low: Math.min(...values),
     high: Math.max(...values),
     warned: live.filter(r => {

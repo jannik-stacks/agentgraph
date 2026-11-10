@@ -165,6 +165,21 @@ describe('loadGraph', () => {
     }
   );
 
+  it.each([
+    ['minutes', '0'],
+    ['minutes', '-5'],
+    ['minutes', '.inf'],
+    ['usd-per-run', '0'],
+    ['usd-per-run', '.nan'],
+    ['parallel', '0'],
+    ['parallel', '1.5'],
+    ['sessions', '0'],
+    ['sessions', '-1'],
+  ])('rejects %s %s', async (key, value) => {
+    const found = await problems(graphDir({ 'settings.yaml': `limits: { ${key}: ${value} }` }));
+    expect(found).toContainEqual(expect.stringMatching(new RegExp(`^settings.yaml: limits.${key}:`)));
+  });
+
   it('reports wrong values, unknown keys, unknown agents and checks without a command or agent', async () => {
     const dir = graphDir({
       'settings.yaml': 'limits: { parallel: many }\n',

@@ -6,6 +6,7 @@ import { Session } from '../session.ts';
 import { type SandboxError, Sandbox } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
 import { pickUsed } from '../trace.ts';
+import { sumSpend } from '../stats.ts';
 import { getRecordedResult } from '../result.ts';
 import { readPlugins } from '../plugin.ts';
 import { startTools } from '../tools.ts';
@@ -90,7 +91,7 @@ export const runSession = <A = never, R = never>(
   if (resume.harness !== undefined && resume.harness !== spec.harness)
     return anew(`the session ran on ${resume.harness}`);
   return Effect.flatMap(openSession(graph, into, step, spec, rest, true), r =>
-    r.lost === undefined ? Effect.succeed(r) : Effect.map(anew(r.lost), k => ({ ...k, usd: r.usd + k.usd }))
+    r.lost === undefined ? Effect.succeed(r) : anew(r.lost)
   );
 };
 
@@ -120,7 +121,7 @@ const openSession = <A, R>(
       home: spec.resume?.home,
       final: '',
       text: '',
-      usd: 0,
+      spend: sumSpend([]),
       result: undefined as ReturnType<typeof getRecordedResult>,
     };
     let end: Ended = { ended: 'error' };
@@ -139,7 +140,7 @@ const openSession = <A, R>(
           ...(dropped !== undefined && { dropped }),
           ...(aside && { aside: true as const }),
           ...how,
-          usd: seen.usd,
+          ...seen.spend,
         },
       });
     yield* write({
@@ -188,7 +189,7 @@ const openSession = <A, R>(
             Object.assign(seen, { id: event.session, home: event.home });
           }
           if (event.type === 'text') seen.text = event.text;
-          if (event.type === 'usage') seen.usd += event.usd ?? 0;
+          if (event.type === 'usage') seen.spend = sumSpend([seen.spend, event]);
           if (event.type === 'tool' && spec.returns)
             seen.result = getRecordedResult(spec.returns, event) ?? seen.result;
           if (event.type === 'end') {
@@ -230,7 +231,6 @@ const openSession = <A, R>(
       id: seen.id,
       home: seen.home ?? spec.dir,
       final,
-      usd: seen.usd,
       result: seen.result,
       ...end,
       ...(cut && { cut: cut.a }),
@@ -272,16 +272,11 @@ export const runJudge = (
     );
   return judge(spec, { ...unresumed, prompt: fresh }).pipe(
     Effect.flatMap(j =>
-      j.result || !j.id
-        ? Effect.succeed(j)
-        : Effect.map(judge({ ...spec, prompt: nudge, resume: { id: j.id, home: j.home } }), k => ({
-            ...k,
-            usd: j.usd + k.usd,
-          }))
+      j.result || !j.id ? Effect.succeed(j) : judge({ ...spec, prompt: nudge, resume: { id: j.id, home: j.home } })
     ),
-    Effect.flatMap(({ result, usd, final, id, home }) =>
+    Effect.flatMap(({ result, final, id, home }) =>
       result
-        ? Effect.succeed({ value: result, usd, ...(id !== undefined && { id }), home })
+        ? Effect.succeed({ value: result, ...(id !== undefined && { id }), home })
         : new SessionStop({
             reason: 'provider',
             detail: `session gave no result, final: ${formatSqueezed(final, 200)}`,

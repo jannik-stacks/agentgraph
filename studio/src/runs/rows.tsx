@@ -19,6 +19,7 @@ import {
   type SessionTraceLines,
   splitTraceIntoVisitedSteps,
 } from './trace.ts';
+import type { sumSpend } from '../../../src/stats.ts';
 import { type Exit, type RunRecord } from '../../../src/types.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
@@ -35,7 +36,8 @@ export type Row = {
   target?: boolean;
 };
 
-const usd = (n: number) => (n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
+const usd = ({ usd: n = 0, unpriced }: Parameters<typeof sumSpend>[0][number]) =>
+  `${n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`}${unpriced === undefined ? '' : '+'}`;
 const used = (u: Exit['used']) =>
   u
     ? `, ${Math.round(u.peak / 2 ** 20)} MB peak, ${(u.cpu / 1000).toFixed(1)} s cpu${u.oom ? ', out of memory' : ''}`
@@ -250,7 +252,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
   }),
   usage: e => ({
     summary: muted(
-      `usage ${e.input.toLocaleString()} in, ${e.output.toLocaleString()} out${e.usd === undefined ? '' : `, ${usd(e.usd)}`}`
+      `usage ${e.input.toLocaleString()} in, ${e.output.toLocaleString()} out${e.unpriced !== undefined ? `, ${e.unpriced} unpriced` : e.usd === undefined ? '' : `, ${usd(e)}`}`
     ),
   }),
   start: e => ({ summary: muted(`start ${e.session}, model ${e.model}`) }),
@@ -302,7 +304,7 @@ const lines: {
   }),
   event: ({ event }) => (events[event.type] as (e: Event) => Row)(event),
   session: ({ session: s }) => ({
-    summary: muted(`session ${s.id ?? ''} ended ${s.ended}, ${usd(s.usd)}${used(s.used)}`),
+    summary: muted(`session ${s.id ?? ''} ended ${s.ended}, ${usd(s)}${used(s.used)}`),
   }),
   check: line => ({
     summary: (
@@ -311,7 +313,7 @@ const lines: {
         {line.check.na ? muted('n/a') : line.check.empty ? muted('skipped') : line.check.pass ? 'pass' : muted('fail')}
         {formatCheckValue(line.check) && ` ${formatCheckValue(line.check)}`}
         {muted(
-          `${line.later ? ', checked later' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.usd > 0 ? `, ${usd(line.usd)}` : ''}${line.exit === undefined ? '' : `, exit ${line.exit}`}${used(line.used)}`
+          `${line.later ? ', checked later' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.usd > 0 || line.unpriced !== undefined ? `, ${usd(line)}` : ''}${line.exit === undefined ? '' : `, exit ${line.exit}`}${used(line.used)}`
         )}
       </>
     ),
@@ -440,7 +442,7 @@ const sessionRow = (
           )}
         {end
           ? events.length
-            ? flag(`ended ${how}, ${usd(end.session.usd)}`, end.session.ended !== 'stop')
+            ? flag(`ended ${how}, ${usd(end.session)}`, end.session.ended !== 'stop')
             : flag(`ended before it started: ${how}`)
           : flag(running ? 'running' : 'no end recorded')}
         {first && muted(took(first, end?.at))}
@@ -626,7 +628,7 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
         <Link href={graphLink(r, target?.step ?? run.step)} instance={r.instance} className="shrink-0 underline">
           graph
         </Link>
-        <Col className="w-[6ch] text-right text-zinc-500">{usd(r.usd)}</Col>
+        <Col className="w-[7ch] text-right text-zinc-500">{usd(r)}</Col>
         <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, r.run.status === 'running' ? undefined : (run.ended ?? r.lastAt))}
         </Col>

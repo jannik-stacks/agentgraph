@@ -46,10 +46,10 @@ const countBad = (f?: Row['findings']) => (f ? f.critical + f.high : 0);
 
 export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[]) => {
   if (row.outcome === 'no-change') return 0;
-  const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
+  const vote = getMean(Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : [])));
   const parts: [number, number][] = [
     ...(row.hidden === undefined ? [] : [[w.test, row.hiddenShare ?? row.hidden] as [number, number]]),
-    ...(votes.length ? [[w.judge, Math.min(1, 2 * getMean(votes))] as [number, number]] : []),
+    ...(vote === undefined ? [] : [[w.judge, Math.min(1, 2 * vote)] as [number, number]]),
     ...(row.suite === undefined && row.typecheck === undefined
       ? []
       : [[w.suite, (row.suite ?? 1) * (row.typecheck ?? 1)] as [number, number]]),
@@ -74,21 +74,21 @@ export const random = (seed: number) => {
 export const getRowKey = (row: Row) => `${row.data}/${row.run}`;
 
 const getSpread = (xs: number[]) => ({
-  median: getQuantile(xs, 0.5),
-  middle: [getQuantile(xs, 0.25), getQuantile(xs, 0.75)] as const,
+  median: getQuantile(xs, 0.5)!,
+  middle: [getQuantile(xs, 0.25)!, getQuantile(xs, 0.75)!] as const,
   range: [Math.min(...xs), Math.max(...xs)] as const,
 });
 
 export const getQualitySpread = (scored: readonly { row: { case: string }; y: number }[]) => {
-  const cases = [...Map.groupBy(scored, s => s.row.case).values()].map(ss => getMean(ss.map(s => s.y)));
+  const cases = [...Map.groupBy(scored, s => s.row.case).values()].map(ss => getMean(ss.map(s => s.y))!);
   return { caseMeans: cases, cases: getSpread(cases), runs: getSpread(scored.map(s => s.y)) };
 };
 
 /** @internal */
 export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, seed = 1) => {
   const stat = (cs: { y: number; x: number }[][]) => {
-    const per = cs.map(rs => [getMean(rs.map(r => r.y)), getMean(rs.map(r => r.x))] as const);
-    return [getMean(per.map(p => p[0])), getMean(per.map(p => p[1]))] as const;
+    const per = cs.map(rs => [getMean(rs.map(r => r.y))!, getMean(rs.map(r => r.x))!] as const);
+    return [getMean(per.map(p => p[0]))!, getMean(per.map(p => p[1]))!] as const;
   };
   const next = random(seed);
   const pick = <T>(xs: T[]) => xs.map(() => xs[Math.floor(next() * xs.length)]!);
@@ -135,31 +135,38 @@ export const summarise = (
     rows.filter(r => isBenchMatch(r, o)),
     r => JSON.stringify(keys.map(k => [k, r.labels[k] ?? null]))
   );
-  return [...byPoint].map(([key, all]) => {
+  return [...byPoint].flatMap(([key, all]) => {
     const scored = all.flatMap(r => {
       const y = getBenchScore(r, o);
       return y === undefined ? [] : [{ row: r, y, x: o.x(r) }];
     });
+    if (!scored.length) return [];
     const kept = scored.map(s => s.row);
     const cases = [...Map.groupBy(scored, s => s.row.case).values()];
     const judged = kept.flatMap(r => {
-      const votes = Object.entries(r.vsHuman).flatMap(([j, v]) => (!o.judges || o.judges.includes(j) ? [v] : []));
-      return votes.length ? [getMean(votes)] : [];
+      const vote = getMean(
+        Object.entries(r.vsHuman).flatMap(([j, v]) => (!o.judges || o.judges.includes(j) ? [v] : []))
+      );
+      return vote === undefined ? [] : [vote];
     });
     const tested = kept.flatMap(r => (r.hidden === undefined ? [] : [r.hidden]));
-    return {
-      key,
-      labels: Object.fromEntries(keys.flatMap(k => (all[0]!.labels[k] === undefined ? [] : [[k, all[0]!.labels[k]!]]))),
-      judgeOnly: all[0]!.labels.tests === 'judge-only',
-      n: cases.length,
-      repeats: kept.length,
-      completion: all.filter(r => !r.infra).length / all.length,
-      hidden: tested.length ? getMean(tested) : undefined,
-      vsHuman: judged.length ? getMean(judged) : undefined,
-      minutes: getMean(kept.map(r => r.minutes)),
-      ...bootstrap(cases),
-      perCase: scored,
-    };
+    return [
+      {
+        key,
+        labels: Object.fromEntries(
+          keys.flatMap(k => (all[0]!.labels[k] === undefined ? [] : [[k, all[0]!.labels[k]!]]))
+        ),
+        judgeOnly: all[0]!.labels.tests === 'judge-only',
+        n: cases.length,
+        repeats: kept.length,
+        completion: all.filter(r => !r.infra).length / all.length,
+        hidden: getMean(tested),
+        vsHuman: getMean(judged),
+        minutes: getMean(kept.map(r => r.minutes))!,
+        ...bootstrap(cases),
+        perCase: scored,
+      },
+    ];
   });
 };
 
