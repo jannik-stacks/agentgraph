@@ -2,8 +2,8 @@ import { Schema, Struct } from 'effect';
 import { CheckMode, ResultType } from './result.ts';
 import { JsonValue, PluginMetadata } from './meta.ts';
 import type { Event } from './event.ts';
-import { isWaitingOnPeople } from './context.ts';
-import { type Check, type Run, type RunRecord, type Trace } from './types.ts';
+
+import { isWaitingOnPeople, type Check, type Run, type RunRecord, type Trace } from './types.ts';
 
 const Field = Schema.Struct({
   check: Schema.String,

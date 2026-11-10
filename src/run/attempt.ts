@@ -1,15 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { Schema, Result, Effect, Option } from 'effect';
 import { Said, type Proposal } from '../proposal.ts';
-import {
-  type IssueWithPull,
-  news,
-  formatSqueezed,
-  formatRequest,
-  context,
-  formatWaitingOn,
-  getEvents,
-} from '../context.ts';
+import { type IssueWithPull, news, formatSqueezed, formatRequest, context, getEvents } from '../context.ts';
 import { type Step, unchanged, type Workflow, pickCommandTarget } from '../workflow.ts';
 import { inside, SandboxError } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
@@ -53,6 +45,7 @@ import {
   removeThreads,
 } from './settle.ts';
 import {
+  formatWaitingOn,
   type CheckResult,
   type Checkout,
   type Outcome,

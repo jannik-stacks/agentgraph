@@ -4,7 +4,7 @@ import { Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
-import { stoppedByEngine } from '../src/context.ts';
+
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { type Graph, loadGraph } from '../src/folder.ts';
@@ -16,7 +16,7 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start } from './fixtures.ts';
 import { appendIssueAt, findStatus, git, issuePath, writeIssueAt } from './kit.ts';
-import { type Run, type SessionEvent } from '../src/types.ts';
+import { stoppedByEngine, type Run, type SessionEvent } from '../src/types.ts';
 import { makeTestEvent } from './world.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));

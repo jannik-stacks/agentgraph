@@ -1,6 +1,6 @@
 import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './event.ts';
 import { formatFailedTryFeedback } from './workflow.ts';
-import { type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
+import { stoppedByEngine, type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
 export type IssueWithPull = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
@@ -108,15 +108,6 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
     seen: { at, ...(pull?.baseSha !== undefined && { base: pull.baseSha }) },
   };
 }
-
-export const stoppedByEngine = 'Stopped by an engine error';
-
-export const formatWaitingOn = (child: Pick<Run, 'id'>) => `waiting on ${child.id}`;
-
-export const isWaitingOnPeople = (run: Partial<Pick<Run, 'status' | 'reason'>>) =>
-  run.status === 'waiting' &&
-  !run.reason?.startsWith(stoppedByEngine) &&
-  !run.reason?.startsWith(formatWaitingOn({ id: '' }));
 
 const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
   run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)

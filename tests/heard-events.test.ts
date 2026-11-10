@@ -4,10 +4,10 @@ import { Store, fileStore } from '../src/store.ts';
 import { folderTracker } from '../src/tracker.ts';
 import { startRun } from '../src/run/start.ts';
 import { readIssueWithPull, writeHeardEvents } from '../src/run/hear.ts';
-import { formatWaitingOn, stoppedByEngine } from '../src/context.ts';
+
 import type { Event } from '../src/event.ts';
 import { sumHumanInteractions } from '../src/results.ts';
-import type { Run, Trace } from '../src/types.ts';
+import { stoppedByEngine, formatWaitingOn, type Run, type Trace } from '../src/types.ts';
 import { tmp } from './kit.ts';
 import { fresh, graph, makeTestEvent, w, world } from './world.ts';
 

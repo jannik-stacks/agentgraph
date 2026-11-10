@@ -358,3 +358,12 @@ export type InstanceHost = {
 };
 
 export type InstanceHosts = Readonly<Record<string, InstanceHost | { why: string }>>;
+
+export const stoppedByEngine = 'Stopped by an engine error';
+
+export const formatWaitingOn = (child: Pick<Run, 'id'>) => `waiting on ${child.id}`;
+
+export const isWaitingOnPeople = (run: Partial<Pick<Run, 'status' | 'reason'>>) =>
+  run.status === 'waiting' &&
+  !run.reason?.startsWith(stoppedByEngine) &&
+  !run.reason?.startsWith(formatWaitingOn({ id: '' }));

@@ -1,3 +1,4 @@
+import { stoppedByEngine } from '../src/types.ts';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { afterEach, expect, it } from 'vitest';
 import { runActions } from '../src/actions.ts';
 import { makeActionWebHandler, makeInstanceHost, runLocalActions } from '../src/engine.ts';
 import { folderTracker, writeIssueFile } from '../src/tracker.ts';
-import { stoppedByEngine } from '../src/context.ts';
+
 import { instruct } from '../src/run/trigger.ts';
 import { Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';

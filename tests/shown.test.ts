@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import {
-  context,
-  findIssueStatus,
-  formatStatusHeader,
-  proposeQuestion,
-  stoppedByEngine,
-  type IssueWithPull,
-} from '../src/context.ts';
+import { context, findIssueStatus, formatStatusHeader, proposeQuestion, type IssueWithPull } from '../src/context.ts';
 import { formatRunMark, makeBodyWithStatus, removeRunLink, type Issue } from '../src/event.ts';
-import { type Run } from '../src/types.ts';
+import { stoppedByEngine, type Run } from '../src/types.ts';
 
 const run: Run = {
   id: 'issue-7',

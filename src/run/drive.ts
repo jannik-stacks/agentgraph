@@ -5,7 +5,7 @@ import type { Graph } from '../folder.ts';
 import { Store } from '../store.ts';
 import { Tracker } from '../tracker.ts';
 import { makeOutcomeLine } from '../trace.ts';
-import { stoppedByEngine, context, getEvents } from '../context.ts';
+import { context, getEvents } from '../context.ts';
 import { Sandbox, SandboxError } from '../sandbox.ts';
 import { ensureGraphRef, readGit, writeCheckoutTree, gitIdentity, commitCheckout, readEngineVersions } from '../git.ts';
 import {
@@ -23,7 +23,15 @@ import { removeThreads, writeStatus, readRunSpend, runEndChecks } from './settle
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
-import { type Outcome, type Run, type SessionStop, type StoreError, type TrackerError, formatCause } from '../types.ts';
+import {
+  stoppedByEngine,
+  type Outcome,
+  type Run,
+  type SessionStop,
+  type StoreError,
+  type TrackerError,
+  formatCause,
+} from '../types.ts';
 
 /** The open pull request a run on `issue` stacks on, from a "Stacks on #n" line naming it or its issue. */
 const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
