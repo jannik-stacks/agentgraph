@@ -22,7 +22,7 @@ Restart after changing plugin code. Settings changes reload through the studio.
 
 Each widget needs `title`, `type`, `source` and `days`.
 Types are `counter`, `line`, `bar` and `table`.
-Sources are `runs`, `checks`, `tokens`, `cost` and `issues`.
+Sources are `runs`, `checks`, `tokens`, `cost`, `issues`, `humans` and `waiting`.
 Optional `workflow` and `step` select one workflow or step; `issues` takes neither.
 There can be at most 24 widgets, each covering 1 to 90 UTC days, including today.
 Unknown keys and source names fail validation.
@@ -33,6 +33,9 @@ Checks count all pass and fail attempts by check day, including repeated checks.
 Tokens sum input and output usage events by event day. Input includes cached tokens.
 Cost sums reported USD from usage events. Missing prices count as visible skips.
 Cost excludes command checks and other charges without usage events.
+Humans counts the comments, reviews, labels and review requests people made during runs, by run start day, each action once even when several runs heard it.
+Waiting sums the minutes runs waited for a person, by run start day.
+Both read only runs that recorded what they heard from their start; the others count as visible skips.
 Usage and check step filters select the recorded event's step.
 Issues count tracker comments, closes and merges by event day. Instance mode supplies the tracker. Without one, the widget shows a skip and its reason.
 Checks and usage from runs started before the window still count.
