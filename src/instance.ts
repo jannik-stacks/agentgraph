@@ -10,9 +10,11 @@ import { parse, stringify } from 'yaml';
 import { InstanceFile } from './settings.ts';
 import { readDirOrEmpty, readOrUndefined } from './read.ts';
 import { getCachePath } from './env.ts';
-import type { Issue } from './event.ts';
 import {
+  findBranchPull,
   findIssueDir,
+  isAgentBranch,
+  pushLimits,
   folderTracker,
   Tracker,
   formatIssueFile,
@@ -316,11 +318,12 @@ const readRuns = (data: string) =>
 
 export const findPull = async (i: Pick<Instance, 'tracker' | 'data'>, n: number) => {
   const [issues, runs] = await Promise.all([readIssues(i.tracker), readRuns(i.data)]);
-  const branches = new Set(runs.flatMap(r => (r.issue === n && r.checkout?.branch ? [r.checkout.branch] : [])));
-  const pulls = issues.filter(
-    (t): t is Issue & Required<Pick<Issue, 'pull'>> => !!t.pull && (t.number === n || branches.has(t.pull.branch))
-  );
-  return pulls.find(t => t.state === 'open') ?? pulls.at(-1);
+  const own = issues.find(t => t.number === n && t.pull);
+  const branch = runs
+    .filter(r => r.issue === n && r.checkout?.branch)
+    .toSorted((a, b) => a.started.localeCompare(b.started))
+    .at(-1)?.checkout?.branch;
+  return findBranchPull(own ? [own] : issues, own?.pull?.branch ?? branch);
 };
 
 const findBranchIssue = async (i: Pick<Instance, 'data'>, branch: string) =>
@@ -421,7 +424,7 @@ export const writePullToRepo = async (
   if (saved.readonly) return { why: `agentgraph does not write to ${i.checkout}; pass --patch <file>` };
   const name = to.as ?? branch;
   const ref = `refs/heads/${name}`;
-  if (!name.startsWith('agentgraph/')) return { why: `${name} is not an agentgraph/ branch` };
+  if (!isAgentBranch(name)) return { why: `${name} is not an ${pushLimits.prefix} branch` };
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head) || !(await succeeds(git({}, ['check-ref-format', ref]))))
     return { why: `${name} is not a branch` };
   const current = await inRepo(i.checkout, ['rev-parse', '-q', '--verify', ref], [1]);

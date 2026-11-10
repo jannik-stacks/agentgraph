@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { matchesGlob } from 'node:path';
 import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine } from '../context.ts';
-import { Tracker, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
+import {
+  Tracker,
+  currentRunLinkRef,
+  findBranchPull,
+  formatAgentComment,
+  isAgentBranch,
+  parseAgentRequest,
+} from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
@@ -22,12 +28,13 @@ import {
   isIssueTriggered,
   isQuiet,
   isRunDone,
-  parseAgentRequest,
+  getAgentRequest,
   pickCommandTarget,
+  isTemplateBranch,
 } from '../workflow.ts';
 import { type Services, formatFailure } from './execute.ts';
 import {
-  findPullNumber,
+  formatRunBranch,
   isInScope,
   isBoardGraph,
   isRetro,
@@ -35,7 +42,6 @@ import {
   findRouter,
   pickNewest,
   isHeardBy,
-  formatTemplate,
   readContinuedRun,
   readRunEvents,
   getHeardEvent,
@@ -58,24 +64,43 @@ import {
   TrackerError,
 } from '../types.ts';
 
-/** Why a run is held: "Depends on" issues not yet closed and "Stacks on" issues without a pull request. */
-const findHold = (w: Workflow, issue: number, open: Issue[]) => {
-  if (w.branch === undefined) return undefined;
-  const on = [...(open.find(t => t.number === issue)?.body ?? '').matchAll(/^\s*(stacks|depends) on #(\d+)\s*$/gim)]
-    .map(([, how, n]) => ({ depends: how!.toLowerCase() === 'depends', n: Number(n) }))
-    .filter(
-      ({ depends, n }) =>
-        open.some(t => t.number === n && (depends || !t.pull)) &&
-        (depends || findPullNumber(w, { issue: n }, open) === undefined)
-    );
-  const closes = on.filter(d => d.depends).map(d => `#${d.n}`);
-  const pulls = on.filter(d => !d.depends).map(d => `#${d.n}`);
-  const parts = [
-    closes.length && `${closes.join(', ')} ${closes.length > 1 ? 'close' : 'closes'}`,
-    pulls.length && `${pulls.join(', ')} ${pulls.length > 1 ? 'have pull requests' : 'has a pull request'}`,
-  ].filter(Boolean);
-  return parts.length ? `until ${parts.join(' and ')}` : undefined;
-};
+/**
+ * Why a run is held: "Depends on" issues not yet closed, and with `stacks` the issue it stacks on while that has no pull
+ * request. One closed without its work landing is reported instead of falling back to the base branch.
+ */
+const findHold = (graph: Graph, r: Run, open: Issue[]) =>
+  Effect.gen(function* () {
+    const w = graph.workflows[r.workflow]!;
+    const t = open.find(t => t.number === r.issue);
+    if (w.branch === undefined || !t) return undefined;
+    const closes = (t.dependsOn ?? []).filter(n => open.some(o => o.number === n)).map(n => `#${n}`);
+    const on = graph.stacks && !r.checkout ? t.stacksOn : undefined;
+    const parent = open.find(o => o.number === on);
+    const waits = parent && !parent.pull && !findBranchPull(open, formatRunBranch(w, { issue: on! }, open));
+    const dropped = on !== undefined && !parent && !(yield* isWorkLanded(w, on));
+    const until = [
+      closes.length && `${closes.join(', ')} ${closes.length > 1 ? 'close' : 'closes'}`,
+      waits && `#${on} has a pull request`,
+    ].filter(Boolean);
+    const why = [
+      until.length && `until ${until.join(' and ')}`,
+      dropped && `#${on}, which it stacks on, closed without a merged pull request`,
+    ].filter(Boolean);
+    return why.length ? why.join('; ') : undefined;
+  });
+
+const isWorkLanded = (w: Workflow, n: number) =>
+  Effect.gen(function* () {
+    const tracker = yield* Tracker;
+    const parent = yield* tracker.issue(n);
+    if (parent.pull) return parent.state === 'merged';
+    const run = (yield* (yield* Store).list({ issue: n }))
+      .filter(r => r.checkout?.branch)
+      .toSorted((a, b) => a.started.localeCompare(b.started))
+      .at(-1);
+    const branch = formatRunBranch(w, run ?? { issue: n }, [parent]);
+    return branch === undefined || (yield* tracker.issues({ branch })).some(p => p.state === 'merged');
+  }).pipe(Effect.catch(e => Effect.as(Effect.logWarning(`stack parent #${n}`, e), true)));
 
 const spokenByCli = (issue: number, text: string, at: string, parent?: Comment): Event => ({
   id: randomUUID(),
@@ -90,7 +115,7 @@ const spokenByCli = (issue: number, text: string, at: string, parent?: Comment):
     id: '',
     author: 'cli',
     body: formatAgentComment(text),
-    agentRequest: text,
+    agentRequest: parseAgentRequest(text),
     at,
     ...(parent && { path: parent.path!, line: parent.line, under: parent.under ?? parent.id }),
   },
@@ -191,7 +216,7 @@ export const instruct = (
     const runs = yield* Effect.flatMap(Store, s => s.list());
     const open = yield* tracker.issues({ state: 'open' });
     const owner = runs.find(
-      r => graph.workflows[r.workflow] && findPullNumber(graph.workflows[r.workflow]!, r, open) === issue.number
+      r => findBranchPull(open, formatRunBranch(graph.workflows[r.workflow], r, open))?.number === issue.number
     );
     const target = runs
       .filter(
@@ -219,7 +244,7 @@ const feedback = (m: Event) =>
     m.kind === 'changes_requested' ||
     m.kind === 'commit' ||
     (m.kind === 'approved' && !!m.comment?.body.trim())) &&
-  !/^:\S+$/.test(parseAgentRequest(m) ?? '');
+  (!getAgentRequest(m)?.command || !!getAgentRequest(m)!.text);
 
 /** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
 export const issueDebounceMs = 30_000;
@@ -287,13 +312,13 @@ export const tick = (
     )).flat();
     const origin = new Map<Event, number>();
     const onRun = (m: Event): Event => {
+      const pulls = m.kind === 'comment' ? issues : [...issues, ...merged];
       const r = all.find(
         r =>
           r.issue !== m.issue &&
           graph.workflows[r.workflow] &&
           !isRetro(graph, r) &&
-          findPullNumber(graph.workflows[r.workflow]!, r, m.kind === 'comment' ? issues : [...issues, ...merged]) ===
-            m.issue
+          findBranchPull(pulls, formatRunBranch(graph.workflows[r.workflow], r, pulls))?.number === m.issue
       );
       if (!r) return m;
       const moved = { ...m, issue: r.issue };
@@ -419,7 +444,7 @@ export const tick = (
           said: heard([m, ...took.filter(a => a !== m)]),
         });
         const step = w.steps.find(s => s.name === run.step);
-        const pr = issues.find(t => t.number === findPullNumber(w, run, issues));
+        const pr = findBranchPull(issues, formatRunBranch(w, run, issues));
         const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
           outcome.kind !== 'answer' || !step || !isHumanWaitStep(step)
             ? undefined
@@ -583,7 +608,7 @@ export const tick = (
       const w =
         m.kind === 'label' && relabelled
           ? undefined
-          : (sourced ?? (parseAgentRequest(m) !== undefined ? (target?.workflow ?? triggered[0]) : undefined));
+          : (sourced ?? (getAgentRequest(m) !== undefined ? (target?.workflow ?? triggered[0]) : undefined));
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !isInScope(graph, yield* tracker.issue(m.issue)))) continue;
       const old =
@@ -627,11 +652,7 @@ export const tick = (
           const branch = Option.getOrUndefined(yield* Effect.option(tracker.issue(m.issue)))?.pull?.branch;
           const by = all.find(r => {
             const w = graph.workflows[r.workflow];
-            return (
-              !isRetro(graph, r) &&
-              w?.branch !== undefined &&
-              branch === (r.checkout?.branch ?? formatTemplate(w.branch, { number: r.issue }))
-            );
+            return !isRetro(graph, r) && w?.branch !== undefined && branch === formatRunBranch(w, r);
           });
           pulls.set(m.issue, by?.issue);
         }
@@ -679,7 +700,7 @@ export const tick = (
       const w = graph.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
       if (!r.base || !head || !w) continue;
-      const tip = issues.find(t => t.number === findPullNumber(w, r, issues))?.pull?.head;
+      const tip = findBranchPull(issues, formatRunBranch(w, r, issues))?.pull.head;
       yield* runFollow(w, r, r.base, head, tip, graph).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
@@ -698,7 +719,7 @@ export const tick = (
         const r = yield* store.get(before.id);
         if (!r || (r.status !== 'waiting' && r.status !== 'done') || r.onto || isParked(r) || !newest(r)) return;
         const w = graph.workflows[r.workflow];
-        const pull = w && issues.find(t => t.number === findPullNumber(w, r, issues))?.pull;
+        const pull = w && findBranchPull(issues, formatRunBranch(w, r, issues))?.pull;
         if (!w?.steps.some(isHumanWaitStep) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
         const sandbox = yield* Sandbox;
         const base = yield* sandbox.readHead(pull.base);
@@ -730,7 +751,10 @@ export const tick = (
       );
 
     const live = (yield* store.list({ status: 'running' })).filter(mine).filter(r => graph.workflows[r.workflow]);
-    const hold = (r: Run) => findHold(graph.workflows[r.workflow]!, r.issue, issues);
+    const holds = new Map(
+      yield* Effect.forEach(live, r => Effect.map(findHold(graph, r, issues), why => [r.id, why] as const))
+    );
+    const hold = (r: Run) => holds.get(r.id);
     yield* Effect.forEach(
       live.filter(r => r.reason !== hold(r)),
       before =>
@@ -879,7 +903,7 @@ export const scanIssuesAndRunningRuns = (
     const from = pickNewest(...all.map(r => r.started));
     const open = listed.filter(t => !t.pull && isInScope(graph, t));
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
-    const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
+    const asked = said.filter(m => m.trusted && getAgentRequest(m) !== undefined).map(m => m.issue);
     const ended = Object.values(graph.workflows)
       .filter(w => w.on.feedback)
       .flatMap(w => findSettledRuns(graph, w, all));
@@ -897,10 +921,7 @@ export const scanIssuesAndRunningRuns = (
     const uses = (branch: string) => (r: Run) => {
       if (r.checkout) return r.checkout.branch === branch;
       const template = graph.workflows[r.workflow]?.branch;
-      return (
-        branch.split(/\D+/).includes(String(r.issue)) ||
-        (!!template && matchesGlob(branch, template.replaceAll('{issue}', String(r.issue)).replaceAll('{parent}', '*')))
-      );
+      return !!template && isTemplateBranch(template, branch, r.issue);
     };
     const cleanBranch = (branch: string, using: Run[]) =>
       Effect.gen(function* () {
@@ -962,7 +983,7 @@ export const scanTrackerEvents = (
         );
         for (const r of all) {
           const w = graph.workflows[r.workflow];
-          const pull = w && findPullNumber(w, r, fetched);
+          const pull = findBranchPull(fetched, formatRunBranch(w, r, fetched))?.number;
           if (pull !== undefined && issues.has(pull)) issues.add(r.issue);
         }
       }

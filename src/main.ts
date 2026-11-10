@@ -14,7 +14,7 @@ import {
   tick,
   type Instruction,
 } from './run/trigger.ts';
-import { Tracker } from './tracker.ts';
+import { Tracker, isBotLogin } from './tracker.ts';
 import { makeEnvProvider, makeHarnessConfigProvider, splitNames, readConfiguredGraph } from './harnesses.ts';
 import { type Instance, readRealPath } from './instance.ts';
 import type { Graph } from './folder.ts';
@@ -131,7 +131,7 @@ export const writeTriggeringIssue = async (
   if (!label)
     throw new Error(`name one workflow with a label: --workflow ${picked.map(([name]) => name).join('|') || '<name>'}`);
   if (labelled.filter(([, l]) => l === label).length > 1) throw new Error(`${label} starts more than one workflow`);
-  if (author.endsWith('[bot]') || (graph.trust && !graph.trust.includes(author)))
+  if (isBotLogin(author) || (graph.trust && !graph.trust.includes(author)))
     throw new Error(`${author} may not start runs on this graph`);
   const [title = '', ...body] = text.split('\n');
   const applied = await Effect.runPromise(

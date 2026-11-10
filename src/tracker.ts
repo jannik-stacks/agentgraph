@@ -118,7 +118,7 @@ export const parseIssueSearch = (
 
 /**
  * The comment with what it asks the bot after its first `/agent` or `@agent` outside quoted lines and fenced code. A
- * command such as `/agent:restart:plan` leads it with `:restart:plan`; plain text never starts with a colon.
+ * command such as `/agent:restart:plan` has the command `restart:plan`.
  */
 export const makeCommentWithAgentRequest = (c: Comment): Comment => {
   let fenced = false;
@@ -130,15 +130,20 @@ export const makeCommentWithAgentRequest = (c: Comment): Comment => {
     if (fenced || /^\s*>/.test(line)) continue;
     const found = /(?<![\w./-])[/@]agent(?![\w/-])/i.exec(line);
     if (!found) continue;
-    const after = c.body.slice(start + found.index + found[0].length);
-    const command = /^:\S+/.exec(after)?.[0] ?? '';
-    const text =
-      `${c.body.slice(0, start + found.index).trimEnd()} ${after.slice(command.length).replace(/^[\s,:]+/, '')}`
-        .trim()
-        .replace(/^:+/, '');
-    return { ...c, agentRequest: `${command} ${text}`.trim() };
+    const { command, text } = parseAgentRequest(c.body.slice(start + found.index + found[0].length));
+    const before = c.body.slice(0, start + found.index).trimEnd();
+    return {
+      ...c,
+      agentRequest: { ...(command && { command }), text: `${before} ${text}`.trim().replace(/^:+/, '') },
+    };
   }
   return c;
+};
+
+export const parseAgentRequest = (said: string): NonNullable<Comment['agentRequest']> => {
+  const command = /^:(\S+)/.exec(said)?.[1];
+  const text = said.slice(command === undefined ? 0 : command.length + 1).replace(/^[\s,:]+/, '');
+  return { ...(command && { command }), text: text.trim() };
 };
 
 export const formatAgentComment = (text: string) => (text.startsWith(':') ? `/agent${text}` : `/agent ${text}`);
@@ -164,6 +169,31 @@ export const matches =
     (filter.labels ?? []).every(l => t.labels.includes(l));
 
 /** The text shown in place of a comment, or another `what`, from someone who is not a collaborator. */
+export const parseIssueLinks = (t: Issue): Issue => {
+  const lines = [...t.body.matchAll(/^[ \t]*(stacks|depends) on #(\d+)\.?[ \t]*$/gim)];
+  const stacks = lines.find(([, how]) => how!.toLowerCase() === 'stacks')?.[2];
+  const depends = lines.flatMap(([, how, n]) => (how!.toLowerCase() === 'depends' ? [Number(n)] : []));
+  const dependsOn = [...new Set([...(t.dependsOn ?? []), ...depends])];
+  return {
+    ...t,
+    ...(t.stacksOn === undefined && stacks !== undefined && { stacksOn: Number(stacks) }),
+    ...(dependsOn.length > 0 && { dependsOn }),
+  };
+};
+
+export const formatIssueLinks = (t: Pick<Issue, 'stacksOn' | 'dependsOn'>) =>
+  [
+    ...(t.stacksOn === undefined ? [] : [`Stacks on #${t.stacksOn}`]),
+    ...(t.dependsOn ?? []).map(n => `Depends on #${n}`),
+  ].join('\n');
+
+export const findBranchPull = (issues: Issue[], branch: string | undefined) =>
+  issues
+    .filter((t): t is Issue & Required<Pick<Issue, 'pull'>> => branch !== undefined && t.pull?.branch === branch)
+    .toSorted((a, b) => Number(b.state === 'open') - Number(a.state === 'open') || b.number - a.number)[0];
+
+export const isBotLogin = (login: string) => login.endsWith('[bot]');
+
 export const withheld = (author: string, what = 'comment', why = 'not a collaborator') =>
   `(${what} by @${author} withheld: ${why})`;
 
@@ -302,7 +332,7 @@ export const writeTimelineEvent = async (
   const at = new Date().toISOString();
   const id = `${m.issue}-${randomUUID().slice(0, 8)}`;
   const comment = m.comment && { comment: { id, author: m.actor, at, ...m.comment } };
-  const event = { id, ...m, bot: m.actor.endsWith('[bot]'), at, ...comment };
+  const event = { id, ...m, bot: isBotLogin(m.actor), at, ...comment };
   await appendFile(timelinePath(dir, m.issue), `${JSON.stringify(event)}\n`);
   return id;
 };
@@ -374,9 +404,9 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       };
       /** The issue as an agent may read it: an outsider's title and text withheld. */
       const shown = (t: Issue): Issue =>
-        t.author === me || (trust ? trust.includes(t.author) : !t.author?.endsWith('[bot]'))
-          ? { ...t, body: removeRunLink(t.body) }
-          : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text') };
+        t.author === me || (trust ? trust.includes(t.author) : !isBotLogin(t.author))
+          ? parseIssueLinks({ ...t, body: removeRunLink(t.body) })
+          : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text'), withheld: true };
       const writePull = async (number: number, pull?: Issue['pull']) => {
         if (pull) writeFileAtomic(join(findIssueDir(dir, number), 'pull.json'), pull);
       };
@@ -389,7 +419,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         const [t, file] = await Promise.all([read(n), stat(md(n)).catch(readOrUndefined)]);
         if (!t?.author || t.author === me || t.labels.length === 0 || !file) return;
         const at = file.mtime.toISOString();
-        const bot = t.author.endsWith('[bot]');
+        const bot = isBotLogin(t.author);
         const events = t.labels.map(label => {
           const id = `${n}-${randomUUID().slice(0, 8)}`;
           return { id, issue: n, kind: 'label', label, actor: t.author, bot, trusted: !bot, at };

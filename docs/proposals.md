@@ -65,10 +65,10 @@ Validation refuses the whole batch if an issue's text is withheld, a part duplic
 
 ### Stacks on and Depends on
 
-`stacks_on` selects one earlier part by position, counted from 1; `depends_on` lists earlier positions. Filing writes `Stacks on #n` and `Depends on #n` lines into the issues. Existing issues can use those lines directly. <!-- code: src/run/start.ts#createIssues -->
+`stacks_on` selects one earlier part by position, counted from 1; `depends_on` lists earlier positions. Filing writes `Stacks on #n` and `Depends on #n` lines into the issues. Existing issues can use those lines directly. The tracker reads them once into the issue's `stacksOn` and `dependsOn`; GitHub adds the issues it records as blocking one, and the folder tracker reads both fields from frontmatter too. <!-- code: src/run/start.ts#createIssues src/tracker.ts#parseIssueLinks src/github.ts#githubTracker -->
 
 With `stacks: true`, stacking builds on the parent's open pull request, never a bare workflow branch. The child targets that pull request's branch; GitHub registers a stack where supported. <!-- code: src/run/drive.ts#findStackBase src/github.ts#githubTracker -->
 
-For workflows with a `branch`, `Depends on #n` holds the run until that issue closes. `Stacks on #n` holds while the parent is open without a pull request, even when stacking is off. A held run stays `running` and records why it is held. If the parent closes without a pull request, the hold clears and the run silently uses its configured base branch. <!-- code: src/run/trigger.ts#findHold src/run/drive.ts#runWorkflow -->
+For workflows with a `branch`, `Depends on #n` holds the run until that issue closes. With `stacks: true`, `Stacks on #n` holds a run that has not started while the parent is open without a pull request; without stacking the line holds nothing. A held run stays `running` and records why it is held. Once the parent's work is merged, the run starts on its configured base branch. If the parent closes without a merged pull request, the run stays held and its reason says so. <!-- code: src/run/trigger.ts#findHold src/run/trigger.ts#isWorkLanded src/run/drive.ts#runWorkflow -->
 
 When a stacked parent's head moves, the child rebases onto it. A conflict asks for a manual rebase. <!-- code: src/run/follow.ts#runFollow -->

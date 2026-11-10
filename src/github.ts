@@ -4,6 +4,8 @@ import { promisify } from 'node:util';
 import { Clock, Config, Effect, Layer, Option, Redacted, Schedule, Stream, Semaphore } from 'effect';
 import {
   makeCommentWithAgentRequest,
+  parseIssueLinks,
+  isBotLogin,
   isAgentBranch,
   isPostedBy,
   pushLimits,
@@ -47,6 +49,7 @@ type RestIssue = {
   html_url: string;
   repository_url: string;
   pull_request?: { merged_at?: string | null } | null;
+  issue_dependencies_summary?: { total_blocked_by: number };
 };
 type RestPull = {
   number: number;
@@ -192,7 +195,7 @@ const hidden =
 const visible = (text: string | null | undefined) => (text ?? '').replace(hidden, '');
 
 const login = (user: User) => user?.login ?? 'ghost';
-const isBot = (user: User) => user?.type === 'Bot' || login(user).endsWith('[bot]');
+const isBot = (user: User) => user?.type === 'Bot' || isBotLogin(login(user));
 const numberIn = (url = '') => Number(/\/(\d+)$/.exec(url)?.[1]);
 
 /** An RS256 JWT that authenticates as the App for ten minutes. */
@@ -435,10 +438,11 @@ export const githubTracker = (
       const own = pull?.head.repo?.full_name === app.repo;
       const author = login(i.user);
       const shown = listed(i.user, i.author_association) || author === `${self}[bot]`;
-      return {
+      return parseIssueLinks({
         number: i.number,
         title: shown ? visible(i.title) : withheld(author, 'title'),
         body: shown ? visible(removeRunLink(i.body ?? '')) : withheld(author, 'issue text'),
+        ...(!shown && { withheld: true as const }),
         state: i.pull_request?.merged_at || pull?.merged_at ? 'merged' : i.state,
         labels: i.labels.map(l => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
         author,
@@ -453,8 +457,15 @@ export const githubTracker = (
           },
         }),
         url: i.html_url,
-      };
+      });
     };
+
+    const addBlockedBy = (i: RestIssue, t: Issue) =>
+      i.issue_dependencies_summary?.total_blocked_by
+        ? Effect.map(all<RestIssue>(`${repo}/issues/${i.number}/dependencies/blocked_by?per_page=100`), blocking =>
+            parseIssueLinks({ ...t, dependsOn: blocking.map(b => b.number) })
+          )
+        : Effect.succeed(t);
 
     const toComment = (c: RestComment, self: string): Comment => {
       const author = login(c.user);
@@ -545,7 +556,9 @@ export const githubTracker = (
           : [];
         const byNumber = new Map(pulls.map(p => [p.number, p]));
         const self = yield* me;
-        return issues.map(i => toIssue(i, self, byNumber.get(i.number), parent)).filter(matches(filter));
+        return (yield* Effect.forEach(issues, i => addBlockedBy(i, toIssue(i, self, byNumber.get(i.number), parent)), {
+          concurrency: 'unbounded',
+        })).filter(matches(filter));
       });
 
     const searchIssues: Tracker['Service']['searchIssues'] = (query, options) =>
@@ -652,7 +665,7 @@ export const githubTracker = (
           ...(pull ? yield* checked(number, pull.head.sha) : []),
         ];
         return {
-          ...toIssue(issue, self, pull, parent?.number),
+          ...(yield* addBlockedBy(issue, toIssue(issue, self, pull, parent?.number))),
           events: timeline.sort((a, b) => a.at.localeCompare(b.at)),
         };
       });
@@ -706,7 +719,7 @@ export const githubTracker = (
                   issue: t.number,
                   kind: 'column',
                   actor: by,
-                  bot: by.endsWith('[bot]'),
+                  bot: isBotLogin(by),
                   trusted: by === owner,
                   at: v.updatedAt,
                   column: { project: `${by}/${item.project.number}`, name: v.name },

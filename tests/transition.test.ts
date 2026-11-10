@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeCommentWithAgentRequest } from '../src/tracker.ts';
+import { makeCommentWithAgentRequest, parseAgentRequest } from '../src/tracker.ts';
 import type { Event } from '../src/event.ts';
 import type { Graph } from '../src/folder.ts';
 import {
@@ -475,9 +475,15 @@ describe('getEventOutcome', () => {
       `\`/agent:restart:\` is not a command. Use ${valid}.`,
       undefined,
     ]);
-    expect(comment('/agent:restart:implement.more please').comment?.agentRequest).toBe(
-      ':restart:implement.more please'
-    );
+    expect(comment('/agent:restart:implement.more please').comment?.agentRequest).toEqual({
+      command: 'restart:implement.more',
+      text: 'please',
+    });
+    expect([':stop flaky', 'go on', ':cancel'].map(parseAgentRequest)).toEqual([
+      { command: 'stop', text: 'flaky' },
+      { text: 'go on' },
+      { command: 'cancel', text: '' },
+    ]);
   });
 
   it('gates commands the CLI or a router tells like any other', () => {

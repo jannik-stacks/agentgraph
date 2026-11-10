@@ -6,7 +6,11 @@ export type IssueStatus = (typeof issueStatuses)[number];
 
 const Text = Schema.optionalKey(Schema.String);
 
-/** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
+/**
+ * An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. `stacksOn` is the issue or pull
+ * request its work builds on, `dependsOn` the issues that must close before it starts, and `withheld` marks an
+ * outsider's issue whose title and text are replaced.
+ */
 export const Issue = Schema.Struct({
   number: Schema.Number,
   title: Schema.String,
@@ -16,6 +20,9 @@ export const Issue = Schema.Struct({
   milestone: Text,
   author: Schema.String,
   parent: Schema.optionalKey(Schema.Number),
+  withheld: Schema.optionalKey(Schema.Literal(true)),
+  stacksOn: Schema.optionalKey(Schema.Number),
+  dependsOn: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.Number))),
   pull: Schema.optionalKey(
     Schema.Struct({ branch: Schema.String, base: Schema.String, head: Schema.String, baseSha: Text })
   ),
@@ -25,7 +32,7 @@ export type Issue = Types.Mutable<typeof Issue.Type>;
 
 /**
  * A comment; `path` and `line` place a review comment, `under` is the review comment it answers. `agentRequest` is what
- * it asks the bot: its text without the `/agent` that calls the bot, when it has one.
+ * it asks the bot when it calls it with `/agent`: the command after `/agent:`, and the rest of its text.
  */
 export const Comment = Schema.Struct({
   id: Schema.String,
@@ -33,7 +40,7 @@ export const Comment = Schema.Struct({
   body: Schema.String,
   at: Schema.String,
   edited: Text,
-  agentRequest: Text,
+  agentRequest: Schema.optionalKey(Schema.Struct({ command: Text, text: Schema.String })),
   path: Text,
   line: Schema.optionalKey(Schema.Number),
   under: Text,

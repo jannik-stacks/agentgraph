@@ -2,16 +2,21 @@ import { Effect, Stream } from 'effect';
 import type { Issue, Event } from '../event.ts';
 import { getSha } from '../hash.ts';
 import type { Graph } from '../folder.ts';
-import { type Workflow, isRunDone, isQuiet, getEventOutcome, fold, pickCommandTarget } from '../workflow.ts';
+import {
+  type Workflow,
+  formatTemplate,
+  isRunDone,
+  isQuiet,
+  getEventOutcome,
+  fold,
+  pickCommandTarget,
+} from '../workflow.ts';
 import { type IssueWithPull, getEvents } from '../context.ts';
-import { Tracker } from '../tracker.ts';
+import { Tracker, findBranchPull, parseAgentRequest } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { makeContinuedMeta } from '../meta.ts';
 import { getStepReturns } from '../graph.ts';
 import { type Run, type StoreError, type Trace, type TrackerError } from '../types.ts';
-
-export const formatTemplate = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
-  template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
 
 /** Whether a new run may start on an issue: always without a graph milestone, else only in it. */
 export const isInScope = (graph: Graph, issue?: Issue) =>
@@ -19,15 +24,16 @@ export const isInScope = (graph: Graph, issue?: Issue) =>
 
 export const isBoardGraph = (graph: Graph) => Object.values(graph.workflows).some(w => w.on.issues?.column);
 
-/** The open pull request on the branch a run of `w` works on: its checkout branch, else the workflow's branch for its issue. */
-export const findPullNumber = (w: Workflow, run: Pick<Run, 'issue' | 'checkout'>, open: Issue[]) => {
-  const branch =
-    run.checkout?.branch ??
-    (w.branch === undefined
-      ? undefined
-      : formatTemplate(w.branch, open.find(t => t.number === run.issue) ?? { number: run.issue }));
-  return branch === undefined ? undefined : open.find(t => t.pull?.branch === branch)?.number;
-};
+/** The branch a run of `w` works on: its checkout branch, else the workflow's branch for its issue among `issues`. */
+export const formatRunBranch = (
+  w: Pick<Workflow, 'branch'> | undefined,
+  run: Pick<Run, 'issue' | 'checkout'>,
+  issues: Issue[] = []
+) =>
+  run.checkout?.branch ??
+  (w?.branch === undefined
+    ? undefined
+    : formatTemplate(w.branch, issues.find(t => t.number === run.issue) ?? { number: run.issue }));
 
 export const readEarlierBranch = (w: Workflow, run: Run, named: string) =>
   Effect.gen(function* () {
@@ -36,7 +42,7 @@ export const readEarlierBranch = (w: Workflow, run: Run, named: string) =>
       .toSorted((a, b) => a.started.localeCompare(b.started))
       .at(-1);
     const branch = before?.checkout?.branch ?? named;
-    const pull = (yield* (yield* Tracker).issues({ branch })).toSorted((a, b) => b.number - a.number)[0];
+    const pull = findBranchPull(yield* (yield* Tracker).issues({ branch }), branch);
     return { before, branch, pull };
   });
 
@@ -44,14 +50,14 @@ const readWorkedPull = (graph: Graph, issue: Issue) =>
   Effect.gen(function* () {
     const branch = (yield* (yield* Store).list({ issue: issue.number }))
       .flatMap(r => {
-        const named = r.checkout?.branch ?? graph.workflows[r.workflow]?.branch;
-        return named === undefined ? [] : [{ started: r.started, branch: formatTemplate(named, issue) }];
+        const branch = formatRunBranch(graph.workflows[r.workflow], r, [issue]);
+        return branch === undefined ? [] : [{ started: r.started, branch }];
       })
       .toSorted((a, b) => a.started.localeCompare(b.started))
       .at(-1)?.branch;
     return branch === undefined
       ? undefined
-      : (yield* (yield* Tracker).issues({ branch })).toSorted((a, b) => b.number - a.number)[0]?.number;
+      : findBranchPull(yield* (yield* Tracker).issues({ branch }), branch)?.number;
   });
 
 /**
@@ -71,7 +77,10 @@ export const readIssueWithPull = (
       : w.branch === undefined
         ? (run.said?.find(s => s.issue !== run.issue)?.issue ??
           (w.on.feedback ? yield* readWorkedPull(graph, issue) : undefined))
-        : findPullNumber(w, run, yield* tracker.issues(isRunDone(run) ? {} : { state: 'open' }));
+        : yield* Effect.map(
+            tracker.issues(isRunDone(run) ? {} : { state: 'open' }),
+            issues => findBranchPull(issues, formatRunBranch(w, run, issues))?.number
+          );
     const spoken = (yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
       'spoken' in t && t.spoken.source === 'cli' ? [t.spoken] : []
     );
@@ -128,7 +137,7 @@ export const makeToldEvent = (issue: number, told: { text: string; by: string },
   bot: false,
   trusted: true,
   at,
-  comment: { id: '', author: told.by, body: told.text, at, agentRequest: told.text },
+  comment: { id: '', author: told.by, body: told.text, at, agentRequest: parseAgentRequest(told.text) },
 });
 
 /** What the comment workflow told `run`, each as a trusted comment that speaks to it. */
@@ -166,8 +175,7 @@ export const findRouter = (graph: Graph) =>
  * what it tells them. Every run hears `/agent:` commands, which reach only the run they pick.
  */
 export const getHeardEvent = (router: string | undefined, w: Workflow, m: Event): Event => {
-  if (!router || w.on.issue_comment || m.comment?.agentRequest === undefined || m.comment.agentRequest.startsWith(':'))
-    return m;
+  if (!router || w.on.issue_comment || !m.comment?.agentRequest || m.comment.agentRequest.command) return m;
   const { agentRequest: _agentRequest, ...comment } = m.comment;
   return { ...m, comment };
 };

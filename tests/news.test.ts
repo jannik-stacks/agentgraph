@@ -68,7 +68,7 @@ describe('formatRequest', () => {
   const at = (minute: number) => `2026-10-20T10:${String(minute).padStart(2, '0')}:00Z`;
   const long = `Please rename the helper. ${'Keep every caller working. '.repeat(20)}`;
   const agent = (minute: number, body = '/agent') =>
-    said('morgan', at(minute), { id: `c${minute}`, body, agentRequest: body.slice('/agent'.length).trim() });
+    said('morgan', at(minute), { id: `c${minute}`, body, agentRequest: { text: body.slice('/agent'.length).trim() } });
   const looked = (minute: number) => ({ issue: { id: 's', home: 'h', seen: { at: at(minute) } } });
   const ask = (t: IssueWithPull, minute: number, since = '', sessions = {}) =>
     formatRequest(t, { started: at(minute), sessions }, since).text;
@@ -103,14 +103,14 @@ describe('formatRequest', () => {
     const t = pull([
       agent(1),
       said('morgan', at(2), { id: 'c2', body: 'and the tests too' }),
-      said('morgan', at(5), { id: 'c5', body: '/agent yes, go on', agentRequest: 'yes, go on' }),
+      said('morgan', at(5), { id: 'c5', body: '/agent yes, go on', agentRequest: { text: 'yes, go on' } }),
     ]);
     expect(ask(t, 1, '', looked(2))).toBe('## What you were asked\n\n@morgan: /agent\n\n@morgan: and the tests too');
   });
 
   it('returns what it shows, the request and its review thread', () => {
     const thread = { path: 'kit/package.json', under: '1' };
-    const request = said('morgan', at(2), { id: '2', body: '/agent', agentRequest: '', ...thread });
+    const request = said('morgan', at(2), { id: '2', body: '/agent', agentRequest: { text: '' }, ...thread });
     const before = said('morgan', at(1), { id: '1', body: 'hm', path: 'kit/package.json' });
     const other = said('bot[bot]', at(3), { id: '3', body: 'Opened #18.' });
     expect(formatRequest(pull([before, request, other]), { started: at(2), sessions: {} }, '').shown).toEqual([
@@ -121,7 +121,12 @@ describe('formatRequest', () => {
 
   it('shows replies that came after the request in its review thread, so a settled ask gets no second answer', () => {
     const thread = { path: 'kit/package.json', under: '1' };
-    const request = said('morgan', '2026-10-19T17:00:00Z', { id: '2', body: '/agent', agentRequest: '', ...thread });
+    const request = said('morgan', '2026-10-19T17:00:00Z', {
+      id: '2',
+      body: '/agent',
+      agentRequest: { text: '' },
+      ...thread,
+    });
     const settled = said('morgan', '2026-10-19T17:02:00Z', { id: '3', body: 'Renamed in cb8b13e.', ...thread });
     const elsewhere = said('morgan', '2026-10-19T17:03:00Z', { id: '4', body: 'and this?', path: 'kit/src/a.ts' });
     const { text } = formatRequest(

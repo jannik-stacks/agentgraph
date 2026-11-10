@@ -514,6 +514,28 @@ describe('githubTracker', () => {
     expect(issues.map(t => t.milestone)).toEqual(['v1', undefined]);
   });
 
+  it('reads what an issue stacks on and depends on from GitHub dependencies and its body lines', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues?state=open&per_page=100': [
+        issue(7, {
+          body: 'Do it.\n\nStacks on #3.\nDepends on #4',
+          issue_dependencies_summary: { total_blocked_by: 2 },
+        }),
+        issue(9, { body: 'Do it.\n\nStacks on #2 and #5' }),
+      ],
+      'GET /repos/o/r/issues/7/dependencies/blocked_by?per_page=100': [issue(5), issue(4)],
+      'GET /repos/o/r/pulls?state=open&per_page=100': [],
+    });
+    const issues = await run(
+      f,
+      Effect.flatMap(Tracker, tracker => tracker.issues({ state: 'open' }))
+    );
+    expect(issues.map(t => [t.stacksOn, t.dependsOn])).toEqual([
+      [3, [5, 4]],
+      [undefined, undefined],
+    ]);
+  });
+
   it('lists issues and pull requests with visible text, and withholds outsiders', async () => {
     const f = fake({
       'GET /repos/o/r/issues?state=open&per_page=100&labels=ready': [
@@ -533,6 +555,7 @@ describe('githubTracker', () => {
     expect(issues[2]).toMatchObject({
       title: '(title by @mallory withheld: not a collaborator)',
       body: '(issue text by @mallory withheld: not a collaborator)',
+      withheld: true,
     });
     expect(issues[0]).toEqual({
       number: 7,
@@ -1040,7 +1063,7 @@ describe('githubTracker', () => {
         m.kind,
         m.actor,
         m.trusted,
-        m.comment?.agentRequest ?? m.comment?.body ?? m.label ?? m.commit?.title,
+        m.comment?.agentRequest?.text ?? m.comment?.body ?? m.label ?? m.commit?.title,
       ])
     ).toEqual([
       [7, 'comment', 'alice', true, 'thanks fix the typo'],

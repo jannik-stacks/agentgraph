@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Cache, Cause, Duration, Effect, Layer, Queue, Redacted, Schema, Stream } from 'effect';
 import { isIP } from 'node:net';
 import { isAgentBranch } from './tracker.ts';
+import { isTemplateBranch } from './workflow.ts';
 import type { Graph } from './folder.ts';
 import {
   dependencyDirs,
@@ -441,20 +442,11 @@ const timeout = (c: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
 
 const readTrustedCommits = (mirror: string, local: boolean, workflows: Graph['workflows'] = {}) => {
-  const written = Object.values(workflows).flatMap(w =>
-    w.branch
-      ? [
-          new RegExp(
-            `^${w.branch
-              .split(/\{[^}]*\}/)
-              .map(p => p.replace(/[.*+?^$()|[\]\\]/g, '\\$&'))
-              .join('.+')}$`
-          ),
-        ]
-      : []
-  );
+  const templates = Object.values(workflows).flatMap(w => w.branch ?? []);
   const bases = Object.values(workflows).flatMap(w =>
-    w.base && !/[{}]/.test(w.base) && !isAgentBranch(w.base) && !written.some(r => r.test(w.base!)) ? [w.base] : []
+    w.base && !/[{}]/.test(w.base) && !isAgentBranch(w.base) && !templates.some(t => isTemplateBranch(t, w.base!))
+      ? [w.base]
+      : []
   );
   return Effect.forEach([local ? 'HEAD' : 'refs/remotes/origin/HEAD', ...bases.map(b => `refs/heads/${b}`)], name =>
     readGit({ GIT_DIR: mirror }, ['rev-parse', '--verify', '--quiet', `${name}^{commit}`]).pipe(

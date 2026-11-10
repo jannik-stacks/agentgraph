@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import type { Said, Proposal } from '../proposal.ts';
-import { Tracker, withheld } from '../tracker.ts';
+import { Tracker, formatIssueLinks } from '../tracker.ts';
 import { type Workflow, begin, isRunDone } from '../workflow.ts';
 import type { Applied } from '../event.ts';
 import { Store } from '../store.ts';
@@ -75,7 +75,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       )
     );
     const refusal = (p: Child, i: number) => {
-      if (issue.body === withheld(issue.author, 'issue text')) return `#${run.issue} is withheld text from an outsider`;
+      if (issue.withheld) return `#${run.issue} is withheld text from an outsider`;
       if (isPart(p) && open.has(p.title.trim().toLowerCase()) && !cached[i])
         return `${p.title}: an open issue has this title`;
       if (!/^## Done when[ \t]*\r?$/im.test(p.body))
@@ -102,15 +102,15 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
         numbers.push(a.proposal.kind === 'issue' ? Number(a.id) : a.issue!);
         continue;
       }
-      const lines = isPart(p)
-        ? [
-            ...(p.stacks_on === undefined ? [] : [`Stacks on #${numbers[p.stacks_on - 1]}`]),
-            ...(p.depends_on ?? []).map(k => `Depends on #${numbers[k - 1]}`),
-          ]
-        : [`Found while working on #${run.issue}`];
+      const links = isPart(p)
+        ? formatIssueLinks({
+            ...(p.stacks_on !== undefined && { stacksOn: numbers[p.stacks_on - 1]! }),
+            dependsOn: (p.depends_on ?? []).map(k => numbers[k - 1]!),
+          })
+        : `Found while working on #${run.issue}`;
       const same = isPart(p) ? undefined : open.get(p.title.trim().toLowerCase());
       if (same !== undefined) {
-        const comment: Proposal = { kind: 'comment', body: [p.body, ...lines].join('\n\n') };
+        const comment: Proposal = { kind: 'comment', body: [p.body, links].join('\n\n') };
         applied.push(yield* writeOnce(run, same, key, tracker.apply(same, comment), comment));
         numbers.push(same);
         continue;
@@ -118,7 +118,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       const filed: Proposal = {
         kind: 'issue',
         title: p.title,
-        body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
+        body: [p.body, links].filter(Boolean).join('\n\n'),
         ...(isPart(p) ? { parent: run.issue, labels: [`size/${p.size}`] } : { labels: [p.relation] }),
       };
       const a = yield* writeOnce(run, run.issue, key, tracker.apply(run.issue, filed), filed);

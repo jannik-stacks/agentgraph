@@ -332,7 +332,10 @@ describe('triage', () => {
     where.label(1);
     const { value } = await run(where, Array(3).fill(turn(part('spam', 'S'))), tick(graph, 1));
     expect(value[0]!.reason).toContain('#1 is withheld text from an outsider');
-    expect((await issue(where, 1)).body).toBe('(issue text by @mallory[bot] withheld: not a collaborator)');
+    expect(await issue(where, 1)).toMatchObject({
+      body: '(issue text by @mallory[bot] withheld: not a collaborator)',
+      withheld: true,
+    });
 
     where.label(2);
     const late = await run(where, Array(3).fill(turn(part('one', 'S', { stacks_on: 1 }))), tick(graph, 2));
@@ -342,7 +345,7 @@ describe('triage', () => {
 });
 
 describe('ordering', () => {
-  it('does not drive a run while an issue it stacks on or depends on is open without a pull request', async () => {
+  it('holds a stacked run while the issue it stacks on has no pull request, and reports it closed without one', async () => {
     const where = world([
       [1, 'morgan'],
       [2, 'morgan'],
@@ -359,12 +362,48 @@ describe('ordering', () => {
     expect((await issue(where, 2)).events.filter(m => m.actor.endsWith('[bot]'))).toEqual([]);
 
     writeIssueAt(issuePath(where.tracker, 1), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
-    const question = 'The dependency is closed; which implementation should I use?';
-    const after = await run(where, [turn({ kind: 'ask', question })], tick(graph, 2, true));
-    expect(after.value.map(r => [r.id, r.step, r.status, r.reason, r.tries])).toEqual([
-      ['issue-2', 'implement', 'waiting', question, 0],
+    const after = await run(where, [], tick(graph, 2, true));
+    expect(after.value).toEqual([]);
+    expect((await runs(where)).map(r => [r.status, r.reason, r.checkout])).toEqual([
+      ['running', '#1, which it stacks on, closed without a merged pull request', undefined],
     ]);
-    expect(after.value[0]!.sessions.implement).toMatchObject({ id: 's' });
+  });
+
+  it('drives a stacked run on the base once the work it stacks on is merged', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+    ]);
+    appendIssueAt(issuePath(where.tracker, 2), '\nStacks on #1\n');
+    writeIssueAt(issuePath(where.tracker, 1), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
+    writeIssueAt(
+      issuePath(where.tracker, 3),
+      '---\ntitle: Fix 1\nstate: merged\nauthor: agentgraph[bot]\n---\n\nCloses #1\n'
+    );
+    writeIssueAt(
+      issuePath(where.tracker, 3, 'pull.json'),
+      JSON.stringify({ branch: 'agentgraph/1', base: 'main', head: 'abc' })
+    );
+    const waiting = begin(graph.workflows.issue!, { id: 'issue-2', issue: 2, started: at(5) });
+    await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
+    const question = 'Which implementation should I use?';
+    const { value } = await run(where, [turn({ kind: 'ask', question })], tick(graph, 2, true));
+    expect(value.map(r => [r.status, r.reason, r.checkout?.base])).toEqual([['waiting', question, 'main']]);
+  });
+
+  it('drives a run that says "Stacks on" an open issue when the graph does not stack', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+    ]);
+    appendIssueAt(issuePath(where.tracker, 2), '\nStacks on #1\n');
+    const waiting = begin(graph.workflows.issue!, { id: 'issue-2', issue: 2, started: at(5) });
+    await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
+    const question = 'Which implementation should I use?';
+    const { value } = await run(where, [turn({ kind: 'ask', question })], tick({ ...graph, stacks: false }, 2, true));
+    expect(value.map(r => [r.id, r.status, r.reason, r.checkout?.base])).toEqual([
+      ['issue-2', 'waiting', question, 'main'],
+    ]);
   });
 
   it('waits on a "Depends on" issue until it is closed, even once it has a pull request', async () => {
