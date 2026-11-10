@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Proposal, Said } from '../src/proposal.ts';
+import { findCodeBlocks, findHeadings } from './markdown.ts';
 import { readUsage } from './usage.mjs';
 
 const root = join(import.meta.dirname, '..');
@@ -30,30 +31,24 @@ const slug = heading =>
     .replace(/ /g, '-');
 
 /** Each page's sections: heading anchor and first line, outside fenced code. */
-const splitPageSections = page => {
-  const sections = [{ anchor: '', from: 1 }];
-  let fenced = false;
-  read(page)
-    .split('\n')
-    .forEach((line, i) => {
-      if (/^(```|~~~)/.test(line)) fenced = !fenced;
-      const heading = !fenced && /^#{1,6}\s+(.+?)\s*$/.exec(line);
-      if (heading) sections.push({ anchor: i === 0 ? '' : slug(heading[1]), from: i + 1 });
-    });
-  return sections;
-};
+const splitPageSections = page => [
+  { anchor: '', from: 1 },
+  ...findHeadings(read(page)).map(h => ({ anchor: h.line === 1 ? '' : slug(h.text), from: h.line })),
+];
+
+const findFencedLines = text =>
+  new Set(findCodeBlocks(text).flatMap(b => Array.from({ length: b.to - b.from + 1 }, (_, i) => b.from + i)));
 const sectionAt = (sections, line) => sections.findLast(s => s.from <= line).anchor;
 const where = (page, anchor) => (anchor ? `${page}#${anchor}` : page);
 
 /** Every ref: a docs section and a file, with the symbol it cites when it names one. */
 const refs = pages.flatMap(page => {
   const sections = splitPageSections(page);
-  let fenced = false;
+  const fenced = findFencedLines(read(page));
   return read(page)
     .split('\n')
     .flatMap((text, i) => {
-      if (/^(```|~~~)/.test(text)) fenced = !fenced;
-      if (fenced) return [];
+      if (fenced.has(i + 1)) return [];
       return [...text.replace(/`[^`]*`/g, '').matchAll(/<!--\s*code:([^>]*?)-->/g)].flatMap(([, body]) =>
         [...body.matchAll(/([\w./-]+)(?:#([\w$]+))?/g)].map(([, file, symbol]) => ({
           page,
@@ -229,15 +224,10 @@ const userFacing = () => {
 
 /** The code in a page: fenced blocks whole, and inline code spans elsewhere. */
 const findCodeLines = page => {
-  let fence = '';
+  const fenced = findFencedLines(read(page));
   return read(page)
     .split('\n')
-    .flatMap(line => {
-      const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-      if (marker && !fence) fence = marker;
-      else if (marker && marker === fence) fence = '';
-      return fence || marker ? [line] : (line.match(/`[^`]+`/g) ?? []);
-    })
+    .flatMap((line, i) => (fenced.has(i + 1) ? [line] : (line.match(/`[^`]+`/g) ?? [])))
     .join('\n');
 };
 

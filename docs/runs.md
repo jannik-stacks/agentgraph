@@ -69,7 +69,7 @@ Status determines the issue's parent folder, such as `working/14/` or `needs-rev
 
 Write `issue.md` under an unused number to add an issue, or use `agi start`. A trusted author and configured trigger label start work on the next pass. For example:
 
-````md
+```md
 ---
 title: Reject a negative count
 author: morgan
@@ -77,8 +77,9 @@ labels: [agent:ready]
 ---
 
 count(-1) should throw.
+```
 
-```<!-- code: src/tracker.ts#folderTracker --> <!-- code: src/tracker.ts#findIssueDir src/tracker.ts#runLocked --> <!-- code: src/tracker.ts#writeIssueFile -->
+<!-- code: src/tracker.ts#folderTracker --> <!-- code: src/tracker.ts#findIssueDir src/tracker.ts#runLocked --> <!-- code: src/tracker.ts#writeIssueFile -->
 
 ## run.json
 
@@ -91,10 +92,19 @@ The store saves each run under an id lock before showing its initial status. The
 | `step`, `status`          | Current step and status                                                                                                                                                                                                                                                                                                                                                                                     |
 | `tries`, `rounds`         | Attempts at this step, and returns per step                                                                                                                                                                                                                                                                                                                                                                 |
 | `sessions`                | The kept session of each step                                                                                                                                                                                                                                                                                                                                                                               |
+| `judges`                  | The kept session of each check an agent judges |
 | `feedback`, `reason`      | Context for the next try or a [retro](workflows.md#retros), and why the run waits or stopped                                                                                                                                                                                                                                                                                                                |
+| `reported`                | The last report of each step that carries its report to the next step |
+| `restarted`               | A person restarted the run |
+| `retried`                 | The run already asked once after a failure; the next failure leaves it waiting |
 | `answers`                 | Human answers, each with its question                                                                                                                                                                                                                                                                                                                                                                       |
 | `said`, `unshown`         | Where people last spoke, and a status the tracker has yet to show                                                                                                                                                                                                                                                                                                                                           |
+| `seen`                    | When the run last took in events on its issue |
+| `eyes`                    | The eyes reaction the run left on a comment, removed once it replies |
 | `base`, `onto`            | The stacked parent's pull request, and where a conflicted follow lands                                                                                                                                                                                                                                                                                                                                      |
+| `moved`                   | A catch-up onto a moved base: the commit the branch started from and the base it moves onto |
+| `blocked`                 | The base, head and graph a failed catch-up stopped at; it tries again once one changes |
+| `checkout`                | The run's branch and the base it was checked out from |
 | `graph`, `by`             | Graph version last checked, and the run that dispatched this one                                                                                                                                                                                                                                                                                                                                            |
 | `graphTree`               | The git tree of the graph folder the run started under, kept at `refs/agentgraph/graphs/<tree>`; set once                                                                                                                                                                                                                                                                                                   |
 | `versions`                | What produced the run, set once with `graphTree`: `engine`, the `git describe` of the engine checkout or else its package version; `config`, a hash of the `AGENTGRAPH_CONFIG` file when one is set; `image`, the Docker ID; and `harnesses`, the version of each graph agent's harness in that image, `unknown` when the image lacks its package. A box or plugin runner records no image and no harnesses |
@@ -170,5 +180,3 @@ Startup saves dead owners' checkouts at `refs/agentgraph/reaped/<id>` before rem
 Cleanup uses recorded branches and bases. Live runs, pending checks, dirty files, unmerged commits and worktrees outside the engine root keep their branches. Unsafe or redirected worktree metadata is skipped with a reason; symlink targets are never removed. Run records, traces, checks and attempt refs remain.
 
 Cleanup removes ignored build files with a landed checkout. Keep no manual work there; concurrent edits can be lost. <!-- code: src/git.ts#ensureGraphRef --> <!-- code: src/mirror.ts#makeSandbox src/run/drive.ts#runWorkflow src/git.ts#commitCheckout src/git.ts#commitCheckoutOnce src/env.ts#findDeadCheckouts src/env.ts#removeCheckout --> <!-- code: src/types.ts#Run src/run/drive.ts#runWorkflow src/git.ts#readBranches src/mirror.ts#makeSandbox src/run/trigger.ts#scanIssuesAndRunningRuns src/tracker.ts#matches src/github.ts#githubTracker --> <!-- code: src/disk.ts#removeBranch src/git.ts#hostGit src/git.ts#readWorktreeAdmin --> <!-- code: src/disk.ts#removeBranch -->
-```
-````

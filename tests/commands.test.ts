@@ -47,6 +47,7 @@ describe('refs coverage', () => {
     const dir = tmp('refs');
     for (const path of ['bin', 'src', 'docs']) cpSync(join(root, path), join(dir, path), { recursive: true });
     symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'));
+    symlinkSync(join(root, 'studio'), join(dir, 'studio'));
     for (const page of readdirSync(join(dir, 'docs')).filter(f => f.endsWith('.md'))) {
       const path = join(dir, 'docs', page);
       writeFileSync(path, readFileSync(path, 'utf8').replaceAll('--parked', ''));

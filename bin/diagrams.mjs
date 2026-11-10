@@ -2,6 +2,7 @@
 // Usage: node bin/diagrams.mjs [file.md ...]
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { findCodeBlocks } from './markdown.ts';
 
 const root = join(import.meta.dirname, '..');
 const BOX = /[┌┐└┘│─├┤┬┴┼]/;
@@ -46,17 +47,13 @@ function checkDiagrams(text) {
   const problems = [];
   let diagrams = 0;
   const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    if (!/^\s*```/.test(lines[i])) continue;
-    let end = i + 1;
-    while (end < lines.length && !/^\s*```/.test(lines[end])) end++;
-    const block = lines.slice(i + 1, end);
+  for (const { from, to, closed } of findCodeBlocks(text)) {
+    const block = lines.slice(from, closed ? to - 1 : to);
     const unicode = block.some(l => BOX.test(l));
     if (unicode || block.some(l => ASCII_BOX.test(l))) {
       diagrams++;
-      for (const p of checkBlock(block, unicode)) problems.push({ ...p, line: p.line + i + 1 });
+      for (const p of checkBlock(block, unicode)) problems.push({ ...p, line: p.line + from });
     }
-    i = end;
   }
   return { problems, diagrams };
 }
