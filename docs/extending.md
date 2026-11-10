@@ -1,6 +1,6 @@
 # Extending agentgraph
 
-Start with the parts that ship, then change the ones your repo needs.
+Graphs configure workflows; harnesses, providers and plugins extend how they run.
 
 ## Trackers
 
@@ -23,15 +23,15 @@ The package ships a starter example; the clone has [more example graphs](../READ
 Reviewed TypeScript files in the graph's `plugins/` folder export `makePlugin(...)`. A plugin can supply agent tools, status hooks, a tracker, a runner, studio auth or a studio page. Its `settingsSchema` decodes `plugins.<name>` in `settings.yaml`. See [Plugins](plugins.md) for each member's interface.
 <!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/plugin.ts#StatusChange src/plugin.ts#TrackerHost src/plugin.ts#RunnerHost src/plugin.ts#AuthHost -->
 
-Plugin code runs on the host and needs review. The engine keeps trust, checks and write permissions. Studio page readers receive the instance host for runs and tracker reads. The studio serves the same typed actions as the CLI. Opening a page starts no work.
+Plugins run as trusted host code. Studio readers get instance hosts for run and tracker reads; browser actions require studio authorization.
 <!-- code: src/engine.ts#makeInstanceHost src/actions.ts#Actions -->
 
 The engine's built-in [triggers](workflows.md#what-starts-a-run) and [proposal kinds](proposals.md#kinds) define what workflows can use.
 
 ## Bench
 
-[Bench](bench.md) replays merged changes and compares agents. It runs from the clone, with a CLI and a studio page in `examples/plugins/bench`. Add cases and choose graphs and model settings for a comparison. <!-- code: examples/plugins/bench/plugins/bench.ts bench/runs.ts#readBenchData bin/bench.ts#runArm -->
+[Bench](bench.md) replays merged changes and compares agents. Its runner and scorer live in the engine clone at `bin/bench.ts` and `bench/`. The studio page is an example plugin in `examples/plugins/bench`, loaded with `agi studio --plugins examples/plugins/bench`. <!-- code: examples/plugins/bench/plugins/bench.ts bench/runs.ts#readBenchData bin/bench.ts#runArm -->
 
 ## Tune
 
-Tune proposes graph changes, tests them through Bench and keeps the ones that improve results. It runs from the clone. Edit a graph and submit it with `node bin/tune.ts propose <tune dir> --from <graph dir> --why <text>`. Tune uses Bench to evaluate candidates. Workflows run without either tool.
+Tune is an experimental clone-only tool that tests graph changes through Bench, with little test coverage and unstable commands and files. Submit a candidate with `node bin/tune.ts propose <tune dir> --from <graph dir> --why <text>`.

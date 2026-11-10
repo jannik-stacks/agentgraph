@@ -117,3 +117,6 @@ Decisions made without being sure. Each names what was picked and what would cha
   naming the instances in the option text; graph load problems show only on an instance's own pages, not on `/runs`;
   Docs stays an instance page, so `/runs` shows only the Runs tab and studio pages. The logo is a `Link` with
   `instance=""`, the plain studio's name, to reach `/runs` with a full load from an instance page.
+
+- **The generic docs merge has no passing full check in the restricted sandbox.** The full check hit denied
+  heartbeat writes, process inspection and Docker access. Static checks and the touched triage tests pass.

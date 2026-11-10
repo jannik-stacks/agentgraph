@@ -95,6 +95,14 @@ const issue = (where: ReturnType<typeof world>, n: number) =>
 const runs = (where: ReturnType<typeof world>) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
 
+const countFiledIssues = async (body: string) => {
+  const where = world();
+  where.label(1);
+  const proposed = turn({ kind: 'label', add: ['size/S'] }, { ...follow('Tidy the README'), body });
+  await run(where, Array(3).fill(proposed), tick(unbounded));
+  return (await issues(where)).length;
+};
+
 describe('triage', () => {
   it('labels an issue of size L or smaller and files nothing', async () => {
     const where = world();
@@ -241,15 +249,10 @@ describe('triage', () => {
   });
 
   it('files a follow-up only under the "## Done when" heading triage-brief reads, CRLF or not', async () => {
-    const filed = async (body: string) => {
-      const where = world();
-      where.label(1);
-      const proposed = turn({ kind: 'label', add: ['size/S'] }, { ...follow('Tidy the README'), body });
-      await run(where, Array(3).fill(proposed), tick(unbounded));
-      return (await issues(where)).length;
-    };
     const counts = await Promise.all(
-      ['Tidy it.\n\n### Done when\n\n- it is tidy', 'Tidy it.\r\n\r\n## Done when\r\n\r\n- it is tidy'].map(filed)
+      ['Tidy it.\n\n### Done when\n\n- it is tidy', 'Tidy it.\r\n\r\n## Done when\r\n\r\n- it is tidy'].map(
+        countFiledIssues
+      )
     );
     expect(counts).toEqual([1, 2]);
   });
