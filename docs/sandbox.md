@@ -118,7 +118,7 @@ Config defaults can be overridden with `AGENTGRAPH_PROVIDER` and `AGENTGRAPH_HAR
 | `opencode` | Patterns, such as `bash(git diff*)`                                                                                                                                                           | `--session <id> --fork`        |
 | `pi`       | Plain tool names; a pattern fails the graph check                                                                                                                                             | `--fork <id>`                  |
 | `claude`   | Patterns; a tool it lacks fails the graph check; commit and pull request attribution is off                                                                                                   | `--resume <id> --fork-session` |
-| `codex`    | `edit`, `write` and `bash` together give every tool, else a read-only `/work`; some of the three fails the check. Codex's own sandbox stays off, as it needs namespaces the container forbids | none, a fresh session          |
+| `codex`    | `edit`, `write` and `bash` together give every tool, else a read-only `/work`; some of the three fails the check. Codex's own sandbox stays off, as it needs namespaces the container forbids | `exec resume <id>`             |
 
 Trace-reading agents need a file-reading tool. Every agent prompt receives the news path.
 

@@ -47,7 +47,7 @@ export const makeCodexHarness = (): Harness => ({
       : { files: { '.codex/auth.json': null } },
   command: (spec, route) => {
     if (!route.url && route.auth && route.auth !== 'chatgpt') throw new Error(`unsupported codex auth ${route.auth}`);
-    const resume = !spec.fork && spec.resume;
+    const resume = spec.resume;
     const server = spec.returns && makeResultServer(spec.returns);
     const command = {
       cmd: 'codex',
