@@ -14,34 +14,34 @@ limits:
   cpus: 4
 ```
 
-A workflow step can override either field with `limits: { memory: 8g }`. This applies to its session or script, fan-out commands and checks. Asides use the limits of their `back` target. Memory accepts integer bytes or `b`, `k`, `m`, `g` suffixes, from 6 MiB to 64 GiB; CPUs must be from 0.01 to 64. Docker disables swap beyond the memory limit. `/tmp` stays at 1 GiB and counts toward that limit. Choose limits that leave room for concurrent containers and the Docker VM. Cached environment builds keep their own fixed limits. A box cannot enforce them, so `agi check` refuses them under the `box` runner. <!-- code: src/run/follow.ts#runAside src/types.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#whyBoxRefused src/services.ts#whyRunnerRefuses -->
+A step can override memory or CPUs with `limits: { memory: 8g }`; its session, scripts and checks use those limits. Asides use their `back` target's limits. See the [limits reference](reference.md#settingsyaml) for ranges. `/tmp` counts toward memory. The `box` runner rejects resource overrides. <!-- code: src/run/follow.ts#runAside src/types.ts#CommandLimits src/run/attempt.ts#runAttempt src/run/execute.ts#runShell src/run/execute.ts#makeAgentSessionSpec src/remote.ts#whyBoxRefused src/services.ts#whyRunnerRefuses -->
 
-| Path          | What                                                                       | Access                                                                   |
-| ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `/work`       | The checkout                                                               | writable; read only for a session with no `edit`, `write` or `bash` tool |
-| `/scratch`    | Private disk-backed temporary files, outside the checkout; removed with it | writable                                                                 |
-| `/tmp`        | Small memory-backed temporary files; 1 GiB, charged to the memory limit    | writable                                                                 |
-| `/home/agent` | The session home                                                           | writable                                                                 |
-| `/graph`      | The graph, `AGENTGRAPH_DIR`; scripts and setup only                        | read only                                                                |
-| `/cache`      | The repo's toolchain cache                                                 | overlay                                                                  |
-| `/news`       | The news file, check inputs and traces the engine writes                   | read only                                                                |
-| the mirror    | The repo's git objects                                                     | read only                                                                |
+| Path          | What                                                                       | Access                                                     |
+| ------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `/work`       | The checkout                                                               | writable; read only for sessions whose tools are read-only |
+| `/scratch`    | Private disk-backed temporary files, outside the checkout; removed with it | writable                                                   |
+| `/tmp`        | Small memory-backed temporary files; 1 GiB, charged to the memory limit    | writable                                                   |
+| `/home/agent` | The session home                                                           | writable                                                   |
+| `/graph`      | The graph, `AGENTGRAPH_DIR`; scripts and setup only                        | read only                                                  |
+| `/cache`      | The repo's toolchain cache                                                 | overlay                                                    |
+| `/news`       | The news file, check inputs and traces the engine writes                   | read only                                                  |
+| the mirror    | The repo's git objects                                                     | read only                                                  |
 
 <!-- code: src/sandbox.ts#inside src/docker.ts#dockerArgs -->
 
-Before Docker starts, the runner creates folders for mounts nested inside a bind, including dependency volumes under `/work`. Read-only sessions need no setup to create those mountpoints. <!-- code: src/docker.ts#dockerRunner -->
+The local runner creates nested mountpoints before starting Docker, including for read-only commands. <!-- code: src/docker.ts#dockerRunner -->
 
-Prompts, session reads and the `AGENTGRAPH_*` file variables name these paths, never host paths. Each checkout gets a separate directory under the data folder, mounted at `/scratch`. Normal cleanup and dead-owner cleanup remove it, the latter once the checkout is saved. Use it for isolated source trees, build outputs and screenshots. <!-- code: src/sandbox.ts#inside src/run/attempt.ts#runAttempt src/docker.ts#dockerRunner src/env.ts#getCheckoutPaths src/env.ts#removeCheckout src/mirror.ts#makeSandbox -->
+Prompts and `AGENTGRAPH_*` file variables name sandbox paths. `/scratch` is private to the checkout and removed during cleanup. <!-- code: src/sandbox.ts#inside src/run/attempt.ts#runAttempt src/docker.ts#dockerRunner src/env.ts#getCheckoutPaths src/env.ts#removeCheckout src/mirror.ts#makeSandbox -->
 
-A read-only session also gets the mirror, its worktree's git dir and the dependency volumes read only, and keeps package caches in `/tmp`. A box enforces it with `box.sh`: the work tree belongs to another user and loses its group and other write bits, and the command runs as uid 1001 with no new privileges, so a setuid file left by an earlier command does not help it. Before it starts, the box kills every process an earlier writable command left behind, unless a writable command is still running. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
+Read-only sessions mount the mirror, git directory and dependencies read-only. The box runner enforces read-only commands with a separate user and clears leftover writable processes. <!-- code: src/harnesses.ts#harnessSession src/remote.ts#makeBoxRunner -->
 
 `infra/local/sandbox` builds the image. <!-- code: src/docker.ts#ensureImage -->
 
 ### Runners
 
-A runner executes commands; the engine keeps git, the mirror, worktrees, cleanup and publishing. `local`, the default, runs Docker on this host. It checks that it is not root, that local model hosts answer, then that `docker version` succeeds. It creates three networks, builds the stock sandbox image if selected and the egress image if needed, and starts the `agentgraph-egress` container. `box` sends each checkout to the box server `AGENTGRAPH_SANDBOX_URL` names; see [Hosting](hosting.md#cloudflare). A [runner plugin](plugins.md#runners) in the host graph adds another, such as Modal in `examples/plugins/modal/`. <!-- code: src/sandbox.ts#Runner src/mirror.ts#makeSandbox src/runners.ts#local src/docker.ts#ensureDockerHost src/services.ts#makeRunner src/runners.ts#box src/remote.ts#boxRunner src/plugin.ts#RunnerHost examples/plugins/modal/modal.ts#makeModalRunner -->
+A runner executes commands; the engine owns git, checkouts and publishing. `local` checks Docker, builds stock images and creates networks. `box` uses `AGENTGRAPH_SANDBOX_URL`; see [Hosting](hosting.md#cloudflare). [Runner plugins](plugins.md#runners), such as the Modal example, add other hosts. <!-- code: src/sandbox.ts#Runner src/mirror.ts#makeSandbox src/runners.ts#local src/docker.ts#ensureDockerHost src/services.ts#makeRunner src/runners.ts#box src/remote.ts#boxRunner src/plugin.ts#RunnerHost examples/plugins/modal/modal.ts#makeModalRunner -->
 
-`--runner <name>` picks one, else `AGENTGRAPH_RUNNER` in the instance's env file, else `runner:` in instance.yaml, else `AGENTGRAPH_RUNNER` in the shell, then `local`. A runner refuses a graph it cannot run as written, and `agi check` and the loop say why before anything starts: a box runs one image, enforces no memory or cpu limits and serves no host tools. A runner must keep read-only commands read only and must not widen a command's network. `local` and `box` enforce this; plugin runners must uphold the same [requirements](plugins.md#runners). <!-- code: src/main.ts#readInstanceEnv src/services.ts#hostSettings src/services.ts#whyRunnerRefuses bin/run.ts#loadServedGraph src/remote.ts#whyBoxRefused src/sandbox.ts#Runner -->
+`--runner` or [instance settings](local.md#named-instances-and-settings) select the runner. `agi check` and the loop reject unsupported graphs before starting. Runners must preserve read-only access and network restrictions; `box` cannot provide custom images, resource overrides or host tools. <!-- code: src/main.ts#readInstanceEnv src/services.ts#hostSettings src/services.ts#whyRunnerRefuses bin/run.ts#loadServedGraph src/remote.ts#whyBoxRefused src/sandbox.ts#Runner -->
 
 ## The network
 
@@ -58,60 +58,60 @@ Graph `setup` installs dependencies, such as `npm ci --no-audit --no-fund`. With
 
 ## Environments
 
-An environment caches a repo's dependencies. A container takes the lockfiles and manifests from the base commit, installs [toolchains](#toolchains), runs `setup`, and keeps the ignored dependency folders such as `node_modules` and `target` in the volume `agentgraph-lower-<key>`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton src/env.ts#makeSetupVolumeName -->
+An environment caches dependencies installed from the base commit's manifests and lockfiles, graph setup and toolchains. Ignored dependency folders live in a reusable volume. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton src/env.ts#makeSetupVolumeName -->
 
-Bases of one repo that differ only in source share one. Environments of different repos never share a volume. A `setup` that reads `$AGENTGRAPH_DIR` runs per checkout instead. Each checkout writes to private overlays. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerRunner -->
+Bases differing only in source can share an environment; repositories never share one. Each checkout writes private overlays. Setup that reads `$AGENTGRAPH_DIR` runs per checkout. <!-- code: src/env.ts#createSharedMounts src/docker.ts#dockerRunner -->
 
-A run whose steps all use agents with only read tools, such as a router or triage, starts from the plain image. It skips the environment, the cache volume and `setup`, so its scripts and checks see no installed dependencies. <!-- code: src/folder.ts#loadGraph src/run/drive.ts#runWorkflow src/docker.ts#dockerRunner -->
+Runs using only read-only agents skip environments, cache volumes and setup; their scripts and checks have no installed dependencies. <!-- code: src/folder.ts#loadGraph src/run/drive.ts#runWorkflow src/docker.ts#dockerRunner -->
 
-`AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats, image use times and build locks; runners that share Docker must share it. A missing sandbox image is built; any other missing image fails with the `docker pull` to run. A Docker daemon that does not answer fails as unreachable, not as a missing image. <!-- code: src/owner.ts#readStateDir src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
+`AGENTGRAPH_STATE` (`~/.cache/agentgraph`) holds heartbeats and build locks; hosts sharing Docker must share it. Missing stock images are built; missing custom images and unreachable Docker fail with a reason. <!-- code: src/owner.ts#readStateDir src/owner.ts#waitForLock src/docker.ts#ensureImage src/owner.ts#isOwnerRunning -->
 
 ### Disk
 
-`bin/env.ts` frees disk. It removes unused volumes, environments and cache volumes no run can reuse, and score trees nobody holds (under `--root` or `AGENTGRAPH_GC_ROOTS`), then the least recently used until the total is under `AGENTGRAPH_ENV_CAP` (`60g`). It keeps what a container, a live checkout or a pin uses, and what a live engine process used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2). A cache volume stays while any environment built with it is left. <!-- code: src/disk.ts#collect -->
+`bin/env.ts` lists, collects, pins and unpins cached environments. `AGENTGRAPH_ENV_HOLD_HOURS` (2) sets live-process hold time. Collection preserves live holds, pins and cache layers needed by retained environments, then removes least recently used data to meet `AGENTGRAPH_ENV_CAP` (60g). <!-- code: src/disk.ts#collect -->
 
-Its verbs are `list`, `collect --dry-run`, `pin <name> <pattern> --days <n>`, `unpin` and `sweep`, which drops the dependency volumes of dead engine processes. Bench collection and automatic low-disk collection only consider environment tags and cache volumes recorded in the case or instance data folder (`.envs/refs.jsonl`). A retained environment keeps its shared lower volume and its cache layer, and a live checkout keeps the environment it reads. Global collection stays an explicit operator action. Collection runs below `AGENTGRAPH_MIN_FREE_GB` (40) free. If that is not enough, `disk low` names what holds the space and bench work waits. <!-- code: src/disk.ts#ensureFreeDisk src/env.ts#removeOrphanedVolumes -->
+Below `AGENTGRAPH_MIN_FREE_GB` (40) free, automatic collection considers only references recorded in the instance or case. If it cannot free enough, work waits with a `disk low` reason. Global collection is an explicit operator action; `sweep` removes dead processes' orphaned volumes. <!-- code: src/disk.ts#ensureFreeDisk src/env.ts#removeOrphanedVolumes -->
 
 ### Toolchains
 
-The image has toolchain managers and a C compiler. Each repo has its own cache volume at `/cache`, named `agentgraph-cache-<repo>-<hash>`. The hash covers the repo (its `repo` name, else its origin URL or path), the image ID and the toolchain lines, both the ones detected from the base's files and graph `toolchain`. It keeps rustup, cargo, npm, pnpm and yarn downloads, so later runs of the same repo reuse them, a changed `setup` keeps them, and other repos never see them. Only environment builds write it, one at a time, and the trace counts other writes (`cache`). A base is trusted when the default branch (`refs/remotes/origin/HEAD`, the operator's `HEAD` in local mode) or a workflow's literal `base` branch reaches it. A `base` with a placeholder, a bot branch (`agentgraph/`) and a branch some workflow writes never count. Bench cases trust the clone's `origin/HEAD`. An untrusted base, such as a pull request head under review, gets its own environment, and its build writes `/cache` through an overlay whose writes land in the environment's own `agentgraph-lower-<key>-c` volume, which the build never mounts directly. Trusted runs never execute what it installed. A build while a checkout has the cache mounted does the same. A build that writes the cache in place holds its lock for the whole build, so new checkouts of the repo wait for it. Every build starts from a fresh lower volume, an environment a live checkout still reads is never rebuilt in place, and checkouts refuse a symlink where they expect the environment's dependency copies. Docker without overlay volumes cannot build an untrusted base. Commands outside a checkout get none. A `rust-toolchain` file pins Rust, and `Cargo.toml` alone selects stable. Graph `toolchain` adds the rest:
+Each repository has a toolchain cache at `/cache`, keyed by repository, image ID and toolchain commands. It reuses package downloads across setup changes. Trusted builds write under a lock; untrusted bases and builds overlapping active checkouts use private overlays. Graph `toolchain` supplies extra installs:
 
 ```yaml
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
 ```
 
-A failed install is an engine error. `AGENTGRAPH_CACHE_VOLUME` sets another name prefix; empty turns off the caches and environments. Changing the image or toolchain starts a new cache volume, and [disk collection](#disk) removes the old one. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#readSandboxSetup src/env.ts#makeLayerVolumeName src/env.ts#written src/services.ts#settings -->
+Failed toolchain installation is an engine error. `AGENTGRAPH_CACHE_VOLUME` changes the cache prefix; an empty value disables caches and environments. Image or toolchain changes create another cache; [collection](#disk) removes old ones. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#readSandboxSetup src/env.ts#makeLayerVolumeName src/env.ts#written src/services.ts#settings -->
 
 ## A graph's own image
 
-Graph `image` supplies the default local image for every command and environment build. Instance and command overrides follow the [settings table](local.md#named-instances-and-settings). Build it yourself, with the harnesses, for example `FROM agentgraph-sandbox:local` plus an `npm ci` into `/node_modules` on the `PATH`. Those dependencies stay as built even when a pull request changes the lockfile. Pair it with `network: models`.
+Graph `image` selects a local command and environment image; [instance settings](local.md#named-instances-and-settings) can override it. Custom images must include the harnesses and `agi`, and execute commands directly.
 
-The runner resolves the tag to its Docker ID once per checkout, including when caches are disabled. Bench uses the same Docker image resolver after selecting its case image; command image overrides still apply. Custom images must run commands directly and include the harnesses and `agi`; missing custom tags fail without building stock contents. The `box` runner refuses a graph `image`. <!-- code: src/docker.ts#readImage src/remote.ts#whyBoxRefused -->
+The local runner pins the Docker image ID per checkout, even without caches. Bench uses the same resolver. Missing custom tags fail without a stock-image build; `box` rejects graph images. <!-- code: src/docker.ts#readImage src/remote.ts#whyBoxRefused -->
 
-For a repo requiring Node 22, build the derived recipe, whose Node source is pinned by digest:
+For example, build the Node 22 recipe:
 
 ```sh
 docker build -t agentgraph-sandbox:node22 infra/local/sandbox/node22
 infra/local/sandbox/smoke.sh agentgraph-sandbox:node22
 ```
 
-Set `image: agentgraph-sandbox:node22` in the repo graph. Node 20, browser and services recipes remain separate.
+Select it with `image: agentgraph-sandbox:node22`.
 
 ### A browser
 
-`infra/local/sandbox/browser` adds Playwright's headless Chromium, the libraries it links and one font, about 380 MB. Each Playwright release finds only its own browser build, so build it with the repo's `@playwright/test` version:
+The optional browser image adds headless Chromium. Build it with the repository's Playwright version:
 
 ```sh
 docker build -t agentgraph-sandbox:browser --build-arg PLAYWRIGHT_VERSION=1.60.0 infra/local/sandbox/browser
 ```
 
-A graph opts in with `image: agentgraph-sandbox:browser`. The image sets `PLAYWRIGHT_BROWSERS_PATH`, so Playwright finds the browser, and `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`, so `npx playwright test` runs with no network. Tests run headless only.
+Select it with `image: agentgraph-sandbox:browser`. The image provides Playwright's browser path and disables browser downloads for offline tests.
 
 ## Harnesses
 
-An agent's `harness` picks the session program. The operator's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins in `harnesses/`. Graphs may load reviewed [host tools](plugins.md). A harness plugin gives a `name`, the npm `package` it installs from, its `key` variable, a `command`, a `parse` for output lines, a `classify` that returns `read`, `write` or `undefined` for each tool, and an optional `home` and `check`. A name must be classified by its harness or registered as a plugin tool; other names fail the graph check. The sandbox makes the worktree read-only when all harness tools are classified as read; a command may also request read-only access. <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
+An agent's `harness` selects a session program from the operator config. A harness supplies its package, command, output parser and tool classifications, plus optional session-home files and validation. Unknown tools fail validation; sessions with only read-classified tools receive a read-only checkout. <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
 
-The config's `provider` and `harness` select defaults; `AGENTGRAPH_PROVIDER` and `AGENTGRAPH_HARNESS` override them. A selected harness runs every agent. Otherwise an agent without a `harness` gets the provider's first, else the config's first. A graph loads only when every harness is in the config and passes its `check`. <!-- code: src/folder.ts#loadGraph -->
+Config defaults can be overridden with `AGENTGRAPH_PROVIDER` and `AGENTGRAPH_HARNESS`. A selected harness overrides agent choices; otherwise the provider's first harness, then the config's first, supplies the default. Every used harness must be configured and pass validation. <!-- code: src/folder.ts#loadGraph -->
 
 | Harness    | Tool permissions                                                                                                                                                                              | Aside fork                     |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
@@ -120,17 +120,17 @@ The config's `provider` and `harness` select defaults; `AGENTGRAPH_PROVIDER` and
 | `claude`   | Patterns; a tool it lacks fails the graph check; commit and pull request attribution is off                                                                                                   | `--resume <id> --fork-session` |
 | `codex`    | `edit`, `write` and `bash` together give every tool, else a read-only `/work`; some of the three fails the check. Codex's own sandbox stays off, as it needs namespaces the container forbids | none, a fresh session          |
 
-An agent with `reads: traces` needs a tool that can read the trace files. The graph author supplies it, and a harness may validate it in `check`. The news file path is included in every agent's prompt and made available to its harness, regardless of tool names.
+Trace-reading agents need a file-reading tool. Every agent prompt receives the news path.
 
 Agent `tools` defaults to none. Session homes under `homes/` in the data folder persist across resumes; a resume finds its home by name there, so a moved data folder keeps them. <!-- code: src/harnesses.ts#harnessSession -->
 
 ### Harness versions
 
-The harnesses and tools in the sandbox image are pinned as exact `ARG <NAME>_VERSION=x.y.z` lines in `infra/local/sandbox/Dockerfile`, and `npm install -g` installs each as `pkg@${NAME}`. A test fails on any `*_VERSION` ARG under `infra/local` that is not an exact version, and on any `@${NAME}` that names no ARG. An update is a one-line pull request that edits the ARG. The next runner start sees the new source hash and rebuilds `agentgraph-sandbox:local`. <!-- code: tests/dockerfile-pins.test.ts src/docker.ts#ensureImage -->
+The stock Dockerfile pins harness packages with exact version ARGs, enforced by tests. Edit an ARG to update a harness; the next local runner start rebuilds the stock image when its source hash changes. <!-- code: tests/dockerfile-pins.test.ts src/docker.ts#ensureImage -->
 
-`node bin/pins.mjs` lists each pinned package with its ARG, its pin and the latest version npm knows. `node bin/pins.mjs --set OPENCODE_VERSION=1.20.0` rewrites that ARG line wherever a Dockerfile under `infra/local` has it, and refuses anything but an exact version. The package of each ARG comes from its `pkg@${NAME}` install line, so there is no second list. <!-- code: bin/pins.mjs -->
+`node bin/pins.mjs` lists pins and current npm versions. `node bin/pins.mjs --set OPENCODE_VERSION=1.20.0` updates matching ARGs and requires an exact version. <!-- code: bin/pins.mjs -->
 
-Runs record what the image holds, not what the Dockerfile says. After the probe that checks an image once per Docker ID, a second run of the image lists its global npm packages, and the checkout carries the ID and those versions. When that listing fails or times out, the checkout keeps the ID with no packages. A per-repo image built on an older `agentgraph-sandbox:local` still shows its old versions until it is rebuilt with the command in [A graph's own image](#a-graphs-own-image). <!-- code: src/docker.ts#readImage src/types.ts#Checkout -->
+Runs record the Docker ID and installed harness versions probed from the actual image. Failed probes leave versions unknown. Rebuild derived images separately after updating their base. <!-- code: src/docker.ts#readImage src/types.ts#Checkout -->
 
 ## Models
 
@@ -138,19 +138,11 @@ Runs record what the image holds, not what the Dockerfile says. After the probe 
 
 The CLI [picks a provider](cli.md#picking-a-provider), listed in `agentgraph.config.ts`. <!-- code: harnesses/providers.ts#makeProviders -->
 
-A provider can give `setup` text for the CLI to show when none is ready or a selected provider is not ready, and `whyLogin` guidance when its recorded session ends with a rejected login. Both are optional. For example, add an entry to the config's `providers` list:
+Providers declare readiness, harnesses, settings and optional login. `setup` explains missing configuration; `whyLogin` gives recovery guidance for a rejected login.
 
-```ts
-{ name: 'company', harnesses: ['opencode'], ready: ({ env }) => !!env.COMPANY_KEY,
-  setup: 'Export COMPANY_KEY to use the company provider.',
-  settings: ({ env }) => ({ AGENTGRAPH_PROXY_URL: 'https://models.example.com/v1',
-    AGENTGRAPH_PROXY_KEYS: `*=${env.COMPANY_KEY}` }),
-  whyLogin: () => 'Renew COMPANY_KEY and start again.' }
-```
+A provider can select a direct harness auth mode, such as the bundled ChatGPT mode, or supply a proxy URL, which takes priority. With neither, the harness uses its isolated home configuration rather than the host login.
 
-A provider can set `auth` to a non-secret mode understood by its harness. The bundled ChatGPT provider sets `auth: chatgpt`, which Pi and Codex accept for direct access. OpenCode also accepts a native provider ID; Pi and Codex reject other direct modes. A proxy URL takes precedence over that mode. With neither a proxy nor an auth mode, a harness uses its native configuration in the isolated session home; it does not inherit the host login. A harness can return `null` for a home file to remove stale configuration on resume.
-
-Recovery runs only for the latest stop caused by a login failure and uses the provider recorded on that session. If the trace has no provider, the CLI gives no provider-specific advice. <!-- code: src/status.ts#findLoginProvider -->
+Login recovery uses the provider recorded on the latest login-related stop; missing provider data gives no provider-specific advice. <!-- code: src/status.ts#findLoginProvider -->
 
 | Provider    | Harness                   | Ready when                                                                                                                               |
 | ----------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -159,13 +151,13 @@ Recovery runs only for the latest stop caused by a login failure and uses the pr
 | `anthropic` | `claude`                  | `ANTHROPIC_API_KEY` is set                                                                                                               |
 | `litellm`   | any                       | `AGENTGRAPH_PROXY_KEYS` is set; agents without a model get `smart`. ChatGPT comes through here ([local stack](../infra/local/README.md)) |
 
-The first pick of `claude` runs `claude setup-token`, joins a token pasted over several lines, tries it with one small `claude -p` call, and keeps it only when that works.
+The Claude provider runs `claude setup-token`, tests the pasted token and stores it only after success.
 
-The first pick of `chatgpt` runs `codex login` with `CODEX_HOME=~/.config/agentgraph/codex`, so agentgraph gets its own login, apart from yours in `~/.codex`. Codex keeps it there in a 0600 file. At each start and before each loop pass, the host refreshes it when less than 2 days remain. Sessions get the access token only, with the refresh token blanked. codex reads it from `/tmp`, opencode from `OPENCODE_AUTH_CONTENT` through its built-in OpenAI login, and pi as the key of a provider that talks to the Codex backend. Agents run `gpt-6.1-sol`, and `fast` runs `gpt-6-luna`. <!-- code: harnesses/providers.ts#chatgpt harnesses/codex.ts#makeCodexHarness harnesses/opencode.ts#opencode harnesses/pi.ts#pi -->
+The ChatGPT provider keeps its own Codex login under `~/.config/agentgraph/codex`. The host refreshes it; sessions receive only the access token, with the refresh token blanked, through each harness's native auth configuration. <!-- code: harnesses/providers.ts#chatgpt harnesses/codex.ts#makeCodexHarness harnesses/opencode.ts#opencode harnesses/pi.ts#pi -->
 
 #### A ChatGPT login in sessions
 
-With `chatgpt`, every session holds a working ChatGPT access token, in its environment and in `/tmp`. The token stays valid for up to 10 days. An agent, or a prompt injection in the repo it reads, could leak it, for example in a diff. Output lines are masked, diffs are not. The refresh token stays on the host, so a leaked token stops working when it expires. The Codex backend is not a public API and can change without notice. OpenAI's guidance advises against using a ChatGPT login for automation on public repos. The `litellm` gateway keeps logins out of sessions: they only hold a key you can revoke.
+With the ChatGPT provider, sessions hold an access token that agent code could leak, including in a diff. Known secrets are redacted from output, but diffs are not masked. The refresh token stays on the host. The optional LiteLLM gateway keeps subscription logins outside sessions and gives agents revocable keys.
 
 ### Settings
 
@@ -181,11 +173,11 @@ In the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi and `AN
 
 ### Gateways
 
-On a host, the [gateway relay](hosting.md) forwards to `GATEWAY_URL` with `GATEWAY_HEADERS`, a JSON object of headers to set, or remove when empty, so a provider key can stay in the relay. It keeps the path, so Claude Code's base URL drops the `/v1` that opencode and pi use. <!-- code: examples/deploy/gateway/forward.ts#forwardToGateway -->
+The optional deployment [gateway relay](hosting.md) forwards to `GATEWAY_URL` and applies `GATEWAY_HEADERS`. This example keeps provider credentials in the relay; paths are preserved. <!-- code: examples/deploy/gateway/forward.ts#forwardToGateway -->
 
-A provider, OpenRouter (`https://openrouter.ai/api`) or the Vercel AI Gateway takes its key as `GATEWAY_HEADERS={"authorization":"Bearer <key>"}`. A LiteLLM takes per-agent keys in `AGENTGRAPH_PROXY_KEYS` instead. Run one LiteLLM per subscription login. Cloudflare AI Gateway needs `cf-aig-authorization` in `GATEWAY_HEADERS` and a URL per harness: `/compat` for opencode and pi, `/anthropic` for Claude Code.
+Set relay authorization in `GATEWAY_HEADERS`, or per-agent LiteLLM keys in `AGENTGRAPH_PROXY_KEYS`. Endpoint paths depend on the provider and harness.
 
-Claude Code on its own subscription needs `network: egress` and `AGENTGRAPH_PROXY_URL=claude=,*=http://gateway:4000/v1` with `AGENTGRAPH_SESSION_ENV=CLAUDE_CODE_OAUTH_TOKEN`.
+Direct Claude subscription access needs `network: egress` and its model login forwarded through `AGENTGRAPH_SESSION_ENV`.
 
 ## Secrets on the host
 
@@ -197,17 +189,12 @@ Claude Code on its own subscription needs `network: egress` and `AGENTGRAPH_PROX
 
 Code running as your user can still read these keys.
 
-`node bin/leak-probe.ts` looks where an npm worm would, such as the environment, ignored files, the process list and containers, and prints where each key-shaped value is, never the value. **Look at this** lists copies to remove; it then exits 1, and 3 when a probe could not run. `PROBE_PATHS`, `PROBE_STUDIO` and `PROBE_CANARY` change where and what it looks for. <!-- code: bin/leak-probe.ts#secret -->
+`node bin/leak-probe.ts` reports where key-shaped values occur without printing them. It exits 1 for copies to remove or 3 for incomplete probes. `PROBE_PATHS`, `PROBE_STUDIO` and `PROBE_CANARY` control the scan. <!-- code: bin/leak-probe.ts#secret -->
 
-The harness adapters accept an engine tool endpoint and allow only its named tools. They read its bearer from the reserved session variable `AGENTGRAPH_TOOL_SECRET`. Claude, Codex, OpenCode and Pi support Streamable HTTP. <!-- code: src/types.ts#SessionSpec src/types.ts#Command harnesses/claude.ts#claude harnesses/codex.ts#makeCodexHarness harnesses/opencode.ts#opencode harnesses/pi.ts#pi -->
+Harness adapters expose only selected engine tools over authenticated Streamable HTTP; the reserved `AGENTGRAPH_TOOL_SECRET` carries the session bearer. <!-- code: src/types.ts#SessionSpec src/types.ts#Command harnesses/claude.ts#claude harnesses/codex.ts#makeCodexHarness harnesses/opencode.ts#opencode harnesses/pi.ts#pi -->
 
 Session output and transcripts share credential redaction before storage. Known values and common credential patterns are hidden; this cannot detect every secret. <!-- code: src/context.ts#formatRedactedText src/harnesses.ts#harnessSession src/services.ts#settings -->
 
-Host tools use a session TCP relay on the sandbox's selected internal network. It forwards one port to a loopback listener on macOS or the egress bridge gateway on Linux. The listener checks the relay's source subnet. The relay holds no bearer token and is removed with the session. <!-- code: src/docker.ts#dockerRunner src/sandbox.ts#Sandbox src/harnesses.ts#harnessSession -->
+Host tools use a per-session relay on the selected sandbox network. It forwards only the host listener port, holds no bearer and closes with the session. <!-- code: src/docker.ts#dockerRunner src/sandbox.ts#Sandbox src/harnesses.ts#harnessSession -->
 
-The sandbox image supplies `agi file put <path>` for selected host-tool sessions. It uses
-`AGENTGRAPH_TOOL_URL` and the reserved session bearer to stream a local PNG/JPEG to the session endpoint and prints an opaque handle, with no path or image bytes in model
-context. Each handle can be read once by a host tool. Capture outside `/work`, for example in `/tmp`.
-Rebuild custom images to include this command.
-The `box` runner refuses host tools and therefore file passing. A runner whose `Box` has no `tools` fails at session start with "this runner cannot serve host tools". See [Plugins](plugins.md).
-<!-- code: src/files.ts#makeFiles src/tools.ts#startTools infra/local/sandbox/file.ts#runFile src/remote.ts#whyBoxRefused src/mirror.ts#makeSandbox -->
+For image uploads to host tools, use sandbox `agi file put <path>` and pass its single-use handle. It connects through `AGENTGRAPH_TOOL_URL` with the session bearer. Custom images need that command; runners must support tool transport. See [Plugins](plugins.md). <!-- code: src/files.ts#makeFiles src/tools.ts#startTools infra/local/sandbox/file.ts#runFile src/remote.ts#whyBoxRefused src/mirror.ts#makeSandbox -->

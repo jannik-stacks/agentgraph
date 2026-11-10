@@ -1,12 +1,8 @@
 # agentgraph example
 
-The graph agentgraph runs on its own code. Scripts slice the change and decide everything a rule can
-decide; an agent only gets the judgement that is left, one question per item.
+This repository's graph starts from `/agent` comments. Its triager writes a brief; the implementor works on `agentgraph/<issue>` for up to four tries, running script checks before judges. A human reviews and merges.
 
-A `/agent` comment on an issue starts `workflows/issue.md`. The triager replies with a brief. The
-implementor works on `agentgraph/<issue>` until every check passes, at most four tries: the script
-checks first, then the judged ones. A failing `block` check sends the try back with its findings;
-`warn` findings go through with the change. A human reviews and merges.
+These are this graph's conventions. Other graphs choose their own triggers, checks and proposal grants.
 
 | Path | What |
 |---|---|

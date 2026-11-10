@@ -1,6 +1,6 @@
 # Install and first run
 
-You need Node 24, Docker used as a member of the `docker` group (not root), and `git config user.name` set. The sandbox image takes about 2.4 GB.
+Install Node 24 and set `git config user.name`. The default local runner also needs Docker without root.
 
 ```sh
 npm install -g @jannik-stacks/agi
@@ -8,7 +8,7 @@ npm install -g @jannik-stacks/agi
 
 `npx @jannik-stacks/agi <verb>` runs it without installing. The unscoped `agentgraph` package on npm is unrelated.
 
-Before it files anything, `agi` checks Docker, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress`, builds missing or changed images and starts an egress proxy. It stops early when Docker is down, when it runs as root, or when the provider's gateway is a sandbox-network name no container answers to. The first build takes about 3 minutes. Another [runner](sandbox.md#runners) skips this. <!-- code: src/docker.ts#ensureDocker -->
+The local runner checks Docker, builds missing images and starts the required networks and egress proxy. Other [runners](sandbox.md#runners) supply their own execution environment. <!-- code: src/docker.ts#ensureDocker -->
 
 ## Models
 
@@ -35,7 +35,7 @@ Read the copied agents, workflows and checks before running them. The starter im
 agi start "padStart drops the last char when len is 0"
 ```
 
-The first command makes a local instance of the repo under `~/.agentgraph`, with a tracker folder that stands in for GitHub. It files the text as issue 1 and drives it: implement, test, review, then wait for you.
+The first command makes a local instance of the repo under `~/.agentgraph`, with a tracker folder that stands in for GitHub. It files the text as issue 1 and drives the starter workflow.
 
 ```sh
 agi show                                   # what needs you
@@ -47,17 +47,17 @@ Without a graph, commands that need one stop with a copy command. An `.agentgrap
 
 ## Who drives
 
-`start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends. While an `agi loop` holds the checkout's lock, they only post and the loop picks the issue up. Only one loop runs per checkout; one loop can serve several, see [below](#one-loop-for-several-instances). <!-- code: src/owner.ts#createLoopLock src/owner.ts#readLoopHolder -->
+`start`, `say` and `review changes` drive the issue until it waits or ends. If a loop holds the checkout, they only post and the loop drives it. One loop can serve [several instances](#one-loop-for-several-instances). <!-- code: src/owner.ts#createLoopLock src/owner.ts#readLoopHolder -->
 
-After a drive the CLI prints why the run waits or stopped and the next commands. An engine error, such as a harness that cannot reach its model, makes the run wait; the drive and `agi show <n>` print its cause and trace path. A login the provider rejects stops the run, and for `claude` the CLI says how to drop the saved token. <!-- code: src/status.ts#formatEngineError -->
-
-Ctrl-C stops a drive; the run goes on at the next drive, such as `agi say 1 "go on"`. A second Ctrl-C quits at once. <!-- code: src/main.ts#start -->
+The CLI prints the outcome and next commands; `agi show <n>` includes engine errors and trace paths. Rejected logins stop the run. Ctrl-C interrupts a drive; the next drive resumes it. <!-- code: src/status.ts#formatEngineError src/main.ts#start -->
 
 ## Where the result lands
 
 When a drive ends, the branch shows up in your repo as `agentgraph/<n>`, and the CLI prints the diff stat and next commands. Your checkout, index and HEAD never move, and no other branch does. A branch you moved or checked out stays yours, and one you deleted stays deleted until `agi export <n>`; the CLI says how to export under another name. <!-- code: src/instance.ts#writePullToRepo -->
 
-Agentgraph only reads your repo, except for that branch: it adds the run's objects as one pack and moves `refs/heads/agentgraph/<n>` only from where it last wrote it. It never runs your hooks, signs, starts a gc or takes your index lock, and its checkouts live in the instance, not in your repo's worktrees. <!-- code: src/git.ts#hostGit src/mirror.ts#makeSandbox -->
+`agi merge` closes the open issue identified by the branch's run record, including retry branches, rather than parsing its name. Without a matching run record it closes no issue. <!-- code: src/instance.ts#findPull src/instance.ts#mergePull -->
+
+Host git imports objects and updates only the exported branch, without hooks or signing. Engine checkouts live in the instance. <!-- code: src/git.ts#hostGit src/mirror.ts#makeSandbox -->
 
 For a repo agentgraph must not write to at all, pass `--read-only` on first use. Then nothing goes into the repo, and `agi export <n> --patch <file>` hands you the change. <!-- code: src/instance.ts#ensureInstance -->
 
@@ -67,51 +67,29 @@ The base is the branch checked out on first use, or `origin`'s default on a deta
 
 ## The studio
 
-The studio shows the graph, runs, results and Bench. Its [actions](plugins.md#studio-pages) post local comments and set run labels. A running loop picks up the comments. Inside a repo, `agi studio` starts it for that repo's instance; it needs a clone of agentgraph and installs the studio's dependencies on first use. By hand, from a clone:
+`agi studio` shows the selected instance's graph, runs and results. It needs an engine clone and installs studio dependencies on first use. From the clone you can also run:
 
 ```sh
-cd studio && npm install
-npm run dev -- --instance left-pad --instance right-pad
+cd studio && npm run dev -- --instance left-pad --instance right-pad
 ```
 
-The studio listens on `127.0.0.1:5182`. Set `AGI_HOST` or `AGI_PORT` to change the address. Token auth is the default and prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the studio. <!-- code: studio/vite.config.ts#server, src/services.ts#pickAuth, studio/watch.ts#restart -->
+The default address is `127.0.0.1:5182`; `AGI_HOST` and `AGI_PORT` override it. Token auth prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the server.
 
-One studio serves several instances of one data root: each `--instance <name>` adds one, and with none of `--instance`, `--repo` and `--dir` it serves every instance under the root. The studio opens at `/runs`, the runs of every served instance, each row marked with its instance. Each instance loads on its own, so one that fails shows why while the others list. The Instance filter narrows the list to one, as `/runs?instance=<name>`, and keeps the other filters; an unknown name is an error. Each instance's own pages live under its name, as `/<name>/runs`, `/<name>/graph` and its Results, and read only that instance; the header names it, and the logo leads back to `/runs`. A run's link opens it under its instance, at `/<name>/runs/<id>`. An address that names no served instance lists the ones served. An instance that fails to load shows why on its pages, and the others keep working. Each instance reads its settings as the loop does, so a studio of several ignores the per-instance settings in the shell, listed under [One loop for several instances](#one-loop-for-several-instances). <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown studio/src/state.ts#getRunsAtom studio/src/runs/RunsPage.tsx#RunListLive src/main.ts#removeShellSettings -->
+The studio opens at `/runs` across served instances; each row names its instance. `/runs?instance=<name>` filters to one and preserves other filters; unknown names fail. Run links open at `/<name>/runs/<id>`. The header names the selected instance; the logo returns to `/runs`. Each `--instance` adds an instance, with pages at `/<name>/runs` and `/<name>/graph`. Without a selection the studio serves all instances under the data root. `--repo` selects a checkout; `--dir <graph> --data <store>` opens a standalone graph and run store. Failed instances show their errors while others remain available.
 
-`--repo <dir>` reads or makes that repo's instance. `--dir <graph>` picks the graph of a single instance; when serving several, set `graph` in each `instance.yaml`. `--dir <dir> --data <dir>` without an instance shows that graph and run store at `/runs`, and `--tracker <dir>` then makes the runs that need you show local commands. A tune's runs show with `--dir <graph> --data <tune dir>/data`.
+`--plugins <dir>` adds [studio pages](plugins.md#studio-pages) across served instances, such as [Bench](bench.md#cost-against-quality) with `--plugins examples/plugins/bench`. Instance graph plugins read only that instance. Instance names `plugins` and `runs` are reserved. The studio permits comments and run labels; other actions use the CLI.
 
-Set `AGENTGRAPH_STUDIO_URL` to the studio's address once, in the shell or an instance `env` file. An instance's posts link to `<address>/<name>/runs/<id>`, so a loop that drives several instances links each to its own runs. <!-- code: src/main.ts#readInstanceEnv -->
+Set `AGENTGRAPH_STUDIO_URL` in the shell or an instance env file to link tracker posts to their runs. The Runs page can filter to runs waiting for people and open their check results.
 
-The header groups Graph, Runs, Results and Docs together. Pages from the graph's plugins appear in a separate group. `agi studio --plugins <dir>` adds [studio pages](plugins.md#studio-pages), which read every served instance and sit at `/plugins/<name>`, outside any instance, such as [Bench](bench.md#cost-against-quality) with `--plugins examples/plugins/bench`. The studio refuses to serve an instance named `plugins` or `runs`. <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom -->
-
-On the Runs page, the "need you" button narrows the list to runs that wait for a person, each with the commands `agi show` prints. Each run row carries a small badge for its gates that opens its results. <!-- code: studio/src/runs/RunsPage.tsx#RunsPage src/status.ts#findRunsWaitingOnPeople studio/src/results/ResultTable.tsx#RunResultBadge -->
+<!-- code: studio/vite.config.ts#server, src/services.ts#pickAuth, studio/watch.ts#restart --> <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown studio/src/state.ts#getRunsAtom studio/src/runs/RunsPage.tsx#RunListLive src/main.ts#removeShellSettings --> <!-- code: src/main.ts#readInstanceEnv --> <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom --> <!-- code: studio/src/runs/RunsPage.tsx#RunsPage src/status.ts#findRunsWaitingOnPeople studio/src/results/ResultTable.tsx#RunResultBadge -->
 
 ## Named instances and settings
 
-An instance binds one checkout to one graph in one data root. `--instance <name>` selects
-`<root>/<name>/instance.yaml`; the default name is the checkout basename, with no hash.
-An explicit name can select a saved checkout from outside its repo. Use two names for a
-live instance and a bench instance of the same checkout. Every lookup uses the selected
-`--data` root. Names are single path components; reusing one for another checkout fails.
-An unknown `--instance <name>` stops and lists the instances in the root; add `--repo <dir>`
-to make the new record. Without `--instance`, a missing record is made only when every other
-folder in the root is an instance of another checkout. Otherwise the command stops and names
-the folders: pass `--instance <name>` to use one. `agi show` outside a repo skips a
-record it cannot read with a one-line warning. <!-- code: src/instance.ts#ensureInstance, src/instance.ts#findInstances, src/instance.ts#readPickedInstance -->
+An instance binds a checkout to a graph and tracker under one data root. `--instance <name>` selects `<root>/<name>/instance.yaml`; the default name is the checkout basename. To create an explicit name, add `--repo <dir>`. Names are single path components and cannot refer to another checkout. Ambiguous or unknown selections fail and list the available instances. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances src/instance.ts#readPickedInstance -->
 
-The record holds `checkout` (local checkout path), `repo` (GitHub `owner/name`),
-`base`, `owner`, `exported`, and `loop` (boolean, initially false). Optional fields are
-`graph`, `tracker` and `runner` (plugin names), `trust` (logins), `env` (secrets/env file), `provider`,
-`readonly`, `image`, and `limits.parallel`. Relative `checkout`, `graph`, and `env` paths resolve
-against the instance folder. Omitted `graph` means the checkout's `.agentgraph/`.
-Edit the record to change saved defaults; flags apply to one command. `loop: true` puts the
-instance in `agi loop` run outside a repo without `--instance`. Unknown fields fail.
-<!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph src/instance.ts#ensureInstanceGraph -->
+The [record](runs.md#instanceyaml) stores paths and defaults. Relative paths resolve against the instance folder; flags apply to one command. `loop: true` includes the instance in a loop selected outside a repo. Unknown fields fail. <!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph src/instance.ts#ensureInstanceGraph -->
 
-Each setting of an instance comes from the first of these that sets it: a command flag, the
-instance's `env` file (and the App env file it names), `instance.yaml`, the shell environment
-(and the App env file it names), the provider's defaults. The shell is a default for every instance.
-<!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/services.ts#readTrackerName -->
+Settings use the first value from flags, the instance env file, `instance.yaml`, the shell, then provider defaults. <!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/services.ts#readTrackerName -->
 
 | Value              | Flag         | `instance.yaml` field | Env name              | When none sets it                                              |
 | ------------------ | ------------ | --------------------- | --------------------- | -------------------------------------------------------------- |
@@ -126,31 +104,15 @@ instance's `env` file (and the App env file it names), `instance.yaml`, the shel
 | Parallel drives    |              | `limits.parallel`     |                       | graph `limits.parallel`                                        |
 | Base               | `--base`     | `base`                |                       | tracker default; a workflow `base` comes before the instance's |
 
-An explicit empty trust list trusts nobody. The runtime graph carries these resolved values;
-graph `settings.yaml` rejects `repo` and `trust`. Image and parallel remain graph defaults.
-`AGENTGRAPH_APP_ENV` names an env file with App credentials; an instance names its own in its `env`
-file. `AGENTGRAPH_DATA` selects the root. There is no engine `AGENTGRAPH_PARALLEL`;
-`AGENTGRAPH_BASE` remains a check-script input. `--logs` beats `AGENTGRAPH_CHECK_LOGS` everywhere.
-<!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#start -->
+An empty trust list trusts nobody. Graph settings reject `repo` and `trust`; image and parallel limits remain graph defaults. `AGENTGRAPH_APP_ENV` names an App credential file, `AGENTGRAPH_DATA` selects the root, and `--logs` overrides `AGENTGRAPH_CHECK_LOGS`. <!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#start -->
 
-On reload, the studio rereads `instance.yaml` and the env file.
-The `--dir` it started with stays in force.
-<!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->
+The studio rereads instance settings on reload; an explicit `--dir` stays in force. <!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->
 
 ### One loop for several instances
 
-`agi loop --instance a --instance b` drives both in one process. Outside a repo and without
-`--instance`, it drives every instance whose record says `loop: true`. Each instance keeps its own
-graph, data, lock, tracker, trust, env file, provider and session permits, and its output lines start
-with its name. `--repo`, `--dir`, `--base`, `--tracker`, `--runner` and `--read-only` select one instance, so
-they fail here; put them in each `instance.yaml`. `--parallel <n>` caps drives across all of them.
-The App settings (`AGENTGRAPH_APP_ENV`, `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_APP_KEY_FILE`),
-`AGENTGRAPH_TRACKER`, `AGENTGRAPH_REPO`, `AGENTGRAPH_TRUST`, `AGENTGRAPH_DIR` and `AGENTGRAPH_PROVIDER` belong to one
-instance, so a loop or studio of several ignores them in the shell and says which it ignored; put them in each instance's `env`
-file or `instance.yaml`, or pass `--provider` for all. Other settings, such as `AGENTGRAPH_STUDIO_URL`, stay shared.
-An instance that fails to start, or stops on an error, prints `<name>: stopped: <why>` and the others go on;
-the process then exits 1. Ctrl-C or SIGTERM stops every instance and releases each lock.
-<!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives src/main.ts#start src/main.ts#removeShellSettings -->
+`agi loop --instance a --instance b` drives both. Outside a repo without `--instance`, it selects records with `loop: true`. Each keeps its own graph, tracker, trust, env and session permits; `--parallel <n>` caps drives across them. Put per-instance flags in each record. A shared `--provider` applies to all. <!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives -->
+
+Multi-instance loops and studios ignore shell settings for App credentials, tracker, repository, trust, graph and provider, and report which were ignored. Use each instance's record or env file. A failed instance prints its reason while others continue; the process exits 1. Ctrl-C stops all instances and releases locks. <!-- code: src/main.ts#start src/main.ts#removeShellSettings -->
 
 ### Starting and stopping a loop
 
@@ -160,24 +122,10 @@ agi stop --instance a --instance b
 agi restart --instance a --instance b
 ```
 
-`agi loop` runs in the foreground; Ctrl-C lets running drives wind down, and a second Ctrl-C quits.
-With `--detach` it runs in the background and appends its output to
-`<data root>/logs/loop-<names>-<date>.log`, named for its instances and the day it started. The
-command returns once the loop holds every checkout and prints its pid and log, or prints the log and
-fails if the loop exits first.
+`agi loop` runs in the foreground; `--detach` starts it in the background and prints its PID and log path. Logs append under `<data root>/logs/`.
 
-`agi stop` sends the loop SIGINT and returns once the loop has let go of the checkout; `--force`
-sends SIGTERM, which ends it at once. Without `--instance` it stops the loop of the repo you are in,
-or outside a repo every loop under the data root. When a loop also serves instances you did not
-name, it refuses and prints the command that names them all. It also refuses a loop running on
-another host and tells you to stop it there. `agi restart` stops, then starts the
-loop again with `--detach`; outside a repo without `--instance` it restarts the `loop: true`
-instances.
+`agi stop` sends SIGINT and waits for release; `--force` sends SIGTERM. A loop serving several instances must be stopped with all of their names. `agi restart` stops and starts it detached. Without names, selection uses the current repo, or all loops under the root for `stop` and `loop: true` records for `restart`.
 
-A loop holds one lock per checkout, kept under `AGENTGRAPH_STATE`, so two instances or two data
-roots never loop on one checkout. Two worktrees of a repo are two checkouts; give each its own
-instance with `--instance <name> --repo <worktree>`. A second loop on a checkout fails with the
-`stop` and `restart` commands to run, and waits instead while the holder is stopping. A lock whose
-holder died is taken over at once on the same host, and after its two-minute heartbeat from another
-host; runs go on where they were.
+Each checkout has one loop lock under `AGENTGRAPH_STATE`. Separate worktrees need separate instances. A second loop reports the commands to stop or restart its holder; dead holders are recovered automatically.
+
 <!-- code: bin/run.ts#stopLoops, bin/run.ts#detach, src/owner.ts#createLoopLock, src/owner.ts#isOwnerRunning, src/owner.ts#readStateDir -->

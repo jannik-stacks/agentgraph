@@ -129,3 +129,6 @@ Decisions made without being sure. Each names what was picked and what would cha
   replaces it. Runs without complete coverage show it empty rather than as a low count.
 - Left out: replaying heard events in the bench (deferred by the ruling), and studio UI for these numbers beyond the
   generic Results fields and the dashboard example sources.
+
+- **The generic docs merge has no passing full check in the restricted sandbox.** The full check hit denied
+  heartbeat writes, process inspection and Docker access. Static checks and the touched triage tests pass.

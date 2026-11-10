@@ -23,7 +23,9 @@ Ideas we agreed to do later, each with why it waits.
 - **Ship defaults.** Our plugins start the way a user would write them. Once one has proven
   itself, it moves into the SDK exports or the engine.
 
-## Bench and tune
+## Bench and experimental Tune
+
+Tune is experimental, with little test coverage and unstable commands and files.
 
 - **Judge grid.** Judges often prefer the floor's diff even when its hidden tests fail. A grid
   of judges and prompts would measure that. Waits for the tune and bench post-mortem.
