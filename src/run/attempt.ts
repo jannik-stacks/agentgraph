@@ -21,6 +21,8 @@ import {
   writeHeardEvents,
   readEarlierBranch,
   findRouter,
+  isHeardBy,
+  isRetro,
 } from './hear.ts';
 import {
   isPart,
@@ -362,7 +364,10 @@ export const runAttempt = (
         `People may comment while you work: ${inside.news}/news.md holds what is new, refreshed every minute. Read it before you finish.`,
         agent.reads && tracesPrompt,
       ];
-      const asked = formatRequest(t, run, yield* store.list({ issue: run.issue }));
+      const looked = (yield* store.list({ issue: run.issue })).filter(
+        r => r.started < run.started && !isRetro(graph, r) && isHeardBy(graph, r.workflow, { kind: 'comment' })
+      );
+      const asked = formatRequest(t, run, pickNewest(...looked.map(r => r.seen ?? r.started)) ?? '');
       const prompt = [
         asked.text,
         ...[step.does.skill, ...(graph.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && graph.skills[s]?.body),

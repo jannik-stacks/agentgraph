@@ -71,18 +71,11 @@ const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined 
 
 const isEngineStatus = (m: Event) => m.bot && (m.kind === 'label' || m.kind === 'unlabel');
 
-export function formatRequest(
-  t: IssueWithPull,
-  run: Pick<Run, 'workflow' | 'started' | 'sessions'>,
-  runs: Pick<Run, 'workflow' | 'started' | 'seen'>[]
-) {
+export function formatRequest(t: IssueWithPull, run: Pick<Run, 'started' | 'sessions'>, since: string) {
   const { started } = run;
   const events = getEvents(t).toSorted((a, b) => a.at.localeCompare(b.at));
   const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
   if (said.length === 0) return { text: '', shown: [] };
-  const since = runs
-    .filter(r => r.workflow === run.workflow && r.started < started)
-    .reduce((at, r) => ((r.seen ?? r.started) > at ? (r.seen ?? r.started) : at), '');
   const looked = Object.values(run.sessions)
     .flatMap(s => s.seen?.at ?? [])
     .toSorted()[0];

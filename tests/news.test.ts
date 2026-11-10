@@ -65,29 +65,24 @@ describe('news', () => {
 });
 
 describe('formatRequest', () => {
-  const run = { workflow: 'router', sessions: {} };
   const at = (minute: number) => `2026-10-20T10:${String(minute).padStart(2, '0')}:00Z`;
-  const looked = (minute: number) => ({ issue: { id: 's', home: 'h', seen: { at: at(minute) } } });
   const long = `Please rename the helper. ${'Keep every caller working. '.repeat(20)}`;
   const agent = (minute: number, body = '/agent') =>
     said('morgan', at(minute), { id: `c${minute}`, body, agentRequest: body.slice('/agent'.length).trim() });
-  const ask = (t: IssueWithPull, minute: number, runs: Parameters<typeof formatRequest>[2] = []) =>
-    formatRequest(t, { ...run, started: at(minute) }, runs).text;
+  const looked = (minute: number) => ({ issue: { id: 's', home: 'h', seen: { at: at(minute) } } });
+  const ask = (t: IssueWithPull, minute: number, since = '', sessions = {}) =>
+    formatRequest(t, { started: at(minute), sessions }, since).text;
 
   it('includes a comment written before a bare /agent in full', () => {
     const text = ask(pull([said('morgan', at(1), { id: 'c1', body: long }), agent(2)]), 2);
     expect(text).toBe(`## What you were asked\n\n@morgan: ${long}\n\n@morgan: /agent`);
   });
 
-  it('includes every follow-up since the last run of the workflow, and nothing from before it', () => {
+  it('includes every follow-up since the runs on the issue last looked, and nothing from before', () => {
     const earlier = said('morgan', at(1), { id: 'c1', body: 'handled by the last run' });
     const first = said('morgan', at(5), { id: 'c5', body: `one: ${long}` });
     const second = said('morgan', at(6), { id: 'c6', body: 'two: also the docs' });
-    const text = ask(pull([earlier, first, second, agent(7, '/agent go')]), 7, [
-      { ...run, started: at(2), seen: at(3) },
-      { ...run, workflow: 'implement', started: at(6) },
-    ]);
-    expect(text).toBe(
+    expect(ask(pull([earlier, first, second, agent(7, '/agent go')]), 7, at(3))).toBe(
       `## What you were asked\n\n@morgan: one: ${long}\n\n@morgan: two: also the docs\n\n@morgan: /agent go`
     );
   });
@@ -110,9 +105,7 @@ describe('formatRequest', () => {
       said('morgan', at(2), { id: 'c2', body: 'and the tests too' }),
       said('morgan', at(5), { id: 'c5', body: '/agent yes, go on', agentRequest: 'yes, go on' }),
     ]);
-    expect(formatRequest(t, { ...run, started: at(1), sessions: looked(2) }, []).text).toBe(
-      '## What you were asked\n\n@morgan: /agent\n\n@morgan: and the tests too'
-    );
+    expect(ask(t, 1, '', looked(2))).toBe('## What you were asked\n\n@morgan: /agent\n\n@morgan: and the tests too');
   });
 
   it('returns what it shows, the request and its review thread', () => {
@@ -120,7 +113,7 @@ describe('formatRequest', () => {
     const request = said('morgan', at(2), { id: '2', body: '/agent', agentRequest: '', ...thread });
     const before = said('morgan', at(1), { id: '1', body: 'hm', path: 'kit/package.json' });
     const other = said('bot[bot]', at(3), { id: '3', body: 'Opened #18.' });
-    expect(formatRequest(pull([before, request, other]), { ...run, started: at(2) }, []).shown).toEqual([
+    expect(formatRequest(pull([before, request, other]), { started: at(2), sessions: {} }, '').shown).toEqual([
       request,
       before,
     ]);
@@ -133,8 +126,8 @@ describe('formatRequest', () => {
     const elsewhere = said('morgan', '2026-10-19T17:03:00Z', { id: '4', body: 'and this?', path: 'kit/src/a.ts' });
     const { text } = formatRequest(
       pull([asked, request, settled, elsewhere]),
-      { ...run, started: request.at, sessions: { issue: { id: 's', home: 'h', seen: { at: settled.at } } } },
-      [{ ...run, started: '2026-10-19T16:00:00Z', seen: asked.at }]
+      { started: request.at, sessions: { issue: { id: 's', home: 'h', seen: { at: settled.at } } } },
+      asked.at
     );
     expect(text).toContain('Earlier in its review thread');
     expect(text).toContain('Later in its review thread:\n\n@morgan on kit/package.json, id 1: Renamed in cb8b13e.');
