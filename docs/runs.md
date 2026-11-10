@@ -165,8 +165,11 @@ Each `trace.jsonl` line has `at`, `step` and one kind. Lines from one session sh
 | `applied`      | A proposal with its URL or why it failed                                           |
 | `outcome`      | Pass, failure, back, ask, answer or stop, and the next state                       |
 | `saved`        | Changed state fields; `cleared` lists removed ones                                 |
-| `spoken`       | A CLI command, where it came from and where to reply                               |
+| `spoken`       | A CLI command or a tracker event the run heard, where it came from                 |
+| `inputs`       | Since when the run records what it hears                                           |
 | `told`         | Forwarded text, with the sender in `by`: a router run id or `cli`                  |
+
+A run records each tracker event it hears as a `spoken` line, once per revision: the event that started it, what each look at a live run finds on its issue and pull request, and the timeline a session is given. Each event keeps its tracker `id` and its original issue, and a new body, label or check result is a new revision. `bot` says whether a bot did it; trust is a separate question. A new run starts with an `inputs` line at its start time; a run without one gets one the first time it records, so its record covers only what came after. Only CLI lines are added back to the timeline a run reads, since the tracker still holds the rest. <!-- code: src/run/hear.ts#writeHeardEvents src/event.ts#getEventKey src/run/start.ts#startRun -->
 
 A usage event carries `model`, the model the harness says answered, when it says one: Claude Code and pi do, opencode and codex print none. The start event's `model` stays the alias the agent asked for. Usage is priced under the reported name first, then the alias. <!-- code: src/types.ts#SessionEvent src/harnesses.ts#priced harnesses/claude.ts#claude harnesses/pi.ts#pi -->
 
