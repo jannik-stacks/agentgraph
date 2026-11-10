@@ -55,6 +55,8 @@ The CLI prints the outcome and next commands; `agi show <n>` includes engine err
 
 When a drive ends, the branch shows up in your repo as `agentgraph/<n>`, and the CLI prints the diff stat and next commands. Your checkout, index and HEAD never move, and no other branch does. A branch you moved or checked out stays yours, and one you deleted stays deleted until `agi export <n>`; the CLI says how to export under another name. <!-- code: src/instance.ts#writePullToRepo -->
 
+`agi merge` closes the open issue identified by the branch's run record, including retry branches, rather than parsing its name. Without a matching run record it closes no issue. <!-- code: src/instance.ts#findPull src/instance.ts#mergePull -->
+
 Host git imports objects and updates only the exported branch, without hooks or signing. Engine checkouts live in the instance. <!-- code: src/git.ts#hostGit src/mirror.ts#makeSandbox -->
 
 For a repo agentgraph must not write to at all, pass `--read-only` on first use. Then nothing goes into the repo, and `agi export <n> --patch <file>` hands you the change. <!-- code: src/instance.ts#ensureInstance -->
@@ -73,13 +75,13 @@ cd studio && npm run dev -- --instance left-pad --instance right-pad
 
 The default address is `127.0.0.1:5182`; `AGI_HOST` and `AGI_PORT` override it. Token auth prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the server.
 
-Each `--instance` adds an instance, with pages at `/<name>/runs` and `/<name>/graph`. Without a selection the studio serves all instances under the data root. `--repo` selects a checkout; `--dir <graph> --data <store>` opens a standalone graph and run store. Failed instances show their errors while others remain available.
+The studio opens at `/runs` across served instances; each row names its instance. `/runs?instance=<name>` filters to one and preserves other filters; unknown names fail. Run links open at `/<name>/runs/<id>`. The header names the selected instance; the logo returns to `/runs`. Each `--instance` adds an instance, with pages at `/<name>/runs` and `/<name>/graph`. Without a selection the studio serves all instances under the data root. `--repo` selects a checkout; `--dir <graph> --data <store>` opens a standalone graph and run store. Failed instances show their errors while others remain available.
 
-`--plugins <dir>` adds [studio pages](plugins.md#studio-pages) across served instances, such as [Bench](bench.md#cost-against-quality) with `--plugins examples/plugins/bench`. Instance graph plugins read only that instance. The studio permits comments and run labels; other actions use the CLI.
+`--plugins <dir>` adds [studio pages](plugins.md#studio-pages) across served instances, such as [Bench](bench.md#cost-against-quality) with `--plugins examples/plugins/bench`. Instance graph plugins read only that instance. Instance names `plugins` and `runs` are reserved. The studio permits comments and run labels; other actions use the CLI.
 
 Set `AGENTGRAPH_STUDIO_URL` in the shell or an instance env file to link tracker posts to their runs. The Runs page can filter to runs waiting for people and open their check results.
 
-<!-- code: studio/vite.config.ts#server, src/services.ts#pickAuth, studio/watch.ts#restart --> <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown src/main.ts#removeShellSettings --> <!-- code: src/main.ts#readInstanceEnv --> <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom --> <!-- code: studio/src/runs/RunsPage.tsx#RunsPage src/status.ts#findRunsWaitingOnPeople studio/src/results/ResultTable.tsx#RunResultBadge -->
+<!-- code: studio/vite.config.ts#server, src/services.ts#pickAuth, studio/watch.ts#restart --> <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown studio/src/state.ts#getRunsAtom studio/src/runs/RunsPage.tsx#RunListLive src/main.ts#removeShellSettings --> <!-- code: src/main.ts#readInstanceEnv --> <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom --> <!-- code: studio/src/runs/RunsPage.tsx#RunsPage src/status.ts#findRunsWaitingOnPeople studio/src/results/ResultTable.tsx#RunResultBadge -->
 
 ## Named instances and settings
 

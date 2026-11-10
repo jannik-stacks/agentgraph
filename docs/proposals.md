@@ -57,7 +57,7 @@ Issue proposals use these fixed relations and labels:
 | `follow-up` | Separate issue labelled `follow-up` |
 | `graph` | Separate issue labelled `graph` |
 
-The engine requires a "Done when" heading in each proposed body. It does not require the heading to end the body or count its checks. These are current filing restrictions, independent of the graph's prompts. <!-- code: src/run/start.ts#createIssues -->
+The engine and triage-brief check require a `## Done when` heading in each proposed body. It does not require the heading to end the body or count its checks. These are current filing restrictions, independent of the graph's prompts. <!-- code: src/run/start.ts#createIssues -->
 
 Parts produce a `Split into:` task list on the parent. Eligible `XL` parts start the same workflow again. Other relations append `Found while working on #n`; a matching open title receives a comment instead. Follow-up and graph filings start no runs automatically. Filing uses an issues-write token. <!-- code: src/run/start.ts#createIssues src/run/start.ts#readFiledIssues src/github.ts#scopes -->
 

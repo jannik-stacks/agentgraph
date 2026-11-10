@@ -13,17 +13,22 @@ export const studioPages = pages.filter(page => page.instance === undefined);
 
 export const shown = instances.length ? instances.find(one => one.name === location.pathname.split('/')[1]) : served[0];
 
-const prefix = shown?.name ? `/${shown.name}` : '';
+export const makeInstanceHref = (href: string, instance = shown?.name) =>
+  (instance ? `/${encodeURIComponent(instance)}` : '') + href;
 
-export const makeInstanceHref = (href: string) => prefix + href;
+const prefix = makeInstanceHref('');
 
-const makeApiHref = (href: string) =>
-  shown?.name ? `${href}${href.includes('?') ? '&' : '?'}instance=${shown.name}` : href;
+const makeApiHref = (href: string, instance = shown?.name) =>
+  instance ? `${href}${href.includes('?') ? '&' : '?'}instance=${encodeURIComponent(instance)}` : href;
 
-export const runAction = <A, E>(use: Parameters<typeof runActions<A, E>>[2], data?: string | null) =>
+export const runAction = <A, E>(
+  use: Parameters<typeof runActions<A, E>>[2],
+  data?: string | null,
+  instance = shown?.name
+) =>
   Effect.runPromise(
     runActions(
-      new URL(makeApiHref(makeDataHref('/api/actions', data)), location.href).href,
+      new URL(makeApiHref(makeDataHref('/api/actions', data), instance), location.href).href,
       (input, init) => fetch(input, init),
       use
     )
@@ -69,14 +74,15 @@ export const queryParam = (key: string) =>
 /** The step selected on the graph, as `workflow/step`, then what was opened from it, as `/check:name` and `/agent:name`. */
 export const selectedStepAtom = queryParam('step');
 
-const loads = new Map<() => void, readonly string[]>();
+const loads = new Map<() => void, { follows: readonly string[]; instance: string | undefined }>();
+
+const isFollowed = (topic: string, { follows, instance }: NonNullable<ReturnType<typeof loads.get>>) => {
+  const [own, scoped] = topic.split(':');
+  return scoped === undefined ? follows.includes(own!) : own === instance && follows.includes(scoped);
+};
 
 export const readChanged = (changed?: readonly string[]) => {
-  const topics = changed?.flatMap(topic => {
-    const [own, scoped] = topic.split(':');
-    return scoped === undefined ? [own!] : own === shown?.name ? [scoped] : [];
-  });
-  for (const [load, follows] of loads) if (!topics || follows.some(topic => topics.includes(topic))) load();
+  for (const [load, follow] of loads) if (!changed || changed.some(topic => isFollowed(topic, follow))) load();
 };
 
 export const connectedAtom = atom(true);
@@ -89,7 +95,8 @@ connectedAtom.onMount = set => {
 export const makeLiveJsonAtom = <T>(
   path: string | (() => Promise<unknown>),
   topics: readonly string[],
-  read: (value: unknown) => T | Promise<T> = value => value as T
+  read: (value: unknown) => T | Promise<T> = value => value as T,
+  instance = shown?.name
 ) => {
   const value = atom<{ value?: T; failure?: string; retry?: () => void }>({});
   value.onMount = set => {
@@ -102,7 +109,7 @@ export const makeLiveJsonAtom = <T>(
       void (
         typeof path === 'function'
           ? path().then(read)
-          : fetch(makeApiHref(path)).then(async r => {
+          : fetch(makeApiHref(path, instance)).then(async r => {
               if (r.ok) return read(await r.json());
               const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
               throw new Error(
@@ -126,7 +133,7 @@ export const makeLiveJsonAtom = <T>(
           }
         });
     };
-    loads.set(load, topics);
+    loads.set(load, { follows: topics, instance });
     load();
     return () => {
       active = false;
@@ -136,33 +143,46 @@ export const makeLiveJsonAtom = <T>(
   return value;
 };
 
-/** Every run of the served graph as the run list reads it, with its trail and no trace. */
-export const runsAtom = makeLiveJsonAtom<(ServedRun & Pick<ReturnType<typeof makeRunSummary>, 'trail'>)[]>(
-  () => runAction(actions => actions.runs({})),
-  ['data']
-);
-
 const opened = new Map<string, object>();
-const openOnce = <T>(key: string, data: string | null | undefined, load: () => Promise<T>) => {
-  if (!opened.has(key))
-    opened.set(key, makeLiveJsonAtom<T>(load, data ? studioPages.map(page => page.name) : ['data']));
-  return opened.get(key) as ReturnType<typeof makeLiveJsonAtom<T>>;
+const openOnce = <T>(key: string, data: string | null | undefined, load: () => Promise<T>, instance = shown?.name) => {
+  const full = JSON.stringify([instance ?? '', makeDataHref(key, data)]);
+  if (!opened.has(full))
+    opened.set(
+      full,
+      makeLiveJsonAtom<T>(load, data ? studioPages.map(page => page.name) : ['data'], undefined, instance)
+    );
+  return opened.get(full) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
+
+/** Every run of one instance as the run list reads it, with its trail and no trace. */
+export const getRunsAtom = (instance = shown?.name) =>
+  openOnce(
+    'runs',
+    undefined,
+    () =>
+      runAction(actions => actions.runs({}), undefined, instance) as Promise<
+        (ServedRun & Pick<ReturnType<typeof makeRunSummary>, 'trail'>)[]
+      >,
+    instance
+  );
 
 export const dataParam = queryParam('data');
 
-export const runResultsAtom = (data?: string | null) =>
+export const runResultsAtom = (data?: string | null, instance = shown?.name) =>
   openOnce(
-    makeDataHref('results', data),
+    'results',
     data,
-    () => runAction(actions => actions.results(), data) as Promise<ReturnType<typeof readRunResults>>
+    () => runAction(actions => actions.results(), data, instance) as Promise<ReturnType<typeof readRunResults>>,
+    instance
   );
 
-export const runAtom = (id: string, data?: string | null) =>
+export const runAtom = (id: string, data?: string | null, instance = shown?.name) =>
   openOnce(
-    makeDataHref(`run ${id}`, data),
+    `run ${id}`,
     data,
-    () => runAction(actions => actions.runs({ id }), data) as Promise<(ServedRun & { run: RunRecord }) | null>
+    () =>
+      runAction(actions => actions.runs({ id }), data, instance) as Promise<(ServedRun & { run: RunRecord }) | null>,
+    instance
   );
 
 export const getVerdictsAtom = (fixture: string, step: string, check: string) =>

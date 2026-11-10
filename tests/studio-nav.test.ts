@@ -27,7 +27,7 @@ beforeAll(async () => {
   const { renderToString } = await studioDependency<{ renderToString: (node: unknown) => string }>('react-dom/server');
   const jotai = await studioDependency<{ createStore: () => Store; Provider: unknown }>('jotai');
   const { App } = await studioModule<{ App: () => unknown }>('App.tsx');
-  const state = await studioModule<{ locationAtom: Atom; runsAtom: Atom }>('state.ts');
+  const state = await studioModule<{ locationAtom: Atom; getRunsAtom: () => Atom }>('state.ts');
   render = path => {
     const store = jotai.createStore();
     store.set(state.locationAtom, { path, query: new URLSearchParams() });
@@ -38,7 +38,7 @@ beforeAll(async () => {
     const store = jotai.createStore();
     const url = new URL(path, 'http://studio');
     store.set(state.locationAtom, { path: url.pathname, query: url.searchParams });
-    store.set(state.runsAtom, {
+    store.set(state.getRunsAtom(), {
       value: runs.map(run => ({ fixture: '', repo: '', labels: {}, run, usd: 0, trail: [], urls: [], checks: [] })),
     });
     return renderToString(createElement(jotai.Provider, { store }, createElement(RunsPage)));

@@ -898,9 +898,9 @@ describe('triage-brief', () => {
     ]);
   });
 
-  it('with --width, flags a brief with more criteria than Done when rows', () => {
+  it('with --width, flags a brief with more criteria than the Done when rows of a CRLF issue', () => {
     const graph = tmp('brief-graph');
-    write(graph, { 'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- One.\n- Two.\n' });
+    write(graph, { 'issues/7-x.md': '---\r\ntitle: x\r\n---\r\n## Done when\r\n\r\n- One.\r\n- Two.\r\n' });
     const dir = tmp('brief');
     writeFileSync(join(dir, 'reply.md'), brief);
     const { out } = run('triage-brief.mjs', { dir, base: '' }, ['--width', join(dir, 'reply.md')], {

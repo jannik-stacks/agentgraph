@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
@@ -95,6 +95,15 @@ describe('the human verbs on a tracker folder', () => {
     await w.tracker('close', '1');
     expect(await w.tracker('show')).toMatch(/^#1 closed Fix the typo\n/);
     expect(await w.tracker('show', '1')).toContain('In the readme.');
+  });
+
+  it('reads a CRLF issue file and skips a torn last timeline line', async () => {
+    const w = world();
+    writeIssueAt(issuePath(w.dir, 1), '---\r\ntitle: Fix\r\nauthor: morgan\r\n---\r\n\r\nIn the readme.\r\n');
+    await w.tracker('comment', '1', 'first');
+    appendFileSync(issuePath(w.dir, 1, 'events.jsonl'), '{"issue":1,"kind":"comm');
+    expect(await w.tracker('show')).toBe('#1 open Fix');
+    expect(await w.tracker('show', '1')).toContain('first');
   });
 
   it('goes from text to a run to a diff with no GitHub', async () => {

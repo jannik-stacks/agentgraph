@@ -33,7 +33,7 @@ import {
   findPullIssue,
   findRepo,
   ensureBase,
-  writeComment,
+  writeLineComment,
   writeInstanceProvider,
   formatGraphName,
   whyGraphUncommitted,
@@ -102,15 +102,18 @@ const startLabels = (() => {
     return fail((e as Error).message);
   }
 })();
-const relabel = async (data: string) => {
-  const [id = '', ...words] = rest;
+const relabel = async (data: string, id = rest[0] ?? '') => {
   try {
-    const labels = await Effect.runPromise(writeStoredRunLabels(data, id, parseLabelPatch(words)));
+    const labels = await Effect.runPromise(writeStoredRunLabels(data, id, parseLabelPatch(rest.slice(1))));
     for (const [key, value] of Object.entries(labels)) console.log(`${key}=${value}`);
   } catch (e) {
     fail((e as Error).message);
   }
 };
+if (verb === 'label' && rest[0]?.includes('/')) {
+  await relabel(dirname(resolve(rest[0])), basename(rest[0]));
+  process.exit(0);
+}
 const listRuns = (data: string, filter: Parameters<Store['Service']['list']>[0] = {}) =>
   Effect.runPromise(Effect.flatMap(Store, s => s.list(filter)).pipe(Effect.provide(fileStore(data))));
 const printRuns = (runs: readonly RunRecord[], tag = '') => {
@@ -500,7 +503,7 @@ async function runOnInstance(
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
       const { provider } = await prepare(i, graph, 'Nothing was posted.');
-      if (values.line) await writeComment(i.tracker, i.owner, n, formatAgentComment(said()), values.line);
+      if (values.line) await writeLineComment(i, n, formatAgentComment(said()), values.line);
       else await act(client => client.say({ issue: n, text: said() }));
       if (values.label)
         await Effect.runPromise((await getTracker()).apply(issue, { kind: 'label', add: values.label, remove: [] }));

@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename, dirname, join, resolve } from 'node:path';
 import { Context, Effect, Layer, Stream, Semaphore } from 'effect';
-import { parse, stringify } from 'yaml';
+import { stringify } from 'yaml';
 import {
   issueStatuses,
   makeStudioRunUrl,
@@ -24,7 +24,8 @@ import {
 import type { Proposal } from './proposal.ts';
 import { readGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
 import { waitForLock } from './owner.ts';
-import { writeFileAtomic } from './store.ts';
+import { parseJsonlRows, writeFileAtomic } from './store.ts';
+import { splitFrontmatter } from './workflow.ts';
 import { type Checkout, TrackerError, type InstanceHost } from './types.ts';
 
 /** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
@@ -196,8 +197,8 @@ export const makePushResult = (
 };
 
 export const parseIssueFile = (text: string) => {
-  const [, head = '', body = text] = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text) ?? [];
-  return { front: (parse(head) ?? {}) as Partial<Issue>, body };
+  const { data, body } = splitFrontmatter(text);
+  return { front: data as Partial<Issue>, body };
 };
 
 export const formatIssueFile = (front: Partial<Issue>, body: string) => `---\n${stringify(front)}---\n\n${body}\n`;
@@ -392,10 +393,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         await publish(timelinePath(dir, n), events.map(m => `${JSON.stringify(m)}\n`).join(''));
       };
       const readEvents = async (n: number) =>
-        ((await readIssueFile(n, 'events.jsonl')) ?? '')
-          .split('\n')
-          .filter(Boolean)
-          .map(line => JSON.parse(line) as Event);
+        parseJsonlRows(timelinePath(dir, n), (await readIssueFile(n, 'events.jsonl')) ?? '') as Event[];
       const readTimeline = async (n: number) => {
         await adopt(n);
         return readEvents(n);

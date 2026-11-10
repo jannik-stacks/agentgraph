@@ -5,7 +5,7 @@ import type { Line } from '../runs/trace.ts';
 import type { Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
 import { RunLine } from '../runs/rows.tsx';
-import { runAtom, runsAtom } from '../state.ts';
+import { runAtom, getRunsAtom } from '../state.ts';
 import { atLink } from '../runs/trace.ts';
 import { accent, cx, Field, Fields, Link, Live, Tooltip } from '../ui.tsx';
 import { checkModeTips, Section, Term, To } from './panel.tsx';
@@ -234,7 +234,7 @@ const LiveCheckList = ({ id, list }: { id: string; list: (lines: Line[] | undefi
 
 /** The served graph's runs that stand at a step now. */
 const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
-  const { value: runs, failure } = useAtomValue(runsAtom);
+  const { value: runs, failure } = useAtomValue(getRunsAtom());
   if (!runs) return <p className="text-zinc-500">{failure ?? 'Loading runs.'}</p>;
   const here = runs.filter(
     r => r.fixture === fixture && r.run.step === step && ['running', 'waiting'].includes(r.run.status)

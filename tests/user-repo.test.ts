@@ -180,7 +180,7 @@ describe("the user's repo", () => {
     expect(await writePullToRepo(i, 1, { auto: true })).toMatchObject({ ref: 'agentgraph/1' });
     expect(git(seed, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
 
-    await writeReview(i.tracker, i.owner, 1, 'changes_requested', 'say world');
+    await writeReview(i, 1, 'changes_requested', 'say world');
     const second = await drive(i, [
       [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],

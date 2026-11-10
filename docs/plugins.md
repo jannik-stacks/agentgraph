@@ -100,7 +100,7 @@ Login sessions use signed cookies for the host and port, lasting an hour and ren
 
 A plugin's `studio` declares a title, local TSX page URL, data schema and `read(settings, hosts)` effect. Optional `watch(settings, hosts)` returns folders whose changes refresh the page. `InstanceHosts` maps instance names to read hosts or `{ why }` for failed instances. Hosts provide run data, latest checks and tracker reads.
 
-An instance graph plugin receives only its instance. A folder selected with `agi studio --plugins <dir>` receives all served instances; it contains `plugins/` and a `settings.yaml`. `AGENTGRAPH_STUDIO_PLUGINS` also selects that folder. These pages live at `/plugins/<name>`; named instance pages live at `/<instance>/plugins/<name>`.
+An instance graph plugin receives only its instance. A folder selected with `agi studio --plugins <dir>` receives all served instances; it contains `plugins/` and a `settings.yaml`. `AGENTGRAPH_STUDIO_PLUGINS` also selects that folder. These pages live at `/plugins/<name>`, with a header link to Runs across instances; named instance pages live at `/<instance>/plugins/<name>`.
 
 The TSX file default-exports a React component. Set `page: new URL('./Page.tsx', import.meta.url)` and call `usePluginData` from `@jannik-stacks/agi/studio` with the plugin name and shared browser-safe schema. That entry also exports studio UI, navigation and result components.
 

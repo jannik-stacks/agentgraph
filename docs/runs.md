@@ -121,7 +121,7 @@ Programmatic `start({ graph, issue, data, meta })` and `instruct(graph, instruct
 
 Labels are `key=value` pairs in append-only `labels.jsonl`; they do not change workflow behavior. Keys use lowercase letters, digits and hyphens, up to 32 characters; values are single lines up to 128 characters. Writes are locked. A truncated final line is visibly counted as skipped; other malformed lines fail.
 
-Readers derive `engine`, `image`, `config` and `harnesses` from `versions`; explicit labels override these. `agi start --run-label k=v` labels runs at creation. `agi label <run id> k=v old-` sets `k` and removes `old`. Studio filters and result groups use labels. <!-- code: src/owner.ts#waitForLock --> <!-- code: src/store.ts#readJsonlRows src/store.ts#appendJsonlRows --> <!-- code: src/labels.ts#makeVersionLabels bin/results.ts --> <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
+Readers derive `engine`, `image`, `config` and `harnesses` from `versions`; explicit labels override these. `agi start --run-label k=v` labels runs at creation. `agi label <run id> k=v old-` sets `k` and removes `old`. Use `agi label <store>/<run> k=v old-` for a run in any store, including bench data. Studio filters and result groups use labels. <!-- code: src/owner.ts#waitForLock --> <!-- code: src/store.ts#readJsonlRows src/store.ts#appendJsonlRows --> <!-- code: src/labels.ts#makeVersionLabels bin/results.ts --> <!-- code: src/labels.ts#writeRunLabels src/main.ts#start -->
 
 ## The trace
 

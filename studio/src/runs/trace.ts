@@ -100,6 +100,7 @@ export type ServedRun = {
   labels: ReturnType<typeof readRunLabels>;
   trace?: Line[];
   data?: string;
+  instance?: string;
 } & ReturnType<typeof findTraceLinks> &
   Omit<ReturnType<typeof makeRunSummary>, 'trail'>;
 
@@ -173,6 +174,8 @@ export const lineAt = (trace: Line[], at: string | null) =>
 
 export const makeDataHref = (href: string, data: string | null | undefined) =>
   data ? `${href}${href.includes('?') ? '&' : '?'}data=${encodeURIComponent(data)}` : href;
+
+export const makeRunKey = (instance: string | undefined, id: string) => JSON.stringify([instance ?? '', id]);
 
 /** The studio page of a run, at one trace line when `at` is given. */
 export const atLink = (run: string, at?: string, data?: string | null) =>
