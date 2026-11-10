@@ -70,7 +70,8 @@ describe('branch pulls', () => {
     ['agentgraph/{issue}', 'agentgraph/12-2', 12, true],
     ['agentgraph/{issue}', 'agentgraph/12-2', 2, false],
     ['agentgraph/{parent}/{issue}', 'agentgraph/1/2', undefined, true],
-    ['agentgraph/{parent}/{issue}', 'agentgraph/1/2/3', undefined, false],
+    ['agentgraph/{parent}/{issue}', 'agentgraph/1/2/3', 3, true],
+    ['fix-{number}', 'fix-1', undefined, true],
     ['agent.{issue}', 'agentx12', undefined, false],
   ])('matches %s against %s for issue %s', (template, branch, issue, expected) => {
     expect(isTemplateBranch(template, branch, issue)).toBe(expected);

@@ -429,9 +429,13 @@ export const formatTemplate = (template: string, t: Pick<Issue, 'number' | 'pare
 export const isTemplateBranch = (template: string, branch: string, issue?: number) =>
   new RegExp(
     `^${template
-      .split(/(\{issue\}|\{parent\})/)
+      .split(/(\{[^}]*\})/)
       .map(p =>
-        p === '{issue}' ? (issue ?? '\\d+') : p === '{parent}' ? '\\d*' : p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        p === '{issue}' && issue !== undefined
+          ? issue
+          : /^\{.*\}$/.test(p)
+            ? '.+'
+            : p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       )
       .join('')}(-\\d+)?$`
   ).test(branch);
