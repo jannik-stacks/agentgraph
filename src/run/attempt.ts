@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { Schema, Result, Effect, Option } from 'effect';
 import { Said, type Proposal } from '../proposal.ts';
 import { type IssueWithPull, news, formatSqueezed, formatRequest, context, getEvents } from '../context.ts';
-import { type Step, unchanged, type Workflow, pickCommandTarget } from '../workflow.ts';
+import { type Step, unchanged, type Workflow, formatTemplate, pickCommandTarget } from '../workflow.ts';
 import { inside, SandboxError } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
 import { getStepReturns } from '../graph.ts';
@@ -14,7 +14,6 @@ import type { Applied } from '../event.ts';
 import {
   pickNewest,
   readIssueWithPull,
-  formatTemplate,
   readHeardOutcome,
   makeToldEvent,
   readContinuedRun,

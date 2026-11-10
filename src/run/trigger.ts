@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { matchesGlob } from 'node:path';
 import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine } from '../context.ts';
-import { Tracker, currentRunLinkRef, formatAgentComment, isAgentBranch, parseAgentRequest } from '../tracker.ts';
+import {
+  Tracker,
+  currentRunLinkRef,
+  findBranchPull,
+  formatAgentComment,
+  isAgentBranch,
+  parseAgentRequest,
+} from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
@@ -24,17 +30,17 @@ import {
   isRunDone,
   getAgentRequest,
   pickCommandTarget,
+  isTemplateBranch,
 } from '../workflow.ts';
 import { type Services, formatFailure } from './execute.ts';
 import {
-  findPullNumber,
+  formatRunBranch,
   isInScope,
   isBoardGraph,
   isRetro,
   findSettledRuns,
   findRouter,
   pickNewest,
-  formatTemplate,
   readContinuedRun,
   readRunEvents,
   getHeardEvent,
@@ -67,7 +73,7 @@ const findHold = (w: Workflow, issue: number, open: Issue[]) => {
   ].filter(
     ({ depends, n }) =>
       open.some(t => t.number === n && (depends || !t.pull)) &&
-      (depends || findPullNumber(w, { issue: n }, open) === undefined)
+      (depends || !findBranchPull(open, formatRunBranch(w, { issue: n }, open)))
   );
   const closes = on.filter(d => d.depends).map(d => `#${d.n}`);
   const pulls = on.filter(d => !d.depends).map(d => `#${d.n}`);
@@ -192,7 +198,7 @@ export const instruct = (
     const runs = yield* Effect.flatMap(Store, s => s.list());
     const open = yield* tracker.issues({ state: 'open' });
     const owner = runs.find(
-      r => graph.workflows[r.workflow] && findPullNumber(graph.workflows[r.workflow]!, r, open) === issue.number
+      r => findBranchPull(open, formatRunBranch(graph.workflows[r.workflow], r, open))?.number === issue.number
     );
     const target = runs
       .filter(
@@ -288,13 +294,13 @@ export const tick = (
     )).flat();
     const origin = new Map<Event, number>();
     const onRun = (m: Event): Event => {
+      const pulls = m.kind === 'comment' ? issues : [...issues, ...merged];
       const r = all.find(
         r =>
           r.issue !== m.issue &&
           graph.workflows[r.workflow] &&
           !isRetro(graph, r) &&
-          findPullNumber(graph.workflows[r.workflow]!, r, m.kind === 'comment' ? issues : [...issues, ...merged]) ===
-            m.issue
+          findBranchPull(pulls, formatRunBranch(graph.workflows[r.workflow], r, pulls))?.number === m.issue
       );
       if (!r) return m;
       const moved = { ...m, issue: r.issue };
@@ -420,7 +426,7 @@ export const tick = (
           said: heard([m, ...took.filter(a => a !== m)]),
         });
         const step = w.steps.find(s => s.name === run.step);
-        const pr = issues.find(t => t.number === findPullNumber(w, run, issues));
+        const pr = findBranchPull(issues, formatRunBranch(w, run, issues));
         const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
           outcome.kind !== 'answer' || !step || !isHumanWaitStep(step)
             ? undefined
@@ -630,11 +636,7 @@ export const tick = (
           const branch = Option.getOrUndefined(yield* Effect.option(tracker.issue(m.issue)))?.pull?.branch;
           const by = all.find(r => {
             const w = graph.workflows[r.workflow];
-            return (
-              !isRetro(graph, r) &&
-              w?.branch !== undefined &&
-              branch === (r.checkout?.branch ?? formatTemplate(w.branch, { number: r.issue }))
-            );
+            return !isRetro(graph, r) && w?.branch !== undefined && branch === formatRunBranch(w, r);
           });
           pulls.set(m.issue, by?.issue);
         }
@@ -682,7 +684,7 @@ export const tick = (
       const w = graph.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
       if (!r.base || !head || !w) continue;
-      const tip = issues.find(t => t.number === findPullNumber(w, r, issues))?.pull?.head;
+      const tip = findBranchPull(issues, formatRunBranch(w, r, issues))?.pull.head;
       yield* runFollow(w, r, r.base, head, tip, graph).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
@@ -701,7 +703,7 @@ export const tick = (
         const r = yield* store.get(before.id);
         if (!r || (r.status !== 'waiting' && r.status !== 'done') || r.onto || isParked(r) || !newest(r)) return;
         const w = graph.workflows[r.workflow];
-        const pull = w && issues.find(t => t.number === findPullNumber(w, r, issues))?.pull;
+        const pull = w && findBranchPull(issues, formatRunBranch(w, r, issues))?.pull;
         if (!w?.steps.some(isHumanWaitStep) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
         const sandbox = yield* Sandbox;
         const base = yield* sandbox.readHead(pull.base);
@@ -900,10 +902,7 @@ export const scanIssuesAndRunningRuns = (
     const uses = (branch: string) => (r: Run) => {
       if (r.checkout) return r.checkout.branch === branch;
       const template = graph.workflows[r.workflow]?.branch;
-      return (
-        branch.split(/\D+/).includes(String(r.issue)) ||
-        (!!template && matchesGlob(branch, template.replaceAll('{issue}', String(r.issue)).replaceAll('{parent}', '*')))
-      );
+      return !!template && isTemplateBranch(template, branch, r.issue);
     };
     const cleanBranch = (branch: string, using: Run[]) =>
       Effect.gen(function* () {
@@ -965,7 +964,7 @@ export const scanTrackerEvents = (
         );
         for (const r of all) {
           const w = graph.workflows[r.workflow];
-          const pull = w && findPullNumber(w, r, fetched);
+          const pull = findBranchPull(fetched, formatRunBranch(w, r, fetched))?.number;
           if (pull !== undefined && issues.has(pull)) issues.add(r.issue);
         }
       }

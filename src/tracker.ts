@@ -187,6 +187,11 @@ export const formatIssueLinks = (t: Pick<Issue, 'stacksOn' | 'dependsOn'>) =>
     ...(t.dependsOn ?? []).map(n => `Depends on #${n}`),
   ].join('\n');
 
+export const findBranchPull = (issues: Issue[], branch: string | undefined) =>
+  issues
+    .filter((t): t is Issue & Required<Pick<Issue, 'pull'>> => branch !== undefined && t.pull?.branch === branch)
+    .toSorted((a, b) => Number(b.state === 'open') - Number(a.state === 'open') || b.number - a.number)[0];
+
 export const isBotLogin = (login: string) => login.endsWith('[bot]');
 
 export const withheld = (author: string, what = 'comment', why = 'not a collaborator') =>

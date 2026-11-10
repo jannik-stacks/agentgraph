@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
-import type { Event } from './event.ts';
+import type { Event, Issue } from './event.ts';
 import { Kind } from './proposal.ts';
 import { CommandLimits, Count, type Outcome, type Run, type RunRecord } from './types.ts';
 
@@ -423,6 +423,19 @@ export const isIssueTriggered = (w: Workflow, m: Event) =>
   w.on.issues !== undefined && Object.values(issueSources).some(matches => matches(w.on.issues!, m));
 
 /** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
+export const formatTemplate = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
+  template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
+
+export const isTemplateBranch = (template: string, branch: string, issue?: number) =>
+  new RegExp(
+    `^${template
+      .split(/(\{issue\}|\{parent\})/)
+      .map(p =>
+        p === '{issue}' ? (issue ?? '\\d+') : p === '{parent}' ? '\\d*' : p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      )
+      .join('')}(-\\d+)?$`
+  ).test(branch);
+
 export const getAgentRequest = (m: Event) => (m.kind === 'comment' ? m.comment?.agentRequest : undefined);
 
 export const CommandSettings = Schema.Record(

@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { folderTracker, Tracker, waitForTrackerEdit, writeIssueFile } from '../src/tracker.ts';
+import { findBranchPull, folderTracker, Tracker, waitForTrackerEdit, writeIssueFile } from '../src/tracker.ts';
+import type { Issue } from '../src/event.ts';
+import { isTemplateBranch } from '../src/workflow.ts';
 import { waitForLock } from '../src/owner.ts';
 import { tmp } from './kit.ts';
 
@@ -40,6 +42,38 @@ describe('folder tracker', () => {
       Effect.flatMap(Tracker, tracker => tracker.issues({ state: 'open' })).pipe(Effect.provide(folderTracker(dir)))
     );
     expect([issue?.stacksOn, issue?.dependsOn]).toEqual([3, [5, 4]]);
+  });
+});
+
+describe('branch pulls', () => {
+  const pull = (number: number, state: Issue['state'], branch = 'agentgraph/7'): Issue => ({
+    number,
+    title: '',
+    body: '',
+    state,
+    labels: [],
+    author: 'alice',
+    pull: { branch, base: 'main', head: `h${number}` },
+    url: '',
+  });
+
+  it.each([
+    [[pull(8, 'closed'), pull(9, 'open'), pull(10, 'closed')], 9],
+    [[pull(8, 'merged'), pull(10, 'closed')], 10],
+    [[pull(8, 'open', 'agentgraph/7-2')], undefined],
+  ])('picks an open pull request on the branch over a closed one, then the newest', (issues, expected) => {
+    expect(findBranchPull(issues, 'agentgraph/7')?.number).toBe(expected);
+  });
+
+  it.each([
+    ['agentgraph/{issue}', 'agentgraph/12', 12, true],
+    ['agentgraph/{issue}', 'agentgraph/12-2', 12, true],
+    ['agentgraph/{issue}', 'agentgraph/12-2', 2, false],
+    ['agentgraph/{parent}/{issue}', 'agentgraph/1/2', undefined, true],
+    ['agentgraph/{parent}/{issue}', 'agentgraph/1/2/3', undefined, false],
+    ['agent.{issue}', 'agentx12', undefined, false],
+  ])('matches %s against %s for issue %s', (template, branch, issue, expected) => {
+    expect(isTemplateBranch(template, branch, issue)).toBe(expected);
   });
 });
 
