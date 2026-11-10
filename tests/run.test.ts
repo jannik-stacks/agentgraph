@@ -380,7 +380,7 @@ describe('drive', () => {
     const pr = await run(Effect.flatMap(Tracker, f => f.issue(8)));
     expect(bodies(tracker)).toEqual(['/agent', 'Brief: add hello.txt']);
     expect(readFileSync(issuePath(where.tracker, 8), 'utf8')).toContain(
-      '<!-- agentgraph status -->\n※ waiting for an answer at review (3 of 4)\n'
+      '<!-- agentgraph status -->\n> ※ Waiting for an answer at review, step 3 of 4\n'
     );
     expect(bodies(pr).at(-1)).toMatch(/^@\S+ still not right\n\nReply `\/agent` and your answer/);
     expect(findStatus(where.tracker, 7)).toBe('needs-answer');
@@ -563,7 +563,7 @@ describe('drive', () => {
     });
     await run(Effect.flatMap(Tracker, f => f.apply(7, { ...pull, title: 'feat: greet', body: 'Rewritten.' })));
     expect(readFileSync(issuePath(where.tracker, 8), 'utf8')).toMatch(
-      /\n<!-- agentgraph status -->\n※ waiting for review at merge [^]*<!-- end agentgraph status -->\n\nRewritten\.\n$/
+      /\n<!-- agentgraph status -->\n> ※ Waiting for review at merge, [^]*<!-- end agentgraph status -->\n\nRewritten\.\n$/
     );
   });
 
@@ -640,7 +640,7 @@ describe('drive', () => {
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'agentgraph/7')).toThrow();
     const issue = await run(Effect.flatMap(Tracker, f => f.issue(7)));
     expect(bodies(issue).at(-1)).toBe('Brief');
-    expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).toContain('\n※ stopped at implement (2 of 4)\n');
+    expect(readFileSync(issuePath(where.tracker, 7), 'utf8')).toContain('\n> ※ Stopped at implement, step 2 of 4\n');
     expect(findStatus(where.tracker, 7)).toBe('stopped');
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
