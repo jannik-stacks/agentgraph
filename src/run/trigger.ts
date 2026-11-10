@@ -12,13 +12,14 @@ import {
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
-import type { Graph } from '../folder.ts';
+import { type Graph, makeRunGraph } from '../folder.ts';
 import { Sandbox } from '../sandbox.ts';
 import { Store } from '../store.ts';
 import { getSha } from '../hash.ts';
 import { makeOutcomeLine } from '../trace.ts';
 import {
   begin,
+  findTrustedLabel,
   fold,
   getEventOutcome,
   makeRunWithFreshRound,
@@ -435,7 +436,7 @@ export const tick = (
             ? undefined
             : yield* (
                 pr?.pull && !(tells.includes(m) && step.back)
-                  ? runAside(w, seen, graph, outcome.text, pr.pull, pr.number)
+                  ? runAside(w, seen, makeRunGraph(graph, seen), outcome.text, pr.pull, pr.number)
                   : step.back
                     ? Effect.succeed({ run: seen, outcome: { kind: 'back', why: outcome.text } as const })
                     : Effect.fail(
@@ -504,14 +505,7 @@ export const tick = (
     const labelled = Object.values(graph.workflows).filter(w => w.on.issues?.label);
     /** The label workflow whose label an issue carries, when a maintainer put it there last. */
     const assigned = (issue: number) =>
-      Effect.map(tracker.issue(issue), t =>
-        labelled.find(w => {
-          const last = t.events
-            .filter(m => (m.kind === 'label' || m.kind === 'unlabel') && m.label === w.on.issues!.label)
-            .at(-1);
-          return last?.kind === 'label' && last.trusted;
-        })
-      );
+      Effect.map(tracker.issue(issue), t => labelled.find(w => findTrustedLabel(t.events, w.on.issues!.label!)));
     /** Begins `w` on `issue`. A restart begins at the step it names, else the first, with the answers and reports of the last run there. */
     const start = (w: Workflow, issue: number, at: string, m?: Event, restart?: string) =>
       Effect.gen(function* () {
@@ -685,7 +679,7 @@ export const tick = (
         findBranchPull(issues, branch)?.pull.head ??
         (branch &&
           (yield* Effect.flatMap(Sandbox, s => s.readHead(branch)).pipe(Effect.orElseSucceed(() => undefined))));
-      yield* runFollow(w, r, r.base, head, tip, graph).pipe(
+      yield* runFollow(w, r, r.base, head, tip, makeRunGraph(graph, r)).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
             yield* Effect.logError(`follow run ${r.id}`, e);
@@ -702,6 +696,7 @@ export const tick = (
         if (!(yield* Effect.isSuccess(store.lock(before.id)))) return;
         const r = yield* store.get(before.id);
         if (!r || (r.status !== 'waiting' && r.status !== 'done') || r.onto || isParked(r) || !newest(r)) return;
+        if (r.waiting?.on === 'limits') return;
         const w = graph.workflows[r.workflow];
         const pull = w && findBranchPull(issues, formatRunBranch(w, r, issues))?.pull;
         if (!w?.steps.some(isHumanWaitStep) || !pull || all.some(c => c.by === r.id && !isRunDone(c))) return;
@@ -710,7 +705,7 @@ export const tick = (
         if (r.blocked?.base === base && r.blocked.head === pull.head && r.blocked.graph === graph.sha) return;
         const { blocked: _, ...ready } = r;
         if (r.blocked) yield* store.put(ready);
-        const caught = yield* runCatchUp(w, r, graph, pull).pipe(
+        const caught = yield* runCatchUp(w, r, makeRunGraph(graph, r), pull).pipe(
           Effect.catch(e =>
             e._tag === 'StoreError'
               ? Effect.fail(e)

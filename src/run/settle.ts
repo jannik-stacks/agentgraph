@@ -4,7 +4,7 @@ import { type Workflow, isQuiet } from '../workflow.ts';
 import { currentRunLinkRef, Tracker } from '../tracker.ts';
 import { findIssueStatus, formatStatusHeader, proposeQuestion } from '../context.ts';
 import { Store } from '../store.ts';
-import type { Graph } from '../folder.ts';
+import { type Graph, makeRunGraph } from '../folder.ts';
 import { LockHeldError } from '../owner.ts';
 import { type StatusChange, readPlugins } from '../plugin.ts';
 import type { Proposal } from '../proposal.ts';
@@ -45,7 +45,7 @@ export const runEndChecks = (graph: Graph, id: string): Effect.Effect<Run | unde
     const ended = yield* store.get(id);
     if (!ended?.owed?.length) return ended;
     let run = ended;
-    yield* runEndedChecks(graph, ended, ended.owed, {
+    yield* runEndedChecks(makeRunGraph(graph, ended), ended, ended.owed, {
       settled: name => {
         const { owed: before = [], ...rest } = run;
         const left = before.filter(n => n !== name);

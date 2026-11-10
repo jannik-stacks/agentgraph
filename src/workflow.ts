@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
-import { Count, type Event, type Issue } from './event.ts';
+import { Count, labelPrefix, type Event, type Issue } from './event.ts';
 import { Kind } from './proposal.ts';
 import { CommandLimits, formatReason, type Outcome, type Run, type RunRecord } from './types.ts';
 
@@ -393,6 +393,17 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
         };
     }
   }
+  if (run.status === 'waiting' && run.waiting?.on === 'limits') {
+    if (o.kind === 'stop') return stop(o.why);
+    if (o.kind !== 'answer') return run;
+    const { waiting: _waiting, ...rest } = run;
+    const said = o.text.trim();
+    return {
+      ...rest,
+      status: entered(step),
+      ...(said && { feedback: [run.feedback, said].filter(Boolean).join('\n\n') }),
+    };
+  }
   if (run.status === 'waiting' && isHumanWaitStep(step)) {
     if (o.kind === 'pass') return forward();
     if (o.kind === 'back') return back(o.why);
@@ -427,6 +438,11 @@ const issueSources: Record<string, (trigger: NonNullable<Workflow['on']['issues'
     m.kind === 'column' &&
     m.column?.name === t.column &&
     (t.project === undefined ? m.trusted : t.project === m.column?.project),
+};
+
+export const findTrustedLabel = (events: readonly Event[], label: string) => {
+  const last = events.filter(m => (m.kind === 'label' || m.kind === 'unlabel') && m.label === label).at(-1);
+  return last?.kind === 'label' && last.trusted ? last : undefined;
 };
 
 export const isIssueTriggered = (w: Workflow, m: Event) =>
@@ -539,6 +555,13 @@ export function getEventOutcome(
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
     return { kind: 'stop', why: `the ${label} label was removed` };
   const waiting = run.status === 'waiting';
+  if (
+    waiting &&
+    run.waiting?.on === 'limits' &&
+    (m.kind === 'label' || m.kind === 'unlabel') &&
+    m.label?.startsWith(labelPrefix)
+  )
+    return { kind: 'answer', text: '' };
   if (m.kind === 'closed' && !isRunDone(run)) return { kind: 'stop', why: 'closed' };
   const said = getAgentRequest(m);
   const body = m.comment?.body.trim() ?? '';

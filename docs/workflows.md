@@ -121,6 +121,20 @@ At `wait: human` with `back`, requested changes return to work. Approval, the `a
 
 Runs wait at human steps, on `ask`, or after exhausting tries or rounds. The engine posts a question where the run is speaking: the issue, then its pull request once available. `/agent` answers resume work; answers stay paired with questions for later steps and checks. A reply after exhausted rounds grants one more. A stop command or closed issue ends the run. <!-- code: src/run/check.ts#formatAnswers src/context.ts#proposeQuestion -->
 
+## Limits on an issue
+
+A trusted label `agent:usd-per-run:<n>` or `agent:minutes:<n>` sets that limit for runs on its issue, up to `limits.max` in settings.yaml. It counts when its last label event came from a trusted person, like a trigger label; agents cannot add or remove `agent:` labels. Two labels for one limit, a value over `max` or a value that is not a number above 0 make the run wait with the reason. Nothing is clamped. <!-- code: src/folder.ts#parseIssueLimits src/workflow.ts#findTrustedLabel src/run/check.ts#runStepChecks -->
+
+The engine reads the labels before setup and before every try, and records them in `run.limits`. End checks, asides, follows and catch-ups use the recorded values. `minutes` stays a deadline per command, never a time budget for the run. <!-- code: src/run/drive.ts#runWorkflow src/folder.ts#makeRunGraph -->
+
+A run whose spend reached `usd-per-run` waits instead of stopping. Its comment says what to do, for example: <!-- code: src/folder.ts#formatLimitRaise src/context.ts#proposeQuestion -->
+
+```text
+Spent $10.04 of the $10 usd-per-run limit, from settings.yaml. Add agent:usd-per-run:15, up to the max of 40, to continue.
+```
+
+Adding, removing or replacing an `agent:` label resumes the same run, with its spend, sessions and feedback; a plain `/agent` reply does too, for example after raising `max`. The run checks its limits again first and waits again when nothing changed, so it starts no session over its limits. Retros and conflict follows stop at their limits instead. Add a new label to change a limit; renaming a label in the repository settings writes no issue events. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#transition -->
+
 ## Asides
 
 At a human wait, an aside answers comments in a throwaway checkout of the pull request head. It forks the `back` target's session, or starts fresh with the whole thread when there is none or it cannot be resumed. Only granted `comment` and `back` proposals apply; edits are discarded. A comment keeps waiting, while `back` resumes work. Without an open pull request, feedback returns directly to work. <!-- code: src/run/follow.ts#runAside -->
@@ -177,13 +191,13 @@ A status header in the issue body moves to the pull request once available and f
 | ------------------------- | -------------------------------------------------------------------------------- |
 | `agent:working`           | A step runs, or a run waits on a run it started                                  |
 | `agent:needs-review`      | A run waits at a `wait: human` step with a pull request to review and merge      |
-| `agent:needs-answer`      | A run asked a question, waits with no pull request, or paused on an engine error |
+| `agent:needs-answer`      | A run asked a question, waits with no pull request or on its limits, or paused on an engine error |
 | `agent:done`              | The latest run finished                                                          |
 | `agent:stopped`           | The latest run stopped                                                           | <!-- code: src/event.ts#issueStatuses src/context.ts#findIssueStatus src/run/settle.ts#writeStatus src/tracker.ts#makeStatusLabel --> <!-- code: src/context.ts#formatStatusHeader src/run/settle.ts#writeStatus src/event.ts#makeBodyWithStatus --> <!-- code: src/github.ts#githubTracker src/tracker.ts#folderTracker --> <!-- code: src/context.ts#proposeQuestion --> <!-- code: src/folder.ts#GraphSettings src/tracker.ts#makeStatusLabel --> <!-- code: src/context.ts#findIssueStatus src/run/settle.ts#announce --> |
 
 ## Order and limits
 
-`limits.parallel` caps concurrent drives, including end checks; `limits.sessions` caps an instance's sessions and scripts, including judges. `agi loop --parallel <n>` caps drives across instances. Routers take neither slot. `minutes` sets command deadlines, and runs exceeding `usd-per-run` stop after their try.
+`limits.parallel` caps concurrent drives, including end checks; `limits.sessions` caps an instance's sessions and scripts, including judges. `agi loop --parallel <n>` caps drives across instances. Routers take neither slot. `minutes` sets command deadlines and `usd-per-run` caps a run's spend; see [Limits on an issue](#limits-on-an-issue).
 
 Loops scan issues and poll hosted tracker events; folder edits trigger another pass. Drives run in the background, oldest first, under per-run locks. Stops interrupt drives; the next drive resumes them. `agi start` and `loop --once` drive in the foreground.
 

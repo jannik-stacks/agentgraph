@@ -162,7 +162,13 @@ export function proposeQuestion(before: Run | undefined, run: Run, t: IssueWithP
   const events = getEvents(t).filter(m => m.trusted && !m.bot);
   const pull = (t.pull ?? (t.issue.pull ? t.issue : undefined))?.url;
   const who = events.toSorted((a, b) => a.at.localeCompare(b.at)).at(-1)?.actor ?? t.issue.author;
-  const text = `@${who} ${run.waiting ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;
+  const hint =
+    run.waiting?.on === 'limits'
+      ? `${reason}\n\nReply \`/agent:stop\` to end the run.`
+      : run.waiting
+        ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.'
+        : `${reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`;
+  const text = `@${who} ${hint}`;
   return [{ kind: 'comment' as const, body: formatUpdate(text, run, pull, studio) }];
 }
 

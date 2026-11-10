@@ -53,6 +53,7 @@ A committed graph with symlinks or submodules is refused. The loop reads `.agent
 | `cpus`        | number             | 1.5     | CPUs per Docker command, from 0.01 to 64                                                                             |
 | `minutes`     | number             | 30      | Deadline per session, script or setup, above 0                                                                       |
 | `usd-per-run` | number             | 10      | Spend cap per run, above 0                                                                                           |
+| `max`         | map                | none    | The highest `minutes` and `usd-per-run` an issue label may set; each defaults to its value above                     |
 | `parallel`    | integer            | 2       | Concurrent runs, at least 1; router runs take no slot                                                                |
 | `sessions`    | integer            | 4       | Concurrent sessions and scripts of one instance, judges included, at least 1 <!-- code: src/run/execute.ts#sessionPermitsRef --> |
 

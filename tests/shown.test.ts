@@ -117,6 +117,15 @@ describe('the question', () => {
     const child = { ...run, id: 'child', by: run.id };
     expect(bodies(run, { ...run, status: 'waiting', waiting: { on: 'run', id: 'child' } }, on(), [child])).toEqual([]);
   });
+
+  it('posts what to do for a run waiting on its limits, once per reason', () => {
+    const why = 'Spent $10.00 of the $10 usd-per-run limit, from settings.yaml. Add agent:usd-per-run:15.';
+    const over = { ...run, status: 'waiting' as const, waiting: { on: 'limits' as const, why } };
+    expect(bodies(run, over)).toEqual([
+      `@maintainer ${why}\n\nReply \`/agent:stop\` to end the run.\n\nRun: http://studio:5492/runs/issue-7`,
+    ]);
+    expect(bodies(over, over)).toEqual([]);
+  });
 });
 
 describe('the status header', () => {

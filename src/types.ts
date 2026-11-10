@@ -48,8 +48,13 @@ const Waiting = Schema.optionalKey(
       on: Schema.Literal('engine'),
       error: Schema.optionalKey(Schema.Literals(['SandboxError', 'SessionStop', 'TrackerError'])),
     }),
+    Schema.Struct({ on: Schema.Literal('limits'), why: Schema.String }),
   ])
 );
+const Limit = Schema.Struct({
+  value: Schema.Number,
+  label: Schema.optionalKey(Schema.Struct({ name: Schema.String, actor: Schema.String, at: Schema.String })),
+});
 
 /**
  * A check's result: whether it passed, the `value` its result held when the check has its own `returns`, and with
@@ -114,6 +119,7 @@ const RunFields = {
   ),
   reason: Text,
   waiting: Waiting,
+  limits: Schema.optionalKey(Schema.Struct({ usdPerRun: Limit, minutes: Limit })),
   restarted: Flag,
   retried: Flag,
   seen: Text,
@@ -435,9 +441,11 @@ export type InstanceHosts = Readonly<Record<string, InstanceHost | { why: string
 export const formatReason = ({ reason, waiting }: Pick<Run, 'reason' | 'waiting'>) =>
   waiting?.on === 'run'
     ? `waiting on ${waiting.id}`
-    : waiting
-      ? `Stopped by an engine error${waiting.error ? ` (${waiting.error})` : ''}.`
-      : reason;
+    : waiting?.on === 'limits'
+      ? waiting.why
+      : waiting
+        ? `Stopped by an engine error${waiting.error ? ` (${waiting.error})` : ''}.`
+        : reason;
 
 export const isWaitingOnPeople = (run: Partial<Pick<Run, 'status' | 'waiting'>>) =>
-  run.status === 'waiting' && run.waiting === undefined;
+  run.status === 'waiting' && (run.waiting === undefined || run.waiting.on === 'limits');

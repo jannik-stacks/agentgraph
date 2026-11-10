@@ -1,6 +1,6 @@
 # Runs and data
 
-A run is one workflow on one issue. Its status is `running`, `waiting` (a question, tries or rounds used up, or an engine error), `done` or `stopped` (a stop, a closed issue, a removed trigger label or the spend limit).
+A run is one workflow on one issue. Its status is `running`, `waiting` (a question, tries or rounds used up, its [limits](workflows.md#limits-on-an-issue), or an engine error), `done` or `stopped` (a stop, a closed issue or a removed trigger label).
 
 ## The data folder
 
@@ -96,10 +96,11 @@ The record includes:
 | `sessions`                | The kept session of each step                                                                                                                                                                                                                                                                                                                                                                               |
 | `judges`                  | The kept session of each check an agent judges |
 | `feedback`, `reason`      | Context for the next try or a [retro](workflows.md#retros), and why the run waits or stopped                                                                                                                                                                                                                                                                                                                |
-| `waiting`                 | What a waiting run waits on when it is not a person: `{ on: run, id }` for a run it started, or `{ on: engine, error }` when an engine error parked it. The shown reason comes from it                                                                                                                                                                                                                      |
+| `waiting`                 | What a waiting run waits on when it is not a person: `{ on: run, id }` for a run it started, `{ on: limits, why }` when it reached its limits, or `{ on: engine, error }` when an engine error parked it. The shown reason comes from it                                                                                                                                                                                                                      |
 | `reported`                | The last report of each step that carries its report to the next step |
 | `restarted`               | A person restarted the run |
 | `retried`                 | The run already asked once after a failure; the next failure leaves it waiting |
+| `limits`                  | The `minutes` and `usd-per-run` the run works with, each with the label that set it, if any |
 | `answers`                 | Human answers, each with its question                                                                                                                                                                                                                                                                                                                                                                       |
 | `said`, `unshown`         | Where people last spoke, and a status the tracker has yet to show                                                                                                                                                                                                                                                                                                                                           |
 | `seen`                    | When the run last took in events on its issue |

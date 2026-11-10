@@ -1,7 +1,7 @@
 import { Effect, Option } from 'effect';
-import { type Workflow, formatTemplate, transition, isRunDone } from '../workflow.ts';
-import type { Issue } from '../event.ts';
-import type { Graph } from '../folder.ts';
+import { type Workflow, formatTemplate, transition, isRunDone, isQuiet } from '../workflow.ts';
+import type { Event, Issue } from '../event.ts';
+import { type Graph, formatLimitRaise, makeRunGraph, parseIssueLimits } from '../folder.ts';
 import { Store } from '../store.ts';
 import { Tracker, findBranchPull } from '../tracker.ts';
 import { formatSpend, makeOutcomeLine } from '../trace.ts';
@@ -97,6 +97,29 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
             yield* readContinuedRun({ ...transition(w, current, queued.outcome), seen: queued.at }, queued.events)
           );
         }
+        if (current.status === 'running') yield* admit(Option.getOrUndefined(t)?.issue);
+      });
+    const waitOnLimits = (why: string, run = current) =>
+      settle(
+        { kind: 'ask', question: why, waiting: { on: 'limits', why } },
+        isQuiet(w)
+          ? transition(w, run, { kind: 'stop', why })
+          : { ...removeThreads(run), status: 'waiting', waiting: { on: 'limits', why } }
+      );
+    const admit = (issue?: Issue & { events: readonly Event[] }) =>
+      Effect.gen(function* () {
+        const read = issue
+          ? parseIssueLimits(graph.limits, issue)
+          : (current.limits ?? parseIssueLimits(graph.limits, { labels: [], events: [] }));
+        if ('why' in read) return yield* waitOnLimits(read.why);
+        const limits = read;
+        if (JSON.stringify(limits) !== JSON.stringify(current.limits))
+          yield* store.put((current = { ...current, limits }));
+        const spend = yield* readRunSpend(current.id);
+        if (spend.usd >= limits.usdPerRun.value)
+          yield* waitOnLimits(
+            `Spent ${formatSpend(spend)} of the $${limits.usdPerRun.value} usd-per-run limit, ${formatLimitRaise(graph.limits, limits, 'usd-per-run')}`
+          );
       });
     const walk = Effect.gen(function* () {
       const base = w.base ?? (yield* tracker.base);
@@ -174,14 +197,14 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         const gain = yield* readBaseGain(made.git, ref, moved.from, moved.onto);
         yield* store.put((current = { ...rest, feedback: [rest.feedback, gain].filter(Boolean).join('\n\n') }));
       }
-      if (!w.on.feedback && !readonly) yield* runSetup(graph, made, current);
+      if (!w.on.feedback && !readonly) yield* runSetup(makeRunGraph(graph, current), made, current);
       const onto = current.onto?.sha ?? (made.saved && !made.head ? current.base?.sha : undefined);
       const work = onto ? yield* moveCheckoutOnto(made, onto, !current.onto || current.tries === 0) : made;
       current = { ...current, startCommit: work.base };
       const attempts = `refs/agentgraph/attempts/${run.id}/`;
       let count = (yield* readGit(work.git, ['rev-parse', `--glob=${attempts}*`])).split('\n').filter(Boolean).length;
       while (current.status === 'running') {
-        const tried = yield* runAttempt({ ...w, base }, current, graph, work, own);
+        const tried = yield* runAttempt({ ...w, base }, current, makeRunGraph(graph, current), work, own);
         yield* commitCheckout({ ...work, ...(tried.tree && { tree: tried.tree }) }, `${attempts}${++count}`, '', [
           work.head ?? work.base,
           work.saved,
@@ -201,11 +224,6 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
 
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
-        const spend = current.status === 'running' ? yield* readRunSpend(current.id) : undefined;
-        if (spend && spend.usd > graph.limits.usdPerRun) {
-          const why = `Spent ${formatSpend(spend)}, over the graph's usd-per-run of ${graph.limits.usdPerRun}.`;
-          yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
-        }
         if (!isRunDone(current)) yield* hear(true);
       }
       const files = made.written && (yield* Effect.promise(made.written));

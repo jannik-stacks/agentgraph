@@ -180,6 +180,22 @@ describe('loadGraph', () => {
     expect(found).toContainEqual(expect.stringMatching(new RegExp(`^settings.yaml: limits.${key}:`)));
   });
 
+  it.each([
+    ['{ usd-per-run: 20, max: { usd-per-run: 10 } }', 'max usd-per-run is below usd-per-run 20'],
+    ['{ max: { minutes: 5 } }', 'max minutes is below minutes 30'],
+    ['{ max: { memory: 8g } }', 'limits.max.memory: is unexpected'],
+  ])('rejects limits %s', async (limits, message) => {
+    const found = await problems(graphDir({ 'settings.yaml': `limits: ${limits}\n` }));
+    expect(found.join('\n')).toContain(message);
+  });
+
+  it('reads limits.max with the keys labels may raise', async () => {
+    const graph = await Effect.runPromise(
+      loadGraph(graphDir({ 'settings.yaml': 'limits: { max: { usd-per-run: 60, minutes: 180 } }\n' }), harnesses)
+    );
+    expect(graph.limits.max).toEqual({ usdPerRun: 60, minutes: 180 });
+  });
+
   it('reports wrong values, unknown keys, unknown agents and checks without a command or agent', async () => {
     const dir = graphDir({
       'settings.yaml': 'limits: { parallel: many }\n',
@@ -204,7 +220,7 @@ describe('loadGraph', () => {
       })
     );
     expect(found).toContain(
-      'settings.yaml: limits.usdPerRun: is unexpected, expected: "memory" | "cpus" | "minutes" | "usd-per-run" | "parallel" | "sessions"'
+      'settings.yaml: limits.usdPerRun: is unexpected, expected: "memory" | "cpus" | "minutes" | "usd-per-run" | "parallel" | "sessions" | "max"'
     );
     expect(found).toContainEqual(
       expect.stringMatching(/^workflows\/w\.md: steps\.x\.bogus: is unexpected, expected: "agent" \| "run" \|/)

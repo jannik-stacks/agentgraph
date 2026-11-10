@@ -4,7 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Result, Schema } from 'effect';
 import { parse } from 'yaml';
-import { Count, issueStatuses, type IssueStatus } from './event.ts';
+import { Count, issueStatuses, labelPrefix, type Event, type Issue, type IssueStatus } from './event.ts';
 import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
@@ -13,23 +13,40 @@ import {
   CommandSettings,
   commandVerbs,
   compileWorkflow,
+  findTrustedLabel,
   formatIssues,
   splitFrontmatter,
   type Doc,
   type Problem,
   type Workflow,
 } from './workflow.ts';
-import { Agent, Check, CommandLimits } from './types.ts';
+import { Agent, Check, CommandLimits, type Run } from './types.ts';
+
+const Positive = Schema.Finite.check(Schema.isGreaterThan(0));
+const labelled = { 'usd-per-run': 'usdPerRun', minutes: 'minutes' } as const;
 
 /** The limits block of settings.yaml. */
 const Limits = Schema.Struct({
   ...CommandLimits.fields,
-  minutes: Schema.Finite.check(Schema.isGreaterThan(0)).pipe(Schema.withDecodingDefaultType(Effect.succeed(30))),
-  usdPerRun: Schema.Finite.check(Schema.isGreaterThan(0)).pipe(Schema.withDecodingDefaultType(Effect.succeed(10))),
+  minutes: Positive.pipe(Schema.withDecodingDefaultType(Effect.succeed(30))),
+  usdPerRun: Positive.pipe(Schema.withDecodingDefaultType(Effect.succeed(10))),
   parallel: Count.pipe(Schema.withDecodingDefaultType(Effect.succeed(2))),
   sessions: Count.pipe(Schema.withDecodingDefaultType(Effect.succeed(4))),
-}).pipe(Schema.encodeKeys({ usdPerRun: 'usd-per-run' }));
+  max: Schema.optionalKey(
+    Schema.Struct({ minutes: Schema.optionalKey(Positive), usdPerRun: Schema.optionalKey(Positive) }).pipe(
+      Schema.encodeKeys({ usdPerRun: 'usd-per-run' })
+    )
+  ),
+})
+  .pipe(Schema.encodeKeys({ usdPerRun: 'usd-per-run' }))
+  .check(
+    Schema.makeFilter(l => {
+      const low = Object.entries(labelled).find(([, field]) => (l.max?.[field] ?? l[field]) < l[field]);
+      return !low || `max ${low[0]} is below ${low[0]} ${l[low[1]]}`;
+    })
+  );
 type Limits = typeof Limits.Type;
+type RunLimits = NonNullable<Run['limits']>;
 
 /** One repo's graph after `uses:` and the repo override are merged. */
 export type Graph = {
@@ -433,3 +450,52 @@ export const loadGraph = (
       checks,
     };
   });
+
+export const parseIssueLimits = (
+  limits: Limits,
+  issue: Pick<Issue, 'labels'> & { events: readonly Event[] }
+): RunLimits | { why: string } => {
+  const read = (key: keyof typeof labelled): RunLimits['minutes'] | { why: string } => {
+    const field = labelled[key];
+    const prefix = `${labelPrefix}${key}:`;
+    const set = issue.labels.flatMap(name => {
+      const event = name.startsWith(prefix) ? findTrustedLabel(issue.events, name) : undefined;
+      return event ? [{ name, actor: event.actor, at: event.at }] : [];
+    });
+    const label = set[0];
+    if (set.length > 1) return { why: `${set.map(l => l.name).join(' and ')} both set ${key}. Remove all but one.` };
+    if (!label) return { value: limits[field] };
+    const text = label.name.slice(prefix.length);
+    const value = /^\d+(\.\d+)?$/.test(text) ? Number(text) : 0;
+    const max = limits.max?.[field] ?? limits[field];
+    if (value <= 0) return { why: `${label.name} is not a number above 0.` };
+    if (value > max)
+      return {
+        why: `${label.name} is over the max ${key} of ${max}. Use ${max} or less, or raise limits.max in settings.yaml and reply /agent.`,
+      };
+    return { value, label };
+  };
+  const usdPerRun = read('usd-per-run');
+  if ('why' in usdPerRun) return usdPerRun;
+  const minutes = read('minutes');
+  return 'why' in minutes ? minutes : { usdPerRun, minutes };
+};
+
+export const makeRunGraph = (graph: Graph, run: Pick<Run, 'limits'>): Graph =>
+  run.limits
+    ? {
+        ...graph,
+        limits: { ...graph.limits, usdPerRun: run.limits.usdPerRun.value, minutes: run.limits.minutes.value },
+      }
+    : graph;
+
+export const formatLimitRaise = (limits: Limits, run: RunLimits, key: keyof typeof labelled) => {
+  const field = labelled[key];
+  const { value, label } = run[field];
+  const max = limits.max?.[field] ?? limits[field];
+  const from = label ? `from ${label.name}` : 'from settings.yaml';
+  if (value >= max)
+    return `${from}, the max. Raise limits.max ${key} in settings.yaml, then add a higher ${labelPrefix}${key} label to continue.`;
+  const next = `${labelPrefix}${key}:${Math.min(max, Math.ceil(value * 1.5))}`;
+  return `${from}. ${label ? `Replace ${label.name} with ${next}` : `Add ${next}`}, up to the max of ${max}, to continue.`;
+};

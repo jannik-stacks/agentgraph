@@ -883,18 +883,6 @@ describe('drive', () => {
     );
   });
 
-  it('stops the run once its summed session cost passes usd-per-run', async () => {
-    const where = world();
-    const { specs, run } = services(where, [
-      [start('t1'), { type: 'usage', input: 1, output: 1, usd: 0.5 }, reply({ kind: 'comment', body: 'Brief' })],
-    ]);
-    const capped = { ...graph, limits: { ...graph.limits, usdPerRun: 0.1 } };
-    const stopped = await run(runWorkflow(w, fresh(), capped));
-    expect(stopped).toMatchObject({ step: 'implement', status: 'stopped' });
-    expect(stopped.reason).toBe("Spent $0.50, over the graph's usd-per-run of 0.1.");
-    expect(specs).toHaveLength(1);
-  });
-
   it('parks at once with what to fix on the host when the sandbox cannot start there', async () => {
     const where = world();
     const detail =
