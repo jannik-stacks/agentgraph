@@ -18,7 +18,7 @@ import {
 } from './hear.ts';
 import { type Services, formatFailure } from './execute.ts';
 import { formatSettled } from './start.ts';
-import { removeThreads, writeStatus, readRunSpend, runEndChecks } from './settle.ts';
+import { removeThreads, writeEyes, writeStatus, readRunSpend, runEndChecks } from './settle.ts';
 import { moveCheckoutOnto } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
@@ -98,11 +98,13 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         const t = yield* Effect.option(readIssueWithPull(w, current, graph));
         if (Option.isSome(t)) yield* writeHeardEvents(current, getEvents(t.value));
         const queued = Option.isSome(t) ? yield* readHeardOutcome(graph, w, current, t.value) : undefined;
-        if (queued && (all || queued.outcome.kind !== 'answer' || w.concurrency === 'cancel'))
+        if (queued && (all || queued.outcome.kind !== 'answer' || w.concurrency === 'cancel')) {
+          yield* Effect.forEach(queued.events, m => writeEyes(current, m.issue, m));
           yield* settle(
             queued.outcome,
             yield* readContinuedRun({ ...transition(w, current, queued.outcome), seen: queued.at }, queued.events)
           );
+        }
       });
     const walk = Effect.gen(function* () {
       const base = w.base ?? (yield* tracker.base);

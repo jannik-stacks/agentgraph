@@ -70,7 +70,7 @@ describe('tick', () => {
       ...f,
       apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
         Effect.andThen(
-          p.kind === 'react' && p.remove === undefined
+          p.kind === 'react'
             ? Effect.flatMap(store.list({ issue: 7 }), rs =>
                 Effect.forEach(rs, r =>
                   Effect.gen(function* () {
@@ -85,14 +85,7 @@ describe('tick', () => {
         ),
     }));
     const [asked] = await run(tick(small, 7).pipe(Effect.provideServiceEffect(Tracker, racing)));
-    expect([stopped, asked!.status, reactions(where.data, asked!.id)]).toEqual([
-      [],
-      'waiting',
-      [
-        [true, undefined],
-        [true, '2026-10-16T00:00:00.000Z'],
-      ],
-    ]);
+    expect([stopped, asked!.status, reactions(where.data, asked!.id)]).toEqual([[], 'waiting', [true]]);
   });
 
   it('finishes the start of a run that begins waiting on the next tick when its first status write fails', async () => {

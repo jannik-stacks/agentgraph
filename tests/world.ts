@@ -139,11 +139,9 @@ export const readTrace = (data: string, id: string) => readLines<Trace>(join(dat
 
 export const readChecks = (data: string, id: string) => readLines<CheckEntry>(join(data, id, 'checks.jsonl'));
 
-/** The 👀 a run gave and took back, in order, as the reaction id each took back or undefined when it gave one. */
+/** Whether each 👀 a run gave landed, in order. */
 export const reactions = (data: string, id: string) =>
-  readTrace(data, id).flatMap(t =>
-    'applied' in t && t.applied.proposal.kind === 'react' ? [[t.applied.ok, t.applied.proposal.remove]] : []
-  );
+  readTrace(data, id).flatMap(t => ('applied' in t && t.applied.proposal.kind === 'react' ? [t.applied.ok] : []));
 
 export const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m.comment.body] : []));
 

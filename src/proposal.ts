@@ -8,7 +8,6 @@ const React = Schema.Struct({
   kind: Schema.Literal('react'),
   comment: Text,
   review: Schema.optionalKey(Schema.Boolean),
-  remove: Text,
 });
 const Label = Schema.Struct({ kind: Schema.Literal('label'), add: Names, remove: Names });
 const Push = Schema.Struct({

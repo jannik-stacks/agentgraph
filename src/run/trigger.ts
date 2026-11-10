@@ -48,7 +48,7 @@ import {
   writeHeardEvents,
 } from './hear.ts';
 import { runLaterChecks } from './evaluate.ts';
-import { isParked, writeMovedStatus, writeStatus, runEndChecks } from './settle.ts';
+import { isParked, writeEyes, writeMovedStatus, writeStatus, runEndChecks } from './settle.ts';
 import { findUndispatchable, startProposedRun, formatSettled, makeRunId, startRun } from './start.ts';
 import { runAside, runFollow, runCatchUp } from './follow.ts';
 import { runWorkflow } from './drive.ts';
@@ -333,8 +333,8 @@ export const tick = (
       });
       return places.filter((s, i) => places.findIndex(t => t.issue === s.issue && t.under === s.under) === i);
     };
-    /** 👀 on the comment that woke a run, or on its issue for a label; the run comes back holding it. */
-    const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError> => {
+    /** 👀 on what woke a run; the run comes back pointing at that comment. */
+    const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError, Tracker | Store> => {
       if (m.source === 'cli')
         return Effect.gen(function* () {
           const spoken = { ...m, issue: origin.get(m) ?? m.issue };
@@ -343,21 +343,7 @@ export const tick = (
           if (!recorded) yield* store.trace(run.id, { at: m.at, step: run.step, spoken, ...supplied });
           return run;
         });
-      if (m.kind !== 'comment' && m.kind !== 'label' && m.kind !== 'column') return Effect.succeed(run);
-      const issue = origin.get(m) ?? m.issue;
-      const react: Extract<Proposal, { kind: 'react' }> = {
-        kind: 'react',
-        ...(m.kind === 'comment' &&
-          m.comment && {
-            comment: m.comment.id,
-            ...(m.comment.path !== undefined && { review: true }),
-          }),
-      };
-      return tracker.apply(issue, react).pipe(
-        Effect.tap(applied => store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied })),
-        Effect.map(a => (a.ok && a.id ? { ...run, eyes: { issue, undo: { ...react, remove: a.id } } } : run)),
-        Effect.catchTag('TrackerError', e => Effect.as(Effect.logWarning(`react for run ${run.id}`, e), run))
-      );
+      return Effect.map(writeEyes(run, origin.get(m) ?? m.issue, m), eyes => (eyes ? { ...run, eyes } : run));
     };
     const triggered = Object.values(graph.workflows).filter(w => w.on.issue_comment);
     const router = findRouter(graph)?.name;
@@ -439,6 +425,10 @@ export const tick = (
             l.trusted && l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
         );
         const outcome = fold([m, ...took.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
+        yield* Effect.forEach(
+          took.filter(a => a !== m),
+          a => writeEyes(run, origin.get(a) ?? a.issue, a)
+        );
         const seen = makeRunWithFreshRound(w, {
           ...(m.kind === 'comment' && (m.comment?.id || m.source === 'cli') ? yield* eyes(run, m) : run),
           said: heard([m, ...took.filter(a => a !== m)]),
@@ -491,9 +481,7 @@ export const tick = (
         const next =
           run.status === 'waiting' && run.reason && (moved.status !== 'waiting' || isParked(run))
             ? yield* writeMovedStatus(w, run, moved, graph)
-            : moved.status === 'running'
-              ? moved
-              : yield* writeStatus(w, moved, graph);
+            : yield* writeStatus(w, moved, graph);
         yield* record(run, outcome, next);
       }).pipe(Effect.scoped);
     for (const before of runs.filter(r => r.status === 'waiting' && !touched.some(t => t.id === r.id)))
@@ -562,9 +550,7 @@ export const tick = (
         const run = yield* startRun(begun, run =>
           Effect.andThen(
             writeHeardEvents(run, m ? [{ ...m, issue: origin.get(m) ?? m.issue }] : [], run.started),
-            Effect.flatMap(run.status === 'running' ? Effect.succeed(run) : writeStatus(w, run, graph), r =>
-              m ? eyes(r, m) : Effect.succeed(r)
-            )
+            Effect.flatMap(writeStatus(w, run, graph), r => (m ? eyes(r, m) : Effect.succeed(r)))
           )
         );
         if (!run) return;
@@ -738,12 +724,7 @@ export const tick = (
           )
         );
         const next = caught?.outcome && transition(w, caught.run, caught.outcome);
-        if (caught?.outcome && next)
-          yield* record(
-            caught.run,
-            caught.outcome,
-            next.status === 'running' ? next : yield* writeStatus(w, next, graph)
-          );
+        if (caught?.outcome && next) yield* record(caught.run, caught.outcome, yield* writeStatus(w, next, graph));
         else if (caught) yield* store.put(caught.run);
       }).pipe(
         Effect.scoped,

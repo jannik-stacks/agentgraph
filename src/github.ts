@@ -1078,8 +1078,6 @@ export const githubTracker = (
         case 'react': {
           const on =
             p.comment === undefined ? `issues/${number}` : `${p.review ? 'pulls' : 'issues'}/comments/${p.comment}`;
-          if (p.remove !== undefined)
-            return Effect.as(missing(gh('DELETE', `${repo}/${on}/reactions/${p.remove}`, undefined, 'comment')), {});
           return Effect.map(
             gh<{ id: number }>('POST', `${repo}/${on}/reactions`, { content: 'eyes' }, 'comment'),
             r => ({ id: String(r.id) })

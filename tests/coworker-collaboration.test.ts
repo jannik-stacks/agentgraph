@@ -279,11 +279,8 @@ describe('coworker', () => {
     say(where, labelled('morgan', true, 'unlabel', later(2)));
     const [stopped] = await run(tick(assigned));
     expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the agentgraph label was removed' });
-    expect(readFileSync(issuePath(where.tracker, 7, 'reactions'), 'utf8')).toBe('');
-    expect(reactions(where.data, asked!.id)).toEqual([
-      [true, undefined],
-      [true, '#7'],
-    ]);
+    expect(readFileSync(issuePath(where.tracker, 7, 'reactions'), 'utf8')).toBe('eyes #7\n');
+    expect(reactions(where.data, asked!.id)).toEqual([true]);
     expect(findStatus(where.tracker, 7)).toBe('stopped');
   });
 

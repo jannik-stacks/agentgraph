@@ -1276,13 +1276,12 @@ describe('githubTracker', () => {
     expect(f.calls.filter(c => c.path === '/repos/o/r/issues')).toHaveLength(1);
   });
 
-  it('replies under a review comment, reacts with eyes and takes the eyes back', async () => {
+  it('still replies under a review comment and reacts with eyes', async () => {
     const f = fake({
       'POST /repos/o/r/pulls/8/comments/5/replies': { id: 12, html_url: 'u12' },
       'POST /repos/o/r/issues/7/reactions': { id: 21 },
       'POST /repos/o/r/issues/comments/3/reactions': { id: 22 },
       'POST /repos/o/r/pulls/comments/5/reactions': { id: 23 },
-      'DELETE /repos/o/r/issues/7/reactions/21': {},
     });
     const applied = await run(
       f,
@@ -1292,8 +1291,6 @@ describe('githubTracker', () => {
           [7, { kind: 'react' }],
           [7, { kind: 'react', comment: '3' }],
           [8, { kind: 'react', comment: '5', review: true }],
-          [7, { kind: 'react', remove: '21' }],
-          [8, { kind: 'react', comment: '5', review: true, remove: '23' }],
         ] satisfies [number, Proposal][],
         ([n, p]) => Effect.flatMap(Tracker, tracker => tracker.apply(n, p))
       )
@@ -1303,8 +1300,6 @@ describe('githubTracker', () => {
       [true, '21'],
       [true, '22'],
       [true, '23'],
-      [true, undefined],
-      [true, undefined],
     ]);
     const writes = f.calls.filter(c => c.method !== 'GET' && !c.path.startsWith('/app'));
     expect(writes.map(c => [c.method, c.path, c.body])).toEqual([
@@ -1312,8 +1307,6 @@ describe('githubTracker', () => {
       ['POST', '/repos/o/r/issues/7/reactions', { content: 'eyes' }],
       ['POST', '/repos/o/r/issues/comments/3/reactions', { content: 'eyes' }],
       ['POST', '/repos/o/r/pulls/comments/5/reactions', { content: 'eyes' }],
-      ['DELETE', '/repos/o/r/issues/7/reactions/21', undefined],
-      ['DELETE', '/repos/o/r/pulls/comments/5/reactions/23', undefined],
     ]);
   });
 
