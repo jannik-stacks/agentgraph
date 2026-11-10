@@ -132,8 +132,8 @@ export const readBaseGain = (git: Checkout['git'], base: string, from: string, o
  * run back as a request for changes would, with what the base gained. A conflict does what the step's `conflict`
  * says: go back to start on the new base with markers left, start that `conflict` workflow there while the run
  * waits, or ask; when that already happened for this base head, it is said on the issue once. The followed range is
- * kept on the run until its checks decide. What the base gained is the pull requests and issues its commits name, the issues those pull
- * requests close, the commits and their diff. Undefined when nothing moved.
+ * kept on the run until its checks decide. What the base gained is the pull requests and issues its commits name,
+ * the issues those pull requests close, the commits and their diff. Undefined when nothing moved.
  */
 export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
@@ -164,13 +164,7 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
       const branch = pull.branch;
       const verb = merge ? 'merges with' : 'rebases onto';
       const proposal: Proposal = merge
-        ? {
-            kind: 'push',
-            branch,
-            message: `Merge ${pull.base} into ${branch}`,
-            onto,
-            merge: true,
-          }
+        ? { kind: 'push', branch, message: `Merge ${pull.base} into ${branch}`, onto, merge: true }
         : { kind: 'rebase', branch, from, onto };
       const tried = (yield* Stream.runCollect(store.read(run.id))).filter(
         t => 'applied' in t && !t.applied.ok && 'onto' in t.applied.proposal && t.applied.proposal.onto === onto
@@ -186,11 +180,7 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
         files.length > 0
           ? { proposal, ok: false, reason: `conflicts in ${files.join(', ')}` }
           : yield* tracker.apply(run.issue, proposal, work);
-      yield* store.trace(run.id, {
-        at: new Date().toISOString(),
-        step: run.step,
-        applied,
-      });
+      yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
       if (!applied.ok && tried === 0 && handled) {
         const why = [
           [
@@ -200,26 +190,10 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
           ].join(' '),
           yield* readBaseGain(work.git, pull.base, run.moved?.from ?? from, onto),
         ].join('\n\n');
-        const seed = {
-          onto: { sha: onto, ...(merge && { merge: true as const }) },
-          feedback: why,
-        };
-        if (!resolver)
-          return {
-            run: { ...reopened, onto: seed.onto },
-            outcome: { kind: 'back', why } as const,
-          };
-        const proposed = {
-          kind: 'run',
-          workflow: resolver.name,
-          issue: run.issue,
-        } as const;
-        if (
-          yield* startProposedRun(graph, run, proposed, {
-            ...seed,
-            ...(run.checkout && { checkout: run.checkout }),
-          })
-        )
+        const seed = { onto: { sha: onto, ...(merge && { merge: true as const }) }, feedback: why };
+        if (!resolver) return { run: { ...reopened, onto: seed.onto }, outcome: { kind: 'back', why } as const };
+        const proposed = { kind: 'run', workflow: resolver.name, issue: run.issue } as const;
+        if (yield* startProposedRun(graph, run, proposed, { ...seed, ...(run.checkout && { checkout: run.checkout }) }))
           return { run: current };
       }
       if (!applied.ok) {
@@ -231,27 +205,20 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
       yield* store.put({ ...run, moved: { from: since, onto } });
       const patch = (diff: Buffer) =>
         Effect.map(
-          hostGit(work.git, ['patch-id', '--stable'], {
-            input: diff.toString('utf8'),
-          }),
+          hostGit(work.git, ['patch-id', '--stable'], { input: diff.toString('utf8') }),
           out => out.toString('utf8').split(' ')[0]
         );
       const before = yield* patch(yield* hostGit(work.git, ['diff', from, pull.head]));
       const after = yield* patch(yield* hostGit(work.git, ['diff', onto, yield* writeCheckoutTree(work)]));
       same = before === after;
     } else yield* hostGit(work.git, ['read-tree', '-u', '--reset', pull.head]);
-    if (!checked)
-      return {
-        run: {
-          ...current,
-          ...(since !== undefined && { moved: { from: since, onto } }),
-        },
-      };
+    if (!checked) return { run: { ...current, ...(since !== undefined && { moved: { from: since, onto } }) } };
     if (!to) return { run: current };
     yield* runSetup(graph, work, run);
     const t = yield* readIssueWithPull(w, run, graph);
     yield* writeHeardEvents(run, getEvents(t));
-    const gain = since === undefined ? undefined : yield* readBaseGain(work.git, pull.base, since, onto);
+    const moved =
+      since === undefined ? undefined : { from: since, text: yield* readBaseGain(work.git, pull.base, since, onto) };
     const left = {
       run: run.id,
       ...work,
@@ -260,7 +227,7 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
       reply: '',
       proposals: [],
       answers: run.answers,
-      ...(since !== undefined && gain !== undefined && { moved: { from: since, text: gain } }),
+      ...(moved && { moved }),
     };
     const own = same && !renewed;
     const judged = (name: string) => graph.checks[name]?.agent !== undefined;
@@ -282,7 +249,7 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
           run: reopened,
           outcome: {
             kind: 'back',
-            why: [formatFailedTryFeedback(outcome), gain].filter(Boolean).join('\n\n'),
+            why: [formatFailedTryFeedback(outcome), moved?.text].filter(Boolean).join('\n\n'),
           } as const,
         }
       : outcome.kind === 'pass'
