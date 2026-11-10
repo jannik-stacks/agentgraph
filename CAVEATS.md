@@ -25,3 +25,8 @@ Rough edges known at merge time.
 - The `token` login URL carries the start token, so it lands in browser history and proxy logs. With `AGI_HOST`
   beyond loopback, prefer `password` or Cloudflare Access.
 - A `run.json`, trace line or check entry written by hand or by an old engine in another shape fails to read, with its file and line.
+- End checks, asides, follows and catch-up judges run with the recorded limits but are not capped by `usd-per-run`; only the run's own tries wait on it.
+- On GitHub, replacing a limit label is a remove and an add, two events; a run waiting on limits can resume on the first and post one more wait comment before the second lands.
+- Renaming a label in the repository settings writes no issue events, so it does not resume a waiting run; add a new label instead.
+- An issue the engine filed on the folder tracker makes no label events from frontmatter edits, so its labels cannot raise limits or start work.
+- A frontmatter label edit gets the file's modified time; an engine write to the same `issue.md` before the next read moves that time forward.

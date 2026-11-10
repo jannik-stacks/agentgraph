@@ -140,3 +140,10 @@ Decisions made without being sure. Each names what was picked and what would cha
   change `Workflow.branch` for the studio and every caller. The trigger's `isLanded` cleanup lookup stays separate:
   it asks for a merged pull on a branch, which an open-first pick would hide. Old run traces that stored
   `agentRequest` as a string read as no request.
+- **Retros and conflict follows stop at their limits** instead of waiting. They have no human to ask on their own issue, so a wait there would sit unseen. Change it if a retro or follow should be resumable by label.
+- **Only `agent:usd-per-run:<n>` and `agent:minutes:<n>` are read.** Other `agent:<key>:<value>` labels, such as `agent:memory:8g`, are ignored rather than refused. A refusal would need a list of keys that may never be limits.
+- **A plain `/agent` on a router graph goes to the router**, which resumes the waiting run with a tell; the run then checks its limits again. A run waiting on limits is not a special target for commands.
+- **`size/` labels keep their name.** The engine adds them, so they are not `agent:` labels, and agents may still propose them.
+- **A timeout flag lives on `run.limits`** (`timeout: true`) so a resumed run waits again until `minutes` rises. A plain reply after a timeout waits again, unlike a spend wait, where the spend is read anew.
+- **The header shows `$12.40 of $40`** whenever a run recorded limits, which is every run started after this change. The studio row names the label and who added it in a tooltip.
+- **The folder tracker keeps the labels it last saw in `labels.json`**, beside `issue.md`, and turns differences into label events by the issue author at the file's modified time. Deriving them from `events.jsonl` alone would have turned old proposal removals, which wrote no `unlabel`, into fresh unlabel events. An issue with a timeline and no `labels.json` is adopted quietly.
