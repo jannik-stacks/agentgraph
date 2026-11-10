@@ -47,14 +47,14 @@ const timeline = (t: IssueWithPull, keep: (m: Event) => boolean) =>
     .map(m => (t.pull ? `#${m.issue} ${formatEventLine(m)}` : formatEventLine(m)));
 
 /** The issue and its pull request as markdown: bodies, then one merged timeline. Older entries shrink to one line past a size cap. */
-export function context(t: IssueWithPull): string {
+export function context(t: IssueWithPull, shown: Event[] = []): string {
   const pull = t.pull;
   const heads = [
     `## #${t.issue.number} ${t.issue.title}\n\n${t.issue.body}`,
     pull &&
       `## Pull request #${pull.number} ${pull.title}\n\n${pull.pull?.branch} into ${pull.pull?.base}\n\n${pull.body}`,
   ].filter(Boolean);
-  const lines = timeline(t, m => !isEngineStatus(m));
+  const lines = timeline(t, m => !isEngineStatus(m) && !shown.includes(m));
   let size = [...heads, ...lines].join('\n\n').length;
   for (let i = 0; i < lines.length && size > cap; i++) {
     const short = `${lines[i]!.split('\n')[0]!.slice(0, 120)} ...`;
@@ -71,21 +71,38 @@ const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined 
 
 const isEngineStatus = (m: Event) => m.bot && (m.kind === 'label' || m.kind === 'unlabel');
 
-export function formatRequest(t: IssueWithPull, started: string): string {
-  const events = getEvents(t);
+export function formatRequest(t: IssueWithPull, run: Pick<Run, 'started' | 'sessions'>, since: string) {
+  const { started } = run;
+  const events = getEvents(t).toSorted((a, b) => a.at.localeCompare(b.at));
   const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
-  if (said.length === 0) return '';
+  if (said.length === 0) return { text: '', shown: [] };
+  const looked = Object.values(run.sessions)
+    .flatMap(s => s.seen?.at ?? [])
+    .toSorted()[0];
   const threads = new Set(said.map(thread).filter(Boolean));
   const around = events.filter(m => !said.includes(m) && threads.has(thread(m)));
+  const asked = events.filter(
+    m =>
+      said.includes(m) ||
+      (m.trusted &&
+        !m.bot &&
+        m.comment &&
+        !around.includes(m) &&
+        m.at > since &&
+        (looked === undefined || m.at <= looked))
+  );
   const before = around.filter(m => m.at < started);
   const after = around.filter(m => m.at > started);
-  return [
-    `## What you were asked\n\n${said.map(formatEventLine).join('\n\n')}`,
-    before.length > 0 && `Earlier in its review thread:\n\n${before.map(formatEventLine).join('\n\n')}`,
-    after.length > 0 && `Later in its review thread:\n\n${after.map(formatEventLine).join('\n\n')}`,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
+  return {
+    text: [
+      `## What you were asked\n\n${asked.map(formatEventLine).join('\n\n')}`,
+      before.length > 0 && `Earlier in its review thread:\n\n${before.map(formatEventLine).join('\n\n')}`,
+      after.length > 0 && `Later in its review thread:\n\n${after.map(formatEventLine).join('\n\n')}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    shown: [...asked, ...around],
+  };
 }
 
 /**

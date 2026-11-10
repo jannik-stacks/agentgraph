@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Deferred, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanIssuesAndRunningRuns, tick } from '../src/run/trigger.ts';
+import { isHeardBy } from '../src/run/hear.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 
 import type { Event } from '../src/event.ts';
@@ -17,7 +18,7 @@ import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start } from './fixtures.ts';
 import { appendIssueAt, findStatus, git, issuePath, writeIssueAt } from './kit.ts';
 import { stoppedByEngine, type Run, type SessionEvent } from '../src/types.ts';
-import { makeTestEvent } from './world.ts';
+import { graph as plain, makeTestEvent } from './world.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));
 
@@ -834,5 +835,16 @@ describe('a pass', () => {
       )
     );
     expect((await runs(where)).find(r => r.id === 'router-2')!.status).toBe('done');
+  });
+});
+
+describe('who hears a comment directly', () => {
+  it.each([
+    ['with a router, its runs hear a comment', graph, 'router', 'comment', true],
+    ['with a router, other workflows hear a comment only through it', graph, 'issue', 'comment', false],
+    ['with a router, every workflow hears a label', graph, 'issue', 'label', true],
+    ['without a router, every workflow hears a comment', plain, 'issue', 'comment', true],
+  ] as const)('%s', (_, g, name, kind, heard) => {
+    expect(isHeardBy(g, name, { kind })).toBe(heard);
   });
 });

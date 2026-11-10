@@ -34,6 +34,7 @@ import {
   findSettledRuns,
   findRouter,
   pickNewest,
+  isHeardBy,
   formatTemplate,
   readContinuedRun,
   readRunEvents,
@@ -585,19 +586,17 @@ export const tick = (
           : (sourced ?? (parseAgentRequest(m) !== undefined ? (target?.workflow ?? triggered[0]) : undefined));
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !isInScope(graph, yield* tracker.issue(m.issue)))) continue;
-      /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
-      const concerns = (name: string) => m.kind !== 'comment' || !router || !!graph.workflows[name]?.on.issue_comment;
       const old =
         restart === undefined &&
         runs.some(
           r =>
             r.issue === m.issue &&
-            concerns(r.workflow) &&
+            isHeardBy(graph, r.workflow, m) &&
             (m.at <= (r.seen ?? r.started) || (sourced && r.workflow === w.name && r.status === 'done'))
         );
       const held =
         restart === undefined
-          ? [...busy].some(k => k.endsWith(`#${m.issue}`) && concerns(k.slice(0, k.lastIndexOf('#'))))
+          ? [...busy].some(k => k.endsWith(`#${m.issue}`) && isHeardBy(graph, k.slice(0, k.lastIndexOf('#')), m))
           : busy.has(`${w.name}#${m.issue}`);
       if (!held && !old) yield* start(w, m.issue, m.at, m, restart);
     }
