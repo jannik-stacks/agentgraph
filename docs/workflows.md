@@ -113,7 +113,7 @@ The engine updates `/news/news.md` with issue activity every minute. A resumed s
 
 `carry: true` passes a successful step's reply text, without proposal blocks, to the next step. Replies are otherwise omitted.
 
-Failed checks or proposals retry in the same session with findings as feedback. Exhausted `tries` make the run wait. `back` resumes this or an earlier step with a reason; an agent step with `back` also requires `until`. `rounds` caps returns. Forward steps start fresh sessions.
+Failed checks or proposals retry in the same session with findings as feedback. Exhausted `tries` make the run wait. `back` resumes this or an earlier step with a reason; an agent step with `back` also requires `until`. `rounds` caps returns. Forward steps start fresh sessions. A resume that fails before the harness starts, or of a session another harness ran, runs once fresh with the full prompt instead.
 
 At `wait: human` with `back`, requested changes return to work. Approval, the `approved` label or merge passes the wait; other comments use an aside. <!-- code: src/run/trigger.ts#tick src/workflow.ts#transition src/workflow.ts#StepFile --> <!-- code: src/workflow.ts#transition --> <!-- code: src/workflow.ts#compileWorkflow src/workflow.ts#transition --> <!-- code: src/workflow.ts#getEventOutcome -->
 
@@ -123,7 +123,7 @@ Runs wait at human steps, on `ask`, or after exhausting tries or rounds. The eng
 
 ## Asides
 
-At a human wait, an aside answers comments in a throwaway checkout of the pull request head. It forks the `back` target's session when supported, else starts fresh. Only granted `comment` and `back` proposals apply; edits are discarded. A comment keeps waiting, while `back` resumes work. Without an open pull request, feedback returns directly to work. <!-- code: src/run/follow.ts#runAside -->
+At a human wait, an aside answers comments in a throwaway checkout of the pull request head. It forks the `back` target's session, or starts fresh with the whole thread when there is none or it cannot be resumed. Only granted `comment` and `back` proposals apply; edits are discarded. A comment keeps waiting, while `back` resumes work. Without an open pull request, feedback returns directly to work. <!-- code: src/run/follow.ts#runAside -->
 
 ## Comments while it works
 

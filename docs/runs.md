@@ -131,7 +131,7 @@ Each `trace.jsonl` entry has `at`, `step` and an event kind; session entries sha
 | -------------- | ---------------------------------------------------------------------------------- |
 | `prompt`       | Harness, model, system prompt, prompt and tools                                    |
 | `event`        | Harness start (with provider and model), text, tool calls with `ms`, usage and end |
-| `session`      | End reason, whether it resumed, cost, and `used`                                   |
+| `session`      | End reason, whether it resumed, why a resume was dropped, cost, and `used`         |
 | `setup`        | `ms`, `exit` and `used` of setup in a checkout                                     |
 | `env`, `cache` | The [environment](sandbox.md#environments) a checkout used, and files it cached    |
 | `applied`      | A proposal with its URL or why it failed                                           |

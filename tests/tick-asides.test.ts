@@ -252,6 +252,57 @@ describe('tick', () => {
     expect(reactions(where.data, 'run-7')).toEqual([true]);
   });
 
+  it('runs a step fresh with its full prompt once its kept session fails to resume, and traces why', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    say(where, comment(8, 'morgan', true, '/agent please undo the greeting', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [
+      [start('f'), reply({ kind: 'back', why: 'undo the greeting' })],
+      [{ type: 'end', final: 'no session f', ended: 'error', exit: 1 }],
+      [start('g'), wrote('hello.txt', 'hello\n'), reply(push)],
+    ]);
+    const touched = await run(Effect.andThen(waiting(where), tick(merging, 7)));
+    expect(touched.map(r => [r.step, r.status, r.retried, r.sessions.implement?.id])).toEqual([
+      ['merge', 'waiting', undefined, 'g'],
+    ]);
+    expect(specs.map(s => s.resume?.id)).toEqual(['a', 'f', undefined]);
+    expect(specs[2]!.prompt).toContain('Add hello.txt.');
+    expect(specs[2]!.prompt).toContain('undo the greeting');
+    const sessions = readTrace(where.data, 'run-7').flatMap(t =>
+      'session' in t && t.step === 'implement' ? [t.session] : []
+    );
+    expect(sessions).toMatchObject([
+      { resumed: true, ended: 'error' },
+      { id: 'g', resumed: false, dropped: 'no session f', ended: 'stop' },
+    ]);
+  });
+
+  it('answers in a fresh session with the whole thread when the kept session ran on another harness', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    say(where, comment(8, 'morgan', true, '/agent why hello?', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Asked for.' })]]);
+    await run(
+      Effect.andThen(
+        waiting(where),
+        Effect.flatMap(Store, s =>
+          Effect.flatMap(s.get('run-7'), r =>
+            s.put({ ...r!, sessions: { implement: { id: 'a', home: '/homes/a', harness: 'claude' } } })
+          )
+        )
+      )
+    );
+    await run(tick(merging, 7));
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.resume).toBeUndefined();
+    expect(specs[0]!.fork).toBeUndefined();
+    expect(specs[0]!.prompt).toContain('Add hello.txt.');
+    expect(specs[0]!.prompt).toContain('why hello?');
+    expect(readTrace(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []))).toMatchObject([
+      { resumed: false, dropped: 'the session ran on claude', aside: true },
+    ]);
+  });
+
   it('replies under a review thread on the pull request when the change was asked on the issue', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
@@ -449,9 +500,9 @@ describe('tick', () => {
       retried: true,
     });
     expect(second.seen).not.toBe('2026-10-16T00:00:05.000Z');
-    expect(specs).toHaveLength(2);
+    expect(specs.map(s => !!s.resume)).toEqual([true, false, true, false]);
     await run(tick(merging, 7));
-    expect(specs).toHaveLength(2);
+    expect(specs).toHaveLength(4);
     expect(readFileSync(issuePath(where.tracker, 8, 'events.jsonl'), 'utf8')).not.toContain('Could not answer');
     const resumed = services(where, [[start('f'), reply({ kind: 'comment', body: 'For the example.' })]]);
     await resumed.run(instruct(merging, { kind: 'resume', parked: true }));

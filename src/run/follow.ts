@@ -278,19 +278,21 @@ export const runAside = (
     const comments = getStepReturns(to, graph.agents).includes('comment');
     const kept = run.sessions[to.name];
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, graph));
-    const t = kept ? undefined : yield* readIssueWithPull(w, run, graph);
-    if (t) yield* writeHeardEvents(run, getEvents(t));
-    const prompt = [
-      t && [w.body, context(t)].join('\n\n'),
-      `A human said this on the pull request while it waits at ${step.name}:\n\n${said}`,
-      'This checkout is the pull request head; anything you change here is thrown away.',
-      comments
-        ? 'Answer with a comment. When it asks for a change, or you find one is needed, also propose back with why.'
-        : 'When it asks for a change, or you find one is needed, propose back with why.',
-      `End your reply with a fenced agentgraph block holding a JSON array of proposals:\n${[...(comments ? [shapes.comment] : []), shapes.back].join('\n')}`,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
+    const t = yield* readIssueWithPull(w, run, graph);
+    if (!kept) yield* writeHeardEvents(run, getEvents(t));
+    const ask = (whole: boolean) =>
+      [
+        whole && [w.body, context(t)].join('\n\n'),
+        `A human said this on the pull request while it waits at ${step.name}:\n\n${said}`,
+        'This checkout is the pull request head; anything you change here is thrown away.',
+        comments
+          ? 'Answer with a comment. When it asks for a change, or you find one is needed, also propose back with why.'
+          : 'When it asks for a change, or you find one is needed, propose back with why.',
+        `End your reply with a fenced agentgraph block holding a JSON array of proposals:\n${[...(comments ? [shapes.comment] : []), shapes.back].join('\n')}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+    const harness = graph.agents[to.does.agent]!.harness;
     const r = yield* runSession(
       graph,
       run.id,
@@ -298,15 +300,16 @@ export const runAside = (
       {
         ...makeAgentSessionSpec(graph, to.does.agent, { dir: work.dir }),
         limits: { ...graph.limits, ...to.limits },
-        prompt,
+        prompt: ask(!kept),
         ...(kept && { resume: kept, fork: true as const }),
       },
-      undefined,
-      undefined,
       {
-        ...(run.eyes && { issue: run.eyes.issue }),
-        ...(run.eyes?.undo.comment !== undefined && { comment: run.eyes.undo.comment }),
-        ...(run.eyes?.undo.review && { review: true as const }),
+        aside: {
+          ...(run.eyes && { issue: run.eyes.issue }),
+          ...(run.eyes?.undo.comment !== undefined && { comment: run.eyes.undo.comment }),
+          ...(run.eyes?.undo.review && { review: true as const }),
+        },
+        fresh: ask(true),
       }
     );
     if (r.ended !== 'stop')
@@ -331,6 +334,9 @@ export const runAside = (
     const { eyes: _eyes, ...replied } = removeThreads(run);
     const answered = landed.some(a => a.ok) ? replied : run;
     if (!back || r.id === undefined) return { run: answered };
-    const sessions = { ...run.sessions, [to.name]: { id: r.id, home: r.home, ...(kept?.seen && { seen: kept.seen }) } };
+    const sessions = {
+      ...run.sessions,
+      [to.name]: { id: r.id, home: r.home, harness, ...(kept?.seen && { seen: kept.seen }) },
+    };
     return { run: { ...answered, sessions }, outcome: { kind: 'back', why: back.why } as const };
   }).pipe(Effect.scoped);

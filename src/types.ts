@@ -77,7 +77,12 @@ const RunFields = {
   rounds: Schema.Record(Schema.String, Schema.Number),
   sessions: Schema.Record(
     Schema.String,
-    Schema.Struct({ id: Schema.String, home: Schema.String, seen: Schema.optionalKey(Seen) })
+    Schema.Struct({
+      id: Schema.String,
+      home: Schema.String,
+      harness: Schema.optionalKey(Schema.String),
+      seen: Schema.optionalKey(Seen),
+    })
   ),
   feedback: Text,
   reported: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
@@ -282,6 +287,7 @@ export type Trace = { at: string; step: string } & (
       session: Pick<Exit, 'used'> & {
         id?: string;
         resumed: boolean;
+        dropped?: string;
         aside?: true;
         ended: Extract<SessionEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
         exit?: number;
