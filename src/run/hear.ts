@@ -175,13 +175,7 @@ export const findRouter = (graph: Graph) =>
  * what it tells them. Every run hears `/agent:` commands, which reach only the run they pick.
  */
 export const getHeardEvent = (router: string | undefined, w: Workflow, m: Event): Event => {
-  if (
-    !router ||
-    w.on.issue_comment ||
-    m.comment?.agentRequest === undefined ||
-    m.comment.agentRequest.command !== undefined
-  )
-    return m;
+  if (!router || w.on.issue_comment || !m.comment?.agentRequest || m.comment.agentRequest.command) return m;
   const { agentRequest: _agentRequest, ...comment } = m.comment;
   return { ...m, comment };
 };

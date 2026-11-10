@@ -243,7 +243,7 @@ const feedback = (m: Event) =>
     m.kind === 'changes_requested' ||
     m.kind === 'commit' ||
     (m.kind === 'approved' && !!m.comment?.body.trim())) &&
-  (getAgentRequest(m)?.command === undefined || !!getAgentRequest(m)?.text);
+  (!getAgentRequest(m)?.command || !!getAgentRequest(m)!.text);
 
 /** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
 export const issueDebounceMs = 30_000;

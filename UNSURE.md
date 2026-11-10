@@ -132,3 +132,11 @@ Decisions made without being sure. Each names what was picked and what would cha
 
 - **The generic docs merge has no passing full check in the restricted sandbox.** The full check hit denied
   heartbeat writes, process inspection and Docker access. Static checks and the touched triage tests pass.
+- **Parse at the edge (S2) left these as they were.** The `pull_request` proposal still strips and rewrites `Stacks on`
+  and `Replaces` lines in a PR body (`src/run/attempt.ts`), since that is a PR body, not an issue link. Filed parts
+  still get body lines rather than GitHub `blocked_by` dependencies: writing native links needs the issue ids and
+  more calls, and the reader already takes both. The branch template is one pair of helpers in `src/workflow.ts`
+  (`formatTemplate`, `isTemplateBranch`) on the template string, not a decoded schema field; a decoded object would
+  change `Workflow.branch` for the studio and every caller. The trigger's `isLanded` cleanup lookup stays separate:
+  it asks for a merged pull on a branch, which an open-first pick would hide. Old run traces that stored
+  `agentRequest` as a string read as no request.
