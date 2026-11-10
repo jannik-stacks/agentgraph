@@ -125,8 +125,8 @@ export const Live = <T,>({
   );
 
 /** Three pulsing dots that fade in only once a wait passes half a second, so quick loads never flash. */
-export const Loading = () => (
-  <p role="status" aria-label="Loading" className="agi-loading flex gap-1 p-4">
+export const Loading = ({ inline }: { inline?: boolean }) => (
+  <p role="status" aria-label="Loading" className={cx('agi-loading flex gap-1', !inline && 'p-4')}>
     {[0, 1, 2].map(i => (
       <span key={i} className="size-1 rounded-full bg-zinc-400 dark:bg-zinc-500" />
     ))}
