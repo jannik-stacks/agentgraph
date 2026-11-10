@@ -147,8 +147,49 @@ it('registers the example page, reuses settings and reads a changed run', async 
   expect([before, after].map(readFirstWidgetRows)).toEqual([[['waiting']], [['done']]]);
 });
 
+const atHour = (hour: number) => `2026-11-09T${String(hour).padStart(2, '0')}:00:00.000Z`;
+
+it('counts what people did during fully recorded runs and how long runs waited for them', async () => {
+  const data = makeData();
+  const comment = (id: string, hour: number) => ({
+    at: atHour(hour),
+    step: 'build',
+    spoken: { id, issue: 7, kind: 'comment', actor: 'morgan', bot: false, trusted: true, at: atHour(hour) },
+  });
+  const write = (id: string, trace: object[]) => {
+    mkdirSync(join(data, id));
+    writeFileSync(
+      join(data, id, 'run.json'),
+      JSON.stringify({ id, issue: 7, workflow: 'issue', step: 'build', status: 'waiting', started: atHour(1) })
+    );
+    writeFileSync(join(data, id, 'trace.jsonl'), trace.map(row => `${JSON.stringify(row)}\n`).join(''));
+  };
+  write('r1', [
+    { at: atHour(1), step: 'build', inputs: { since: atHour(1) } },
+    comment('c1', 1),
+    { at: atHour(2), step: 'build', saved: { status: 'waiting', reason: 'Ship?' } },
+  ]);
+  write('r2', [{ at: atHour(1), step: 'build', inputs: { since: atHour(1) } }, comment('c1', 1), comment('c2', 3)]);
+  write('r3', [comment('c3', 3)]);
+  const settings = Schema.decodeUnknownSync(DashboardSettings)({
+    widgets: [
+      { title: 'people', type: 'table', source: 'humans', days: 1 },
+      { title: 'waits', type: 'table', source: 'waiting', days: 1 },
+    ],
+  });
+  const snapshot = await Effect.runPromise(
+    readDashboard(settings, makeInstanceHost({ data }, await makeTracker([])), now)
+  );
+  expect(
+    snapshot.widgets.map(w => [w.rows.filter(row => row.value).map(row => [row.series, row.value]), w.skipped])
+  ).toEqual([
+    [[['comments', 2]], 1],
+    [[['minutes', 600]], 1],
+  ]);
+});
+
 it.each([
-  [{ source: 'unknown' }, '"issues"\n  at ["widgets"][0]["source"]'],
+  [{ source: 'unknown' }, '"waiting"\n  at ["widgets"][0]["source"]'],
   [{ type: 'pie' }, '"table"\n  at ["widgets"][0]["type"]'],
   [{ days: 0 }, 'between 1 and 90\n  at ["widgets"][0]["days"]'],
   [{ days: 91 }, 'between 1 and 90\n  at ["widgets"][0]["days"]'],

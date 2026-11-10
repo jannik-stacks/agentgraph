@@ -4,7 +4,7 @@ import type { Graph } from '../src/folder.ts';
 import { findLatestChecks } from '../src/trace.ts';
 import { isOnIssue } from '../src/graph.ts';
 import { getRunOrigin } from '../src/meta.ts';
-import { findCheckFields } from '../src/results.ts';
+import { findCheckFields, sumHumanInteractions } from '../src/results.ts';
 import { makeVersionLabels, readRunLabels } from '../src/labels.ts';
 import type { RunResults } from '../studio/src/results/result.ts';
 import { readFileOrEmpty, readJsonl } from './resume.ts';
@@ -16,6 +16,25 @@ const findDeadReason = (run: RunRecord, trace: Trace[]) =>
       ? undefined
       : 'ended before any step passed or any session started'
     : undefined;
+
+const humans = {
+  mode: 'info',
+  returns: {
+    properties: {
+      coverage: { type: 'string', description: 'complete when the run recorded what it heard from its start' },
+      comments: { type: 'integer', description: 'comments people wrote during the run' },
+      reviews: { type: 'integer', description: 'reviews people submitted during the run' },
+      labels: { type: 'integer', description: 'labels people added or removed during the run' },
+      requests: { type: 'integer', description: 'reviews people asked for during the run' },
+      waitSeconds: { type: 'number', unit: 'seconds', description: 'time the run waited for a person' },
+      openWaitSeconds: {
+        type: 'number',
+        unit: 'seconds',
+        description: 'time it has waited so far, while it still waits',
+      },
+    },
+  },
+} as const;
 
 const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => {
   const versions = Object.fromEntries(Object.entries(graph?.checks ?? {}).map(([name, c]) => [name, c.version]));
@@ -30,6 +49,7 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
     const dimensions = (key: 'model' | 'harness') =>
       [...new Set(started.map(event => event[key]).filter(Boolean))].toSorted().join(', ');
     const latest = findLatestChecks(readJsonl<CheckEntry>(join(data, id, 'checks.jsonl')), versions);
+    const heard = sumHumanInteractions([{ run, trace }], new Date().toISOString());
     return [
       {
         key: id,
@@ -48,8 +68,17 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
           ...(origin && { plugin: origin.plugin, job: origin.job }),
         },
         ...(run.meta && { meta: run.meta }),
-        results: Object.fromEntries(
-          latest.map(e => [
+        results: Object.fromEntries([
+          [
+            'humans',
+            {
+              at: run.ended ?? run.started,
+              pass: true,
+              value: heard,
+              ...(heard.coverage !== 'complete' && { empty: true as const }),
+            },
+          ],
+          ...latest.map(e => [
             e.check.check,
             {
               at: e.at,
@@ -61,8 +90,8 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
               ...(e.later && { later: e.later }),
               ...('older' in e && { older: true as const }),
             },
-          ])
-        ),
+          ]),
+        ]),
       },
     ];
   });
@@ -70,5 +99,5 @@ const readRuns = (data: string, graph?: Pick<Graph, 'checks'>): RunResults[] => 
 
 export const readRunResults = (data: string | undefined, graph?: Pick<Graph, 'checks'>) => {
   const runs = data ? readRuns(data, graph) : [];
-  return { fields: findCheckFields(runs, graph?.checks), runs };
+  return { fields: findCheckFields(runs, { humans, ...graph?.checks }), runs };
 };

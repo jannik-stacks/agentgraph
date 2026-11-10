@@ -4,6 +4,10 @@ import { Store, fileStore } from '../src/store.ts';
 import { folderTracker } from '../src/tracker.ts';
 import { startRun } from '../src/run/start.ts';
 import { readIssueWithPull, writeHeardEvents } from '../src/run/hear.ts';
+import { formatWaitingOn, stoppedByEngine } from '../src/context.ts';
+import type { Event } from '../src/event.ts';
+import { sumHumanInteractions } from '../src/results.ts';
+import type { Run, Trace } from '../src/types.ts';
 import { tmp } from './kit.ts';
 import { fresh, graph, makeTestEvent, w, world } from './world.ts';
 
@@ -75,4 +79,53 @@ it('adds back only CLI lines to the timeline a run reads, so recorded tracker ev
     ['tracker', '/agent'],
     ['cli', 'go'],
   ]);
+});
+
+const line = (at: string, more: object): Trace => ({ at, step: 'implement', ...more }) as Trace;
+const at = (minute: number) => `2026-10-16T01:${String(minute).padStart(2, '0')}:00.000Z`;
+const heard = (minute: number, more: Partial<Event> = {}) =>
+  line(at(minute), { spoken: { ...said(`c${minute}`, 'hi', at(minute)), ...more } });
+const saved = (minute: number, state: Partial<Run>, cleared?: (keyof Run)[]) =>
+  line(at(minute), { saved: state, ...(cleared && { cleared }) });
+
+it.each([
+  ['complete', [line(at(0), { inputs: { since: at(0) } })]],
+  ['partial', [line(at(5), { inputs: { since: at(5) } })]],
+  ['missing', []],
+])('reads a run that marks its inputs as %s', (coverage, trace) => {
+  expect(sumHumanInteractions([{ run: { started: at(0) }, trace }], at(30)).coverage).toBe(coverage);
+});
+
+it('counts each human action once across runs, inside each run, and only waits for people', () => {
+  const first = {
+    run: { started: at(0), ended: at(30) },
+    trace: [
+      line(at(0), { inputs: { since: at(0) } }),
+      heard(0),
+      heard(1, { kind: 'approved' }),
+      heard(2, { review: true }),
+      heard(3, { kind: 'label', label: 'ready' }),
+      heard(4, { kind: 'review_requested', reviewer: 'bob' }),
+      heard(5, { bot: true }),
+      heard(31),
+      saved(6, { status: 'waiting', reason: 'Done?' }),
+      saved(10, { status: 'running' }, ['reason']),
+      saved(11, { status: 'waiting', reason: `${stoppedByEngine}.` }),
+      saved(12, { status: 'waiting', reason: formatWaitingOn({ id: 'child' }) }),
+      saved(13, { status: 'waiting' }, ['reason']),
+    ],
+  };
+  const second = {
+    run: { started: at(0) },
+    trace: [line(at(0), { inputs: { since: at(0) } }), heard(0), saved(20, { status: 'waiting', reason: 'Ship?' })],
+  };
+  expect(sumHumanInteractions([first, second], at(40))).toEqual({
+    coverage: 'complete',
+    comments: 1,
+    reviews: 2,
+    labels: 1,
+    requests: 1,
+    waitSeconds: (4 + 17 + 20) * 60,
+    openWaitSeconds: 20 * 60,
+  });
 });

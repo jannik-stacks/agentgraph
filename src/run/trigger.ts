@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { matchesGlob } from 'node:path';
 import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
-import { formatEventLine, stoppedByEngine } from '../context.ts';
+import { formatEventLine, formatWaitingOn, stoppedByEngine } from '../context.ts';
 import { Tracker, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
@@ -42,7 +42,7 @@ import {
 } from './hear.ts';
 import { runLaterChecks } from './evaluate.ts';
 import { isParked, writeMovedStatus, writeStatus, runEndChecks } from './settle.ts';
-import { findUndispatchable, startProposedRun, formatWaitingOn, formatSettled, makeRunId, startRun } from './start.ts';
+import { findUndispatchable, startProposedRun, formatSettled, makeRunId, startRun } from './start.ts';
 import { runAside, runFollow, runCatchUp } from './follow.ts';
 import { runWorkflow } from './drive.ts';
 import {

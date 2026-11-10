@@ -1,7 +1,9 @@
 import { Schema, Struct } from 'effect';
 import { CheckMode, ResultType } from './result.ts';
 import { JsonValue, PluginMetadata } from './meta.ts';
-import { type Check } from './types.ts';
+import type { Event } from './event.ts';
+import { isWaitingOnPeople } from './context.ts';
+import { type Check, type Run, type RunRecord, type Trace } from './types.ts';
 
 const Field = Schema.Struct({
   check: Schema.String,
@@ -83,5 +85,51 @@ export const mergeCheckFields = (lists: readonly CheckField[][]) => {
   return {
     fields: [...seen].flatMap(([key, f]) => (conflicts.has(key) ? [] : [f])),
     conflicts: [...conflicts].map(key => `${key.replace(' ', ' field ')} has different types or units across configs`),
+  };
+};
+
+const findInputCoverage = (run: Pick<RunRecord, 'started'>, trace: readonly Trace[]) => {
+  const since = trace.flatMap(t => ('inputs' in t ? [t.inputs.since] : []))[0];
+  return since === undefined ? 'missing' : since > run.started ? 'partial' : 'complete';
+};
+
+const sumWaitMs = (run: Pick<RunRecord, 'ended'>, trace: readonly Trace[], now: string) => {
+  const state: Partial<Run> = {};
+  let from: string | undefined;
+  let waited = 0;
+  for (const t of trace) {
+    if (!('saved' in t)) continue;
+    Object.assign(state, t.saved);
+    for (const key of t.cleared ?? []) delete state[key];
+    if (isWaitingOnPeople(state)) from ??= t.at;
+    else if (from !== undefined) {
+      waited += Date.parse(t.at) - Date.parse(from);
+      from = undefined;
+    }
+  }
+  const tail = from === undefined ? 0 : Math.max(0, Date.parse(run.ended ?? now) - Date.parse(from));
+  return { waited: waited + tail, open: run.ended === undefined ? tail : 0 };
+};
+
+export const sumHumanInteractions = (
+  runs: readonly { run: Pick<RunRecord, 'started' | 'ended'>; trace: readonly Trace[] }[],
+  now: string
+) => {
+  const people = new Map<string, Event>();
+  for (const { run, trace } of runs)
+    for (const t of trace)
+      if ('spoken' in t && !t.spoken.bot && t.spoken.at >= run.started && t.spoken.at <= (run.ended ?? now))
+        people.set(`${t.spoken.issue}#${t.spoken.id}`, t.spoken);
+  const count = (is: (m: Event) => boolean) => [...people.values()].filter(is).length;
+  const waits = runs.map(({ run, trace }) => sumWaitMs(run, trace, now));
+  const coverages = new Set(runs.map(({ run, trace }) => findInputCoverage(run, trace)));
+  return {
+    coverage: (['missing', 'partial'] as const).find(c => coverages.has(c)) ?? 'complete',
+    comments: count(m => m.kind === 'comment' && !m.review),
+    reviews: count(m => m.kind === 'approved' || m.kind === 'changes_requested' || !!m.review),
+    labels: count(m => m.kind === 'label' || m.kind === 'unlabel'),
+    requests: count(m => m.kind === 'review_requested'),
+    waitSeconds: Math.round(waits.reduce((a, w) => a + w.waited, 0) / 1000),
+    openWaitSeconds: Math.round(waits.reduce((a, w) => a + w.open, 0) / 1000),
   };
 };

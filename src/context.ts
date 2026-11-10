@@ -109,6 +109,13 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
 
 export const stoppedByEngine = 'Stopped by an engine error';
 
+export const formatWaitingOn = (child: Pick<Run, 'id'>) => `waiting on ${child.id}`;
+
+export const isWaitingOnPeople = (run: Partial<Pick<Run, 'status' | 'reason'>>) =>
+  run.status === 'waiting' &&
+  !run.reason?.startsWith(stoppedByEngine) &&
+  !run.reason?.startsWith(formatWaitingOn({ id: '' }));
+
 const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
   run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)
     ? 'working'

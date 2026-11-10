@@ -6,6 +6,11 @@ export const sources = {
   tokens: { series: ['input', 'output'], note: 'Reported usage by event day' },
   cost: { series: ['USD'], note: 'Reported usage by event day' },
   issues: { series: ['comment', 'closed', 'merged'], note: 'Tracker comments, closes and merges by event day' },
+  humans: {
+    series: ['comments', 'reviews', 'labels', 'requests'],
+    note: 'What people did during runs, each action once, by run start day',
+  },
+  waiting: { series: ['minutes'], note: 'Time runs waited for a person, by run start day' },
 } as const;
 
 const DashboardWidget = Schema.Struct({

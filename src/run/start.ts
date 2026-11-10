@@ -173,9 +173,6 @@ export const formatSettled = (run: Run) =>
           : 'waits for review'
   }`;
 
-/** The reason a run waits while a run it started works. */
-export const formatWaitingOn = (child: Run) => `waiting on ${child.id}`;
-
 /**
  * Why the `run` proposals may not start: one at a time, on an open issue in scope that no other live run holds. An agent
  * may start only a workflow with `on: dispatch`, a human any workflow.

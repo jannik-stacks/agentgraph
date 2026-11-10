@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { Schema, Result, Effect, Option } from 'effect';
 import { Said, type Proposal } from '../proposal.ts';
-import { type IssueWithPull, news, formatSqueezed, formatRequest, context } from '../context.ts';
+import { type IssueWithPull, news, formatSqueezed, formatRequest, context, formatWaitingOn } from '../context.ts';
 import { type Step, unchanged, type Workflow, pickCommandTarget } from '../workflow.ts';
 import { inside, SandboxError } from '../sandbox.ts';
 import type { Graph } from '../folder.ts';
@@ -31,7 +31,6 @@ import {
   type Child,
   createIssues,
   startProposedRun,
-  formatWaitingOn,
 } from './start.ts';
 import { type Services, makeAgentSessionSpec, runShell, runSession } from './execute.ts';
 import { writeTraces, makeScriptEnv, getTraceFiles, tracesPrompt, runStepChecks } from './check.ts';
