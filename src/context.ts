@@ -65,12 +65,14 @@ export function context(t: IssueWithPull): string {
   return [...heads, lines.length > 0 && `## Timeline\n\n${lines.join('\n\n')}`].filter(Boolean).join('\n\n');
 }
 
+export const getEvents = (t: Pick<IssueWithPull, 'issue' | 'pull'>) => [t.issue, t.pull].flatMap(x => x?.events ?? []);
+
 const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined ? m.comment.id : undefined);
 
 const isEngineStatus = (m: Event) => m.bot && (m.kind === 'label' || m.kind === 'unlabel');
 
 export function formatRequest(t: IssueWithPull, started: string): string {
-  const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
+  const events = getEvents(t);
   const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
   if (said.length === 0) return '';
   const threads = new Set(said.map(thread).filter(Boolean));
@@ -93,7 +95,7 @@ export function formatRequest(t: IssueWithPull, started: string): string {
 export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen } {
   const pull = (t.pull ?? t.issue).pull;
   const moved = pull?.baseSha !== undefined && seen.base !== undefined && pull.baseSha !== seen.base;
-  const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
+  const events = getEvents(t);
   const answered = (m: Event) =>
     thread(m) !== undefined && events.some(b => b.bot && b.at > m.at && thread(b) === thread(m));
   const lines = [
@@ -146,7 +148,7 @@ export function proposeQuestion(before: Run | undefined, run: Run, t: IssueWithP
     (before?.status === 'waiting' && before.reason === run.reason)
   )
     return [];
-  const events = [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.trusted && !m.bot);
+  const events = getEvents(t).filter(m => m.trusted && !m.bot);
   const pull = (t.pull ?? (t.issue.pull ? t.issue : undefined))?.url;
   const who = events.toSorted((a, b) => a.at.localeCompare(b.at)).at(-1)?.actor ?? t.issue.author;
   const text = `@${who} ${run.reason.startsWith(stoppedByEngine) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;

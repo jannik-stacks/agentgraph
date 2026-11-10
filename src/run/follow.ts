@@ -7,7 +7,7 @@ import { Store } from '../store.ts';
 import { Tracker } from '../tracker.ts';
 import type { Issue, Applied } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
-import { context } from '../context.ts';
+import { context, getEvents } from '../context.ts';
 import { getStepReturns } from '../graph.ts';
 import { formatTemplate, readIssueWithPull, writeHeardEvents } from './hear.ts';
 import { writeAppliedTrace, writeStatus, removeThreads, writeProposals, useRunLink } from './settle.ts';
@@ -162,7 +162,7 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
     if (!to || !waits) return { run: current };
     yield* runSetup(graph, work, run);
     const t = yield* readIssueWithPull(w, run, graph);
-    yield* writeHeardEvents(run, [...t.issue.events, ...(t.pull?.events ?? [])]);
+    yield* writeHeardEvents(run, getEvents(t));
     const left = {
       run: run.id,
       ...work,
@@ -221,7 +221,7 @@ export const runAside = (
     const kept = run.sessions[to.name];
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, graph));
     const t = kept ? undefined : yield* readIssueWithPull(w, run, graph);
-    if (t) yield* writeHeardEvents(run, [...t.issue.events, ...(t.pull?.events ?? [])]);
+    if (t) yield* writeHeardEvents(run, getEvents(t));
     const prompt = [
       t && [w.body, context(t)].join('\n\n'),
       `A human said this on the pull request while it waits at ${step.name}:\n\n${said}`,

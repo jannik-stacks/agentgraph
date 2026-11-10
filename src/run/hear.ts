@@ -2,7 +2,7 @@ import { Effect, Stream } from 'effect';
 import { type Issue, type Event, getEventKey } from '../event.ts';
 import type { Graph } from '../folder.ts';
 import { type Workflow, isRunDone, isQuiet, getEventOutcome, fold, pickCommandTarget } from '../workflow.ts';
-import type { IssueWithPull } from '../context.ts';
+import { type IssueWithPull, getEvents } from '../context.ts';
 import { Tracker } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { makeContinuedMeta } from '../meta.ts';
@@ -163,7 +163,7 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
     const tells = yield* readRunEvents(run);
     const runs = yield* Effect.flatMap(Store, s => s.list({ issue: run.issue }));
     const since = run.seen ?? run.started;
-    const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => getHeardEvent(router, w, m)), ...tells]
+    const said = [...getEvents(t).map(m => getHeardEvent(router, w, m)), ...tells]
       .filter(m => m.at > since)
       .flatMap(m => {
         const heard = { ...m, issue: run.issue };
