@@ -8,7 +8,8 @@ const Text = Schema.optionalKey(Schema.String);
 
 /**
  * An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. `stacksOn` is the issue or pull
- * request its work builds on, and `dependsOn` the issues that must close before it starts.
+ * request its work builds on, `dependsOn` the issues that must close before it starts, and `withheld` marks an
+ * outsider's issue whose title and text are replaced.
  */
 export const Issue = Schema.Struct({
   number: Schema.Number,
@@ -19,6 +20,7 @@ export const Issue = Schema.Struct({
   milestone: Text,
   author: Schema.String,
   parent: Schema.optionalKey(Schema.Number),
+  withheld: Schema.optionalKey(Schema.Literal(true)),
   stacksOn: Schema.optionalKey(Schema.Number),
   dependsOn: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.Number))),
   pull: Schema.optionalKey(

@@ -331,7 +331,10 @@ describe('triage', () => {
     where.label(1);
     const { value } = await run(where, Array(3).fill(turn(part('spam', 'S'))), tick(graph, 1));
     expect(value[0]!.reason).toContain('#1 is withheld text from an outsider');
-    expect((await issue(where, 1)).body).toBe('(issue text by @mallory[bot] withheld: not a collaborator)');
+    expect(await issue(where, 1)).toMatchObject({
+      body: '(issue text by @mallory[bot] withheld: not a collaborator)',
+      withheld: true,
+    });
 
     where.label(2);
     const late = await run(where, Array(3).fill(turn(part('one', 'S', { stacks_on: 1 }))), tick(graph, 2));

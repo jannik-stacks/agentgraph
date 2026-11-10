@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import type { Said, Proposal } from '../proposal.ts';
-import { Tracker, formatIssueLinks, withheld } from '../tracker.ts';
+import { Tracker, formatIssueLinks } from '../tracker.ts';
 import { type Workflow, begin, isRunDone } from '../workflow.ts';
 import type { Applied } from '../event.ts';
 import { Store } from '../store.ts';
@@ -75,7 +75,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       )
     );
     const refusal = (p: Child, i: number) => {
-      if (issue.body === withheld(issue.author, 'issue text')) return `#${run.issue} is withheld text from an outsider`;
+      if (issue.withheld) return `#${run.issue} is withheld text from an outsider`;
       if (isPart(p) && open.has(p.title.trim().toLowerCase()) && !cached[i])
         return `${p.title}: an open issue has this title`;
       if (!/^## Done when[ \t]*\r?$/im.test(p.body))

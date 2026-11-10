@@ -182,6 +182,8 @@ export const formatIssueLinks = (t: Pick<Issue, 'stacksOn' | 'dependsOn'>) =>
     ...(t.dependsOn ?? []).map(n => `Depends on #${n}`),
   ].join('\n');
 
+export const isBotLogin = (login: string) => login.endsWith('[bot]');
+
 export const withheld = (author: string, what = 'comment', why = 'not a collaborator') =>
   `(${what} by @${author} withheld: ${why})`;
 
@@ -320,7 +322,7 @@ export const writeTimelineEvent = async (
   const at = new Date().toISOString();
   const id = `${m.issue}-${randomUUID().slice(0, 8)}`;
   const comment = m.comment && { comment: { id, author: m.actor, at, ...m.comment } };
-  const event = { id, ...m, bot: m.actor.endsWith('[bot]'), at, ...comment };
+  const event = { id, ...m, bot: isBotLogin(m.actor), at, ...comment };
   await appendFile(timelinePath(dir, m.issue), `${JSON.stringify(event)}\n`);
   return id;
 };
@@ -392,9 +394,9 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       };
       /** The issue as an agent may read it: an outsider's title and text withheld. */
       const shown = (t: Issue): Issue =>
-        t.author === me || (trust ? trust.includes(t.author) : !t.author?.endsWith('[bot]'))
+        t.author === me || (trust ? trust.includes(t.author) : !isBotLogin(t.author))
           ? parseIssueLinks({ ...t, body: removeRunLink(t.body) })
-          : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text') };
+          : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text'), withheld: true };
       const writePull = async (number: number, pull?: Issue['pull']) => {
         if (pull) writeFileAtomic(join(findIssueDir(dir, number), 'pull.json'), pull);
       };
@@ -407,7 +409,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         const [t, file] = await Promise.all([read(n), stat(md(n)).catch(readOrUndefined)]);
         if (!t?.author || t.author === me || t.labels.length === 0 || !file) return;
         const at = file.mtime.toISOString();
-        const bot = t.author.endsWith('[bot]');
+        const bot = isBotLogin(t.author);
         const events = t.labels.map(label => {
           const id = `${n}-${randomUUID().slice(0, 8)}`;
           return { id, issue: n, kind: 'label', label, actor: t.author, bot, trusted: !bot, at };

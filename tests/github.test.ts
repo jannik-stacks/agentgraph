@@ -555,6 +555,7 @@ describe('githubTracker', () => {
     expect(issues[2]).toMatchObject({
       title: '(title by @mallory withheld: not a collaborator)',
       body: '(issue text by @mallory withheld: not a collaborator)',
+      withheld: true,
     });
     expect(issues[0]).toEqual({
       number: 7,

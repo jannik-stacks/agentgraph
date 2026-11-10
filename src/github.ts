@@ -5,6 +5,7 @@ import { Clock, Config, Effect, Layer, Option, Redacted, Schedule, Stream, Semap
 import {
   makeCommentWithAgentRequest,
   parseIssueLinks,
+  isBotLogin,
   isAgentBranch,
   isPostedBy,
   pushLimits,
@@ -194,7 +195,7 @@ const hidden =
 const visible = (text: string | null | undefined) => (text ?? '').replace(hidden, '');
 
 const login = (user: User) => user?.login ?? 'ghost';
-const isBot = (user: User) => user?.type === 'Bot' || login(user).endsWith('[bot]');
+const isBot = (user: User) => user?.type === 'Bot' || isBotLogin(login(user));
 const numberIn = (url = '') => Number(/\/(\d+)$/.exec(url)?.[1]);
 
 /** An RS256 JWT that authenticates as the App for ten minutes. */
@@ -441,6 +442,7 @@ export const githubTracker = (
         number: i.number,
         title: shown ? visible(i.title) : withheld(author, 'title'),
         body: shown ? visible(removeRunLink(i.body ?? '')) : withheld(author, 'issue text'),
+        ...(!shown && { withheld: true as const }),
         state: i.pull_request?.merged_at || pull?.merged_at ? 'merged' : i.state,
         labels: i.labels.map(l => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
         author,
@@ -717,7 +719,7 @@ export const githubTracker = (
                   issue: t.number,
                   kind: 'column',
                   actor: by,
-                  bot: by.endsWith('[bot]'),
+                  bot: isBotLogin(by),
                   trusted: by === owner,
                   at: v.updatedAt,
                   column: { project: `${by}/${item.project.number}`, name: v.name },
