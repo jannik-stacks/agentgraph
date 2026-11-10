@@ -13,7 +13,7 @@ import { sumSpend } from '../stats.ts';
 import { getSha } from '../hash.ts';
 import type { Session } from '../session.ts';
 import { getStepReturns } from '../graph.ts';
-import type { Applied } from '../event.ts';
+import { type Applied, labelPrefix } from '../event.ts';
 import { isRetro } from './hear.ts';
 import { EachFailed, findFanOutItems, readCheckoutDiff, most } from './checkout.ts';
 import { makeAgentSessionSpec, runShell, runJudge } from './execute.ts';
@@ -407,12 +407,12 @@ export const runStepChecks = (
     if (error) return yield* error.failure;
     const returns = getStepReturns(step, graph.agents);
     const marks = new Set(Object.values(graph.workflows).flatMap(w => w.on.issues?.label ?? []));
-    const refusal = (p: Proposal) =>
-      !returns.some(k => k === p.kind)
-        ? `${step.name} may not propose ${p.kind}`
-        : p.kind === 'label' && p.add?.some(l => marks.has(l))
-          ? `only a human adds ${p.add.filter(l => marks.has(l)).join(', ')}`
-          : undefined;
+    const isHumanLabel = (l: string) => marks.has(l) || l.startsWith(labelPrefix);
+    const refusal = (p: Proposal) => {
+      if (!returns.some(k => k === p.kind)) return `${step.name} may not propose ${p.kind}`;
+      const human = p.kind === 'label' ? [...(p.add ?? []), ...(p.remove ?? [])].filter(isHumanLabel) : [];
+      return human.length > 0 ? `only a human adds or removes ${human.join(', ')}` : undefined;
+    };
     const proposals: Applied[] = left.proposals.flatMap(p => {
       const reason = refusal(p);
       return reason === undefined ? [] : [{ proposal: p, ok: false, reason }];

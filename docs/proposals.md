@@ -12,7 +12,7 @@ Agents have no GitHub token. They ask the engine for writes with proposals: a re
 | Kind | Fields | Effect |
 | -------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `comment` | `body`, optional `under` | [Reply](#comments) where a person spoke |
-| `label` | `add`, `remove` | Change labels, except trigger labels |
+| `label` | `add`, `remove` | Change labels, except trigger labels and `agent:` labels |
 | `push` | `branch`, `message` | [Commit and push](#pushes) the checkout |
 | `pull_request` | `branch`, `base`, `title`, `body` | Open a pull request, or update the open one for that branch |
 | `merge` | `number`, `head` | Merge the run's pull request if its head still matches |

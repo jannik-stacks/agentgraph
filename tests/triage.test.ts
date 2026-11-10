@@ -298,8 +298,26 @@ describe('triage', () => {
     const where = world();
     where.label(1);
     const marked = await run(where, Array(3).fill(turn({ kind: 'label', add: ['size/S', 'triage'] })), tick(graph));
-    expect(marked.value[0]!.reason).toContain('label failed: only a human adds triage');
+    expect(marked.value[0]!.reason).toContain('label failed: only a human adds or removes triage');
     expect((await issues(where)).map(t => t.number)).toEqual([1]);
+  });
+
+  it('refuses adding or removing an agent: label', async () => {
+    const proposals = [
+      { kind: 'label', add: ['size/S', 'agent:usd-per-run:99'] },
+      { kind: 'label', remove: ['agent:minutes:5'] },
+    ];
+    const marked = await Promise.all(
+      proposals.map(p => {
+        const where = world();
+        where.label(1);
+        return run(where, Array(3).fill(turn(p)), tick(graph));
+      })
+    );
+    expect(marked.map(m => m.value[0]?.reason?.match(/only a human adds or removes [^\n.]*/)?.[0])).toEqual([
+      'only a human adds or removes agent:usd-per-run:99',
+      'only a human adds or removes agent:minutes:5',
+    ]);
   });
 
   it('files no children from an issue three levels deep, and begins no triage on an XL child at the cap', async () => {

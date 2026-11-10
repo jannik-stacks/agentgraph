@@ -75,7 +75,7 @@ Board reads need `AGENTGRAPH_PROJECT_TOKEN` or `gh auth token` with `read:projec
 
 Instance settings control trusted logins; graph `settings.yaml` rejects `trust`. Owners, members and collaborators can steer runs; label actors need write access. Outsider text is withheld, and an invalid graph trusts nobody.
 
-Bot activity starts nothing, except engine-filed XL parts that restart triage. Agents cannot add trigger labels. `milestone` limits new runs to that milestone. <!-- code: src/github.ts#githubTracker src/settings.ts#getSettings src/harnesses.ts#readOverrides src/settings.ts#InstanceFile src/folder.ts#GraphSettings --> <!-- code: src/run/check.ts#runStepChecks src/run/hear.ts#isInScope -->
+Bot activity starts nothing, except engine-filed XL parts that restart triage. Agents cannot add or remove trigger labels or `agent:` labels. `milestone` limits new runs to that milestone. <!-- code: src/github.ts#githubTracker src/settings.ts#getSettings src/harnesses.ts#readOverrides src/settings.ts#InstanceFile src/folder.ts#GraphSettings --> <!-- code: src/run/check.ts#runStepChecks src/run/hear.ts#isInScope -->
 
 ## Dispatch
 
