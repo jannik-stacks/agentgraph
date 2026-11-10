@@ -4,7 +4,7 @@ import { getSha } from '../hash.ts';
 import type { Graph } from '../folder.ts';
 import { type Workflow, isRunDone, isQuiet, getEventOutcome, fold, pickCommandTarget } from '../workflow.ts';
 import { type IssueWithPull, getEvents } from '../context.ts';
-import { Tracker } from '../tracker.ts';
+import { Tracker, parseAgentRequest } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { makeContinuedMeta } from '../meta.ts';
 import { getStepReturns } from '../graph.ts';
@@ -128,7 +128,7 @@ export const makeToldEvent = (issue: number, told: { text: string; by: string },
   bot: false,
   trusted: true,
   at,
-  comment: { id: '', author: told.by, body: told.text, at, agentRequest: told.text },
+  comment: { id: '', author: told.by, body: told.text, at, agentRequest: parseAgentRequest(told.text) },
 });
 
 /** What the comment workflow told `run`, each as a trusted comment that speaks to it. */
@@ -166,7 +166,12 @@ export const findRouter = (graph: Graph) =>
  * what it tells them. Every run hears `/agent:` commands, which reach only the run they pick.
  */
 export const getHeardEvent = (router: string | undefined, w: Workflow, m: Event): Event => {
-  if (!router || w.on.issue_comment || m.comment?.agentRequest === undefined || m.comment.agentRequest.startsWith(':'))
+  if (
+    !router ||
+    w.on.issue_comment ||
+    m.comment?.agentRequest === undefined ||
+    m.comment.agentRequest.command !== undefined
+  )
     return m;
   const { agentRequest: _agentRequest, ...comment } = m.comment;
   return { ...m, comment };

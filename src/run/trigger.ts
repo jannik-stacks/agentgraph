@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { matchesGlob } from 'node:path';
 import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine } from '../context.ts';
-import { Tracker, currentRunLinkRef, formatAgentComment, isAgentBranch } from '../tracker.ts';
+import { Tracker, currentRunLinkRef, formatAgentComment, isAgentBranch, parseAgentRequest } from '../tracker.ts';
 import type { Comment, Event, Issue } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
@@ -22,7 +22,7 @@ import {
   isIssueTriggered,
   isQuiet,
   isRunDone,
-  parseAgentRequest,
+  getAgentRequest,
   pickCommandTarget,
 } from '../workflow.ts';
 import { type Services, formatFailure } from './execute.ts';
@@ -91,7 +91,7 @@ const spokenByCli = (issue: number, text: string, at: string, parent?: Comment):
     id: '',
     author: 'cli',
     body: formatAgentComment(text),
-    agentRequest: text,
+    agentRequest: parseAgentRequest(text),
     at,
     ...(parent && { path: parent.path!, line: parent.line, under: parent.under ?? parent.id }),
   },
@@ -220,7 +220,7 @@ const feedback = (m: Event) =>
     m.kind === 'changes_requested' ||
     m.kind === 'commit' ||
     (m.kind === 'approved' && !!m.comment?.body.trim())) &&
-  !/^:\S+$/.test(parseAgentRequest(m) ?? '');
+  (getAgentRequest(m)?.command === undefined || !!getAgentRequest(m)?.text);
 
 /** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
 export const issueDebounceMs = 30_000;
@@ -584,7 +584,7 @@ export const tick = (
       const w =
         m.kind === 'label' && relabelled
           ? undefined
-          : (sourced ?? (parseAgentRequest(m) !== undefined ? (target?.workflow ?? triggered[0]) : undefined));
+          : (sourced ?? (getAgentRequest(m) !== undefined ? (target?.workflow ?? triggered[0]) : undefined));
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !isInScope(graph, yield* tracker.issue(m.issue)))) continue;
       /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
@@ -882,7 +882,7 @@ export const scanIssuesAndRunningRuns = (
     const from = pickNewest(...all.map(r => r.started));
     const open = listed.filter(t => !t.pull && isInScope(graph, t));
     const said = from === undefined ? [] : (yield* latest).filter(m => Date.parse(m.at) > Date.parse(from) - debounce);
-    const asked = said.filter(m => m.trusted && parseAgentRequest(m) !== undefined).map(m => m.issue);
+    const asked = said.filter(m => m.trusted && getAgentRequest(m) !== undefined).map(m => m.issue);
     const ended = Object.values(graph.workflows)
       .filter(w => w.on.feedback)
       .flatMap(w => findSettledRuns(graph, w, all));

@@ -32,7 +32,7 @@ export type Issue = Types.Mutable<typeof Issue.Type>;
 
 /**
  * A comment; `path` and `line` place a review comment, `under` is the review comment it answers. `agentRequest` is what
- * it asks the bot: its text without the `/agent` that calls the bot, when it has one.
+ * it asks the bot when it calls it with `/agent`: the command after `/agent:`, and the rest of its text.
  */
 export const Comment = Schema.Struct({
   id: Schema.String,
@@ -40,7 +40,7 @@ export const Comment = Schema.Struct({
   body: Schema.String,
   at: Schema.String,
   edited: Text,
-  agentRequest: Text,
+  agentRequest: Schema.optionalKey(Schema.Struct({ command: Text, text: Schema.String })),
   path: Text,
   line: Schema.optionalKey(Schema.Number),
   under: Text,

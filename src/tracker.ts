@@ -118,7 +118,7 @@ export const parseIssueSearch = (
 
 /**
  * The comment with what it asks the bot after its first `/agent` or `@agent` outside quoted lines and fenced code. A
- * command such as `/agent:restart:plan` leads it with `:restart:plan`; plain text never starts with a colon.
+ * command such as `/agent:restart:plan` has the command `restart:plan`.
  */
 export const makeCommentWithAgentRequest = (c: Comment): Comment => {
   let fenced = false;
@@ -130,15 +130,20 @@ export const makeCommentWithAgentRequest = (c: Comment): Comment => {
     if (fenced || /^\s*>/.test(line)) continue;
     const found = /(?<![\w./-])[/@]agent(?![\w/-])/i.exec(line);
     if (!found) continue;
-    const after = c.body.slice(start + found.index + found[0].length);
-    const command = /^:\S+/.exec(after)?.[0] ?? '';
-    const text =
-      `${c.body.slice(0, start + found.index).trimEnd()} ${after.slice(command.length).replace(/^[\s,:]+/, '')}`
-        .trim()
-        .replace(/^:+/, '');
-    return { ...c, agentRequest: `${command} ${text}`.trim() };
+    const { command, text } = parseAgentRequest(c.body.slice(start + found.index + found[0].length));
+    const before = c.body.slice(0, start + found.index).trimEnd();
+    return {
+      ...c,
+      agentRequest: { ...(command && { command }), text: `${before} ${text}`.trim().replace(/^:+/, '') },
+    };
   }
   return c;
+};
+
+export const parseAgentRequest = (said: string): NonNullable<Comment['agentRequest']> => {
+  const command = /^:(\S+)/.exec(said)?.[1];
+  const text = said.slice(command === undefined ? 0 : command.length + 1).replace(/^[\s,:]+/, '');
+  return { ...(command && { command }), text: text.trim() };
 };
 
 export const formatAgentComment = (text: string) => (text.startsWith(':') ? `/agent${text}` : `/agent ${text}`);

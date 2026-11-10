@@ -67,7 +67,12 @@ describe('news', () => {
 describe('formatRequest', () => {
   it('shows replies that came after the request in its review thread, so a settled ask gets no second answer', () => {
     const thread = { path: 'kit/package.json', under: '1' };
-    const request = said('morgan', '2026-10-19T17:00:00Z', { id: '2', body: '/agent', agentRequest: '', ...thread });
+    const request = said('morgan', '2026-10-19T17:00:00Z', {
+      id: '2',
+      body: '/agent',
+      agentRequest: { text: '' },
+      ...thread,
+    });
     const settled = said('morgan', '2026-10-19T17:02:00Z', { id: '3', body: 'Renamed in cb8b13e.', ...thread });
     const elsewhere = said('morgan', '2026-10-19T17:03:00Z', { id: '4', body: 'and this?', path: 'kit/src/a.ts' });
     const text = formatRequest(pull([asked, request, settled, elsewhere]), request.at);

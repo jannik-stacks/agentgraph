@@ -423,7 +423,7 @@ export const isIssueTriggered = (w: Workflow, m: Event) =>
   w.on.issues !== undefined && Object.values(issueSources).some(matches => matches(w.on.issues!, m));
 
 /** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
-export const parseAgentRequest = (m: Event) => (m.kind === 'comment' ? m.comment?.agentRequest : undefined);
+export const getAgentRequest = (m: Event) => (m.kind === 'comment' ? m.comment?.agentRequest : undefined);
 
 export const CommandSettings = Schema.Record(
   Schema.String,
@@ -439,11 +439,11 @@ export function pickCommandTarget(
   router: string | undefined,
   to?: Run
 ) {
-  const said = parseAgentRequest(m) ?? '';
-  if (!said.startsWith(':')) return undefined;
-  const [token = ''] = said.split(/\s/, 1);
+  const said = getAgentRequest(m);
+  if (said?.command === undefined) return undefined;
+  const token = `:${said.command}`;
   const picks = Object.values(graph.workflows).filter(w => w.on.issue_comment);
-  const words = token.slice(1).split(':');
+  const words = said.command.split(':');
   const picked = picks.find(w => w.name === words[0]);
   const [verb, step, ...extra] = picked ? words.slice(1) : words;
   if (
@@ -485,7 +485,7 @@ export function pickCommandTarget(
     if (allowed !== true && !allowed.includes(m.actor)) return `Only ${allowed.join(', ')} may use \`/agent:${name}\`.`;
   };
   const why = [picked?.name, verb].map(name => name && whyNot(name)).find(Boolean);
-  return why ? { why } : { verb, step, text: said.slice(token.length).trim(), run, workflow };
+  return why ? { why } : { verb, step, text: said.text, run, workflow };
 }
 
 /**
@@ -512,10 +512,10 @@ export function getEventOutcome(
     return { kind: 'stop', why: `the ${label} label was removed` };
   const waiting = run.status === 'waiting';
   if (m.kind === 'closed' && !isRunDone(run)) return { kind: 'stop', why: 'closed' };
-  const said = parseAgentRequest(m);
+  const said = getAgentRequest(m);
   const body = m.comment?.body.trim() ?? '';
   const command = target && !('why' in target) && target.run?.id === run.id ? target : undefined;
-  if (said?.startsWith(':') && !command) return undefined;
+  if (said?.command !== undefined && !command) return undefined;
   if (command?.verb === 'stop' && !isRunDone(run)) return { kind: 'stop', why: command.text || 'a human said stop' };
   if (command?.verb === 'restart' && !isRunDone(run))
     return { kind: 'stop', why: 'a human restarted it', restarted: true };
@@ -527,13 +527,13 @@ export function getEventOutcome(
     if (m.kind === 'changes_requested') {
       const notes = lined.flatMap(l =>
         l.comment?.path
-          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}, id ${l.comment.under ?? l.comment.id}: ${l.comment.agentRequest ?? l.comment.body}`
+          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}, id ${l.comment.under ?? l.comment.id}: ${l.comment.agentRequest?.text ?? l.comment.body}`
           : []
       );
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };
     }
   }
-  if (said !== undefined && !isRunDone(run)) return { kind: 'answer', text: command?.text ?? said };
+  if (said !== undefined && !isRunDone(run)) return { kind: 'answer', text: command?.text ?? said.text };
   return undefined;
 }
 

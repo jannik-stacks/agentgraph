@@ -135,7 +135,7 @@ describe('tick', () => {
             actor: 'cli',
             trusted: true,
             at,
-            comment: { id: '', author: 'cli', body: '/agent continue', agentRequest: 'continue', at },
+            comment: { id: '', author: 'cli', body: '/agent continue', agentRequest: { text: 'continue' }, at },
           },
         })
       )
