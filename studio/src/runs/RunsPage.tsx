@@ -153,8 +153,6 @@ const Runs = ({
     [groups]
   );
   const missing = groups.filter(g => g.value === undefined);
-  if (missing.length && missing.length === groups.length && !groups.some(g => g.failure !== undefined))
-    return <Loading />;
   if (!runs.length && !missing.length) return <Muted>No runs in this data dir.</Muted>;
   const listed = runs
     .filter(r => issue === null || String(r.run.issue) === issue)
@@ -193,13 +191,14 @@ const Runs = ({
             <span className={accent.text}>{`${waiting.size} ${waiting.size === 1 ? 'needs' : 'need'} you`}</span>
           </Button>
         )}
+        {labels.length > 0 && (
+          <>
+            <Combobox label="Label" placeholder="every label" value={label} options={labels} onChange={setLabel} />
+            <KeyPicker label="Labels" keys={keys} hidden={hidden} onChange={setHidden} />
+          </>
+        )}
+        {missing.some(g => g.failure === undefined) && <Loading inline />}
       </div>
-      {labels.length > 0 && (
-        <>
-          <Combobox label="Label" placeholder="every label" value={label} options={labels} onChange={setLabel} />
-          <KeyPicker label="Labels" keys={keys} hidden={hidden} onChange={setHidden} />
-        </>
-      )}
       {groups.map(
         g =>
           g.failure !== undefined && (
@@ -209,7 +208,6 @@ const Runs = ({
             </p>
           )
       )}
-      {missing.some(g => g.failure === undefined) && <Loading />}
       {onlyWaiting !== null && !listed.length && !missing.length ? (
         <Muted>Nothing waits for you.</Muted>
       ) : (
