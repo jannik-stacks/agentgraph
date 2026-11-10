@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { context, findIssueStatus, formatStatusHeader, proposeQuestion, type IssueWithPull } from '../src/context.ts';
 import { formatRunMark, makeBodyWithStatus, removeRunLink, type Issue } from '../src/event.ts';
+import { makeStatusLabel } from '../src/tracker.ts';
 import { type Run } from '../src/types.ts';
 
 const run: Run = {
@@ -229,5 +230,15 @@ describe('the agent context', () => {
     const text = context({ issue: { ...issue, events: [request, said('Thanks', '2026-10-22T10:03:00Z')] } }, [request]);
     expect(text).not.toContain('rename the helper');
     expect(text).toContain('Thanks');
+  });
+});
+
+describe('status labels', () => {
+  it('default to agent:<status> and drop the other statuses', () => {
+    expect(makeStatusLabel('done')).toEqual({
+      kind: 'label',
+      add: ['agent:done'],
+      remove: ['agent:working', 'agent:needs-review', 'agent:needs-answer', 'agent:stopped'],
+    });
   });
 });

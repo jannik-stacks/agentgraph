@@ -175,11 +175,11 @@ A status header in the issue body moves to the pull request once available and f
 
 | Label                     | When                                                                             |
 | ------------------------- | -------------------------------------------------------------------------------- |
-| `agentgraph:working`      | A step runs, or a run waits on a run it started                                  |
-| `agentgraph:needs-review` | A run waits at a `wait: human` step with a pull request to review and merge      |
-| `agentgraph:needs-answer` | A run asked a question, waits with no pull request, or paused on an engine error |
-| `agentgraph:done`         | The latest run finished                                                          |
-| `agentgraph:stopped`      | The latest run stopped                                                           | <!-- code: src/event.ts#issueStatuses src/context.ts#findIssueStatus src/run/settle.ts#writeStatus src/tracker.ts#makeStatusLabel --> <!-- code: src/context.ts#formatStatusHeader src/run/settle.ts#writeStatus src/event.ts#makeBodyWithStatus --> <!-- code: src/github.ts#githubTracker src/tracker.ts#folderTracker --> <!-- code: src/context.ts#proposeQuestion --> <!-- code: src/folder.ts#GraphSettings src/tracker.ts#makeStatusLabel --> <!-- code: src/context.ts#findIssueStatus src/run/settle.ts#announce --> |
+| `agent:working`           | A step runs, or a run waits on a run it started                                  |
+| `agent:needs-review`      | A run waits at a `wait: human` step with a pull request to review and merge      |
+| `agent:needs-answer`      | A run asked a question, waits with no pull request, or paused on an engine error |
+| `agent:done`              | The latest run finished                                                          |
+| `agent:stopped`           | The latest run stopped                                                           | <!-- code: src/event.ts#issueStatuses src/context.ts#findIssueStatus src/run/settle.ts#writeStatus src/tracker.ts#makeStatusLabel --> <!-- code: src/context.ts#formatStatusHeader src/run/settle.ts#writeStatus src/event.ts#makeBodyWithStatus --> <!-- code: src/github.ts#githubTracker src/tracker.ts#folderTracker --> <!-- code: src/context.ts#proposeQuestion --> <!-- code: src/folder.ts#GraphSettings src/tracker.ts#makeStatusLabel --> <!-- code: src/context.ts#findIssueStatus src/run/settle.ts#announce --> |
 
 ## Order and limits
 

@@ -785,7 +785,7 @@ describe('router input', () => {
       actor: 'agentgraph[bot]',
       trusted: false,
       at: at(4),
-      label: 'agentgraph:needs-review',
+      label: 'agent:needs-review',
     });
     sayOn(where, inline('r1', 'morgan', '/agent handle all five review comments', 5));
     const { value } = await run(where, [filed], scanIssuesAndRunningRuns(graph));
@@ -797,7 +797,7 @@ describe('router input', () => {
     expect(prompt).toMatch(
       /^## What you were asked\n\n@morgan on docs\/x.md:8, id r0: \/agent handle all five review comments\n\nEarlier in its review thread:\n\n@morgan on docs\/x.md:8, id r0: what is slot\?\n\n@agentgraph\[bot\] on docs\/x.md:8, id r0: Slot is the index.\n\n/
     );
-    expect(prompt).not.toContain('agentgraph:needs-review');
+    expect(prompt).not.toContain('agent:needs-review');
   });
 });
 

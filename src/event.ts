@@ -6,6 +6,8 @@ export const Count = Schema.Int.check(Schema.isGreaterThan(0));
 export const issueStatuses = ['working', 'needs-review', 'needs-answer', 'done', 'stopped'] as const;
 export type IssueStatus = (typeof issueStatuses)[number];
 
+export const labelPrefix = 'agent:';
+
 const Text = Schema.optionalKey(Schema.String);
 
 /**

@@ -9,6 +9,7 @@ import { Context, Effect, Layer, Stream, Semaphore } from 'effect';
 import { stringify } from 'yaml';
 import {
   issueStatuses,
+  labelPrefix,
   makeStudioRunUrl,
   formatRunMark,
   makeBodyWithStatus,
@@ -87,7 +88,7 @@ export class Tracker extends Context.Service<
 
 export const makeStatusLabel = (
   to: IssueStatus,
-  names: Partial<Record<IssueStatus, string>> = Object.fromEntries(issueStatuses.map(s => [s, `agentgraph:${s}`]))
+  names: Partial<Record<IssueStatus, string>> = Object.fromEntries(issueStatuses.map(s => [s, `${labelPrefix}${s}`]))
 ): Proposal => ({
   kind: 'label',
   add: names[to] === undefined ? [] : [names[to]],
