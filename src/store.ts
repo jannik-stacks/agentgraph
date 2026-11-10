@@ -101,7 +101,7 @@ const values: Record<string, Record<string, string>> = {
 
 /** A run or trace line as older versions wrote it, read with today's field names and values. */
 const current = (value: unknown, key = ''): unknown => {
-  if (key === 'meta') return value;
+  if (key === 'meta' || key === 'spoken') return value;
   if (typeof value === 'string') return values[key]?.[value] ?? value;
   if (key === 'said' && value && !Array.isArray(value)) return [current(value)];
   if (Array.isArray(value))

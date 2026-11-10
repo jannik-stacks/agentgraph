@@ -5,6 +5,7 @@ import { change, git, runScript, tmp, write } from './kit.ts';
 import { context } from '../src/context.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
+import { makeTestEvent } from './world.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
 const modules = resolve(import.meta.dirname, '../node_modules');
@@ -942,14 +943,15 @@ describe('triage-brief', () => {
 
 /** The context file the engine writes for checks: issue #1 where the bot posted `brief` after the command, then a review. */
 const contextWith = (text: string) => {
-  const said = (actor: string, body: string, at: string): Event => ({
-    issue: 1,
-    kind: 'comment',
-    actor,
-    trusted: true,
-    at,
-    comment: { id: at, author: actor, body, at },
-  });
+  const said = (actor: string, body: string, at: string): Event =>
+    makeTestEvent({
+      issue: 1,
+      kind: 'comment',
+      actor,
+      trusted: true,
+      at,
+      comment: { id: at, author: actor, body, at },
+    });
   const file = join(tmp('context'), 'context.md');
   writeFileSync(
     file,

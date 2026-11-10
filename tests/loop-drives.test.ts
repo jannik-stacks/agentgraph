@@ -11,7 +11,7 @@ import { replaySession } from './doubles/session.ts';
 import { makeTestGraph, reply, start } from './fixtures.ts';
 import { issuePath, write, writeIssueAt } from './kit.ts';
 import type { Graph } from '../src/folder.ts';
-import { comment, fresh, readChecks, readTrace, say, services, world } from './world.ts';
+import { comment, fresh, readChecks, readTrace, say, services, world, makeTestEvent } from './world.ts';
 import { type SessionSpec } from '../src/types.ts';
 
 const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
@@ -115,7 +115,14 @@ const setup = (parallel: number, holdSweep = false) => {
       where,
       kind === 'comment'
         ? comment(9, 'morgan', true, '/agent', '2026-10-16T00:01:00.000Z')
-        : { issue: 9, kind: 'label', label: 'ready', actor: 'morgan', trusted: true, at: '2026-10-16T00:01:00.000Z' }
+        : makeTestEvent({
+            issue: 9,
+            kind: 'label',
+            label: 'ready',
+            actor: 'morgan',
+            trusted: true,
+            at: '2026-10-16T00:01:00.000Z',
+          })
     );
   };
   return {

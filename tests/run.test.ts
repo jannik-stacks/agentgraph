@@ -461,6 +461,8 @@ describe('drive', () => {
     expect(specs.at(-1)!.prompt).toContain('it is fine, ship it');
 
     const merged = {
+      id: 'merged',
+      bot: false,
       issue: 7,
       kind: 'merged',
       actor: 'morgan',

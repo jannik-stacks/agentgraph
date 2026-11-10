@@ -297,12 +297,13 @@ const timelinePath = (dir: string, n: number) => join(findIssueDir(dir, n), 'eve
 
 export const writeTimelineEvent = async (
   dir: string,
-  m: Omit<Event, 'at' | 'comment'> & { comment?: Pick<Comment, 'body' | 'path' | 'line' | 'under'> }
+  m: Omit<Event, 'id' | 'bot' | 'at' | 'comment'> & { comment?: Pick<Comment, 'body' | 'path' | 'line' | 'under'> }
 ) => {
   const at = new Date().toISOString();
   const id = `${m.issue}-${randomUUID().slice(0, 8)}`;
   const comment = m.comment && { comment: { id, author: m.actor, at, ...m.comment } };
-  await appendFile(timelinePath(dir, m.issue), `${JSON.stringify({ ...m, at, ...comment })}\n`);
+  const event = { id, ...m, bot: m.actor.endsWith('[bot]'), at, ...comment };
+  await appendFile(timelinePath(dir, m.issue), `${JSON.stringify(event)}\n`);
   return id;
 };
 
@@ -388,8 +389,11 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         const [t, file] = await Promise.all([read(n), stat(md(n)).catch(readOrUndefined)]);
         if (!t?.author || t.author === me || t.labels.length === 0 || !file) return;
         const at = file.mtime.toISOString();
-        const trusted = !t.author.endsWith('[bot]');
-        const events = t.labels.map(label => ({ issue: n, kind: 'label', label, actor: t.author, trusted, at }));
+        const bot = t.author.endsWith('[bot]');
+        const events = t.labels.map(label => {
+          const id = `${n}-${randomUUID().slice(0, 8)}`;
+          return { id, issue: n, kind: 'label', label, actor: t.author, bot, trusted: !bot, at };
+        });
         await publish(timelinePath(dir, n), events.map(m => `${JSON.stringify(m)}\n`).join(''));
       };
       const readEvents = async (n: number) =>

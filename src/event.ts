@@ -1,5 +1,6 @@
 import { Schema, type Types } from 'effect';
 import type { Proposal } from './proposal.ts';
+import { getSha } from './hash.ts';
 
 export const issueStatuses = ['working', 'needs-review', 'needs-answer', 'done', 'stopped'] as const;
 export type IssueStatus = (typeof issueStatuses)[number];
@@ -40,14 +41,19 @@ export const Comment = Schema.Struct({
 });
 export type Comment = Types.Mutable<typeof Comment.Type>;
 
-/** Something a person or a bot said or did on an issue. */
+/**
+ * Something a person or a bot said or did on an issue. `id` names it in its tracker and stays the same on every read;
+ * `review` marks a review that only commented, and `reviewer` whom a review was asked of.
+ */
 export const Event = Schema.Struct({
   source: Schema.optionalKey(Schema.Literal('cli')),
+  id: Schema.String,
   issue: Schema.Number,
   kind: Schema.Literals([
     'comment',
     'approved',
     'changes_requested',
+    'review_requested',
     'merged',
     'closed',
     'label',
@@ -57,15 +63,34 @@ export const Event = Schema.Struct({
     'check',
   ]),
   actor: Schema.String,
+  bot: Schema.Boolean,
   trusted: Schema.Boolean,
   at: Schema.String,
   comment: Schema.optionalKey(Comment),
+  review: Schema.optionalKey(Schema.Literal(true)),
+  reviewer: Text,
   label: Text,
   column: Schema.optionalKey(Schema.Struct({ project: Schema.String, name: Schema.String })),
   commit: Schema.optionalKey(Schema.Struct({ sha: Schema.String, title: Schema.String })),
   check: Schema.optionalKey(Schema.Struct({ name: Schema.String, conclusion: Schema.String })),
 });
 export type Event = Types.Mutable<typeof Event.Type>;
+
+export const getEventKey = (m: Event) =>
+  getSha(
+    JSON.stringify([
+      m.issue,
+      m.id,
+      m.kind,
+      m.comment?.body,
+      m.comment?.edited,
+      m.label,
+      m.reviewer,
+      m.column?.name,
+      m.commit?.title,
+      m.check?.conclusion,
+    ])
+  );
 
 /**
  * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction

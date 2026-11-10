@@ -88,7 +88,8 @@ describe('tick', () => {
     );
     expect(during).toBe('running');
     expect(done.status).toBe('stopped');
-    if (source === 'cli') expect(readTrace(where.data, 'run-7').filter(t => 'spoken' in t)).toHaveLength(1);
+    const cli = readTrace(where.data, 'run-7').filter(t => 'spoken' in t && t.spoken.source === 'cli');
+    expect(cli).toHaveLength(source === 'cli' ? 1 : 0);
   });
 
   it('persists caller metadata on dispatch and ordinary tick starts before the first trace', async () => {
@@ -126,6 +127,8 @@ describe('tick', () => {
           step: 'implement',
           meta: { engine: { origin: caller }, tune: { candidate: 'next' } },
           spoken: {
+            id: 'said',
+            bot: false,
             source: 'cli',
             kind: 'comment',
             issue: 7,
@@ -457,6 +460,10 @@ describe('tick', () => {
       }).pipe(Effect.provide(Layer.mergeAll(base, session)))
     );
     expect(final?.status).toBe('stopped');
-    expect(readTrace(where.data, 'run-7').filter(t => 'spoken' in t && t.spoken.issue === 8)).toHaveLength(1);
+    const spoken = readTrace(where.data, 'run-7').flatMap(t =>
+      'spoken' in t && t.spoken.issue === 8 ? [t.spoken] : []
+    );
+    expect(spoken.filter(m => m.source === 'cli')).toHaveLength(1);
+    expect(spoken.map(m => [m.actor, m.comment?.body])).toContainEqual(['morgan', '/agent why?']);
   });
 });

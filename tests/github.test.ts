@@ -1059,6 +1059,65 @@ describe('githubTracker', () => {
     expect(f.calls.filter(c => c.path === '/repos/o/r/collaborators/carol/permission')).toHaveLength(1);
   });
 
+  it('names each event the same through since and issue, keeps review identity and classifies bots', async () => {
+    const cursor = '2026-10-16T09:00:00Z';
+    const window = `since=${encodeURIComponent(cursor)}&sort=updated&direction=asc&per_page=100`;
+    const said = [comment(1, 'alice', 'OWNER', 'hi', { issue_url: 'https://api.github.com/repos/o/r/issues/8' })];
+    const lined = [
+      comment(2, 'helper[bot]', 'NONE', 'fixed', {
+        path: 'a.ts',
+        line: 1,
+        pull_request_url: 'https://api.github.com/repos/o/r/pulls/8',
+      }),
+    ];
+    const reviews = [
+      {
+        id: 3,
+        state: 'COMMENTED',
+        body: 'nit',
+        user: { login: 'bob' },
+        author_association: 'OWNER',
+        submitted_at: '2026-10-16T10:00:03Z',
+      },
+    ];
+    const events = [
+      {
+        id: 4,
+        event: 'review_requested',
+        actor: { login: 'alice' },
+        requested_reviewer: { login: 'bob' },
+        created_at: '2026-10-16T10:00:04Z',
+        issue: { number: 8 },
+      },
+    ];
+    const f = fake({
+      'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
+      'GET /repos/o/r/pulls/8': pull(8),
+      'GET /repos/o/r/issues/8/comments': said,
+      'GET /repos/o/r/pulls/8/comments': lined,
+      'GET /repos/o/r/pulls/8/reviews': reviews,
+      'GET /repos/o/r/pulls/8/commits': [],
+      'GET /repos/o/r/issues/8/events': events,
+      [`GET /repos/o/r/issues/comments?${window}`]: said,
+      [`GET /repos/o/r/pulls/comments?${window}`]: lined,
+      'GET /repos/o/r/issues/events?per_page=100': events,
+      'GET /repos/o/r/pulls?state=open&per_page=100': [],
+      'GET /repos/o/r/collaborators/alice/permission': { permission: 'admin' },
+      'GET /repos/o/r/collaborators/bob/permission': { permission: 'admin' },
+    });
+    const read = await run(
+      f,
+      Effect.flatMap(Tracker, tracker => Effect.all([tracker.issue(8), Stream.runCollect(tracker.since(cursor))]))
+    );
+    expect(read[0].events.map(m => [m.id, m.kind, m.bot, m.review ?? false, m.reviewer])).toEqual([
+      ['comment-1', 'comment', false, false, undefined],
+      ['review-comment-2', 'comment', true, false, undefined],
+      ['review-3', 'comment', false, true, undefined],
+      ['event-4', 'review_requested', false, false, 'bob'],
+    ]);
+    expect([...read[1]].map(m => m.id)).toEqual(['comment-1', 'review-comment-2', 'event-4']);
+  });
+
   it('shows a status by swapping labels, and fails when the repo refuses either half of the swap', async () => {
     const refused = () => ({ status: 422, body: { message: 'Validation Failed' } });
     const status = async (routes: Record<string, Route>) => {

@@ -29,6 +29,8 @@ const pr: Issue = {
   pull: { branch: 'b', base: 'main', head: 'h' },
 };
 const spoke = (actor: string, trusted = true) => ({
+  id: actor,
+  bot: actor.endsWith('[bot]'),
   issue: 7,
   kind: 'comment' as const,
   actor,

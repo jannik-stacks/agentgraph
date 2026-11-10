@@ -3,6 +3,8 @@ import { formatRequest, news, type IssueWithPull } from '../src/context.ts';
 import type { Comment, Event, Issue } from '../src/event.ts';
 
 const said = (actor: string, at: string, comment: Omit<Comment, 'author' | 'at'>): Event => ({
+  id: at,
+  bot: actor.endsWith('[bot]'),
   issue: 17,
   kind: 'comment',
   actor,

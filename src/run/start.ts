@@ -15,7 +15,10 @@ export const makeRunId = (w: Pick<Workflow, 'name'>, issue: number, at: string) 
 
 export type Child = Extract<Said, { kind: 'issue' }>;
 
-/** Saves a new run once, under its id's lock and only when no run has that id, then lets `ready` finish it under that lock. */
+/**
+ * Saves a new run once, under its id's lock and only when no run has that id, marks that it records what it hears from
+ * its start, then lets `ready` finish it under that lock.
+ */
 export const startRun = <A extends RunRecord, E = never, R = never>(
   run: A,
   ready: (run: A) => Effect.Effect<A, E, R> = Effect.succeed
@@ -32,6 +35,7 @@ export const startRun = <A extends RunRecord, E = never, R = never>(
     if (!locked) return;
     if (yield* store.getRecord(run.id)) return;
     yield* store.put(run);
+    yield* store.trace(run.id, { at: run.started, step: run.step, inputs: { since: run.started } });
     const first = yield* ready(run);
     if (first !== run) yield* store.put(first);
     return first;

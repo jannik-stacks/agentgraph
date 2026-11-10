@@ -14,6 +14,7 @@ import {
   readIssueWithPull,
   readHeardOutcome,
   readContinuedRun,
+  writeHeardEvents,
   readEarlierBranch,
 } from './hear.ts';
 import { type Services, formatFailure } from './execute.ts';
@@ -89,6 +90,8 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     const hear = (all: boolean) =>
       Effect.gen(function* () {
         const t = yield* Effect.option(readIssueWithPull(w, current, graph));
+        if (Option.isSome(t))
+          yield* writeHeardEvents(current, [...t.value.issue.events, ...(t.value.pull?.events ?? [])]);
         const queued = Option.isSome(t) ? yield* readHeardOutcome(graph, w, current, t.value) : undefined;
         if (queued && (all || queued.outcome.kind !== 'answer' || w.concurrency === 'cancel'))
           yield* settle(

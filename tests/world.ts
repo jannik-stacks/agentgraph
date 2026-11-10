@@ -54,7 +54,7 @@ export const world = () => {
   const human = (body: string, at: string) =>
     appendIssueAt(
       issuePath(tracker, 7, 'events.jsonl'),
-      `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Event)}\n`
+      `${JSON.stringify({ id: at, issue: 7, kind: 'comment', actor: 'morgan', bot: false, trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Event)}\n`
     );
   human('/agent', '2026-10-16T00:00:00.000Z');
   return { root, origin: join(tracker, 'origin.git'), tracker, data, human };
@@ -159,25 +159,33 @@ export const settleLongAgo = (id: string) =>
 
 export const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
-export const say = (where: ReturnType<typeof world>, m: Event) =>
-  appendIssueAt(issuePath(where.tracker, m.issue, 'events.jsonl'), `${JSON.stringify(m)}\n`);
+export const makeTestEvent = (m: Omit<Event, 'id' | 'bot'> & Partial<Pick<Event, 'id' | 'bot'>>): Event => ({
+  id: m.comment?.id ?? `${m.kind}-${m.issue}-${m.at}-${m.label ?? ''}`,
+  bot: m.actor.endsWith('[bot]'),
+  ...m,
+});
 
-export const comment = (issue: number, actor: string, trusted: boolean, body: string, at: string): Event => ({
-  issue,
-  kind: 'comment',
-  actor,
-  trusted,
-  at,
-  comment: { id: at, author: actor, body, at },
-});
-export const check = (issue: number, name: string, conclusion: string, at: string): Event => ({
-  issue,
-  kind: 'check',
-  actor: 'ci',
-  trusted: false,
-  at,
-  check: { name, conclusion },
-});
+export const say = (where: ReturnType<typeof world>, m: Parameters<typeof makeTestEvent>[0]) =>
+  appendIssueAt(issuePath(where.tracker, m.issue, 'events.jsonl'), `${JSON.stringify(makeTestEvent(m))}\n`);
+
+export const comment = (issue: number, actor: string, trusted: boolean, body: string, at: string): Event =>
+  makeTestEvent({
+    issue,
+    kind: 'comment',
+    actor,
+    trusted,
+    at,
+    comment: { id: at, author: actor, body, at },
+  });
+export const check = (issue: number, name: string, conclusion: string, at: string): Event =>
+  makeTestEvent({
+    issue,
+    kind: 'check',
+    actor: 'ci',
+    trusted: false,
+    at,
+    check: { name, conclusion },
+  });
 
 /** Pull request #8 on run 7's branch. */
 export const pullRequest = (where: ReturnType<typeof world>, base = 'b1') => {

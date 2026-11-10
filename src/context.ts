@@ -21,6 +21,8 @@ export const formatEventLine = (m: Event): string => {
       return `${who} approved${said}`;
     case 'changes_requested':
       return `${who} requested changes${said}`;
+    case 'review_requested':
+      return `${who} asked ${m.reviewer ?? 'someone'} for a review`;
     case 'commit':
       return `${who} pushed ${m.commit?.sha.slice(0, 7)} ${m.commit?.title}`;
     case 'check':
@@ -63,10 +65,9 @@ export function context(t: IssueWithPull): string {
   return [...heads, lines.length > 0 && `## Timeline\n\n${lines.join('\n\n')}`].filter(Boolean).join('\n\n');
 }
 
-const bot = (m: Event) => m.actor.endsWith('[bot]');
 const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined ? m.comment.id : undefined);
 
-const isEngineStatus = (m: Event) => bot(m) && (m.kind === 'label' || m.kind === 'unlabel');
+const isEngineStatus = (m: Event) => m.bot && (m.kind === 'label' || m.kind === 'unlabel');
 
 export function formatRequest(t: IssueWithPull, started: string): string {
   const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
@@ -94,10 +95,10 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
   const moved = pull?.baseSha !== undefined && seen.base !== undefined && pull.baseSha !== seen.base;
   const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
   const answered = (m: Event) =>
-    thread(m) !== undefined && events.some(b => bot(b) && b.at > m.at && thread(b) === thread(m));
+    thread(m) !== undefined && events.some(b => b.bot && b.at > m.at && thread(b) === thread(m));
   const lines = [
     moved && `The base ${pull.base} moved to ${pull.baseSha!.slice(0, 7)}.`,
-    ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || (!bot(m) && !answered(m)))),
+    ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || (!m.bot && !answered(m)))),
   ].filter(Boolean);
   const at = events.reduce((at, m) => (m.at > at ? m.at : at), seen.at);
   return {
@@ -138,7 +139,7 @@ export function proposeQuestion(before: Run | undefined, run: Run, t: IssueWithP
     (before?.status === 'waiting' && before.reason === run.reason)
   )
     return [];
-  const events = [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.trusted && !bot(m));
+  const events = [...t.issue.events, ...(t.pull?.events ?? [])].filter(m => m.trusted && !m.bot);
   const pull = (t.pull ?? (t.issue.pull ? t.issue : undefined))?.url;
   const who = events.toSorted((a, b) => a.at.localeCompare(b.at)).at(-1)?.actor ?? t.issue.author;
   const text = `@${who} ${run.reason.startsWith(stoppedByEngine) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;

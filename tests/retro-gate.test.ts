@@ -29,10 +29,12 @@ const world = () => {
     '---\ntitle: Issue 1\nstate: open\nauthor: morgan\nlabels: []\n---\n\nSay hello.\n'
   );
   const label: Event = {
+    id: 'label-1',
     issue: 1,
     kind: 'label',
     label: 'agent:ready',
     actor: 'morgan',
+    bot: false,
     trusted: true,
     at: '2026-10-16T00:00:01.000Z',
   };
