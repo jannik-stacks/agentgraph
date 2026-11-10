@@ -87,6 +87,15 @@ describe('formatRequest', () => {
     );
   });
 
+  it('leaves out commands, which their run already took', () => {
+    const restart = said('morgan', at(1), {
+      id: 'c1',
+      body: '/agent:restart',
+      agentRequest: { command: 'restart', text: '' },
+    });
+    expect(ask(pull([restart, agent(3)]), 3)).toBe('## What you were asked\n\n@morgan: /agent');
+  });
+
   it('leaves out bot and untrusted comments', () => {
     const bot = said('bot[bot]', at(1), { id: 'c1', body: 'I opened a pull request.' });
     const stranger = { ...said('stranger', at(2), { id: 'c2', body: 'do something else' }), trusted: false };

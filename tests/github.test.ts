@@ -1141,6 +1141,46 @@ describe('githubTracker', () => {
     expect([...read[1]].map(m => m.id)).toEqual(['comment-1', 'review-comment-2', 'event-4']);
   });
 
+  it('dates line comments by their review, so a pending review drafted before the cursor is still heard', async () => {
+    const cursor = '2026-10-16T09:00:00Z';
+    const window = `since=${encodeURIComponent(cursor)}&sort=updated&direction=asc&per_page=100`;
+    const sent = '2026-10-16T10:00:09Z';
+    const lined = [
+      comment(2, 'bob', 'OWNER', 'rename this', {
+        path: 'a.ts',
+        line: 3,
+        created_at: '2026-10-15T08:00:00Z',
+        pull_request_review_id: 3,
+        pull_request_url: 'https://api.github.com/repos/o/r/pulls/8',
+      }),
+    ];
+    const review = { id: 3, state: 'CHANGES_REQUESTED', body: '', user: { login: 'bob' }, author_association: 'OWNER' };
+    const f = fake({
+      'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
+      'GET /repos/o/r/pulls/8': pull(8),
+      'GET /repos/o/r/issues/8/comments': [],
+      'GET /repos/o/r/pulls/8/comments': lined,
+      'GET /repos/o/r/pulls/8/reviews': [{ ...review, submitted_at: sent }],
+      'GET /repos/o/r/pulls/8/commits': [],
+      'GET /repos/o/r/issues/8/events': [],
+      [`GET /repos/o/r/issues/comments?${window}`]: [],
+      [`GET /repos/o/r/pulls/comments?${window}`]: lined,
+      'GET /repos/o/r/issues/events?per_page=100': [],
+      'GET /repos/o/r/pulls?state=open&per_page=100': [pull(8)],
+      'GET /repos/o/r/collaborators/bob/permission': { permission: 'admin' },
+    });
+    const read = await run(
+      f,
+      Effect.flatMap(Tracker, tracker => Effect.all([tracker.issue(8), Stream.runCollect(tracker.since(cursor))]))
+    );
+    const dated = (events: (typeof read)[0]['events']) => events.map(m => [m.id, m.at, m.comment?.at]);
+    expect(dated(read[0].events)).toEqual([
+      ['review-comment-2', sent, sent],
+      ['review-3', sent, sent],
+    ]);
+    expect(dated([...read[1]])).toEqual(dated(read[0].events));
+  });
+
   it('shows a status by swapping labels, and fails when the repo refuses either half of the swap', async () => {
     const refused = () => ({ status: 422, body: { message: 'Validation Failed' } });
     const status = async (routes: Record<string, Route>) => {

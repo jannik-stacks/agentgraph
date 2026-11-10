@@ -520,8 +520,8 @@ export const cancelled = 'Cancelled. Say /agent and how to go on from here, or /
 
 /**
  * What a new event means for a live run: a review at a human step, an answer elsewhere, `/agent:cancel` parks a working
- * run; undefined when it is only context or a command `target` does not give to this run. `lined` are the line comments
- * that came with a review.
+ * run; undefined when it is only context or a command `target` does not give to this run. `lined` is what was heard
+ * with the event; a review takes the trusted line comments in it up to the review as its notes.
  */
 export function getEventOutcome(
   w: Workflow,
@@ -550,7 +550,7 @@ export function getEventOutcome(
       return { kind: 'pass' };
     if (m.kind === 'changes_requested') {
       const notes = lined.flatMap(l =>
-        l.comment?.path
+        l.trusted && l.kind === 'comment' && l.comment?.path && l.at <= m.at
           ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}, id ${l.comment.under ?? l.comment.id}: ${l.comment.agentRequest?.text ?? l.comment.body}`
           : []
       );

@@ -420,10 +420,7 @@ export const tick = (
         /** A stop, pass or merge takes only itself, so what else people asked stays for the comment workflow. */
         const took = taken(m)!.kind === 'answer' ? answers : [m];
         for (const a of took) used.add(a);
-        const lined = events.filter(
-          l =>
-            l.trusted && l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
-        );
+        const lined = events.filter(l => l.issue === run.issue && l.at > at);
         const outcome = fold([m, ...took.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
         yield* Effect.forEach(
           took.filter(a => a !== m),
