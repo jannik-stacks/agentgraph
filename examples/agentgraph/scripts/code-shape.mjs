@@ -1,7 +1,7 @@
 // Structure rules on the TypeScript a change adds under src/ and studio/src: components defined at module level,
-// routes loaded lazily, schema unions told apart by `type`, and the studio's UI rules on its TSX. Softer hints, state
-// copied in an effect and type unions told apart by another field, are printed without failing the check. In the graph
-// scripts, a field an item sends to a model that gathers text with no clip or limit fails.
+// routes loaded lazily, the members of a tagged `Schema.Union` tagged by one shared key, and the studio's UI rules on
+// its TSX. A softer hint, state copied in an effect, is printed without failing the check. In the graph scripts, a
+// field an item sends to a model that gathers text with no clip or limit fails.
 import { makeOffsetToLineLookup, parseSourceFileToAst, reporter, walk } from './ast.mjs';
 import { readCheckInputFiles, report } from './changes.mjs';
 import { studioFile, studioUi } from './studio-ui.mjs';
@@ -33,6 +33,27 @@ const valueImports = program =>
     }
     return [];
   });
+
+const isSchemaCall = (node, name) =>
+  node?.type === 'CallExpression' &&
+  node.callee.type === 'MemberExpression' &&
+  node.callee.object.name === 'Schema' &&
+  node.callee.property.name === name;
+
+const findStructTags = (node, structs) => {
+  const struct = node?.type === 'Identifier' ? structs.get(node.name) : node;
+  if (!isSchemaCall(struct, 'Struct') || struct.arguments[0]?.type !== 'ObjectExpression') return undefined;
+  return struct.arguments[0].properties
+    .filter(p => p.type === 'Property' && (isSchemaCall(p.value, 'Literal') || isSchemaCall(p.value, 'Literals')))
+    .map(p => p.key.name);
+};
+
+const isMixedTagUnion = (node, structs) => {
+  if (!isSchemaCall(node, 'Union') || node.arguments[0]?.type !== 'ArrayExpression') return false;
+  const tags = node.arguments[0].elements.map(member => findStructTags(member, structs));
+  if (tags.length < 2 || tags.some(t => t === undefined) || tags.every(t => t.length === 0)) return false;
+  return !tags[0].some(key => tags.every(t => t.includes(key)));
+};
 
 const gathers = /\b(readFileSync|execFileSync|readCheckInputFiles)\(|Text\(/;
 const bounded = /slice\(|clip|max|limit/i;
@@ -88,6 +109,10 @@ for (const source of readCheckInputFiles(path => code(path) || slicer(path))) {
     }
   }
 
+  const structs = new Map();
+  walk(program, node => {
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') structs.set(node.id.name, node.init);
+  });
   walk(program, (node, parents) => {
     const line = getLineAt(node.start);
     const inFunction = parents.some(p => functions.has(p.type));
@@ -101,22 +126,8 @@ for (const source of readCheckInputFiles(path => code(path) || slicer(path))) {
     if (node.type === 'FunctionDeclaration' && inFunction && /^[A-Z]/.test(node.id?.name ?? '')) {
       add(source, line, `component ${node.id.name} defined inside a function; move it to module level`);
     }
-    if (node.type === 'CallExpression' && calleeName(node) === 'discriminatedUnion') {
-      const key = node.arguments[0];
-      if (key?.type === 'Literal' && key.value !== 'type') {
-        add(source, line, `a union told apart by "${key.value}"; use "type"`);
-      }
-    }
-
-    if (
-      node.type === 'TSPropertySignature' &&
-      !node.computed &&
-      ['kind', 'tag', 'variant'].includes(node.key?.name) &&
-      node.typeAnnotation?.typeAnnotation?.type === 'TSLiteralType' &&
-      parents.at(-2)?.type === 'TSUnionType'
-    ) {
-      hinted.add(source, line, `hint: a union told apart by "${node.key.name}"; prefer "type"`);
-    }
+    if (isMixedTagUnion(node, structs))
+      add(source, line, 'a union whose members share no tag key; tag every member with the same key');
     if (node.type === 'CallExpression' && node.callee.name === 'useEffect') {
       const body = node.arguments[0]?.body;
       const statements = body?.type === 'BlockStatement' ? body.body.map(s => s.expression) : [body];

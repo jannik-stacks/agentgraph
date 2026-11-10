@@ -612,26 +612,29 @@ describe('size', () => {
 describe('enum-copy', () => {
   const declared = {
     'src/store.ts': "export type RunStatus =\n  | 'queued'\n  | 'running'\n  | 'failed'\n  | 'skipped';\n",
-    'src/schema.ts': "export const Closure = z.enum(['done', 'blocked', 'deferred']);\n",
+    'src/schema.ts': "export const Closure = Schema.Literals(['done', 'blocked', 'deferred']);\n",
+    'src/types.ts':
+      "export const Run = Schema.Struct({\n  status: Schema.optionalKey(Schema.Literals(['open', 'shut', 'gone'])),\n});\n",
   };
 
   it('fails an added list of every value of a declared union, or all but one', () => {
     const repo = change(declared, {
       'src/run.ts':
-        "const all = ['queued', 'running', 'failed'];\nconst closures = new Set([\n  'done',\n  'blocked',\n  'deferred',\n]);\n",
+        "const all = ['queued', 'running', 'failed'];\nconst closures = new Set([\n  'done',\n  'blocked',\n  'deferred',\n]);\nconst states = ['gone', 'open', 'shut'];\n",
       'examples/agentgraph/scripts/t.mjs': "const s = ['failed', 'skipped', 'running', 'queued'];\n",
     });
     expect(findings(run('enum-copy.mjs', repo).out)).toEqual([
       'examples/agentgraph/scripts/t.mjs:1: copies the values of RunStatus in src/store.ts; read them from there instead',
       'src/run.ts:1: copies the values of RunStatus in src/store.ts; read them from there instead',
       'src/run.ts:2: copies the values of Closure in src/schema.ts; read them from there instead',
+      'src/run.ts:7: copies the values of status in src/types.ts; read them from there instead',
     ]);
   });
 
   it('passes a subset, a list with other values, the declaration itself and tests', () => {
     const repo = change(declared, {
       'src/run.ts': "const failed = ['failed', 'skipped'];\nconst mixed = ['queued', 'running', 'failed', 'gone'];\n",
-      'src/schema.ts': "export const Closure = z.enum(['done', 'blocked', 'deferred', 'no-op']);\n",
+      'src/schema.ts': "export const Closure = Schema.Literals(['done', 'blocked', 'deferred', 'no-op']);\n",
       'tests/run.test.ts': "const all = ['queued', 'running', 'failed', 'skipped'];\n",
     });
     expect(run('enum-copy.mjs', repo)).toEqual({ ok: true, out: 'enum-copy: ok' });

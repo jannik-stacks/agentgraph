@@ -190,11 +190,15 @@ export const Strip = ({ s, onClick, onRemove }) => (
 });
 
 describe('code-shape check', () => {
-  it('fails an inline component, an eager route and a union keyed on kind', () => {
+  it('fails an inline component, an eager route and a schema union tagged by different keys', () => {
     const repo = studioChange(
       {},
       {
-        'src/outputs.ts': "export const Proposal = z.discriminatedUnion('kind', [reply, label]);\n",
+        'src/outputs.ts': [
+          "const Reply = Schema.Struct({ kind: Schema.Literal('reply'), text: Schema.String });",
+          "export const Proposal = Schema.Union([Reply, Schema.Struct({ type: Schema.Literal('label') })]);",
+          '',
+        ].join('\n'),
         'studio/src/App.tsx': `import { DashboardView } from './dashboard/DashboardView.tsx';
 import { sum } from '../../src/usage.ts';
 export const App = () => {
@@ -207,7 +211,7 @@ export const App = () => {
     );
     const { ok, out } = check('code-shape.mjs', repo);
     expect(ok).toBe(false);
-    expect(out).toContain('src/outputs.ts:1: a union told apart by "kind"; use "type"');
+    expect(out).toContain('src/outputs.ts:2: a union whose members share no tag key');
     expect(out).toContain('studio/src/App.tsx:1: imports ./dashboard/DashboardView.tsx eagerly');
     expect(out).toContain('studio/src/App.tsx:4: component Row defined inside a function');
     expect(out).toContain('studio/src/App.tsx:5: component Lazy defined inside a function');
@@ -217,7 +221,13 @@ export const App = () => {
     const repo = studioChange(
       {},
       {
-        'src/folder.ts': "export const Check = z.discriminatedUnion('type', [script, bot]);\n",
+        'src/folder.ts': [
+          "const Script = Schema.Struct({ kind: Schema.Literal('script'), run: Schema.String });",
+          "export const Check = Schema.Union([Script, Schema.Struct({ kind: Schema.Literals(['bot', 'judge']) })]);",
+          'export const Found = Schema.Union([Schema.Struct({ ref: Schema.String }), Schema.Struct({ why: Schema.String })]);',
+          "export const Said = Schema.Union([Script, Other, Schema.Struct({ type: Schema.Literal('x') })]);",
+          '',
+        ].join('\n'),
         'studio/src/App.tsx': `import type { Route } from './state.ts';
 const DashboardView = lazy(() => import('./dashboard/DashboardView.tsx'));
 const Row = ({ n }: { n: number }) => <li>{n}</li>;
@@ -231,7 +241,7 @@ export const App = () => {
     expect(check('code-shape.mjs', repo)).toEqual({ ok: true, out: 'code-shape: ok' });
   });
 
-  it('hints at state copied in an effect and a type union keyed on kind, without failing', () => {
+  it('hints at state copied in an effect but not at a type union keyed on kind, without failing', () => {
     const repo = studioChange(
       {},
       {
@@ -247,7 +257,7 @@ type Item = { kind: 'text'; text: string } | { kind: 'tool'; name: string };
     const { ok, out } = check('code-shape.mjs', repo);
     expect(ok).toBe(true);
     expect(out).toContain('studio/src/Field.tsx:3: hint: an effect that only sets state');
-    expect(out).toContain('studio/src/Field.tsx:6: hint: a union told apart by "kind"; prefer "type"');
+    expect(out).not.toContain('Field.tsx:6');
     expect(out.split('\n').at(-1)).toBe('code-shape: ok');
   });
 
@@ -438,11 +448,14 @@ describe('docs-sync check', () => {
     const schema = 'export const Budget = Schema.Struct({ usd: Schema.Number });\n';
     const missing = studioChange(
       { 'docs/reference/config.md': 'See `Bot` in src/folder.ts.\n' },
-      { 'src/folder.ts': schema }
+      { 'src/workflow.ts': schema, 'src/run.ts': schema }
     );
     const { ok, out } = check('docs-sync.mjs', missing);
     expect(ok).toBe(false);
-    expect(out).toContain('src/folder.ts:1: Budget is in no docs page');
+    expect(out).toContain(
+      'src/workflow.ts:1: Budget is in no docs page; name it where it belongs, as "See `Budget` in src/workflow.ts"'
+    );
+    expect(out).not.toContain('src/run.ts');
 
     const named = studioChange(
       { 'docs/reference/config.md': 'See `Bot` in src/folder.ts.\n' },
