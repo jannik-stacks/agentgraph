@@ -53,8 +53,6 @@ import { findUndispatchable, startProposedRun, formatSettled, makeRunId, startRu
 import { runAside, runFollow, runCatchUp } from './follow.ts';
 import { runWorkflow } from './drive.ts';
 import {
-  stoppedByEngine,
-  formatWaitingOn,
   type Outcome,
   type Run,
   type RunRecord,
@@ -458,7 +456,11 @@ export const tick = (
                         again: true,
                       };
                     return {
-                      run: yield* writeStatus(w, { ...seen, reason: `${stoppedByEngine}.`, retried: true }, graph),
+                      run: yield* writeStatus(
+                        w,
+                        { ...seen, waiting: { on: 'engine', error: e._tag }, retried: true },
+                        graph
+                      ),
                       again: true,
                     };
                   })
@@ -475,11 +477,7 @@ export const tick = (
           },
           took.map(event => ({ ...event, issue: origin.get(event) ?? event.issue }))
         );
-        const next =
-          run.status === 'waiting' && run.reason && (moved.status !== 'waiting' || isParked(run))
-            ? yield* writeMovedStatus(w, run, moved, graph)
-            : yield* writeStatus(w, moved, graph);
-        yield* record(run, outcome, next);
+        yield* record(run, outcome, yield* writeMovedStatus(w, run, moved, graph));
       }).pipe(Effect.scoped);
     for (const before of runs.filter(r => r.status === 'waiting' && !touched.some(t => t.id === r.id)))
       yield* Effect.gen(function* () {
@@ -487,10 +485,9 @@ export const tick = (
         const parent = yield* store.get(before.id);
         if (!parent || parent.status !== 'waiting') return;
         const w = graph.workflows[parent.workflow];
-        const child = all.find(
-          c => c.by === parent.id && parent.reason === formatWaitingOn(c) && c.status !== 'running'
-        );
-        const due = !child && parent.reason?.startsWith(stoppedByEngine) && (yield* isEngineRetryDue(parent.id));
+        const waited = parent.waiting?.on === 'run' && parent.waiting.id;
+        const child = all.find(c => c.by === parent.id && c.id === waited && c.status !== 'running');
+        const due = !child && parent.waiting?.on === 'engine' && (yield* isEngineRetryDue(parent.id));
         if (!w || (!child && !due)) return;
         const outcome: Outcome = { kind: 'answer', text: child ? formatSettled(child) : engineRetry };
         const next = transition(w, parent, outcome);

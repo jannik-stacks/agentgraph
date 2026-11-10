@@ -11,6 +11,7 @@ import {
 import { useSetAtom } from 'jotai';
 import type { ReactNode } from 'react';
 import type { WorkflowGraph } from '../../../src/graph.ts';
+import { formatReason } from '../../../src/types.ts';
 import type { RunDrawnOnWorkflow } from './scenarios.ts';
 import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
@@ -152,15 +153,17 @@ const shineTiming = (id: string) => {
 };
 
 const statusLine = (node: GraphNode, run: RunDrawnOnWorkflow['run']) =>
-  run.status === 'waiting' && run.reason !== undefined
-    ? 'asking you'
-    : run.status === 'waiting'
-      ? 'waiting for you'
-      : run.status === 'stopped'
-        ? 'stopped'
-        : node.run && node.run.tries > 0
-          ? `try ${Math.min(node.run.tries + 1, node.tries)} of ${node.tries}`
-          : 'working';
+  run.status === 'waiting' && run.waiting
+    ? formatReason(run)
+    : run.status === 'waiting' && run.reason !== undefined
+      ? 'asking you'
+      : run.status === 'waiting'
+        ? 'waiting for you'
+        : run.status === 'stopped'
+          ? 'stopped'
+          : node.run && node.run.tries > 0
+            ? `try ${Math.min(node.run.tries + 1, node.tries)} of ${node.tries}`
+            : 'working';
 
 /** A step: what it does, its checks and its tries, with the run's position when one is drawn. */
 export const StepCard = ({

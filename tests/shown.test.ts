@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { context, findIssueStatus, formatStatusHeader, proposeQuestion, type IssueWithPull } from '../src/context.ts';
 import { formatRunMark, makeBodyWithStatus, removeRunLink, type Issue } from '../src/event.ts';
-import { stoppedByEngine, type Run } from '../src/types.ts';
+import { type Run } from '../src/types.ts';
 
 const run: Run = {
   id: 'issue-7',
@@ -44,7 +44,7 @@ describe('the issue status', () => {
     expect(findIssueStatus([{ ...run, status: 'waiting' }], true)).toBe('needs-review');
     expect(findIssueStatus([{ ...run, status: 'waiting' }], false)).toBe('needs-answer');
     expect(findIssueStatus([{ ...run, status: 'waiting', reason: 'Which one?' }], true)).toBe('needs-answer');
-    expect(findIssueStatus([{ ...run, status: 'waiting', reason: `${stoppedByEngine}.` }], true)).toBe('needs-answer');
+    expect(findIssueStatus([{ ...run, status: 'waiting', waiting: { on: 'engine' } }], true)).toBe('needs-answer');
     expect(findIssueStatus([{ ...run, status: 'done' }], true)).toBe('done');
     expect(findIssueStatus([], true)).toBeUndefined();
   });
@@ -74,7 +74,16 @@ describe('the issue status', () => {
 
   it('counts a run waiting on a run it started as working', () => {
     const child = { ...run, id: 'child', by: run.id, status: 'done' as const };
-    expect(findIssueStatus([{ ...run, status: 'waiting', reason: 'waiting on child' }, child], true)).toBe('working');
+    expect(findIssueStatus([{ ...run, status: 'waiting', waiting: { on: 'run', id: 'child' } }, child], true)).toBe(
+      'working'
+    );
+  });
+
+  it('takes a question worded like a wait on a run as a question', () => {
+    const child = { ...run, id: 'child', by: run.id, status: 'done' as const };
+    expect(findIssueStatus([{ ...run, status: 'waiting', reason: 'waiting on child' }, child], true)).toBe(
+      'needs-answer'
+    );
   });
 });
 
@@ -100,12 +109,12 @@ describe('the question', () => {
   });
 
   it('says a parked run waits on a retry, and nothing for a run waiting on its own child', () => {
-    const parked = { ...run, status: 'waiting' as const, reason: `${stoppedByEngine}.`, retried: true as const };
+    const parked = { ...run, status: 'waiting' as const, waiting: { on: 'engine' as const }, retried: true as const };
     expect(bodies(run, parked)[0]).toBe(
       '@maintainer Paused on an agentgraph problem, not this change. Reply `/agent` to retry.\n\nRun: http://studio:5492/runs/issue-7'
     );
     const child = { ...run, id: 'child', by: run.id };
-    expect(bodies(run, { ...run, status: 'waiting', reason: 'waiting on child' }, on(), [child])).toEqual([]);
+    expect(bodies(run, { ...run, status: 'waiting', waiting: { on: 'run', id: 'child' } }, on(), [child])).toEqual([]);
   });
 });
 

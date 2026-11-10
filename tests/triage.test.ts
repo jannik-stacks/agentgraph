@@ -17,7 +17,7 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start } from './fixtures.ts';
 import { appendIssueAt, findStatus, git, issuePath, writeIssueAt } from './kit.ts';
-import { stoppedByEngine, type Run, type SessionEvent } from '../src/types.ts';
+import { type Run, type SessionEvent } from '../src/types.ts';
 import { graph as plain, makeTestEvent } from './world.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));
@@ -492,7 +492,7 @@ describe('dispatch', () => {
     const router = first.value[0]!;
     const [child] = (await runs(where)).filter(r => r.workflow === 'triage');
     expect(child).toMatchObject({ issue: 1, status: 'running', by: router.id });
-    expect(router).toMatchObject({ workflow: 'router', status: 'waiting', reason: `waiting on ${child!.id}` });
+    expect(router).toMatchObject({ workflow: 'router', status: 'waiting', waiting: { on: 'run', id: child!.id } });
 
     await run(where, [turn({ kind: 'label', add: ['size/S'] })], tick(graph));
     expect((await runs(where)).find(r => r.id === child!.id)!.status).toBe('done');
@@ -812,7 +812,7 @@ describe('a run parked by an engine error', () => {
     await putRun(where, {
       ...begin(graph.workflows.router!, { id: 'router-1', issue: 1, started: at(0) }),
       status: 'waiting',
-      reason: `${stoppedByEngine} (SandboxError). Reply to try router again from where it was.`,
+      waiting: { on: 'engine', error: 'SandboxError' },
       retried: true,
     });
     const step = 'router';
@@ -842,7 +842,7 @@ describe('a pass', () => {
     await putRun(where, {
       ...begin(graph.workflows.router!, { id: 'router-2', issue: 2, started: at(0) }),
       status: 'waiting',
-      reason: `${stoppedByEngine} (SandboxError). Reply to try router again from where it was.`,
+      waiting: { on: 'engine', error: 'SandboxError' },
     });
     await Effect.runPromise(
       Effect.flatMap(Store, s => s.trace('router-2', { at: at(9), step: 'router', saved: { status: 'waiting' } })).pipe(

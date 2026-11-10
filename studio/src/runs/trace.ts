@@ -81,6 +81,7 @@ const listedFields = [
   'tries',
   'rounds',
   'reason',
+  'waiting',
   'said',
   'by',
   'started',

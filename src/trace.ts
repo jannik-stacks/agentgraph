@@ -13,6 +13,7 @@ export const makeOutcomeLine = (step: string, outcome: Outcome, next: Run, failu
     tries: next.tries,
     rounds: next.rounds,
     ...(next.reason !== undefined && { reason: next.reason }),
+    ...(next.waiting && { waiting: next.waiting }),
   },
 });
 

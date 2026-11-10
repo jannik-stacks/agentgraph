@@ -7,7 +7,7 @@ import { readHeardOutcome, readIssueWithPull, writeHeardEvents } from '../src/ru
 
 import type { Event } from '../src/event.ts';
 import { sumHumanInteractions } from '../src/results.ts';
-import { stoppedByEngine, formatWaitingOn, type Run, type Trace } from '../src/types.ts';
+import { type Run, type Trace } from '../src/types.ts';
 import { tmp } from './kit.ts';
 import { fresh, graph, makeTestEvent, w, world } from './world.ts';
 
@@ -110,9 +110,9 @@ it('counts each human action once across runs, inside each run, and only waits f
       heard(31),
       saved(6, { status: 'waiting', reason: 'Done?' }),
       saved(10, { status: 'running' }, ['reason']),
-      saved(11, { status: 'waiting', reason: `${stoppedByEngine}.` }),
-      saved(12, { status: 'waiting', reason: formatWaitingOn({ id: 'child' }) }),
-      saved(13, { status: 'waiting' }, ['reason']),
+      saved(11, { status: 'waiting', waiting: { on: 'engine', error: 'SessionStop' } }),
+      saved(12, { status: 'waiting', waiting: { on: 'run', id: 'child' } }),
+      saved(13, { status: 'waiting' }, ['waiting']),
     ],
   };
   const second = {

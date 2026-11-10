@@ -1,4 +1,3 @@
-import { stoppedByEngine } from '../src/types.ts';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -126,7 +125,7 @@ it('resumes a parked run through the engine services the host was given', async 
       store.put({
         ...begin(flow, { id: 'retro-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }),
         status: 'waiting',
-        reason: `${stoppedByEngine} (SessionStop).`,
+        waiting: { on: 'engine', error: 'SessionStop' },
         retried: true,
       })
     )

@@ -22,15 +22,7 @@ import { removeThreads, writeEyes, writeStatus, readRunSpend, runEndChecks } fro
 import { moveCheckoutOnto, readBaseGain } from './follow.ts';
 import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
-import {
-  stoppedByEngine,
-  type Outcome,
-  type Run,
-  type SessionStop,
-  type StoreError,
-  type TrackerError,
-  formatCause,
-} from '../types.ts';
+import { type Outcome, type Run, type SessionStop, type StoreError, type TrackerError, formatCause } from '../types.ts';
 
 /** The open pull request a run on `issue` stacks on: the one it names, or the one of the issue it names. */
 const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
@@ -222,7 +214,6 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
     });
     const halt = (e: SandboxError | SessionStop | TrackerError) => {
       const why = formatFailure(e);
-      const said = `${stoppedByEngine}.`;
       if (e._tag === 'SessionStop' && e.reason === 'human')
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: 'Stopped by a person.' }));
       if (e._tag === 'SessionStop' && e.reason === 'login')
@@ -231,7 +222,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       if (!current.retried && !host) return settle({ kind: 'ask', question: why }, { ...current, retried: true });
       return settle(
         { kind: 'ask', question: why },
-        { ...removeThreads(current), status: 'waiting', reason: said, retried: true }
+        { ...removeThreads(current), status: 'waiting', waiting: { on: 'engine', error: e._tag }, retried: true }
       );
     };
     yield* store.lock(run.id);

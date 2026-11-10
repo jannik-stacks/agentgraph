@@ -2,6 +2,7 @@ import { atom, type ExtractAtomValue, useAtom, useAtomValue, useSetAtom } from '
 import { useEffect, useMemo, useState } from 'react';
 import { isOnIssue } from '../../../src/graph.ts';
 import { findRunsWaitingOnPeople, formatInstanceFlags, formatNextSteps } from '../../../src/status.ts';
+import { formatReason } from '../../../src/types.ts';
 import {
   getRunsAtom,
   instances,
@@ -101,7 +102,10 @@ const NextSteps = ({ run, r }: { run: Parameters<typeof formatNextSteps>[0]; r: 
   const github = local ? undefined : r.repo || '<owner>/<repo>';
   return (
     <pre className="py-1 whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
-      {[run.reason, ...formatNextSteps(run, github, formatInstanceFlags(undefined, undefined, r.instance)).slice(1)]
+      {[
+        formatReason(run),
+        ...formatNextSteps(run, github, formatInstanceFlags(undefined, undefined, r.instance)).slice(1),
+      ]
         .filter(Boolean)
         .join('\n')}
     </pre>

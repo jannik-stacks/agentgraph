@@ -87,7 +87,7 @@ describe('studio navigation', () => {
     const html = renderRuns(
       [
         { ...base, id: 'issue-2', issue: 2, status: 'waiting' },
-        { ...base, id: 'router-3', issue: 3, status: 'waiting', reason: 'waiting on triage-3' },
+        { ...base, id: 'router-3', issue: 3, status: 'waiting', waiting: { on: 'run', id: 'triage-3' } },
         { ...base, id: 'triage-3', issue: 3, status: 'running', by: 'router-3' },
         { ...base, id: 'router-4', issue: 4, status: 'waiting', reason: 'Hello or hi?' },
         done,

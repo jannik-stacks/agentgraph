@@ -13,7 +13,7 @@ import { makeTestGraph, reply, start } from './fixtures.ts';
 import { bodies, services, settleLongAgo, world } from './world.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { findStatus, issuePath } from './kit.ts';
-import { stoppedByEngine, type Run } from '../src/types.ts';
+import { type Run } from '../src/types.ts';
 
 const small = makeTestGraph('graph');
 const { branch: _branch, ...unbranched } = small.workflows.issue!;
@@ -27,10 +27,15 @@ const graph = { ...small, workflows: { retro: flow } };
 const parked = (id: string): Run => ({
   ...begin(flow, { id, issue: 7, started: '2026-10-16T00:00:01.000Z' }),
   status: 'waiting',
-  reason: `${stoppedByEngine} (SessionStop). Reply to try implement again from where it was.`,
+  waiting: { on: 'engine', error: 'SessionStop' },
   retried: true,
   feedback: 'Keep the original feedback.',
 });
+
+const asking = (id: string, reason: string): Run => {
+  const { waiting: _waiting, ...rest } = parked(id);
+  return { ...rest, reason };
+};
 
 describe('resume', () => {
   it.each(['id', 'parked'] as const)(
@@ -76,9 +81,9 @@ describe('resume', () => {
         )
       );
       await run(settleLongAgo('issue-7'));
-      const { reason: _reason, ...working } = parked('retro-7');
+      const { waiting: _waiting, ...working } = parked('retro-7');
       const paused = await run(runWorkflow(flow, { ...working, status: 'running' }, combined));
-      expect(paused.reason).toContain(stoppedByEngine);
+      expect(paused.waiting).toMatchObject({ on: 'engine' });
       expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(7))))).toEqual(['/agent']);
       expect(findStatus(where.tracker, 7)).toBe('done');
       const next = services(where, [[start('r'), reply()]]);
@@ -94,7 +99,7 @@ describe('resume', () => {
         findRunsWaitingOnPeople([paused])
           .flatMap(r => formatNextSteps(r))
           .join('\n')
-      ).toContain('retro-7 retro #7 is waiting: Stopped by an engine error.');
+      ).toContain('retro-7 retro #7 is waiting: Stopped by an engine error (');
     },
     60_000
   );
@@ -104,9 +109,9 @@ describe('resume', () => {
     const { retried: _retried, ...notRetried } = parked('not-retried');
     const runs: Run[] = [
       parked('retro-1'),
-      { ...parked('retro-2'), reason: `${stoppedByEngine} (SandboxError). Reply to try again.` },
-      { ...parked('question'), reason: 'Which version?' },
-      { ...parked('cancelled'), reason: 'Cancelled by a person.' },
+      { ...parked('retro-2'), waiting: { on: 'engine', error: 'SandboxError' } },
+      asking('question', 'Which version?'),
+      asking('cancelled', 'Cancelled by a person.'),
       { ...parked('done'), status: 'done' },
       { ...parked('running'), status: 'running' },
       notRetried,
@@ -140,7 +145,7 @@ describe('resume', () => {
     ['unknown-step', 'the graph has no step retro/gone'],
   ])('rejects %s without changing the run', async (id, message) => {
     const { run } = services(world(), []);
-    const before = id === 'question' ? { ...parked(id), reason: 'Which version?' } : { ...parked(id), step: 'gone' };
+    const before = id === 'question' ? asking(id, 'Which version?') : { ...parked(id), step: 'gone' };
     await run(Effect.flatMap(Store, store => store.put(before)));
     await expect(run(instruct(graph, { kind: 'resume', id: id === 'missing' ? 'absent' : id }))).rejects.toThrow(
       message

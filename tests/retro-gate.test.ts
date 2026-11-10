@@ -11,7 +11,7 @@ import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import { appendIssueAt, issuePath, writeIssueAt } from './kit.ts';
-import { type Agent, type SessionEvent } from '../src/types.ts';
+import { formatReason, type Agent, type SessionEvent } from '../src/types.ts';
 
 const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'retro-gate'), harnesses));
 
@@ -81,7 +81,7 @@ describe('the retro gate example', () => {
     expect(gated).toMatchObject({
       step: 'gate',
       status: 'waiting',
-      reason: expect.stringMatching(/^waiting on retro-1-/),
+      waiting: { on: 'run', id: expect.stringMatching(/^retro-1-/) },
     });
     const runs = await ticks(where, [[retro], []]);
     expect(runs.map(r => [r.workflow, r.step, r.status]).toSorted()).toEqual([
@@ -201,6 +201,6 @@ describe('a script step', () => {
 
   it.each(kinds)('proposes %s when its returns list it', async kind => {
     const [run] = await ticks(world(), [[implement(0)]], printing(proposals[kind], [kind]));
-    expect([run!.step, run!.status, run!.reason]).toEqual(granted[kind]);
+    expect([run!.step, run!.status, formatReason(run!)]).toEqual(granted[kind]);
   });
 });

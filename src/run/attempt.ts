@@ -46,7 +46,7 @@ import {
   removeThreads,
 } from './settle.ts';
 import {
-  formatWaitingOn,
+  formatReason,
   type CheckResult,
   type Checkout,
   type Outcome,
@@ -624,12 +624,13 @@ export const runAttempt = (
         : [{ proposal: proposed, ok: false, reason: 'its run id was taken' }];
     const applied = [...landed, ...delivered, ...dispatched];
     const failed = [...landed, ...dispatched].filter(a => !a.ok);
+    const waiting = child && { on: 'run' as const, id: child.id };
     yield* writeAppliedTrace(run.id, step.name, applied);
     return done(
       failed.length
         ? { kind: 'failed', checks: [], proposals: failed, problems: [] }
-        : child
-          ? { kind: 'ask', question: formatWaitingOn(child) }
+        : waiting
+          ? { kind: 'ask', question: formatReason({ waiting })!, waiting }
           : {
               kind: 'pass',
               text: replies

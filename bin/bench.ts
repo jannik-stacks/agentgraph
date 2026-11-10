@@ -63,7 +63,7 @@ import {
   readSlotRun,
   referenceArms,
 } from '../bench/runs.ts';
-import { type CheckEntry, type CheckResult } from '../src/types.ts';
+import { formatReason, type CheckEntry, type CheckResult } from '../src/types.ts';
 
 type Case = {
   id: string;
@@ -624,10 +624,10 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   for (let pass = 0; pass < 6; pass++) {
     const [run] = await submitBenchRun(set, input, { graph, issue, setup });
     status = run?.status;
-    reason = run?.reason;
+    reason = run && formatReason(run);
     if (!run || run.status === 'done' || run.status === 'stopped') break;
     if (run.status !== 'waiting') continue;
-    if (!run.reason || answers) break;
+    if (!reason || answers) break;
     await writeComment(dir, 'maintainer', issue, answer);
     answers++;
   }

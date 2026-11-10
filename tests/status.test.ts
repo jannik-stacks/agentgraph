@@ -98,7 +98,7 @@ it('says how to continue on the local tracker, and leaves out a run that waits o
   const runs = [
     { ...base, id: 'a', issue: 3, status: 'waiting', reason: 'which one?' },
     { ...base, id: 'b', issue: 4, status: 'waiting' },
-    { ...base, id: 'p', issue: 5, status: 'waiting', reason: 'waiting on c' },
+    { ...base, id: 'p', issue: 5, status: 'waiting', waiting: { on: 'run', id: 'c' } },
     { ...base, id: 'c', issue: 5, status: 'running', by: 'p' },
   ] as Run[];
   const lines = findRunsWaitingOnPeople(runs).flatMap(r => formatNextSteps(r));

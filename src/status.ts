@@ -1,5 +1,5 @@
 import type { Event, Issue } from './event.ts';
-import { type Run, type Trace } from './types.ts';
+import { formatReason, type Run, type Trace } from './types.ts';
 
 export const findLoginProvider = (trace: Trace[], step: Run['step']) => {
   const outcome = trace.findLast(line => 'outcome' in line);
@@ -27,11 +27,15 @@ export const findLoginProvider = (trace: Trace[], step: Run['step']) => {
     .at(-1);
 };
 
-export const findRunsWaitingOnPeople = <R extends Pick<Run, 'id' | 'status' | 'reason' | 'by' | 'started'>>(
+export const findRunsWaitingOnPeople = <R extends Pick<Run, 'id' | 'status' | 'waiting' | 'by' | 'started'>>(
   runs: readonly R[]
 ) =>
   runs
-    .filter(run => run.status === 'waiting' && !runs.some(c => c.by === run.id && run.reason === `waiting on ${c.id}`))
+    .filter(
+      run =>
+        run.status === 'waiting' &&
+        !runs.some(c => c.by === run.id && run.waiting?.on === 'run' && run.waiting.id === c.id)
+    )
     .toSorted((a, b) => b.started.localeCompare(a.started));
 
 export const formatShellWord = (word: string) =>
@@ -41,17 +45,18 @@ export const formatInstanceFlags = (repo?: string, data?: string, name?: string)
   `${repo ? ` --repo ${formatShellWord(repo)}` : ''}${data ? ` --data ${formatShellWord(data)}` : ''}${name ? ` --instance ${formatShellWord(name)}` : ''}`;
 
 export const formatNextSteps = (
-  run: Pick<Run, 'id' | 'workflow' | 'issue' | 'status' | 'reason'>,
+  run: Pick<Run, 'id' | 'workflow' | 'issue' | 'status' | 'reason' | 'waiting'>,
   github?: string,
   flags = ''
 ) => {
+  const reason = formatReason(run);
   const issue = github && `https://github.com/${github}/issues/${run.issue}`;
   const n = run.issue;
   return [
-    `${run.id} ${run.workflow} #${n} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`,
+    `${run.id} ${run.workflow} #${n} is ${run.status}${reason ? `: ${reason}` : ''}`,
     ...(issue
-      ? [run.reason ? `  Answer at ${issue}` : `  Review the PR linked from ${issue}`]
-      : run.reason
+      ? [reason ? `  Answer at ${issue}` : `  Review the PR linked from ${issue}`]
+      : reason
         ? [`  agi say ${n} "<answer>"${flags}`]
         : [`  agi merge ${n}${flags}`, `  agi review ${n} changes "<why>"${flags}`]),
   ];

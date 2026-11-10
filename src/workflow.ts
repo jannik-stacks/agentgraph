@@ -3,7 +3,7 @@ import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
 import { Count, type Event, type Issue } from './event.ts';
 import { Kind } from './proposal.ts';
-import { CommandLimits, type Outcome, type Run, type RunRecord } from './types.ts';
+import { CommandLimits, formatReason, type Outcome, type Run, type RunRecord } from './types.ts';
 
 /** A graph file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };
@@ -240,7 +240,7 @@ export const isHumanWaitStep = (step: Step) => 'wait' in step.does;
 export const isQuiet = (w: Workflow) => w.on.feedback !== undefined || w.on.conflict !== undefined;
 const entered = (step: Step): Run['status'] => (isHumanWaitStep(step) ? 'waiting' : 'running');
 
-const fresh = ({ feedback: _feedback, reason: _reason, retried: _retried, ...run }: Run): Run => run;
+const fresh = ({ feedback: _feedback, reason: _reason, waiting: _waiting, retried: _retried, ...run }: Run): Run => run;
 
 /** Why a try that leaves its checkout at base fails: its agent returns code and no pull request or finished run holds work. */
 export const unchanged = (returns: readonly string[], held: boolean) =>
@@ -303,8 +303,10 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
     ...owed,
     ...(o.kind === 'stop' && o.restarted && { restarted: o.restarted }),
   });
-  const ask = (question: string): Run =>
-    isQuiet(w) ? stop(question) : { ...fresh(run), status: 'waiting', reason: question };
+  const ask = (question: string, waiting?: Run['waiting']): Run =>
+    isQuiet(w)
+      ? stop(question)
+      : { ...fresh(run), status: 'waiting', ...(waiting ? { waiting } : { reason: question }) };
 
   const forward = (): Run => {
     const next = w.steps[i + 1];
@@ -380,7 +382,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
           problems: [],
         });
       case 'ask':
-        return ask(o.question);
+        return ask(o.question, o.waiting);
       case 'stop':
         return stop(o.why);
       case 'answer':
@@ -404,7 +406,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
     const tries = run.tries >= step.tries ? step.tries - 1 : run.tries;
     const noRoundsLeft = run.tries < step.tries && step.back?.rounds !== undefined && taken >= step.back.rounds;
     const rounds = noRoundsLeft ? { ...run.rounds, [step.name]: taken - 1 } : run.rounds;
-    const answers = [...(run.answers ?? []), { asked: run.reason ?? '', said: o.text }];
+    const answers = [...(run.answers ?? []), { asked: formatReason(run) ?? '', said: o.text }];
     const feedback = run.retried ? [run.feedback, o.text].filter(Boolean).join('\n\n') : o.text;
     return { ...fresh(run), status: entered(step), tries, rounds, feedback, answers };
   }

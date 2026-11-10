@@ -1,7 +1,7 @@
 import type { WorkflowGraph } from '../../../src/graph.ts';
 import { getStepDoerKind } from './chips.ts';
 import { makeTrailOutcome, type RunDrawnOnWorkflow, type Trail } from './scenarios.ts';
-import { type CheckEntry, type Trace } from '../../../src/types.ts';
+import { formatReason, type CheckEntry, type Trace } from '../../../src/types.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
 export const makeRunTrail = (trace: (Trace | CheckEntry)[]): Trail => {
@@ -69,13 +69,14 @@ export function makeWorkflowRunVisits(
   });
   if (run.status !== 'done' && run.status !== 'stopped' && !open) enter(run.step);
 
+  const why = formatReason(run);
   const end: End =
     run.status === 'done'
       ? { kind: 'done' }
       : run.status === 'stopped'
         ? { kind: 'stopped', why: run.reason ?? '' }
-        : run.status === 'waiting' && run.reason !== undefined
-          ? { kind: 'asking', why: run.reason }
+        : run.status === 'waiting' && why !== undefined
+          ? { kind: 'asking', why }
           : run.status === 'waiting'
             ? { kind: 'waiting' }
             : { kind: 'running', try: run.tries + 1 };

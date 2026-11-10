@@ -64,7 +64,7 @@ import {
 } from '../src/services.ts';
 import { fileStore, Store, writeIdleRunsCompressed } from '../src/store.ts';
 import { parseLabelPatch, parseLabels, writeStoredRunLabels } from '../src/labels.ts';
-import { type RunRecord } from '../src/types.ts';
+import { formatReason, type RunRecord } from '../src/types.ts';
 
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
   .version;
@@ -119,7 +119,7 @@ const listRuns = (data: string, filter: Parameters<Store['Service']['list']>[0] 
 const printRuns = (runs: readonly RunRecord[], tag = '') => {
   if (verb === 'resume' && !runs.length) console.log('0 runs parked by engine errors');
   for (const run of runs)
-    console.log(`${tag}${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
+    console.log([`${tag}${run.id} ${run.step} ${run.status}`, formatReason(run)].filter(Boolean).join(': '));
 };
 const makeHarnessChoice = (provider: string | undefined) => ({
   provider,

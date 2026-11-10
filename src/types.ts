@@ -55,7 +55,7 @@ export type Outcome =
   | { kind: 'pass'; answered?: true; text?: string }
   | { kind: 'failed'; checks: CheckResult[]; proposals: Applied[]; problems: string[] }
   | { kind: 'back'; why: string }
-  | { kind: 'ask'; question: string }
+  | ({ kind: 'ask'; question: string } & Pick<Run, 'waiting'>)
   | { kind: 'answer'; text: string }
   | { kind: 'stop'; why: string; restarted?: true };
 
@@ -92,6 +92,15 @@ const RunFields = {
     Schema.mutable(Schema.Array(Schema.Struct({ asked: Schema.String, said: Schema.String })))
   ),
   reason: Text,
+  waiting: Schema.optionalKey(
+    Schema.Union([
+      Schema.Struct({ on: Schema.Literal('run'), id: Schema.String }),
+      Schema.Struct({
+        on: Schema.Literal('engine'),
+        error: Schema.optionalKey(Schema.Literals(['SandboxError', 'SessionStop', 'TrackerError'])),
+      }),
+    ])
+  ),
   restarted: Flag,
   retried: Flag,
   seen: Text,
@@ -302,7 +311,7 @@ export type Trace = { at: string; step: string } & (
   | { applied: Applied }
   | {
       outcome: Outcome;
-      run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason'>;
+      run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds' | 'reason' | 'waiting'>;
       failure?: SessionStop['reason'];
     }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
@@ -368,11 +377,12 @@ export type InstanceHost = {
 
 export type InstanceHosts = Readonly<Record<string, InstanceHost | { why: string }>>;
 
-export const stoppedByEngine = 'Stopped by an engine error';
+export const formatReason = ({ reason, waiting }: Pick<Run, 'reason' | 'waiting'>) =>
+  waiting?.on === 'run'
+    ? `waiting on ${waiting.id}`
+    : waiting
+      ? `Stopped by an engine error${waiting.error ? ` (${waiting.error})` : ''}.`
+      : reason;
 
-export const formatWaitingOn = (child: Pick<Run, 'id'>) => `waiting on ${child.id}`;
-
-export const isWaitingOnPeople = (run: Partial<Pick<Run, 'status' | 'reason'>>) =>
-  run.status === 'waiting' &&
-  !run.reason?.startsWith(stoppedByEngine) &&
-  !run.reason?.startsWith(formatWaitingOn({ id: '' }));
+export const isWaitingOnPeople = (run: Partial<Pick<Run, 'status' | 'waiting'>>) =>
+  run.status === 'waiting' && run.waiting === undefined;

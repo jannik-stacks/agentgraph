@@ -18,7 +18,7 @@ export type Trail = {
 /** A run drawn over its workflow: a simulated one carries its trace, a live one fetches it. */
 export type RunDrawnOnWorkflow = {
   fixture: Fixture;
-  run: Pick<Run, 'id' | 'issue' | 'step' | 'status' | 'tries' | 'rounds' | 'reason' | 'said'>;
+  run: Pick<Run, 'id' | 'issue' | 'step' | 'status' | 'tries' | 'rounds' | 'reason' | 'waiting' | 'said'>;
   trail: Trail;
   trace?: Trace[];
 };

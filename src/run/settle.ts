@@ -14,7 +14,7 @@ import type { Applied, Event } from '../event.ts';
 import type { Services } from './execute.ts';
 import { runEndedChecks } from './evaluate.ts';
 import { readIssueWithPull } from './hear.ts';
-import { stoppedByEngine, type Checkout, type Run, type StoreError, type TrackerError } from '../types.ts';
+import { type Checkout, type Run, type StoreError, type TrackerError } from '../types.ts';
 
 /** Tracker writes made for `run` at its step by `session`; a mark set for the same run and step outside is kept. */
 export const useRunLink =
@@ -26,8 +26,8 @@ export const useRunLink =
         : { run: run.id, step: run.step, ...(session && { session }) }
     );
 
-export const isParked = (run: Run) =>
-  run.status === 'waiting' && run.retried === true && run.reason?.startsWith(stoppedByEngine) === true;
+export const isParked = (run: Pick<Run, 'status' | 'waiting' | 'retried'>) =>
+  run.status === 'waiting' && run.retried === true && run.waiting?.on === 'engine';
 
 export const readRunSpend = (id: string) =>
   Effect.flatMap(Store, store =>
@@ -151,8 +151,8 @@ const announce = (graph: Graph, change: StatusChange) =>
   }).pipe(Effect.catch(e => Effect.logWarning('status hooks', e)));
 
 export const writeMovedStatus = (w: Workflow, asked: Run, moved: Run, graph: Graph) => {
-  const { reason, retried: _retried, ...rest } = moved;
-  return writeStatus(w, isParked(asked) && reason === asked.reason ? rest : moved, graph);
+  const { waiting: _waiting, retried: _retried, ...rest } = moved;
+  return writeStatus(w, isParked(asked) && isParked(moved) ? rest : moved, graph);
 };
 
 export const writeAppliedTrace = (id: string, step: string, applied: Applied[]) =>

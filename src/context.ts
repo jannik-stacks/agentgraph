@@ -1,7 +1,7 @@
 import { formatSpend, getRunSpend } from './trace.ts';
 import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './event.ts';
 import { formatFailedTryFeedback } from './workflow.ts';
-import { stoppedByEngine, type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
+import { formatReason, type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
 export type IssueWithPull = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
@@ -129,10 +129,10 @@ export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen }
 }
 
 const findRunStatus = (run: Run, runs: Run[], pulled: boolean): IssueStatus =>
-  run.status === 'running' || runs.some(r => r.by === run.id && run.reason === `waiting on ${r.id}`)
+  run.status === 'running' || runs.some(r => r.by === run.id && run.waiting?.on === 'run' && run.waiting.id === r.id)
     ? 'working'
     : run.status === 'waiting'
-      ? run.reason || !pulled
+      ? run.reason || run.waiting || !pulled
         ? 'needs-answer'
         : 'needs-review'
       : run.status;
@@ -151,17 +151,18 @@ const formatUpdate = (text: string, run: Run, pull?: string, studio?: string) =>
     .join('\n\n');
 
 export function proposeQuestion(before: Run | undefined, run: Run, t: IssueWithPull, runs: Run[], studio?: string) {
+  const reason = formatReason(run);
   if (
     run.status !== 'waiting' ||
-    run.reason === undefined ||
+    reason === undefined ||
     findRunStatus(run, runs, true) !== 'needs-answer' ||
-    (before?.status === 'waiting' && before.reason === run.reason)
+    (before?.status === 'waiting' && formatReason(before) === reason)
   )
     return [];
   const events = getEvents(t).filter(m => m.trusted && !m.bot);
   const pull = (t.pull ?? (t.issue.pull ? t.issue : undefined))?.url;
   const who = events.toSorted((a, b) => a.at.localeCompare(b.at)).at(-1)?.actor ?? t.issue.author;
-  const text = `@${who} ${run.reason.startsWith(stoppedByEngine) ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${run.reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;
+  const text = `@${who} ${run.waiting ? 'Paused on an agentgraph problem, not this change. Reply `/agent` to retry.' : `${reason}\n\nReply \`/agent\` and your answer, or \`/agent:stop\` to end the run.`}`;
   return [{ kind: 'comment' as const, body: formatUpdate(text, run, pull, studio) }];
 }
 

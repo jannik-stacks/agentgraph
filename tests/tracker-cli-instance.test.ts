@@ -27,7 +27,7 @@ import { loadGraph } from '../src/folder.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { start as main, writeTriggeringIssue } from '../src/main.ts';
 import { createLoopLock, findLoopLock, readLoopHolder } from '../src/owner.ts';
-import { stoppedByEngine, type SessionEvent } from '../src/types.ts';
+import { type SessionEvent } from '../src/types.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, start, wrote } from './fixtures.ts';
@@ -242,7 +242,7 @@ await runLocked(dir, async () => {
     await w.tracker('init', w.seed);
     await w.tracker('issue', 'A question');
     const [parked] = await w.run([], 1, { kind: 'say', issue: 1, text: 'Remember the original request' }, 2);
-    const { reason: _reason, ...running } = { ...parked!, status: 'running' as const, retried: true as const };
+    const { waiting: _waiting, ...running } = { ...parked!, status: 'running' as const, retried: true as const };
     await Effect.runPromise(Effect.flatMap(Store, store => store.put(running)).pipe(Effect.provide(fileStore(w.data))));
     const lock = join(w.data, '.locks', `${running.id}.lock`);
     writeFileSync(lock, String(process.pid));
@@ -323,7 +323,7 @@ await runLocked(dir, async () => {
       ...begin(graph.workflows.triage!, { id: 'triage-1', issue: 1, started: '2026-10-16T00:00:01.000Z' }),
       status: 'waiting' as const,
       retried: true as const,
-      reason: `${stoppedByEngine} (SandboxError). Reply to try triage again.`,
+      waiting: { on: 'engine' as const, error: 'SandboxError' as const },
     };
     await Effect.runPromise(Effect.flatMap(Store, store => store.put(parked)).pipe(Effect.provide(fileStore(data))));
     const flags = ['--dir', sandboxGraph, '--repo', w.seed, '--data', join(w.root, 'instances'), '--tracker', w.dir];

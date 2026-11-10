@@ -790,9 +790,9 @@ describe('scanIssuesAndRunningRuns', () => {
     });
     const layer = Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), dying);
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
-    expect(touched.map(r => [r.issue, r.status, r.reason]).toSorted()).toEqual([
+    expect(touched.map(r => [r.issue, r.status, r.reason ?? r.waiting?.on]).toSorted()).toEqual([
       [7, 'waiting', 'Which file?'],
-      [8, 'waiting', 'Stopped by an engine error.'],
+      [8, 'waiting', 'engine'],
     ]);
   });
 });

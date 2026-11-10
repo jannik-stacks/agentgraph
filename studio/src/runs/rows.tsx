@@ -20,7 +20,7 @@ import {
   splitTraceIntoVisitedSteps,
 } from './trace.ts';
 import type { sumSpend } from '../../../src/stats.ts';
-import { type Exit, type RunRecord } from '../../../src/types.ts';
+import { formatReason, type Exit, type RunRecord } from '../../../src/types.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {
@@ -457,11 +457,14 @@ const sessionRow = (
 };
 
 /** What a run is doing or waiting for, in a sentence or two. */
-export const statusTip = (run: Pick<RunRecord, 'said' | 'issue' | 'status' | 'step' | 'tries' | 'reason'>) => {
+export const statusTip = (
+  run: Pick<RunRecord, 'said' | 'issue' | 'status' | 'step' | 'tries' | 'reason' | 'waiting'>
+) => {
   const at = `issue #${run.said?.[0]?.issue ?? run.issue}`;
   if (run.status === 'running') return `Working on ${run.step}, try ${run.tries + 1}.`;
   if (run.status === 'done') return 'Finished every step.';
   if (run.status === 'stopped') return `Ended early${run.reason ? `: ${run.reason}` : ''}.`;
+  if (run.waiting) return formatReason(run);
   if (run.reason !== undefined)
     return `Asked on ${at}: ${short(run.reason, 300)}\nWaits for an answer: say /agent and the answer there. /agent:stop ends the run.`;
   return `Waits at ${run.step} for a human, not the bot.\nMerge or approve the pull request to move on; say /agent or request changes to send it back; /agent:stop ends the run.`;
@@ -510,9 +513,9 @@ const RunInfo = ({ r }: { r: ServedRun }) => {
       </p>
       {raw && (r.trace ? <Raw value={run} /> : <FetchedRaw r={r} />)}
       {results && <RunResultLines {...results} />}
-      {run.reason && (
+      {formatReason(run) && (
         <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
-          {run.reason}
+          {formatReason(run)}
         </p>
       )}
       {!r.trace && <Visits r={r} />}

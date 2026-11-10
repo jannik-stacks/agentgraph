@@ -662,7 +662,7 @@ describe('drive', () => {
     const parked = await run(runWorkflow(w, fresh(), graph));
     expect(specs).toHaveLength(2);
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', retried: true });
-    expect(parked.reason).toMatch(/^Stopped by an engine error/);
+    expect(parked.waiting).toMatchObject({ on: 'engine' });
     const said = (await run(Effect.flatMap(Tracker, f => f.issue(7)))).events.flatMap(m => m.comment?.body ?? []);
     expect(said.filter(b => b.includes('npm registry'))).toEqual([]);
   });
@@ -910,7 +910,7 @@ describe('drive', () => {
     const parked = await Effect.runPromise(runWorkflow(w, fresh(), graph).pipe(Effect.provide(layer)));
     expect(parked).toMatchObject({
       status: 'waiting',
-      reason: 'Stopped by an engine error.',
+      waiting: { on: 'engine', error: 'SandboxError' },
     });
     expect(readTrace(where.data, 'run-7').filter(t => 'outcome' in t)).toHaveLength(1);
   });
@@ -920,7 +920,7 @@ describe('drive', () => {
     const { run } = services(where, []);
     const parked = await run(runWorkflow(w, { ...fresh(), feedback: 'fix the typo' }, graph));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', feedback: 'fix the typo' });
-    expect(parked.reason).toBe('Stopped by an engine error.');
+    expect(parked.waiting).toEqual({ on: 'engine', error: 'SessionStop' });
     const stops = readTrace(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
     expect(stops).toContainEqual({ kind: 'ask', question: 'SessionStop: no scripted session left' });
     const sessions = readTrace(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));

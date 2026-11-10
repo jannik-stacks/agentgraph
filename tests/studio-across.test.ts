@@ -104,7 +104,9 @@ it('lists the same run id of two instances apart, each linked under its own inst
 
 it('finds who waits on people within each instance, so a run in one never hides a run in another', () => {
   const page = renderRuns('/runs?waiting=you', {
-    live: { value: [listed('live', { id: 'router-3', issue: 3, status: 'waiting', reason: 'waiting on triage-3' })] },
+    live: {
+      value: [listed('live', { id: 'router-3', issue: 3, status: 'waiting', waiting: { on: 'run', id: 'triage-3' } })],
+    },
     bench: { value: [listed('bench', { id: 'triage-3', issue: 3, status: 'running', by: 'router-3' })] },
   });
   expect({
