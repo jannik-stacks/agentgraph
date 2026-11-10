@@ -204,7 +204,7 @@ export const formatStatusHeader = (
       r.workflow,
       r.step,
       r.status,
-      formatSpend(spend(r)),
+      `${formatSpend(spend(r))}${r.limits ? ` of $${r.limits.usdPerRun.value}` : ''}`,
       (r.checkout && links.pull) ?? '',
       links.studio ? `[${r.id}](${makeStudioRunUrl(links.studio, r.id)})` : r.id,
     ].join(' | ')

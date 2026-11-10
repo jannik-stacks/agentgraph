@@ -177,6 +177,11 @@ describe('the status header', () => {
     );
   });
 
+  it('shows the spend against the usd-per-run a run works with', () => {
+    const limited = { ...run, id: 'priced', limits: { usdPerRun: { value: 40 }, minutes: { value: 30 } } };
+    expect(header([limited])).toContain('| running | $0.42 of $40 |');
+  });
+
   it('replaces only its own section at the top of a body, and removes it when empty', () => {
     const once = makeBodyWithStatus('Human text.\n\nMore.', '※ done');
     expect(once).toBe('<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nHuman text.\n\nMore.');

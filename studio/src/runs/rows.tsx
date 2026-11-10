@@ -39,6 +39,8 @@ export type Row = {
 
 const usd = ({ usd: n = 0, unpriced }: Parameters<typeof sumSpend>[0][number]) =>
   `${n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`}${unpriced === undefined ? '' : '+'}`;
+const formatLimitTip = ({ label }: NonNullable<ServedRun['run']['limits']>['usdPerRun']) =>
+  label ? `usd-per-run from ${label.name}, added by ${label.actor}` : 'usd-per-run from settings.yaml';
 const used = (u: Exit['used']) =>
   u
     ? `, ${Math.round(u.peak / 2 ** 20)} MB peak, ${(u.cpu / 1000).toFixed(1)} s cpu${u.oom ? ', out of memory' : ''}`
@@ -632,7 +634,15 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
         <Link href={graphLink(r, target?.step ?? run.step)} instance={r.instance} className="shrink-0 underline">
           graph
         </Link>
-        <Col className="w-[7ch] text-right text-zinc-500">{usd(r)}</Col>
+        <Col className="w-[13ch] text-right text-zinc-500">
+          {run.limits ? (
+            <Tooltip tip={formatLimitTip(run.limits.usdPerRun)}>
+              {usd(r)} of ${run.limits.usdPerRun.value}
+            </Tooltip>
+          ) : (
+            usd(r)
+          )}
+        </Col>
         <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, r.run.status === 'running' ? undefined : (run.ended ?? r.lastAt))}
         </Col>

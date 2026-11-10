@@ -97,6 +97,13 @@ it('says how to continue on the local tracker, and leaves out a run that waits o
   expect(lines.join('\n')).not.toContain('#5');
 });
 
+it('lists a run at its limits with what to do', () => {
+  const why = 'Spent $10.04 of the $10 usd-per-run limit, from settings.yaml. Add agent:usd-per-run:15 to continue.';
+  const base = { workflow: 'issue', step: 'implement', tries: 0, rounds: {}, started: 'x' } as const;
+  const limited = { ...base, id: 'a', issue: 3, status: 'waiting', waiting: { on: 'limits', why } } as Run;
+  expect(findRunsWaitingOnPeople([limited]).flatMap(r => formatNextSteps(r))[0]).toBe(`a issue #3 is waiting: ${why}`);
+});
+
 const askedEngineError = (question: string) => ({
   at: 'x',
   step: 'implement',

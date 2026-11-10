@@ -143,6 +143,16 @@ describe("a run's pull request and branch", () => {
     ).not.toMatch(/pull\/|tree\//);
   });
 
+  it('shows the spend against usd-per-run, with the label that set it', () => {
+    const label = { name: 'agent:usd-per-run:40', actor: 'morgan', at };
+    const limited = { ...run, limits: { usdPerRun: { value: 40, label }, minutes: { value: 30 } } };
+    const head = renderToStaticMarkup(
+      runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run: limited, trace }).summary as never
+    );
+    expect(head).toContain('of $40');
+    expect(head).toContain('usd-per-run from agent:usd-per-run:40, added by morgan');
+  });
+
   it('shows the run labels on the run line', () => {
     const labels = { arm: 'v2', model: 'luna' };
     const head = renderToStaticMarkup(

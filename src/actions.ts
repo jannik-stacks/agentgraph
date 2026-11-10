@@ -20,6 +20,7 @@ export const listedRunFields = [
   'rounds',
   'reason',
   'waiting',
+  'limits',
   'said',
   'by',
   'started',
