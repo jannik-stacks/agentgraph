@@ -533,7 +533,7 @@ export const tick = (
         };
         const run = yield* startRun(begun, run =>
           Effect.andThen(
-            writeHeardEvents(run, m ? [{ ...m, issue: origin.get(m) ?? m.issue }] : []),
+            writeHeardEvents(run, m ? [{ ...m, issue: origin.get(m) ?? m.issue }] : [], run.started),
             Effect.flatMap(run.status === 'running' ? Effect.succeed(run) : writeStatus(w, run, graph), r =>
               m ? eyes(r, m) : Effect.succeed(r)
             )
@@ -670,7 +670,7 @@ export const tick = (
             .join('\n\n'),
         };
         const heard = fresh.map(m => ({ ...m, issue: origin.get(m) ?? m.issue }));
-        if (yield* startRun(begun, r => Effect.as(writeHeardEvents(r, heard), r))) touched.push(begun);
+        if (yield* startRun(begun, r => Effect.as(writeHeardEvents(r, heard, r.started), r))) touched.push(begun);
       }
     }
 

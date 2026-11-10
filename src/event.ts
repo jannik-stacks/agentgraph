@@ -1,6 +1,5 @@
 import { Schema, type Types } from 'effect';
 import type { Proposal } from './proposal.ts';
-import { getSha } from './hash.ts';
 
 export const issueStatuses = ['working', 'needs-review', 'needs-answer', 'done', 'stopped'] as const;
 export type IssueStatus = (typeof issueStatuses)[number];
@@ -75,22 +74,6 @@ export const Event = Schema.Struct({
   check: Schema.optionalKey(Schema.Struct({ name: Schema.String, conclusion: Schema.String })),
 });
 export type Event = Types.Mutable<typeof Event.Type>;
-
-export const getEventKey = (m: Event) =>
-  getSha(
-    JSON.stringify([
-      m.issue,
-      m.id,
-      m.kind,
-      m.comment?.body,
-      m.comment?.edited,
-      m.label,
-      m.reviewer,
-      m.column?.name,
-      m.commit?.title,
-      m.check?.conclusion,
-    ])
-  );
 
 /**
  * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction

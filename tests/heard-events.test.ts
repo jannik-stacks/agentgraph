@@ -29,7 +29,7 @@ it('records each revision of what a run hears once, after the line that says sin
   const lines = await Effect.runPromise(
     Effect.gen(function* () {
       yield* startRun(run);
-      yield* writeHeardEvents(run, [first, first, said('cli-1', 'go', first.at, 'cli')]);
+      yield* writeHeardEvents(run, [first, first, said('cli-1', 'go', first.at, 'cli')], run.started);
       yield* writeHeardEvents(run, [first, { ...first, comment: { ...first.comment!, body: 'hi again' } }]);
       return yield* Stream.runCollect((yield* Store).read(run.id));
     }).pipe(Effect.provide(fileStore(tmp('heard'))))

@@ -35,7 +35,6 @@ export const startRun = <A extends RunRecord, E = never, R = never>(
     if (!locked) return;
     if (yield* store.getRecord(run.id)) return;
     yield* store.put(run);
-    yield* store.trace(run.id, { at: run.started, step: run.step, inputs: { since: run.started } });
     const first = yield* ready(run);
     if (first !== run) yield* store.put(first);
     return first;

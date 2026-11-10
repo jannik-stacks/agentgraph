@@ -1,5 +1,6 @@
 import { Effect, Stream } from 'effect';
-import { type Issue, type Event, getEventKey } from '../event.ts';
+import type { Issue, Event } from '../event.ts';
+import { getSha } from '../hash.ts';
 import type { Graph } from '../folder.ts';
 import { type Workflow, isRunDone, isQuiet, getEventOutcome, fold, pickCommandTarget } from '../workflow.ts';
 import { type IssueWithPull, getEvents } from '../context.ts';
@@ -83,7 +84,23 @@ export const readIssueWithPull = (
     };
   });
 
-export const writeHeardEvents = (run: Pick<Run, 'id' | 'step'>, events: readonly Event[]) =>
+const getEventKey = (m: Event) =>
+  getSha(
+    JSON.stringify([
+      m.issue,
+      m.id,
+      m.kind,
+      m.comment?.body,
+      m.comment?.edited,
+      m.label,
+      m.reviewer,
+      m.column?.name,
+      m.commit?.title,
+      m.check?.conclusion,
+    ])
+  );
+
+export const writeHeardEvents = (run: Pick<Run, 'id' | 'step'>, events: readonly Event[], since?: string) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const lines = yield* Stream.runCollect(store.read(run.id));
@@ -91,7 +108,7 @@ export const writeHeardEvents = (run: Pick<Run, 'id' | 'step'>, events: readonly
     const heard = new Map(events.filter(m => m.source !== 'cli').map(m => [getEventKey(m), m]));
     const at = new Date().toISOString();
     const added: Trace[] = [
-      ...(lines.some(t => 'inputs' in t) ? [] : [{ at, step: run.step, inputs: { since: at } }]),
+      ...(lines.some(t => 'inputs' in t) ? [] : [{ at, step: run.step, inputs: { since: since ?? at } }]),
       ...[...heard].flatMap(([key, spoken]) => (known.has(key) ? [] : [{ at, step: run.step, spoken }])),
     ];
     if (added.length) yield* store.trace(run.id, ...added);
