@@ -5,7 +5,7 @@
 //   node docs-mentions.mjs <code-root> <docs-root>      e.g. node docs-mentions.mjs src/ docs/
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { readBaseShaFromEnv, changedFiles, readChangeDiff } from './changes.mjs';
+import { readEnvBaseSha, changedFiles, readChangeDiff } from './changes.mjs';
 
 const [code, docs] = process.argv.slice(2);
 if (!code || !docs) throw new Error('usage: docs-mentions.mjs <code-root> <docs-root>');
@@ -23,7 +23,7 @@ const findExports = lines =>
     return [{ name, from }];
   });
 
-const sha = readBaseShaFromEnv();
+const sha = readEnvBaseSha();
 const touched = new Map();
 for (const { path, deleted } of changedFiles(sha)) {
   if (deleted || !path.startsWith(code) || !/\.(ts|tsx|mts)$/.test(path)) continue;

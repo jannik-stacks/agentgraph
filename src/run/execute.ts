@@ -69,13 +69,6 @@ const withSessionPermit =
       Effect.andThen(permits.resize(graph.limits.sessions), permits.withPermits(1)(effect))
     );
 
-type SessionOptions<A, R> = Partial<{
-  item: string | undefined;
-  until: Effect.Effect<A, never, R> | undefined;
-  aside: Aside;
-  dropped: string;
-}>;
-
 /**
  * One harness session: what it was opened with, every event and how it ended become lines of the trace of the run
  * `into`, or of the list `into`. It holds a session permit only while the harness runs. When `until` ends first, the session is cut short and its result comes back as `cut`.
@@ -87,7 +80,7 @@ export const runSession = <A = never, R = never>(
   into: string | Trace[],
   step: string,
   spec: SessionSpec,
-  o: SessionOptions<A, R> & { fresh?: string } = {}
+  o: Parameters<typeof openSession<A, R>>[4] & { fresh?: string } = {}
 ) => {
   const { fresh, ...rest } = o;
   if (fresh === undefined || !spec.resume) return openSession(graph, into, step, spec, rest);
@@ -106,7 +99,17 @@ const openSession = <A, R>(
   into: string | Trace[],
   step: string,
   spec: SessionSpec,
-  { item, until, aside, dropped }: SessionOptions<A, R>,
+  {
+    item,
+    until,
+    aside,
+    dropped,
+  }: Partial<{
+    item: string | undefined;
+    until: Effect.Effect<A, never, R> | undefined;
+    aside: Aside;
+    dropped: string;
+  }>,
   droppable = false
 ) =>
   Effect.gen(function* () {

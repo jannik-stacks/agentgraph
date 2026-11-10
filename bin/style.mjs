@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { formatRetiredAdvice, retiredWords } from '../src/retired.ts';
@@ -29,10 +30,13 @@ const dirs = ['src', 'harnesses', 'bin', 'bench', 'tune', 'studio/src'];
 const root = process.cwd();
 const baselinePath = join(root, 'bin/style-baseline.txt');
 
+const phrasalVerb = name => verbs.has(/^([a-z]+)(Of|For|From)[A-Z\d]/.exec(name)?.[1]);
+
 export const findNameProblems = name => {
   if (/^[A-Z]/.test(name)) return [];
   const problems = [];
-  if (/[a-z\d](Of|For|From)$/.test(name)) problems.push('no-of-for');
+  const prepositions = [...name.matchAll(/[a-z\d](Of|For|From)(?=[A-Z\d]|$)/g)];
+  if (prepositions.length > (phrasalVerb(name) ? 1 : 0)) problems.push('no-of-for');
   if (!verbs.has(/^[a-z]+/.exec(name)?.[0]) && !exempt.has(name)) problems.push('verb-first');
   return problems;
 };
@@ -68,8 +72,17 @@ const baseline = new Set(
     ? []
     : readFileSync(baselinePath, 'utf8').split('\n').filter(Boolean)
 );
-const allowedComments = file =>
-  Number([...baseline].find(line => line.startsWith(`no-comment ${file} `))?.split(' ')[2] ?? 0);
+
+const keyComments = comments => {
+  const seen = new Map();
+  return comments.map(c => {
+    const text = c.value.replace(/\s+/g, ' ').trim();
+    const n = (seen.get(text) ?? 0) + 1;
+    seen.set(text, n);
+    const hash = createHash('sha256').update(text).digest('hex').slice(0, 10);
+    return { c, key: n > 1 ? `${hash}-${n}` : hash };
+  });
+};
 
 const getExportedNames = node => {
   const d = node.declaration;
@@ -100,15 +113,9 @@ const noComment = {
     Program: () => {
       const file = relative(root, context.filename);
       const found = context.sourceCode.getAllComments().filter(c => !marked.test(c.value) && !directive.test(c.value));
-      const allowed = allowedComments(file);
-      if (found.length <= allowed) return;
-      if (allowed)
-        context.report({
-          node: found[0],
-          message: `${found.length} comments, the baseline allows ${allowed}: delete one or start it with UNEXPECTED:`,
-        });
-      else
-        for (const c of found) context.report({ node: c, message: 'comment: delete it or start it with UNEXPECTED:' });
+      for (const { c, key } of keyComments(found))
+        if (!baseline.has(`no-comment ${file} ${key}`))
+          context.report({ node: c, message: `${key}: comment, delete it or start it with UNEXPECTED:` });
     },
   }),
 };
@@ -157,6 +164,17 @@ export default {
         return `${n}: ${retired.word} is retired; ${formatRetiredAdvice(retired)} (src/retired.ts)`;
       }
     ),
+    'type-suffix': {
+      create: context => {
+        const file = relative(root, context.filename);
+        const check = ({ id }) => {
+          const suffix = /[a-z\d](Config|Options|Index|Map)$/.exec(id.name)?.[1];
+          if (suffix && !baseline.has(`type-suffix ${file} ${id.name}`))
+            context.report({ node: id, message: `${id.name}: ${suffix} is not a type suffix, see STYLE.md#naming` });
+        };
+        return { TSTypeAliasDeclaration: check, TSInterfaceDeclaration: check };
+      },
+    },
     'no-comment': noComment,
   },
 };
@@ -172,26 +190,21 @@ const readViolations = () => {
   } catch (e) {
     out = e.stdout;
   }
-  const comments = new Map();
-  const names = [];
-  for (const d of JSON.parse(out).diagnostics) {
-    const rule = /^style\((verb-first|no-of-for|unique-export|retired-word|no-comment)\)/.exec(d.code)?.[1];
-    if (rule === 'no-comment') comments.set(d.filename, (comments.get(d.filename) ?? 0) + 1);
-    else if (rule) names.push(`${rule} ${d.filename} ${d.message.split(':')[0]}`);
-  }
-  return [...names, ...[...comments].map(([file, n]) => `no-comment ${file} ${n}`)].sort();
+  return JSON.parse(out)
+    .diagnostics.flatMap(d => {
+      const rule = /^style\(([\w-]+)\)/.exec(d.code)?.[1];
+      return rule ? [`${rule} ${d.filename} ${d.message.split(':')[0]}`] : [];
+    })
+    .toSorted();
 };
 
 if (process.argv[1] === import.meta.filename) {
-  const now = readViolations();
-  if (process.argv.includes('--write')) {
-    writeFileSync(baselinePath, now.join('\n') + '\n');
-    console.log(`${now.length} baseline entries`);
-  } else {
-    const fresh = now.filter(line => !baseline.has(line));
-    const gone = [...baseline].filter(line => !now.includes(line));
-    for (const line of fresh) console.log(`not in bin/style-baseline.txt: ${line}`);
-    for (const line of gone) console.log(`fixed, run node bin/style.mjs --write: ${line}`);
-    process.exit(fresh.length || gone.length ? 1 : 0);
-  }
+  const now = new Set(readViolations());
+  const write = process.argv.includes('--write');
+  const fresh = [...now].filter(line => !baseline.has(line));
+  const [kept, gone] = [[...baseline].filter(line => now.has(line)), [...baseline].filter(line => !now.has(line))];
+  for (const line of fresh) console.log(`new, fix it or add a reviewed exception to bin/style-baseline.txt: ${line}`);
+  if (write) writeFileSync(baselinePath, kept.join('\n') + '\n');
+  for (const line of gone) console.log(write ? `removed: ${line}` : `fixed, run node bin/style.mjs --write: ${line}`);
+  process.exit(fresh.length || (gone.length && !write) ? 1 : 0);
 }

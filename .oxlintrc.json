@@ -191,7 +191,15 @@
       }
     },
     {
-      "files": ["src/docker.ts", "src/mirror.ts", "src/remote.ts", "src/github.ts", "src/harnesses.ts", "src/trackers.ts", "src/runners.ts"],
+      "files": [
+        "src/docker.ts",
+        "src/mirror.ts",
+        "src/remote.ts",
+        "src/github.ts",
+        "src/harnesses.ts",
+        "src/trackers.ts",
+        "src/runners.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -315,7 +323,8 @@
         "style/verb-first": "error",
         "style/no-of-for": "error",
         "style/unique-export": "error",
-        "style/retired-word": "error"
+        "style/retired-word": "error",
+        "style/type-suffix": "error"
       }
     },
     {

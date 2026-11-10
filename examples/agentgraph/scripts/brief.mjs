@@ -61,8 +61,8 @@ export const parseBrief = text => {
     .map(line => /`([^`]+)`/.exec(line)?.[1])
     .filter(Boolean);
   if (!files.length) problems.push('the files section names no file in backticks');
-  const outOfScope = items(parts['Out of scope'] ?? []).map(line => line.replace(/^([-*]|\d+\.)\s+/, ''));
-  return { task, criteria, files, outOfScope, problems };
+  const excluded = items(parts['Out of scope'] ?? []).map(line => line.replace(/^([-*]|\d+\.)\s+/, ''));
+  return { task, criteria, files, excluded, problems };
 };
 
 const issueNumber = () => {

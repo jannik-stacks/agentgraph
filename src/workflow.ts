@@ -402,8 +402,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
     if (o.kind !== 'answer') return run;
     const taken = run.rounds[step.name] ?? 0;
     const tries = run.tries >= step.tries ? step.tries - 1 : run.tries;
-    const outOfRounds = run.tries < step.tries && step.back?.rounds !== undefined && taken >= step.back.rounds;
-    const rounds = outOfRounds ? { ...run.rounds, [step.name]: taken - 1 } : run.rounds;
+    const noRoundsLeft = run.tries < step.tries && step.back?.rounds !== undefined && taken >= step.back.rounds;
+    const rounds = noRoundsLeft ? { ...run.rounds, [step.name]: taken - 1 } : run.rounds;
     const answers = [...(run.answers ?? []), { asked: run.reason ?? '', said: o.text }];
     const feedback = run.retried ? [run.feedback, o.text].filter(Boolean).join('\n\n') : o.text;
     return { ...fresh(run), status: entered(step), tries, rounds, feedback, answers };
@@ -508,6 +508,7 @@ export function pickCommandTarget(
     const allowed = graph.commands?.[name] ?? true;
     if (allowed === false) return `\`/agent:${name}\` is turned off here.`;
     if (allowed !== true && !allowed.includes(m.actor)) return `Only ${allowed.join(', ')} may use \`/agent:${name}\`.`;
+    return undefined;
   };
   const why = [picked?.name, verb].map(name => name && whyNot(name)).find(Boolean);
   return why ? { why } : { verb, step, text: said.text, run, workflow };

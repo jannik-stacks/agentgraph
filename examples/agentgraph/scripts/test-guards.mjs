@@ -11,7 +11,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { findBrief, findReply, parseBrief } from './brief.mjs';
-import { addedLines, readBaseShaFromEnv, baseText, changedFiles, inBase, isTestFile, ownLines, report, parseTestCallTitle } from './changes.mjs';
+import { addedLines, readEnvBaseSha, baseText, changedFiles, inBase, isTestFile, ownLines, report, parseTestCallTitle } from './changes.mjs';
 
 const count = (text, pattern) => text.match(pattern)?.length ?? 0;
 const testCalls = /\b(it|test)(\.each\([^)]*\))?\(/g;
@@ -35,7 +35,7 @@ const parseTimeout = text => {
   }
 };
 
-const sha = readBaseShaFromEnv();
+const sha = readEnvBaseSha();
 const changed = changedFiles(sha);
 const findings = [];
 
@@ -131,9 +131,9 @@ const criteria = () => {
       return [];
     }
   };
-  const { criteria, outOfScope } = parseBrief(brief);
+  const { criteria, excluded } = parseBrief(brief);
   const closes = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#\d+/i.exec(findReply() ?? '');
-  if (closes && outOfScope.some(line => line.startsWith('Follow-up:')))
+  if (closes && excluded.some(line => line.startsWith('Follow-up:')))
     findings.push(`the reply says "${closes[0]}", but the brief lists follow-ups, so the issue stays open; say "Part of #<issue>"`);
   for (const { n, title, file } of criteria) {
     const still = title.startsWith('still ');

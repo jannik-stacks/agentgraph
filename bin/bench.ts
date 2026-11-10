@@ -1522,7 +1522,7 @@ export const whyPointUnready = async (point: string) => {
 };
 
 /** The maker of a proxy alias or model, from its upstream name: openai, anthropic, google, z-ai, x-ai and so on. */
-export const getModelMakerFromUpstreamName = (model: string, aliases = prices.aliases) => {
+export const findUpstreamModelMaker = (model: string, aliases = prices.aliases) => {
   const name = (aliases[model] ?? model).replace(/^openrouter\//, '');
   if (/^(chatgpt|openai)\/|^gpt-/.test(name)) return 'openai';
   if (/^(anthropic\/)?claude/.test(name)) return 'anthropic';
@@ -1535,8 +1535,8 @@ export const makeCrossMakerJudgePanel = (
   contestant: string,
   aliases = prices.aliases
 ) => {
-  const own = getModelMakerFromUpstreamName(contestant, aliases);
-  const other = (name: string) => getModelMakerFromUpstreamName(judgeModels[name]!, aliases) !== own;
+  const own = findUpstreamModelMaker(contestant, aliases);
+  const other = (name: string) => findUpstreamModelMaker(judgeModels[name]!, aliases) !== own;
   const out: Record<string, number> = {};
   for (const [name, n] of Object.entries(chosen)) {
     const judge = other(name) ? name : ['sol', 'gemini', 'opus'].find(j => other(j) && !(j in chosen) && !(j in out));
@@ -1632,7 +1632,7 @@ const judge = async (arm: string, caseDir: string, set: string) => {
       const saved = kept.find(e => e.item === item && e.check.pass)?.check.value as JudgedVerdict | undefined;
       if (saved) return saved;
       for (let attempt = 0; attempt < 3; attempt++) {
-        guard(set, getModelMakerFromUpstreamName(judgeModels[name]!) === 'anthropic');
+        guard(set, findUpstreamModelMaker(judgeModels[name]!) === 'anthropic');
         const got = await step(set, { step: 'judge', case: c.id, arm, judge: name, order }, () =>
           judges[name]!(prompt, tmpdir())
         ).catch(() => ({ text: '' }) as Answer);

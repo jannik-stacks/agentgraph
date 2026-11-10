@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { addedLines, changedFiles, readBaseShaFromEnv, report } from './changes.mjs';
+import { addedLines, changedFiles, readEnvBaseSha, report } from './changes.mjs';
 
 const home =
   /\/Users\/(?!(?:me|you|YOUR-USER|USER|Shared)\b)[\w.-]+|\/home\/(?!(?:me|you|node|user|agent|auth|runner|USER)\b)[a-z][\w.-]*|\/private\/tmp\//;
@@ -27,7 +27,7 @@ const proposals = process.env.AGENTGRAPH_PROPOSALS ? JSON.parse(readFileSync(pro
 for (const p of proposals) for (const why of new Set(strings(p).flatMap(hits))) findings.push(`${p.kind} proposal: names ${why}`);
 
 if (process.env.AGENTGRAPH_BASE) {
-  const sha = readBaseShaFromEnv();
+  const sha = readEnvBaseSha();
   for (const { path, deleted } of changedFiles(sha)) {
     if (deleted) continue;
     for (const why of hits(path)) findings.push(`${path}: its path names ${why}`);

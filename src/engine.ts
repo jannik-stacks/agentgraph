@@ -26,7 +26,7 @@ import { findIssueDir, Tracker, type TrackerSetup, writeAgentComment } from './t
 import { findCheckVerdicts, findLatestChecks } from './trace.ts';
 import { type CheckEntry, type InstanceHost, type Run, type RunRecord, TrackerError } from './types.ts';
 
-type EngineConfig = {
+type EngineSettings = {
   readonly name: string;
   readonly data: string;
   readonly instance?: string;
@@ -40,7 +40,7 @@ export type Submission =
   | { import: { checkout: string; tracker: string; change: string; from?: string; issue?: string } };
 
 export type EngineHost = {
-  readonly configs: readonly EngineConfig[];
+  readonly configs: readonly EngineSettings[];
   readonly readRuns: (config: string) => StoredRun[];
   readonly submit: (
     config: string,
@@ -60,7 +60,7 @@ const readStoredRun = (data: string, id: string, versions: Record<string, string
   };
 };
 
-const readStoredRuns = ({ data, checks = {} }: Pick<EngineConfig, 'data' | 'checks'>) => {
+const readStoredRuns = ({ data, checks = {} }: Pick<EngineSettings, 'data' | 'checks'>) => {
   const versions = Object.fromEntries(Object.entries(checks).map(([check, c]) => [check, c.version]));
   return (existsSync(data) ? readdirSync(data) : []).flatMap(id => readStoredRun(data, id, versions) ?? []);
 };
@@ -78,7 +78,7 @@ export const readEngineErrors = (store: Pick<InstanceHost['store'], 'read'>, dat
   );
 
 export const makeInstanceHost = (
-  config: Pick<EngineConfig, 'data' | 'checks'>,
+  config: Pick<EngineSettings, 'data' | 'checks'>,
   tracker?: { layer: Layer.Layer<Tracker>; origin: TrackerSetup['origin'] },
   local?: { instance: Instance; drive: (instruction: Instruction) => Promise<RunRecord[]> }
 ) => {
@@ -212,7 +212,7 @@ export const runLocalActions = <A, E>(
   return runActions('http://local/', (input, init) => handle(new Request(input, init), 'local'), use);
 };
 
-export const makeEngineHost = (plugin: string, configs: readonly EngineConfig[], submitting = false): EngineHost => {
+export const makeEngineHost = (plugin: string, configs: readonly EngineSettings[], submitting = false): EngineHost => {
   const roots = new Map<string, string>();
   for (const { name, data } of configs) {
     const real = readRealPath(data);

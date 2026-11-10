@@ -3,7 +3,7 @@
 // line, and the hunks that replace them. A line the change adds back elsewhere is a move, not a removal. A reviewer
 // who sees one hunk never asks who relied on the line that went.
 import { findBrief, parseBrief } from './brief.mjs';
-import { addedLines, readBaseShaFromEnv, changedFiles, readChangeDiff } from './changes.mjs';
+import { addedLines, readEnvBaseSha, changedFiles, readChangeDiff } from './changes.mjs';
 
 const roots = ['src', 'examples/agentgraph/scripts'];
 const maxChars = 4000;
@@ -13,7 +13,7 @@ const trivial = /^(\/\/|\/?\*|import\b|[\]})]+[;,]?$)/;
 
 const count = (rows, pattern) => rows.join('\n').match(pattern)?.length ?? 0;
 
-const sha = readBaseShaFromEnv();
+const sha = readEnvBaseSha();
 const added = new Set();
 const addedText = [];
 for (const { path, deleted } of changedFiles(sha)) {
@@ -60,4 +60,4 @@ for (const part of diff.split(/^diff --git /m).slice(1)) {
 const text = findBrief();
 const brief = text ? parseBrief(text) : undefined;
 for (const { replacing, ...item } of items.values())
-  console.log(JSON.stringify({ ...item, replacing: replacing.join('\n').slice(0, maxChars), ...(brief && { task: brief.task, criteria: brief.criteria.map(c => c.text), 'out of scope': brief.outOfScope }) }));
+  console.log(JSON.stringify({ ...item, replacing: replacing.join('\n').slice(0, maxChars), ...(brief && { task: brief.task, criteria: brief.criteria.map(c => c.text), 'out of scope': brief.excluded }) }));

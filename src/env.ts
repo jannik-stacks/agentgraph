@@ -238,7 +238,7 @@ export const parseSetupVolumeKey = (name: string) => name.slice(makeSetupVolumeN
 
 export const isVolumeName = (name: string) => /^\w[\w.-]*$/.test(name);
 
-const envOfLabels = (tag: string, l: Record<string, string>): SandboxSetup => ({
+const parseSetupLabels = (tag: string, l: Record<string, string>): SandboxSetup => ({
   image: tag,
   outputs: JSON.parse(l['agentgraph.outputs'] ?? '[]') as string[],
   complete: l['agentgraph.complete'] === 'true',
@@ -324,7 +324,7 @@ const createSandboxSetup = async (
 ): Promise<SandboxSetup | 'setup' | undefined> => {
   const { key, tag, mode } = b;
   const found = await labels(tag);
-  const env = found && envOfLabels(tag, found);
+  const env = found && parseSetupLabels(tag, found);
   const lower = makeSetupVolumeName(key);
   if (
     env &&

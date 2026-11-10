@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
-import { readBaseShaFromEnv, changedFiles, changeText, parseTestCallTitle } from './changes.mjs';
+import { readEnvBaseSha, changedFiles, changeText, parseTestCallTitle } from './changes.mjs';
 
 const maxChars = 24_000;
 const maxTestLines = 80;
@@ -43,8 +43,8 @@ const clip = change => (change.length > maxChars ? `${change.slice(0, maxChars)}
 
 const text = findBrief();
 if (text) {
-  const { task, criteria, outOfScope } = parseBrief(text);
-  const sha = readBaseShaFromEnv();
+  const { task, criteria, excluded } = parseBrief(text);
+  const sha = readEnvBaseSha();
   const changed = changedFiles(sha)
     .map(({ path }) => path)
     .filter(path => roots.some(root => path.startsWith(root)));
@@ -62,7 +62,7 @@ if (text) {
         test: `it('${title}') in ${file}`,
         ...(code && { 'test code': code }),
         change: clip(changeText(sha, own.length ? own : roots, 'function')),
-        ...(outOfScope.length && { 'out of scope': outOfScope }),
+        ...(excluded.length && { 'out of scope': excluded }),
       })
     );
   }

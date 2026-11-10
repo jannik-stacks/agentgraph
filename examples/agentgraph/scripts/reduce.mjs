@@ -3,7 +3,7 @@
 // whose names share a word with it, so the reviewer can say whether one of them already does its job.
 import { extname } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
-import { addedLines, readBaseShaFromEnv, baseText, changedFiles } from './changes.mjs';
+import { addedLines, readEnvBaseSha, baseText, changedFiles } from './changes.mjs';
 import { existingExports, sharingWords } from './neighbours.mjs';
 
 const maxChars = 40_000;
@@ -14,7 +14,7 @@ const declared = /^\s*(?:export\s+)?(?:async\s+)?(?:function\*?\s+([A-Za-z_$][\w
 const text = findBrief();
 if (text) {
   const { task, criteria } = parseBrief(text);
-  const sha = readBaseShaFromEnv();
+  const sha = readEnvBaseSha();
   const files = changedFiles(sha)
     .filter(({ path, deleted }) => !deleted && code.has(extname(path)))
     .map(({ path }) => ({ path, lines: addedLines(sha, path) }));

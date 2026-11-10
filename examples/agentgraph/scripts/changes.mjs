@@ -9,7 +9,7 @@ const git = (...args) => {
   return read.get(key);
 };
 
-export const readBaseShaFromEnv = () => {
+export const readEnvBaseSha = () => {
   const sha = process.env.AGENTGRAPH_BASE;
   if (!sha) throw new Error('AGENTGRAPH_BASE is not set, so there is no change to check');
   git('rev-parse', '--verify', '--quiet', `${sha}^{commit}`);
@@ -192,7 +192,7 @@ export const readCheckInputFiles = (wanted = () => true) => {
         const text = readFileSync(path, 'utf8');
         return { path, text, lines: text.split('\n').map((row, i) => ({ line: i + 1, text: row })) };
       });
-  const sha = readBaseShaFromEnv();
+  const sha = readEnvBaseSha();
   return changedFiles(sha)
     .filter(({ path, deleted }) => !deleted && wanted(path))
     .map(({ path }) => ({ path, text: readFileSync(path, 'utf8'), lines: addedLines(sha, path) }));

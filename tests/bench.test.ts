@@ -16,7 +16,7 @@ import {
   parseBenchJudgeResponse,
   readCaseImage,
   couplings,
-  getModelMakerFromUpstreamName,
+  findUpstreamModelMaker,
   hiddenShare,
   invalid,
   orders,
@@ -279,9 +279,9 @@ describe('bench helpers', () => {
       gemini: 'openrouter/google/gemini-4-argon',
       glm: 'openrouter/z-ai/glm-5.3',
     };
-    expect(getModelMakerFromUpstreamName('luna', aliases)).toBe('openai');
-    expect(getModelMakerFromUpstreamName('glm', aliases)).toBe('z-ai');
-    expect(getModelMakerFromUpstreamName('claude-opus', aliases)).toBe('anthropic');
+    expect(findUpstreamModelMaker('luna', aliases)).toBe('openai');
+    expect(findUpstreamModelMaker('glm', aliases)).toBe('z-ai');
+    expect(findUpstreamModelMaker('claude-opus', aliases)).toBe('anthropic');
     expect(makeCrossMakerJudgePanel({ sol: 1 }, 'glm', aliases)).toEqual({ sol: 1 });
     expect(makeCrossMakerJudgePanel({ sol: 1 }, 'luna', aliases)).toEqual({ gemini: 1 });
     expect(makeCrossMakerJudgePanel({ opus: 1, sonnet: 2, sol: 2 }, 'smart', aliases)).toEqual({

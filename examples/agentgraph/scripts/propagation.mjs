@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { basename, extname } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { readBaseShaFromEnv, changedFiles, readChangeDiff, report } from './changes.mjs';
+import { readEnvBaseSha, changedFiles, readChangeDiff, report } from './changes.mjs';
 
 const roots = ['src', 'studio', 'docs', 'examples', 'infra', 'bin'];
 const shown = 3;
@@ -61,7 +61,7 @@ const grep = token => {
   }
 };
 
-const sha = readBaseShaFromEnv();
+const sha = readEnvBaseSha();
 const changed = changedFiles(sha).filter(({ path }) => !path.startsWith('tests/') && !path.endsWith('lock.json'));
 const paths = new Set(changed.map(({ path }) => path));
 const now = changed.filter(({ deleted }) => !deleted).map(({ path }) => readFileSync(path, 'utf8'));

@@ -6,7 +6,7 @@
 //   node hunks.mjs <root>...      e.g. node hunks.mjs src/
 import { readFileSync } from 'node:fs';
 import { findBrief, parseBrief } from './brief.mjs';
-import { readBaseShaFromEnv, changedFiles, readChangeDiff, inBase, findDominantTokenRename, swapIn } from './changes.mjs';
+import { readEnvBaseSha, changedFiles, readChangeDiff, inBase, findDominantTokenRename, swapIn } from './changes.mjs';
 
 const roots = process.argv.slice(2);
 if (!roots.length) throw new Error('usage: hunks.mjs <root>...');
@@ -17,10 +17,10 @@ const clip = lines => (lines.length > maxLines ? [...lines.slice(0, maxLines), '
 const code = /\.(ts|tsx|mts|cts|js|mjs)$/;
 
 const brief = findBrief();
-const outOfScope = brief ? parseBrief(brief).outOfScope : [];
-const scoped = outOfScope.length ? { 'out of scope': outOfScope } : {};
+const excluded = brief ? parseBrief(brief).excluded : [];
+const scoped = excluded.length ? { 'out of scope': excluded } : {};
 
-const sha = readBaseShaFromEnv();
+const sha = readEnvBaseSha();
 const changed = changedFiles(sha);
 const { rename } = findDominantTokenRename(sha, changed);
 const files = changed.filter(({ path }) => roots.some(root => path.startsWith(root)));

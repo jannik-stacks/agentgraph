@@ -18,7 +18,7 @@ const roots = at === -1 ? paths : args.splice(at, 2)[1].split(',').filter(Boolea
 const reply = args[0] ? readFileSync(args[0], 'utf8') : findReply();
 if (reply === undefined) console.log('triage-brief: no reply to check; it is read from AGENTGRAPH_REPLY');
 else {
-  const { criteria, files, outOfScope, problems } = parseBrief(reply);
+  const { criteria, files, excluded, problems } = parseBrief(reply);
   const inside = path => roots.some(root => path.startsWith(root));
   for (const file of files.filter(file => !inside(file)))
     problems.push(`${file} is outside what the change may touch (${roots.join(', ')}); leave it out of scope or ask`);
@@ -26,7 +26,7 @@ else {
     for (const why of findSafetyRejections(file, !existsSync(file))) problems.push(`${file}: the safety check would fail it: ${why}`);
   const done = /^## Done when[ \t]*\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/im.exec(findIssue() ?? '')?.[1] ?? '';
   for (const path of new Set(done.match(/`[\w.-]+\/[\w./-]*`/g)?.map(quoted => quoted.slice(1, -1))))
-    if (!inside(path) && !outOfScope.some(line => line.includes(path)))
+    if (!inside(path) && !excluded.some(line => line.includes(path)))
       problems.push(
         `the issue's Done when names ${path}, outside what the change may touch (${roots.join(', ')}); ask to allow it, or list it under "## Out of scope"`
       );
