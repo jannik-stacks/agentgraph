@@ -65,8 +65,9 @@ describe('news', () => {
 });
 
 describe('formatRequest', () => {
-  const run = { workflow: 'router', issue: 17 };
+  const run = { workflow: 'router', sessions: {} };
   const at = (minute: number) => `2026-10-20T10:${String(minute).padStart(2, '0')}:00Z`;
+  const looked = (minute: number) => ({ issue: { id: 's', home: 'h', seen: { at: at(minute) } } });
   const long = `Please rename the helper. ${'Keep every caller working. '.repeat(20)}`;
   const agent = (minute: number, body = '/agent') =>
     said('morgan', at(minute), { id: `c${minute}`, body, agentRequest: body.slice('/agent'.length).trim() });
@@ -103,10 +104,14 @@ describe('formatRequest', () => {
     expect(news(t, news(t, { at: '' }).seen).text).toBe('');
   });
 
-  it('stops at what the run already saw, so a later step does not take a later comment as the request', () => {
-    const t = pull([agent(1), said('morgan', at(2), { id: 'c2', body: 'and the tests too' })]);
-    expect(formatRequest(t, { ...run, started: at(1), seen: at(1) }, []).text).toBe(
-      '## What you were asked\n\n@morgan: /agent'
+  it('stops where the run first looked, so an answer it heard while waiting is not taken as the request', () => {
+    const t = pull([
+      agent(1),
+      said('morgan', at(2), { id: 'c2', body: 'and the tests too' }),
+      said('morgan', at(5), { id: 'c5', body: '/agent yes, go on', agentRequest: 'yes, go on' }),
+    ]);
+    expect(formatRequest(t, { ...run, started: at(1), sessions: looked(2) }, []).text).toBe(
+      '## What you were asked\n\n@morgan: /agent\n\n@morgan: and the tests too'
     );
   });
 
@@ -128,7 +133,7 @@ describe('formatRequest', () => {
     const elsewhere = said('morgan', '2026-10-19T17:03:00Z', { id: '4', body: 'and this?', path: 'kit/src/a.ts' });
     const { text } = formatRequest(
       pull([asked, request, settled, elsewhere]),
-      { ...run, started: request.at, seen: settled.at },
+      { ...run, started: request.at, sessions: { issue: { id: 's', home: 'h', seen: { at: settled.at } } } },
       [{ ...run, started: '2026-10-19T16:00:00Z', seen: asked.at }]
     );
     expect(text).toContain('Earlier in its review thread');

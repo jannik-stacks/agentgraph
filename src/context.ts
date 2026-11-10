@@ -71,7 +71,11 @@ const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined 
 
 const isEngineStatus = (m: Event) => m.bot && (m.kind === 'label' || m.kind === 'unlabel');
 
-export function formatRequest(t: IssueWithPull, run: Pick<Run, 'workflow' | 'started' | 'seen'>, runs: (typeof run)[]) {
+export function formatRequest(
+  t: IssueWithPull,
+  run: Pick<Run, 'workflow' | 'started' | 'sessions'>,
+  runs: Pick<Run, 'workflow' | 'started' | 'seen'>[]
+) {
   const { started } = run;
   const events = getEvents(t).toSorted((a, b) => a.at.localeCompare(b.at));
   const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
@@ -79,6 +83,9 @@ export function formatRequest(t: IssueWithPull, run: Pick<Run, 'workflow' | 'sta
   const since = runs
     .filter(r => r.workflow === run.workflow && r.started < started)
     .reduce((at, r) => ((r.seen ?? r.started) > at ? (r.seen ?? r.started) : at), '');
+  const looked = Object.values(run.sessions)
+    .flatMap(s => s.seen?.at ?? [])
+    .toSorted()[0];
   const threads = new Set(said.map(thread).filter(Boolean));
   const around = events.filter(m => !said.includes(m) && threads.has(thread(m)));
   const asked = events.filter(
@@ -89,7 +96,7 @@ export function formatRequest(t: IssueWithPull, run: Pick<Run, 'workflow' | 'sta
         m.comment &&
         !around.includes(m) &&
         m.at > since &&
-        (run.seen === undefined || m.at <= run.seen))
+        (looked === undefined || m.at <= looked))
   );
   const before = around.filter(m => m.at < started);
   const after = around.filter(m => m.at > started);
