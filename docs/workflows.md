@@ -133,7 +133,7 @@ A run whose spend reached `usd-per-run`, or whose command ran past `minutes`, wa
 Spent $10.04 of the $10 usd-per-run limit, from settings.yaml. Add agent:usd-per-run:15, up to the max of 40, to continue.
 ```
 
-Adding, removing or replacing an `agent:` label resumes the same run, with its spend, sessions and feedback; a plain `/agent` reply does too, for example after raising `max`. The run checks its limits again first and waits again when nothing changed, so it starts no session over its limits. After a timeout only a higher `minutes` resumes it. Retros and conflict follows stop at their limits instead. Add a new label to change a limit; renaming a label in the repository settings writes no issue events. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#transition -->
+A trusted person adding, removing or replacing an `agent:usd-per-run` or `agent:minutes` label resumes the same run, with its spend, sessions and feedback; a plain `/agent` reply does too, for example after raising `max`. The run checks its limits again first and waits again when nothing changed, so it starts no session over its limits. After a timeout only a higher `minutes` resumes it. Retros and conflict follows stop at their limits instead. Add a new label to change a limit; renaming a label in the repository settings writes no issue events. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#transition -->
 
 ## Asides
 

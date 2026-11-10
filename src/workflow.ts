@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
-import { Count, labelPrefix, type Event, type Issue } from './event.ts';
+import { Count, labelPrefix, limitLabels, type Event, type Issue } from './event.ts';
 import { Kind } from './proposal.ts';
 import { CommandLimits, formatReason, type Outcome, type Run, type RunRecord } from './types.ts';
 
@@ -558,8 +558,9 @@ export function getEventOutcome(
   if (
     waiting &&
     run.waiting?.on === 'limits' &&
+    m.trusted &&
     (m.kind === 'label' || m.kind === 'unlabel') &&
-    m.label?.startsWith(labelPrefix)
+    Object.keys(limitLabels).some(key => m.label?.startsWith(`${labelPrefix}${key}:`))
   )
     return { kind: 'answer', text: '' };
   if (m.kind === 'closed' && !isRunDone(run)) return { kind: 'stop', why: 'closed' };

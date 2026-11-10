@@ -139,6 +139,11 @@ describe('a run at its limits', () => {
     const raised = await label(where, 'agent:usd-per-run:3');
     const outcome = getEventOutcome(w, waited, raised)!;
     expect(outcome).toEqual({ kind: 'answer', text: '' });
+    for (const other of [
+      labelled('agent:needs-answer', 'agentgraph[bot]', false),
+      labelled('agent:usd-per-run:3', 'outsider', false),
+    ])
+      expect(getEventOutcome(w, waited, other)).toBeUndefined();
     const resumed = transition(w, waited, outcome);
     expect(resumed).toMatchObject({ status: 'running', step: 'implement', tries: waited.tries });
     const asked = await run(driveStored(w, resumed, capped));

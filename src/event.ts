@@ -7,6 +7,7 @@ export const issueStatuses = ['working', 'needs-review', 'needs-answer', 'done',
 export type IssueStatus = (typeof issueStatuses)[number];
 
 export const labelPrefix = 'agent:';
+export const limitLabels = { 'usd-per-run': 'usdPerRun', minutes: 'minutes' } as const;
 
 const Text = Schema.optionalKey(Schema.String);
 

@@ -4,7 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Result, Schema } from 'effect';
 import { parse } from 'yaml';
-import { Count, issueStatuses, labelPrefix, type Event, type Issue, type IssueStatus } from './event.ts';
+import { Count, issueStatuses, labelPrefix, limitLabels, type Event, type Issue, type IssueStatus } from './event.ts';
 import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
@@ -23,7 +23,6 @@ import {
 import { Agent, Check, CommandLimits, type Run } from './types.ts';
 
 const Positive = Schema.Finite.check(Schema.isGreaterThan(0));
-const labelled = { 'usd-per-run': 'usdPerRun', minutes: 'minutes' } as const;
 
 /** The limits block of settings.yaml. */
 const Limits = Schema.Struct({
@@ -41,7 +40,7 @@ const Limits = Schema.Struct({
   .pipe(Schema.encodeKeys({ usdPerRun: 'usd-per-run' }))
   .check(
     Schema.makeFilter(l => {
-      const low = Object.entries(labelled).find(([, field]) => (l.max?.[field] ?? l[field]) < l[field]);
+      const low = Object.entries(limitLabels).find(([, field]) => (l.max?.[field] ?? l[field]) < l[field]);
       return !low || `max ${low[0]} is below ${low[0]} ${l[low[1]]}`;
     })
   );
@@ -455,8 +454,8 @@ export const parseIssueLimits = (
   limits: Limits,
   issue: Pick<Issue, 'labels'> & { events: readonly Event[] }
 ): RunLimits | { why: string } => {
-  const read = (key: keyof typeof labelled): RunLimits['minutes'] | { why: string } => {
-    const field = labelled[key];
+  const read = (key: keyof typeof limitLabels): RunLimits['minutes'] | { why: string } => {
+    const field = limitLabels[key];
     const prefix = `${labelPrefix}${key}:`;
     const set = issue.labels.flatMap(name => {
       const event = name.startsWith(prefix) ? findTrustedLabel(issue.events, name) : undefined;
@@ -489,8 +488,8 @@ export const makeRunGraph = (graph: Graph, run: Pick<Run, 'limits'>): Graph =>
       }
     : graph;
 
-export const formatLimitRaise = (limits: Limits, run: RunLimits, key: keyof typeof labelled) => {
-  const field = labelled[key];
+export const formatLimitRaise = (limits: Limits, run: RunLimits, key: keyof typeof limitLabels) => {
+  const field = limitLabels[key];
   const { value, label } = run[field];
   const max = limits.max?.[field] ?? limits[field];
   const from = label ? `from ${label.name}` : 'from settings.yaml';
