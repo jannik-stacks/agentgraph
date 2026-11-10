@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
+import type { ServedRun } from '../runs/trace.ts';
 import { Badge, cx, Link, Tooltip } from '../ui.tsx';
 import {
   type CheckField,
@@ -241,26 +242,35 @@ export const ResultTable = ({
   );
 };
 
-const ResultsLink = ({ run, children }: { run: string; children: ReactNode }) => (
-  <Link href={`/results?run=${encodeURIComponent(run)}`} className="underline underline-offset-2">
-    {children}
-  </Link>
-);
+type RunPlace = { place?: Pick<ServedRun, 'instance' | 'data'> | undefined };
+
+const ResultsLink = ({ run, place, children }: RunPlace & { run: string; children: ReactNode }) =>
+  place?.data ? (
+    children
+  ) : (
+    <Link
+      href={`/results?run=${encodeURIComponent(run)}`}
+      instance={place?.instance}
+      className="underline underline-offset-2"
+    >
+      {children}
+    </Link>
+  );
 
 const findFailedGates = (run: RunResults, fields: CheckField[]) =>
   Object.entries(run.results).filter(
     ([check, r]) => !r.pass && !r.na && fields.some(f => f.check === check && f.mode !== 'info')
   );
 
-export const RunResultBadge = ({ run, fields }: { run: RunResults; fields: CheckField[] }) => {
+export const RunResultBadge = ({ run, fields, place }: { run: RunResults; fields: CheckField[] } & RunPlace) => {
   const checks = Object.keys(run.results);
   if (!checks.length) return null;
   const failed = findFailedGates(run, fields).map(([check]) => check);
   return (
     <Tooltip
-      tip={`gates ${failed.length ? `failed: ${failed.join(', ')}` : `passed: ${checks.join(', ')}`}, click for the results`}
+      tip={`gates ${failed.length ? `failed: ${failed.join(', ')}` : `passed: ${checks.join(', ')}`}${place?.data ? '' : ', click for the results'}`}
     >
-      <ResultsLink run={run.key}>
+      <ResultsLink run={run.key} place={place}>
         <Badge>
           {failed.length ? <span className={amber}>{`${failed.length} of ${checks.length} fail`}</span> : 'pass'}
         </Badge>
@@ -271,7 +281,7 @@ export const RunResultBadge = ({ run, fields }: { run: RunResults; fields: Check
 
 const when = (r: RunResult) => (r.later ? `checked later ${r.at.slice(0, 10)}` : 'at run end');
 
-export const RunResultLines = ({ run, fields }: { run: RunResults; fields: CheckField[] }) => {
+export const RunResultLines = ({ run, fields, place }: { run: RunResults; fields: CheckField[] } & RunPlace) => {
   const checks = Object.entries(run.results);
   if (!checks.length) return null;
   const failed = findFailedGates(run, fields);
@@ -314,7 +324,11 @@ export const RunResultLines = ({ run, fields }: { run: RunResults; fields: Check
         <span className="text-zinc-500">results </span>
         {values.join(', ') || 'no values'}
         <span className="text-zinc-500">, {times.join(' and ')} </span>
-        <ResultsLink run={run.key}>all results &gt;</ResultsLink>
+        {!place?.data && (
+          <ResultsLink run={run.key} place={place}>
+            all results &gt;
+          </ResultsLink>
+        )}
       </p>
     </div>
   );

@@ -2,7 +2,8 @@ import { useAtom, useAtomValue } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import { useEffect, useMemo, useRef } from 'react';
 import { dataParam, queryParam, runAtom } from '../state.ts';
-import { Live, Muted } from '../ui.tsx';
+import { NotFound } from '../NotFound.tsx';
+import { Live } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { type ServedRun, lineAt } from './trace.ts';
 
@@ -14,7 +15,7 @@ export const RunPage = ({ id }: { id: string }) => {
   const data = useAtomValue(dataParam);
   return (
     <Live state={useAtomValue(runAtom(id, data))}>
-      {r => (r ? <OpenedRun r={r} /> : <Muted>No run {id} in this data dir.</Muted>)}
+      {r => (r ? <OpenedRun r={r} /> : <NotFound why={`No run ${id} in this data dir.`} />)}
     </Live>
   );
 };

@@ -9,6 +9,7 @@ import {
   type ReactNode,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -176,17 +177,28 @@ const pre = ({ children }: ComponentProps<'pre'>) => {
   return <Code code={String(text ?? '').replace(/\n$/, '')} lang={/language-(\S+)/.exec(className)?.[1]} />;
 };
 
-const a = ({ href = '', ...props }: ComponentProps<'a'>) => {
-  const page = /^([\w-]+)\.md(#.*)?$/.exec(href);
-  if (page) return <Link {...props} href={`/docs/${page[1]}${page[2] ?? ''}`} />;
-  if (href.startsWith('#')) return <a href={href} {...props} />;
-  return <a href={href} {...props} target="_blank" rel="noreferrer" />;
-};
+const makeAnchor =
+  (base: string | undefined) =>
+  ({ href = '', ...props }: ComponentProps<'a'>) => {
+    const page = /^([\w-]+)\.md(#.*)?$/.exec(href);
+    if (page) return <Link {...props} href={`/docs/${page[1]}${page[2] ?? ''}`} />;
+    if (href.startsWith('#')) return <a href={href} {...props} />;
+    const absolute = /^([a-z][\w+.-]*:|\/\/)/i.test(href);
+    if (!absolute && !base) return <span>{props.children}</span>;
+    return <a href={absolute ? href : new URL(href, base).href} {...props} target="_blank" rel="noreferrer" />;
+  };
 
-const components = { pre, a };
-
-/** Markdown with GitHub extensions and highlighted code blocks, sized for panels. */
-export const Markdown = memo(function Markdown({ text, className }: { text: string; className?: string | undefined }) {
+/** Markdown with GitHub extensions and highlighted code blocks, sized for panels; `base` resolves relative links that are not docs pages, which stay text without it. */
+export const Markdown = memo(function Markdown({
+  text,
+  className,
+  base,
+}: {
+  text: string;
+  className?: string | undefined;
+  base?: string;
+}) {
+  const components = useMemo(() => ({ pre, a: makeAnchor(base) }), [base]);
   return (
     <div className={cx('agi-md', className)}>
       <Render components={components}>{text}</Render>

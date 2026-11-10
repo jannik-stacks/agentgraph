@@ -1,5 +1,6 @@
 import * as Plot from '@observablehq/plot';
 import { useEffect, useRef, useState } from 'react';
+import { makeInstanceHref } from '../state.ts';
 import { type CheckField, formatResultValue, readFieldValue, type RunResults } from './result.ts';
 
 type ResultChartEncoding = { x: string; y: CheckField; color?: string | undefined; facet?: string | undefined };
@@ -49,7 +50,7 @@ const ResultChart = ({
           y: v,
           color: color ? (run.axes[color] ?? 'none') : 'all',
           facet: facet ? (run.axes[facet] ?? 'none') : undefined,
-          href: run.href,
+          href: run.href && makeInstanceHref(run.href),
           kept: run.axes.verdict === 'kept',
         },
       ];

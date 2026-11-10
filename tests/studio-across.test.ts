@@ -6,7 +6,8 @@ type Store = { set: (atom: Atom, value: unknown) => void };
 type CreateElement = (type: unknown, props?: object | null, ...children: unknown[]) => unknown;
 
 let html: string;
-let renderRuns: (path: string, groups: Record<string, object>) => string;
+let renderRuns: (path: string, groups: Record<string, object>, results?: Record<string, object>) => string;
+let renderApp: (path: string, runs: Record<string, object | null>) => string;
 let makeInstanceHref: (href: string) => string;
 const served = (name: string, local = false) => ({ name, title: name, local, problems: [] });
 const base = { workflow: 'issue', step: 'merge', tries: 0, rounds: {}, usd: 0, started: '2026-10-25T10:00:00Z' };
@@ -28,6 +29,21 @@ const done = (instance: string) => ({ value: [listed(instance, { id: 'issue-1', 
 beforeAll(async () => {
   Object.assign(globalThis, {
     studioServed: [served('live', true), served('bench')],
+    studioPages: [
+      {
+        name: 'count',
+        title: 'Count',
+        href: '/plugins/count',
+        load: async () => ({ default: () => 'the count page' }),
+      },
+      ...['live', 'bench'].map(instance => ({
+        name: 'results',
+        title: 'Results',
+        href: '/results',
+        builtin: true,
+        instance,
+      })),
+    ],
     location: { pathname: '/plugins/count', search: '', origin: 'http://127.0.0.1' },
     requestIdleCallback: () => 0,
   });
@@ -39,23 +55,35 @@ beforeAll(async () => {
   const state = await studioModule<{
     makeInstanceHref: typeof makeInstanceHref;
     getRunsAtom: (instance: string) => Atom;
+    runResultsAtom: (data: undefined, instance: string) => Atom;
+    runAtom: (id: string, data: null, instance: string) => Atom;
     locationAtom: Atom;
   }>('state.ts');
   ({ makeInstanceHref } = state);
   html = renderToString(createElement(jotai.Provider, { store: jotai.createStore() }, createElement(App)));
-  renderRuns = (path, groups) => {
+  const makeStore = (path: string) => {
     const store = jotai.createStore();
     const url = new URL(path, 'http://studio');
     store.set(state.locationAtom, { path: url.pathname, query: url.searchParams });
+    return store;
+  };
+  renderRuns = (path, groups, results = {}) => {
+    const store = makeStore(path);
     for (const [name, group] of Object.entries(groups)) store.set(state.getRunsAtom(name), group);
+    for (const [name, sheet] of Object.entries(results)) store.set(state.runResultsAtom(undefined, name), sheet);
     return renderToString(createElement(jotai.Provider, { store }, createElement(RunsPage)));
+  };
+  renderApp = (path, runs) => {
+    const store = makeStore(path);
+    for (const [name, run] of Object.entries(runs)) store.set(state.runAtom('issue-1', null, name), { value: run });
+    return renderToString(createElement(jotai.Provider, { store }, createElement(App)));
   };
 });
 
 it('serves a studio page outside every instance, with the Runs of all instances and no instance tabs', () => {
   expect({
     hrefs: hrefs(html),
-    found: !html.includes('Page not found.') && !html.includes('serves no instance'),
+    found: !html.includes('has no page') && !html.includes('serves no instance'),
     api: makeInstanceHref('/api/plugins/count/data'),
   }).toEqual({ hrefs: ['/runs', '/runs', '/plugins/count'], found: true, api: '/api/plugins/count/data' });
   expect(html).not.toContain('<select');
@@ -104,4 +132,33 @@ it.each([
     runs: hrefs(page).filter(href => href.includes('/runs/')),
     unknown: page.includes('names no instance this page lists'),
   }).toEqual({ runs, unknown: !runs.length });
+});
+
+const sheet = (instance: string) => ({
+  value: {
+    fields: [],
+    runs: [
+      { key: 'issue-1', at: base.started, axes: { instance }, results: { humans: { at: base.started, pass: true } } },
+    ],
+  },
+});
+
+it('links the results of a listed run under its own instance', () => {
+  const page = renderRuns('/runs', { live: done('live') }, { live: sheet('live') });
+  expect(hrefs(page).filter(href => href.includes('results'))).toEqual(['/live/results?run=issue-1']);
+});
+
+it.each([
+  ['/results?run=issue-1', 'needs an instance', ['/live/results?run=issue-1']],
+  ['/runs/issue-1', 'needs an instance', ['/live/runs/issue-1']],
+  ['/nope/graph', 'serves no instance named nope', ['/live/graph', '/bench/graph']],
+])('answers %s, which no page serves here, with where it does exist', (path, why, links) => {
+  const page = renderApp(path, { live: listed('live', { id: 'issue-1' }), bench: null });
+  expect({
+    why: page.includes(why),
+    links: hrefs(page).filter(href => !['/runs', '/plugins/count'].includes(href)),
+  }).toEqual({
+    why: true,
+    links,
+  });
 });

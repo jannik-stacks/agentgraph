@@ -2,8 +2,9 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { connectedAtom, dataParam, instances, navigateAtom, pageAtom, shown, studioPages } from './state.ts';
 import { AgentgraphLogo } from './icons.tsx';
+import { NotFound } from './NotFound.tsx';
 import { pages as declared } from 'virtual:agentgraph-pages';
-import { accent, Button, cx, Link, Loading, Muted } from './ui.tsx';
+import { accent, Button, cx, Link, Loading } from './ui.tsx';
 
 const pages = {
   graph: lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage }))),
@@ -66,21 +67,6 @@ const NavTabs = ({
 };
 
 const plugins = new Map([...own, ...(instance ? [] : studioPages)].map(page => [page.href, lazy(page.load)]));
-
-const Unknown = () => (
-  <Muted>
-    This studio serves no instance named {location.pathname.split('/')[1]}. Open{' '}
-    {instances.map(({ name }, i) => (
-      <span key={name}>
-        {i > 0 && ', '}
-        <a className="underline" href={`/${name}/runs`}>
-          {name}
-        </a>
-      </span>
-    ))}
-    .
-  </Muted>
-);
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error | undefined }> {
   override state: { error?: Error | undefined } = {};
@@ -151,9 +137,7 @@ export const App = () => {
       </header>
       <main className="min-h-0 flex-1">
         <Boundary key={`${route}/${id ?? ''}`}>
-          <Suspense fallback={<Loading />}>
-            {unknown ? <Unknown /> : Page ? <Page /> : <p className="p-4">Page not found.</p>}
-          </Suspense>
+          <Suspense fallback={<Loading />}>{unknown || !Page ? <NotFound /> : <Page />}</Suspense>
         </Boundary>
       </main>
     </div>
