@@ -54,7 +54,7 @@ const own = {
 };
 const table: [verb: string, args: string | undefined, flags: (keyof typeof own)[], what: string][] = [
   ['start', 'text', ['workflow', 'label', 'run-label'], 'files an issue and drives it until it waits or ends'],
-  ['label', 'run key=value|key-', [], 'sets or removes labels on a run and prints them'],
+  ['label', 'run|<store>/<run> key=value|key-', [], 'sets or removes labels on a run and prints them'],
   [
     'loop',
     undefined,

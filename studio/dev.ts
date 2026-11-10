@@ -34,8 +34,13 @@ const names = repo
     : findInstances(root).map(i => basename(i.dir));
 if (names.length > 1 && values.dir)
   quit(new Error('--dir picks the graph of one instance; set graph in each instance.yaml'));
-if (names.includes('plugins'))
-  quit(new Error(`an instance named plugins would hide the studio pages at /plugins; rename ${join(root, 'plugins')}`));
+const reserved = names.find(name => name === 'plugins' || name === 'runs');
+if (reserved)
+  quit(
+    new Error(
+      `an instance named ${reserved} would hide the studio pages at /${reserved}; rename ${join(root, reserved)}`
+    )
+  );
 if (names.length && values.tracker)
   quit(new Error('--tracker is for a studio of one --dir; set tracker in instance.yaml'));
 

@@ -9,11 +9,11 @@ let html: string;
 let state: {
   pageAtom: Atom;
   readChanged: (topics: string[]) => void;
-  makeLiveJsonAtom: (path: string, topics: string[]) => Atom;
+  makeLiveJsonAtom: (path: string, topics: string[], read?: undefined, instance?: string) => Atom;
 };
 const fetched: string[] = [];
 const served = (name: string) => ({ name, title: name, local: false, problems: [] });
-const asked = () => fetched.filter(url => url === '/api/topic?instance=bench').length;
+const asked = (instance = 'bench') => fetched.filter(url => url === `/api/topic?instance=${instance}`).length;
 
 beforeAll(async () => {
   Object.assign(globalThis, {
@@ -37,8 +37,11 @@ it('reads the instance from the first path segment and keeps every in-app link u
   const hrefs = [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(m => m[1]);
   expect(hrefs).toContain('/bench/runs');
   expect(hrefs).toContain('/bench/graph');
-  expect(hrefs.filter(href => href?.startsWith('/') && !href.startsWith('/bench/'))).toEqual(['/plugins/count']);
-  expect(html).toMatch(/<option value="live">live<\/option><option value="bench" selected="">bench<\/option>/);
+  expect(hrefs.filter(href => href?.startsWith('/') && !href.startsWith('/bench/'))).toEqual([
+    '/runs',
+    '/plugins/count',
+  ]);
+  expect(html).not.toContain('<select');
 });
 
 it('asks the API for the shown instance and follows only its change topics', async () => {
@@ -54,4 +57,18 @@ it('asks the API for the shown instance and follows only its change topics', asy
   expect(asked()).toBe(1);
   state.readChanged(['bench:data']);
   expect(asked()).toBe(2);
+});
+
+it('asks for and follows another instance when an atom names it', async () => {
+  const jotai = await studioDependency<{
+    createStore: () => Store & { sub: (atom: Atom, f: () => void) => () => void };
+  }>('jotai');
+  jotai.createStore().sub(state.makeLiveJsonAtom('/api/topic', ['data'], undefined, 'live'), () => {});
+  await new Promise(resolve => setTimeout(resolve));
+  const counts = [asked('live')];
+  state.readChanged(['bench:data']);
+  counts.push(asked('live'));
+  state.readChanged(['live:data']);
+  counts.push(asked('live'));
+  expect(counts).toEqual([1, 1, 2]);
 });

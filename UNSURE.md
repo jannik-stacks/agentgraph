@@ -112,3 +112,8 @@ Decisions made without being sure. Each names what was picked and what would cha
 - **A torn last line in a tracker's `events.jsonl` is skipped on read, not repaired on write.** The next comment
   appends after it and leaves a broken middle line, which still throws; `appendJsonlRows` repairs, but its lock
   folder would land in the tracker folder.
+- **Runs across instances fetch each instance on its own**, so a change in one instance reloads only that group.
+  Left out: issue filter options are merged across instances (`#42` matches #42 in every listed instance) without
+  naming the instances in the option text; graph load problems show only on an instance's own pages, not on `/runs`;
+  Docs stays an instance page, so `/runs` shows only the Runs tab and studio pages. The logo is a `Link` with
+  `instance=""`, the plain studio's name, to reach `/runs` with a full load from an instance page.
