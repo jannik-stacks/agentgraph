@@ -71,16 +71,34 @@ const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined 
 
 const isEngineStatus = (m: Event) => m.bot && (m.kind === 'label' || m.kind === 'unlabel');
 
-export function formatRequest(t: IssueWithPull, started: string): string {
-  const events = getEvents(t);
+export function formatRequest(
+  t: IssueWithPull,
+  run: Pick<Run, 'workflow' | 'started' | 'seen'>,
+  runs: (typeof run)[]
+): string {
+  const { started } = run;
+  const events = getEvents(t).toSorted((a, b) => a.at.localeCompare(b.at));
   const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
   if (said.length === 0) return '';
+  const since = runs
+    .filter(r => r.workflow === run.workflow && r.started < started)
+    .reduce((at, r) => ((r.seen ?? r.started) > at ? (r.seen ?? r.started) : at), '');
   const threads = new Set(said.map(thread).filter(Boolean));
   const around = events.filter(m => !said.includes(m) && threads.has(thread(m)));
+  const asked = events.filter(
+    m =>
+      said.includes(m) ||
+      (m.trusted &&
+        !m.bot &&
+        m.comment &&
+        !around.includes(m) &&
+        m.at > since &&
+        (run.seen === undefined || m.at <= run.seen))
+  );
   const before = around.filter(m => m.at < started);
   const after = around.filter(m => m.at > started);
   return [
-    `## What you were asked\n\n${said.map(formatEventLine).join('\n\n')}`,
+    `## What you were asked\n\n${asked.map(formatEventLine).join('\n\n')}`,
     before.length > 0 && `Earlier in its review thread:\n\n${before.map(formatEventLine).join('\n\n')}`,
     after.length > 0 && `Later in its review thread:\n\n${after.map(formatEventLine).join('\n\n')}`,
   ]

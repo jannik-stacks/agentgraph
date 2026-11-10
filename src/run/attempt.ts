@@ -363,7 +363,7 @@ export const runAttempt = (
         agent.reads && tracesPrompt,
       ];
       const prompt = [
-        formatRequest(t, run.started),
+        formatRequest(t, run, yield* store.list({ issue: run.issue })),
         ...[step.does.skill, ...(graph.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && graph.skills[s]?.body),
         w.body,
         context(t),
