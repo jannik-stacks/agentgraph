@@ -94,6 +94,7 @@ const RunFields = {
     Schema.Struct({ pull: Schema.Number, branch: Schema.String, sha: Schema.String, from: Text, tip: Text })
   ),
   onto: Schema.optionalKey(Schema.Struct({ sha: Schema.String, merge: Flag })),
+  moved: Schema.optionalKey(Schema.Struct({ from: Schema.String, onto: Schema.String })),
   graph: Text,
   graphTree: Text,
   versions: Schema.optionalKey(

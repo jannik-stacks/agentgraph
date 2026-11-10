@@ -44,8 +44,9 @@ const getCheckFiles = (dir: string) => ({
   ...getTraceFiles(dir),
 });
 
-export const makeScriptEnv = (work: Pick<Checkout, 'base'>, issue: number | undefined) => ({
+export const makeScriptEnv = (work: Pick<Left, 'base' | 'moved'>, issue: number | undefined) => ({
   AGENTGRAPH_BASE: work.base,
+  ...(work.moved && { AGENTGRAPH_FROM: work.moved.from }),
   ...(issue !== undefined && { AGENTGRAPH_ISSUE: String(issue) }),
 });
 
@@ -76,7 +77,10 @@ export const writeTraces = (graph: Graph, issue: number, run: string, work: Chec
 /** The prompt line that points an agent that reads traces at them. */
 export const tracesPrompt = `The traces of the runs on this issue are in \`${getTraceFiles(inside.news).AGENTGRAPH_TRACES}\`, an absolute path outside the checkout: open it exactly as written. Per session they hold the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
 
-/** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
+/**
+ * What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the
+ * proposals and the human answers so far. After a base move, `moved` is the old base and what the base gained.
+ */
 export type Left = Checkout & {
   run: string;
   issue?: number;
@@ -84,6 +88,7 @@ export type Left = Checkout & {
   reply: string;
   proposals: Proposal[];
   answers?: Run['answers'];
+  moved?: { from: string; text: string };
 };
 
 /** The human answers of a run as a section every check reads, so a judge does not raise again what an answer settled. */
@@ -205,7 +210,9 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
         const reads = agent.reads ?? check.reads;
         const prompt = [
           check.body,
+          work.moved?.text,
           out?.output ?? item ?? formatSqueezed(diff, 200_000),
+          work.moved && (out || item !== undefined) && diff && `## This change\n\n${formatSqueezed(diff, 100_000)}`,
           formatAnswers(work.answers),
           reads && tracesPrompt,
           'Call the result tool once you have decided.',

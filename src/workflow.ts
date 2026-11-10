@@ -32,7 +32,8 @@ export type Workflow = Doc<{
 
 /**
  * One step. On a `wait` step, `checks` are what runs again when the pull request's base moves and its change stays the
- * same, and `follow` is how the branch follows the base: a merge commit, a rebase, or not at all.
+ * same, `follow` is how the branch follows the base: a merge commit, a rebase, or not at all, and `conflict` what a
+ * conflict with it does: go `back`, `ask`, or start the named `on: conflict` workflow.
  */
 export type Step = {
   name: string;
@@ -43,6 +44,7 @@ export type Step = {
   limits?: typeof CommandLimits.Type;
   checks: string[];
   follow?: 'merge' | 'rebase' | 'none';
+  conflict?: string;
   tries: number;
   carry?: boolean;
   back?: { to: string; until?: string; rounds?: number };
@@ -69,6 +71,7 @@ const StepFile = Schema.Struct({
   reads: Schema.optionalKey(Schema.Literal('traces')),
   wait: Schema.optionalKey(Schema.Literal('human')),
   follow: Schema.optionalKey(Schema.Literals(['merge', 'rebase', 'none'])),
+  conflict: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty())),
   skill: Schema.optionalKey(Schema.String),
   checks: Schema.optionalKey(Names),
   tries: Schema.optionalKey(Count),
@@ -179,6 +182,9 @@ export function compileWorkflow(
     if (s.back === undefined && s.until !== undefined) say(`${key}.until`, 'until needs back');
     if (s.back === undefined && s.rounds !== undefined) say(`${key}.rounds`, 'rounds needs back');
     if (s.follow !== undefined && s.wait === undefined) say(`${key}.follow`, 'only a wait step follows its base');
+    if (s.conflict !== undefined && s.wait === undefined) say(`${key}.conflict`, 'only a wait step follows its base');
+    if (s.conflict === 'back' && s.back === undefined) say(`${key}.conflict`, 'back needs back');
+    if (s.each === 'merged') say(`${key}.each`, 'only a check fans out over what the base gained');
     if (s.returns !== undefined && s.run === undefined)
       say(`${key}.returns`, "only a run step lists returns; an agent's returns are in its file");
     if (s.reads !== undefined && s.run === undefined)
@@ -210,6 +216,7 @@ export function compileWorkflow(
       ...(s.carry !== undefined && { carry: s.carry }),
       ...(s.each !== undefined && { each: s.each }),
       ...(s.wait !== undefined && { follow: s.follow ?? 'merge' }),
+      ...(s.conflict !== undefined && { conflict: s.conflict }),
     };
   });
   if (problems.length > 0) return { problems };

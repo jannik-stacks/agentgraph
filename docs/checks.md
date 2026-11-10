@@ -42,17 +42,18 @@ Judges start fresh. Passed items may be reused within a run while the diff and p
 
 Scripts run in the checkout, without network, with these variables: <!-- code: src/run/check.ts#runOneCheck src/run/check.ts#makeScriptEnv src/run/check.ts#getCheckFiles src/run/check.ts#getTraceFiles -->
 
-| Variable               | Contents                                                        | Given to                                     |
-| ---------------------- | --------------------------------------------------------------- | -------------------------------------------- |
-| `AGENTGRAPH_BASE`      | The change's starting commit, or the branch fork point          | Everything, sessions too                     |
-| `AGENTGRAPH_DIR`       | The graph folder, read only                                     | Everything                                   |
-| `AGENTGRAPH_ISSUE`     | Issue number                                                    | Checks and `run` steps                       |
-| `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals                                  | Checks                                       |
-| `AGENTGRAPH_CONTEXT`   | Issue, pull request and human answers                           | Checks                                       |
-| `AGENTGRAPH_REPLY`     | The try's reply                                                 | Checks                                       |
-| `AGENTGRAPH_TRACES`    | The issue's run traces, as in [Reading traces](#reading-traces) | Checks, and `run` steps with `reads: traces` |
-| `AGENTGRAPH_RUN_TRACE` | This run's raw trace, one JSON event per line                   | Checks, and `run` steps with `reads: traces` |
-| `AGENTGRAPH_ITEM`      | The `each` item                                                 | Checks                                       |
+| Variable               | Contents                                                                         | Given to                                     |
+| ---------------------- | -------------------------------------------------------------------------------- | -------------------------------------------- |
+| `AGENTGRAPH_BASE`      | The change's starting commit, or the branch fork point                           | Everything, sessions too                     |
+| `AGENTGRAPH_DIR`       | The graph folder, read only                                                      | Everything                                   |
+| `AGENTGRAPH_ISSUE`     | Issue number                                                                     | Checks and `run` steps                       |
+| `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals                                                   | Checks                                       |
+| `AGENTGRAPH_CONTEXT`   | Issue, pull request and human answers                                            | Checks                                       |
+| `AGENTGRAPH_REPLY`     | The try's reply                                                                  | Checks                                       |
+| `AGENTGRAPH_TRACES`    | The issue's run traces, as in [Reading traces](#reading-traces)                  | Checks, and `run` steps with `reads: traces` |
+| `AGENTGRAPH_RUN_TRACE` | This run's raw trace, one JSON event per line                                    | Checks, and `run` steps with `reads: traces` |
+| `AGENTGRAPH_ITEM`      | The `each` item                                                                  | Checks                                       |
+| `AGENTGRAPH_FROM`      | The old base, after a [base move](workflows.md#when-the-base-or-the-graph-moves) | Checks                                       |
 
 "Everything" means checks, `run` steps, slicer commands and setup.
 

@@ -137,13 +137,33 @@ Workflow `concurrency` controls trusted comments during work:
 
 ## When the base or the graph moves
 
-A human wait's `follow` selects `merge` (default), `rebase` or `none` when the base changes. Completed runs and runs waiting elsewhere also follow an open pull request's base using the last human step's policy. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on).
+A human wait step says what a base move does: `follow` how the branch follows it, `checks` what runs again after a clean follow, and `conflict` what a conflict does.
 
-At a human wait, a clean follow reruns the wait checks, or all checks of its `back` target if the change or graph differs. Follows outside a human wait run no checks and keep the state. Failed checks return to work. The graph hash covers settings, prompts, scripts and plugins.
+```yaml
+review:
+  wait: human
+  back: implement
+  follow: rebase # merge (default), rebase, or none to leave the branch alone
+  checks: [tests, upstream] # [] follows only; default: the back step's script checks
+  conflict: back # back, ask, or a workflow with on: conflict
+```
 
-Conflicts return to a checkout with markers for the agent; leftover markers fail the try. A second conflict at the same base asks for a manual update. A configured `on: conflict` workflow handles the markers in a separate quiet run instead.
+```yaml
+# checks/upstream.md
+mode: block
+agent: reviewer
+each: merged
+```
 
-Catch-up errors wait for the base, branch or graph to change before retrying. Parked runs and older restarts do not catch up. <!-- code: src/run/trigger.ts#tick --> <!-- code: src/run/follow.ts#runFollow src/types.ts#Run --> <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp --> <!-- code: src/run/follow.ts#runCatchUp src/folder.ts#loadGraph --> <!-- code: src/run/follow.ts#moveCheckoutOnto src/run/drive.ts#runWorkflow --> <!-- code: src/run/follow.ts#runCatchUp src/workflow.ts#isQuiet -->
+`each: merged` judges every hunk the base gained. With `upstream` in the wait step's `checks`, a pull request that still calls `fromHex` gets one judgment per merged hunk and goes back when the pull request that removed it says why.
+
+Runs waiting at the step and done runs with an open pull request follow and check. A clean follow reruns the wait checks, scripts first and judged ones once those pass, or all checks of the `back` target if the change or graph differs. A failure goes back, reopening a done run. Runs waiting on a question only follow, and their next session hears what the base gained. Stacked runs follow their [parent](proposals.md#stacks-on-and-depends-on) and check nothing. The graph hash covers settings, prompts, scripts and plugins.
+
+What the base gained is the pull requests and issues named as `#N` in the merged commits, the issues those pull requests close, the commits and the diff. Judges read it with the change's diff, scripts get the old base as `AGENTGRAPH_FROM`, and it ends the feedback of any return to work. The run keeps the followed range until its checks decide, so each base head is checked once.
+
+On a conflict, `back` returns to a checkout with markers for the agent; leftover markers fail the try. A workflow name starts that `on: conflict` workflow to handle the markers in a separate quiet run. `ask` says on the issue to update it by hand, as does a second conflict at the same base.
+
+Catch-up errors wait for the base, branch or graph to change before retrying. A stacked follow its tracker keeps refusing retries three times, then waits for the branch tip to change. Parked runs and older restarts do not catch up. <!-- code: src/run/trigger.ts#tick --> <!-- code: src/run/follow.ts#runFollow src/types.ts#Run --> <!-- code: src/workflow.ts#Step src/run/follow.ts#runCatchUp --> <!-- code: src/run/follow.ts#readBaseGain src/run/checkout.ts#findFanOutItems --> <!-- code: src/run/follow.ts#runCatchUp src/folder.ts#loadGraph --> <!-- code: src/run/follow.ts#moveCheckoutOnto src/run/drive.ts#runWorkflow --> <!-- code: src/run/follow.ts#runCatchUp src/workflow.ts#isQuiet -->
 
 ## Status on the issue
 

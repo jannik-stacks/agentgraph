@@ -231,6 +231,30 @@ describe('stacks', () => {
     expect(bodies(await run(Effect.flatMap(Tracker, f => f.issue(9)))).join('\n')).not.toContain('could not follow');
   });
 
+  it('stops retrying a follow its tracker keeps refusing as moved until the tip changes', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const tracker = Layer.effect(
+      Tracker,
+      Effect.map(Tracker, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
+          p.kind === 'rebase' && !p.head
+            ? Effect.succeed({ proposal: p, ok: false, reason: 'ref refusal', moved: true as const })
+            : f.apply(n, p, work),
+      }))
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
+    const layer = Layer.mergeAll(tracker, fileStore(where.data), hostSandbox(where.origin), replaySession([child()]));
+    const run = <A, E>(effect: Effect.Effect<A, E, Tracker | Store | Sandbox | Session>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(layer)));
+    await run(runWorkflow(flow, run9(), merging));
+    move('more.txt', 'more\n');
+    for (let i = 0; i < 6; i++) await run(tick(merging, 9));
+    expect(
+      readTrace(where.data, 'run-9').filter(t => 'applied' in t && t.applied.proposal.kind === 'rebase')
+    ).toHaveLength(3);
+  });
+
   it.each([true, false])('retries a refused follow when the tip moves (known head: %s)', async known => {
     const where = world();
     const { move } = parent(where);
@@ -240,7 +264,7 @@ describe('stacks', () => {
     const pull = pr10(where).pull;
     if (!known) writeIssueAt(issuePath(where.tracker, 10, 'pull.json'), JSON.stringify({ ...pull, head: undefined }));
     await run(tick(merging, 9));
-    expect(saved(where).base?.tip).toBe(known ? pull.head : undefined);
+    expect(saved(where).base?.tip).toBe(pull.head);
     const tip = git(where.origin, 'commit-tree', `${pull.head}^{tree}`, '-p', pull.head, '-m', 'Move branch tip');
     git(where.origin, 'update-ref', 'refs/heads/agentgraph/9', tip, pull.head);
     writeIssueAt(issuePath(where.tracker, 10, 'pull.json'), JSON.stringify({ ...pull, head: known ? tip : undefined }));
