@@ -69,18 +69,45 @@ const withSessionPermit =
       Effect.andThen(permits.resize(graph.limits.sessions), permits.withPermits(1)(effect))
     );
 
+type SessionOptions<A, R> = Partial<{
+  item: string | undefined;
+  until: Effect.Effect<A, never, R> | undefined;
+  aside: Aside;
+  dropped: string;
+}>;
+
 /**
  * One harness session: what it was opened with, every event and how it ended become lines of the trace of the run
  * `into`, or of the list `into`. It holds a session permit only while the harness runs. When `until` ends first, the session is cut short and its result comes back as `cut`.
+ * With `fresh`, a resume that fails before the harness starts, or of a session another harness ran, runs once fresh
+ * with `fresh` as its prompt, traced with why the resume was dropped.
  */
 export const runSession = <A = never, R = never>(
   graph: Graph,
   into: string | Trace[],
   step: string,
   spec: SessionSpec,
-  item?: string,
-  until?: Effect.Effect<A, never, R>,
-  aside?: Aside
+  o: SessionOptions<A, R> & { fresh?: string } = {}
+) => {
+  const { fresh, ...rest } = o;
+  if (fresh === undefined || !spec.resume) return openSession(graph, into, step, spec, rest);
+  const { resume, fork: _, ...unresumed } = spec;
+  const anew = (dropped: string) =>
+    openSession(graph, into, step, { ...unresumed, prompt: fresh }, { ...rest, dropped });
+  if (resume.harness !== undefined && resume.harness !== spec.harness)
+    return anew(`the session ran on ${resume.harness}`);
+  return Effect.flatMap(openSession(graph, into, step, spec, rest, true), r =>
+    r.lost === undefined ? Effect.succeed(r) : Effect.map(anew(r.lost), k => ({ ...k, usd: r.usd + k.usd }))
+  );
+};
+
+const openSession = <A, R>(
+  graph: Graph,
+  into: string | Trace[],
+  step: string,
+  spec: SessionSpec,
+  { item, until, aside, dropped }: SessionOptions<A, R>,
+  droppable = false
 ) =>
   Effect.gen(function* () {
     const session = yield* Session;
@@ -94,6 +121,7 @@ export const runSession = <A = never, R = never>(
       result: undefined as ReturnType<typeof getRecordedResult>,
     };
     let end: Ended = { ended: 'error' };
+    let started = false;
     const key = randomUUID().slice(0, 8);
     const write = (line: Trace) =>
       typeof into === 'string' ? store.trace(into, line) : Effect.sync(() => void into.push(line));
@@ -105,6 +133,7 @@ export const runSession = <A = never, R = never>(
         session: {
           ...(seen.id !== undefined && { id: seen.id }),
           resumed: !!spec.resume,
+          ...(dropped !== undefined && { dropped }),
           ...(aside && { aside: true as const }),
           ...how,
           usd: seen.usd,
@@ -151,7 +180,10 @@ export const runSession = <A = never, R = never>(
       .open(server ? { ...spec, tools: spec.tools.filter(name => !custom.includes(name)), mcp: server } : spec)
       .pipe(
         Stream.runForEach(event => {
-          if (event.type === 'start') Object.assign(seen, { id: event.session, home: event.home });
+          if (event.type === 'start') {
+            started = true;
+            Object.assign(seen, { id: event.session, home: event.home });
+          }
           if (event.type === 'text') seen.text = event.text;
           if (event.type === 'usage') seen.usd += event.usd ?? 0;
           if (event.type === 'tool' && spec.returns)
@@ -168,6 +200,14 @@ export const runSession = <A = never, R = never>(
         }),
         Effect.scoped,
         withSessionPermit(graph),
+        Effect.catchTag('SessionStop', e =>
+          droppable && !started && e.reason !== 'human' && e.reason !== 'login'
+            ? Effect.sync(() => {
+                seen.final = e.detail ?? e.reason;
+                end = { ended: e.reason };
+              })
+            : Effect.fail(e)
+        ),
         Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
         Effect.as(undefined)
       );
@@ -182,6 +222,7 @@ export const runSession = <A = never, R = never>(
     if (!cut && end.ended !== 'stop' && /Failed to authenticate|Invalid API key|\b401\b/.test(final))
       end = { ...end, ended: 'login' };
     yield* ended(end);
+    const unstarted = droppable && !started && !cut && end.ended !== 'stop' && end.ended !== 'login';
     return {
       id: seen.id,
       home: seen.home ?? spec.dir,
@@ -190,6 +231,7 @@ export const runSession = <A = never, R = never>(
       result: seen.result,
       ...end,
       ...(cut && { cut: cut.a }),
+      ...(unstarted && { lost: formatSqueezed(final || end.ended, 200) }),
     };
   }).pipe(Effect.scoped);
 
@@ -200,7 +242,7 @@ export const runSession = <A = never, R = never>(
  */
 export const runJudge = (graph: Graph, into: Trace[], step: string, spec: SessionSpec, item?: string) => {
   const judge = (s: SessionSpec) =>
-    runSession(graph, into, step, s, item).pipe(
+    runSession(graph, into, step, s, { item }).pipe(
       Effect.flatMap(j =>
         j.ended === 'stop'
           ? Effect.succeed(j)

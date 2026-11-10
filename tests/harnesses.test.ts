@@ -539,6 +539,7 @@ describe('the session loop', () => {
   it.each([
     ['opencode', ['--session', 'ses_1', '--fork']],
     ['claude', ['--resume', 'ses_1', '--fork-session']],
+    ['codex', ['resume', 'ses_1']],
     ['pi', ['--fork', 'ses_1']],
   ] as const)('forks a %s session in a copy of its home', async (harness, flags) => {
     const home = makeHome();
@@ -879,7 +880,7 @@ describe('codex', () => {
     expect(codexArgs(unnamed)[codexArgs(unnamed).indexOf('--model') + 1]).toBe('gpt-x');
   });
 
-  it('leaves a read-only agent to a read-only sandbox mount, not its own sandbox, and starts a fork fresh', async () => {
+  it('leaves a read-only agent to a read-only sandbox mount, not its own sandbox, and resumes a fork without the system prompt', async () => {
     const { command: reader } = await session(codex, [], { proxy });
     expect(codexArgs(reader)).toContain('--dangerously-bypass-approvals-and-sandbox');
     expect(codexArgs(reader)).not.toContain('--sandbox');
@@ -888,8 +889,8 @@ describe('codex', () => {
     expect(codexArgs(writer)).toContain('--dangerously-bypass-approvals-and-sandbox');
     expect(writer.readonly).toBe(false);
     const { command: forked } = await session({ ...codex, resume: resumable(), fork: true }, [], { proxy });
-    expect(codexArgs(forked)).not.toContain('resume');
-    expect(input(forked)).toBe(`${spec.system}\n\n${spec.prompt}`);
+    expect(codexArgs(forked)).toContain('resume');
+    expect(input(forked)).toBe(spec.prompt);
   });
 
   it('rejects tool limits it cannot enforce', () => {

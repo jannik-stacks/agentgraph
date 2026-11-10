@@ -352,7 +352,7 @@ export const runAttempt = (
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       /** A step that judges the change, and does not fan out over it, opens on the whole of it. */
-      const diff = step.back && !step.each && !kept ? yield* readCheckoutDiff(work) : '';
+      const diff = step.back && !step.each ? yield* readCheckoutDiff(work) : '';
       if (agent.reads) yield* writeTraces(graph, run.issue, run.id, work);
       const ending = [
         'End your reply with a fenced agentgraph block holding a JSON array of proposals. The engine commits, pushes,',
@@ -405,7 +405,7 @@ export const runAttempt = (
       const items = listed.length > most ? [listed.join('\n\n')] : listed;
       const caught = news(t, kept ? (kept.seen ?? { at: run.started }) : { at: '' });
       tried = { ...tried, seen: pickNewest(run.seen, run.started, pickLastHeard(t))! };
-      const talk = (prompt: string, seen: Seen, resume?: Run['sessions'][string], item?: string) =>
+      const talk = (prompt: string, fresh: string, seen: Seen, resume?: Run['sessions'][string], item?: string) =>
         Effect.gen(function* () {
           const r = yield* runSession(
             graph,
@@ -417,8 +417,7 @@ export const runAttempt = (
               read: [inside.news],
               ...(resume && { resume }),
             },
-            item,
-            watch(tried, seen)
+            { item, until: watch(tried, seen), fresh }
           );
           spoke = r.id ?? spoke;
           tried = yield* readContinuedRun(
@@ -429,7 +428,7 @@ export const runAttempt = (
             ...tried,
             ...(step.each === undefined &&
               r.id !== undefined && {
-                sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, seen } },
+                sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, harness: agent.harness, seen } },
               }),
           };
           if (!r.cut && r.ended !== 'stop')
@@ -441,12 +440,10 @@ export const runAttempt = (
         });
       for (const item of items) {
         yield* writeNews(run, work, caught.seen, t);
+        const first = item === undefined ? prompt : `${prompt}\n\n## Item\n\n${item}`;
         const r = yield* talk(
-          kept
-            ? [run.feedback ?? 'Continue.', caught.text, ...outside, ending].filter(Boolean).join('\n\n')
-            : item === undefined
-              ? prompt
-              : `${prompt}\n\n## Item\n\n${item}`,
+          kept ? [run.feedback ?? 'Continue.', caught.text, ...outside, ending].filter(Boolean).join('\n\n') : first,
+          first,
           caught.seen,
           kept,
           item
@@ -462,11 +459,8 @@ export const runAttempt = (
         return done(late.outcome, yield* readContinuedRun({ ...tried, seen: late.at }, late.events));
       if (now && late && w.concurrency === 'steer') {
         const since = news(now, caught.seen);
-        const r = yield* talk(
-          `${since.text}\n\nTake this into account, then end your reply with the whole agentgraph block again.`,
-          since.seen,
-          session
-        );
+        const steer = `${since.text}\n\nTake this into account, then end your reply with the whole agentgraph block again.`;
+        const r = yield* talk(steer, `${prompt}\n\n${steer}`, since.seen, session);
         if (r.cut) return done(r.cut.outcome, yield* readContinuedRun({ ...tried, seen: r.cut.at }, r.cut.events));
         replies.splice(0, replies.length, r.final);
         tried = yield* readContinuedRun(
