@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Effect } from 'effect';
@@ -42,6 +42,39 @@ describe('folder tracker', () => {
       Effect.flatMap(Tracker, tracker => tracker.issues({ state: 'open' })).pipe(Effect.provide(folderTracker(dir)))
     );
     expect([issue?.stacksOn, issue?.dependsOn]).toEqual([3, [5, 4]]);
+  });
+
+  it('turns label edits in the frontmatter into events by the author, a removal into an unlabel, and adopts an old timeline quietly', async () => {
+    const dir = tmp('tracker-label-sync');
+    await writeIssueFile(dir, { title: 'Grow', author: 'alice', labels: ['agent:ready'] }, 'body');
+    const events = (...work: ((t: Tracker['Service']) => Effect.Effect<unknown, unknown>)[]) =>
+      Effect.runPromise(
+        Effect.flatMap(Tracker, t =>
+          Effect.andThen(
+            Effect.forEach(work, f => f(t)),
+            t.issue(1)
+          )
+        ).pipe(Effect.provide(folderTracker(dir)))
+      ).then(i => i.events.map(m => [m.kind, m.label, m.actor, m.trusted]));
+    const adopted = ['label', 'agent:ready', 'alice', true];
+    expect(await events()).toEqual([adopted]);
+    const file = join(dir, '1', 'issue.md');
+    writeFileSync(file, readFileSync(file, 'utf8').replace('- agent:ready', '- agent:usd-per-run:20'));
+    const edited = [
+      adopted,
+      ['unlabel', 'agent:ready', 'alice', true],
+      ['label', 'agent:usd-per-run:20', 'alice', true],
+    ];
+    expect(await events()).toEqual(edited);
+    expect(await events(t => t.apply(1, { kind: 'label', remove: ['agent:usd-per-run:20'] }))).toEqual([
+      ...edited,
+      ['unlabel', 'agent:usd-per-run:20', 'agentgraph[bot]', false],
+    ]);
+    expect(await events()).toHaveLength(4);
+    writeFileSync(join(dir, '1', 'events.jsonl'), '');
+    rmSync(join(dir, '1', 'labels.json'));
+    writeFileSync(file, readFileSync(file, 'utf8').replace('labels: []', 'labels: [agent:ready]'));
+    expect([await events(), readFileSync(file, 'utf8')]).toEqual([[], expect.stringContaining('agent:ready')]);
   });
 });
 

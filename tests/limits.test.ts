@@ -1,20 +1,17 @@
-import { readFileSync, writeFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { formatLimitRaise, makeRunGraph, parseIssueLimits, type Graph } from '../src/folder.ts';
 import type { Event } from '../src/event.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { tick } from '../src/run/trigger.ts';
-import { Store } from '../src/store.ts';
 import { Effect, Layer, Stream } from 'effect';
 import { Session } from '../src/session.ts';
-import { folderTracker } from '../src/tracker.ts';
-import { fileStore } from '../src/store.ts';
+import { folderTracker, Tracker } from '../src/tracker.ts';
+import { fileStore, Store } from '../src/store.ts';
 import { SessionStop } from '../src/types.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { getEventOutcome, transition } from '../src/workflow.ts';
 import { fakeDocker, reply, start } from './fixtures.ts';
-import { issuePath } from './kit.ts';
-import { driveStored, fresh, graph, makeTestEvent, readTrace, say, services, w, world } from './world.ts';
+import { driveStored, fresh, graph, makeTestEvent, readTrace, services, w, world } from './world.ts';
 
 const limits: Graph['limits'] = { minutes: 30, usdPerRun: 10, parallel: 2, sessions: 4, max: { usdPerRun: 60 } };
 const labelled = (label: string, actor = 'morgan', trusted = true, kind: Event['kind'] = 'label') =>
@@ -117,19 +114,12 @@ describe('a run at its limits', () => {
   ];
   const over =
     'Spent $0.50 of the $0.4 usd-per-run limit, from settings.yaml. Add agent:usd-per-run:1, up to the max of 5, to continue.';
-  const label = (where: ReturnType<typeof world>, name: string, at = '2026-10-16T00:01:00.000Z', trusted = true) => {
-    const path = issuePath(where.tracker, 7);
-    writeFileSync(
-      path,
-      readFileSync(path, 'utf8').replace(
-        /labels: \[(.*)\]/,
-        (_, l) => `labels: [${[l, name].filter(Boolean).join(', ')}]`
+  const label = (where: ReturnType<typeof world>, name: string, as = 'morgan') =>
+    Effect.runPromise(
+      Effect.flatMap(Tracker, t => Effect.andThen(t.apply(7, { kind: 'label', add: [name] }), t.issue(7))).pipe(
+        Effect.provide(folderTracker(where.tracker, as))
       )
-    );
-    const event = makeTestEvent({ issue: 7, kind: 'label', actor: 'morgan', trusted, at, label: name });
-    say(where, event);
-    return event;
-  };
+    ).then(i => i.events.at(-1)!);
 
   it('waits instead of stopping once its spend reaches usd-per-run, and records the limits it ran with', async () => {
     const where = world();
@@ -146,7 +136,7 @@ describe('a run at its limits', () => {
     const where = world();
     const { specs, run } = services(where, [spent, [start('i1'), reply({ kind: 'ask', question: 'Done?' })]]);
     const waited = await run(runWorkflow(w, fresh(), capped));
-    const raised = label(where, 'agent:usd-per-run:3');
+    const raised = await label(where, 'agent:usd-per-run:3');
     const outcome = getEventOutcome(w, waited, raised)!;
     expect(outcome).toEqual({ kind: 'answer', text: '' });
     const resumed = transition(w, waited, outcome);
@@ -155,7 +145,7 @@ describe('a run at its limits', () => {
     expect(asked).toMatchObject({ id: 'run-7', status: 'waiting', reason: 'Done?' });
     expect(asked.limits?.usdPerRun).toEqual({
       value: 3,
-      label: { name: 'agent:usd-per-run:3', actor: 'morgan', at: '2026-10-16T00:01:00.000Z' },
+      label: { name: 'agent:usd-per-run:3', actor: 'morgan', at: raised.at },
     });
     expect(specs.map(s => s.agent).slice(0, 2)).toEqual(['triager', 'implementor']);
   });
@@ -167,7 +157,7 @@ describe('a run at its limits', () => {
     const where = world();
     const { run } = services(where, [spent, [start('i1'), reply({ kind: 'ask', question: 'Done?' })]]);
     await run(runWorkflow(w, fresh(), capped));
-    label(where, 'agent:usd-per-run:3', new Date(Date.now() + 1000).toISOString(), trusted);
+    await label(where, 'agent:usd-per-run:3', trusted ? 'morgan' : 'agentgraph[bot]');
     await run(tick(capped));
     const after = await run(Effect.flatMap(Store, s => s.get('run-7')));
     expect([after?.status, after?.reason, after?.waiting?.on]).toEqual([status, reason, reason ? undefined : 'limits']);
@@ -184,7 +174,7 @@ describe('a run at its limits', () => {
 
   it('waits before setup when a label is over max, and never clamps it', async () => {
     const where = world();
-    label(where, 'agent:usd-per-run:9', '2026-10-15T00:00:00.000Z');
+    await label(where, 'agent:usd-per-run:9');
     const { specs, commands, run } = services(where, []);
     const waited = await run(runWorkflow(w, fresh(), capped));
     expect(waited).toMatchObject({
@@ -224,7 +214,7 @@ describe('a run at its limits', () => {
     expect(waited).toMatchObject({ status: 'waiting', waiting: { on: 'limits', why }, limits: { timeout: true } });
     const again = await drive(transition(w, waited, { kind: 'answer', text: '' }), timed);
     expect([again.waiting, opened]).toEqual([{ on: 'limits', why }, 1]);
-    label(where, 'agent:minutes:2');
+    await label(where, 'agent:minutes:2');
     const raised = await drive(transition(w, again, { kind: 'answer', text: '' }), timed);
     expect([raised.limits?.minutes.value, raised.limits?.timeout, opened]).toEqual([2, true, 2]);
   });

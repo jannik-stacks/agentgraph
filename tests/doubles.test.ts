@@ -222,6 +222,7 @@ describe('folderTracker', () => {
       events: [
         ['label', 'ready', true],
         ['label', 'size:M', false],
+        ['unlabel', 'ready', false],
       ],
     });
   });

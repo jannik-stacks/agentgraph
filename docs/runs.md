@@ -67,6 +67,8 @@ The folder tracker keeps each issue in `<n>/issue.md`, with `events.jsonl` and r
 
 Status determines the issue's parent folder, such as `working/14/` or `needs-review/15/`; the graph's `status` map can rename or disable these folders. Open, closed and merged states stay in issue frontmatter.
 
+Editing `labels` in the frontmatter adds or removes labels as the issue author, so a trusted author can add a trigger label or an `agent:` limit by hand. `labels.json` holds the labels the tracker last saw; an issue the engine filed makes no label events. Labels the engine adds or removes are recorded as its own. <!-- code: src/tracker.ts#folderTracker -->
+
 Write `issue.md` under an unused number to add an issue, or use `agi start`. A trusted author and configured trigger label start work on the next pass. For example:
 
 ```md

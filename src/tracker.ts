@@ -1,11 +1,11 @@
 import { parseJson, readDirEntriesOrEmpty, readOrUndefined } from './read.ts';
 import { type HookContext, makePlugin, type ToolContext } from './plugin.ts';
 import { existsSync } from 'node:fs';
-import { appendFile, link, mkdir, readFile, rename, stat, unlink, watch, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rename, stat, watch, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename, dirname, join, resolve } from 'node:path';
-import { Context, Effect, Layer, Stream, Semaphore } from 'effect';
+import { Context, Effect, Layer, Schema, Stream, Semaphore } from 'effect';
 import { stringify } from 'yaml';
 import {
   issueStatuses,
@@ -234,19 +234,6 @@ export const parseIssueFile = (text: string) => {
 
 export const formatIssueFile = (front: Partial<Issue>, body: string) => `---\n${stringify(front)}---\n\n${body}\n`;
 
-const publish = async (path: string, text: string) => {
-  const draft = `${path}.${randomUUID()}`;
-  await writeFile(draft, text);
-  try {
-    return await link(draft, path).then(
-      () => true,
-      (e: NodeJS.ErrnoException) => (e.code === 'EEXIST' ? false : Promise.reject(e))
-    );
-  } finally {
-    await unlink(draft);
-  }
-};
-
 const holding = new AsyncLocalStorage<readonly { dir: string; held: boolean }[]>();
 
 export const runLocked = async <A>(dir: string, f: () => Promise<A>): Promise<A> => {
@@ -417,20 +404,33 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         writeFileAtomic(md(number), formatIssueFile(front, body));
         await writePull(number, pull);
       };
-      const adopt = async (n: number) => {
-        if (await stat(timelinePath(dir, n)).catch(readOrUndefined)) return;
-        const [t, file] = await Promise.all([read(n), stat(md(n)).catch(readOrUndefined)]);
-        if (!t?.author || t.author === me || t.labels.length === 0 || !file) return;
-        const at = file.mtime.toISOString();
-        const bot = isBotLogin(t.author);
-        const events = t.labels.map(label => {
-          const id = `${n}-${randomUUID().slice(0, 8)}`;
-          return { id, issue: n, kind: 'label', label, actor: t.author, bot, trusted: !bot, at };
-        });
-        await publish(timelinePath(dir, n), events.map(m => `${JSON.stringify(m)}\n`).join(''));
-      };
       const readEvents = async (n: number) =>
         parseJsonlRows(timelinePath(dir, n), (await readIssueFile(n, 'events.jsonl')) ?? '', Event);
+      const seenPath = (n: number) => join(findIssueDir(dir, n), 'labels.json');
+      const adopt = async (n: number) => {
+        const [t, file, seen, timeline] = await Promise.all([
+          read(n),
+          stat(md(n)).catch(readOrUndefined),
+          readIssueFile(n, 'labels.json'),
+          stat(timelinePath(dir, n)).catch(readOrUndefined),
+        ]);
+        if (!t || !file) return;
+        if (seen === undefined && timeline) return writeFileAtomic(seenPath(n), t.labels);
+        const was = seen === undefined ? [] : parseJson(Schema.Array(Schema.String), seen, seenPath(n));
+        const changed = [
+          ...was.filter(l => !t.labels.includes(l)).map(label => ({ kind: 'unlabel' as const, label })),
+          ...t.labels.filter(l => !was.includes(l)).map(label => ({ kind: 'label' as const, label })),
+        ];
+        if (changed.length === 0) return;
+        const bot = isBotLogin(t.author);
+        const rows = changed.map(c => {
+          const id = `${n}-${randomUUID().slice(0, 8)}`;
+          return { id, issue: n, ...c, actor: t.author, bot, trusted: !bot, at: file.mtime.toISOString() };
+        });
+        if (t.author && t.author !== me)
+          await appendFile(timelinePath(dir, n), rows.map(m => `${JSON.stringify(m)}\n`).join(''));
+        writeFileAtomic(seenPath(n), t.labels);
+      };
       const readTimeline = async (n: number) => {
         await adopt(n);
         return readEvents(n);
@@ -518,9 +518,13 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             return { proposal: p, ok: true, id, url: `${md(n)}#${id}` };
           }
           case 'label': {
-            const added = (p.add ?? []).filter(l => !t.labels.includes(l));
-            await write({ ...t, labels: [...t.labels, ...added].filter(l => !p.remove?.includes(l)) });
+            const added = (p.add ?? []).filter(l => !t.labels.includes(l) && !p.remove?.includes(l));
+            const removed = t.labels.filter(l => p.remove?.includes(l));
+            const labels = [...t.labels.filter(l => !removed.includes(l)), ...added];
+            await write({ ...t, labels });
             for (const label of added) await say({ issue: n, kind: 'label', label });
+            for (const label of removed) await say({ issue: n, kind: 'unlabel', label });
+            writeFileAtomic(seenPath(n), labels);
             return { proposal: p, ok: true };
           }
           case 'push': {
