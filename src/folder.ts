@@ -141,6 +141,7 @@ const decode = <S extends Schema.ConstraintDecoder<unknown>>(
   const decoded = Schema.decodeUnknownResult(schema, { onExcessProperty: 'error', errors: 'all' })(data);
   if (Result.isSuccess(decoded)) return decoded.success;
   for (const { key, message } of formatIssues(decoded.failure.issue)) say(`${key}: ${message}`);
+  return undefined;
 };
 
 type File = { path: string; text: string };
@@ -177,6 +178,7 @@ const compile = (
       return splitFrontmatter(file.text);
     } catch (e) {
       sayer(file.path)(`frontmatter: ${(e as Error).message}`);
+      return undefined;
     }
   };
 

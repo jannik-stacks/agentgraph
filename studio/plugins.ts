@@ -143,6 +143,7 @@ export const makeStudioPagesPlugin = (
     },
     resolveId(source) {
       if (source === manifest || source.startsWith(entry)) return `\0${source}`;
+      return undefined;
     },
     async load(id) {
       if (id !== `\0${manifest}` && !id.startsWith(`\0${entry}`)) return;
@@ -156,6 +157,7 @@ export const makeStudioPagesPlugin = (
           .join(',')}];`;
       const page = id.startsWith(`\0${entry}`) && loaded.find(page => page.key === id.slice(entry.length + 1));
       if (page) return `export { default } from ${JSON.stringify(fileURLToPath(page.page))};`;
+      return undefined;
     },
     async transform(code, id) {
       if (id !== fileURLToPath(new URL('./src/styles.css', import.meta.url))) return;
@@ -228,6 +230,7 @@ export const makeStudioPagesPlugin = (
             res.statusCode = 500;
             res.end('{"error":"Could not read plugin data"}');
           });
+        return undefined;
       });
     },
   };

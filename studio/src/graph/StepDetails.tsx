@@ -27,6 +27,7 @@ const latest = (name: string, lines: Line[]): CheckResult | undefined => {
       if (found) return found;
     }
   }
+  return undefined;
 };
 
 type PromptLine = Extract<Trace, { prompt: unknown }>;

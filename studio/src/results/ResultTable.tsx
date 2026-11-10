@@ -294,6 +294,7 @@ export const RunResultLines = ({ run, fields, place }: { run: RunResults; fields
       return `${f.field} ${formatResultValue(f, v)} over ${formatResultValue(f, f.limit.maximum)}`;
     if (f.limit.minimum !== undefined && v < f.limit.minimum)
       return `${f.field} ${formatResultValue(f, v)} under ${formatResultValue(f, f.limit.minimum)}`;
+    return undefined;
   };
   const values = fields.flatMap(f => {
     const v = readFieldValue(run, f);

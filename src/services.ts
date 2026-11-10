@@ -160,6 +160,7 @@ const whyUnpicked = (
       : `no ${kind} plugin ${name}; ${kind}s: ${Object.keys(members).join(', ')}`;
   if (graph?.fromRepo && !builtins.some(b => b.name === name))
     return `${kind} ${name} is a plugin of a graph read from the repo; ${whereLoaded[kind]}`;
+  return undefined;
 };
 
 const findHostGraph = (s: Pick<Settings, 'graph'>) =>

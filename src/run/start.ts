@@ -85,6 +85,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       const named = [...(p.stacks_on === undefined ? [] : [p.stacks_on]), ...(p.depends_on ?? [])];
       if (named.some(k => k < 1 || k > i))
         return `${p.title}: stacks_on and depends_on name an earlier issue here by position`;
+      return undefined;
     };
     const refused = children.flatMap((p, i): Applied[] => {
       const reason = refusal(p, i);

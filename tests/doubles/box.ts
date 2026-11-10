@@ -83,7 +83,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       child.on('close', code =>
         response.end(frame ? `${last === 10 ? '' : '\n'}\u0000agentgraph-exit ${code ?? 137}\n` : '')
       );
-      return;
+      return undefined;
     }
     if (op === 'pull' && faults.pulls > 0) {
       faults.pulls--;
@@ -102,6 +102,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       response.statusCode = code === 0 ? 200 : 500;
       response.end(code === 0 ? Buffer.concat(out) : Buffer.concat([...out, ...err]));
     });
+    return undefined;
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   return {
