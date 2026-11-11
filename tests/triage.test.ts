@@ -424,6 +424,20 @@ describe('ordering', () => {
     ]);
   });
 
+  it('drives a run that stacks on nothing on the base, whatever pull requests are open', async () => {
+    const where = world([[1, 'morgan']]);
+    writeIssueAt(issuePath(where.tracker, 2), '---\ntitle: Odd\nstate: open\nauthor: morgan\n---\n\nOdd branch\n');
+    writeIssueAt(
+      issuePath(where.tracker, 2, 'pull.json'),
+      JSON.stringify({ branch: 'agentgraph/undefined', base: 'main', head: 'abc' })
+    );
+    const waiting = begin(graph.workflows.issue!, { id: 'issue-1', issue: 1, started: at(5) });
+    await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
+    const question = 'Which implementation should I use?';
+    const { value } = await run(where, [turn({ kind: 'ask', question })], tick(graph, 1, true));
+    expect(value.map(r => [r.status, r.base, r.checkout?.base])).toEqual([['waiting', undefined, 'main']]);
+  });
+
   it('waits on a "Depends on" issue until it is closed, even once it has a pull request', async () => {
     const where = world([
       [1, 'morgan'],

@@ -24,10 +24,9 @@ import { runSetup } from './checkout.ts';
 import { runAttempt } from './attempt.ts';
 import { type Outcome, type Run, type SessionStop, type StoreError, type TrackerError, formatCause } from '../types.ts';
 
-/** The open pull request a run on `issue` stacks on: the one it names, or the one of the issue it names. */
-const findStackBase = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
-  const on = open.find(t => t.number === issue.stacksOn);
-  const pull = on?.pull ? on : findBranchPull(open, formatRunBranch(w, { issue: issue.stacksOn! }, open));
+const findStackBase = (w: Workflow, stacksOn: number, open: Issue[]): Run['base'] => {
+  const on = open.find(t => t.number === stacksOn);
+  const pull = on?.pull ? on : findBranchPull(open, formatRunBranch(w, { issue: stacksOn }, open));
   return (
     pull?.pull && {
       pull: pull.number,
@@ -140,7 +139,10 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       );
       yield* store.put(current);
       const stacked =
-        graph.stacks && !current.base && findStackBase(w, issue, yield* tracker.issues({ state: 'open' }));
+        graph.stacks &&
+        !current.base &&
+        issue.stacksOn !== undefined &&
+        findStackBase(w, issue.stacksOn, yield* tracker.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const named = w.branch && formatTemplate(w.branch, issue);
       const earlier = !current.checkout && named ? yield* readEarlierBranch(w, current, named) : undefined;
