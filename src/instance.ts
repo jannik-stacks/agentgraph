@@ -14,7 +14,7 @@ import {
   findBranchPull,
   findIssueDir,
   isAgentBranch,
-  pushLimits,
+  branchPrefix,
   folderTracker,
   Tracker,
   formatIssueFile,
@@ -424,7 +424,7 @@ export const writePullToRepo = async (
   if (saved.readonly) return { why: `agentgraph does not write to ${i.checkout}; pass --patch <file>` };
   const name = to.as ?? branch;
   const ref = `refs/heads/${name}`;
-  if (!isAgentBranch(name)) return { why: `${name} is not an ${pushLimits.prefix} branch` };
+  if (!isAgentBranch(name)) return { why: `${name} is not an ${branchPrefix} branch` };
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head) || !(await succeeds(git({}, ['check-ref-format', ref]))))
     return { why: `${name} is not a branch` };
   const current = await inRepo(i.checkout, ['rev-parse', '-q', '--verify', ref], [1]);

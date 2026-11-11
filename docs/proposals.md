@@ -45,7 +45,7 @@ A step allowed to open a pull request must propose one while none is open, unles
 
 A `pull_request` updates the open pull request for its branch or creates one. The engine appends a [run link](runs.md#run-links) and maintains the [status header](workflows.md#status-on-the-issue). <!-- code: src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
-A push accepts at most 200 regular files of 1 MiB each. Paths under `.github/` are held for a maintainer. The trace records them in `held`; the first push holding a path is incomplete even if other files landed. Later pushes can succeed while still listing it. GitHub commits use the Git API. <!-- code: src/tracker.ts#pushLimits src/tracker.ts#unpushable src/event.ts#Applied src/tracker.ts#makePushResult src/run/settle.ts#writeProposals -->
+A push carries only regular files. The engine sets no cap on how many files or bytes it changes; a graph keeps pull requests small with a check such as [the agentgraph example's size check](../examples/agentgraph/checks/size.md). GitHub's own refusal of a file is reported with its path. Paths under `.github/` are held for a maintainer. The trace records them in `held`; the first push holding a path is incomplete even if other files landed. Later pushes can succeed while still listing it. GitHub commits use the Git API. <!-- code: src/tracker.ts#unpushable src/github.ts#githubTracker src/event.ts#Applied src/tracker.ts#makePushResult src/run/settle.ts#writeProposals -->
 
 ## Filing issues
 

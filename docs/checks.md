@@ -11,6 +11,8 @@ A check has a `run` script, an `agent` judge, or both; [the graph folder](refere
 | `block` | Fail the try; the findings are feedback for the next one |
 | `stop`  | Stop the run                                             |
 
+The engine has no size cap on a change. To keep pull requests small, use a check like [the agentgraph example's size check](../examples/agentgraph/checks/size.md), whose script counts the lines and files a change touches. <!-- code: examples/agentgraph/scripts/size.mjs -->
+
 ## Results
 
 A result is a JSON object of the shape the check's `returns` describes. Without `returns` it is `{pass, why}`: `pass` is a boolean and `why` holds the findings. <!-- code: src/result.ts#defaultReturns -->

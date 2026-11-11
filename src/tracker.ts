@@ -198,9 +198,8 @@ export const isBotLogin = (login: string) => login.endsWith('[bot]');
 export const withheld = (author: string, what = 'comment', why = 'not a collaborator') =>
   `(${what} by @${author} withheld: ${why})`;
 
-/** The branches a push may move, the files it may change at most, and the largest file it may write. */
-export const pushLimits = { prefix: 'agentgraph/', files: 200, bytes: 1 << 20 };
-export const isAgentBranch = (branch: string) => branch.startsWith(pushLimits.prefix);
+export const branchPrefix = 'agentgraph/';
+export const isAgentBranch = (branch: string) => branch.startsWith(branchPrefix);
 
 /** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
 export const unpushable = (path: string, modes: string[]) =>
@@ -358,13 +357,10 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         );
       const findPushProblem = async (work: Checkout, from: string, to: string) => {
         const fields = (await git(work, 'diff-tree', '-r', '-z', '--no-renames', from, to)).split('\0');
-        if ((fields.length - 1) / 2 > pushLimits.files) return `at most ${pushLimits.files} files can be pushed`;
         for (let i = 0; i + 1 < fields.length; i += 2) {
-          const [oldMode, newMode, , sha] = fields[i]!.slice(1).split(' ');
+          const [oldMode, newMode] = fields[i]!.slice(1).split(' ');
           const problem = unpushable(fields[i + 1]!, [oldMode!, newMode!]);
           if (problem) return problem;
-          if (newMode !== '000000' && Number(await git(work, 'cat-file', '-s', sha!)) > pushLimits.bytes)
-            return `${fields[i + 1]} is over ${pushLimits.bytes} bytes`;
         }
         return undefined;
       };
@@ -528,7 +524,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             return { proposal: p, ok: true };
           }
           case 'push': {
-            if (!isAgentBranch(p.branch)) return no(`a push goes to a ${pushLimits.prefix} branch`);
+            if (!isAgentBranch(p.branch)) return no(`a push goes to a ${branchPrefix} branch`);
             if (!work) return no('a push needs a worktree');
             const reported = held.get(p.branch) ?? new Set<string>();
             held.set(p.branch, reported);
@@ -568,7 +564,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             };
           }
           case 'rebase': {
-            if (!isAgentBranch(p.branch)) return no(`a rebase goes to a ${pushLimits.prefix} branch`);
+            if (!isAgentBranch(p.branch)) return no(`a rebase goes to a ${branchPrefix} branch`);
             if (!work) return no('a rebase needs a worktree');
             const was = await tip(work, p.branch);
             if (p.head && was !== p.onto) return no(`${p.branch} moved to ${was}`, true);
@@ -621,7 +617,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
               (left.length
                 ? `\n\nNot pushed: ${left.map(f => `\`${f}\``).join(', ')}. Files under .github/ need a maintainer.`
                 : '');
-            if (!isAgentBranch(p.branch)) return no(`a pull request goes from a ${pushLimits.prefix} branch`);
+            if (!isAgentBranch(p.branch)) return no(`a pull request goes from a ${branchPrefix} branch`);
             for (const k of findIssueNumbers(dir)) {
               const pr = await read(k);
               if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;

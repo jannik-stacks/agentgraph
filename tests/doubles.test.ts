@@ -348,6 +348,14 @@ describe('folderTracker push', () => {
     expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
   });
 
+  it('pushes 250 files and a 1.5 MB file', async () => {
+    const { dir, origin, work, push } = setup();
+    for (let i = 0; i < 249; i++) writeFileSync(join(work, `f${i}`), `${i}\n`);
+    writeFileSync(join(work, 'big'), Buffer.alloc(1_500_000, 1));
+    expect((await push()).ok).toBe(true);
+    expect(git(dir, '--git-dir', origin, 'ls-tree', '-r', '--name-only', 'agentgraph/1').split('\n')).toHaveLength(251);
+  });
+
   it.each([false, true])('names held files and reports whether anything was pushed (held only: %s)', async only => {
     const { dir, origin, work, push } = setup();
     mkdirSync(join(work, '.github/workflows'), { recursive: true });

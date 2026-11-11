@@ -2028,9 +2028,6 @@ describe('githubTracker', () => {
       mkdirSync(join(dir, '.github', 'workflows'), { recursive: true });
       writeFileSync(join(dir, '.github', 'workflows', 'x.yml'), 'on: push\n');
     };
-    const many = (dir: string) => {
-      for (let i = 0; i < 201; i++) writeFileSync(join(dir, `f${i}`), `${i}\n`);
-    };
     it('pushes the rest without a workflow file and names it in the pull request', async () => {
       const { dir, git, work } = repo();
       workflow(dir);
@@ -2132,15 +2129,25 @@ describe('githubTracker', () => {
       expect(readFileSync(join(dir, '.github/workflows/x.yml'), 'utf8')).toBe('on: push\n');
     });
 
+    it('pushes 250 files and a 1.5 MB file', async () => {
+      const { dir, work } = repo();
+      for (let i = 0; i < 250; i++) writeFileSync(join(dir, `f${i}`), `${i}\n`);
+      writeFileSync(join(dir, 'big'), Buffer.alloc(1_500_000, 1));
+      const f = dataApi(work);
+      expect(await pushTo(f, work)).toMatchObject({ ok: true });
+      expect(f.calls.filter(c => c.path === '/repos/o/r/git/blobs')).toHaveLength(251);
+    });
+
+    it('names the file when GitHub refuses its blob', async () => {
+      const { dir, work } = repo();
+      writeFileSync(join(dir, 'big'), 'big\n');
+      const f = dataApi(work, { 'POST /repos/o/r/git/blobs': () => ({ status: 422, body: { message: 'too large' } }) });
+      expect(await pushTo(f, work)).toMatchObject({ ok: false, reason: expect.stringMatching(/^big: GitHub POST/) });
+    });
+
     it.each([
       ['a symlink', (dir: string) => symlinkSync('/etc/passwd', join(dir, 'link')), /link has mode 000000 to 120000/],
       ['a submodule', submodule, /sub has mode 000000 to 160000/],
-      [
-        'a file over 1 MB',
-        (dir: string) => writeFileSync(join(dir, 'big'), Buffer.alloc((1 << 20) + 1)),
-        /big is over/,
-      ],
-      ['more than 200 files', many, /201 files changed/],
     ])('refuses %s before any write to GitHub', async (_, change, reason) => {
       const { dir, work } = repo();
       change(dir);

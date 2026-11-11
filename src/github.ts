@@ -8,7 +8,7 @@ import {
   isBotLogin,
   isAgentBranch,
   isPostedBy,
-  pushLimits,
+  branchPrefix,
   unpushable,
   Tracker,
   makePostableProposal,
@@ -863,7 +863,7 @@ export const githubTracker = (
      */
     const push = (work: Checkout, branch: string, message: string, onto?: string, merge?: true) =>
       Effect.gen(function* () {
-        if (!isAgentBranch(branch)) return yield* refuse(`a push goes to a ${pushLimits.prefix} branch`);
+        if (!isAgentBranch(branch)) return yield* refuse(`a push goes to a ${branchPrefix} branch`);
         const ref = yield* refPath(branch);
         const reported = held.get(branch) ?? new Set<string>();
         held.set(branch, reported);
@@ -930,7 +930,7 @@ export const githubTracker = (
      */
     const rebase = (work: Checkout, branch: string, from: string, onto: string, local?: string) =>
       Effect.gen(function* () {
-        if (!isAgentBranch(branch)) return yield* refuse(`a rebase goes to a ${pushLimits.prefix} branch`);
+        if (!isAgentBranch(branch)) return yield* refuse(`a rebase goes to a ${branchPrefix} branch`);
         const ref = yield* refPath(branch);
         const readRefTip = Effect.map(
           missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)),
@@ -991,10 +991,7 @@ export const githubTracker = (
         const fields = (yield* git(work, ['diff-tree', '-r', '-z', '--no-renames', '--no-abbrev', from, to]))
           .toString('utf8')
           .split('\0');
-        const count = (fields.length - 1) / 2;
-        if (count > pushLimits.files)
-          return yield* refuse(`refused to push: ${count} files changed, at most ${pushLimits.files} can be pushed`);
-        const changes: { path: string; mode: string; sha: string | null; content?: Buffer }[] = [];
+        const changes: { path: string; mode: string; sha: string | null; upload?: true }[] = [];
         const problems: string[] = [];
         for (let i = 0; i + 1 < fields.length; i += 2) {
           const [oldMode, newMode, oldSha, newSha] = fields[i]!.slice(1).split(' ') as [string, string, string, string];
@@ -1003,20 +1000,21 @@ export const githubTracker = (
           if (problem) problems.push(problem);
           else if (newMode === '000000') changes.push({ path, mode: oldMode, sha: null });
           else if (oldSha === newSha) changes.push({ path, mode: newMode, sha: newSha });
-          else {
-            const content = yield* git(work, ['cat-file', 'blob', newSha]);
-            if (content.length > pushLimits.bytes) problems.push(`${path} is over ${pushLimits.bytes} bytes`);
-            else changes.push({ path, mode: newMode, sha: newSha, content });
-          }
+          else changes.push({ path, mode: newMode, sha: newSha, upload: true });
         }
         if (problems.length) return yield* refuse(`refused to push: ${problems.join('; ')}`);
-        for (const { path, sha, content } of changes) {
-          if (!content) continue;
+        for (const { path, sha, upload } of changes) {
+          if (!upload) continue;
+          const content = yield* git(work, ['cat-file', 'blob', sha!]);
           const stored = yield* gh<{ sha: string }>(
             'POST',
             `${repo}/git/blobs`,
             { content: content.toString('base64'), encoding: 'base64' },
             'push'
+          ).pipe(
+            Effect.mapError(
+              e => new TrackerError({ ...(e.status && { status: e.status }), message: `${path}: ${e.message}` })
+            )
           );
           if (stored.sha !== sha)
             return yield* new TrackerError({ message: `GitHub stored ${path} as ${stored.sha}, expected ${sha}` });
@@ -1116,8 +1114,7 @@ export const githubTracker = (
           }));
         case 'pull_request':
           return Effect.gen(function* () {
-            if (!isAgentBranch(p.branch))
-              return yield* refuse(`a pull request goes from a ${pushLimits.prefix} branch`);
+            if (!isAgentBranch(p.branch)) return yield* refuse(`a pull request goes from a ${branchPrefix} branch`);
             type Made = { number: number; html_url: string };
             const left = [...(held.get(p.branch) ?? [])];
             const note = left.length

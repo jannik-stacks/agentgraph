@@ -41,35 +41,31 @@ describe('a base that moved', () => {
     expect(rebases(where)).toContain(false);
   });
 
-  it.each(['workflow', 'symlink', 'oversize'])(
-    'refuses unsafe content during a file-tracker rebase: %s',
-    async kind => {
-      const where = await parked();
-      const mover = join(where.root, 'mover');
-      git(where.root, 'clone', '-q', where.origin, mover);
-      git(mover, 'checkout', '-q', '-B', 'agentgraph/7', 'origin/agentgraph/7');
-      if (kind === 'workflow') {
-        mkdirSync(join(mover, '.github', 'workflows'), { recursive: true });
-        writeFileSync(join(mover, '.github', 'workflows', 'x.yml'), 'run: bad\n');
-      } else if (kind === 'symlink') symlinkSync('README.md', join(mover, 'link.txt'));
-      else writeFileSync(join(mover, 'big.txt'), 'x'.repeat((1 << 20) + 1));
-      git(mover, 'add', '-A');
-      git(mover, 'commit', '-qm', 'Unsupported content');
-      const tip = git(mover, 'rev-parse', 'HEAD');
-      git(mover, 'push', '-q', 'origin', 'agentgraph/7');
-      const pr = JSON.parse(readFileSync(issuePath(where.tracker, 8, 'pull.json'), 'utf8'));
-      writeIssueAt(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ ...pr, head: tip }));
-      git(mover, 'reset', '-q', '--hard', 'origin/main');
-      writeFileSync(join(mover, 'upstream.txt'), 'upstream\n');
-      git(mover, 'add', '-A');
-      git(mover, 'commit', '-qm', 'Upstream');
-      git(mover, 'push', '-q', 'origin', 'HEAD:main');
-      const { run } = services(where, []);
-      await run(tick(graph, 7));
-      expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(tip);
-      expect(rebases(where)).toContain(false);
-    }
-  );
+  it.each(['workflow', 'symlink'])('refuses unsafe content during a file-tracker rebase: %s', async kind => {
+    const where = await parked();
+    const mover = join(where.root, 'mover');
+    git(where.root, 'clone', '-q', where.origin, mover);
+    git(mover, 'checkout', '-q', '-B', 'agentgraph/7', 'origin/agentgraph/7');
+    if (kind === 'workflow') {
+      mkdirSync(join(mover, '.github', 'workflows'), { recursive: true });
+      writeFileSync(join(mover, '.github', 'workflows', 'x.yml'), 'run: bad\n');
+    } else symlinkSync('README.md', join(mover, 'link.txt'));
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-qm', 'Unsupported content');
+    const tip = git(mover, 'rev-parse', 'HEAD');
+    git(mover, 'push', '-q', 'origin', 'agentgraph/7');
+    const pr = JSON.parse(readFileSync(issuePath(where.tracker, 8, 'pull.json'), 'utf8'));
+    writeIssueAt(issuePath(where.tracker, 8, 'pull.json'), JSON.stringify({ ...pr, head: tip }));
+    git(mover, 'reset', '-q', '--hard', 'origin/main');
+    writeFileSync(join(mover, 'upstream.txt'), 'upstream\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-qm', 'Upstream');
+    git(mover, 'push', '-q', 'origin', 'HEAD:main');
+    const { run } = services(where, []);
+    await run(tick(graph, 7));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(tip);
+    expect(rebases(where)).toContain(false);
+  });
 
   it('rebases a clean branch with no model and runs only its script checks when the change stays the same', async () => {
     const where = await moved('other.txt');

@@ -244,7 +244,7 @@ describe('a run branch that moved', () => {
     expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('merged');
   });
 
-  it.each(['symlink', 'oversize'])('folder tracker refuses unsafe push content: %s', async kind => {
+  it.each(['symlink'])('folder tracker refuses unsafe push content: %s', async () => {
     const where = world();
     const { run } = services(
       where,
@@ -254,10 +254,8 @@ describe('a run branch that moved', () => {
       ],
       undefined,
       spec => {
-        if (kind === 'symlink') {
-          rmSync(join(spec.dir, 'link.txt'), { force: true });
-          symlinkSync('README.md', join(spec.dir, 'link.txt'));
-        } else writeFileSync(join(spec.dir, 'big.txt'), 'x'.repeat((1 << 20) + 1));
+        rmSync(join(spec.dir, 'link.txt'), { force: true });
+        symlinkSync('README.md', join(spec.dir, 'link.txt'));
       }
     );
     await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
