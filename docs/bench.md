@@ -32,7 +32,7 @@ Each case folder holds `case.json`, `issue.md` and `merged.diff`; optional `hidd
 
 Case commands override repository recipes. Hidden tests must fail on base and pass on the merged change; the merged change must also apply and pass setup, suite and typecheck. Invalid cases and skipped tests record reasons.
 
-Image selection uses case `image`, graph `image`, then the operator fallback and stock sandbox. Bench pins the Docker ID for resumes; a labelled comparison selects its own ID. Scoped cleanup preserves live environments and pins; insufficient disk holds work. <!-- code: bin/bench.ts#readCaseImage src/docker.ts#readImage --> <!-- code: src/disk.ts#collect src/disk.ts#ensureFreeDisk -->
+Image selection uses case `image`, graph `image`, then the operator fallback and stock sandbox. Bench pins the Docker ID for resumes; a labelled comparison selects its own ID. Scoped cleanup preserves live environments and pins; low disk warns, or holds work with `AGENTGRAPH_DISK_LOW=block`. <!-- code: bin/bench.ts#readCaseImage src/docker.ts#readImage --> <!-- code: src/disk.ts#collect src/disk.ts#ensureFreeDisk -->
 
 ## Arms
 

@@ -312,7 +312,7 @@ const isData = (labels: Record<string, string>) => Object.keys(labels).some(k =>
  * objects are data and never appear. Volumes without a recorded size count 0 bytes unless `measure`.
  */
 export const inventory = async (
-  o: { roots?: string[]; measure?: boolean } & Pick<Disk, 'eligible'> = {}
+  o: { roots?: string[]; measure?: boolean } & Pick<Disk, 'eligible' | 'image'> = {}
 ): Promise<DiskCacheEntry[]> => {
   const df = await usage();
   const tagsById = new Map<string, string[]>();
@@ -400,6 +400,7 @@ export const inventory = async (
       ...(mounted.has(makeSetupVolumeName(key)) && { held: 'container' }),
       ...(overlaid(key) && { held: 'live checkout' }),
       ...(held(key) && { held: 'recent use' }),
+      ...(o.image !== undefined && (id === o.image || allTags.includes(o.image)) && { held: 'current run' }),
     });
   }
   const measured = o.measure ? df.volumes : new Map<string, number>();
@@ -565,12 +566,12 @@ const getFreeBytes = async ({ dir, image }: Disk) => {
 
 const gb = (b: number) => (b / 1e9).toFixed(1);
 
-const formatNoRoomReason = (free: number, need: number, kept: DiskCacheEntry[]) => {
+const formatNoRoomReason = (free: number, floor: number, kept: DiskCacheEntry[]) => {
   const by = new Map<string, number>();
   for (const i of kept) by.set(i.held!, (by.get(i.held!) ?? 0) + i.bytes);
   const pinned = [...by.keys()].filter(r => r.startsWith('pin ')).map(r => r.slice(4));
   return [
-    `disk low: ${gb(free)} GB free, need ${need} GB.`,
+    `disk low: ${gb(free)} GB free, under the AGENTGRAPH_MIN_FREE_GB floor of ${floor} GB (0 turns the check off, AGENTGRAPH_DISK_LOW=block waits for room).`,
     kept.length
       ? `Held cache ${gb(kept.reduce((n, i) => n + i.bytes, 0))} GB (${[...by].map(([r, b]) => `${r} ${gb(b)} GB`).join(', ')}).`
       : 'No cache is left to collect; the rest is data.',
@@ -584,27 +585,46 @@ const formatNoRoomReason = (free: number, need: number, kept: DiskCacheEntry[]) 
  */
 export class DiskLow extends Error {
   readonly held: DiskCacheEntry[];
-  constructor(free: number, need: number, held: DiskCacheEntry[]) {
-    super(formatNoRoomReason(free, need, held));
+  constructor(free: number, floor: number, held: DiskCacheEntry[]) {
+    super(formatNoRoomReason(free, floor, held));
     this.held = held;
   }
 }
 
-export const ensureFreeDisk = async (disk: Disk, min = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40)) => {
-  if (min === 0 || (await getFreeBytes(disk)) >= min * 1e9) return;
+const readFloor = () => {
+  const gb = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40);
+  if (!(gb >= 0))
+    throw new Error(`AGENTGRAPH_MIN_FREE_GB must be a number of GB, got ${process.env.AGENTGRAPH_MIN_FREE_GB}`);
+  return gb;
+};
+
+const readBlocks = () => {
+  const mode = process.env.AGENTGRAPH_DISK_LOW || 'warn';
+  if (mode !== 'warn' && mode !== 'block') throw new Error(`AGENTGRAPH_DISK_LOW must be warn or block, got ${mode}`);
+  return mode === 'block';
+};
+
+let warned = false;
+
+export const ensureFreeDisk = async (disk: Disk, floor = readFloor(), block = readBlocks()) => {
+  if (floor === 0 || (await getFreeBytes(disk)) >= floor * 1e9) return;
   inDocker.clear();
   const { items, removed } = await collect({
     roots: [disk.dir],
     eligible: disk.eligible ?? readEnvRefs(disk.dir),
+    ...(disk.image !== undefined && { image: disk.image }),
     free: await getFreeBytes(disk),
-    floor: min * 1e9,
+    floor: floor * 1e9,
   });
   inDocker.clear();
   const free = await getFreeBytes(disk);
-  if (free < min * 1e9)
-    throw new DiskLow(
-      free,
-      min,
-      items.filter(i => i.held && !removed.includes(i))
-    );
+  if (free >= floor * 1e9) return;
+  const low = new DiskLow(
+    free,
+    floor,
+    items.filter(i => i.held && !removed.includes(i))
+  );
+  if (block) throw low;
+  if (!warned) console.error(low.message);
+  warned = true;
 };

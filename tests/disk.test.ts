@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   collect,
   DiskLow,
@@ -315,7 +315,7 @@ describe('toolchain cache volumes', () => {
     await faked(
       { ...box, run: 'Filesystem 1024-blocks Used Available Capacity Mounted\\noverlay 100 1 50 1 /\\n' },
       async log => {
-        await expect(ensureFreeDisk({ dir: tmp('disk'), image: 'img' }, 1e9)).rejects.toBeInstanceOf(DiskLow);
+        await expect(ensureFreeDisk({ dir: tmp('disk'), image: 'img' }, 1e9, true)).rejects.toBeInstanceOf(DiskLow);
         const run = log()
           .split('\n')
           .find(l => l.startsWith('run '));
@@ -481,9 +481,9 @@ describe('scoped collection', () => {
     'blocks on low disk without global sweeping or unrelated removals with scope %j',
     async eligible => {
       await faked(box, async log => {
-        await expect(ensureFreeDisk({ dir: tmp('disk'), ...(eligible && { eligible }) }, 1e9)).rejects.toBeInstanceOf(
-          DiskLow
-        );
+        await expect(
+          ensureFreeDisk({ dir: tmp('disk'), ...(eligible && { eligible }) }, 1e9, true)
+        ).rejects.toBeInstanceOf(DiskLow);
         expect(
           log()
             .split('\n')
@@ -501,12 +501,47 @@ describe('ensureFreeDisk', () => {
       pin('luna', ['agentgraph-env/*'], 14);
       const low = await ensureFreeDisk(
         { dir: tmp('disk'), eligible: ['agentgraph-env/r:k1', 'agentgraph-env/r:k2'] },
-        1e9
+        1e9,
+        true
       ).catch((e: unknown) => e);
       expect(low).toBeInstanceOf(DiskLow);
-      expect(String((low as Error).message)).toMatch(/^disk low: [\d.]+ GB free, need 1000000000 GB/);
+      expect(String((low as Error).message)).toMatch(
+        /^disk low: [\d.]+ GB free, under the AGENTGRAPH_MIN_FREE_GB floor of 1000000000 GB \(0 turns/
+      );
       expect((low as Error).message).toContain('pin luna');
       expect((low as Error).message).toContain('node bin/env.ts unpin luna');
+    });
+  });
+
+  it('reads the floor and the low disk mode from the env, warns by default and turns off at 0', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await faked(box, async log => {
+      vi.stubEnv('AGENTGRAPH_MIN_FREE_GB', '1e9');
+      await expect(ensureFreeDisk({ dir: tmp('disk'), eligible: [] })).resolves.toBeUndefined();
+      expect(errors.mock.calls.flat().join('\n')).toMatch(/disk low: .*floor of 1000000000 GB/);
+      vi.stubEnv('AGENTGRAPH_DISK_LOW', 'block');
+      await expect(ensureFreeDisk({ dir: tmp('disk'), eligible: [] })).rejects.toBeInstanceOf(DiskLow);
+      vi.stubEnv('AGENTGRAPH_MIN_FREE_GB', '0');
+      const before = log();
+      await expect(ensureFreeDisk({ dir: tmp('disk'), eligible: [] })).resolves.toBeUndefined();
+      expect(log()).toBe(before);
+      vi.stubEnv('AGENTGRAPH_DISK_LOW', 'stop');
+      await expect(ensureFreeDisk({ dir: tmp('disk') })).rejects.toThrow('AGENTGRAPH_DISK_LOW must be warn or block');
+    });
+    vi.unstubAllEnvs();
+    errors.mockRestore();
+  });
+
+  it.each([false, true])('never removes the image the run needs, blocking %s', async block => {
+    const df = 'Filesystem 1024-blocks Used Available Capacity Mounted\\noverlay 100 1 50 1 /\\n';
+    await faked({ ...box, run: df }, async log => {
+      const low = ensureFreeDisk(
+        { dir: tmp('disk'), image: 'agentgraph-env/r:k1', eligible: ['agentgraph-env/r:k1'] },
+        1e9,
+        block
+      );
+      await (block ? expect(low).rejects.toBeInstanceOf(DiskLow) : expect(low).resolves.toBeUndefined());
+      expect(log()).not.toContain('rmi agentgraph-env/r:k1');
     });
   });
 });
