@@ -23,6 +23,8 @@ services:
     build: ../../../infra/local/egress
     image: agentgraph-egress:local
     read_only: true
+    tmpfs: ["/tmp:size=1m"]
+    volumes: ["${AGENTGRAPH_DATA:-~/.agentgraph}/egress:/etc/agentgraph/egress:ro"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m

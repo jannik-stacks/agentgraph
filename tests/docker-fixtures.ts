@@ -75,6 +75,7 @@ export const makeDockerClient = () => {
         '#!/bin/sh',
         'case "$*" in *"printf agentgraph-command-ready"*) printf agentgraph-command-ready; exit 0;; esac',
         `[ "$1" = network ] && { echo "$*" >> ${log}.network; case "$*" in *tools-fail.internal*) exit 4;; *IPAM.Config*) echo '[{"Gateway":"172.30.0.1","Subnet":"172.30.0.0/16"}]'; exit 0;; esac; echo true; exit 0; }`,
+        `[ "$1" = start ] && exit 1`,
         `[ "$1" = rm ] && { sleep 0.2; : > ${log}.held; echo "$*" >> ${log}.rm; exit 0; }`,
         `[ "$1" = image ] && case "$*" in *Labels*) [ -e ${log}.imgfail ] && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }; echo "Error: No such image" >&2; exit 1;; *) echo sha256:base; exit 0;; esac`,
         `[ "$1 $2" = "volume inspect" ] && for a; do case $a in agentgraph-*) echo /m/$a;; esac; done`,

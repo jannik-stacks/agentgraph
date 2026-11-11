@@ -349,9 +349,9 @@ const findMissingModelHosts = (hosts: string[]) =>
 
 const checked = new Set<string>();
 
-export const ensureDockerHost = (o: Pick<RunnerHost, 'image' | 'direct'>) =>
+export const ensureDockerHost = (o: Pick<RunnerHost, 'image' | 'direct' | 'data'>) =>
   Effect.gen(function* () {
-    const key = JSON.stringify([o.image, o.direct]);
+    const key = JSON.stringify([o.image, o.direct, o.data]);
     if (checked.has(key)) return;
     const root = whyRoot();
     if (root) return yield* infra(root);
@@ -363,12 +363,12 @@ export const ensureDockerHost = (o: Pick<RunnerHost, 'image' | 'direct'>) =>
           'Start the model stack with `npm run up` in the agentgraph checkout (infra/local/README.md), or pick another provider.',
         ].join('\n')
       );
-    const version = yield* ensureDocker(line => console.error(`sandbox  ${line}`), o.image ?? sandboxImage);
+    const version = yield* ensureDocker(line => console.error(`sandbox  ${line}`), o.image ?? sandboxImage, o.data);
     console.error(`sandbox  docker ${version}`);
     checked.add(key);
   });
 
-const ensureDocker = (say: (line: string) => void, image: string) =>
+const ensureDocker = (say: (line: string) => void, image: string, data: string) =>
   Effect.gen(function* () {
     const version = yield* Effect.mapError(run('docker', ['version', '--format', '{{.Server.Version}}']), () =>
       infra(
@@ -407,10 +407,16 @@ const ensureDocker = (say: (line: string) => void, image: string) =>
           networks.egress,
         ]);
         if (!members.includes('egress') && !(yield* has(['start', 'agentgraph-egress']))) {
-          const flags = `run -d --name agentgraph-egress --restart unless-stopped --read-only --cap-drop ALL
-        --security-opt no-new-privileges:true --memory 128m --pids-limit 512 --network ${networks.egress}
-        --network-alias egress agentgraph-egress:local`;
-          yield* run('docker', flags.split(/\s+/));
+          const extra = join(data, 'egress');
+          yield* Effect.promise(() => mkdir(extra, { recursive: true }));
+          const flags = `run -d --name agentgraph-egress --restart unless-stopped --read-only --tmpfs /tmp:size=1m
+        --cap-drop ALL --security-opt no-new-privileges:true --memory 128m --pids-limit 512 --network ${networks.egress}
+        --network-alias egress`;
+          yield* run('docker', [
+            ...flags.split(/\s+/),
+            ...bind({ src: extra, dst: '/etc/agentgraph/egress', readonly: true }),
+            'agentgraph-egress:local',
+          ]);
         }
         yield* has(['network', 'connect', 'agentgraph-egress', 'agentgraph-egress']);
       })

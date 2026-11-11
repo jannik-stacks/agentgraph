@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync
 import { basename, delimiter, dirname, join } from 'node:path';
 import { Effect, Exit, Layer, Logger, Redacted, type Scope, Stream } from 'effect';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { dockerArgs, readImage } from '../src/docker.ts';
+import { dockerArgs, ensureDockerHost, readImage } from '../src/docker.ts';
 import { ensureInstance } from '../src/instance.ts';
 import { commitCheckoutOnce } from '../src/git.ts';
 import {
@@ -67,6 +67,19 @@ describe('docker with a stand-in docker client', () => {
     expect(args).toContain('NO_PROXY=gateway,tools-session.internal,localhost,127.0.0.1');
     expect(args).toContain('AGENTGRAPH_TOOL_SECRET');
     expect(args.join(' ')).not.toContain('private-session-secret');
+  });
+
+  it('starts the egress proxy hardened, with the operator allowlist folder of the data dir read-only', async () => {
+    const data = tmp('data');
+    await Effect.runPromise(ensureDockerHost({ data }));
+    const proxy = readFileSync(`${log}.all`, 'utf8')
+      .split('\n')
+      .findLast(line => line.startsWith('run -d --name agentgraph-egress '))!;
+    expect(proxy).toContain('--read-only --tmpfs /tmp:size=1m --cap-drop ALL');
+    expect(proxy).toContain(
+      `--mount type=bind,src=${join(data, 'egress')},dst=/etc/agentgraph/egress,readonly agentgraph-egress:local`
+    );
+    expect(existsSync(join(data, 'egress'))).toBe(true);
   });
 
   it.each(['egress', 'models'] as const)(
