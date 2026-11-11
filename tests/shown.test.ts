@@ -199,13 +199,15 @@ describe('the status header', () => {
 });
 
 describe('the provenance mark', () => {
-  it('ends the last sentence inline, on a line of its own only after a fence, table or HTML', () => {
-    expect(formatRunMark('Fixed it.\n', 'http://s/runs/r?at=t')).toBe('Fixed it. [⁂](http://s/runs/r?at=t)');
-    expect(formatRunMark('Fixed it.')).toBe('Fixed it. ⁂');
+  it('sits on a line of its own after the text, and strips in its inline and line forms', () => {
+    expect(formatRunMark('Fixed it.\n', 'http://s/runs/r?at=t')).toBe('Fixed it.\n\n[⁂](http://s/runs/r?at=t)');
+    expect(formatRunMark('Fixed it.')).toBe('Fixed it.\n\n⁂');
     expect(formatRunMark('```\ncode\n```')).toBe('```\ncode\n```\n\n⁂');
-    expect(formatRunMark('| a |\n| - |')).toBe('| a |\n| - |\n\n⁂');
-    expect(formatRunMark('x', 'http://s/a(b)')).toBe('x [⁂](http://s/a%28b%29)');
-    expect(removeRunLink('Fixed it. [⁂](http://s/runs/r?at=t)\n<!-- agentgraph run=r -->')).toBe('Fixed it.');
+    expect(formatRunMark('')).toBe('⁂');
+    expect(formatRunMark('x', 'http://s/a(b)')).toBe('x\n\n[⁂](http://s/a%28b%29)');
+    expect(removeRunLink('Fixed it.\n\n[⁂](http://s/runs/r?at=t)\n<!-- agentgraph run=r -->')).toBe('Fixed it.');
+    expect(removeRunLink('Fixed it.\n\n⁂\n<!-- agentgraph run=r -->')).toBe('Fixed it.');
+    expect(removeRunLink('Stacks on #4 [⁂](http://s/runs/r?at=t)\n<!-- agentgraph run=r -->')).toBe('Stacks on #4');
     expect(removeRunLink('Fixed it. ⁂\n<!-- agentgraph run=r -->')).toBe('Fixed it.');
   });
 });

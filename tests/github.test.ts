@@ -1350,7 +1350,7 @@ describe('githubTracker', () => {
     ]);
   });
 
-  it('ends every body it posts for a run with an inline ⁂ link and a hidden marker, and drops one the agent wrote', async () => {
+  it('ends every body it posts for a run with a ⁂ link on its own line and a hidden marker, and drops one the agent wrote', async () => {
     const f = fake({
       'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' },
       'POST /repos/o/r/pulls/8/comments/5/replies': { id: 32, html_url: 'u32' },
@@ -1378,10 +1378,10 @@ describe('githubTracker', () => {
     expect(applied[2]!.at).toBeUndefined();
     const posted = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
     expect(posted[0]).toBe(
-      `Done. [⁂](http://studio:5492/runs/issue-2-1?at=${at})\n<!-- agentgraph run=issue-2-1 step=review session=ses_1 at=${at} -->`
+      `Done.\n\n[⁂](http://studio:5492/runs/issue-2-1?at=${at})\n<!-- agentgraph run=issue-2-1 step=review session=ses_1 at=${at} -->`
     );
     expect(posted[1]).toMatch(
-      /^Fixed\. \[⁂\]\(http:\/\/studio:5492\/runs\/issue-2-1\?at=[^)]+\)\n<!-- agentgraph run=issue-2-1 /
+      /^Fixed\.\n\n\[⁂\]\(http:\/\/studio:5492\/runs\/issue-2-1\?at=[^)]+\)\n<!-- agentgraph run=issue-2-1 /
     );
   });
 
@@ -1418,7 +1418,7 @@ describe('githubTracker', () => {
     await run(f, Effect.provideService(say('Hi.'), currentRunLinkRef, { run: 'r', step: 's' }));
     await run(f, say('Plain. <!-- agentgraph run=fake -->'));
     const [marked, plain] = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
-    expect(marked).toMatch(/^Hi\. ⁂\n<!-- agentgraph run=r step=s at=\S+ -->$/);
+    expect(marked).toMatch(/^Hi\.\n\n⁂\n<!-- agentgraph run=r step=s at=\S+ -->$/);
     expect(plain).toBe('Plain.');
   });
 

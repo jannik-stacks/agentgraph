@@ -169,7 +169,7 @@ The version hashes the check, judge, harness, model and graph scripts. Readers p
 
 ## Run links
 
-Tracker posts carry a hidden run marker and a visible ⁂. Set `AGENTGRAPH_STUDIO_URL` to link it to the run's trace entry. The studio's `/<instance>/runs?gh=<link or comment id>` finds the run behind a post.
+Tracker posts carry a hidden run marker and a visible ⁂ on a line of its own after the text. Set `AGENTGRAPH_STUDIO_URL` to link it to the run's trace entry. The studio's `/<instance>/runs?gh=<link or comment id>` finds the run behind a post.
 
 Operation keys prevent duplicate posts after interruption. <!-- code: src/tracker.ts#formatBodyWithRunLink src/event.ts#formatRunMark src/store.ts#locate src/store.ts#Located src/main.ts#readInstanceEnv --> <!-- code: src/run/settle.ts#findAppliedBefore -->
 

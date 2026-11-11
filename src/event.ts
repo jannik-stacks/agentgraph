@@ -116,8 +116,7 @@ export const makeStudioRunUrl = (studio: string, run: string) =>
 export const formatRunMark = (text: string, url?: string) => {
   const mark = url ? `[⁂](${url.replaceAll('(', '%28').replaceAll(')', '%29')})` : '⁂';
   const trimmed = text.trimEnd();
-  const last = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
-  return !trimmed ? mark : /^\s*(?:```|~~~|\||<)/.test(last) ? `${trimmed}\n\n${mark}` : `${trimmed} ${mark}`;
+  return trimmed ? `${trimmed}\n\n${mark}` : mark;
 };
 
 const statusSection = /<!-- agentgraph status -->\n?([\s\S]*?)\n?(?:<!-- end agentgraph status -->|$)\s*/;
