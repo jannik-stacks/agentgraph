@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
 import { useAtomValue } from 'jotai';
-import { createContext, type ReactNode, useContext, useState } from 'react';
+import { createContext, memo, type ReactNode, useContext, useState } from 'react';
 import type { Proposal } from '../../../src/proposal.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
@@ -487,7 +487,7 @@ const Issue = ({ r }: { r: ServedRun }) =>
   );
 
 const useRunResults = (r: ServedRun) => {
-  const { value } = useAtomValue(runResultsAtom(r.data, r.instance));
+  const { value } = useAtomValue(runResultsAtom(r.data, r.instance, r.trace && r.run.id));
   const run = value?.runs.find(x => x.key === r.run.id);
   return value && run ? { run, fields: value.fields, place: r } : undefined;
 };
@@ -539,6 +539,8 @@ export const RunLine = ({ r }: { r: ServedRun }) => (
   </Link>
 );
 
+const visitRows = new WeakMap<Line, { key: unknown[]; row: Row; by: string | undefined }>();
+
 const makeVisitRows = (r: ServedRun, trace: Line[], expand: boolean, target?: Line): Row[] => {
   const { run } = r;
   const visits = splitTraceIntoVisitedSteps(trace);
@@ -562,7 +564,7 @@ const makeVisitRows = (r: ServedRun, trace: Line[], expand: boolean, target?: Li
       }),
     };
   };
-  return visits.map((visit, i) => {
+  const visitRow = (visit: (typeof visits)[number], last: boolean): Row => {
     const checks = new Map(
       visit.parts.flatMap(part =>
         'check' in part && part.item === undefined ? [[part.check.check, part.check.pass] as const] : []
@@ -573,14 +575,24 @@ const makeVisitRows = (r: ServedRun, trace: Line[], expand: boolean, target?: Li
       open: true,
       summary: (
         <span className="flex min-w-0 items-baseline gap-x-2">
-          <span className={cx('font-medium', r.run.status === 'running' && i === visits.length - 1 && accent.text)}>
-            {visit.step}
-          </span>
+          <span className={cx('font-medium', r.run.status === 'running' && last && accent.text)}>{visit.step}</span>
           {checks.size > 0 && muted(`${checks.size} checks${failed.length ? `, failed ${failed.join(', ')}` : ''}`)}
         </span>
       ),
       children: visit.parts.map(partRow),
     };
+  };
+  return visits.map((visit, i) => {
+    const last = i === visits.length - 1;
+    const key = [by, run.status, last, expand, target, r.repo, r.data, r.instance, ...visit.lines];
+    const cached = visitRows.get(visit.lines[0]!);
+    if (cached?.key.length === key.length && cached.key.every((part, k) => part === key[k])) {
+      by = cached.by;
+      return cached.row;
+    }
+    const row = visitRow(visit, last);
+    visitRows.set(visit.lines[0]!, { key, row, by });
+    return row;
   });
 };
 
@@ -729,7 +741,7 @@ const LeafView = ({ row }: { row: Row }) => {
   );
 };
 
-const RowView = ({ row }: { row: Row }) => {
+const RowView = memo(({ row }: { row: Row }) => {
   const [raw, setRaw] = useState(false);
   const only = !row.body && row.raw === undefined && row.children?.length === 1 ? row.children[0] : undefined;
   if (only)
@@ -774,7 +786,7 @@ const RowView = ({ row }: { row: Row }) => {
       </Disclosure>
     </li>
   );
-};
+});
 
 /** Rows as a list where each opens to its body, its children and its raw JSON; a row with one child shows it in its own line. */
 export const Rows = ({ rows }: { rows: Row[] }) => (

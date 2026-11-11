@@ -69,7 +69,7 @@ it('sends a change for a run record but not for a run checkout', async () => {
       () => {
         writeFileSync(join(data, 'cache/work/abc/tsconfig.json'), '{}');
         writeFileSync(join(data, 'run-1/run.json'), '{}');
-        expect(sent).toContainEqual(['agi:changed', { topics: ['data', 'results'] }]);
+        expect(sent).toContainEqual(['agi:changed', { topics: ['data', 'data:run-1', 'results'] }]);
       },
       { timeout: 4000, interval: 200 }
     );

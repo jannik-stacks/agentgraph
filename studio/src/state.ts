@@ -1,7 +1,7 @@
 import { atom } from 'jotai';
 import { Effect } from 'effect';
 import { runActions } from '../../src/actions.ts';
-import { makeDataHref } from './runs/trace.ts';
+import { getRunLineCount, makeDataHref, mergeLines, type OpenedRun } from './runs/trace.ts';
 import { served } from 'virtual:served';
 import { pages } from 'virtual:agentgraph-pages';
 
@@ -74,10 +74,8 @@ export const selectedStepAtom = queryParam('step');
 
 const loads = new Map<() => void, { follows: readonly string[]; instance: string | undefined }>();
 
-const isFollowed = (topic: string, { follows, instance }: NonNullable<ReturnType<typeof loads.get>>) => {
-  const [own, scoped] = topic.split(':');
-  return scoped === undefined ? follows.includes(own!) : own === instance && follows.includes(scoped);
-};
+const isFollowed = (topic: string, { follows, instance }: NonNullable<ReturnType<typeof loads.get>>) =>
+  follows.includes(instance && topic.startsWith(`${instance}:`) ? topic.slice(instance.length + 1) : topic);
 
 export const readChanged = (changed?: readonly string[]) => {
   for (const [load, follow] of loads) if (!changed || changed.some(topic => isFollowed(topic, follow))) load();
@@ -97,6 +95,21 @@ export const makeLiveJsonAtom = <T>(
   instance = shown?.name
 ) => {
   const value = atom<{ value?: T; failure?: string; retry?: () => void }>({});
+  let pending: Promise<T> | undefined;
+  const fetchOnce = () =>
+    (pending ??= (
+      typeof path === 'function'
+        ? path().then(read)
+        : fetch(makeApiHref(path, instance)).then(async r => {
+            if (r.ok) return read(await r.json());
+            const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
+            throw new Error(
+              typeof body?.error === 'string' && body.error ? body.error : `${path} answered ${r.status}`
+            );
+          })
+    ).finally(() => {
+      pending = undefined;
+    }));
   value.onMount = set => {
     let active = true;
     let busy = false;
@@ -104,23 +117,14 @@ export const makeLiveJsonAtom = <T>(
     const load = () => {
       if (busy) return void (again = true);
       busy = true;
-      void (
-        typeof path === 'function'
-          ? path().then(read)
-          : fetch(makeApiHref(path, instance)).then(async r => {
-              if (r.ok) return read(await r.json());
-              const body = (await r.json().catch(() => undefined)) as { error?: unknown } | null | undefined;
-              throw new Error(
-                typeof body?.error === 'string' && body.error ? body.error : `${path} answered ${r.status}`
-              );
-            })
-      )
+      void fetchOnce()
         .then(
           next => {
             if (active) set({ value: next });
           },
-          (e: Error) => {
-            if (active) set(previous => ({ ...previous, failure: e.message, retry: load }));
+          (e: { message?: unknown } | undefined) => {
+            const failure = typeof e?.message === 'string' ? e.message : String(e);
+            if (active) set(previous => ({ ...previous, failure, retry: load }));
           }
         )
         .finally(() => {
@@ -142,12 +146,18 @@ export const makeLiveJsonAtom = <T>(
 };
 
 const opened = new Map<string, object>();
-const openOnce = <T>(key: string, data: string | null | undefined, load: () => Promise<T>, instance = shown?.name) => {
+const openOnce = <T>(
+  key: string,
+  data: string | null | undefined,
+  load: () => Promise<T>,
+  instance = shown?.name,
+  follows = ['data']
+) => {
   const full = JSON.stringify([instance ?? '', makeDataHref(key, data)]);
   if (!opened.has(full))
     opened.set(
       full,
-      makeLiveJsonAtom<T>(load, data ? studioPages.map(page => page.name) : ['data'], undefined, instance)
+      makeLiveJsonAtom<T>(load, data ? studioPages.map(page => page.name) : follows, undefined, instance)
     );
   return opened.get(full) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
@@ -158,11 +168,27 @@ export const getRunsAtom = (instance = shown?.name) =>
 
 export const dataParam = queryParam('data');
 
-export const runResultsAtom = (data?: string | null, instance = shown?.name) =>
-  openOnce('results', data, () => runAction(actions => actions.results(), data, instance), instance);
+export const runResultsAtom = (data?: string | null, instance = shown?.name, run?: string) =>
+  openOnce(
+    run ? `results ${run}` : 'results',
+    data,
+    () => runAction(actions => actions.results(), data, instance),
+    instance,
+    [run ? `data:${run}` : 'data']
+  );
+
+const makeRunLoad = (id: string, data: string | null | undefined, instance: string | undefined) => {
+  let last: OpenedRun | null = null;
+  return async () => {
+    const held = last;
+    const after = held && getRunLineCount(held.trace);
+    const next = await runAction(actions => actions.run({ id, ...(after && { after }) }), data, instance);
+    return (last = held && next ? { ...next, trace: mergeLines(held.trace, next.trace) } : next);
+  };
+};
 
 export const runAtom = (id: string, data?: string | null, instance = shown?.name) =>
-  openOnce(`run ${id}`, data, () => runAction(actions => actions.run({ id }), data, instance), instance);
+  openOnce(`run ${id}`, data, makeRunLoad(id, data, instance), instance, [`data:${id}`]);
 
 export const getVerdictsAtom = (fixture: string, step: string, check: string) =>
   openOnce(`verdicts ${fixture} ${step} ${check}`, undefined, () =>

@@ -8,10 +8,11 @@ import { Effect, Result, Stream, Struct } from 'effect';
 import { readRequestUser } from './auth.ts';
 import { makeServedGraphs, readModule, readQuery, servedIds, writeJson } from './served.ts';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
-import { findTraceLinks, makeRunSummary, mergeCheckEntries, pickListedRun } from './src/runs/trace.ts';
+import { findTraceLinks, makeRunSummary, mergeLines, pickListedRun } from './src/runs/trace.ts';
 import type * as ResultsModule from '../bin/results.ts';
 import type * as StoreModule from '../src/store.ts';
 import type * as ActionsModule from '../src/actions.ts';
+import type { RunLineCount } from '../src/actions.ts';
 import type * as EngineModule from '../src/engine.ts';
 import type * as ToolsModule from '../src/tools.ts';
 import type * as LabelsModule from '../src/labels.ts';
@@ -82,16 +83,16 @@ export const makeStudioDevApiPlugin = (
           const { readRunResults } = await readModule<typeof ResultsModule>('bin/results.ts');
           const results = () => Effect.sync(() => readRunResults(data, served?.graph));
           const keep = (id: string) => Effect.promise(async () => !watched || isInside(join(data!, id), [data!]));
-          const entry = (run: RunRecord, body: boolean) =>
+          const entry = (run: RunRecord, body: boolean, after?: typeof RunLineCount.Type) =>
             Effect.zipWith(Stream.runCollect(store.read(run.id)), store.readChecks(run.id), (trace, checks) => {
-              const lines = mergeCheckEntries(trace, checks);
+              const lines = mergeLines(trace, checks);
               return {
                 fixture: `${watched ? 'store' : served!.title}/${run.workflow}`,
                 repo: served?.graph?.repo ?? '',
                 run: pickListedRun(run, body),
                 labels: readRunLabels(data!, run.id),
                 ...makeRunSummary(run, lines),
-                trace: lines,
+                trace: after ? mergeLines(trace.slice(after.trace), checks.slice(after.checks)) : lines,
                 ...findTraceLinks(trace),
                 ...(watched ? { data: watched } : served?.name ? { instance: served.name } : {}),
               };
@@ -112,12 +113,12 @@ export const makeStudioDevApiPlugin = (
               );
               return listed.filter(listedRun => listedRun !== undefined);
             }).pipe(Effect.mapError(fail));
-          const run = ({ id }: { id: string }) =>
+          const run = ({ id, after }: { id: string; after?: typeof RunLineCount.Type }) =>
             Effect.gen(function* () {
               if (!served?.dir && !watched) return null;
               if (!/^(?!\.+$)[\w.-]+$/.test(id)) return yield* Effect.fail(new Error('bad run id'));
               const run = (yield* keep(id)) ? yield* store.getRecord(id) : undefined;
-              return run ? { ...Struct.omit(yield* entry(run, true), ['trail']), run } : null;
+              return run ? { ...Struct.omit(yield* entry(run, true, after), ['trail']), run } : null;
             }).pipe(Effect.mapError(fail));
           web = makeActionWebHandler(host, { results, runs, run }, !!watched);
           handlers.set(host, web);

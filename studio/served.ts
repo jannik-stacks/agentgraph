@@ -152,7 +152,7 @@ export const layouts = {
   any: () => true,
 };
 
-export type WatchRoot = { root: string; topic: string; layout: (names: string[]) => boolean };
+export type WatchRoot = { root: string; topic: string; layout: (names: string[]) => boolean; perRun?: boolean };
 
 export const makeUnservedFilter = (roots: WatchRoot[]) => {
   const all = roots.flatMap(({ root, layout }) =>
@@ -183,13 +183,17 @@ export const makeServedGraphs = () => {
 };
 
 export const startWatch = (server: ViteDevServer, roots: WatchRoot[], send: (topics: string[]) => void) => {
-  const real = roots.map(({ root, topic }) => ({ root: readRealPath(root), topic }));
+  const real = roots.map(({ root, topic, perRun }) => ({ root: readRealPath(root), topic, perRun }));
   const topics = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const changed = (_event: string, path: string) => {
     const hit = real.filter(({ root }) => path === root || path.startsWith(root + sep));
     if (!hit.length) return;
-    for (const { topic } of hit) topics.add(topic);
+    for (const { root, topic, perRun } of hit) {
+      topics.add(topic);
+      const [run, file] = path.slice(root.length + 1).split(sep);
+      if (perRun && file) topics.add(`${topic}:${run}`);
+    }
     clearTimeout(timer);
     timer = setTimeout(() => {
       send([...topics]);

@@ -41,6 +41,10 @@ it('serves each named instance under its own name, with no run crossing over', a
     join(live!.data, 'run-live', 'checks.jsonl'),
     `${JSON.stringify({ at, step: 'review', check: { check: 'quality', pass: true, ms: 0, value: { score: 3 } }, version: 'v', usd: 0 })}\n`
   );
+  writeFileSync(
+    join(live!.data, 'run-live', 'trace.jsonl'),
+    `${JSON.stringify({ at, step: 'implement', told: { text: 'go', by: 'me' } })}\n`
+  );
   vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root, names: ['live', 'bench'] }));
   vi.stubEnv('AGI_STUDIO_DIR', undefined);
   vi.stubEnv('AGI_STUDIO_DATA', undefined);
@@ -59,6 +63,11 @@ it('serves each named instance under its own name, with no run crossing over', a
     expect(await listed('bench')).toEqual(['bench/issue run-bench']);
     expect(await opened('?instance=bench', 'run-bench')).toMatchObject({ instance: 'bench' });
     expect(await opened('?instance=live', 'run-bench')).toBeNull();
+    const tail = (after: { trace: number; checks: number }) =>
+      runStudioAction(`${base}/api/actions?instance=live`, actions => actions.run({ id: 'run-live', after }));
+    expect((await opened('?instance=live', 'run-live'))?.trace.map(line => 'check' in line)).toEqual([false, true]);
+    expect((await tail({ trace: 1, checks: 0 }))?.trace.map(line => 'check' in line)).toEqual([true]);
+    expect(await tail({ trace: 1, checks: 1 })).toMatchObject({ trace: [], usd: 0 });
     for (const query of ['', '?instance=other']) await expect(runs(query)).rejects.toThrow();
     expect((await fetch(`${base}/api/plugins/results/data`)).status).toBe(404);
     const [, results] = await get('/api/plugins/results/data?instance=bench');
@@ -90,7 +99,9 @@ it('serves each named instance under its own name, with no run crossing over', a
     const sent = vi.spyOn(server.ws, 'send');
     writeRun(bench!.data, 'run-later');
     await vi.waitFor(() =>
-      expect(sent).toHaveBeenCalledWith('agi:changed', { topics: ['bench:data', 'bench:results', 'bench'] })
+      expect(sent).toHaveBeenCalledWith('agi:changed', {
+        topics: expect.arrayContaining(['bench:data', 'bench:data:run-later', 'bench:results', 'bench']),
+      })
     );
   } finally {
     await server.close();

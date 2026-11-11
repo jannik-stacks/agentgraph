@@ -97,6 +97,14 @@ describe('a run as rows', () => {
     expect(text(skipped.children?.[0]?.children?.[1])).not.toContain('pass');
   });
 
+  it('keeps the rows of a visit no new line reached, so only the newest visit renders again', () => {
+    const make = (lines: Trace[]) => runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace: lines }, true);
+    const before = make(trace);
+    const after = make([...trace, { at, step: 'review', event: { type: 'text', text: 'more' } } as Trace]);
+    expect(after.children?.[0]).toBe(before.children?.[0]);
+    expect(after.children?.[1]).not.toBe(before.children?.[1]);
+  });
+
   it('opens to its visits, each holding its sessions and the other lines, with the run in its body', () => {
     expect(row.raw).toBeUndefined();
     expect(row.body?.props.r.run).toBe(run);

@@ -100,7 +100,9 @@ const readWatchRoots = (pages: Awaited<ReturnType<typeof readStudioPages>>, serv
     ...served.flatMap(one => [
       ...(one.dir ? [{ root: one.dir, topic: makeServedTopic(one.name, 'graph'), layout: layouts.any }] : []),
       ...one.files.map(root => ({ root, topic: makeServedTopic(one.name, 'graph'), layout: () => false })),
-      ...(one.data ? [{ root: one.data, topic: makeServedTopic(one.name, 'data'), layout: layouts.data }] : []),
+      ...(one.data
+        ? [{ root: one.data, topic: makeServedTopic(one.name, 'data'), layout: layouts.data, perRun: true }]
+        : []),
     ]),
     ...(process.env.AGI_STUDIO_PLUGINS
       ? [{ root: process.env.AGI_STUDIO_PLUGINS, topic: 'graph', layout: layouts.any }]

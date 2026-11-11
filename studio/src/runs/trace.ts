@@ -1,5 +1,5 @@
 import { Struct } from 'effect';
-import { listedRunFields, type ServedRun } from '../../../src/actions.ts';
+import { listedRunFields, type OpenedRun, type RunLineCount, type ServedRun } from '../../../src/actions.ts';
 import type { Located } from '../../../src/store.ts';
 import { isOnIssue } from '../../../src/graph.ts';
 import { getRunSpend } from '../../../src/trace.ts';
@@ -15,8 +15,12 @@ export const formatNumber = (n: number) =>
 
 export type Line = Trace | CheckEntry;
 
-export const mergeCheckEntries = (trace: Trace[], checks: CheckEntry[]): Line[] =>
-  [...trace, ...checks].toSorted((a, b) => a.at.localeCompare(b.at));
+export const mergeLines = (...lists: Line[][]): Line[] => lists.flat().toSorted((a, b) => a.at.localeCompare(b.at));
+
+export const getRunLineCount = (lines: Line[]): typeof RunLineCount.Type => {
+  const checks = lines.filter(line => 'check' in line).length;
+  return { trace: lines.length - checks, checks };
+};
 
 export const formatCheckValue = ({ value, share }: Pick<CheckResult, 'value' | 'share'>) =>
   [
@@ -76,7 +80,7 @@ export const pickListedRun = (run: RunRecord, body: boolean) =>
     listedRunFields.filter(k => body || k !== 'body')
   );
 
-export type { ServedRun };
+export type { OpenedRun, ServedRun };
 
 export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
 
@@ -93,14 +97,15 @@ export type SessionTraceLines = {
  * that started with its id.
  */
 export const splitTraceIntoVisitedSteps = (trace: Line[]) => {
-  const visits: { step: string; parts: (SessionTraceLines | Line)[] }[] = [];
+  const visits: { step: string; parts: (SessionTraceLines | Line)[]; lines: Line[] }[] = [];
   const keyed = new Map<string, SessionTraceLines>();
   let open: SessionTraceLines | undefined;
   for (const line of trace) {
     if (visits.at(-1)?.step !== line.step) {
-      visits.push({ step: line.step, parts: [] });
+      visits.push({ step: line.step, parts: [], lines: [] });
       open = undefined;
     }
+    visits.at(-1)!.lines.push(line);
     const parts = visits.at(-1)!.parts;
     const fresh = (): SessionTraceLines => {
       const made: SessionTraceLines = { events: [] };

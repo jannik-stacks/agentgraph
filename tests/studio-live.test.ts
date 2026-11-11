@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Schema } from 'effect';
 import { expect, it, vi } from 'vitest';
+import { makeRun } from './kit.ts';
 import { studioDir, studioModule } from './studio.ts';
 
 const dependency = <T>(name: string): Promise<T> =>
@@ -156,6 +157,78 @@ it('reads a run the server answers 404 and null for as gone, not as a failure', 
   const stop = store.sub(gone, () => {});
   try {
     await vi.waitFor(() => expect(store.get(gone)).toEqual({ value: null }));
+  } finally {
+    stop();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('fetches a run once across a quick remount, then on its own topic only the lines past those it holds', async () => {
+  vi.stubGlobal('location', new URL('http://studio/runs'));
+  const told = (at: string) => ({ at, step: 'implement', told: { text: at, by: 'me' } });
+  const check = (at: string) => ({
+    at,
+    step: 'implement',
+    check: { check: 'lint', pass: true, ms: 0 },
+    version: 'v',
+    usd: 0,
+  });
+  const tails = [
+    [told('1'), told('3')],
+    [check('2'), told('4')],
+  ];
+  const asked: unknown[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: unknown, init?: RequestInit) => {
+      asked.push(JSON.parse(new TextDecoder().decode(init!.body as Uint8Array)).payload);
+      const run = makeRun({ id: 'r1', status: 'running' });
+      const value = { fixture: 'live/issue', repo: '', run, labels: {}, usd: 0, urls: [], trace: tails.shift() };
+      return answerAction({ _tag: 'Success', value })(input, init);
+    })
+  );
+  const { createStore } = await dependency<{
+    createStore: () => { get: (atom: object) => unknown; sub: (atom: object, listener: () => void) => () => void };
+  }>('jotai');
+  const { runAtom, readChanged } = await studioModule<{
+    runAtom: (id: string) => object;
+    readChanged: (topics?: string[]) => void;
+  }>('state.ts');
+  const store = createStore();
+  const opened = runAtom('r1');
+  const lines = () => (store.get(opened) as { value?: { trace: { at: string }[] } }).value?.trace ?? [];
+  store.sub(opened, () => {})();
+  const stop = store.sub(opened, () => {});
+  try {
+    await vi.waitFor(() => expect(lines().map(l => l.at)).toEqual(['1', '3']));
+    const first = lines()[0];
+    readChanged(['data', 'data:r2']);
+    expect(asked).toEqual([{ id: 'r1' }]);
+    readChanged(['data:r1']);
+    await vi.waitFor(() => expect(lines().map(l => l.at)).toEqual(['1', '2', '3', '4']));
+    expect(lines()[0]).toBe(first);
+    expect(asked).toEqual([{ id: 'r1' }, { id: 'r1', after: { trace: 2, checks: 0 } }]);
+  } finally {
+    stop();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('shows a request the server dies on as a failure, not as loading', async () => {
+  vi.stubGlobal('location', new URL('http://studio/runs'));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(answerAction({ _tag: 'Failure', cause: [{ _tag: 'Die', defect: 'Unknown request tag: run' }] }))
+  );
+  const { createStore } = await dependency<{
+    createStore: () => { get: (atom: object) => unknown; sub: (atom: object, listener: () => void) => () => void };
+  }>('jotai');
+  const { runAtom } = await studioModule<{ runAtom: (id: string) => object }>('state.ts');
+  const store = createStore();
+  const dead = runAtom('dead');
+  const stop = store.sub(dead, () => {});
+  try {
+    await vi.waitFor(() => expect(store.get(dead)).toMatchObject({ failure: 'Unknown request tag: run' }));
   } finally {
     stop();
     vi.unstubAllGlobals();

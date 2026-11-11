@@ -45,6 +45,18 @@ export const ServedRun = Schema.Struct({
 });
 export type ServedRun = typeof ServedRun.Type;
 
+export const OpenedRun = Schema.Struct({
+  ...ServedRun.fields,
+  run: RunRecord,
+  trace: Schema.mutable(Schema.Array(Line)),
+});
+export type OpenedRun = typeof OpenedRun.Type;
+
+export const RunLineCount = Schema.Struct({
+  trace: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  checks: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+
 export const Trail = Schema.mutable(
   Schema.Array(
     Schema.Struct({
@@ -83,10 +95,8 @@ export const Actions = RpcGroup.make(
     error: ActionError,
   }),
   Rpc.make('run', {
-    payload: { id: Schema.String },
-    success: Schema.NullOr(
-      Schema.Struct({ ...ServedRun.fields, run: RunRecord, trace: Schema.mutable(Schema.Array(Line)) })
-    ),
+    payload: { id: Schema.String, after: Schema.optionalKey(RunLineCount) },
+    success: Schema.NullOr(OpenedRun),
     error: ActionError,
   }),
   Rpc.make('results', { success: ResultSheet, error: ActionError }),
