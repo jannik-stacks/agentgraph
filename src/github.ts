@@ -194,20 +194,18 @@ const readProjectToken: Effect.Effect<string, TrackerError> = Effect.gen(functio
 });
 const members = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const writers = new Set(['admin', 'maintain', 'write']);
-/** Statuses that mean GitHub refused a proposal, as opposed to failing. */
 const refusals = new Set([404, 405, 409, 422]);
 
 const hidden =
   /<!--[\s\S]*?(?:-->|$)|\u034f|[\u{e0100}-\u{e01ef}]|[\u00ad\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufeff\uffa0\u{e0000}-\u{e007f}]/gu;
 
-/** Text as a reader sees it on GitHub: no HTML comments (an unclosed one hides the rest), no invisible characters. */
+// UNEXPECTED: GitHub hides an unclosed HTML comment and everything after it.
 const visible = (text: string | null | undefined) => (text ?? '').replace(hidden, '');
 
 const login = (user: User) => user?.login ?? 'ghost';
 const isBot = (user: User) => user?.type === 'Bot' || isBotLogin(login(user));
 const numberIn = (url = '') => Number(/\/(\d+)$/.exec(url)?.[1]);
 
-/** An RS256 JWT that authenticates as the App for ten minutes. */
 const appJwt = (id: string, pem: string, now: number) => {
   const key = createPrivateKey(pem);
   if (key.asymmetricKeyType !== 'rsa') throw new Error('the GitHub App key must be an RSA private key');
@@ -226,11 +224,6 @@ const refPath = (branch: string) =>
     ? Effect.fail(new TrackerError({ status: 422, message: `invalid branch "${branch}"` }))
     : Effect.succeed(`heads/${branch.split('/').map(encodeURIComponent).join('/')}`);
 
-/**
- * A GitHub REST call with `auth` as the bearer; GETs are polled with ETags, so an unchanged answer is a free 304. A call
- * that may be sent twice, any but a POST or a token to mint, is retried with backoff when the network fails or GitHub
- * answers 502 to 504. A rate-limited call waits for the limit to reset and is sent again; every call waits with it.
- */
 const requester = (fetch: Fetch) => {
   const etags = new Map<string, { auth: string; version: string; etag: string; data: unknown; next?: string }>();
   let reset = 0;
@@ -302,7 +295,6 @@ const requester = (fetch: Fetch) => {
     });
 };
 
-/** The permissions each kind of call needs; every token is also limited to the one repository (`repos` has none). */
 const scopes = {
   read: { contents: 'read', issues: 'read', pull_requests: 'read' },
   checks: { checks: 'read', statuses: 'read' },
@@ -318,7 +310,6 @@ type AppToken = (scope: TokenScope, refused?: string) => Effect.Effect<string, T
 const freshMs = 5_000;
 const roleMs = 600_000;
 
-/** Mints installation tokens for the App, one per scope, reusing a token until a minute before it expires. */
 const appToken = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch
@@ -378,11 +369,7 @@ const asApp = <T>(
   );
 };
 
-/**
- * The repo of one GitHub App installation. Reads are ETag-polled, text from non-collaborators (or logins outside `trust`) is withheld, and pushes
- * go through the Git data API so GitHub signs the commits. Posted bodies are stamped with their run, linked into `studio` when set.
- * @internal
- */
+/** @internal */
 export const githubTracker = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch,
@@ -430,7 +417,6 @@ export const githubTracker = (
         () => Effect.succeed(undefined)
       );
 
-    /** Every page of a list, following `next` while `more` holds for the last page. */
     const all = <T>(path: string, more: (page: T[]) => boolean = () => true) =>
       Effect.gen(function* () {
         const items: T[] = [];
@@ -499,7 +485,6 @@ export const githubTracker = (
       return { id, issue, kind, actor: comment.author, bot, trusted, at: c.created_at, comment };
     };
 
-    /** A review as an event: its state, or a comment when it only has a body; undefined for an empty comment. */
     const reviewed = (issue: number, r: RestReview, self: string): Event | undefined => {
       const kind =
         r.state === 'APPROVED' ? 'approved' : r.state === 'CHANGES_REQUESTED' ? 'changes_requested' : 'comment';
@@ -515,7 +500,6 @@ export const githubTracker = (
       unlabeled: 'unlabel',
       review_requested: 'review_requested',
     };
-    /** An issue event in our shape, trusted when `may` says its actor may write; undefined for events that say nothing here. */
     const evented = (issue: number, e: RestEvent, merged: boolean) =>
       Effect.gen(function* () {
         const kind = kinds[e.event];
@@ -590,7 +574,6 @@ export const githubTracker = (
           .map(issue => toIssue(issue, self));
       });
 
-    /** The checks and statuses on a commit: name and conclusion only. Without the permission to read them, none. */
     const checked = (issue: number, sha: string) =>
       Effect.all([
         gh<{ check_runs: RestCheck[] }>('GET', `${repo}/commits/${sha}/check-runs?per_page=100`, undefined, 'checks'),
@@ -645,7 +628,7 @@ export const githubTracker = (
           { concurrency: 'unbounded' }
         );
         const merged = events.some(e => e.event === 'merged');
-        // A fork's commits name their author by email alone, which anyone can claim.
+        // UNEXPECTED: a fork's commits name their author by email alone, which anyone can claim.
         const own = pull?.head.repo?.full_name === app.repo;
         const timeline: Event[] = [
           ...[...said, ...lined.map(submitted(reviews))].map(c => heard(number, c, self)),
@@ -679,7 +662,6 @@ export const githubTracker = (
         };
       });
 
-    /** Whether a person may write to the repo, asked once per login for ten minutes. */
     const may = (user: User) =>
       Effect.suspend(() => {
         if (isBot(user)) return Effect.succeed(false);
@@ -822,9 +804,7 @@ export const githubTracker = (
         })
       );
 
-    /** The last commit pushed from each checkout and its tree; the next push from it builds on that commit. */
     const pushed = new Map<string, { sha: string; tree: string }>();
-    /** The `.github/` files each branch's pushes left out, for its pull request to name. */
     const held = new Map<string, Set<string>>();
     const refuse = (message: string, moved?: true) =>
       new TrackerError({ status: 422, message, ...(moved && { moved }) });
@@ -856,11 +836,6 @@ export const githubTracker = (
         }
       });
 
-    /**
-     * Commits the checkout's files on top of its base, or of its last push, through the Git data API, then moves
-     * `branch` forward to that commit. Only regular files outside `.github/` and `.git/` are pushed, within the limits;
-     * changes under `.github/` are left out and held for the pull request to name.
-     */
     const push = (work: Checkout, branch: string, message: string, onto?: string, merge?: true) =>
       Effect.gen(function* () {
         if (!isAgentBranch(branch)) return yield* refuse(`a push goes to a ${branchPrefix} branch`);
@@ -916,7 +891,6 @@ export const githubTracker = (
         return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left, reported);
       });
 
-    /** Builds tree `to` on GitHub from tree `from`, from the checkout's objects. */
     const upload = (work: Checkout, from: string, to: string) =>
       Effect.gen(function* () {
         const tree = yield* entries(work, from, to);
@@ -924,10 +898,6 @@ export const githubTracker = (
         if (made !== to) return yield* new TrackerError({ message: `GitHub built tree ${made}, expected ${to}` });
       });
 
-    /**
-     * Replays the commits on `branch` after `from` onto `onto` as new commits through the Git data API, then moves the
-     * branch there unless it moved meanwhile. Commits that become empty are dropped. The checkout ends on the result.
-     */
     const rebase = (work: Checkout, branch: string, from: string, onto: string, local?: string) =>
       Effect.gen(function* () {
         if (!isAgentBranch(branch)) return yield* refuse(`a rebase goes to a ${branchPrefix} branch`);
@@ -985,7 +955,6 @@ export const githubTracker = (
         return head;
       });
 
-    /** The tree entries that turn tree `from` into `to`, uploading each changed blob once every change passed. */
     const entries = (work: Checkout, from: string, to: string) =>
       Effect.gen(function* () {
         const fields = (yield* git(work, ['diff-tree', '-r', '-z', '--no-renames', '--no-abbrev', from, to]))
@@ -1022,10 +991,6 @@ export const githubTracker = (
         return changes.map(({ path, mode, sha }) => ({ path, mode, type: 'blob' as const, sha }));
       });
 
-    /**
-     * Registers the open pull requests whose bases chain down from `number` as a GitHub stack, or adds `number` on top
-     * of its parent's stack. A repo without stacks keeps the plain chain.
-     */
     const stack = (number: number, base: string) =>
       Effect.gen(function* () {
         const open = (yield* all<RestPull>(`${repo}/pulls?state=open&per_page=100`)).filter(

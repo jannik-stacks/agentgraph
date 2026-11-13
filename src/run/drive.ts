@@ -68,11 +68,6 @@ const formatClosedAttempt = (
 
 const rejected = 'the model provider rejected the key or login. Fix it, then start a new run.';
 
-/**
- * Hears what was said while the run waited, runs the graph's setup, tries until the run stops running, then runs the end
- * checks it left owed. An engine error is retried once, then parks the run at its step, so an
- * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
- */
 export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;

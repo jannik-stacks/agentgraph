@@ -18,7 +18,6 @@ import { shapes, parseProposals, findUngranted } from './attempt.ts';
 import { makeAgentSessionSpec, runSession } from './execute.ts';
 import { type Checkout, type Run, SessionStop } from '../types.ts';
 
-/** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
 export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =>
   Effect.gen(function* () {
     const tip = work.head ?? work.base;
@@ -38,7 +37,6 @@ export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =
     return work;
   });
 
-/** Rebases a stacked branch onto its parent's head; a branch not pushed yet only takes the new head as its base. */
 export const runFollow = (
   w: Workflow,
   given: Run,
@@ -122,19 +120,6 @@ export const readBaseGain = (git: Checkout['git'], base: string, from: string, o
     ].join('\n\n');
   });
 
-/**
- * Brings a run waiting on a human, or done with its pull request open, up to what is current: the head of its pull
- * request's base, and the graph. A run waiting at another step only follows its base as its workflow's last human
- * step would, and its next session hears what the base gained. A branch behind its base follows it with no model, by
- * a merge or a rebase as the step's `follow` says, or stays where it is when that says none. When the change stays the
- * same, the step's own checks run again, scripts first and judged ones only once those pass; a changed change or a
- * new graph runs every check of the step it goes back to. Judges read what the base gained. A failed check sends the
- * run back as a request for changes would, with what the base gained. A conflict does what the step's `conflict`
- * says: go back to start on the new base with markers left, start that `conflict` workflow there while the run
- * waits, or ask; when that already happened for this base head, it is said on the issue once. The followed range is
- * kept on the run until its checks decide. What the base gained is the pull requests and issues its commits name,
- * the issues those pull requests close, the commits and their diff. Undefined when nothing moved.
- */
 export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -260,11 +245,6 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
         : { run: kept(current), outcome };
   }).pipe(Effect.scoped);
 
-/**
- * Answers what a human said to a run waiting at a human step: a fork of the session of the step it goes back to, in a
- * throwaway checkout of the pull request head. Its comments land on pull request `number` and the run keeps waiting; a
- * `back` comes back as the outcome, with the fork as that step's session, even when the reply could not land.
- */
 export const runAside = (
   w: Workflow,
   run: Run,

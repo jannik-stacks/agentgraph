@@ -8,7 +8,6 @@ import { writeCheckoutTree, readGit } from '../git.ts';
 import { runShell } from './execute.ts';
 import { type Checkout, type Run } from '../types.ts';
 
-/** Runs the graph's setup in a checkout, so its checks find what it installs, and traces how long it took. */
 export const runSetup = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
   Effect.gen(function* () {
     if (work.env)
@@ -35,13 +34,11 @@ export const runSetup = (graph: Graph, work: Checkout, run: Pick<Run, 'id' | 'st
       });
   });
 
-/** What the checkout changed since its base. */
 export const readCheckoutDiff = (work: Checkout, ...args: string[]) =>
   Effect.flatMap(writeCheckoutTree(work), to =>
     readGit(work.git, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--text', ...args, work.base, to])
   );
 
-/** The most items a fan-out takes when its check sets no `max`; a step fans out over at most this many. */
 export const most = 20;
 
 export class EachFailed extends Data.TaggedError('EachFailed')<{ detail: string }> {}
@@ -57,7 +54,6 @@ const splitHunks = (diff: string) =>
       return hunks.map(hunk => `${head}${hunk}`.trimEnd());
     });
 
-/** The items a fan-out runs over: changed files, diff hunks, hunks the base gained since `AGENTGRAPH_FROM`, or the lines a command prints. */
 export const findFanOutItems = (
   each: string,
   graph: Graph,

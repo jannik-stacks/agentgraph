@@ -34,17 +34,8 @@ import {
 } from './env.ts';
 import { isLockedByOtherProcess, readStateDir } from './owner.ts';
 
-/**
- * What a cache item is: a sandbox setup image with its dependency volume, a dependency volume no image uses, a repo's
- * toolchain cache volume, or a host build dir.
- */
 type Kind = 'env' | 'lower' | 'cache' | 'tree';
 
-/**
- * One deletable cache thing. `refs` are what removing it names: image tags, volume names or one host path. `bytes` are
- * what removing it frees, `used` its last use in ms, `held` why it must stay now, `always` that it goes whatever the
- * cap, and `gone` why a sandbox setup can never be reused.
- */
 export type DiskCacheEntry = {
   kind: Kind;
   refs: string[];
@@ -55,7 +46,7 @@ export type DiskCacheEntry = {
   gone?: string;
 };
 
-/** Bytes of a size like `60g`, `1.2GB` or `512MB`, in powers of 1000 as docker prints them. */
+// UNEXPECTED: powers of 1000, as docker prints sizes.
 export const parseByteSize = (size: string) => {
   const m = /^(\d+(?:\.\d+)?)\s*([kmgt]?)b?$/i.exec(size.trim());
   if (!m) throw new Error(`not a size: ${size}`);
@@ -92,7 +83,6 @@ const cap = () => parseByteSize(process.env.AGENTGRAPH_ENV_CAP || '60g');
 const lines = (out: string) => out.split('\n').filter(Boolean);
 const pins = () => join(readStateDir(), 'pins');
 
-/** Holds every cache item one of the `match` globs names, for `days`. */
 export const pin = (name: string, match: string[], days: number) => {
   mkdirSync(pins(), { recursive: true });
   const until = new Date(Date.now() + days * 86_400_000).toISOString();
@@ -130,13 +120,7 @@ const unexpired = () => {
 
 const skipped = new Set(['data', 'tracker', 'graph', 'engine', 'cases', 'done', 'logs', 'node_modules']);
 
-/**
- * Score trees beside a `case.json` and `target-shared` dirs holding `CACHEDIR.TAG`, at most `depth` levels under
- * `root`. Records, run data, hidden dirs (attic, result cache, git) and a bench's engine, cases and logs are never
- * entered.
- *
- * @internal
- */
+/** @internal */
 export const findBuildDirs = (root: string, depth = 5): string[] => {
   const entries = readDirEntriesOrEmpty(root);
   const here = new Set(entries.map(e => e.name));
@@ -289,7 +273,6 @@ export const removeBranch = (
     yield* Effect.logInfo(`removed local branch ${branch}`);
   });
 
-/** Unique bytes of each image by id and bytes of each volume by name, as `docker system df` counts them. */
 const usage = async () => {
   const df = parseJson(
     Schema.Struct({
@@ -307,10 +290,6 @@ const usage = async () => {
 
 const isData = (labels: Record<string, string>) => Object.keys(labels).some(k => k.startsWith('com.docker.compose.'));
 
-/**
- * Every cache item agentgraph left in docker, and the host build dirs under `roots`. Only our names count; compose
- * objects are data and never appear. Volumes without a recorded size count 0 bytes unless `measure`.
- */
 export const inventory = async (
   o: { roots?: string[]; measure?: boolean } & Pick<Disk, 'eligible' | 'image'> = {}
 ): Promise<DiskCacheEntry[]> => {
@@ -449,11 +428,7 @@ export const inventory = async (
   });
 };
 
-/**
- * Which items to remove: every unheld `always` item, then unheld items oldest first, while the counted cache is over
- * `limit` or free space is under `floor`.
- * @internal
- */
+/** @internal */
 export const pickCacheRemovals = (items: DiskCacheEntry[], o: { limit: number; free: number; floor: number }) => {
   const open = items.filter(i => !i.held);
   const chosen = open.filter(i => i.always);
@@ -502,10 +477,6 @@ const remove = async (i: DiskCacheEntry) => {
   return true;
 };
 
-/**
- * Removes what `plan` picks, past `limit` bytes of counted cache (`AGENTGRAPH_ENV_CAP`, 60g) and below `floor` free
- * bytes. Docker refuses anything a container still uses, and that item stays. `dry` removes nothing.
- */
 export const collect = async (
   o: { limit?: number; dry?: boolean; free?: number; floor?: number } & NonNullable<
     Parameters<typeof inventory>[0]
@@ -521,12 +492,10 @@ export const collect = async (
   return { removed, items };
 };
 
-/** Where room() measures: the data dir on this host, and through a container of `image`, the disk docker writes to. */
 export type Disk = { dir: string; image?: string; eligible?: string[] };
 
 const inDocker = new Map<string, { at: number; free: Promise<number> }>();
 
-/** Free bytes of the docker disk, under a container's root, measured at most once a minute. */
 const dockerFree = (image: string) => {
   const hit = inDocker.get(image);
   if (hit && Date.now() - hit.at < 60_000) return hit.free;
@@ -558,7 +527,6 @@ const dockerFree = (image: string) => {
   return free;
 };
 
-/** Free bytes where `disk` writes, the smaller of the host dir and the docker disk. */
 const getFreeBytes = async ({ dir, image }: Disk) => {
   const s = statfsSync(dir);
   return Math.min(s.bavail * s.bsize, image ? await dockerFree(image) : Infinity);
@@ -579,10 +547,7 @@ const formatNoRoomReason = (free: number, floor: number, kept: DiskCacheEntry[])
   ].join(' ');
 };
 
-/**
- * Too little free disk to start more work, with what holds the cache that is left.
- * @internal
- */
+/** @internal */
 export class DiskLow extends Error {
   readonly held: DiskCacheEntry[];
   constructor(free: number, floor: number, held: DiskCacheEntry[]) {

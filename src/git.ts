@@ -50,10 +50,6 @@ export const makeHostEnv = (env: Record<string, string> = {}): Record<string, st
   ...env,
 });
 
-/**
- * Host git for the repo `env` names, with no user config, hooks, gc, signing, optional locks, lazy fetches or inherited `GIT_*` variables. Without `GIT_DIR` it
- * runs in the temp dir, for a clone. `input` goes to its stdin; an exit code in `codes` also succeeds.
- */
 export const hostGit = (
   env: Record<string, string>,
   args: string[],
@@ -211,13 +207,11 @@ export const commitCheckoutOnce = (git: Checkout['git'], name: string, parents: 
     yield* commitCheckout({ git }, name, '', parents);
   });
 
-/** Keeps the last published tree as a local commit for saved-work replay. */
 export const commitPublishedTree = (work: Checkout, tree: string) =>
   Effect.map(hostGit(work.git, [...gitIdentity, 'commit-tree', tree, '-m', 'Published work']), out => {
     work.published = out.toString('utf8').trim();
   });
 
-/** `head` merged onto `onto` as a tree, conflict markers left in the files that clash, which come back in `files`. */
 export const mergeTreeOnto = (work: Checkout, onto: string, head: string, base?: string) =>
   Effect.map(
     hostGit(

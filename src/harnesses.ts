@@ -139,13 +139,11 @@ export const makeHarnessConfigProvider = (
 const inputFile = '.agentgraph/input';
 const usageFile = '.agentgraph/usage';
 
-/** Runs the harness on its input file, with its errors on the one stream it prints to, so the lines keep their order. */
 const wrapped = (cmd: string, args: string[]) => ({
   cmd: 'sh',
   args: ['-c', `exec "$@" < "$HOME/${inputFile}" 2>&1`, 'sh', cmd, ...args],
 });
 
-/** `name=value` pairs, separated by commas or white space. */
 export const parseNamePairs = (text: string) =>
   Object.fromEntries(
     splitNames(text).map(pair => {
@@ -160,7 +158,6 @@ export const splitNames = (text: string) => text.split(/[\s,]+/).filter(Boolean)
 export const parseModelUrls = (url: string): Record<string, string> =>
   /^[\w*-]+=/.test(url) ? parseNamePairs(url) : { '*': url };
 
-/** The usage at the list price of the session's model; a model the table lacks is marked `unpriced`, keeping what the harness reported. */
 const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
   const [cacheRead, cacheWrite] = [u.cacheRead ?? 0, u.cacheWrite ?? 0];
   const usd = getListPriceUsd(prices, models, {
@@ -207,7 +204,6 @@ const linkHome = async (home: string, path: string, target: string) => {
   await symlink(target, at);
 };
 
-/** Writes `text` to `path` under `home` without following a link the sandbox may have left in the home. */
 const writeHome = async (home: string, path: string, text: string) => {
   const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW } = constants;
   const file = await openFile(await makeHomePath(home, path), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW);
@@ -223,12 +219,6 @@ const readHome = async (home: string, path: string) => {
 const makeSessionStop = (e: SandboxError) =>
   new SessionStop({ reason: e.reason === 'infra' || e.reason === 'host' ? 'sandbox' : e.reason, detail: e.detail });
 
-/**
- * Runs the harness of `harnesses` that `spec.harness` names. Each session gets its own home under
- * `data/homes`, reused on resume, its harness's URL from `proxy.url`, its agent's key from `proxy.keys` (`*` for any
- * agent) and the `passed` variables. Without a URL the harness uses its own endpoint, without a key its own login.
- * Usage is priced at list price from the `prices` table, and without one is unpriced.
- */
 export const harnessSession = (
   s: {
     data: string;

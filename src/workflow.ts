@@ -5,16 +5,10 @@ import { Count, labelPrefix, limitLabels, type Event, type Issue } from './event
 import { Kind } from './proposal.ts';
 import { CommandLimits, formatReason, type Outcome, type Run, type RunRecord } from './types.ts';
 
-/** A graph file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };
 
 export type Problem = { path: string; message: string };
 
-/**
- * An ordered list of steps; the body is the description, or the prompt when there are no steps. `dispatch` starts it
- * only from a `run` proposal, `feedback` on what a trusted person says or pushes where another run worked and on each
- * run that ends, `conflict` when the pull request of a run waiting on a human conflicts with its base.
- */
 export type Workflow = Doc<{
   on: Partial<
     Record<
@@ -24,17 +18,11 @@ export type Workflow = Doc<{
   >;
   branch?: string;
   base?: string;
-  /** What a trusted comment does to a run that is working: reach its session, wait for the try to end, or cut the try short. */
   concurrency: 'steer' | 'queue' | 'cancel';
   steps: Step[];
   checks: string[];
 }>;
 
-/**
- * One step. On a `wait` step, `checks` are what runs again when the pull request's base moves and its change stays the
- * same, `follow` is how the branch follows the base: a merge commit, a rebase, or not at all, and `conflict` what a
- * conflict with it does: go `back`, `ask`, or start the named `on: conflict` workflow.
- */
 export type Step = {
   name: string;
   does:
@@ -105,7 +93,6 @@ const Front = Schema.Struct({
 
 const decode = Schema.decodeUnknownResult(Front, { onExcessProperty: 'error', errors: 'all' });
 
-/** Splits a markdown file into its parsed YAML frontmatter and its trimmed body. */
 export const splitFrontmatter = (text: string): { data: unknown; body: string } => {
   const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(text);
   return m ? { data: parse(m[1] ?? '') ?? {}, body: (m[2] ?? '').trim() } : { data: {}, body: text.trim() };
@@ -123,7 +110,6 @@ export const formatIssues = (issue: SchemaIssue.Issue) => {
     .filter(({ key }) => !seen.has(key) && seen.add(key));
 };
 
-/** Parses a workflow file and fills its defaults. Problems are data; the workflow is set only when there are none. */
 export function compileWorkflow(
   path: string,
   text: string,
@@ -242,7 +228,6 @@ const entered = (step: Step): Run['status'] => (isHumanWaitStep(step) ? 'waiting
 
 const fresh = ({ feedback: _feedback, reason: _reason, waiting: _waiting, retried: _retried, ...run }: Run): Run => run;
 
-/** Why a try that leaves its checkout at base fails: its agent returns code and no pull request or finished run holds work. */
 export const unchanged = (returns: readonly string[], held: boolean) =>
   !held && returns.includes('push')
     ? 'no change was made: change the files the issue needs and push them, or ask'
@@ -273,7 +258,6 @@ const readable = (findings: string) =>
 
 const formatReport = (step: string, text: string) => `## What the ${step} step reported\n\n${text}`;
 
-/** The run at the first step of a workflow, or at `first` with what the step before it reported. */
 export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started' | 'reported'>, first = w.steps[0]!): Run {
   const before = w.steps[w.steps.findIndex(s => s.name === first.name) - 1]?.name;
   const report = before && run.reported?.[before];
@@ -290,7 +274,6 @@ export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started' | '
   };
 }
 
-/** Moves a run to its next state. Entering a step forward drops its session unless it is kept `same`; every other move keeps it. */
 export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const i = w.steps.findIndex(s => s.name === run.step);
   const step = w.steps[i];
@@ -448,7 +431,6 @@ export const findTrustedLabel = (events: readonly Event[], label: string) => {
 export const isIssueTriggered = (w: Workflow, m: Event) =>
   w.on.issues !== undefined && Object.values(issueSources).some(matches => matches(w.on.issues!, m));
 
-/** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
 export const formatTemplate = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
 
@@ -532,17 +514,9 @@ export function pickCommandTarget(
   return why ? { why } : { verb, step, text: said.text, run, workflow };
 }
 
-/**
- * The question a run parks with when a human cancels the try it is on.
- * @internal
- */
+/** @internal */
 export const cancelled = 'Cancelled. Say /agent and how to go on from here, or /agent:stop to end the run.';
 
-/**
- * What a new event means for a live run: a review at a human step, an answer elsewhere, `/agent:cancel` parks a working
- * run; undefined when it is only context or a command `target` does not give to this run. `lined` is what was heard
- * with the event; a review takes the trusted line comments in it up to the review as its notes.
- */
 export function getEventOutcome(
   w: Workflow,
   run: Run,
@@ -589,7 +563,6 @@ export function getEventOutcome(
   return undefined;
 }
 
-/** Several outcomes at once as one: the first that is not an answer, else every answer joined. */
 export const fold = (outcomes: Outcome[]): Outcome | undefined => {
   const answers = outcomes.flatMap(o => (o.kind === 'answer' ? [o.text] : []));
   return (

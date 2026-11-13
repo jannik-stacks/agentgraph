@@ -96,7 +96,6 @@ const formatProposalShapeHint = (item: unknown) => {
 
 const block = /^(`{3,}|~{3,})[ \t]*agentgraph[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
 
-/** The proposals in the last fenced `agentgraph` block of a reply: a JSON array. */
 export const parseProposals = (reply: string, required: boolean): { proposals: Said[]; problems: string[] } => {
   const source = [...reply.matchAll(block)].at(-1)?.[2]?.trim();
   if (source === undefined)
@@ -137,11 +136,9 @@ export const parseProposals = (reply: string, required: boolean): { proposals: S
   return { proposals, problems };
 };
 
-/** When a trusted person last did something on the issue or its pull request. */
 const pickLastHeard = (t: IssueWithPull) =>
   pickNewest(...[t.issue, t.pull].flatMap(x => x?.events ?? []).flatMap(m => (m.trusted ? m.at : [])));
 
-/** The files whose lines added in `diff` are conflict markers. */
 const findMarkedFiles = (diff: string) => {
   const files = new Set<string>();
   let file = '';
@@ -152,7 +149,6 @@ const findMarkedFiles = (diff: string) => {
   return [...files];
 };
 
-/** Writes the news since `seen` to the checkout's news file; a failed write logs and keeps the old file. */
 const writeNews = (run: Run, work: Checkout, seen: Seen, t: IssueWithPull) =>
   Effect.tryPromise(() => writeFile(work.news, `${news(t, seen).text || 'Nothing new yet.'}\n`)).pipe(
     Effect.catch(e => Effect.logWarning(`news for run ${run.id}`, e))
@@ -170,10 +166,7 @@ const fail = (problems: string[]) => ({
   outcome: { kind: 'failed', checks: [], proposals: [], problems } satisfies Outcome,
 });
 
-/**
- * What a try's proposals come to before its checks: an outcome to end on, or the proposals to check and apply.
- * @internal
- */
+/** @internal */
 export const pickTryOutcome = (o: {
   step: Step;
   graph: Graph;
@@ -249,7 +242,6 @@ export const pickTryOutcome = (o: {
   return { world, back, problems, answered };
 };
 
-/** One try of the current step: a session, a script or a wait, then its checks, then apply proposals on a pass. */
 export const runAttempt = (
   w: Workflow & Required<Pick<Workflow, 'base'>>,
   run: Run,
@@ -269,7 +261,6 @@ export const runAttempt = (
     let tree: string | undefined;
     const done = (outcome: Outcome, next = run) => ({ outcome, run: next, ...(tree !== undefined && { tree }) });
     const returns = getStepReturns(step, graph.agents);
-    /** The first session of a run a comment started, which may answer that comment. */
     const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
     const before = asked ? yield* writeCheckoutTree(work) : undefined;
     const t = yield* readIssueWithPull(w, run, graph);
@@ -287,7 +278,6 @@ export const runAttempt = (
     const replies: string[] = [];
     let tried = run;
     let spoke: string | undefined;
-    /** Refreshes the news file every minute and ends with what a human said that cuts the try short. */
     const watch = (by: Run, seen: Seen) =>
       Effect.gen(function* () {
         for (;;) {
@@ -307,7 +297,6 @@ export const runAttempt = (
           if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
         }
       });
-    /** Whether the work a comment-only reply answers exists: no branch, a pull request, or a finished run. */
     const held =
       w.branch === undefined ||
       t.issue.pull !== undefined ||
@@ -352,7 +341,6 @@ export const runAttempt = (
       const keeps = agent.session === 'same' || (step.each === undefined && agent.session !== 'fresh');
       const kept = keeps ? run.sessions[step.name] : undefined;
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
-      /** A step that judges the change, and does not fan out over it, opens on the whole of it. */
       const diff = step.back && !step.each ? yield* readCheckoutDiff(work) : '';
       if (agent.reads) yield* writeTraces(graph, run.issue, run.id, work);
       const ending = [

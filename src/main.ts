@@ -149,7 +149,6 @@ export const writeTriggeringIssue = async (
   return Number(applied.id);
 };
 
-/** The data dir and its mirror, where they sit under a temp dir the OS may empty. */
 export const temporary = (data: string): string[] => {
   const temps = [...new Set(['/tmp', tmpdir()].flatMap(d => [resolve(d), readRealPath(d)]))];
   return [data, join(data, 'mirror.git')].filter(p =>

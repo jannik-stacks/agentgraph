@@ -3,12 +3,10 @@ import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './ev
 import { formatFailedTryFeedback } from './workflow.ts';
 import { formatReason, type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
 
-/** A run's issue and the pull request on its branch, each with its timeline. */
 export type IssueWithPull = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
 
 const cap = 20_000;
 
-/** One event as a line of a timeline: who did what, and what they said. */
 export const formatEventLine = (m: Event): string => {
   const c = m.comment;
   const said = c
@@ -40,14 +38,12 @@ export const formatEventLine = (m: Event): string => {
   }
 };
 
-/** Both timelines merged by time, each entry marked with its number when there are two. */
 const timeline = (t: IssueWithPull, keep: (m: Event) => boolean) =>
   [t.issue, ...(t.pull ? [t.pull] : [])]
     .flatMap(issue => issue.events.filter(keep))
     .sort((a, b) => a.at.localeCompare(b.at))
     .map(m => (t.pull ? `#${m.issue} ${formatEventLine(m)}` : formatEventLine(m)));
 
-/** The issue and its pull request as markdown: bodies, then one merged timeline. Older entries shrink to one line past a size cap. */
 export function context(t: IssueWithPull, shown: Event[] = []): string {
   const pull = t.pull;
   const heads = [
@@ -107,10 +103,6 @@ export function formatRequest(t: IssueWithPull, run: Pick<Run, 'started' | 'sess
   };
 }
 
-/**
- * Only what came after `seen`: what people said and pushed, checks, and the base moving. Empty when nothing did. A
- * review comment a bot already answered in its thread is left out.
- */
 export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen } {
   const pull = (t.pull ?? t.issue).pull;
   const moved = pull?.baseSha !== undefined && seen.base !== undefined && pull.baseSha !== seen.base;
@@ -221,7 +213,6 @@ export const formatStatusHeader = (
   ].join('\n\n');
 };
 
-/** Tokens, keys and secret assignments a transcript never shows. */
 const secrets = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
   /\b(?:gh[pousr]_|github_pat_)\w{20,}/g,
@@ -243,7 +234,6 @@ export const formatRedactedText = (text: string, hidden: readonly string[] = [])
   );
 };
 
-/** Text without secrets, on one line, at most `max` long, its middle cut out. */
 const clip = (text: string, max: number) => {
   const one = formatRedactedText(text).replace(/\s+/g, ' ').trim();
   return one.length <= max ? one : `${one.slice(0, max / 2)} ... ${one.slice(-max / 2)}`;
@@ -254,7 +244,6 @@ const checked = (e: CheckEntry) => {
   return `${e.at} ${e.step}, check ${e.check.check}${on}: ${e.check.pass ? 'pass' : `FAIL ${clip(e.check.findings ?? '', 400)}`}`;
 };
 
-/** A trace line as one transcript entry, or nothing for lines a reader does not need. */
 const entry = (t: Trace): string | undefined => {
   if ('prompt' in t) return `prompt: ${clip(t.prompt.prompt, 1500)}`;
   if ('session' in t) return `session ended ${t.session.ended}, ${formatSpend(t.session)}`;
@@ -286,7 +275,6 @@ const entry = (t: Trace): string | undefined => {
   return `tool ${e.name} ${clip(JSON.stringify(e.input ?? {}), 200)} ${how}${e.output ? `: ${clip(e.output, 300)}` : ''}`;
 };
 
-/** Keeps the first and last entries of a long session and tallies the ones cut between them. */
 const shorten = (entries: string[], max = 8000) => {
   if (entries.join('\n').length <= max) return entries;
   const fit = (list: string[]) => {
@@ -300,12 +288,6 @@ const shorten = (entries: string[], max = 8000) => {
   return [...entries.slice(0, head), `... ${cut.length} entries cut: ${tally}`, ...entries.slice(tail)];
 };
 
-/**
- * The runs on an issue as one markdown file for an agent that reads traces: each agent's system prompt once, then per
- * run and session the prompt, thinking, text and tool calls, proposals and moves, then its check results. Each trace
- * entry starts with its line in the run's trace. Past `budget`, the older runs keep only how their sessions ended and their outcomes, and
- * then the middle is cut, so the newest run's last sessions stay.
- */
 export function transcript(
   issue: number,
   runs: { run: Run; lines: Trace[]; checks: CheckEntry[] }[],
@@ -346,6 +328,5 @@ export function transcript(
     : `${text.slice(0, budget / 4)}\n\n... cut to ${budget} characters, the newest kept\n\n${text.slice((-budget * 3) / 4)}`;
 }
 
-/** Keeps the first and last part of a long text. */
 export const formatSqueezed = (text: string, max = 1500) =>
   text.length <= max ? text.trim() : `${text.slice(0, max / 2).trim()}\n...\n${text.slice(-max / 2).trim()}`;

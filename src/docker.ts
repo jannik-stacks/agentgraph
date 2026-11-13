@@ -31,7 +31,6 @@ import { makeHostEnv, readGit, readWorktreeAdmin } from './git.ts';
 import type { RunnerHost } from './plugin.ts';
 import { type Checkout, type Command, type Exit } from './types.ts';
 
-/** The internal docker network for each graph `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
 const Names = Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String)));
 const Networks = Schema.Record(Schema.String, Schema.Struct({ Aliases: Names, DNSNames: Names }));
@@ -60,10 +59,6 @@ const user = () => {
   return `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
 };
 
-/**
- * What the host recorded for a checkout: its git mounts, its dependency volumes, its repo's cache volume and the
- * container settings of its graph and sandbox setup.
- */
 export type CheckoutContainerSpec = {
   mounts: Mount[];
   sharedMounts?: SharedMount[];
@@ -79,7 +74,6 @@ const volume = (name: string, dst: string, nocopy = false, readonly = false) => 
   ];
 };
 
-/** Where package managers keep downloads when the shared cache is read-only. */
 const scratch = Object.fromEntries(
   Object.entries(packageManagerCacheEnv).map(([k, v]) => [k, v.replace(/^\/cache/, '/tmp')])
 );
@@ -91,13 +85,6 @@ const getMounts = (c: Command, mounts: Mount[]): Mount[] => [
   ...mounts.map(m => ({ ...m, readonly: !!(m.readonly || (c.readonly && m.dst !== inside.scratch)) })),
 ];
 
-/**
- * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
- * the only routes out are the `direct` model hosts and, unless the graph's network is `models`, the egress allowlist; with
- * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`, read-only unless a shared
- * mount overlays it there; each shared mount is a volume at its path. A `readonly` command gets every mount read-only
- * but its home and scratch.
- */
 export const dockerArgs = (
   c: Command,
   image: string,
@@ -424,7 +411,6 @@ const ensureDocker = (say: (line: string) => void, image: string, data: string) 
     return version;
   });
 
-/** Starts `docker` with `args` in its own process group; `stop` kills it and removes the container. */
 const start = (args: string[], secrets: Command['secrets'], name: string, on: (chunk: string) => void) => {
   const env = makeHostEnv(
     Object.fromEntries(Object.entries(secrets ?? {}).map(([key, value]) => [key, Redacted.value(value)]))
@@ -464,12 +450,6 @@ const readTrustedCommits = (mirror: string, local: boolean, workflows: Graph['wo
   );
 };
 
-/**
- * A runner: one container per command over the checkouts of the sandbox. A checkout for a graph
- * mounts its repo's cache volume, named from the prefix `cache` (`agentgraph-cache` by default), the repo and its setup
- * hash. It starts from the graph's sandbox setup at its base, built once with the toolchain and setup, and holds its
- * dependency directories in volumes, never in the checkout. An empty `cache` turns the cache volumes and sandbox setups off.
- */
 export const dockerRunner = (o: RunnerHost): Layer.Layer<Runner> =>
   Layer.effect(
     Runner,

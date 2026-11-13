@@ -35,10 +35,6 @@ export const getTraceFiles = (dir: string) => ({
   AGENTGRAPH_RUN_TRACE: join(dir, 'trace.jsonl'),
 });
 
-/**
- * What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it,
- * the reply, the traces of the runs on the issue and this run's raw trace.
- */
 const getCheckFiles = (dir: string) => ({
   AGENTGRAPH_PROPOSALS: join(dir, 'proposals.json'),
   AGENTGRAPH_CONTEXT: join(dir, 'context.md'),
@@ -52,7 +48,6 @@ export const makeScriptEnv = (work: Pick<Left, 'base' | 'moved'>, issue: number 
   ...(issue !== undefined && { AGENTGRAPH_ISSUE: String(issue) }),
 });
 
-/** Writes the traces of the runs on `issue` that are not retros, oldest first, and the raw trace of `run` beside the news file. */
 export const writeTraces = (graph: Graph, issue: number, run: string, work: Checkout) =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -76,13 +71,8 @@ export const writeTraces = (graph: Graph, issue: number, run: string, work: Chec
     );
   });
 
-/** The prompt line that points an agent that reads traces at them. */
 export const tracesPrompt = `The traces of the runs on this issue are in \`${getTraceFiles(inside.news).AGENTGRAPH_TRACES}\`, an absolute path outside the checkout: open it exactly as written. Per session they hold the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
 
-/**
- * What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the
- * proposals and the human answers so far. After a base move, `moved` is the old base and what the base gained.
- */
 export type Left = Checkout & {
   run: string;
   issue?: number;
@@ -94,7 +84,6 @@ export type Left = Checkout & {
   judges?: Run['judges'];
 };
 
-/** The human answers of a run as a section every check reads, so a judge does not raise again what an answer settled. */
 const formatAnswers = (answers: Run['answers'] = []) =>
   answers.length === 0
     ? ''
@@ -117,7 +106,6 @@ export type Item = Pick<Exit, 'used'> &
     unread?: true;
   };
 
-/** The judge prompts that passed per data dir, run, check, judge and diff; the same judge, prompt and diff is not judged again. */
 const passes = new WeakMap<object, Set<string>>();
 
 export const writeCheckFiles = (graph: Graph, left: Left, traces: boolean) =>
@@ -133,13 +121,6 @@ export const writeCheckFiles = (graph: Graph, left: Left, traces: boolean) =>
     if (traces && left.issue !== undefined) yield* writeTraces(graph, left.issue, left.run, left);
   });
 
-/**
- * One check over what a try left: its items, the command per item, then the agent that judges. Each item gives a
- * result `returns` describes, from the judge when there is one, else from the script; it passes when it matches
- * `pass` and its script exited 0. With `each` the check carries the share of items that passed, else the result
- * itself when it has its own `returns`. The result and each item's go to the run's check record, each with what its
- * judging cost and the judge's transcript as its log.
- */
 export const runOneCheck = (step: string, check: Graph['checks'][string], work: Left, graph: Graph, later?: true) =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -368,9 +349,6 @@ export const runOneCheck = (step: string, check: Graph['checks'][string], work: 
 
 const again = 'The change may have moved since you last judged it. Judge it as it is now.';
 
-/**
- * The step's checks over what a try left behind, all at once, so every finding of a try comes back together.
- */
 export const runStepChecks = (
   step: Step,
   left: Left,

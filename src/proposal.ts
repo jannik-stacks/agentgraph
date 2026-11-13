@@ -69,11 +69,6 @@ export type Proposal = typeof Proposal.Type;
 
 const { kind, title, body } = Filed.fields;
 
-/**
- * A proposal as an agent writes it. An issue is a `part` of the run's issue, a `follow-up` found while working on it,
- * or a `graph` change to the bot's own workflows, agents or checks. A part's `stacks_on` and `depends_on` name earlier
- * issues in the same block by position, from 1.
- */
 export const Said = Schema.Union([
   Comment,
   Label,
@@ -98,5 +93,4 @@ export const Said = Schema.Union([
 ]);
 export type Said = typeof Said.Type;
 
-/** The kinds an agent may return. */
 export const Kind = Schema.Literals([...new Set(Said.members.map(m => m.fields.kind.literal))]);

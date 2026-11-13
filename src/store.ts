@@ -22,7 +22,6 @@ import { isOnIssue } from './graph.ts';
 import { PluginMetadata, getRunOrigin } from './meta.ts';
 import { CheckEntry, type Log, type Run, RunRecord, StoreError, Trace, type InstanceHost } from './types.ts';
 
-/** The trace line for a put of `next` over `before`, or none when nothing changed. */
 const changes = (before: RunRecord | undefined, next: RunRecord): Trace | undefined => {
   const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(next)])] as (keyof RunRecord)[];
   const changed = keys.filter(k => JSON.stringify(before?.[k]) !== JSON.stringify(next[k]));
@@ -58,10 +57,8 @@ export const writeFileAtomic = (path: string, v: unknown) => {
   renameSync(tmp, path);
 };
 
-/** Which check output the store keeps: every run's, only failing ones', or none. */
 export const checkLogs = ['all', 'failed', 'off'] as const;
 
-/** Runs, traces and run files in the data dir. */
 export class Store extends Context.Service<
   Store,
   InstanceHost['store'] & {
@@ -206,11 +203,6 @@ export const appendJsonlRows = (path: string, lines: unknown[]) => {
   );
 };
 
-/**
- * A run is `<dir>/<id>/run.json`, stamped `ended` when first stored done or stopped, its trace `<dir>/<id>/trace.jsonl` and its check record `<dir>/<id>/checks.jsonl`;
- * every put that changes the run first traces what changed, so a trace may hold a change its run.json missed. Locks carry a process owner and an acquisition id.
- * Check output is gzipped once per content at `<dir>/logs/<sha256>.gz`, as `logs` says.
- */
 export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all'): Layer.Layer<Store> => {
   const io = <A>(path: string, f: () => Promise<A>) =>
     Effect.tryPromise({ try: f, catch: cause => new StoreError({ path, cause }) });
@@ -334,15 +326,9 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
 
 const Query = Schema.Struct({ gh: Schema.Trim.check(Schema.isNonEmpty()) });
 
-/** A write of a run, at the time the studio opens it at, or an issue whose runs to show. */
 export type Located = { run: string; step: string; at: string } | { issue: number };
 
-/**
- * The write a GitHub link or comment id names: the newest `applied` line whose URL is the link or whose comment id is
- * the id, as its run, its step and the time the studio opens it at. A link with no comment in it, or a comment no run
- * wrote, names an issue instead: the one whose run opened it, else the number in the link.
- * @public
- */
+/** @public */
 export const locate = (input: unknown, store: Pick<Store['Service'], 'list' | 'read'>) =>
   Effect.gen(function* () {
     const { gh } = yield* Schema.decodeUnknownEffect(Query)(input);
@@ -362,7 +348,6 @@ export const locate = (input: unknown, store: Pick<Store['Service'], 'list' | 'r
     return issue ? { issue } : undefined;
   });
 
-/** The check logs in `<dir>/logs` that no run's trace or check record names; they are deleted only when `apply` is set. */
 export const pruneLogs = async (dir: string, apply = false) => {
   const named = new Set<string>();
   for (const id of await readdir(dir).catch(e => readOrUndefined(e) ?? []))

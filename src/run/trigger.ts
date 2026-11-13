@@ -63,10 +63,6 @@ import {
   TrackerError,
 } from '../types.ts';
 
-/**
- * Why a run is held: "Depends on" issues not yet closed, and with `stacks` the issue it stacks on while that has no pull
- * request. One closed without its work landing is reported instead of falling back to the base branch.
- */
 const findHold = (graph: Graph, r: Run, open: Issue[]) =>
   Effect.gen(function* () {
     const w = graph.workflows[r.workflow]!;
@@ -132,7 +128,6 @@ export type Instruction =
   | { kind: 'check'; checks: readonly string[]; workflow?: string; issue?: number }
   | ({ kind: 'resume' } & (Pick<Run, 'id'> | { parked: true }));
 
-/** CLI instructions use the event handling and dispatch checks of router proposals. */
 export const instruct = (
   graph: Graph,
   instruction: Instruction,
@@ -236,7 +231,6 @@ export const instruct = (
     );
   });
 
-/** A trusted person's comment, review or pushed commit; a bare `/agent:` command is not feedback. */
 const feedback = (m: Event) =>
   m.trusted &&
   (m.kind === 'comment' ||
@@ -245,7 +239,6 @@ const feedback = (m: Event) =>
     (m.kind === 'approved' && !!m.comment?.body.trim())) &&
   (!getAgentRequest(m)?.command || !!getAgentRequest(m)!.text);
 
-/** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
 export const issueDebounceMs = 30_000;
 
 const logged = (r: Run) => (e: StoreError) => Effect.as(Effect.logError(`run ${r.id}`, e), r);
@@ -264,11 +257,6 @@ const isEngineRetryDue = (id: string) =>
     }
   );
 
-/**
- * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`.
- * With `only`, it looks at that issue alone and begins a run there when none was live; with `marked` too, only on a
- * trusted command or label. An issue with a trusted event younger than `debounce` ms is left for a later look.
- */
 export const tick = (
   graph: Graph,
   only?: number,
@@ -324,7 +312,6 @@ export const tick = (
       origin.set(moved, m.issue);
       return moved;
     };
-    /** Where humans spoke, each place once: the issue, and the review comment thread when it was one. */
     const heard = (ms: Event[]): NonNullable<Run['said']> => {
       const places = ms.map(m => {
         const c = m.kind === 'comment' ? m.comment : undefined;
@@ -332,7 +319,6 @@ export const tick = (
       });
       return places.filter((s, i) => places.findIndex(t => t.issue === s.issue && t.under === s.under) === i);
     };
-    /** 👀 on what woke a run; the run comes back pointing at that comment. */
     const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError, Tracker | Store> => {
       if (m.source === 'cli')
         return Effect.gen(function* () {
@@ -346,7 +332,6 @@ export const tick = (
     };
     const triggered = Object.values(graph.workflows).filter(w => w.on.issue_comment);
     const router = findRouter(graph)?.name;
-    /** Whether a trusted event on the issue is younger than `debounce`, so a burst still coming starts nothing yet. */
     const young = (issue: number) =>
       debounce > 0 &&
       latest.some(
@@ -357,7 +342,6 @@ export const tick = (
     const used = new Set<Event>();
     const touched: Run[] = [];
     const current = (r: Run) => touched.find(t => t.id === r.id) ?? r;
-    /** Moves a live run outside a session: traces the outcome and saves where it led. */
     const record = (run: Run, outcome: Outcome, next: Run) =>
       Effect.gen(function* () {
         yield* store.trace(run.id, makeOutcomeLine(run.step, outcome, next));
@@ -389,7 +373,6 @@ export const tick = (
           events.filter(m => m.issue === run.issue).map(m => ({ ...m, issue: origin.get(m) ?? m.issue }))
         );
 
-        /** A working run takes only a stop here; what else people say reaches it where it works. */
         const taken = (m: Event, lined: Event[] = []) => {
           const o =
             w &&
@@ -416,7 +399,6 @@ export const tick = (
         const m =
           answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];
         if (!w || !m) return;
-        /** A stop, pass or merge takes only itself, so what else people asked stays for the comment workflow. */
         const took = taken(m)!.kind === 'answer' ? answers : [m];
         for (const a of took) used.add(a);
         const lined = events.filter(l => l.issue === run.issue && l.at > at);
@@ -503,10 +485,8 @@ export const tick = (
     );
     const open = new Set(issues.filter(t => isInScope(graph, t)).map(t => t.number));
     const labelled = Object.values(graph.workflows).filter(w => w.on.issues?.label);
-    /** The label workflow whose label an issue carries, when a maintainer put it there last. */
     const assigned = (issue: number) =>
       Effect.map(tracker.issue(issue), t => labelled.find(w => findTrustedLabel(t.events, w.on.issues!.label!)));
-    /** Begins `w` on `issue`. A restart begins at the step it names, else the first, with the answers and reports of the last run there. */
     const start = (w: Workflow, issue: number, at: string, m?: Event, restart?: string) =>
       Effect.gen(function* () {
         const last = all
@@ -616,7 +596,6 @@ export const tick = (
         yield* start(w, only, new Date().toISOString());
     }
 
-    /** The issue a run worked on for what was said there, or on a pull request of its branch that is no longer open; `onRun` maps an open one. */
     const pulls = new Map<number, number | undefined>();
     const workedOn = (m: Event) =>
       Effect.gen(function* () {
@@ -861,12 +840,6 @@ const readIssueScan = (
     return { all, listed, latest, fetched, look, deferred, read };
   });
 
-/**
- * One pass over the issues of live runs, then wherever a trusted `/agent` was said since the newest run began, closed or
- * merged ones too, then the open issues, up to `limits.parallel` at once: each gets one look, and a new run only on a trusted
- * mark. Each issue is read from its own last run on, so it catches up on what a repo-wide look has passed. `debounce` is
- * as for `tick`.
- */
 export const scanIssuesAndRunningRuns = (
   graph: Graph,
   debounce = 0,

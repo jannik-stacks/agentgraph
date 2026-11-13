@@ -24,7 +24,6 @@ import { Agent, Check, CommandLimits, type Run } from './types.ts';
 
 const Positive = Schema.Finite.check(Schema.isGreaterThan(0));
 
-/** The limits block of settings.yaml. */
 const Limits = Schema.Struct({
   ...CommandLimits.fields,
   minutes: Positive.pipe(Schema.withDecodingDefaultType(Effect.succeed(30))),
@@ -47,7 +46,6 @@ const Limits = Schema.Struct({
 type Limits = typeof Limits.Type;
 type RunLimits = NonNullable<Run['limits']>;
 
-/** One repo's graph after `uses:` and the repo override are merged. */
 export type Graph = {
   dir: string;
   repo: string;
@@ -59,19 +57,12 @@ export type Graph = {
   checks: Record<string, Doc<Check> & { version: string }>;
   workflows: Record<string, Workflow>;
   limits: Limits;
-  /** A shell script each checkout runs once, with network, before the first step. */
   setup?: string;
-  /** A shell script the toolchain step runs after the installs it detects, on the base commit's files, with network. */
   toolchain?: string;
-  /** The local image every command of a run starts in, instead of the default sandbox image. */
   image?: string;
-  /** What the network of sessions and setup reaches: the egress allowlist and the model proxy, or the model proxy only. */
   network?: 'egress' | 'models';
-  /** Whether an issue that says "Stacks on #n" opens its pull request on the branch of #n. */
   stacks?: boolean;
-  /** The milestone whose issues new runs start on; every open issue when unset. */
   milestone?: string;
-  /** The logins whose text reaches agents and whose marks start runs; the repo's collaborators when unset. */
   trust?: string[];
   commands?: typeof CommandSettings.Type;
   status?: false | Partial<Record<IssueStatus, string>>;
@@ -112,21 +103,17 @@ export const parseGraphSettings = (text: string | undefined, say: (message: stri
   return decode(GraphSettings, data, say);
 };
 
-/** A skill file's frontmatter; `uses` names the skills whose bodies follow its own in the prompt. */
 const SkillFile = Schema.Struct({
   description: Schema.optionalKey(Schema.String),
   uses: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
 });
 type SkillFile = typeof SkillFile.Type;
 
-/** The folders a graph holds besides those a graph file reads through `$AGENTGRAPH_DIR`: the four it loads, scripts and fixtures. */
 const folders = new Set(['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures', 'plugins', 'node_modules']);
 
-/** Whether a graph file reads the graph folder `name` through `$AGENTGRAPH_DIR`. */
 const reads = (texts: string[], name: string) =>
   texts.some(text => new RegExp(`AGENTGRAPH_DIR[^\\n]*['"\`/]${name.replace(/\W/g, '\\$&')}['"\`/]`).test(text));
 
-/** Reports each `"kind"` value a body names that the engine does not know. */
 const unknownKinds = (body: string, say: (message: string) => void) => {
   const seen = new Set<string>();
   for (const [, name] of body.matchAll(/"kind":\s*"([\w-]+)"/g)) {
@@ -136,10 +123,7 @@ const unknownKinds = (body: string, say: (message: string) => void) => {
   }
 };
 
-/**
- * Reports each retired word a graph or notes file still uses.
- * @internal
- */
+/** @internal */
 export const retiredIn = (text: string, say: (message: string) => void) => {
   for (const retired of retiredWords) {
     const found = retired.text?.exec(text);
@@ -180,7 +164,6 @@ const markdown = async (dir: string, sub: string): Promise<File[]> => {
 
 const getDocName = (path: string) => (path.endsWith('/SKILL.md') ? basename(path.slice(0, -9)) : basename(path, '.md'));
 
-/** Validates the files of one graph and builds it; every problem is collected before anything fails. */
 const compile = (
   settingsText: string | undefined,
   groups: Record<'agents' | 'skills' | 'checks' | 'workflows', File[]>,

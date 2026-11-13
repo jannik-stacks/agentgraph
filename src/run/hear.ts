@@ -18,13 +18,11 @@ import { makeContinuedMeta } from '../meta.ts';
 import { getStepReturns } from '../graph.ts';
 import { type Run, type StoreError, type Trace, type TrackerError } from '../types.ts';
 
-/** Whether a new run may start on an issue: always without a graph milestone, else only in it. */
 export const isInScope = (graph: Graph, issue?: Issue) =>
   graph.milestone === undefined || issue?.milestone === graph.milestone;
 
 export const isBoardGraph = (graph: Graph) => Object.values(graph.workflows).some(w => w.on.issues?.column);
 
-/** The branch a run of `w` works on: its checkout branch, else the workflow's branch for its issue among `issues`. */
 export const formatRunBranch = (
   w: Pick<Workflow, 'branch'> | undefined,
   run: Pick<Run, 'issue' | 'checkout'>,
@@ -60,10 +58,6 @@ const readWorkedPull = (graph: Graph, issue: Issue) =>
       : findBranchPull(yield* (yield* Tracker).issues({ branch }), branch)?.number;
   });
 
-/**
- * The run's issue and the pull request on its branch, fetched before every session. A run with no branch gets the one it
- * was asked on, and a retro the one the work on its issue is on.
- */
 export const readIssueWithPull = (
   w: Workflow,
   run: Run,
@@ -140,7 +134,6 @@ export const makeToldEvent = (issue: number, told: { text: string; by: string },
   comment: { id: '', author: told.by, body: told.text, at, agentRequest: parseAgentRequest(told.text) },
 });
 
-/** What the comment workflow told `run`, each as a trusted comment that speaks to it. */
 export const readRunEvents = (run: Run) =>
   Effect.flatMap(Store, store => Stream.runCollect(store.read(run.id))).pipe(
     Effect.map(lines => lines.flatMap((t): Event[] => ('told' in t ? [makeToldEvent(run.issue, t.told, t.at)] : [])))
@@ -164,16 +157,11 @@ export const readContinuedRun = (run: Run, events: Event[]) =>
     return accepted ? { ...run, meta: makeContinuedMeta(run.meta, accepted.meta, accepted.at) } : run;
   });
 
-/** The comment workflow whose agent may `tell`, which then hears every `/agent` on behalf of the other runs. */
 export const findRouter = (graph: Graph) =>
   Object.values(graph.workflows).find(
     w => w.on.issue_comment && w.steps.some(s => getStepReturns(s, graph.agents).includes('tell'))
   );
 
-/**
- * The event as a run of `w` hears it: with a router, only the router hears `/agent` text from people, the others hear
- * what it tells them. Every run hears `/agent:` commands, which reach only the run they pick.
- */
 export const getHeardEvent = (router: string | undefined, w: Workflow, m: Event): Event => {
   if (!router || w.on.issue_comment || !m.comment?.agentRequest || m.comment.agentRequest.command) return m;
   const { agentRequest: _agentRequest, ...comment } = m.comment;
@@ -183,7 +171,6 @@ export const getHeardEvent = (router: string | undefined, w: Workflow, m: Event)
 export const isHeardBy = (graph: Graph, name: string, m: Pick<Event, 'kind'>) =>
   m.kind !== 'comment' || !findRouter(graph) || !!graph.workflows[name]?.on.issue_comment;
 
-/** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
 export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWithPull) =>
   Effect.gen(function* () {
     if (isQuiet(w)) return undefined;
@@ -207,7 +194,6 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
     return outcome && { outcome, at: pickNewest(...said.map(s => s.at))!, events: said.map(s => s.event) };
   });
 
-/** Whether a run is a retro, a run of a workflow that feedback starts. */
 export const isRetro = (graph: Graph, r: Pick<Run, 'workflow'>) => !!graph.workflows[r.workflow]?.on.feedback;
 
 const settledLookbackMs = 86_400_000;

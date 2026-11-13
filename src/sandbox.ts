@@ -21,13 +21,6 @@ export const inside = {
   news: '/news',
 };
 
-/**
- * Where a run's checkout lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
- * checkout starts from the files last kept under that ref, on the run branch when it exists, else on their base.
- * Without a `ref` it is an empty folder with no git and an empty `base`.
- * It keeps its own files there as one local commit when its scope closes. Every command in a checkout runs in the
- * `image` and on the `network` of the `graph` it was made for, starting from that graph's sandbox setup at the base when there is one.
- */
 export class Sandbox extends Context.Service<
   Sandbox,
   {

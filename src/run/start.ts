@@ -15,10 +15,6 @@ export const makeRunId = (w: Pick<Workflow, 'name'>, issue: number, at: string) 
 
 export type Child = Extract<Said, { kind: 'issue' }>;
 
-/**
- * Saves a new run once, under its id's lock and only when no run has that id, marks that it records what it hears from
- * its start, then lets `ready` finish it under that lock.
- */
 export const startRun = <A extends RunRecord, E = never, R = never>(
   run: A,
   ready: (run: A) => Effect.Effect<A, E, R> = Effect.succeed
@@ -42,10 +38,8 @@ export const startRun = <A extends RunRecord, E = never, R = never>(
 
 export const isPart = (p: Child): p is Extract<Child, { relation: 'part' }> => p.relation === 'part';
 
-/** How deep a run's issue may sit and still file children. */
 const deepest = 3;
 
-/** How many parents sit above issue `n`, counted up to `deepest`. */
 const findIssueDepth = (n: number, above = 0): Effect.Effect<number, TrackerError, Tracker> =>
   Effect.flatMap(Tracker, f => f.issue(n)).pipe(
     Effect.flatMap(t =>
@@ -53,12 +47,6 @@ const findIssueDepth = (n: number, above = 0): Effect.Effect<number, TrackerErro
     )
   );
 
-/**
- * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size label and
- * its "Stacks on" and "Depends on" lines; the parts are listed on the issue and each XL part begins the workflow
- * again. A follow-up or a graph change becomes a plain issue labelled with its relation that names the run's issue and
- * starts nothing; one with the title of an open issue is added there as a comment. One refusal files none.
- */
 export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
   Effect.gen(function* () {
     if (children.length === 0) return [];
@@ -148,7 +136,6 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
     return applied;
   }).pipe(useRunLink(run));
 
-/** The open follow-up and graph issues, so an agent adds to one by its title instead of filing it again. */
 export const readFiledIssues = () =>
   Effect.map(
     Effect.flatMap(Tracker, f => f.issues({ state: 'open' })),
@@ -161,7 +148,6 @@ export const readFiledIssues = () =>
     }
   );
 
-/** What a parent hears when the run it started settles. */
 export const formatSettled = (run: Run) =>
   `${run.workflow} on #${run.issue} ${
     run.status === 'done'
@@ -173,10 +159,6 @@ export const formatSettled = (run: Run) =>
           : 'waits for review'
   }`;
 
-/**
- * Why the `run` proposals may not start: one at a time, on an open issue in scope that no other live run holds. An agent
- * may start only a workflow with `on: dispatch`, a human any workflow.
- */
 export const findUndispatchable = (
   graph: Graph,
   run: Pick<Run, 'id'>,
@@ -208,7 +190,6 @@ export const findUndispatchable = (
     return reason === undefined ? [] : asked.map((proposal): Applied => ({ proposal, ok: false, reason }));
   });
 
-/** Begins the workflow a `run` proposal names, as a run `by` the run that proposed it, seeded with `seed`. A taken id gets a fresh one, a few times, then nothing starts. */
 export const startProposedRun = (
   graph: Graph,
   run: Pick<Run, 'id'>,
@@ -243,7 +224,6 @@ export const findRecipient = (graph: Graph, issue: number, by: string) =>
     )
   );
 
-/** Passes trusted text to the live run `to`, as a router proposal. */
 export const writeTold = (to: Run, text: string, by: string) =>
   Effect.as(
     Effect.flatMap(Store, s => s.trace(to.id, { at: new Date().toISOString(), step: to.step, told: { text, by } })),

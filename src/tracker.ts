@@ -29,12 +29,10 @@ import { parseJsonlRows, writeFileAtomic } from './store.ts';
 import { splitFrontmatter } from './workflow.ts';
 import { type Checkout, TrackerError, type InstanceHost } from './types.ts';
 
-/** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
 export const currentRunLinkRef = Context.Reference<RunLink | undefined>('agentgraph/currentRunLink', {
   defaultValue: () => undefined,
 });
 
-/** The studio page of a run, opened at the trace line written at or after `at`. */
 const makeStudioRunUrlAt = (studio: string, run: string, at: string) => `${makeStudioRunUrl(studio, run)}?at=${at}`;
 
 const formatBodyWithRunLink = (body: string, mark: RunLink, at: string, studio = '') => {
@@ -45,7 +43,6 @@ const formatBodyWithRunLink = (body: string, mark: RunLink, at: string, studio =
   return `${formatRunMark(removeRunLink(body), url)}\n<!-- agentgraph ${fields.join(' ')} -->`;
 };
 
-/** The proposal as posted: its body stamped with `provenance`, and when, if the fiber writes for a run; else unstamped. */
 export const makePostableProposal = (p: Proposal, studio?: string) =>
   Effect.map(currentRunLinkRef, (mark): { posted: Proposal; at?: string } => {
     if (!('body' in p)) return { posted: p };
@@ -56,7 +53,6 @@ export const makePostableProposal = (p: Proposal, studio?: string) =>
 
 export const isPostedBy = (body: string, operation: string) => body.includes(` operation=${operation} `);
 
-/** The repo as the state: GitHub in production, a JSON file in tests. */
 export class Tracker extends Context.Service<
   Tracker,
   InstanceHost['tracker'] & {
@@ -76,12 +72,10 @@ export class Tracker extends Context.Service<
       names?: Partial<Record<IssueStatus, string>>
     ) => Effect.Effect<void, TrackerError>;
     writeStatusHeader?: (number: number, header: string) => Effect.Effect<void, TrackerError>;
-    /** The login people mention to talk to the bot, when the tracker has one. */
     slug?: Effect.Effect<string, TrackerError>;
     writeField?: (
       ...args: Parameters<NonNullable<HookContext['tracker']['writeField']>>
     ) => Effect.Effect<void, TrackerError>;
-    /** The studio's URL that bodies link back to, when set. */
     studio?: string;
   }
 >()('agentgraph/Tracker') {}
@@ -117,10 +111,6 @@ export const parseIssueSearch = (
     return Effect.succeed({ terms, state, limit });
   });
 
-/**
- * The comment with what it asks the bot after its first `/agent` or `@agent` outside quoted lines and fenced code. A
- * command such as `/agent:restart:plan` has the command `restart:plan`.
- */
 export const makeCommentWithAgentRequest = (c: Comment): Comment => {
   let fenced = false;
   let offset = 0;
@@ -160,7 +150,6 @@ export const writeProposal = (issue: number, proposal: Proposal) =>
 export const writeAgentComment = (issue: number, text: string) =>
   writeProposal(issue, { kind: 'comment', body: formatAgentComment(text) });
 
-/** Whether an issue passes the `issues` filter. */
 export const matches =
   (filter: NonNullable<Parameters<Tracker['Service']['issues']>[0]> = {}) =>
   (t: Issue) =>
@@ -169,7 +158,6 @@ export const matches =
     (filter.branch === undefined || t.pull?.branch === filter.branch) &&
     (filter.labels ?? []).every(l => t.labels.includes(l));
 
-/** The text shown in place of a comment, or another `what`, from someone who is not a collaborator. */
 export const parseIssueLinks = (t: Issue): Issue => {
   const lines = [...t.body.matchAll(/^[ \t]*(stacks|depends) on #(\d+)\.?[ \t]*$/gim)];
   const stacks = lines.find(([, how]) => how!.toLowerCase() === 'stacks')?.[2];
@@ -201,7 +189,6 @@ export const withheld = (author: string, what = 'comment', why = 'not a collabor
 export const branchPrefix = 'agentgraph/';
 export const isAgentBranch = (branch: string) => branch.startsWith(branchPrefix);
 
-/** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
 export const unpushable = (path: string, modes: string[]) =>
   modes.some(mode => !['100644', '100755', '000000'].includes(mode))
     ? `${path} has mode ${modes.join(' to ')}; only regular files can be pushed`
@@ -324,14 +311,6 @@ export const writeTimelineEvent = async (
   return id;
 };
 
-/**
- * A tracker in a folder, for tests and local runs. Each issue is a folder `<n>/`, or `<status>/<n>/` once it has a
- * status: `issue.md` (frontmatter title, state, author, labels, parent; then the body), `events.jsonl` its timeline,
- * `reactions` the 👀 given, and `pull.json` with `diff.patch` make it a pull request. Branches live in the git remote of
- * the worktree a push comes from.
- * Authors ending in `[bot]` are not trusted, and their issues' text is withheld. It acts as the bot, or as the
- * trusted person `as`.
- */
 export const folderTracker = (dir: string, as?: string, trust?: readonly string[]): Layer.Layer<Tracker> =>
   Layer.effect(
     Tracker,
@@ -364,7 +343,6 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
         }
         return undefined;
       };
-      /** The last commit pushed from each checkout; the next push from it builds on that commit. */
       const pushed = new Map<string, string>();
       const held = new Map<string, Set<string>>();
 
@@ -388,7 +366,6 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           url: md(n),
         };
       };
-      /** The issue as an agent may read it: an outsider's title and text withheld. */
       const shown = (t: Issue): Issue =>
         t.author === me || (trust ? trust.includes(t.author) : !isBotLogin(t.author))
           ? parseIssueLinks({ ...t, body: removeRunLink(t.body) })
@@ -446,7 +423,6 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           });
       const say = (m: Omit<Parameters<typeof writeTimelineEvent>[1], 'actor' | 'trusted'>) =>
         writeTimelineEvent(dir, { ...m, actor: who, trusted: who !== me });
-      /** The tip of `branch` on the checkout's remote, fetched when the checkout lacks it. */
       const tip = async (work: Checkout, branch: string) => {
         const ref = `refs/heads/${branch}`;
         const line = (await git(work, 'ls-remote', 'origin', ref)).split('\n').find(l => l.endsWith(`\t${ref}`));
@@ -473,7 +449,6 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           join(findIssueDir(dir, k), 'diff.patch'),
           await git(work, 'diff', `${await tip(work, base)}...${head}`)
         );
-      /** Records `head` on the open pull requests of `branch`, with their diffs. */
       const moved = async (work: Checkout, branch: string, head: string) => {
         for (const k of findIssueNumbers(dir)) {
           const pr = await read(k);

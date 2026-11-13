@@ -8,15 +8,6 @@ import { basename, dirname, join } from 'node:path';
 import { makeHostEnv } from './git.ts';
 import { isOwnerRunning, ownerId, readStateDir, startHeartbeat, waitForLock } from './owner.ts';
 
-/**
- * A repo's environment: what the toolchain step and setup made of a base's files. `outputs` are the ignored directories
- * setup made, relative to the checkout root; `complete` says they are everything setup left behind, so a checkout with
- * the same `inputs` needs no setup. They live once in the volume `lower`: dependency directories at
- * `.agentgraph-env/data/<n>` in their order, the rest under `.agentgraph-env/rest`. The image only carries the labels.
- * In `deps` mode setup saw only the skeleton and `inputs` is its digest; in `tree` mode it saw every file and `inputs`
- * is the base tree. When `layered`, the build's writes to `/cache` stayed in the volume `<lower>-c`, over the repo's
- * cache volume.
- */
 type SandboxSetup = {
   image: string;
   outputs: string[];
@@ -28,11 +19,6 @@ type SandboxSetup = {
   layered?: boolean;
 };
 
-/**
- * What a sandbox setup is built from: `git` is a repo dir holding `base`, `image` the image it starts from, and `cache`
- * the prefix of the repo's cache volume. `repo` names the repo, or is empty, and then `origin`, its URL or absolute
- * path, tells it apart. A `base` no `trusted` ref reaches gets its own environment and never writes the repo's cache volume.
- */
 type SandboxSetupSpec = {
   repo: string;
   origin: string;
@@ -45,9 +31,6 @@ type SandboxSetupSpec = {
   trusted: string[];
 };
 
-/**
- * Shell lines that install the toolchain a repo's root `files` name, run from the repo root with network.
- */
 export const makeToolchainSetupCommands = (files: string[]) => {
   const has = (...names: string[]) => names.some(name => files.includes(name));
   const pinned = has('rust-toolchain', 'rust-toolchain.toml');
@@ -60,11 +43,9 @@ export const makeToolchainSetupCommands = (files: string[]) => {
   ];
 };
 
-/** Files a package manager or toolchain reads when it installs, so a change to one can change what setup installs. */
 export const manifest =
   /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.pnpmfile\.cjs|yarn\.lock|\.yarnrc(\.yml)?|\.npmrc|\.nvmrc|\.node-version|Cargo\.toml|Cargo\.lock|rust-toolchain(\.toml)?)$|^(patches|\.yarn\/(patches|releases))\//;
 
-/** The files setup sees in `deps` mode: `paths` from the base, `targets` made near empty, and a digest over both. */
 type Skeleton = { paths: string[]; targets: string[]; digest: string };
 
 const git = (dir: string, ...args: string[]) =>
@@ -74,12 +55,7 @@ const git = (dir: string, ...args: string[]) =>
     )
   );
 
-/**
- * The skeleton of `rev`: its `manifest` files and ignore rules outside `node_modules`, and the Cargo target files beside
- * a `Cargo.toml` (lib, bins, build script, benches, examples and tests) that setup gets near empty, so a fetch or
- * dependency build works without the source.
- * @internal
- */
+/** @internal */
 export const readDependencySkeleton = async (dir: string, rev: string): Promise<Skeleton> => {
   const entries = (await git(dir, 'ls-tree', '-r', rev))
     .split('\n')
@@ -104,21 +80,16 @@ export const readDependencySkeleton = async (dir: string, rev: string): Promise<
   return { paths: paths.map(e => e.path), targets, digest };
 };
 
-/** What `rev` gives setup in `mode`: the skeleton digest or the tree id. */
 export const readSetupInputKey = async (dir: string, rev: string, mode: SandboxSetup['mode']) =>
   mode === 'deps' ? (await readDependencySkeleton(dir, rev)).digest : git(dir, 'rev-parse', `${rev}^{tree}`);
 
-/**
- * Where npm, pnpm and yarn keep what they download, shared by a repo's containers and sandbox setup builds through its cache
- * volume at `/cache`. npm and pnpm lock their own writes; yarn 1 does not, and without this its cache fills the small `/tmp`.
- */
+// UNEXPECTED: yarn 1 does not lock its cache writes, and without this its cache fills the small `/tmp`.
 export const packageManagerCacheEnv = {
   npm_config_cache: '/cache/npm',
   npm_config_store_dir: '/cache/pnpm',
   YARN_CACHE_FOLDER: '/cache/yarn',
 };
 
-/** Containers keep no log on the docker disk; the runner reads their output as they run. */
 export const unlogged = ['--log-driver', 'none'];
 
 export const runDockerCli = (args: string[], timeout = 600_000) =>
@@ -137,17 +108,11 @@ export const runDockerCli = (args: string[], timeout = 600_000) =>
 
 const user = () => [process.getuid?.() ?? 1000, process.getgid?.() ?? 1000];
 
-/** The build: as root only to hand `/work` to the operator, then the rest as the operator. */
 const asOperator = () => {
   const [uid, gid] = user();
   return `chown ${uid}:${gid} /work && exec setpriv --reuid=${uid} --regid=${gid} --clear-groups sh -c "$1" sh "$2" "$3" "$4" "$5" "$6" "$7" "$8"`;
 };
 
-/**
- * Builds in the fresh lower volume at `/work`: the base's files (only the skeleton and its Cargo targets in `deps` mode), the
- * toolchain, setup, then the directories git does not track move to `.agentgraph-env`, dependency directories to
- * `data/<n>` and the rest to `rest`, and the source goes. Every write stays in the volume, so the moves are renames.
- */
 const build = [
   'set -e',
   'export HOME=/tmp TMPDIR=/tmp GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="*" AGENTGRAPH_BASE="$2"',
@@ -205,7 +170,6 @@ const touch = (key: string) => {
 };
 const holdHours = () => Number(process.env.AGENTGRAPH_ENV_HOLD_HOURS || 2);
 
-/** Whether another running engine process used the sandbox setup `key` within the hold window. */
 export const held = (key: string) => {
   const dir = join(holds(), key);
   return readDirOrEmpty(dir).some(
@@ -264,18 +228,10 @@ const parseSetupLabels = (tag: string, l: typeof SetupLabels.Type): SandboxSetup
 
 const building = new Map<string, Promise<SandboxSetup | 'setup' | undefined>>();
 
-/** The sandbox setup build format; a sandbox setup of another version is never reused. */
 export const envVersion = 7;
 
 const hash = (value: unknown) => getSha(JSON.stringify(value), 24);
 
-/**
- * The repo's cache volume for `spec` and its sandbox setup: the tagged image when one exists, else one container with
- * open network, committed. The cache volume holds toolchains and package downloads, one per repo and setup hash, so
- * repos never share one. Setup first sees only the skeleton; when the toolchain or setup fails there, the build runs
- * again on every file, and later bases of the same toolchain and setup go there first. Throws when the toolchain fails
- * on every file; no `env` when setup fails on every file, so setup runs in each checkout as before.
- */
 export const readSandboxSetup = async (
   spec: SandboxSetupSpec
 ): Promise<{ cache: string; env?: SandboxSetup | undefined }> => {
@@ -536,16 +492,10 @@ const createBuildLayer = async (image: string, cache: string, key: string) => {
   return name;
 };
 
-/** A dependency directory of a checkout: the volume `name` at `dst`, and when it is an overlay, the volume `upper` holding its writes. */
 export type SharedMount = { name: string; dst: string; upper?: string };
 
-/** Dependency directories, which setup fills and rarely deletes, so a volume can sit at their path. */
 const deps = /(^|\/)(node_modules|target)$/;
 
-/**
- * Where setup may put dependencies at `base`: `node_modules` beside each `package.json` and `target` beside each
- * outermost `Cargo.toml`, the shallowest `limit` of them.
- */
 export const dependencyDirs = async (gitDir: string, base: string, limit = 64) => {
   const files = (await git(gitDir, 'ls-tree', '-r', '--name-only', base))
     .split('\n')
@@ -576,7 +526,6 @@ const mountpoints = async (...names: string[]) =>
   (await runDockerCli(['volume', 'inspect', '-f', '{{.Mountpoint}}', ...names])).split('\n');
 
 let overlay: Promise<boolean> | undefined;
-/** Whether this docker mounts an overlay volume, tried once with `image`. */
 const overlays = (image: string) =>
   (overlay ??= (async () => {
     const [lower, upper, over] = ['l', 'u', 'o'].map(s => `agentgraph-probe-${ownerId}-${s}`) as [
@@ -599,15 +548,6 @@ const overlays = (image: string) =>
     }
   })());
 
-/**
- * Volumes for the checkout at `dir` at every dependency directory, so setup never writes one into the checkout. Where
- * the sandbox setup made one, the volume is an overlay over the sandbox setup's `lower` copy that holds only this checkout's writes, or a
- * copy of it where docker cannot mount overlays; elsewhere it starts empty. `more` names directories beyond the sandbox setup's
- * outputs. With `cache`, the repo's cache volume, one more overlay at `/cache` over it holds the checkout's own writes, so run
- * code never changes what later runs read; without overlays there is none. Every volume carries this process as its
- * owner, so a sweep finds the ones a dead engine process left. The sandbox setup's other outputs are copied into `dir`, where a build may
- * delete and remake them.
- */
 export const createSharedMounts = async (
   from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower' | 'layered'>,
   owner: string,
@@ -705,7 +645,6 @@ export const createSharedMounts = async (
   return sharedMounts;
 };
 
-/** Files a checkout wrote over the shared cache, from its `/cache` overlay; undefined when it has none. */
 export const written = async (sharedMounts: SharedMount[], image: string) => {
   const upper = sharedMounts.find(l => l.dst === '/cache')?.upper;
   if (!upper) return undefined;
@@ -735,7 +674,6 @@ export const written = async (sharedMounts: SharedMount[], image: string) => {
   return out.trim() ? Number(out.trim()) : undefined;
 };
 
-/** Removes a checkout's dependency volumes, each overlay before the volume holding its writes. */
 export const discard = (sharedMounts: SharedMount[], timeout?: number) =>
   sharedMounts.length
     ? runDockerCli(
@@ -753,7 +691,6 @@ export const discard = (sharedMounts: SharedMount[], timeout?: number) =>
       )
     : Promise.resolve();
 
-/** Marks the checkout `dir` as this process's, so a sweep in another engine process leaves it alone while this one lives. */
 export const writeCheckoutOwner = (dir: string) => {
   mkdirSync(dirname(dir), { recursive: true });
   writeFileSync(`${dir}.owner`, startHeartbeat());

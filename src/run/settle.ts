@@ -16,7 +16,6 @@ import { runEndedChecks } from './evaluate.ts';
 import { readIssueWithPull } from './hear.ts';
 import { type Checkout, type Run, type StoreError, type TrackerError } from '../types.ts';
 
-/** Tracker writes made for `run` at its step by `session`; a mark set for the same run and step outside is kept. */
 export const useRunLink =
   (run: Run, session = run.sessions[run.step]?.id) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -160,7 +159,6 @@ export const writeAppliedTrace = (id: string, step: string, applied: Applied[]) 
     store.trace(id, ...applied.filter(a => !a.operation).map(a => ({ at: new Date().toISOString(), step, applied: a })))
   );
 
-/** The run with no review thread left to answer: what it says next goes to the top of where a human last spoke. */
 export const removeThreads = (run: Run): Run =>
   run.said ? { ...run, said: run.said.slice(0, 1).map(s => ({ issue: s.issue })) } : run;
 
@@ -212,11 +210,6 @@ export const writeOnce = (
 
 const unpushed = 'The push with this reply failed, so its changes are not on the pull request yet.';
 
-/**
- * Applies the accepted proposals after a pass, pushes first. A comment with no thread of its own goes once to a place in
- * `run.said` that no comment here answers, the top level before the newest thread, else to where a human last spoke,
- * else to `to`.
- */
 export const writeProposals = (
   run: Run,
   proposals: Proposal[],

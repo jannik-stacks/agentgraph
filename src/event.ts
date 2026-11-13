@@ -11,11 +11,6 @@ export const limitLabels = { 'usd-per-run': 'usdPerRun', minutes: 'minutes' } as
 
 const Text = Schema.optionalKey(Schema.String);
 
-/**
- * An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. `stacksOn` is the issue or pull
- * request its work builds on, `dependsOn` the issues that must close before it starts, and `withheld` marks an
- * outsider's issue whose title and text are replaced.
- */
 export const Issue = Schema.Struct({
   number: Count,
   title: Schema.String,
@@ -35,10 +30,6 @@ export const Issue = Schema.Struct({
 });
 export type Issue = Types.Mutable<typeof Issue.Type>;
 
-/**
- * A comment; `path` and `line` place a review comment, `under` is the review comment it answers. `agentRequest` is what
- * it asks the bot when it calls it with `/agent`: the command after `/agent:`, and the rest of its text.
- */
 export const Comment = Schema.Struct({
   id: Schema.String,
   author: Schema.String,
@@ -52,10 +43,6 @@ export const Comment = Schema.Struct({
 });
 export type Comment = Types.Mutable<typeof Comment.Type>;
 
-/**
- * Something a person or a bot said or did on an issue. `id` names it in its tracker and stays the same on every read;
- * `review` marks a review that only commented, and `reviewer` whom a review was asked of.
- */
 export const Event = Schema.Struct({
   source: Schema.optionalKey(Schema.Literal('cli')),
   id: Schema.String,
@@ -87,11 +74,6 @@ export const Event = Schema.Struct({
 });
 export type Event = Types.Mutable<typeof Event.Type>;
 
-/**
- * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction
- * given. `at` is when its body was stamped with the run it came from. `moved` marks a push or rebase refused because
- * its branch is no longer where the checkout builds on.
- */
 export const Applied = Schema.Struct({
   operation: Text,
   issue: Schema.optionalKey(Schema.Number),
@@ -106,10 +88,8 @@ export const Applied = Schema.Struct({
 });
 export type Applied = Types.Mutable<typeof Applied.Type>;
 
-/** The run, step and session a write to the tracker comes from, and the operation that names one write. */
 export type RunLink = { run: string; step: string; session?: string; operation?: string };
 
-/** The studio page of a run. */
 export const makeStudioRunUrl = (studio: string, run: string) =>
   `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}`;
 

@@ -35,15 +35,12 @@ export type Settings = {
   proxy: { url: string; keys: Redacted.Redacted; models: string };
   passed: Record<string, Redacted.Redacted>;
   prices: string;
-  /** The name prefix of each repo's docker volume for toolchains and package caches; empty for none. */
   cache: string;
   image: string;
   runner: string;
   checkLogs: (typeof checkLogs)[number];
-  /** The studio's URL that posted bodies link back to; empty for none. */
   studio: string;
   trust: string[] | undefined;
-  /** A tracker plugin's name, or the path of a tracker folder with its git remote in `origin.git`. */
   tracker: string;
   trackerDir: string;
   app: TrackerHost['app'];
@@ -224,10 +221,6 @@ export const whyRunnerRefuses = (
         Effect.catch(e => Effect.succeed('detail' in e ? e.detail : e.message))
       );
 
-/**
- * The tracker plugin `name` names, from the built-ins and the plugins of `graph`, else a tracker folder at that path.
- * A graph read from the repo cannot bring its own tracker. Reads only; nothing is set up.
- */
 export const pickTracker = async (
   name: string,
   graph?: PluginGraph

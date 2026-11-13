@@ -4,13 +4,6 @@ import { type Agent, type Check, type Run, type RunRecord } from './types.ts';
 export const isOnIssue = <R extends Pick<RunRecord, 'issue'>>(run: R): run is R & Pick<Run, 'issue'> =>
   run.issue !== undefined;
 
-/**
- * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run
- * can take before it asks. A check names the agent that judges it; a check without one is only a script. A step
- * `dispatches` when it may start a workflow with `on: dispatch`, and `traces` when its agent reads the traces of
- * the runs on the issue; a check the same when its judge does. `writes` lists what its agent may write to GitHub, and
- * `model` names the model alias its agent asks for.
- */
 export type WorkflowGraph = {
   trigger: string;
   nodes: {
@@ -38,7 +31,6 @@ const github = new Set<Agent['returns'][number]>(['comment', 'push', 'pull_reque
 const doer = ({ does }: Step) =>
   'agent' in does ? (does.skill ? `${does.agent} / ${does.skill}` : does.agent) : 'run' in does ? 'script' : 'human';
 
-/** What starts a workflow, in a few words. */
 const formatTrigger = (w: Workflow) =>
   Object.entries(w.on)
     .map(([event, t]) =>
@@ -52,7 +44,6 @@ const formatTrigger = (w: Workflow) =>
     )
     .join(', ');
 
-/** Expands a workflow into the graph the studio lays out, with a run drawn over it when given. `agents` holds what each agent returns and reads. */
 export function makeWorkflowGraph(
   w: Workflow,
   checks: Record<string, Pick<Check, 'mode' | 'agent'>>,

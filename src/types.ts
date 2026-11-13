@@ -6,7 +6,6 @@ import { CheckMode, ResultType } from './result.ts';
 
 const Tally = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
-/** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
   harness: Schema.String.pipe(Schema.withDecodingDefaultType(Effect.succeed(''))),
   model: Schema.optionalKey(Schema.String),
@@ -22,10 +21,6 @@ const ResultRoot = Schema.Struct({
   type: Schema.optionalKey(Schema.Literal('object')),
 });
 
-/**
- * A check is items, a command and an agent that judges. Each gives a result `returns` describes, which passes when it
- * matches `pass`. `info` only records it, `warn` records a failure, `block` fails the try and `stop` the run.
- */
 export const Check = Schema.Struct({
   mode: CheckMode,
   returns: Schema.optionalKey(ResultRoot),
@@ -56,11 +51,6 @@ const Limit = Schema.Struct({
   label: Schema.optionalKey(Schema.Struct({ name: Schema.String, actor: Schema.String, at: Schema.String })),
 });
 
-/**
- * A check's result: whether it passed, the `value` its result held when the check has its own `returns`, and with
- * `each` the `share` of items that passed. `empty` means no evidence: `each` found nothing, or a result could not
- * be read, with the reason in `findings`.
- */
 export const CheckResult = Schema.Struct({
   check: Schema.String,
   pass: Schema.Boolean,
@@ -73,7 +63,6 @@ export const CheckResult = Schema.Struct({
 });
 export type CheckResult = Types.Mutable<typeof CheckResult.Type>;
 
-/** How one try of a step ended, or what a human said to a waiting run. */
 export const Outcome = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('pass'), answered: Flag, text: Text }),
   Schema.Struct({
@@ -89,7 +78,6 @@ export const Outcome = Schema.Union([
 ]);
 export type Outcome = typeof Outcome.Type;
 
-/** How far a session has read its issues: the time of the last event it saw and the base its pull request was on. */
 export const Seen = Schema.Struct({ at: Schema.String, base: Text });
 export type Seen = Types.Mutable<typeof Seen.Type>;
 const Kept = Schema.Struct({
@@ -150,7 +138,6 @@ const RunFields = {
   ended: Text,
 };
 
-/** Where one workflow run on one issue stands. */
 export const Run = Schema.Struct({ ...RunFields, issue: Count });
 export type Run = Types.Mutable<typeof Run.Type>;
 
@@ -181,20 +168,17 @@ export const CommandLimits = Schema.Struct({
   cpus: Schema.optionalKey(Schema.Finite.check(Schema.isBetween({ minimum: 0.01, maximum: 64 }))),
 });
 
-/** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given and, with `readonly`, writable alongside scratch. */
 export type Command = {
   limits?: typeof CommandLimits.Type;
   tools?: { url: string; host: string };
   cmd: string;
   args: string[];
   dir: string;
-  /** The graph directory, readable by the command as `$AGENTGRAPH_DIR`, never writable. */
   graph?: string;
   home?: string;
   readonly?: boolean;
   env: Record<string, string>;
   secrets?: Record<string, Redacted.Redacted>;
-  /** `open` reaches any host. */
   network: 'none' | 'proxy' | 'open';
   minutes: number;
 };
@@ -203,26 +187,16 @@ const Used = Schema.optionalKey(Schema.Struct({ peak: Schema.Number, cpu: Schema
 
 export type Exit = { code: number; output: string; used?: typeof Used.Type };
 
-/**
- * A checkout: the work tree `dir`, the commit `base` its change is measured from, and `git`, the repo and index host git
- * uses for it. On an existing branch `base` is where the branch forks from the ref, and `head` is the branch commit the
- * files start from.
- * `git` names only paths the host keeps out of the sandbox's reach. `news` is a file outside `dir` that only the host
- * writes; the sandbox reads it at the same path.
- */
 export type Checkout = {
   dir: string;
   base: string;
   head?: string;
   saved?: string;
   published?: string;
-  /** The checkout starts from a sandbox setup that already ran the graph's setup on these files. */
   ready?: boolean;
-  /** The sandbox setup the checkout starts from, how it was built, and whether it was built from the checkout's own files. */
   env?: Extract<Trace, { env: unknown }>['env'];
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
   news: string;
-  /** How many files the checkout's commands wrote over the shared cache so far, when the sandbox can tell. */
   written?: () => Promise<number | undefined>;
   image?: { id: string; packages: Record<string, string> };
 };
@@ -249,15 +223,12 @@ export const SessionSpec = Schema.Struct({
   dir: Schema.String,
   base: Text,
   tools: Strings,
-  /** Directories outside `dir` the session may read. */
   read: Schema.optionalKey(Strings),
   agent: Schema.String,
-  /** The check this session judges, when it judges one. */
   check: Text,
   returns: Check.fields.returns,
   minutes: Schema.Number,
   resume: Schema.optionalKey(Kept),
-  /** Opens a copy of `resume` in a new home, leaving the resumed session as it was. */
   fork: Flag,
   limits: Schema.optionalKey(CommandLimits),
 });
@@ -272,7 +243,6 @@ const End = Schema.Struct({
   used: Used,
 });
 
-/** What a session does, as the harness reports it. `end` comes once the harness exits; with `ended: 'error'` and no reply, `final` holds the harness's error. */
 export const SessionEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal('start'),
@@ -293,10 +263,9 @@ export const SessionEvent = Schema.Union([
     ok: Schema.optionalKey(Schema.Boolean),
     exit: Schema.optionalKey(Schema.Number),
     denied: Flag,
-    /** How long the tool ran, when the harness says. */
     ms: Schema.optionalKey(Schema.Number),
   }),
-  /** `input` counts every input token, cache reads and writes among them. */
+  // UNEXPECTED: `input` counts every input token, cache reads and writes among them.
   Schema.Struct({
     type: Schema.Literal('usage'),
     input: Schema.Number,
@@ -304,7 +273,6 @@ export const SessionEvent = Schema.Union([
     cacheRead: Schema.optionalKey(Schema.Number),
     cacheWrite: Schema.optionalKey(Schema.Number),
     usd: Schema.optionalKey(Schema.Number),
-    /** The model no list price was found for, when the harness reported no cost either. */
     unpriced: Text,
     model: Text,
   }),
@@ -321,14 +289,6 @@ export class SessionStop extends Data.TaggedError('SessionStop')<{
 
 const Line = { at: Schema.String, step: Schema.String };
 
-/**
- * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A
- * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed. A session's prompt,
- * event and session lines share its `key`, so sessions running at once stay apart. Check results are not trace lines but
- * entries of the run's check record. A `spoken` line holds a CLI command or an event the run heard from its tracker, and
- * the `inputs` line says since when the run records what it hears. An `aside` names the comment an aside answered,
- * when the run noted it.
- */
 export const Trace = Schema.Union([
   Schema.Struct({
     ...Line,
@@ -377,7 +337,6 @@ export const Trace = Schema.Union([
 ]);
 export type Trace = typeof Trace.Type;
 
-/** A check's full output in the store: its sha256 and its length in bytes. */
 export const Log = Schema.Struct({ hash: Schema.String, bytes: Schema.Number });
 export type Log = typeof Log.Type;
 

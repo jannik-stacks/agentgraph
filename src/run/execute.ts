@@ -70,12 +70,6 @@ const withSessionPermit =
       Effect.andThen(permits.resize(graph.limits.sessions), permits.withPermits(1)(effect))
     );
 
-/**
- * One harness session: what it was opened with, every event and how it ended become lines of the trace of the run
- * `into`, or of the list `into`. It holds a session permit only while the harness runs. When `until` ends first, the session is cut short and its result comes back as `cut`.
- * With `fresh`, a resume that fails before the harness starts, or of a session another harness ran, runs once fresh
- * with `fresh` as its prompt, traced with why the resume was dropped.
- */
 export const runSession = <A = never, R = never>(
   graph: Graph,
   into: string | Trace[],
@@ -238,11 +232,6 @@ const openSession = <A, R>(
     };
   }).pipe(Effect.scoped);
 
-/**
- * A judging session that must record its result with the result tool. A session that fails is tried once more, fresh
- * with `fresh` as its prompt; one that stops cleanly without a valid result is resumed once and told to record it.
- * Without a result after that the check could not be judged.
- */
 export const runJudge = (
   graph: Graph,
   into: Trace[],
