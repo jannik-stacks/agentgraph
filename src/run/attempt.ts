@@ -598,7 +598,7 @@ export const runAttempt = (
       Effect.catchTag('TrackerError', failure => Effect.succeed({ failure }))
     );
     if ('failure' in landed) return { failure: landed.failure, run: tried, tree };
-    if (landed.some(a => a.ok)) tried = removeThreads(tried);
+    if (landed.some(a => a.ok && !a.skip)) tried = removeThreads(tried);
     if (tried.onto && landed.some(a => a.ok && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;
       tried = rest;

@@ -569,7 +569,7 @@ async function runOnInstance(
         ...(scope.env.AGENTGRAPH_TRACKER === 'github'
           ? await Effect.runPromise(
               readInstallationReach({
-                repo: scope.env.AGENTGRAPH_REPO!,
+                repo: scope.env.AGENTGRAPH_FORK ?? scope.env.AGENTGRAPH_REPO!,
                 id: scope.env.AGENTGRAPH_APP_ID!,
                 key: Redacted.make(scope.env.AGENTGRAPH_APP_KEY!),
               })

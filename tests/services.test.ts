@@ -23,6 +23,44 @@ const read = (name: string) =>
     )
   );
 
+it.each(['fork/project', 'organization/project-fork'])(
+  'keeps the upstream identity when configuring fork %s',
+  async fork => {
+    const value = await Effect.runPromise(
+      settings.pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromEnv({ env: { AGENTGRAPH_REPO: 'upstream/project', AGENTGRAPH_FORK: fork } })
+        )
+      )
+    );
+    const setup = await makeTrackerSetup({
+      ...value,
+      tracker: 'github',
+      app: Option.some({ id: '42', key: Redacted.make('key') }),
+    });
+    expect(value.repo).toBe('upstream/project');
+    expect(setup.origin.origin).toBe('https://github.com/upstream/project.git');
+    expect(setup.origin.token).toBeUndefined();
+    expect(setup.origin.fork?.origin).toBe(`https://github.com/${fork}.git`);
+  }
+);
+
+it.each([' ', 'fork', 'fork/project/extra', 'https://github.com/fork/project'])(
+  'rejects malformed fork configuration %j',
+  async fork => {
+    const result = await Effect.runPromise(
+      Effect.result(settings).pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromEnv({ env: { AGENTGRAPH_REPO: 'upstream/project', AGENTGRAPH_FORK: fork } })
+        )
+      )
+    );
+    expect(Result.isFailure(result)).toBe(true);
+  }
+);
+
 it.each(['AGENTGRAPH_TOOL_SECRET', 'AGENTGRAPH_APP_KEY', 'GH_TOKEN', 'PLUGIN_PASSWORD', 'UNREVIEWED_VALUE'])(
   'refuses forwarding %s to sessions',
   async name => {

@@ -91,7 +91,12 @@ export const makeStatusLabel = (
 
 export type TrackerSetup = {
   layer: (trust?: readonly string[], as?: string) => Layer.Layer<Tracker>;
-  origin: { origin: string; local?: boolean; token?: Effect.Effect<string, TrackerError> };
+  origin: {
+    origin: string;
+    local?: boolean;
+    token?: Effect.Effect<string, TrackerError>;
+    fork?: Pick<TrackerSetup['origin'], 'origin' | 'token'>;
+  };
 };
 
 export const parseIssueSearch = (

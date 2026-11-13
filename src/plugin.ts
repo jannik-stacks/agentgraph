@@ -54,6 +54,7 @@ export { sumHumanInteractions } from './results.ts';
 
 export type TrackerHost = {
   repo: string;
+  fork?: string;
   studio: string;
   app: Option.Option<{ id: string; key: Redacted.Redacted }>;
   dir?: string;

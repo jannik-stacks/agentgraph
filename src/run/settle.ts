@@ -128,7 +128,7 @@ export const writeEyes = (run: Run, issue: number, m: Event) =>
     };
     const applied = yield* (yield* Tracker).apply(issue, react);
     yield* (yield* Store).trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
-    return applied.ok ? { issue, undo: react } : undefined;
+    return applied.ok && !applied.skip ? { issue, undo: react } : undefined;
   }).pipe(Effect.catchTag('TrackerError', e => Effect.logWarning(`react for run ${run.id}`, e)));
 
 const announce = (graph: Graph, change: StatusChange) =>

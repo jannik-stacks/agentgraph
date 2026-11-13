@@ -311,11 +311,11 @@ export const runAside = (
         back ? Effect.as(Effect.logWarning(`aside reply of run ${run.id}`, e), []) : e
       )
     );
-    if (!back && !landed.some(a => a.ok))
+    if (!back && !landed.some(a => a.ok && !a.skip))
       return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
     yield* writeAppliedTrace(run.id, step.name, landed);
     const { eyes: _eyes, ...replied } = removeThreads(run);
-    const answered = landed.some(a => a.ok) ? replied : run;
+    const answered = landed.some(a => a.ok && !a.skip) ? replied : run;
     if (!back || r.id === undefined) return { run: answered };
     const sessions = {
       ...run.sessions,

@@ -321,10 +321,11 @@ const lines: {
       </>
     ),
   }),
-  applied: ({ applied: { proposal: p, ok, url, reason } }, by) => ({
+  applied: ({ applied: { proposal: p, ok, url, reason, skip } }, by) => ({
     summary: (
       <>
         <Pill of="proposal" kind={kindName(p.kind)} /> {muted(by)} {short(gist(p), 120)}
+        {skip && muted(` skipped: ${short(skip, 120)}`)}
         {!ok && flag(` failed: ${short(reason ?? '', 120)}`)} {url && <Url url={url} />}
       </>
     ),

@@ -79,6 +79,7 @@ export const Applied = Schema.Struct({
   issue: Schema.optionalKey(Schema.Number),
   proposal: Proposal,
   ok: Schema.Boolean,
+  skip: Text,
   url: Text,
   held: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
   id: Text,

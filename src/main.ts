@@ -25,7 +25,7 @@ import { parseLabels, writeRunLabels } from './labels.ts';
 import { sessionPermitsRef, type Services } from './run/execute.ts';
 import { type Run, type RunRecord, StoreError } from './types.ts';
 
-export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
+const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_GITHUB_TOKEN', 'AGENTGRAPH_PROXY_KEYS'];
 const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()), 'utf8');
 
 export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
@@ -36,6 +36,8 @@ const instanceSettings = [
   'AGENTGRAPH_APP_ID',
   'AGENTGRAPH_APP_KEY',
   'AGENTGRAPH_APP_KEY_FILE',
+  'AGENTGRAPH_GITHUB_TOKEN',
+  'AGENTGRAPH_GITHUB_TOKEN_FILE',
   'AGENTGRAPH_TRACKER',
   'AGENTGRAPH_REPO',
   'AGENTGRAPH_TRUST',
