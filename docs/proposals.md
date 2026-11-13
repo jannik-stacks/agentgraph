@@ -1,6 +1,6 @@
 # Proposals
 
-Agents have no GitHub token. They ask the engine for writes with proposals: a reply ends with a fenced `agentgraph` block, read as a JSON array, one object, or one object per line. <!-- code: src/run/attempt.ts#parseProposals -->
+End replies with a fenced `agentgraph` block containing a JSON array, one object, or one object per line. See [Sandbox](sandbox.md#the-sandbox) for credential isolation. <!-- code: src/run/attempt.ts#parseProposals -->
 
 ```agentgraph
 [{"kind": "push", "branch": "agentgraph/42", "message": "Fix fee rounding"},
@@ -9,66 +9,60 @@ Agents have no GitHub token. They ask the engine for writes with proposals: a re
 
 ## Kinds
 
-| Kind | Fields | Effect |
-| -------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `comment` | `body`, optional `under` | [Reply](#comments) where a person spoke |
-| `label` | `add`, `remove` | Change labels, except trigger labels and `agent:` labels |
-| `push` | `branch`, `message` | [Commit and push](#pushes) the checkout |
-| `pull_request` | `branch`, `base`, `title`, `body` | Open a pull request, or update the open one for that branch |
-| `merge` | `number`, `head` | Merge the run's pull request if its head still matches |
-| `issue` | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | [File an issue](#filing-issues) |
-| `ask` | `question` | Post a question and wait |
-| `ask` | `runner` | Report a sandbox, checkout, network or tool problem; the engine handles it as an [engine error](workflows.md#order-and-limits) and asks no one |
-| `back` | `why` | [Return to an earlier step](workflows.md#tries-and-going-back) |
-| `run` | `workflow`, `issue`, optional `step` | [Dispatch](workflows.md#dispatch) a workflow and wait |
-| `tell` | `issue`, `text` | [Forward text](workflows.md#routing) to a live run |
+| `kind` | Fields | Action |
+| --- | --- | --- |
+| `comment` | `body`, optional `under` | [Reply](#comments) |
+| `label` | `add`, `remove` | Excludes trigger and `agent:` labels |
+| `push` | `branch`, `message` | [Commit and push](#pushes) |
+| `pull_request` | `branch`, `base`, `title`, `body` | Create or update by branch |
+| `merge` | `number`, `head` | Merge run's pull request with matching head |
+| `issue` | `relation`, `title`, `body`; parts require `size`, optional `stacks_on`, `depends_on` | [File](#filing-issues) |
+| `ask` | `question` | Ask and wait |
+| `ask` | `runner` | Report sandbox, checkout, network or tool [error](workflows.md#order-and-limits); asks nobody |
+| `back` | `why` | [Return](workflows.md#tries-and-going-back) |
+| `run` | `workflow`, `issue`, optional `step` | [Dispatch and wait](workflows.md#dispatch) |
+| `tell` | `issue`, `text` | [Forward](workflows.md#routing) |
 
-An agent's `returns` lists the kinds it may use, plus `ask`, and `back` on a step with `back`. A `run` step's own `returns` limits what its script prints, `ask` and `back` included, by default to `run`; see [Gates](workflows.md#gates). The engine owns two more kinds: `react` and `rebase`. <!-- code: src/proposal.ts#Kind src/proposal.ts#Proposal src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
+Agents may use their `returns`, plus `ask` and configured `back`. Script `returns` defaults to `run` and must grant `ask` and `back` explicitly. Only the engine uses `react` and `rebase`. <!-- code: src/proposal.ts#Kind src/proposal.ts#Proposal src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->
 
 ## Applying
 
-The engine rejects malformed or ungranted proposals before applying anything. <!-- code: src/run/attempt.ts#runAttempt -->
-
-An `ask` skips checks and other proposals. Otherwise checks run first; a blocking failure retries the step. A `back` then returns to its target without applying other writes. Remaining proposals apply in order: tells, pushes, other writes, issue filings, then dispatch. Refused writes fail the try; tracker errors park it after retry. <!-- code: src/run/attempt.ts#runAttempt src/run/settle.ts#writeProposals -->
+The engine validates proposals before applying anything. `ask` skips checks and other proposals. Otherwise, checks run first; blocking failures retry. Then `back` returns without writes. Remaining proposals apply in order: tells -> pushes -> other writes -> filings -> dispatch. Refusals fail tries; tracker errors retry, then park. <!-- code: src/run/attempt.ts#runAttempt src/run/settle.ts#writeProposals -->
 
 ## Comments
 
-A step speaks on the tracker only through its granted proposal kinds. A reply without a comment proposal stays in the run; a `back` carries feedback to its target step. <!-- code: src/workflow.ts#transition -->
+Tracker writes require grants. Replies without `comment` stay in the run. <!-- code: src/workflow.ts#transition -->
 
 Comments reply where a person woke the run, otherwise on its open pull request, otherwise on the issue. `under` selects a review thread by its first comment's ID. <!-- code: src/run/settle.ts#writeProposals -->
 
 ## Pushes
 
-`push` and `pull_request` must name the run's own branch under the enforced `agentgraph/` prefix. A moved branch refuses a push; only engine rebases force updates. <!-- code: src/run/attempt.ts#pickTryOutcome src/tracker.ts#folderTracker src/github.ts#githubTracker -->
+`push` and `pull_request` require the run's `agentgraph/` branch. A moved branch refuses pushes; only engine rebases force updates. <!-- code: src/run/attempt.ts#pickTryOutcome src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
-A step allowed to open a pull request must propose one while none is open, unless it asks, goes back, splits the issue or only answers comments on a finished run. <!-- code: src/run/attempt.ts#runAttempt -->
+A step granted `pull_request` must propose one if none is open, unless it asks, goes back, splits the issue or only answers comments on a finished run. <!-- code: src/run/attempt.ts#runAttempt -->
 
-A `pull_request` updates the open pull request for its branch or creates one. The engine appends a [run link](runs.md#run-links) and maintains the [status header](workflows.md#status-on-the-issue). <!-- code: src/tracker.ts#folderTracker src/github.ts#githubTracker -->
-
-A push carries only regular files. The engine sets no cap on how many files or bytes it changes; a graph keeps pull requests small with a check such as [the agentgraph example's size check](../examples/agentgraph/checks/size.md). GitHub's own refusal of a file is reported with its path. Paths under `.github/` are held for a maintainer. The trace records them in `held`; the first push holding a path is incomplete even if other files landed. Later pushes can succeed while still listing it. GitHub commits use the Git API. <!-- code: src/tracker.ts#unpushable src/github.ts#githubTracker src/event.ts#Applied src/tracker.ts#makePushResult src/run/settle.ts#writeProposals -->
+Pushes carry regular files without a size cap. Use a [size check](../examples/agentgraph/checks/size.md). GitHub refusals name paths. `.github/` paths await maintainers and appear in `held`. The first push holding a path is incomplete even if other files landed. Later pushes can succeed. <!-- code: src/tracker.ts#unpushable src/github.ts#githubTracker src/event.ts#Applied src/tracker.ts#makePushResult src/run/settle.ts#writeProposals examples/agentgraph/scripts/size.mjs -->
 
 ## Filing issues
 
-Issue proposals use these fixed relations and labels:
-
-| `relation` | Effect |
+| `relation` | Result |
 | --- | --- |
-| `part` | Sub-issue with required `size`: `XS`, `S`, `M`, `L` or `XL`, labelled `size/<size>` |
-| `follow-up` | Separate issue labelled `follow-up` |
-| `graph` | Separate issue labelled `graph` |
+| `part` | Sub-issue; required `size`: `XS`, `S`, `M`, `L`, `XL`; label `size/<size>` |
+| `follow-up` | Separate issue, label `follow-up` |
+| `graph` | Separate issue, label `graph` |
 
-The engine and triage-brief check require a `## Done when` heading in each proposed body. It does not require the heading to end the body or count its checks. These are current filing restrictions, independent of the graph's prompts. <!-- code: src/run/start.ts#createIssues -->
+Each `body` requires `## Done when`. <!-- code: src/run/start.ts#createIssues -->
 
-Parts produce a `Split into:` task list on the parent. Eligible `XL` parts start the same workflow again. Other relations append `Found while working on #n`; a matching open title receives a comment instead. Follow-up and graph filings start no runs automatically. Filing uses an issues-write token. <!-- code: src/run/start.ts#createIssues src/run/start.ts#readFiledIssues src/github.ts#scopes -->
+Parts add a `Split into:` task list on the parent; eligible `XL` parts restart the workflow. Other relations append `Found while working on #n`; matching open titles receive comments. Neither `follow-up` nor `graph` starts runs. Filing requires an issues-write token. <!-- code: src/run/start.ts#createIssues src/run/start.ts#readFiledIssues src/github.ts#scopes -->
 
-Validation refuses the whole batch if an issue's text is withheld, a part duplicates an open title, a part has an invalid position reference, or the parent is already three levels deep (`deepest`). <!-- code: src/run/start.ts#deepest -->
+The engine rejects the batch for withheld text, parts duplicating open titles, invalid position references or parents already three levels deep. <!-- code: src/run/start.ts#deepest -->
 
 ### Stacks on and Depends on
 
-`stacks_on` selects one earlier part by position, counted from 1; `depends_on` lists earlier positions. Filing writes `Stacks on #n` and `Depends on #n` lines into the issues. Existing issues can use those lines directly. The tracker reads them once into the issue's `stacksOn` and `dependsOn`; GitHub adds the issues it records as blocking one, and the folder tracker reads both fields from frontmatter too. <!-- code: src/run/start.ts#createIssues src/tracker.ts#parseIssueLinks src/github.ts#githubTracker -->
+`stacks_on` selects one earlier part; `depends_on` lists earlier parts, numbered from 1. Existing issues can use `Stacks on #n` and `Depends on #n` lines directly. Trackers read these once into `stacksOn` and `dependsOn`. GitHub includes recorded blockers; folder trackers also read frontmatter. <!-- code: src/run/start.ts#createIssues src/tracker.ts#parseIssueLinks src/github.ts#githubTracker -->
 
-With `stacks: true`, stacking builds on the parent's open pull request, never a bare workflow branch. The child targets that pull request's branch; GitHub registers a stack where supported. <!-- code: src/run/drive.ts#findStackBase src/github.ts#githubTracker -->
+`stacks: true` builds on a parent's open pull request, targets its branch and registers GitHub stacks where supported. <!-- code: src/run/drive.ts#findStackBase src/github.ts#githubTracker -->
 
-For workflows with a `branch`, `Depends on #n` holds the run until that issue closes. With `stacks: true`, `Stacks on #n` holds a run that has not started while the parent is open without a pull request; without stacking the line holds nothing. A held run stays `running` and records why it is held. Once the parent's work is merged, the run starts on its configured base branch. If the parent closes without a merged pull request, the run stays held and its reason says so. <!-- code: src/run/trigger.ts#findHold src/run/trigger.ts#isWorkLanded src/run/drive.ts#runWorkflow -->
+For workflows with `branch`, dependencies hold runs until those issues close. With `stacks: true`, unstarted children await open parents' pull requests; otherwise stacking imposes no hold. Held runs stay `running` with reasons. After a parent merges, its child starts on the configured base. Unmerged closure keeps children held. <!-- code: src/run/trigger.ts#findHold src/run/trigger.ts#isWorkLanded src/run/drive.ts#runWorkflow -->
 
-When a stacked parent's head moves, the child rebases onto it. A conflict asks for a manual rebase. <!-- code: src/run/follow.ts#runFollow -->
+When a stacked parent's head changes, children rebase onto it. Conflicts require manual rebases. <!-- code: src/run/follow.ts#runFollow -->
