@@ -3,4 +3,7 @@
 engine=$(dirname "$0")/../..
 git diff --cached --quiet -- "$engine" && exit 0
 unset $(git rev-parse --local-env-vars)
-cd "$engine" && NODE_OPTIONS= exec npm run -s check:static
+cd "$engine" || exit 1
+# Checks every line added since HEAD, staged or not, against the hygiene rules and the deny list.
+git rev-parse -q --verify HEAD >/dev/null && { AGENTGRAPH_BASE=HEAD NODE_OPTIONS= node examples/agentgraph/scripts/hygiene.mjs || exit 1; }
+NODE_OPTIONS= exec npm run -s check:static
