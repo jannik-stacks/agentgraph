@@ -1,118 +1,96 @@
 # Install and first run
 
-Install Node 24 and set `git config user.name`. The default local runner also needs Docker without root.
+Install Node 24 and set `git config user.name`. The local runner also needs rootless Docker.
 
 ```sh
 npm install -g @jannik-stacks/agi
 ```
 
-`npx @jannik-stacks/agi <verb>` runs it without installing. The unscoped `agentgraph` package on npm is unrelated.
-
-The local runner checks Docker, builds missing images and starts the required networks and egress proxy. Other [runners](sandbox.md#runners) supply their own execution environment. <!-- code: src/docker.ts#ensureDocker -->
+Or use `npx @jannik-stacks/agi <verb>`. From a clone: `npm ci && npm run build && npm link`; rebuild after pulls. See [runner preparation](sandbox.md#runners).
 
 ## Models
 
-Pick one of these; [Providers](sandbox.md#providers) has the details.
+Choose a [provider](sandbox.md#providers):
 
-- A Claude subscription: the first `agi` command runs `claude setup-token` and keeps the token.
-- A ChatGPT subscription, for codex, opencode and pi: `--provider chatgpt --save` runs `codex login` once and keeps that login. Read [what that exposes](sandbox.md#a-chatgpt-login-in-sessions) first.
-- An Anthropic key: `export ANTHROPIC_API_KEY=...`, then `--provider anthropic --save`.
-- The local model stack, for ChatGPT, OpenRouter or local models: see [infra/local](../infra/local/README.md), load its key with `set -a; . infra/local/.keys.env.local; set +a`, then `--provider litellm`. Only this provider needs the stack.
+- Claude subscription: the first command runs `claude setup-token` and saves the token.
+- ChatGPT for `codex`, `opencode` or `pi`: `--provider chatgpt --save` runs `codex login` once. Read [credential exposure](sandbox.md#a-chatgpt-login-in-sessions).
+- Anthropic: `export ANTHROPIC_API_KEY=...`, then `--provider anthropic --save`.
+- ChatGPT, OpenRouter or local models through [infra/local](../infra/local/README.md): `set -a; . infra/local/.keys.env.local; set +a`, then `--provider litellm`. Only `litellm` needs this stack.
 
 ## First run
 
-Choose an example graph before starting work. With the global npm install, run this once inside your git repo:
+Inside your repo, copy the installed starter:
 
 ```sh
 cp -R "$(npm root -g)/@jannik-stacks/agi/examples/starter" .agentgraph
 ```
 
-From an agentgraph clone, including when you use `npx`, copy it with `cp -R examples/starter <repo>/.agentgraph` instead. The clone has [other examples](../README.md#examples) too.
-
-Read the copied agents, workflows and checks before running them. The starter implements, tests and reviews a change, then waits for a human merge. Its test check runs the repo's `test` script if it has one. Edit these files for your repo, then start an issue:
+For a clone or `npx`, use `cp -R examples/starter <repo>/.agentgraph`. Review and edit its agents, workflows and checks. It implements, tests and reviews, then awaits human merge. Tests use your repo's `test` script when present.
 
 ```sh
 agi start "padStart drops the last char when len is 0"
 ```
 
-The first command makes a local instance of the repo under `~/.agentgraph`, with a tracker folder that stands in for GitHub. It files the text as issue 1 and drives the starter workflow.
+This creates an instance under `~/.agentgraph`, files issue 1 in its folder tracker and drives it. <!-- code: src/main.ts#start -->
 
 ```sh
-agi show                                   # what needs you
-agi review 1 changes "also cover len 0"    # drives it again
-agi merge 1                                # then: git merge agentgraph/1
+agi show
+agi review 1 changes "also cover len 0"
+agi merge 1
+git merge agentgraph/1
 ```
 
-Without a graph, commands that need one stop with a copy command. An `.agentgraph/` that git does not track, such as one in `.git/info/exclude`, is read from disk. With uncommitted changes in a committed `.agentgraph/` and no `--dir`, it says so and runs the committed version; the start banner names the graph, such as `.agentgraph/ at main 1a2b3c4`. <!-- code: src/instance.ts#ensureGraph src/instance.ts#whyGraphUncommitted src/instance.ts#formatGraphName --> Every verb is in the [CLI](cli.md). Keep the data root out of temporary folders, which macOS clears. <!-- code: src/main.ts#start src/main.ts#temporary -->
+See [graph selection](reference.md#which-graph-runs) and [CLI](cli.md). Keep durable data outside temporary folders. <!-- code: src/main.ts#temporary -->
 
 ## Who drives
 
-`start`, `say` and `review changes` drive the issue until it waits or ends. If a loop holds the checkout, they only post and the loop drives it. One loop can serve [several instances](#one-loop-for-several-instances). <!-- code: src/owner.ts#createLoopLock src/owner.ts#readLoopHolder -->
+`start`, `say` and `review changes` drive until the issue waits or ends. If a loop holds the checkout, they only post. See [several instances](#one-loop-for-several-instances). <!-- code: src/owner.ts#createLoopLock src/owner.ts#readLoopHolder -->
 
-The CLI prints the outcome and next commands; `agi show <n>` includes engine errors and trace paths. Rejected logins stop the run. Ctrl-C interrupts a drive; the next drive resumes it. <!-- code: src/status.ts#formatEngineError src/main.ts#start -->
+The CLI prints next commands. `show` includes errors and trace paths. Ctrl-C interrupts; the next drive resumes. <!-- code: src/status.ts#formatEngineError src/main.ts#start -->
 
 ## Where the result lands
 
-When a drive ends, the branch shows up in your repo as `agentgraph/<n>`, and the CLI prints the diff stat and next commands. Your checkout, index and HEAD never move, and no other branch does. A branch you moved or checked out stays yours, and one you deleted stays deleted until `agi export <n>`; the CLI says how to export under another name. <!-- code: src/instance.ts#writePullToRepo -->
+Drives export `agentgraph/<n>` and print diff stats. Your checkout, index, HEAD and other branches stay unchanged. Branches you moved or checked out stay yours. Deleted branches require `export`; `--as` exports under another name. <!-- code: src/instance.ts#writePullToRepo -->
 
-`agi merge` closes the open issue identified by the branch's run record, including retry branches, rather than parsing its name. Without a matching run record it closes no issue. <!-- code: src/instance.ts#findPull src/instance.ts#mergePull -->
+`merge` closes the open issue identified by the branch's run record, including retry branches. Without a matching record, it closes no issue. <!-- code: src/instance.ts#findPull src/instance.ts#mergePull -->
 
-Host git imports objects and updates only the exported branch, without hooks or signing. Engine checkouts live in the instance. <!-- code: src/git.ts#hostGit src/mirror.ts#makeSandbox -->
+Host git imports objects and writes exported refs without hooks or signing; engine checkouts stay inside instances. <!-- code: src/git.ts#hostGit src/mirror.ts#makeSandbox -->
 
-For a repo agentgraph must not write to at all, pass `--read-only` on first use. Then nothing goes into the repo, and `agi export <n> --patch <file>` hands you the change. <!-- code: src/instance.ts#ensureInstance -->
+Pass `--read-only` on first use to prevent repo writes. Retrieve changes with `export <n> --patch <file>`. <!-- code: src/instance.ts#ensureInstance -->
 
 ## The base
 
-The base is the branch checked out on first use, or `origin`'s default on a detached head, else `main`; `--base <branch>` overrides it for one command. Before each drive it fast-forwards to yours. If both moved, the drive stops: merge agentgraph's base into yours and retry. Workflows without a `base` start from it. <!-- code: src/instance.ts#ensureBase src/main.ts#start -->
+The initial base is your checked-out branch. On detached HEAD, it uses `origin`'s default, else `main`. `--base` overrides one command. Each drive fast-forwards the instance base to yours. If both moved, merge the instance base into yours and retry. Workflows without `base` use this branch. <!-- code: src/instance.ts#ensureBase src/main.ts#start -->
 
 ## The studio
 
-`agi studio` shows the selected instance's graph, runs and results. It needs an engine clone and installs studio dependencies on first use. From the clone you can also run:
+`agi studio` needs an engine clone and installs dependencies automatically. It serves at `127.0.0.1:5182`; `AGI_HOST` and `AGI_PORT` override this. [Auth](plugins.md#auth) covers login URLs. Changes in `src` or `bin` restart it. <!-- code: studio/vite.config.ts#server studio/watch.ts#restart -->
 
-```sh
-cd studio && npm run dev -- --instance left-pad --instance right-pad
-```
+`/runs` lists runs across instances. `?instance=<name>` filters to one, preserves other filters and rejects unknown names. Rows identify instances. Run links use `/<name>/runs/<id>`; instance pages use `/<name>/runs` and `/<name>/graph`. The header names the selection; the logo returns to `/runs`. <!-- code: studio/src/state.ts#shown studio/src/state.ts#getRunsAtom studio/src/runs/RunsPage.tsx#RunListLive -->
 
-The default address is `127.0.0.1:5182`; `AGI_HOST` and `AGI_PORT` override it. Token auth prints a login URL; see [Auth](plugins.md#auth). Changes under `src` or `bin` restart the server.
+Repeat `--instance` to select several instances; otherwise all instances under the data root appear. `--repo` selects a checkout; `--dir <graph> --data <store>` serves a standalone graph and run store. Failed instances show errors while others remain available. <!-- code: studio/dev.ts studio/served.ts#readInstanceServed -->
 
-The studio opens at `/runs` across served instances; each row names its instance. `/runs?instance=<name>` filters to one and preserves other filters; unknown names fail. Run links open at `/<name>/runs/<id>`. The header names the selected instance; the logo returns to `/runs`. Each `--instance` adds an instance, with pages at `/<name>/runs` and `/<name>/graph`. Without a selection the studio serves all instances under the data root. `--repo` selects a checkout; `--dir <graph> --data <store>` opens a standalone graph and run store. Failed instances show their errors while others remain available.
+`--plugins` adds [pages](plugins.md#studio-pages), such as [Bench](bench.md#cost-against-quality) with `--plugins examples/plugins/bench`. Instance names `plugins` and `runs` are reserved. <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom -->
 
-`--plugins <dir>` adds [studio pages](plugins.md#studio-pages) across served instances, such as [Bench](bench.md#cost-against-quality) with `--plugins examples/plugins/bench`. Instance graph plugins read only that instance. Instance names `plugins` and `runs` are reserved. The studio permits comments and run labels; other actions use the CLI.
-
-Set `AGENTGRAPH_STUDIO_URL` in the shell or an instance env file to link tracker posts to their runs. The Runs page can filter to runs waiting for people and open their check results.
-
-<!-- code: studio/vite.config.ts#server, src/services.ts#pickAuth, studio/watch.ts#restart --> <!-- code: studio/dev.ts studio/served.ts#readInstanceServed studio/src/state.ts#shown studio/src/state.ts#getRunsAtom studio/src/runs/RunsPage.tsx#RunListLive src/main.ts#removeShellSettings --> <!-- code: src/main.ts#readInstanceEnv --> <!-- code: studio/src/App.tsx#official studio/src/App.tsx#custom --> <!-- code: studio/src/runs/RunsPage.tsx#RunsPage src/status.ts#findRunsWaitingOnPeople studio/src/results/ResultTable.tsx#RunResultBadge -->
+The Runs page filters runs waiting for people and opens their check results. See [Results](checks.md#the-results-tab) and [run links](runs.md#run-links). <!-- code: studio/src/runs/RunsPage.tsx#RunsPage src/status.ts#findRunsWaitingOnPeople studio/src/results/ResultTable.tsx#RunResultBadge -->
 
 ## Named instances and settings
 
-An instance binds a checkout to a graph and tracker under one data root. `--instance <name>` selects `<root>/<name>/instance.yaml`; the default name is the checkout basename. To create an explicit name, add `--repo <dir>`. Names are single path components and cannot refer to another checkout. Ambiguous or unknown selections fail and list the available instances. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances src/instance.ts#readPickedInstance -->
+An instance binds a checkout, graph and tracker. `--instance` selects `<root>/<name>/instance.yaml`; the name defaults to the checkout basename. Add `--repo` to create an explicit name. Names must be single path components bound to one checkout. Unknown or ambiguous selections list instances and fail. <!-- code: src/instance.ts#ensureInstance src/instance.ts#findInstances src/instance.ts#readPickedInstance src/settings.ts#InstanceFile src/instance.ts#readInstance -->
 
-The [record](runs.md#instanceyaml) stores paths and defaults. Relative paths resolve against the instance folder; flags apply to one command. `loop: true` includes the instance in a loop selected outside a repo. Unknown fields fail. <!-- code: src/settings.ts#InstanceFile src/instance.ts#readInstance src/instance.ts#ensureGraph src/instance.ts#ensureInstanceGraph -->
+See [records](runs.md#instanceyaml), [flags](cli.md#flags) and [graphs](reference.md#which-graph-runs).
 
-Settings use the first value from flags, the instance env file, `instance.yaml`, the shell, then provider defaults. <!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/services.ts#readTrackerName -->
+Settings use the first value from flags, the instance env file, `instance.yaml`, the shell, then provider defaults. <!-- code: src/main.ts#readEngineEnv src/main.ts#readInstanceEnv src/services.ts#readTrackerName src/harnesses.ts#readConfiguredGraph -->
 
-| Value              | Flag         | `instance.yaml` field | Env name              | When none sets it                                              |
-| ------------------ | ------------ | --------------------- | --------------------- | -------------------------------------------------------------- |
-| Tracker repository |              | `repo`                | `AGENTGRAPH_REPO`     | empty                                                          |
-| Trust              |              | `trust`               | `AGENTGRAPH_TRUST`    | instance `owner`, tracker collaborators                        |
-| Image              |              | `image`               | `AGENTGRAPH_IMAGE`    | graph `image`, stock sandbox image                             |
-| Tracker            | `--tracker`  | `tracker`             | `AGENTGRAPH_TRACKER`  | `github` with App credentials, folder                          |
-| Runner             | `--runner`   | `runner`              | `AGENTGRAPH_RUNNER`   | `local`                                                        |
-| Provider           | `--provider` | `provider`            | `AGENTGRAPH_PROVIDER` | harness config                                                 |
-| Graph path         | `--dir`      | `graph`               | `AGENTGRAPH_DIR`      | checkout `.agentgraph/`                                        |
-| Harness config     |              |                       | `AGENTGRAPH_CONFIG`   | data root `config.ts`, engine config                           |
-| Parallel drives    |              | `limits.parallel`     |                       | graph `limits.parallel`                                        |
-| Base               | `--base`     | `base`                |                       | tracker default; a workflow `base` comes before the instance's |
+An empty `trust` list trusts nobody; see [trust](workflows.md#trust-and-scope). <!-- code: src/settings.ts#getSettings -->
 
-An empty trust list trusts nobody. Graph settings reject `repo` and `trust`; image and parallel limits remain graph defaults. `AGENTGRAPH_APP_ENV` names an App credential file, `AGENTGRAPH_DATA` selects the root, and `--logs` overrides `AGENTGRAPH_CHECK_LOGS`. <!-- code: src/settings.ts#getSettings src/harnesses.ts#readConfiguredGraph src/main.ts#start -->
-
-The studio rereads instance settings on reload; an explicit `--dir` stays in force. <!-- code: src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->
+The studio rereads settings on reload; an explicit `--dir` stays in force. <!-- code: src/instance.ts#ensureGraph src/instance.ts#ensureInstanceGraph studio/served.ts#readInstanceServed studio/plugins.ts#makeStudioPagesPlugin bin/run.ts#serve -->
 
 ### One loop for several instances
 
-`agi loop --instance a --instance b` drives both. Outside a repo without `--instance`, it selects records with `loop: true`. Each keeps its own graph, tracker, trust, env and session permits; `--parallel <n>` caps drives across them. Put per-instance flags in each record. A shared `--provider` applies to all. <!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives -->
+`loop --instance a --instance b` drives both instances. Outside a repo without `--instance`, it selects records with `loop: true`. Each instance keeps its settings and session permits. `--parallel` caps drives across instances; `--provider` applies to all. Put other flags in each record. <!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives -->
 
-Multi-instance loops and studios ignore shell settings for App credentials, tracker, repository, trust, graph and provider, and report which were ignored. Use each instance's record or env file. A failed instance prints its reason while others continue; the process exits 1. Ctrl-C stops all instances and releases locks. <!-- code: src/main.ts#start src/main.ts#removeShellSettings -->
+Multi-instance loops and studios ignore shell settings for App credentials, tracker, repository, trust, graph and provider, and report this. Use instance records or env files. Failed instances leave others running; the process exits 1. Ctrl-C stops all instances and releases locks. <!-- code: src/main.ts#start src/main.ts#removeShellSettings -->
 
 ### Starting and stopping a loop
 
@@ -122,10 +100,8 @@ agi stop --instance a --instance b
 agi restart --instance a --instance b
 ```
 
-`agi loop` runs in the foreground; `--detach` starts it in the background and prints its PID and log path. Logs append under `<data root>/logs/`.
+Loops run in the foreground. `--detach` starts them in the background and prints the PID and log path. Logs append under `<data root>/logs/`. <!-- code: bin/run.ts#detach -->
 
-`agi stop` sends SIGINT and waits for release; `--force` sends SIGTERM. A loop serving several instances must be stopped with all of their names. `agi restart` stops and starts it detached. Without names, selection uses the current repo, or all loops under the root for `stop` and `loop: true` records for `restart`.
+`stop` sends SIGINT and waits for lock release; `--force` sends SIGTERM. Name every instance the loop serves. `restart` stops and starts it detached. Without names, commands select the current repo. Outside a repo, `stop` selects all loops; `restart` selects `loop: true` records. <!-- code: bin/run.ts#stopLoops -->
 
-Each checkout has one loop lock under `AGENTGRAPH_STATE`. Separate worktrees need separate instances. A second loop reports the commands to stop or restart its holder; dead holders are recovered automatically.
-
-<!-- code: bin/run.ts#stopLoops, bin/run.ts#detach, src/owner.ts#createLoopLock, src/owner.ts#isOwnerRunning, src/owner.ts#readStateDir -->
+Each checkout has one loop lock under `AGENTGRAPH_STATE`. Worktrees need separate instances. A second loop prints commands to stop or restart the holder. Locks from dead processes are recovered automatically. <!-- code: src/owner.ts#createLoopLock src/owner.ts#isOwnerRunning src/owner.ts#readStateDir -->
