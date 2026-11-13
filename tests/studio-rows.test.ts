@@ -76,6 +76,21 @@ const trace = [
 ] as Trace[];
 
 describe('a run as rows', () => {
+  it('shows skipped replies with their reason and does not treat their body as a published PR link', () => {
+    const line: Trace = {
+      at,
+      step: 'implement',
+      applied: {
+        proposal: { kind: 'comment', body: 'Pull request: https://github.com/o/r/pull/8' },
+        ok: true,
+        skip: 'Kept local',
+      },
+    };
+    const row = runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace: [line] }, true);
+    expect(text(row.children?.[0]?.children?.[0])).toContain('skipped: Kept local');
+    expect(findTraceLinks([line])).toEqual({});
+  });
+
   const row = runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace }, true);
 
   it('labels an empty check skipped even when it does not block the workflow', () => {

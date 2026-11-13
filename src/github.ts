@@ -183,15 +183,16 @@ type Board = {
   } | null;
 };
 
-const readProjectToken: Effect.Effect<string, TrackerError> = Effect.gen(function* () {
-  const set = yield* Effect.orElseSucceed(Config.option(Config.Redacted('AGENTGRAPH_PROJECT_TOKEN')), Option.none);
-  const value = Option.match(set, { onNone: () => '', onSome: Redacted.value }).trim();
-  if (value) return value;
-  return yield* Effect.tryPromise({
-    try: () => promisify(execFile)('gh', ['auth', 'token']).then(out => out.stdout.trim()),
-    catch: () => new TrackerError({ message: 'no token' }),
-  }).pipe(Effect.filterOrFail(Boolean, () => new TrackerError({ message: 'no token' })));
-});
+const readUserToken = (name: string): Effect.Effect<string, TrackerError> =>
+  Effect.gen(function* () {
+    const set = yield* Effect.orElseSucceed(Config.option(Config.Redacted(name)), Option.none);
+    const value = Option.match(set, { onNone: () => '', onSome: Redacted.value }).trim();
+    if (value) return value;
+    return yield* Effect.tryPromise({
+      try: () => promisify(execFile)('gh', ['auth', 'token']).then(out => out.stdout.trim()),
+      catch: () => new TrackerError({ message: 'no token' }),
+    }).pipe(Effect.filterOrFail(Boolean, () => new TrackerError({ message: 'no token' })));
+  });
 const members = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const writers = new Set(['admin', 'maintain', 'write']);
 const refusals = new Set([404, 405, 409, 422]);
@@ -344,6 +345,23 @@ const appToken = (
     );
 };
 
+const makeUpstreamToken = (app: Parameters<typeof appToken>[0] & Pick<TrackerHost, 'fork'>, fetch: Fetch): AppToken => {
+  if (!app.fork) return appToken(app, fetch);
+  const token = Effect.runSync(
+    Effect.cached(
+      readUserToken('AGENTGRAPH_GITHUB_TOKEN').pipe(
+        Effect.mapError(
+          () =>
+            new TrackerError({
+              message: 'Fork pull requests need user credentials: run gh auth login, or set AGENTGRAPH_GITHUB_TOKEN.',
+            })
+        )
+      )
+    )
+  );
+  return () => token;
+};
+
 // UNEXPECTED: a token GitHub narrows to some repos or permissions loses private contents and pull requests ~10s after it is minted, answering 404; a new token reads them again.
 const authed = <T>(token: AppToken, scope: TokenScope, call: (token: string) => Effect.Effect<T, TrackerError>) =>
   Effect.flatMap(token(scope), t =>
@@ -373,10 +391,10 @@ const asApp = <T>(
 export const githubTracker = (
   app: Parameters<typeof appToken>[0] & Pick<TrackerHost, 'fork'>,
   fetch: Fetch = globalThis.fetch,
-  token: AppToken = appToken(app, fetch),
+  token: AppToken = makeUpstreamToken(app, fetch),
   trust?: readonly string[],
   studio?: string,
-  projectToken = readProjectToken
+  projectToken = readUserToken('AGENTGRAPH_PROJECT_TOKEN')
 ): Layer.Layer<Tracker> => {
   const request = requester(fetch);
   const branchRepo = app.fork ?? app.repo;
@@ -1073,6 +1091,14 @@ export const githubTracker = (
       p: Proposal,
       work?: Checkout
     ): Effect.Effect<Partial<Omit<Applied, 'proposal'>>, TrackerError> => {
+      if (app.fork) {
+        if (p.kind === 'comment' || p.kind === 'ask' || p.kind === 'react') {
+          const skip = 'Fork mode keeps comments, questions and reactions local.';
+          return Effect.as(Effect.logInfo(`1 skipped ${p.kind}: ${skip}`), { skip });
+        }
+        if (p.kind === 'label' || p.kind === 'merge' || p.kind === 'issue')
+          return Effect.fail(refuse(`Fork mode refuses upstream ${p.kind} writes; only pull requests are published.`));
+      }
       switch (p.kind) {
         case 'comment':
           return p.under === undefined
@@ -1158,9 +1184,10 @@ export const githubTracker = (
                   )
               )
             );
-            yield* stack(made.number, p.base).pipe(
-              Effect.catch(e => Effect.logWarning(`stack for #${made.number}`, e))
-            );
+            if (!app.fork)
+              yield* stack(made.number, p.base).pipe(
+                Effect.catch(e => Effect.logWarning(`stack for #${made.number}`, e))
+              );
             return { url: made.html_url };
           });
         case 'merge':
@@ -1226,7 +1253,7 @@ export const githubTracker = (
       return Effect.map(all<Posted>(`${repo}/${thread}/comments?per_page=100`), c => find(c, post => post.id));
     };
 
-    return {
+    const tracker: Tracker['Service'] = {
       base: Effect.map(gh<{ default_branch: string }>('GET', repo), r => r.default_branch),
       issues,
       searchIssues,
@@ -1293,6 +1320,9 @@ export const githubTracker = (
         ),
       ...(studio && { studio }),
     };
+    if (!app.fork) return tracker;
+    const { status: _status, writeStatusHeader: _header, writeField: _field, ...read } = tracker;
+    return read;
   });
 };
 
@@ -1336,9 +1366,9 @@ export const github = makePlugin({
       ),
     };
     const key = JSON.stringify([app.repo, app.fork, app.id, Redacted.value(app.key), host.studio]);
-    const known = setups.get(key);
+    const known = !app.fork && setups.get(key);
     if (known) return known;
-    const token = appToken(app, currentFetch);
+    const token = makeUpstreamToken(app, currentFetch);
     const layers = new Map<string, Layer.Layer<Tracker>>();
     const setup: TrackerSetup = {
       layer: trust => {
@@ -1349,13 +1379,13 @@ export const github = makePlugin({
       },
       origin: {
         origin: `https://github.com/${app.repo}.git`,
-        token: token('read'),
+        ...(!app.fork && { token: token('read') }),
         ...(app.fork && {
           fork: { origin: `https://github.com/${app.fork}.git`, token: appToken({ ...app, repo: app.fork })('read') },
         }),
       },
     };
-    setups.set(key, setup);
+    if (!app.fork) setups.set(key, setup);
     return setup;
   },
 });

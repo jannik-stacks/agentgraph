@@ -26,6 +26,7 @@ import {
   push,
   pull,
   services,
+  readTrace,
   reactions,
   fresh,
   say,
@@ -46,6 +47,28 @@ const card = (project: string, name: string, trusted: boolean): Event =>
   });
 
 describe('tick', () => {
+  it('finishes an ordinary reply when publishing comments and reactions is skipped', async () => {
+    const where = world();
+    const { run } = services(where, [
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull, { kind: 'comment', body: 'Done' })],
+    ]);
+    const local = Effect.map(Tracker, t => ({
+      ...t,
+      apply: (n: number, p: Proposal, work?: Parameters<typeof t.apply>[2]) =>
+        p.kind === 'comment' || p.kind === 'ask' || p.kind === 'react'
+          ? Effect.succeed({ proposal: p, ok: true, skip: 'Fork mode keeps replies local.' })
+          : t.apply(n, p, work),
+    }));
+    const [done] = await run(tick(small, 7).pipe(Effect.provideServiceEffect(Tracker, local)));
+    expect(done).toMatchObject({ status: 'done' });
+    expect(done?.eyes).toBeUndefined();
+    expect(
+      readTrace(where.data, done!.id).flatMap(line =>
+        'applied' in line && line.applied.skip ? [line.applied.proposal.kind] : []
+      )
+    ).toContain('comment');
+  });
+
   it.each([
     ['a card moved on a trusted board', {}, card('acme/1', 'Agent Ready', true), ['board']],
     ['a card on an outside board', {}, card('mallory/2', 'Agent Ready', false), []],
@@ -537,6 +560,16 @@ describe('temporary', () => {
 });
 
 describe('readEngineEnv', () => {
+  it('loads upstream user credentials from a token file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agentgraph-token-'));
+    removeAfter(dir);
+    const token = join(dir, 'token');
+    writeFileSync(token, 'user-token');
+    expect(await readEngineEnv([{ AGENTGRAPH_GITHUB_TOKEN_FILE: token }])).toMatchObject({
+      AGENTGRAPH_GITHUB_TOKEN: 'user-token',
+    });
+  });
+
   const file = (text: string) => {
     const dir = mkdtempSync(join(tmpdir(), 'agentgraph-env-'));
     removeAfter(dir);

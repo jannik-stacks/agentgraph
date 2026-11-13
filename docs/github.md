@@ -23,7 +23,11 @@ Set `AGENTGRAPH_REPO` to the upstream repository and `AGENTGRAPH_FORK` to your f
 AGENTGRAPH_REPO=acme/project AGENTGRAPH_FORK=contributor/project agi loop --tracker github
 ```
 
-The App must be installed on both repositories. Issues, comments, trust checks, boards and pull requests stay upstream. Code commits and branch updates go to the fork with a separate installation token. New pull requests target upstream with the fork owner's qualified head branch. An existing pull request on that head gets its title and body updated. <!-- code: src/services.ts#settings src/github.ts#githubTracker src/github.ts#github -->
+Install the App on your fork only. Upstream API reads and pull request creation use `AGENTGRAPH_GITHUB_TOKEN`, falling back to `gh auth token`. Run `gh auth login` with an account that can open pull requests upstream; a classic personal access token needs `public_repo` or `repo` scope. Public upstream git fetches need no token. <!-- code: src/github.ts#readUserToken src/github.ts#makeUpstreamToken src/github.ts#github -->
+
+Code commits and branch updates go to the fork with its installation token. New pull requests target upstream with the fork owner's qualified head branch. An existing pull request on that head gets its title and body updated. Upstream comments, questions and reactions stay local as counted skips with reasons in logs and traces. Issue creation, labels and merges are refused; status headers and project-board writes are disabled. Questions and human waits remain visible in `show` and the studio. <!-- code: src/github.ts#githubTracker src/event.ts#Applied -->
+
+Put `AGENTGRAPH_GITHUB_TOKEN` or `AGENTGRAPH_GITHUB_TOKEN_FILE` in the instance env file when serving several instances. User credentials stay on the host. `show` checks the fork's App installation reach. <!-- code: src/main.ts#readEngineEnv src/main.ts#removeShellSettings bin/run.ts#runOnInstance -->
 
 Checkouts fetch base branches and tags from upstream and fork branches under `refs/remotes/fork/`. Fork `agentgraph/` work branches also keep their plain names. Other fork PR heads use their full fork ref, so upstream branches with the same name cannot shadow them. An outdated fork default branch does not hold back new work. Fork work branches survive upstream refreshes and disappear from the mirror when deleted on the fork. Cross-fork stacked pull requests are refused because their base work branch is absent upstream. Leave `stacks` off for this flow. Fork push feedback uses the recorded pusher and push time from GitHub repository activity, checked against upstream permissions and `trust`; commit author emails grant no trust. <!-- code: src/mirror.ts#makeSandbox src/github.ts#githubTracker -->
 
@@ -46,7 +50,7 @@ npm run keychain-import -- <slug>
 gh auth refresh -s read:project
 ```
 
-[Board writes](plugins.md#status-hooks) need `project` scope instead. <!-- code: src/github.ts#readProjectToken -->
+[Board writes](plugins.md#status-hooks) need `project` scope instead. <!-- code: src/github.ts#readUserToken -->
 
 ## Start the engine
 

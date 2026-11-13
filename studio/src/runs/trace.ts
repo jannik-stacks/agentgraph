@@ -49,7 +49,7 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
   let pull: string | undefined;
   let branch: string | undefined;
   for (const line of trace) {
-    if (!('applied' in line) || !line.applied.ok) continue;
+    if (!('applied' in line) || !line.applied.ok || line.applied.skip) continue;
     const p = line.applied.proposal;
     if ('branch' in p) branch = p.branch;
     if (p.kind === 'pull_request') pull = line.applied.url ?? pull;

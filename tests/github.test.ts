@@ -7,7 +7,7 @@ import { TestClock } from 'effect/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { Tracker, currentRunLinkRef } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { githubTracker } from '../src/github.ts';
+import { github, githubTracker } from '../src/github.ts';
 import { makeProductionLayers, settings } from '../src/services.ts';
 import { tmp } from './kit.ts';
 import { type Checkout, TrackerError } from '../src/types.ts';
@@ -85,7 +85,14 @@ const findMutations = (f: ReturnType<typeof fake>) =>
     .map(c => /mutation[^{]*\{\s*(\w+)/.exec((c.body as { query: string }).query)?.[1]);
 
 const run = <A, E>(f: ReturnType<typeof fake>, effect: Effect.Effect<A, E, Tracker>, fork?: string) =>
-  Effect.runPromise(Effect.provide(effect, githubTracker({ ...app, ...(fork && { fork }) }, f.fetch)));
+  Effect.runPromise(
+    Effect.provide(effect, githubTracker({ ...app, ...(fork && { fork }) }, f.fetch)).pipe(
+      Effect.provideService(
+        ConfigProvider.ConfigProvider,
+        ConfigProvider.fromEnv({ env: { AGENTGRAPH_GITHUB_TOKEN: 'user-token' } })
+      )
+    )
+  );
 
 const issue = (n: number, more: object = {}) => ({
   id: 1000 + n,
@@ -162,6 +169,84 @@ const columnPages = (headers: Headers, after?: string | null) => ({
 });
 
 describe('githubTracker', () => {
+  it('uses user credentials for public upstream pages and parents without an upstream installation', async () => {
+    const f = fake({
+      'GET /repos/o/r/installation': () => ({ status: 404 }),
+      'GET /repos/o/r/issues/7': issue(7),
+      'GET /repos/o/r/issues/7/parent': issue(6),
+      'GET /repos/o/r/issues/7/comments': (_body: Body, headers: Headers, path: string) => ({
+        body: headers.get('authorization') === 'Bearer user-token' ? [comment(1, 'alice', 'OWNER', 'Context')] : [],
+        headers: { link: `<https://api.github.com${path}?page=2>; rel="next"` },
+      }),
+      'GET /repos/o/r/issues/7/comments?page=2': [],
+      'GET /repos/o/r/issues/7/events': [],
+    });
+    const result = await run(
+      f,
+      Effect.flatMap(Tracker, t => t.issue(7)),
+      'fork/r'
+    );
+    expect(result.parent).toBe(6);
+    expect(result.events.map(e => e.comment?.body)).toEqual(['Context']);
+    expect(
+      f.calls
+        .filter(c => c.path.startsWith('/repos/o/r/'))
+        .every(c => c.headers.get('authorization') === 'Bearer user-token')
+    ).toBe(true);
+    expect(f.calls.some(c => c.path.includes('/installation') || c.path.includes('/access_tokens'))).toBe(false);
+  });
+
+  it.each([
+    { kind: 'comment', body: 'Done' },
+    { kind: 'ask', question: 'Which behavior?' },
+    { kind: 'react' },
+  ] satisfies Proposal[])('records $kind as a counted local skip in fork mode', async proposal => {
+    const f = fake({});
+    const result = await run(
+      f,
+      Effect.flatMap(Tracker, t => t.apply(7, proposal)),
+      'fork/r'
+    );
+    expect(result).toMatchObject({ ok: true, proposal, skip: expect.stringContaining('local') });
+    expect(f.calls).toEqual([]);
+  });
+
+  it.each([
+    { kind: 'label', add: ['agent:working'] },
+    { kind: 'merge', number: 8, head: 'abc' },
+    { kind: 'issue', title: 'Follow-up', body: 'Details' },
+  ] satisfies Proposal[])('refuses upstream $kind writes in fork mode', async proposal => {
+    const f = fake({});
+    const result = await run(
+      f,
+      Effect.flatMap(Tracker, t => t.apply(7, proposal)),
+      'fork/r'
+    );
+    expect(result).toMatchObject({ ok: false, proposal, reason: expect.stringContaining('only pull requests') });
+    expect(f.calls).toEqual([]);
+  });
+
+  it('exposes no upstream status, body or project writers in fork mode', async () => {
+    const f = fake({});
+    const result = await run(
+      f,
+      Effect.map(Tracker, t => [t.status, t.writeStatusHeader, t.writeField]),
+      'fork/r'
+    );
+    expect(result).toEqual([undefined, undefined, undefined]);
+    expect(f.calls).toEqual([]);
+  });
+
+  it('refreshes public upstream git without a token and authenticates only the fork installation', async () => {
+    const setup = github.tracker!({ repo: app.repo, fork: 'fork/r', app: Option.some(app), studio: '' });
+    expect(setup.origin).toMatchObject({
+      origin: 'https://github.com/o/r.git',
+      fork: { origin: 'https://github.com/fork/r.git' },
+    });
+    expect(setup.origin.token).toBeUndefined();
+    expect(setup.origin.fork?.token).toBeDefined();
+  });
+
   it('reads upstream issues and finds fork pull requests without treating foreign branches as ours', async () => {
     const f = fake({
       'GET /repos/o/r/issues': [issue(7)],
@@ -225,6 +310,16 @@ describe('githubTracker', () => {
         existing ? ['/repos/o/r/pulls?state=open&head=fork:agentgraph/7'] : []
       );
       expect(f.calls.some(c => c.path.startsWith('/repos/fork/r'))).toBe(false);
+      expect(
+        f.calls.some(
+          c => c.path.includes('/installation') || c.path.includes('/access_tokens') || c.path.includes('/stacks')
+        )
+      ).toBe(false);
+      expect(
+        f.calls
+          .filter(c => c.path.startsWith('/repos/o/r/'))
+          .every(c => c.headers.get('authorization') === 'Bearer user-token')
+      ).toBe(true);
     }
   );
 

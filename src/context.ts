@@ -248,10 +248,10 @@ const entry = (t: Trace): string | undefined => {
   if ('prompt' in t) return `prompt: ${clip(t.prompt.prompt, 1500)}`;
   if ('session' in t) return `session ended ${t.session.ended}, ${formatSpend(t.session)}`;
   if ('applied' in t) {
-    const { proposal: p, ok, reason } = t.applied;
-    if (p.kind === 'react') return;
+    const { proposal: p, ok, reason, skip } = t.applied;
+    if (p.kind === 'react' && !skip) return;
     const { kind: _kind, ...fields } = p;
-    return `applied ${p.kind} ${ok ? 'ok' : `refused: ${reason}`}: ${clip(JSON.stringify(fields), 200)}`;
+    return `applied ${p.kind} ${skip ? `skipped: ${skip}` : ok ? 'ok' : `refused: ${reason}`}: ${clip(JSON.stringify(fields), 200)}`;
   }
   if ('outcome' in t) {
     const o = t.outcome;

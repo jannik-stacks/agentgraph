@@ -41,6 +41,7 @@ it.each(['fork/project', 'organization/project-fork'])(
     });
     expect(value.repo).toBe('upstream/project');
     expect(setup.origin.origin).toBe('https://github.com/upstream/project.git');
+    expect(setup.origin.token).toBeUndefined();
     expect(setup.origin.fork?.origin).toBe(`https://github.com/${fork}.git`);
   }
 );

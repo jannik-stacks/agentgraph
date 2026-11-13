@@ -133,7 +133,7 @@ Readers derive `engine`, `image`, `config` and `harnesses` labels from `versions
 | `session` | End reason, resume status, dropped-resume reason, cost and `used` |
 | `setup` | `ms`, `exit` and `used` |
 | `env`, `cache` | Environment and cached files |
-| `applied` | Proposal with URL or failure reason |
+| `applied` | Proposal with URL, failure reason or `skip` reason; skips do not fail tries |
 | `outcome` | Pass, failure, back, ask, answer or stop; next state |
 | `saved` | Changes; removals in `cleared` |
 | `spoken` | Command or tracker event and its source |
