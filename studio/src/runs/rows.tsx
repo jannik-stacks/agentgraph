@@ -23,7 +23,6 @@ import {
 import type { sumSpend } from '../../../src/stats.ts';
 import { formatReason, type Exit, type RunRecord, Trace } from '../../../src/types.ts';
 
-/** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {
   key?: string;
   at?: string | undefined;
@@ -33,7 +32,6 @@ export type Row = {
   raw?: unknown;
   open?: boolean;
   scroll?: boolean;
-  /** The line a deep link points at, highlighted. */
   target?: boolean;
 };
 
@@ -51,7 +49,6 @@ const short = (text: string, max = 140) => {
   const flat = text.replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}...` : flat;
 };
-/** Numbers cut to 4 decimals, trailing zeros dropped. */
 const round = (_: string, v: unknown) => (typeof v === 'number' ? Number(v.toFixed(4)) : v);
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour12: false });
 const took = (from: string, to: string | undefined) => {
@@ -77,7 +74,6 @@ const Url = ({ url, text }: { url: string; text?: string }) =>
 
 const RunInstance = createContext<string | undefined>(undefined);
 
-/** Copies the full URL of a studio page. */
 const CopyLink = ({ href, instance }: { href: string; instance: string | undefined }) => {
   const [copied, setCopied] = useState(false);
   return (
@@ -111,7 +107,6 @@ const readJudgeSessions = (text: string): Row[] | undefined => {
   }
 };
 
-/** A check's full output or its judge sessions, fetched from the data dir when asked for. */
 const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }) => {
   const [text, setText] = useState<string>();
   const data = useAtomValue(dataParam);
@@ -136,7 +131,6 @@ const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }
   );
 };
 
-/** Where the text under it came from. */
 const From = ({ children }: { children: ReactNode }) => (
   <div className="font-sans text-[10px] text-zinc-500">{children}</div>
 );
@@ -145,7 +139,6 @@ type Event = TraceLineWithKey<'event'>['event'];
 
 const kindName = (kind: string) => (kind === 'pull_request' ? 'pull' : kind);
 
-/** A proposal in a few words: the labels it changes, the text it posts or the title it opens. */
 const gist = (p: Proposal) =>
   p.kind === 'label'
     ? [...(p.add ?? []).map(l => `+${l}`), ...(p.remove ?? []).map(l => `-${l}`)].join(' ')
@@ -200,7 +193,6 @@ const tips = {
   },
 } as const;
 
-/** A row's kind as a pill that says on hover what it means. */
 const Pill = ({ of, kind }: { of: keyof typeof tips; kind: string }) => {
   const tip = (tips[of] as Record<string, string>)[kind];
   return tip ? (
@@ -270,7 +262,6 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
   }),
 };
 
-/** How each kind of trace line reads as a row. */
 const lines: {
   [
     K in
@@ -394,14 +385,12 @@ const lines: {
   }),
 };
 
-/** A trace line as a row, read through `lines`; `by` is who proposed what it applied. */
 const lineRow = (line: Line, by = 'agentgraph'): Row => {
   const kind = (Object.keys(lines) as (keyof typeof lines)[]).find(k => k in line);
   if (!kind) return { at: line.at, raw: line, summary: muted(short(JSON.stringify(line), 120)) };
   return { at: line.at, raw: line, ...(lines[kind] as (l: Line, by: string) => Row)(line, by) };
 };
 
-/** A session folded to who ran, on what, how it ended and what it cost, its end line as its raw; open, its prompt and every event in order. */
 const sessionRow = (
   { prompt, events, end }: SessionTraceLines,
   running: boolean,
@@ -459,7 +448,6 @@ const sessionRow = (
   };
 };
 
-/** What a run is doing or waiting for, in a sentence or two. */
 export const statusTip = (
   run: Pick<RunRecord, 'said' | 'issue' | 'status' | 'step' | 'tries' | 'reason' | 'waiting'>
 ) => {
@@ -473,12 +461,10 @@ export const statusTip = (
   return `Waits at ${run.step} for a human, not the bot.\nMerge or approve the pull request to move on; say /agent or request changes to send it back; /agent:stop ends the run.`;
 };
 
-/** A fixed-width cell of a run row, so numbers line up down the list. */
 const Col = ({ className, children }: { className: string; children: ReactNode }) => (
   <span className={cx('shrink-0 truncate tabular-nums', className)}>{children}</span>
 );
 
-/** A run's issue as a link to it on the tracker. */
 const Issue = ({ r }: { r: ServedRun }) =>
   r.run.issue === undefined ? null : r.repo ? (
     <Url url={`https://github.com/${r.repo}/issues/${r.run.issue}`} text={`#${r.run.issue}`} />
@@ -501,7 +487,6 @@ const FetchedRaw = ({ r }: { r: ServedRun }) => (
   <Live state={useAtomValue(runAtom(r.run.id, r.data, r.instance))}>{value => value && <Raw value={value.run} />}</Live>
 );
 
-/** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
 const RunInfo = ({ r }: { r: ServedRun }) => {
   const { run } = r;
   const [raw, setRaw] = useState(false);
@@ -526,7 +511,6 @@ const RunInfo = ({ r }: { r: ServedRun }) => {
   );
 };
 
-/** A run on one line that opens it on the Runs page. */
 export const RunLine = ({ r }: { r: ServedRun }) => (
   <Link
     href={atLink(r.run.id, undefined, r.data)}
@@ -610,7 +594,6 @@ const Visits = ({ r }: { r: ServedRun }) => (
   </Live>
 );
 
-/** A run as a row: where it stands, what it cost and left on the tracker; open, the steps it visited, read from its trace or fetched when it has none. */
 export const runRow = (r: ServedRun, open = false, expand = false, target?: Line): Row => {
   const { run } = r;
   return {
@@ -695,7 +678,6 @@ const Head = ({ row, full = false, children }: { row: Row; full?: boolean; child
   </span>
 );
 
-/** A quiet button on a row's line, shown on hover, that opens the row and switches one of its views. */
 const RowButton = ({ label, open, onClick }: { label: string; open: boolean; onClick: () => void }) => (
   <button
     type="button"
@@ -715,7 +697,6 @@ const RowButton = ({ label, open, onClick }: { label: string; open: boolean; onC
   </button>
 );
 
-/** A row with nothing under it but its JSON; a line cut short opens to its full text on click. */
 const LeafView = ({ row }: { row: Row }) => {
   const [raw, setRaw] = useState(false);
   const [full, setFull] = useState(false);
@@ -788,7 +769,6 @@ const RowView = memo(({ row }: { row: Row }) => {
   );
 });
 
-/** Rows as a list where each opens to its body, its children and its raw JSON; a row with one child shows it in its own line. */
 export const Rows = ({ rows }: { rows: Row[] }) => (
   <ol className="space-y-px font-mono text-[11px]">
     {rows.map((row, i) => (

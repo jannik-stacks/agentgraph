@@ -10,7 +10,6 @@ import { type ServedRun, lineAt } from './trace.ts';
 const atParam = queryParam('at');
 const expandAtom = atomWithStorage('agentgraph.expandSessions', true, undefined, { getOnInit: true });
 
-/** One run opened with every trace line, scrolled to the line `?at=` names or following a running run. */
 export const RunPage = ({ id }: { id: string }) => {
   const data = useAtomValue(dataParam);
   return (

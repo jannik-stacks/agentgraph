@@ -52,7 +52,6 @@ const paths = {
   writes: <path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4" />,
 };
 
-/** A small glyph in the current text color. */
 const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; className?: string }) => (
   <svg
     viewBox="0 0 24 24"
@@ -68,7 +67,6 @@ const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; class
   </svg>
 );
 
-/** The moving dashed outline on the selected step, the one the side panel shows; it sits on the card's border. */
 const Selected = ({ round = 6, dashes = 140, still }: { round?: number; dashes?: number; still?: true }) => (
   <svg aria-hidden className="pointer-events-none absolute -inset-[2px] size-[calc(100%+4px)] overflow-visible">
     <rect
@@ -83,7 +81,6 @@ const Selected = ({ round = 6, dashes = 140, still }: { round?: number; dashes?:
 );
 
 const handle = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
-/** Where arrows end: a few pixels short of the node, so the head never touches its border. */
 const arrival = { left: -5 };
 
 export type StepFlowNode = Node<
@@ -100,7 +97,6 @@ export type StepFlowNode = Node<
 const triesTip = (tries: number) =>
   `${tries === 1 ? 'One try' : `Up to ${tries} tries`}. A failing check sends its findings back into the same session. Out of tries it asks you; an answer gives it one more try, and stop ends the run.`;
 
-/** A round badge on a corner of the step. */
 const Bubble = ({ tip, className, children }: { tip: string; className: string; children: ReactNode }) => (
   <Tooltip tip={tip} action="Click for the step" focusable className={cx('absolute', className)}>
     <span className="flex h-5 min-w-5 cursor-pointer items-center justify-center gap-0.5 rounded-full px-1.5 font-mono text-[10px] font-semibold tabular-nums text-white ring-2 ring-white dark:ring-zinc-950">
@@ -165,7 +161,6 @@ const statusLine = (node: GraphNode, run: RunDrawnOnWorkflow['run']) =>
             ? `try ${Math.min(node.run.tries + 1, node.tries)} of ${node.tries}`
             : 'working';
 
-/** A step: what it does, its checks and its tries, with the run's position when one is drawn. */
 export const StepCard = ({
   id,
   data: { node, overlay, runCountsByStatus, hidden, selected },
@@ -276,7 +271,6 @@ export const StepCard = ({
 
 export type PillFlowNode = Node<{ label: string; done?: boolean; reached?: boolean }, 'pill'>;
 
-/** Where a workflow starts, a dot after its trigger, or where it ends, a ringed dot; drawn as a state machine would. */
 export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>) => (
   <div
     className={cx(
@@ -305,7 +299,6 @@ export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>
 
 export type FrameFlowNode = Node<{ workflow: string; trigger: string; worst: number; selected: boolean }, 'frame'>;
 
-/** The box around one workflow, titled with its name; the title opens the workflow. */
 export const Frame = ({ data: { workflow, trigger, worst, selected } }: NodeProps<FrameFlowNode>) => {
   const select = useSetAtom(selectedStepAtom);
   return (
@@ -336,7 +329,6 @@ export type RouteFlowEdge = Edge<
   'route'
 >;
 
-/** An orthogonal polyline through `points` with rounded corners. */
 const makeRoundedPath = (points: CanvasPoint[], radius = 8) =>
   points
     .map((p, i) => {
@@ -357,7 +349,6 @@ const makeRoundedPath = (points: CanvasPoint[], radius = 8) =>
     })
     .join(' ');
 
-/** An edge laid out ahead of time; a way back also carries a badge naming its rounds, which opens the step that sends it. */
 export const RouteEdge = ({ id, markerEnd, style, data }: EdgeProps<RouteFlowEdge>) => {
   const select = useSetAtom(selectedStepAtom);
   const { ref, show, hide } = useTip();
@@ -433,7 +424,6 @@ const LegendItem = ({ mark, children }: { mark: ReactNode; children: ReactNode }
   </li>
 );
 
-/** What the badges mean, short of what the graph says by itself. */
 export const Legend = ({ hidden, onToggle }: { hidden: ReadonlySet<string>; onToggle: (kind: ChipKind) => void }) => (
   <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 text-[11px] text-zinc-500">
     <LegendItem

@@ -11,7 +11,6 @@ export type Chip = {
 
 export const getStepDoerKind = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
 
-/** The badges a step shows under its name, in the order they read. */
 export const makeStepChips = (node: WorkflowGraph['nodes'][number], hidden: ReadonlySet<string>): Chip[] => {
   const chips: Chip[] = [];
   const n = node.checks.length;
@@ -76,12 +75,10 @@ export const makeStepChips = (node: WorkflowGraph['nodes'][number], hidden: Read
   return chips.filter(c => !hidden.has(c.kind));
 };
 
-/** Width of a chip in 10px mono: border, padding, glyph and gap, then one advance per character. */
 const chipWidth = (chip: Chip) => 8 + (chip.glyph ? 16 : 0) + chip.label.length * 6.1;
 const chipGap = 6;
 const maxLines = 3;
 
-/** The chips packed into lines of `width`, at most three; what does not fit becomes a last "+N more" chip. */
 const splitStepChipsIntoRows = (chips: Chip[], width: number): Chip[][] => {
   const lines: Chip[][] = [];
   let used = Infinity;

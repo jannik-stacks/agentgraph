@@ -18,7 +18,6 @@ const Prompt = ({ title, text }: { title: string; text: string }) => (
   </Section>
 );
 
-/** The latest result of a check among a run's lines at one step. */
 const latest = (name: string, lines: Line[]): CheckResult | undefined => {
   for (const line of lines.toReversed()) {
     if ('check' in line && line.check.check === name) return line.check;
@@ -45,7 +44,6 @@ const formatCheckTime = (ms: number) =>
       ? `${(ms / 1000).toFixed(1)} s`
       : `${Math.floor(ms / 60_000)}m ${Math.round(ms / 1000) % 60}s`;
 
-/** A check as one list item: its name, who judges it and its gate, its latest result in the selected run, and its script, judge and findings on demand. */
 const CheckItem = ({
   name,
   check,
@@ -170,7 +168,6 @@ const concurrency = {
   cancel: 'A trusted comment stops the session, and the step starts again at once with it as feedback.',
 };
 
-/** One sentence on what makes a trigger start a run. */
 const startsOn = (event: string, t: NonNullable<Workflow['on'][keyof Workflow['on']]>) =>
   t.label
     ? `Adding the ${t.label} label to an issue starts a run.`
@@ -182,7 +179,6 @@ const startsOn = (event: string, t: NonNullable<Workflow['on'][keyof Workflow['o
           ? `${event.replace('_', ' ')} on ${t.branches.join(', ')}: accepted, starts nothing yet.`
           : `Each ${event.replace('_', ' ')} event starts a run.`;
 
-/** A workflow's trigger, branches and concurrency, each explained on hover, and its description. */
 export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
   <div className="space-y-5 p-4 text-xs">
     <h2 className="text-sm font-semibold">{workflow.name}</h2>
@@ -233,7 +229,6 @@ const LiveCheckList = ({ id, list }: { id: string; list: (lines: Line[] | undefi
   );
 };
 
-/** The served graph's runs that stand at a step now. */
 const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
   const { value: runs, failure } = useAtomValue(getRunsAtom());
   if (!runs) return <p className="text-zinc-500">{failure ?? 'Loading runs.'}</p>;
@@ -252,7 +247,6 @@ const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
   );
 };
 
-/** A step's doer, checks, tries and way back in plain words, and its prompts. */
 export const StepDetails = ({
   fixture,
   step,

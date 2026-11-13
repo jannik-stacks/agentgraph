@@ -1,7 +1,6 @@
 import { useId } from 'react';
 import { cx } from './ui.tsx';
 
-/** The agentgraph mark: a bot head with an antenna, in the current text color with see-through eyes. */
 export const AgentgraphLogo = ({ className }: { className?: string }) => {
   const mask = useId();
   return (
@@ -61,10 +60,6 @@ const glyphs = {
 
 type Glyph = keyof typeof glyphs;
 
-/**
- * A small interface icon in the current text color. With `title` it is labelled and shows a tooltip; without, it is
- * decoration next to text that says the same.
- */
 export const Icon = ({ name, className = 'size-3.5', title }: { name: Glyph; className?: string; title?: string }) => (
   <svg
     viewBox="0 0 24 24"
@@ -81,5 +76,4 @@ export const Icon = ({ name, className = 'size-3.5', title }: { name: Glyph; cla
   </svg>
 );
 
-/** A small pulsing dot in the current text color, for a run that is working now. */
 export const Pulse = () => <span aria-hidden className="inline-block size-1.5 animate-pulse rounded-full bg-current" />;

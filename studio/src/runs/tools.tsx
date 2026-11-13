@@ -7,7 +7,6 @@ import { Code, codeSurface, Markdown as Text } from '../Markdown.tsx';
 
 const json = (value: unknown) => JSON.stringify(value, null, 2) ?? String(value);
 
-/** Parses text that holds a JSON object or array, else undefined. */
 const parseJson = (text: string | undefined): unknown => {
   const trimmed = text?.trim();
   if (!trimmed || !/^[[{]/.test(trimmed)) return;
@@ -18,7 +17,6 @@ const parseJson = (text: string | undefined): unknown => {
   }
 };
 
-/** A value as indented JSON. */
 export const Raw = ({ value }: { value: unknown }) => <Code code={json(value)} lang="json" compact wrap lines={12} />;
 const Label = ({ children }: { children: ReactNode }) => <span className="text-[11px] text-zinc-500">{children}</span>;
 
@@ -29,7 +27,6 @@ const str = (value: unknown) => (typeof value === 'string' ? value : value === u
 const rel = (path: unknown) => str(path).replace(/^\/work\/?/, '') || '.';
 const clip = (text: string, max = 80) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
-/** The first of `keys` the input has, so one view reads both opencode's camelCase and other harnesses' snake_case. */
 const pick = (input: Input, ...keys: string[]) => input[keys.find(key => input[key] !== undefined) ?? ''];
 const pickFilePath = (input: Input) => pick(input, 'filePath', 'file_path', 'path');
 
@@ -41,7 +38,6 @@ const range = (input: Input) => {
   return limit === undefined ? `:${from}` : `:${from}-${from + limit - 1}`;
 };
 
-/** The file text inside opencode's read wrapper, without its line-number prefixes. */
 const fileText = (output: string) => {
   const content = /<content>\n?([\s\S]*?)<\/content>/.exec(output)?.[1] ?? output;
   return content
@@ -69,7 +65,6 @@ const Output = ({ output, ok, lines = 8 }: Pick<ToolProps, 'output' | 'ok'> & { 
   );
 };
 
-/** A list of short lines, the first `max` shown and a button to the rest of the `noun`s. */
 const More = <T,>({
   items,
   max,
@@ -109,7 +104,6 @@ const Read = ({ input, output, ok }: ToolProps) =>
     <Code code={fileText(output)} lang={getFileHighlightLanguage(str(pickFilePath(input)))} compact lines={12} />
   );
 
-/** opencode grep output: "Found N matches", then each file followed by its "Line N: text" lines. */
 const grepMatches = (output: string) => {
   const files: { file: string; lines: { line: string; text: string }[] }[] = [];
   for (const raw of output.split('\n')) {
@@ -190,7 +184,6 @@ const Glob = ({ input, output, ok }: ToolProps) => {
   );
 };
 
-/** A command as one shell prompt line; a longer or multi-line one opens in place. */
 const Prompt = ({ command }: { command: string }) => {
   const [open, setOpen] = useState(false);
   const long = command.includes('\n') || command.length > 120;
@@ -228,7 +221,6 @@ const Bash = ({ input, output, ok }: ToolProps) => (
   </>
 );
 
-/** Changed lines between two texts, with the lines both share at the start and end as context. */
 const diffLines = (before: string, after: string) => {
   const a = before.split('\n');
   const b = after.split('\n');
@@ -428,18 +420,15 @@ const tools: Record<string, { summary: (input: Input) => string; Body: Component
   notes_add: { summary: i => str(i.title), Body: NoteAdd },
 };
 
-/** A tool's name as the transcript shows it: without the graph's prefix. */
 export const toolName = (tool: string) => tool.replace(/^agentgraph_/, '');
 
 const known = (tool: string) => tools[toolName(tool).toLowerCase()];
 const record = (input: unknown): Input =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Input) : { value: input };
 
-/** A one-line summary of a tool call's arguments, for its collapsed row. */
 export const toolSummary = (tool: string, input: unknown) =>
   known(tool)?.summary(record(input)) ?? clip(JSON.stringify(input)?.replace(/\s+/g, ' ') ?? '');
 
-/** A tool call's arguments and result, drawn for what the tool is. */
 export const ToolBody = ({
   tool,
   input,

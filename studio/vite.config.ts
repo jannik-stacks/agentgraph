@@ -10,7 +10,7 @@ import { makeServedGraphs } from './served.ts';
 
 const builtins = new Set(builtinModules);
 
-/** Fails the build when browser code imports a Node builtin, which vite would otherwise only stub out. */
+// UNEXPECTED: vite only stubs out a Node builtin that browser code imports.
 const noNodeInBrowser = (): Plugin => ({
   name: 'agentgraph:no-node-in-browser',
   enforce: 'pre',

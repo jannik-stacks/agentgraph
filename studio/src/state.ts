@@ -37,7 +37,7 @@ const readLocation = () => ({
   query: new URLSearchParams(location.search),
 });
 
-/** The current location; tests set it. @public */
+/** @public */
 export const locationAtom = atom(readLocation());
 locationAtom.onMount = set => {
   const sync = () => set(readLocation());
@@ -45,7 +45,6 @@ locationAtom.onMount = set => {
   return () => removeEventListener('popstate', sync);
 };
 
-/** Pushes or replaces a history entry. */
 export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?: boolean }) => {
   history[to.replace ? 'replaceState' : 'pushState'](null, '', makeInstanceHref(to.href));
   set(locationAtom, readLocation());
@@ -56,7 +55,6 @@ export const pageAtom = atom(get => {
   return { route, id: route && id ? decodeURIComponent(id) : null };
 });
 
-/** One query parameter of the location, written in place. */
 export const queryParam = (key: string) =>
   atom(
     get => get(locationAtom).query.get(key),
@@ -69,7 +67,6 @@ export const queryParam = (key: string) =>
     }
   );
 
-/** The step selected on the graph, as `workflow/step`, then what was opened from it, as `/check:name` and `/agent:name`. */
 export const selectedStepAtom = queryParam('step');
 
 const loads = new Map<() => void, { follows: readonly string[]; instance: string | undefined }>();
@@ -162,7 +159,6 @@ const openOnce = <T>(
   return opened.get(full) as ReturnType<typeof makeLiveJsonAtom<T>>;
 };
 
-/** Every run of one instance as the run list reads it, with its trail and no trace. */
 export const getRunsAtom = (instance = shown?.name) =>
   openOnce('runs', undefined, () => runAction(actions => actions.runs(), undefined, instance), instance);
 

@@ -4,7 +4,6 @@ declare module 'virtual:fixtures' {
 }
 
 declare module 'virtual:served' {
-  /** Each served graph by its instance name, empty for a studio of one `--dir`, with what stops the engine loading it. */
   export const served: {
     name: string;
     title: string;

@@ -4,7 +4,6 @@ import { makeTrailOutcome, type RunDrawnOnWorkflow } from './scenarios.ts';
 import type { Trail } from '../../../src/actions.ts';
 import { formatReason, type CheckEntry, type Trace } from '../../../src/types.ts';
 
-/** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
 export const makeRunTrail = (trace: (Trace | CheckEntry)[]): Trail => {
   let before: Omit<Trail[number]['at'], 'step'> = { status: 'running', tries: 0, rounds: {} };
   return trace.flatMap(line => {
@@ -17,7 +16,6 @@ export const makeRunTrail = (trace: (Trace | CheckEntry)[]): Trail => {
 
 type Node = WorkflowGraph['nodes'][number];
 
-/** One time a run is at a step: the failed tries, and how it left. */
 type Visit = {
   node: Node;
   failed: number[];
@@ -26,7 +24,6 @@ type Visit = {
   to?: string;
 };
 
-/** Where the run stands after its last visit. */
 export type End =
   | { kind: 'done' }
   | { kind: 'stopped'; why: string }
@@ -36,7 +33,6 @@ export type End =
 
 const isAgent = (n: Node) => getStepDoerKind(n.doer) === 'agent';
 
-/** Unrolls a run into the visits it made, in order, leaving out steps missing from the graph. */
 export function makeWorkflowRunVisits(
   graph: WorkflowGraph,
   trail: Trail,
@@ -86,7 +82,6 @@ export function makeWorkflowRunVisits(
 
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
 
-/** Says a repeated stretch of visits once, with how often it came round: "reviewer sent it back 3 times". */
 const collapse = (groups: string[][]): string[] => {
   const text = (from: number, len: number) =>
     groups
@@ -113,7 +108,6 @@ const collapse = (groups: string[][]): string[] => {
   return parts;
 };
 
-/** The run told in one sentence, the way a person would say it. */
 export function makeRunStory({ visits, end, missing = [] }: { visits: Visit[]; end: End; missing?: string[] }): string {
   const groups = visits.map((v, i): string[] => {
     const step = v.node.step;

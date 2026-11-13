@@ -74,11 +74,9 @@ const { Markdown: Render } = createMarkdownRenderer({
   rehypePlugins: [rehypeStatus],
 });
 
-/** The one surface every code block sits on: close to the page, a hairline border, no shadow. */
 export const codeSurface =
   'rounded-md border border-zinc-200 bg-(--agi-code-bg) text-zinc-700 dark:border-zinc-800 dark:text-zinc-300';
 
-/** Copies `code`, showing a tick for a moment after. */
 const CopyCode = ({ code }: { code: string }) => {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -97,11 +95,6 @@ const CopyCode = ({ code }: { code: string }) => {
   );
 };
 
-/**
- * A code block, colored in place once shiki has loaded. With `lines`, a longer
- * block shows only that many lines and fades out over a button to the rest. `compact` sets it smaller for tool calls;
- * `wrap` breaks long lines instead of scrolling.
- */
 export const Code = memo(function Code({
   code,
   lang = 'text',
@@ -188,7 +181,6 @@ const makeAnchor =
     return <a href={absolute ? href : new URL(href, base).href} {...props} target="_blank" rel="noreferrer" />;
   };
 
-/** Markdown with GitHub extensions and highlighted code blocks, sized for panels; `base` resolves relative links that are not docs pages, which stay text without it. */
 export const Markdown = memo(function Markdown({
   text,
   className,

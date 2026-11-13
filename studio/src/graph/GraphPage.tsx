@@ -34,7 +34,6 @@ const hideParam = queryParam('hide');
 const panelAtom = atomWithStorage('agentgraph.stepPanel', 320, undefined, { getOnInit: true });
 const panelWidth = (w: number) => Math.round(Math.min(Math.max(w, 260), 720, innerWidth * 0.7));
 
-/** The side panel's width, dragged from its left edge and kept across visits. */
 const usePanelWidth = () => {
   const [stored, setStored] = useAtom(panelAtom);
   const width = panelWidth(stored);
@@ -51,10 +50,6 @@ const usePanelWidth = () => {
   return [width, resize] as const;
 };
 
-/**
- * The workflows of `shown` as one canvas, with the selected run drawn over its workflow, and a side panel for the
- * selected step or workflow.
- */
 const WorkflowGraph = ({
   shown,
   picked,
@@ -111,19 +106,16 @@ const nodeTypes = { step: StepCard, pill: Pill, frame: Frame };
 const edgeTypes = { route: RouteEdge };
 const gray = '#a1a1aa';
 const sky = '#0284c7';
-/** An edge's arrow and stroke; dashed off the main path. */
 const line = (color: string, { width = 1.25, dashed = false } = {}) => ({
   markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
   style: { stroke: color, strokeWidth: width, ...(dashed && { strokeDasharray: '5 4' }) },
 });
-/** A node placed at `box` with that size. */
 const placed = (box: { x: number; y: number; width: number; height: number }) => ({
   position: box,
   measured: { width: box.width, height: box.height },
   style: { width: box.width, height: box.height },
 });
 
-/** How many of the served graph's runs stand at each step and are not done, keyed `fixture/step`. */
 const useHere = () => {
   const { value: runs = [] } = useAtomValue(getRunsAtom());
   return useMemo(() => {
@@ -139,7 +131,6 @@ const useHere = () => {
   }, [runs]);
 };
 
-/** Draws the workflows, each with its run overlay when it holds the selected run. */
 const Canvas = ({
   shown,
   picked,
@@ -289,7 +280,6 @@ const Canvas = ({
   );
 };
 
-/** The graphs the Graph page can show: the shown instance's graph first, then every example graph the fixtures carry. */
 const graphs = (() => {
   const others = new Set(served.filter(one => one !== shown).map(one => one.title));
   const groups = new Map<string, Fixture[]>();
@@ -304,7 +294,6 @@ const graphs = (() => {
   }));
 })();
 
-/** Every workflow of a graph in one drawing: the main path as arrows, ways back as arcs, the common moves as badges. */
 export const GraphPage = () => {
   const [graphKey, setGraph] = useAtom(graphParam);
   const [runKey, setRun] = useAtom(runParam);

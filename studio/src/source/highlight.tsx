@@ -26,7 +26,6 @@ const highlight = (key: string, code: string, lang: string) => {
   return job;
 };
 
-/** The same lines shiki produces, uncolored, so highlighting swaps in without moving anything. */
 const PlainLines = ({ code }: { code: string }) => (
   <code>
     {code.split('\n').map((line, i) => (
@@ -38,10 +37,6 @@ const PlainLines = ({ code }: { code: string }) => (
   </code>
 );
 
-/**
- * The `<code>` element for a block, plain at once and colored in place once shiki has loaded. Render it inside an
- * element with the `shiki` class. Each highlighted block is cached.
- */
 export const useHighlighted = (code: string, lang = 'text'): ReactNode => {
   const key = `${lang}\0${code}`;
   const colored = lang !== 'text';

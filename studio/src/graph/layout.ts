@@ -10,15 +10,11 @@ const header = 36;
 const rowGap = 36;
 const stepGap = 64;
 const endGap = 32;
-/** Vertical distance between the lanes of ways back above a row. */
 const lane = 26;
-/** Horizontal offset between edges sharing a side, so their verticals never overlap. */
 const nest = 14;
 
 const stepWidth = 268;
-/** The width chips may fill inside a step, past its border and padding. */
 export const chipRoom = stepWidth - 22;
-/** The trigger label wraps onto two lines past this width. */
 const triggerMax = 150;
 
 export type WorkflowLayoutLane = {
@@ -28,14 +24,8 @@ export type WorkflowLayoutLane = {
   backs: { edge: WorkflowGraph['edges'][number]; points: CanvasPoint[] }[];
 };
 
-/** An edge from a step of one workflow to the trigger of another. */
 export type Start = { workflow: string; step: string; target: string };
 
-/**
- * Lays each workflow out on one line, trigger first and done last, and stacks the rows. Ways back run in nested lanes
- * above their row; starts of other workflows run down below the source row, along a gutter left of all rows, and into
- * the target's trigger.
- */
 export const layout = (
   graphs: { workflow: string; graph: WorkflowGraph }[],
   starts: Start[],

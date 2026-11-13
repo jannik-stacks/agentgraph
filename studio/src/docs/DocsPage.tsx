@@ -13,7 +13,6 @@ const onGitHub = 'https://github.com/jannik-stacks/agentgraph/blob/main/docs/';
 
 const pages = Object.fromEntries(Object.entries(files).map(([path, text]) => [/([^/]+)\.md$/.exec(path)![1]!, text]));
 
-/** The sidebar: the index, then each index section with the pages its list items link, then the rest alphabetically. */
 const sections = (() => {
   const out: { label: string; names: string[] }[] = [{ label: '', names: ['index'] }];
   const seen = new Set(['index']);

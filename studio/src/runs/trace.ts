@@ -30,7 +30,6 @@ export const formatCheckValue = ({ value, share }: Pick<CheckResult, 'value' | '
     ...(share === undefined ? [] : [`${Math.round(share * 100)}% of items passed`]),
   ].join(', ');
 
-/** What an outcome says beyond its kind. */
 export const detail = (o: Outcome) =>
   o.kind === 'failed'
     ? [
@@ -46,10 +45,6 @@ export const detail = (o: Outcome) =>
           ? o.text
           : '';
 
-/**
- * The pull request a run opened, else the one an update names, and the branch it last wrote; read from the
- * whole trace, since the run list cuts long texts short.
- */
 export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string } => {
   let pull: string | undefined;
   let branch: string | undefined;
@@ -84,18 +79,12 @@ export type { OpenedRun, ServedRun };
 
 export type TraceLineWithKey<K extends string> = Extract<Line, Record<K, unknown>>;
 
-/** One harness session: its prompt when the trace has one, its events, and how it ended. */
 export type SessionTraceLines = {
   prompt?: TraceLineWithKey<'prompt'>;
   events: TraceLineWithKey<'event'>[];
   end?: TraceLineWithKey<'session'>;
 };
 
-/**
- * A run's trace as the steps it visited in order, each a list of sessions and the other lines. Lines with a `key` join
- * the session that key opened. Older lines without one join the session opened last, and an end joins the session
- * that started with its id.
- */
 export const splitTraceIntoVisitedSteps = (trace: Line[]) => {
   const visits: { step: string; parts: (SessionTraceLines | Line)[]; lines: Line[] }[] = [];
   const keyed = new Map<string, SessionTraceLines>();
@@ -142,7 +131,6 @@ export const splitTraceIntoVisitedSteps = (trace: Line[]) => {
   return visits;
 };
 
-/** The trace line `?at=` opens: the write stamped then, else the line stamped then, else the first write at or after it, else any line. */
 export const lineAt = (trace: Line[], at: string | null) =>
   at === null
     ? undefined
@@ -156,18 +144,14 @@ export const makeDataHref = (href: string, data: string | null | undefined) =>
 
 export const makeRunKey = (instance: string | undefined, id: string) => JSON.stringify([instance ?? '', id]);
 
-/** The studio page of a run, at one trace line when `at` is given. */
 export const atLink = (run: string, at?: string, data?: string | null) =>
   makeDataHref(`/runs/${encodeURIComponent(run)}${at ? `?at=${at}` : ''}`, data);
 
-/** The graph page with the run and `step` selected. */
 export const graphLink = (r: ServedRun, step: string) =>
   `/graph?run=${encodeURIComponent(`${r.fixture}:${r.run.id}`)}&step=${encodeURIComponent(`${r.run.workflow}/${step}`)}`;
 
-/** Where a `locate` answer opens: the run at that write, or the runs of an issue. */
 export const locatedLink = (found: Located) =>
   'run' in found ? atLink(found.run, found.at) : `/runs?issue=${found.issue}`;
 
-/** Whether pasted text is a GitHub issue, pull request or comment link, or a comment id, for `/runs?gh=`. */
 export const isGitHubRef = (text: string) =>
   /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/(?:issues|pull)\/\d+\S*$/.test(text) || /^\d{7,}$/.test(text);

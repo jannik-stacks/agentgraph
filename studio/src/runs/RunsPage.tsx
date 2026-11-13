@@ -27,7 +27,6 @@ const ghParam = queryParam('gh');
 const waitingParam = queryParam('waiting');
 const instanceParam = queryParam('instance');
 
-/** Opens what a GitHub link or comment id names, as the server's `locate` finds it. */
 const Locate = ({ gh }: { gh: string }) => {
   const navigate = useSetAtom(navigateAtom);
   const [failure, setFailure] = useState<string>();
@@ -53,7 +52,6 @@ const Locate = ({ gh }: { gh: string }) => {
   return failure ? <Muted>{failure}</Muted> : <Loading />;
 };
 
-/** Each issue the runs worked on, newest first, as a filter option with its title and body, else its workflows. */
 const splitRunsByIssue = (runs: ServedRun[]) => {
   const byIssue = new Map<number, { workflows: Set<string>; title?: string | undefined; body?: string | undefined }>();
   for (const { run } of runs.toSorted((a, b) => a.run.started.localeCompare(b.run.started))) {
@@ -240,7 +238,6 @@ const Runs = ({
   );
 };
 
-/** The runs of the served instances as rows, at `/runs`; one run opened with every trace line at `/runs/<id>`. */
 export const RunsPage = () => {
   const { id } = useAtomValue(pageAtom);
   return (

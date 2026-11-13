@@ -26,7 +26,6 @@ const byExtension: Record<string, string> = {
   socket: 'ini',
 };
 
-/** The shiki language for a file path, or `text`. */
 export const getFileHighlightLanguage = (path: string) => {
   const name = path.split('/').pop() ?? path;
   if (name === 'Dockerfile') return 'dockerfile';

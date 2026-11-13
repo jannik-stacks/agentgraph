@@ -17,7 +17,6 @@ import { makeInstanceHref, navigateAtom, shown } from './state.ts';
 
 export const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ');
 
-/** The one accent color, for what needs attention: running, waiting and failed. */
 export const accent = {
   text: 'text-sky-600 dark:text-sky-400',
   border: 'border-sky-600 dark:border-sky-400',
@@ -29,7 +28,6 @@ const field =
 
 const isInternal = (href: string | undefined): href is string => !!href?.startsWith('/') && !href.startsWith('//');
 
-/** An anchor that navigates in-app for same-origin paths under the shown instance and leaves everything else to the browser. */
 export const Link = ({
   href,
   instance,
@@ -53,7 +51,6 @@ export const Link = ({
   );
 };
 
-/** Animates its height as its content resizes, clipping only while it moves so dropdowns inside stay visible. */
 export const AutoHeight = ({ className, children }: { className?: string; children: ReactNode }) => {
   const [height, setHeight] = useState<number>();
   const [moving, setMoving] = useState(false);
@@ -124,7 +121,6 @@ export const Live = <T,>({
     </>
   );
 
-/** Three pulsing dots that fade in only once a wait passes half a second, so quick loads never flash. */
 export const Loading = ({ inline }: { inline?: boolean }) => (
   <p role="status" aria-label="Loading" className={cx('agi-loading flex gap-1', !inline && 'p-4')}>
     {[0, 1, 2].map(i => (
@@ -133,10 +129,6 @@ export const Loading = ({ inline }: { inline?: boolean }) => (
   </p>
 );
 
-/**
- * A summary row with a turning chevron that folds its content, which renders only while open. It opens as `open` says
- * and again whenever `open` changes; `onToggle` reports the reader's clicks.
- */
 export const Disclosure = ({
   summary,
   open = false,
@@ -208,7 +200,6 @@ const place = (tip: HTMLElement, anchor: DOMRect) => {
   tip.style.left = `${left}px`;
 };
 
-/** A tip shown after `delay` beside the rect `anchor` gives at that moment, and hidden again. */
 export const useTip = () => {
   const ref = useRef<HTMLSpanElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -224,7 +215,6 @@ export const useTip = () => {
   return { ref, show, hide };
 };
 
-/** The bubble of a tip, in the top layer so scrolling containers never clip it. */
 export const TipBubble = ({
   ref,
   id,
@@ -253,10 +243,6 @@ export const TipBubble = ({
   );
 };
 
-/**
- * Explains what it wraps on hover and on keyboard focus: `tip` what it is, `action` what clicking it does. `focusable`
- * lets keyboard users reach content that is not interactive itself.
- */
 export const Tooltip = ({
   tip,
   action,
@@ -296,7 +282,6 @@ export const Tooltip = ({
   );
 };
 
-/** A small focusable "?" that explains the term beside it on hover or focus. */
 export const Help = ({ tip }: { tip: ReactNode }) => (
   <Tooltip tip={tip} focusable>
     <span className="inline-flex size-3.5 cursor-help items-center justify-center rounded-full border border-zinc-300 text-[9px] leading-none font-medium text-zinc-500 normal-case dark:border-zinc-700">
@@ -317,7 +302,6 @@ export const Button = ({
   />
 );
 
-/** A button showing only an icon; `tip` names what it does, as its tooltip and its accessible name. */
 export const IconButton = ({ tip, variant = 'small', ...props }: ComponentProps<typeof Button> & { tip: string }) => (
   <Tooltip action={tip}>
     <Button variant={variant} aria-label={tip} {...props} />
@@ -367,7 +351,6 @@ export const KeyPicker = ({
   </div>
 );
 
-/** A labelled native select with its chevron spaced from the text. */
 export const Select = ({
   label,
   value,
@@ -535,7 +518,6 @@ export const MultiSelect = ({
 const pattern = (words: string[]) =>
   new RegExp(`(${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'i');
 
-/** `text` with every occurrence of a word wrapped in a mark. */
 const Marked = ({ text, words }: { text: string; words: string[] }) =>
   words.length === 0
     ? text
@@ -549,7 +531,6 @@ const Marked = ({ text, words }: { text: string; words: string[] }) =>
         )
       );
 
-/** The first line of `detail`, or when a word matches further in, the stretch around the first match. */
 const snippet = (detail: string, words: string[]) => {
   const flat = detail.replace(/\s+/g, ' ').trim();
   const at = words.length ? flat.search(pattern(words)) : -1;
@@ -557,11 +538,6 @@ const snippet = (detail: string, words: string[]) => {
   return (at > 24 ? '... ' : '') + flat.slice(Math.max(0, at - 24));
 };
 
-/**
- * A labelled text field that lists `options` as you type. Every word of the query must appear in an option's label or
- * detail, label hits first; matches are highlighted and an option with a detail shows a line of it below the label.
- * Picking one reports its value; the clear button reports null.
- */
 export const Combobox = ({
   label,
   placeholder,
