@@ -1,11 +1,3 @@
-/**
- * Benchmarks the tune-graph skill against the tune loop. The skill tune starts from the loop tune's cases, point,
- * engine and minimal graph; each round a `claude -p` session with the skill proposes graphs in a workspace that holds only
- * the incumbent, the fit and mine cases and the tune's history, and `step` evaluates them as the loop does.
- *
- *   node tune/skill.ts <loop tune dir> --version 1 [--name skill@1] [--rounds 6] [--k 4] [--parallel 6] [--keys f]
- *     [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12] [--stop-claude-5h 100] [--stop-claude-week 100]
- */
 import { getSha } from '../src/hash.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
@@ -40,7 +32,6 @@ type Options = {
   keys?: string;
   model?: string;
 };
-/** One skill session, `skill/r<iteration>/round.json`; written once its proposals are queued. */
 type Round = {
   iteration: number;
   version: string;
@@ -61,7 +52,6 @@ const idsOf = (cases: Record<string, Split>, ...splits: Split[]) =>
     .filter(id => splits.includes(cases[id]!))
     .sort();
 
-/** Copies the loop tune's settings, cases and minimal graph into `skill@<version>` and scores that graph as the start. */
 const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parallel' | 'keys' | 'limits'>, io?: Io) => {
   const { tune: t, steps } = tuneRows(like);
   const first = steps.find(s => s.iteration === 0);
@@ -100,7 +90,6 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
   return dir;
 };
 
-/** The round's workspace: the incumbent graph, fit and mine cases, the incumbent's fit runs, the history and `k` slots. */
 const workspace = (dir: string, w: string, k: number, io?: Io) => {
   const { tune: t, steps } = tuneRows(dir);
   const inc = steps.filter(s => s.verdict === 'kept').at(-1)!;
@@ -138,7 +127,6 @@ const workspace = (dir: string, w: string, k: number, io?: Io) => {
   for (let n = 1; n <= k; n++) cpSync(join(w, 'graph'), join(w, 'out', `d${n}`, 'graph'), { recursive: true });
 };
 
-/** Each slot with a why and a change, and the problems that keep a slot from being queued. */
 const slotsOf = async (w: string) =>
   Promise.all(
     readdirSync(join(w, 'out'))
@@ -163,7 +151,6 @@ const slotsOf = async (w: string) =>
 
 type Live = { usage?: Usage; first?: Usage; stopped?: string };
 
-/** Runs one claude session in the workspace, stopping it when a reading passes a cap. */
 const session = (
   w: string,
   args: string[],
@@ -209,7 +196,6 @@ const session = (
     child.stdin.end(prompt);
   });
 
-/** Tool calls that name a held-out case or a path of the tune outside the workspace. */
 const leaksOf = (stream: string, dir: string, w: string, hidden: string[]) =>
   parseJsonl<ClaudeStreamEvent>(stream).flatMap(e => {
     if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) return [];
@@ -237,7 +223,6 @@ const promptOf = (iteration: number, o: Options) =>
   `The workspace is the current folder: start with tried.md and cases.json. Fill at most ${o.k} slots ` +
   `(out/d1 to out/d${o.k}), each a different direction, and answer with one line per slot.`;
 
-/** Readings past a cap: the loop's caps on the points used so far, and the absolute stops. */
 const stopOf = (dir: string, o: Options) => (u: Usage) => {
   const b = JSON.parse(readFileOrEmpty(join(dir, 'budget.json')) || '{}') as Parameters<typeof overOf>[0];
   if (u.fiveHour >= o.stop.fiveHour) return `Claude 5h at ${u.fiveHour}%, the stop is ${o.stop.fiveHour}%`;
@@ -246,7 +231,6 @@ const stopOf = (dir: string, o: Options) => (u: Usage) => {
   return overOf({ claude }, o.limits);
 };
 
-/** One round: the skill session in a fresh workspace, its graphs checked and queued as `skill` candidates. */
 const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise<Round> => {
   const budget = guard(dir, { codex: io?.codex ?? codexUsed }, o.limits);
   const before =
@@ -332,7 +316,6 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
   return r;
 };
 
-/** Claude 5h points of a round, shared evenly by the candidates it queued. */
 const claudeOf = (r: Round) => {
   const queued = r.slots.flatMap(s => (s.id ? [s.id] : []));
   const { before, after } = r.claude;
@@ -351,10 +334,6 @@ const flatSince = (steps: TuneStep[]) => {
   return i === -1 ? its.length : i;
 };
 
-/**
- * Runs the skill until `rounds`, three rounds in a row keep nothing, a round proposes nothing, or a cap stops it.
- * Resumes from the tune dir: a round with a `round.json` is not asked again, its queued candidates are evaluated.
- */
 export const skill = async (like: string, o: Options, io?: Io) => {
   const dir = await start(like, o, io);
   const sha = getSha(readFileOrEmpty(join(skillDir, 'SKILL.md')), 12);

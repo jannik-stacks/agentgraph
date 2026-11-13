@@ -1,8 +1,3 @@
-/**
- * Proposers: turn a tune's failing fit cases or its mined history into one candidate graph.
- *
- *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <graph> [--variant <id>] [--iteration n]
- */
 import { spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -35,7 +30,6 @@ import { readTuneSteps } from './runs.ts';
 import { type Run } from '../src/types.ts';
 
 export type Proposer = 'retro' | 'history' | 'structure';
-/** One file edit: `content` writes the file, `old` with `new` replaces one unique snippet, `delete` removes it. */
 type Change = { path: string; content?: string; old?: string; new?: string; delete?: boolean };
 export type Usage = { fiveHour: number; week: number };
 type Answer = {
@@ -45,7 +39,6 @@ type Answer = {
   cases: { id: string; evidence: string }[];
   changes: Change[];
 };
-/** A proposer's answer; `graph` is set only when the answer is a change and the patched graph passes the graph check. */
 type Proposal = Answer & {
   id: string;
   proposer: Proposer;
@@ -55,10 +48,8 @@ type Proposal = Answer & {
   problems: string[];
 };
 
-/** The structure proposer's menu, taken round-morgan by iteration. */
 const edits = ['reviewer', 'drop', 'tries', 'scout', 'warn'] as const;
 
-/** The edits of the menu that can change this graph: nothing added twice, nothing dropped or softened that is not there. */
 export const fitting = (graph: Graph) => {
   const steps = Object.values(graph.workflows).flatMap(w => w.steps);
   const work = steps.filter(s => !('wait' in s.does));
@@ -114,7 +105,6 @@ const head = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max)}\n... ${text.length - max} more characters`;
 const tail = (text: string, max: number) => (text.length <= max ? text : `...\n${text.slice(-max)}`);
 const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
-/** Compiler warning blocks and build progress lines, which crowd out the failure in a test output tail. */
 const noise =
   /^warning[:[][\s\S]*?(?:\n[ \t]*\n|(?![\s\S]))|^ *(Compiling|Finished|Running|Downloaded|Downloading) .*\n/gm;
 export const formatCodeFence = (text: string, lang = '') => `\`\`\`${lang}\n${text.replaceAll('```', "'''")}\n\`\`\``;
@@ -128,7 +118,6 @@ type Material = { id: string; text: string; files: Record<string, string> };
 const titleOf = (dir: string) =>
   (JSON.parse(readFileSync(join(dir, 'case.json'), 'utf8')) as { title?: string; pr?: number }).title ?? '';
 
-/** The first agent run of a case whose change failed the hidden tests, infra failures left out. */
 const failing = (rows: BenchRow[], id: string) => {
   if (!rows.some(r => r.case === id)) throw new Error(`${id}: no scored run of the incumbent`);
   return rows
@@ -151,7 +140,6 @@ const readTraces = (row: Pick<BenchRow, 'data' | 'run'>, run: Run | null) => {
 export const readVariantRows = (tune: string, variant: string) =>
   readBenchRows(makeSetHost([tune])).filter(r => r.labels.variant === variant);
 
-/** Failing fit cases with their diffs, hidden test output and run transcripts; `small` for the structure proposer. */
 const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean): Material[] =>
   ids
     .flatMap(id => failing(rows, id).map(f => ({ id, ...f })))
@@ -183,7 +171,6 @@ const failures = (cases: string, rows: BenchRow[], ids: string[], small: boolean
       };
     });
 
-/** A seeded shuffle, so an iteration samples the same cases again on resume. */
 const shuffle = <T>(xs: T[], seed: number) => {
   const out = [...xs];
   let state = seed;
@@ -195,7 +182,6 @@ const shuffle = <T>(xs: T[], seed: number) => {
   return out;
 };
 
-/** How the graph did on cases the proposer never sees: counts per failure class, no ids or content. */
 const unseen = (rows: BenchRow[], ids: string[]) => {
   const ran = ids.filter(id => rows.some(r => r.case === id));
   const classes = ids.flatMap(id => failing(rows, id).map(f => f.hidden.class ?? failureClass(f.hidden.tail)));
@@ -204,7 +190,6 @@ const unseen = (rows: BenchRow[], ids: string[]) => {
   return `${classes.length} of ${ran.length} fail the hidden tests${by ? `: ${by}` : ''}.`;
 };
 
-/** What earlier variants of this tune tried and how each ended, one line each. */
 const tried = (tune: string) =>
   readTuneSteps(tune)
     .steps.filter(s => s.iteration > 0)
@@ -217,7 +202,6 @@ const tried = (tune: string) =>
       return `- ${s.id}, ${s.proposer}, ${s.verdict}: ${head(first, 300)}`;
     });
 
-/** Eight mine cases, those with review comments that ask for something first. */
 const history = (cases: string, ids: string[], seed: number): Material[] => {
   const said = (id: string) =>
     readFileOrEmpty(join(cases, id, 'reviews.md'))
@@ -258,7 +242,6 @@ export type ClaudeStreamEvent = {
   message?: { content?: unknown };
 };
 
-/** Claude's 5-hour and weekly use in percent, from the newest `rate_limit_event` of a stream-json session. */
 export const claudeUsed = (stream: string): Usage | undefined => {
   const w = parseJsonl<ClaudeStreamEvent>(stream)
     .flatMap(e =>
@@ -390,7 +373,6 @@ const apply = (graph: string, changes: Change[]) => {
   return problems;
 };
 
-/** The graph check's problems, empty when the graph loads. */
 export const graphProblems = (graph: string) =>
   Effect.runPromise(
     readConfiguredGraph(graph).pipe(
@@ -402,10 +384,6 @@ export const graphProblems = (graph: string) =>
 const diffOf = (cwd: string) =>
   spawnSync('git', ['diff', '--no-index', '--no-color', 'input/graph', 'graph'], { cwd, encoding: 'utf8' }).stdout;
 
-/**
- * Runs one proposer on a tune dir and writes `cands/<id>/graph` (when valid), `proposal.md`, the prompt and the raw
- * stream. `from` is the incumbent graph, `variant` the incumbent whose bench runs on the fit cases it learns from.
- */
 export const propose = async (o: {
   tune: string;
   id: string;
