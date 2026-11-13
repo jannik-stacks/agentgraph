@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { formatRetiredAdvice, retiredWords } from '../src/retired.ts';
 
 export const verbs = new Set(
@@ -25,7 +24,7 @@ const exempt = new Set([
   'tool',
 ]);
 const marked = /^\s*UNEXPECTED: /;
-const directive = /^\s*(oxlint-|eslint-|@ts-|\*?\s*@internal\s*$)/;
+const directive = /^\s*(oxlint-|eslint-|@ts-|@vite-ignore\s*$|\*?\s*@(internal|public)\s*$)/;
 const dirs = ['src', 'harnesses', 'bin', 'bench', 'tune', 'studio/src'];
 const root = process.cwd();
 const baselinePath = join(root, 'bin/style-baseline.txt');
@@ -73,16 +72,51 @@ const baseline = new Set(
     : readFileSync(baselinePath, 'utf8').split('\n').filter(Boolean)
 );
 
-const keyComments = comments => {
-  const seen = new Map();
-  return comments.map(c => {
-    const text = c.value.replace(/\s+/g, ' ').trim();
-    const n = (seen.get(text) ?? 0) + 1;
-    seen.set(text, n);
-    const hash = createHash('sha256').update(text).digest('hex').slice(0, 10);
-    return { c, key: n > 1 ? `${hash}-${n}` : hash };
-  });
+const reexport = /^export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*'(\.[^']+)'/gm;
+const readSurfaceNames = (file, out = new Set()) => {
+  const text = readFileSync(join(root, file), 'utf8');
+  for (const [, name] of text.matchAll(declaration)) out.add(`${file}#${name}`);
+  for (const [, names, from] of text.matchAll(reexport)) {
+    const source = join(dirname(file), from);
+    for (const part of names
+      .split(',')
+      .map(n => n.trim().replace(/^type\s+/, ''))
+      .filter(Boolean)) {
+      const [name, as = name] = part.split(/\s+as\s+/);
+      out.add(`${file}#${as}`);
+      out.add(`${source}#${name}`);
+    }
+  }
+  return out;
 };
+let surface;
+const readSurface = () => {
+  if (surface) return surface;
+  surface = new Set();
+  const pkg = join(root, 'package.json');
+  const exported = existsSync(pkg) ? Object.values(JSON.parse(readFileSync(pkg, 'utf8')).exports ?? {}) : [];
+  for (const entry of exported) {
+    const src = /^\.\/dist\/(.+)\.mjs$/.exec(entry.import ?? entry)?.[1];
+    if (src && existsSync(join(root, `src/${src}.ts`))) readSurfaceNames(`src/${src}.ts`, surface);
+  }
+  return surface;
+};
+
+const findSurfaceSpans = (file, body) =>
+  body.flatMap(node =>
+    node.type === 'ExportNamedDeclaration' &&
+    getExportedNames(node).some(({ id }) => readSurface().has(`${file}#${id.name}`))
+      ? [node.range]
+      : []
+  );
+
+const isSurfaceDoc = (c, spans, text) =>
+  c.type === 'Block' &&
+  c.value.startsWith('*') &&
+  spans.some(
+    ([start, end]) =>
+      (c.range[0] > start && c.range[1] < end) || (c.range[1] <= start && !text.slice(c.range[1], start).trim())
+  );
 
 const getExportedNames = node => {
   const d = node.declaration;
@@ -110,12 +144,18 @@ const makeNameRule = (name, check, message) => ({
 
 const noComment = {
   create: context => ({
-    Program: () => {
+    Program: program => {
       const file = relative(root, context.filename);
-      const found = context.sourceCode.getAllComments().filter(c => !marked.test(c.value) && !directive.test(c.value));
-      for (const { c, key } of keyComments(found))
-        if (!baseline.has(`no-comment ${file} ${key}`))
-          context.report({ node: c, message: `${key}: comment, delete it or start it with UNEXPECTED:` });
+      const { text } = context.sourceCode;
+      const spans = findSurfaceSpans(file, program.body);
+      for (const c of context.sourceCode.getAllComments())
+        if (c.type !== 'Shebang' && !marked.test(c.value) && !directive.test(c.value) && !isSurfaceDoc(c, spans, text))
+          context.report({
+            node: c,
+            message: c.value.startsWith('*')
+              ? 'tsdoc: TSDoc goes only on the published surface, see STYLE.md#comments-and-docs-links'
+              : 'comment: delete it or start it with UNEXPECTED:',
+          });
     },
   }),
 };

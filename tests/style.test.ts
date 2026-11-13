@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { readFileSync, symlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -15,8 +14,6 @@ const lint = (dir: string) => {
   const { diagnostics } = JSON.parse(stdout) as { diagnostics: { code: string; message: string; severity: string }[] };
   return diagnostics.map(d => `${d.severity} ${d.code} ${d.message.split(':')[0]}`).sort();
 };
-
-const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 10);
 
 const config = JSON.stringify({
   jsPlugins: [join(root, 'bin/style.mjs')],
@@ -92,30 +89,45 @@ describe('style lint', () => {
     ]);
   });
 
-  it('fails a comment unless it is marked UNEXPECTED, a directive, or its text is in the baseline', () => {
+  it('allows TSDoc only on the published surface and other comments only when marked UNEXPECTED or a directive', () => {
     const dir = tmp('style');
     write(dir, {
       '.oxlintrc.json': config,
-      'src/a.ts': [
+      'package.json': JSON.stringify({ exports: { './plugins': { import: './dist/plugin.mjs' } } }),
+      'src/plugin.ts': [
         '/** Reads the graph. */',
         'export const readGraph = (dir: string) => dir;',
+        'export type Host = {',
+        '  /** Where it lives. */',
+        '  dir: string;',
+        '};',
+        "export { readMore } from './more.ts';",
+        '/** Not exported. */',
+        'const x = 1;',
         '// UNEXPECTED: git answers 1 for a clean diff here',
         '// oxlint-disable-next-line no-unused-vars',
-        'const x = 1;',
-        '/** @internal */',
-        'export const readX = () => x;',
+        'const y = x;',
       ].join('\n'),
-      'src/b.ts': '// new\n//   kept   one\nexport const readB = 1;\n',
-      'src/c.ts': '// same\n// same\nexport const readC = 1;\n',
-      'bin/style-baseline.txt': `no-comment src/b.ts ${hash('kept one')}\nno-comment src/c.ts ${hash('same')}\n`,
+      'src/more.ts': [
+        '#!/usr/bin/env node',
+        '/** Reads more. */',
+        'export const readMore = () => 1;',
+        '/** Reads less. */',
+        'export const readLess = () => 1;',
+        '/** @internal */',
+        'export const readX = () => 1;',
+        '/** @public */',
+        'export const readY = () => 1;',
+        'export const readZ = () => import(/* @vite-ignore */ "./z.ts");',
+        '// plain',
+        'export const readW = 1;',
+      ].join('\n'),
     });
-    expect(lint(dir)).toEqual(
-      [
-        `error style(no-comment) ${hash('* Reads the graph.')}`,
-        `error style(no-comment) ${hash('new')}`,
-        `error style(no-comment) ${hash('same')}-2`,
-      ].toSorted()
-    );
+    expect(lint(dir)).toEqual([
+      'error style(no-comment) comment',
+      'error style(no-comment) tsdoc',
+      'error style(no-comment) tsdoc',
+    ]);
   });
 
   it('only removes entries on --write and names new violations without adding them', () => {

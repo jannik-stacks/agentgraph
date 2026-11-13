@@ -6,8 +6,8 @@ check: rules
 human: user rule in CLAUDE.md
 ---
 A comment reads as if the code was always this way: no dates, decision numbers, names, renames or
-history. TSDoc on an export is a short statement of what it does; inline comments only where the
-code is genuinely unclear. Rationale lives in research notes and decision records, not in `.ts`
+history. TSDoc goes only on the published surface, as a short statement of what it does; any other
+comment is `// UNEXPECTED: <what and why>`. Rationale lives in docs and decision records, not in `.ts`
 files.
 
 Bad:
@@ -22,6 +22,6 @@ Good:
 ```ts
 const harness = pick(bot);
 
-// the third failure is final
+// UNEXPECTED: the harness counts its first try as attempt 0
 if (attempt === 3) fail(run);
 ```

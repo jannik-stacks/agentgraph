@@ -60,8 +60,10 @@ that level first.
 
 ## Comments and docs links
 
-18. No code comments. The one exception is `// UNEXPECTED: <what and why>`. TSDoc counts as a comment;
-    lint directives and knip's `@internal` stay.
+18. No code comments. The one exception is `// UNEXPECTED: <what and why>`. TSDoc goes only on the published
+    surface, the names the `package.json` `exports` entries export (`src/plugin.ts`, `src/trackers.ts`,
+    `src/runners.ts` and what they re-export): a short statement of what it does, plus `@example` or `@throws`
+    where it helps. Lint directives, knip's `@internal` and `@public`, `@vite-ignore` and a shebang stay.
 19. Explanation lives in `docs/`. A claim links to its code with a hidden `<!-- code: src/run/settle.ts#writeProposals -->`,
     never a visible `workflow.ts#load`.
 20. Links are checked both ways: `bin/refs.mjs` fails on dead ones, and review checks the docs when
@@ -137,7 +139,7 @@ that level first.
     | all code          | `lint`, `types`, oxfmt, tsc             | lint errors on added lines, unformatted files and type errors                                               |
     | studio            | `code-shape`                            | a component defined inside a function, an eagerly loaded route and the studio UI rules                      |
 
-47. Old violations sit in `bin/style-baseline.txt`, a comment by a hash of its text. `node bin/style.mjs --write`
+47. Old naming violations sit in `bin/style-baseline.txt`; comments have no baseline. `node bin/style.mjs --write`
     only removes the entries a change fixed. A new exception is a line added by hand, with its reason in
     [Exceptions](#exceptions), so review sees it.
 48. A setting nothing reads can't exist: knip and static analysis run after every big change.

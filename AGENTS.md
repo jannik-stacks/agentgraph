@@ -20,7 +20,8 @@ The full rules are in [STYLE.md](STYLE.md). The ones that matter most:
   are a qualifier plus a spelled-out noun (`SandboxSetup`, not `Item`); `src/` uses short words, edge code long ones
   (`readArmUsageOverAttempts`); file fields stay short (`judge`), types may qualify them (`CheckJudge`).
   ([rules 8 to 15](STYLE.md#naming))
-- **No code comments.** The one exception is `// UNEXPECTED: <what and why>`. ([rule 18](STYLE.md#comments-and-docs-links))
+- **No code comments.** The one exception is `// UNEXPECTED: <what and why>`. TSDoc goes only on the published surface,
+  the names `package.json` `exports` expose. ([rule 18](STYLE.md#comments-and-docs-links))
 
 [STYLE.md#lint-and-enforcement](STYLE.md#lint-and-enforcement) lists what tools enforce. After a rename, run
 `node bin/style.mjs --write` to drop the fixed baseline entries; it never adds one.
