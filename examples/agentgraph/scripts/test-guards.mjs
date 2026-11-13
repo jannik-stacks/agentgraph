@@ -1,6 +1,8 @@
-// Guards the test suite a change leaves behind, cheapest first. Against $AGENTGRAPH_BASE it keeps every test with its
-// assertions, skips, focuses and slows none (a *.e2e.test.ts may be slow), and leaves tests/setup/ alone. The test
-// lines it adds assert outside loops and branches, so each case is its own it.each row. It adds the test each
+// Guards the test suite a change leaves behind, cheapest first. Against $AGENTGRAPH_BASE it drops a test or an
+// assertion only when the code the file imports is gone or the reply or a commit message names the file, skips,
+// focuses and slows none (a *.e2e.test.ts may be slow), and leaves tests/setup/ alone. The test lines it adds assert
+// something the code decides, never a constant, a value against itself or a mock's snapshot, and assert outside loops
+// and branches, so each case is its own it.each row. It adds the test each
 // criterion of the triage brief names, with its exact title, in the file the criterion names, and its reply closes no
 // issue when the brief lists follow-ups. And every test it adds fails on the base code: in a temporary copy of the
 // base with the change's tests/ files and new files on top, a new test that passes would not notice the change to
@@ -14,7 +16,6 @@ import { findBrief, findReply, parseBrief } from './brief.mjs';
 import { addedLines, readEnvBaseSha, baseText, changedFiles, inBase, isTestFile, ownLines, report, parseTestCallTitle } from './changes.mjs';
 
 const count = (text, pattern) => text.match(pattern)?.length ?? 0;
-const testCalls = /\b(it|test)(\.each\([^)]*\))?\(/g;
 const expectCalls = /\bexpect(\.soft)?\(/g;
 const skipped = [
   [/\b(it|test|describe)\.(skip|only|todo)\b/, 'an added .skip, .only or .todo'],
@@ -39,29 +40,53 @@ const sha = readEnvBaseSha();
 const changed = changedFiles(sha);
 const findings = [];
 
+const titles = text => new Set(text.split('\n').map(parseTestCallTitle).filter(Boolean));
+const relativeImports = /\b(?:from|import\()\s*['"](\.\.?\/[^'"]+)['"]/g;
+const extensions = ['', '.ts', '.tsx', '.mts', '.mjs', '.js'];
+const importsPresentCode = (path, text) => {
+  const targets = [...text.matchAll(relativeImports)].map(m => join(dirname(path), m[1]));
+  return !targets.length || targets.some(target => extensions.some(ext => existsSync(target + ext)));
+};
+const reasons = () => `${findReply() ?? ''}\n${execFileSync('git', ['log', '--format=%B', `${sha}..HEAD`], { encoding: 'utf8' })}`;
+
+const constant = /^(-?[\d_.]+n?|true|false|null|undefined|""|\[\]|\{\})$/;
+const subject = /\bexpect(?:\.soft)?\(([^()]*)\)\.((?:not\.)?\w+)\(([^()]*)\)/;
+const mockSnapshot = /\bexpect\((?:vi\.fn\(|vi\.mocked\(|[\w.]+\.mock\.\w+\)).*\.toMatch(?:Inline)?Snapshot\(/;
+const tautology = text => {
+  if (mockSnapshot.test(text)) return 'a snapshot of a mock';
+  const m = subject.exec(text);
+  if (!m) return;
+  const [, actual, matcher, expected] = m.map(part => part.trim());
+  if (constant.test(actual)) return 'an expect( of a constant';
+  if (actual === expected && ['toBe', 'toEqual', 'toStrictEqual'].includes(matcher)) return 'an expect( of a value against itself';
+};
+
 const integrity = () => {
+  let stated;
   for (const { path, deleted } of changed) {
     if (!path.startsWith('tests/')) continue;
     if (path.startsWith('tests/setup/')) findings.push(`${path}: edits the global test setup`);
     if (!isTestFile(path)) continue;
     const before = baseText(sha, path);
-    if (deleted) {
-      if (before !== undefined) findings.push(`${path}: deletes a test file with ${count(before, testCalls)} tests`);
-      continue;
-    }
-    const after = readFileSync(path, 'utf8');
+    const after = deleted ? '' : readFileSync(path, 'utf8');
     if (before !== undefined) {
-      const [was, is] = [count(before, testCalls), count(after, testCalls)];
-      if (is < was) findings.push(`${path}: ${was - is} fewer tests than the base (${was} to ${is})`);
-      const [had, has] = [count(before, expectCalls), count(after, expectCalls)];
-      if (has < had) findings.push(`${path}: ${had - has} fewer expect( calls than the base (${had} to ${has})`);
+      const now = titles(after);
+      const lost = [...titles(before)].filter(title => !now.has(title));
+      const fewer = count(before, expectCalls) - count(after, expectCalls);
+      const dropped = [...lost.map(title => `'${title}'`), ...(fewer > 0 ? [`${fewer} expect( calls`] : [])];
+      const what = deleted ? 'deletes the file' : dropped.length && `drops ${dropped.join(', ')}`;
+      if (what && importsPresentCode(path, before) && !(stated ??= reasons()).includes(path))
+        findings.push(`${path}: ${what} while the code it imports is still there; say why in the reply or a commit message that names ${path}`);
     }
+    if (deleted) continue;
     for (const { line, text: raw } of addedLines(sha, path)) {
       const text = raw.replace(strings, '""');
       for (const [pattern, what] of skipped) if (pattern.test(text)) findings.push(`${path}:${line}: ${what}`);
       const ms = parseTimeout(text);
       if (ms > defaultTimeout && !path.endsWith('.e2e.test.ts'))
         findings.push(`${path}:${line}: a test timeout of ${ms} ms, above the ${defaultTimeout} ms default`);
+      const empty = tautology(text);
+      if (empty) findings.push(`${path}:${line}: ${empty}, which passes whatever the code does`);
     }
   }
 };

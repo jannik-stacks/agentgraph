@@ -129,7 +129,7 @@ that level first.
     | 20                | `bin/commands.mjs`                      | a documented command, npm script or flag that does not exist                                                |
     | 24                | `propagation` (warn)                    | a renamed or removed name still used elsewhere                                                              |
     | 25, 48            | knip, `bin/fields.mjs`, `unused-exports` | unused files, exports and dependencies; a schema field `src/` never reads; an addition nothing wires in    |
-    | 34                | `test-guards`                           | assertions in loops and branches, and tests a change drops                                                  |
+    | 34                | `test-guards`                           | assertions in loops and branches, tests of code still there a change drops without a reason, and assertions that pass whatever the code does |
     | 35                | oxlint `import/no-cycle` and import bans | an import cycle or an import that goes up a layer                                                          |
     | 55                | `bin/diagrams.mjs` (warn)               | a misaligned diagram                                                                                        |
     | 57                | `bin/commit-msg.mjs`                    | a commit message that is not one conventional subject with a short body                                     |

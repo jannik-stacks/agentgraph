@@ -298,12 +298,14 @@ no-comment examples/agentgraph/scripts/studio-ui.mjs 5ea9aebdf0
 no-comment examples/agentgraph/scripts/studio-ui.mjs f20b4ec8a3
 no-comment examples/agentgraph/scripts/test-guards.mjs 06d9608249
 no-comment examples/agentgraph/scripts/test-guards.mjs 1aea38433b
+no-comment examples/agentgraph/scripts/test-guards.mjs 31ac050e19
+no-comment examples/agentgraph/scripts/test-guards.mjs 38b8a56876
 no-comment examples/agentgraph/scripts/test-guards.mjs 5873880bf9
 no-comment examples/agentgraph/scripts/test-guards.mjs 5be8db5a50
 no-comment examples/agentgraph/scripts/test-guards.mjs 611ec02bbe
-no-comment examples/agentgraph/scripts/test-guards.mjs 6931d45fdf
-no-comment examples/agentgraph/scripts/test-guards.mjs 96aa163589
-no-comment examples/agentgraph/scripts/test-guards.mjs 9a7bf71764
+no-comment examples/agentgraph/scripts/test-guards.mjs aed43173e9
+no-comment examples/agentgraph/scripts/test-guards.mjs ba639ea0ab
+no-comment examples/agentgraph/scripts/test-guards.mjs c22d38af48
 no-comment examples/agentgraph/scripts/test-guards.mjs f968e0aa60
 no-comment examples/agentgraph/scripts/tests.mjs 4cd85f2a00
 no-comment examples/agentgraph/scripts/tests.mjs 58fbaa3d87

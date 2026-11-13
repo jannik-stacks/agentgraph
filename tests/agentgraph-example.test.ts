@@ -118,59 +118,105 @@ describe('test-guards: new tests bite', () => {
   });
 });
 
-describe('test-guards: the suite stays whole', () => {
-  const suite = [
+const guardedSource = {
+  'src/f.ts': 'export const f = (n: number) => n;\n',
+  'src/g.ts': 'export const g = (n: number) => n;\n',
+};
+const guardedSuite = (name = 'f') =>
+  [
+    `import { ${name} } from '../src/${name}.ts';`,
     "describe('a', () => {",
-    "  it('one', () => { expect(1).toBe(1); expect(2).toBe(2); });",
-    "  it('two', () => expect(2).toBe(2));",
+    `  it('one', () => { expect(${name}(1)).toBe(1); expect(${name}(2)).toBe(2); });`,
+    `  it('two', () => expect(${name}(2)).toBe(2));`,
     '});',
     '',
   ].join('\n');
+const guardedOne = guardedSuite().replace(/^ {2}it\('two'.*\n/m, '');
 
+const why = (path: string) =>
+  `while the code it imports is still there; say why in the reply or a commit message that names ${path}`;
+
+describe('test-guards: the suite stays whole', () => {
   it('fails deleted, fewer, skipped, focused and slowed tests and setup edits', () => {
     const repo = change(
       {
-        'tests/a.test.ts': suite,
-        'tests/b.test.ts': suite,
-        'tests/c.test.ts': suite,
-        'tests/gone.test.ts': suite,
+        ...guardedSource,
+        'tests/a.test.ts': guardedSuite(),
+        'tests/b.test.ts': guardedSuite(),
+        'tests/c.test.ts': guardedSuite(),
+        'tests/gone.test.ts': guardedSuite(),
         'tests/setup/global.ts': 'export default () => {};\n',
       },
       {
-        'tests/a.test.ts': "describe('a', () => {\n  it('one', () => { expect(1).toBe(1); });\n});\n",
-        'tests/b.test.ts': `${suite}it.only('three', () => expect(3).toBe(3));\nit.skip('four', () => {});\n`,
-        'tests/c.test.ts': `${suite}it('slow', { timeout: 30_000 }, () => expect(1).toBe(1));\n`,
+        'tests/a.test.ts': guardedOne,
+        'tests/b.test.ts': `${guardedSuite()}it.only('three', () => expect(f(3)).toBe(3));\nit.skip('four', () => {});\n`,
+        'tests/c.test.ts': `${guardedSuite()}it('slow', { timeout: 30_000 }, () => expect(f(1)).toBe(1));\n`,
         'tests/setup/global.ts': 'export default () => { process.exitCode = 0; };\n',
       },
       ['tests/gone.test.ts']
     );
     const { ok, found } = guards(repo);
     expect(ok).toBe(false);
-    expect(found.sort()).toEqual([
-      'tests/a.test.ts: 1 fewer tests than the base (2 to 1)',
-      'tests/a.test.ts: 2 fewer expect( calls than the base (3 to 1)',
-      'tests/b.test.ts:5: an added .skip, .only or .todo',
+    expect(found.toSorted()).toEqual([
+      `tests/a.test.ts: drops 'two', 1 expect( calls ${why('tests/a.test.ts')}`,
       'tests/b.test.ts:6: an added .skip, .only or .todo',
-      'tests/c.test.ts:5: a test timeout of 30000 ms, above the 5000 ms default',
-      'tests/gone.test.ts: deletes a test file with 2 tests',
+      'tests/b.test.ts:7: an added .skip, .only or .todo',
+      'tests/c.test.ts:6: a test timeout of 30000 ms, above the 5000 ms default',
+      `tests/gone.test.ts: deletes the file ${why('tests/gone.test.ts')}`,
       'tests/setup/global.ts: edits the global test setup',
+    ]);
+  });
+
+  it('passes dropped tests of deleted code, and drops the reply or a commit message names', () => {
+    const repo = change(
+      {
+        ...guardedSource,
+        'tests/a.test.ts': guardedSuite(),
+        'tests/b.test.ts': guardedSuite(),
+        'tests/g.test.ts': guardedSuite('g'),
+      },
+      { 'tests/a.test.ts': guardedOne },
+      ['src/g.ts', 'tests/g.test.ts']
+    );
+    write(repo.dir, { 'tests/b.test.ts': guardedOne });
+    git(repo.dir, 'commit', '-qam', 'test: fold cases\n\ntests/b.test.ts: case two repeats case one');
+    expect(guards(repo, { AGENTGRAPH_REPLY: replyFile('tests/a.test.ts: two repeats one.') })).toMatchObject(guardsOk);
+  });
+
+  it('fails added assertions that pass whatever the code does', () => {
+    const tautologies = [
+      "it('t', () => expect(true).toBe(true));",
+      "it('u', () => { const x = f(1); expect(x).toEqual(x); });",
+      "it('v', () => expect(vi.fn()).toMatchSnapshot());",
+      "it('w', () => expect(spy.mock.calls).toMatchInlineSnapshot());",
+      "it('x', () => { const x = f(1); expect(x).not.toBe(x + 1); expect(x).toBe(1); });",
+    ];
+    const repo = change(
+      { ...guardedSource, 'tests/a.test.ts': guardedSuite() },
+      { 'tests/a.test.ts': `${guardedSuite()}${tautologies.join('\n')}\n` }
+    );
+    expect(guards(repo).found.toSorted()).toEqual([
+      'tests/a.test.ts:6: an expect( of a constant, which passes whatever the code does',
+      'tests/a.test.ts:7: an expect( of a value against itself, which passes whatever the code does',
+      'tests/a.test.ts:8: a snapshot of a mock, which passes whatever the code does',
+      'tests/a.test.ts:9: a snapshot of a mock, which passes whatever the code does',
     ]);
   });
 
   it('passes added tests, short timeouts, e2e timeouts, process timeouts and skips on a real condition', () => {
     const repo = change(
-      { 'tests/a.test.ts': suite },
+      { ...guardedSource, 'tests/a.test.ts': guardedSuite() },
       {
         'tests/a.test.ts': [
-          suite,
-          "it('three', { timeout: 2000 }, () => expect(3).toBe(3));",
+          guardedSuite(),
+          "it('three', { timeout: 2000 }, () => expect(f(3)).toBe(3));",
           "describe.skipIf(process.env.LIVE !== '1')('live', () => {",
           "  it('runs', () => execFileSync('docker', ['info'], { timeout: 10_000 }));",
           '});',
-          "const fixture = { 'b.test.ts': `it.only('x', { timeout: 30_000 }, () => {});` };",
+          "const fixture = { 'b.test.ts': `it.only('x', { timeout: 30_000 }, () => expect(1).toBe(1));` };",
           '',
         ].join('\n'),
-        'tests/d.e2e.test.ts': `${suite}it('boots', { timeout: 120_000 }, () => expect(1).toBe(1));\n`,
+        'tests/d.e2e.test.ts': `${guardedSuite()}it('boots', { timeout: 120_000 }, () => expect(f(1)).toBe(1));\n`,
       }
     );
     expect(guards(repo)).toMatchObject(guardsOk);
