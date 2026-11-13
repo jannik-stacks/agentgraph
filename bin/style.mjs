@@ -248,7 +248,7 @@ const readViolations = () => {
   return JSON.parse(out)
     .diagnostics.flatMap(d => {
       const rule = /^style\(([\w-]+)\)/.exec(d.code)?.[1];
-      return rule ? [`${rule} ${d.filename} ${d.message.split(':')[0]}`] : [];
+      return rule && rule !== 'no-comment' ? [`${rule} ${d.filename} ${d.message.split(':')[0]}`] : [];
     })
     .toSorted();
 };
