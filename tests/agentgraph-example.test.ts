@@ -10,7 +10,6 @@ import { makeTestEvent } from './world.ts';
 const scripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
 const modules = resolve(import.meta.dirname, '../node_modules');
 
-/** Links agentgraph's own dependencies into a repository, the way the graph links them into a worktree. */
 const withModules = <T extends { dir: string }>(repo: T) => {
   symlinkSync(modules, join(repo.dir, 'node_modules'));
   return repo;
@@ -27,7 +26,6 @@ const findings = (out: string) => out.split('\n').slice(0, -1);
 
 const noBrief = 'test-guards: no triage brief found for this run, so no criterion tests to look for';
 const guardsOk = { ok: true, out: `${noBrief}\ntest-guards: ok` };
-/** Runs test-guards with an empty graph, so the criteria part finds no brief unless `env` points at one. */
 const guards = (repo: { dir: string; base: string }, env: Record<string, string> = {}) => {
   const { ok, out } = run('test-guards.mjs', repo, [], { AGENTGRAPH_DIR: tmp('empty'), ...env });
   return { ok, out, found: findings(out).filter(line => line !== noBrief) };
@@ -364,7 +362,6 @@ describe('coverage', () => {
 });
 
 describe('scripts that run vitest', () => {
-  /** A vitest that fails without HOME, as the real one does for a sandbox user with no passwd entry. */
   const needsHome = [
     '#!/bin/sh',
     '[ -n "$HOME" ] || exit 1',
@@ -990,7 +987,6 @@ describe('triage-brief', () => {
   });
 });
 
-/** The context file the engine writes for checks: issue #1 where the bot posted `brief` after the command, then a review. */
 const contextWith = (text: string) => {
   const said = (actor: string, body: string, at: string): Event =>
     makeTestEvent({
@@ -1024,14 +1020,12 @@ const contextWith = (text: string) => {
   return file;
 };
 
-/** A reply file, as the engine writes it for checks. */
 const replyFile = (text: string) => {
   const file = join(tmp('reply'), 'reply.md');
   writeFileSync(file, text);
   return file;
 };
 
-/** A graph with one ready local issue whose last bot comment is `brief`. */
 const graphWith = (text: string) => {
   const graph = tmp('graphdir');
   write(graph, {

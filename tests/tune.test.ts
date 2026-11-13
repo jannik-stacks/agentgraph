@@ -87,7 +87,6 @@ describe('paired, flips and decide', () => {
     expect(decide(t, evalOf(), full({ a: 'win', b: 'loss' }, saved(0.3, 0.99)))).toBe('discarded');
   });
 
-  /** Equal graphs whose per-run cost varies by a lognormal factor of about 35% must almost never pass as cheaper. */
   it('rarely calls an equal graph cheaper on noisy run costs', () => {
     let seed = 7;
     const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
@@ -113,10 +112,6 @@ describe('paired, flips and decide', () => {
     expect(rate(10, 0.6)).toBeGreaterThan(0.7);
   });
 
-  /**
-   * Replays the step on simulated cases: a stable case passes 97% or 3% of runs, a flaky one 30% or 70%. A
-   * candidate equal to the incumbent must almost never be kept; one that fixes one stable failing case usually is.
-   */
   it('rarely keeps a candidate equal to the incumbent and usually keeps one clean fix', () => {
     let seed = 11;
     const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
@@ -157,7 +152,6 @@ describe('paired, flips and decide', () => {
   });
 });
 
-/** A bench stand-in: a case passes when the candidate graph has `skills/<case>.md` or `skills/all.md`. */
 const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) => ({
   run: async (_dir: string, _t: unknown, jobs: typeof ran) => void ran.push(...jobs),
   rows: (dir: string, id: string): ReturnType<NonNullable<Parameters<typeof step>[2]>['rows']> =>

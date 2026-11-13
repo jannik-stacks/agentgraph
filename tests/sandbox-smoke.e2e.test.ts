@@ -15,7 +15,6 @@ describe.skipIf(!up())('the sandbox image smoke test', () => {
     expect(run(image)).toMatchObject({ status: 0, stdout: 'sandbox smoke: ok\n' });
   });
 
-  /** Runs the smoke test on the built image after `step` runs as root in it. */
   const broken = (step: string) => {
     const tag = 'agentgraph-sandbox:smoke-broken';
     expect(docker(['build', '-q', '-t', tag, '-'], `FROM ${image}\nUSER root\nRUN ${step}\nUSER node\n`).status).toBe(

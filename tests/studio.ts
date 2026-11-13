@@ -6,13 +6,11 @@ import { pathToFileURL } from 'node:url';
 import { Effect } from 'effect';
 import { runActions } from '../src/actions.ts';
 
-/** The studio sources, which the root typecheck leaves to the studio's own tsconfig. */
 export const studioDir = join(import.meta.dirname, '..', 'studio');
 
 const importFile = <T>(file: string, query = ''): Promise<T> =>
   import(/* @vite-ignore */ pathToFileURL(file).href + query) as Promise<T>;
 
-/** Imports a module under `studio/src` without pulling it into the root typecheck. */
 export const studioModule = <T>(path: string) => importFile<T>(join(studioDir, 'src', path));
 
 export const studioDependency = <T>(name: string) =>

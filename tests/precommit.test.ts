@@ -6,7 +6,6 @@ import { commit, git, tmp, write } from './kit.ts';
 
 const root = resolve(import.meta.dirname, '..');
 
-/** A repository holding the precommit script, the retired-word list and the agentgraph graph, with `files` committed and `after` written on top. */
 const repo = (files: Record<string, string>, after: Record<string, string>) => {
   const dir = tmp('precommit');
   for (const path of [

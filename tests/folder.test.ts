@@ -8,7 +8,6 @@ import { readConfiguredGraph } from '../src/harnesses.ts';
 import { loadGraph } from '../src/folder.ts';
 import { harnesses } from './fixtures.ts';
 
-/** A graph directory with `files` written into it. */
 const graphDir = (files: Record<string, string>) => {
   const dir = mkdtempSync(join(tmpdir(), 'agentgraph-graph-'));
   for (const [path, text] of Object.entries(files)) {
@@ -18,7 +17,6 @@ const graphDir = (files: Record<string, string>) => {
   return dir;
 };
 
-/** A real graph around a fixture's workflows: one file per agent, skill and check its settings.yaml names. */
 const fromFixture = (name: string) => {
   const fixture = join(import.meta.dirname, 'fixtures', name);
   const names = parse(readFileSync(join(fixture, 'settings.yaml'), 'utf8')) as {

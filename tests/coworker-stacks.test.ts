@@ -46,7 +46,6 @@ describe('stacks', () => {
     ),
   ];
 
-  /** Pull request #8 on agentgraph/7 with hello.txt, issue #9 that stacks on #7, and `move` to push to agentgraph/7 again. */
   const parent = (where: ReturnType<typeof world>) => {
     const clone = join(where.root, 'clone');
     git(where.root, 'clone', '-q', where.origin, clone);

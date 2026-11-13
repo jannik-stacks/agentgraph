@@ -185,7 +185,6 @@ describe("a run's pull request and branch", () => {
   });
 });
 
-/** Lines from two runs, cut short and scrubbed: an aside, a rebase, a judged check, then two judges that failed to start. */
 const real = readFileSync(join(import.meta.dirname, 'fixtures', 'two-runs-trace.jsonl'), 'utf8')
   .trim()
   .split('\n')

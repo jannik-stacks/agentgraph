@@ -6,7 +6,6 @@ import { change, runScript } from './kit.ts';
 const scripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
 const studioModules = resolve(import.meta.dirname, '../studio/node_modules');
 
-/** A change with the studio parser linked in. */
 const studioChange = (before: Record<string, string>, after: Record<string, string> = {}) => {
   const repo = change(before, after);
   mkdirSync(join(repo.dir, 'studio'), { recursive: true });

@@ -85,7 +85,6 @@ describe('merge grants check', () => {
   });
 });
 
-/** Rows of the BOTS table in keys.sh: bot name and the model aliases its key may call. */
 const keyRows = () => {
   const text = readFileSync(join(infra, 'keys.sh'), 'utf8');
   const variables = new Map([...text.matchAll(/^([A-Z_]+)=([^\s]+)$/gm)].map(m => [m[1]!, m[2]!]));
@@ -147,7 +146,6 @@ describe('models and keys', () => {
   });
 });
 
-/** Scripts several graphs may carry; a graph mounts only its own folder, so each keeps a copy. */
 const shared = ['pr-text.mjs'];
 
 describe('shared graph scripts', () => {

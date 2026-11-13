@@ -18,7 +18,7 @@ const until = async (ok: () => boolean) => {
   expect(ok()).toBe(true);
 };
 
-/** macOS sh is bash; dash, the Linux sh, needs setsid, which macOS lacks and a perl shim stands in for. */
+// UNEXPECTED: macOS sh is bash; dash, the Linux sh, needs setsid, which macOS lacks and a perl shim stands in for.
 const shells = [
   ['sh', false] as const,
   ...(process.platform === 'darwin' && existsSync('/bin/dash') ? [['dash', true] as const] : []),

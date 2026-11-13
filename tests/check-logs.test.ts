@@ -16,7 +16,6 @@ const data = () => {
   return dir;
 };
 
-/** Logs one passing output twice and one failing output under `logs`; answers the refs, their texts and the files kept. */
 const logged = (logs: (typeof checkLogs)[number]) => {
   const dir = data();
   return Effect.runPromise(

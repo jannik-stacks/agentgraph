@@ -54,7 +54,6 @@ describe('coworker', () => {
     expect(specs[0]!.prompt).toContain(specs[0]!.read![0]!);
   });
 
-  /** Run 7 parked on a question in its kept implement session, with pull request #8 on base b1. */
   const parked = async (where: ReturnType<typeof world>, turns: SessionEvent[][]) => {
     pullRequest(where);
     const s = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })], ...turns]);
@@ -177,10 +176,6 @@ describe('coworker', () => {
     expect(readFileSync(target, 'utf8')).toBe('keep\n');
   });
 
-  /**
-   * The doubles, where the first session says `m` on the tracker while it works. With `cut`, it then lets a minute pass and
-   * works until it is cut short; else it plays the first turn.
-   */
   const during = (where: ReturnType<typeof world>, m: Event, turns: SessionEvent[][], cut = false) => {
     const specs: SessionSpec[] = [];
     const session = Layer.effect(

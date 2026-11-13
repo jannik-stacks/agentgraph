@@ -35,14 +35,12 @@ export const findStatus = (dir: string, n: number) => {
   return existsSync(join(at, 'issue.md')) ? relative(dir, dirname(at)) : undefined;
 };
 
-/** Runs git in `cwd` with a fixed identity and no signing. */
 export const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
     cwd,
     encoding: 'utf8',
   }).trim();
 
-/** Writes `files` under `root`, creating their directories. */
 export const write = (root: string, files: Record<string, string>) => {
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -50,7 +48,6 @@ export const write = (root: string, files: Record<string, string>) => {
   }
 };
 
-/** Commits `files` on the current branch and returns the commit id. */
 export const commit = (cwd: string, files: Record<string, string>) => {
   write(cwd, files);
   git(cwd, 'add', '.');
@@ -58,7 +55,6 @@ export const commit = (cwd: string, files: Record<string, string>) => {
   return git(cwd, 'rev-parse', 'HEAD');
 };
 
-/** A repository with `before` committed as the base, then `after` written on top without committing and `remove` deleted. */
 export const change = (before: Record<string, string>, after: Record<string, string> = {}, remove: string[] = []) => {
   const dir = tmp('change');
   git(dir, 'init', '-q', '-b', 'main');
@@ -71,7 +67,6 @@ export const change = (before: Record<string, string>, after: Record<string, str
   return { dir, base };
 };
 
-/** Runs a graph script with node in `dir`, with `AGENTGRAPH_BASE` set to `base`; `env` extends `PATH`, `HOME` and the base. */
 export const runScript = (
   path: string,
   { dir, base }: { dir: string; base?: string },

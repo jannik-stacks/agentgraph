@@ -10,11 +10,6 @@ import { type Check, type SessionEvent } from '../src/types.ts';
 
 export const { harnesses } = settings;
 
-/**
- * What a session could leave in its worktree to steer host git: a `.git` pointing at its own repo whose config runs a
- * script through fsmonitor, a clean filter and hooks, and, given the admin dir, a commondir and gitdir pointing away.
- * The script touches `marker`.
- */
 export const plant = (dir: string, admin?: string) => {
   const evil = tmp('evil');
   const marker = join(evil, 'marker');
@@ -47,7 +42,6 @@ const root = join(import.meta.dirname, 'fixtures');
 
 export const graphs = ['agentgraph', 'clarinet', 'kit', 'graph', 'loop'];
 
-/** A fixture graph: the names its workflows may use, each check's mode and agent, and every workflow loaded. */
 export const fixture = (graph: string) => {
   const dir = join(root, graph);
   const file = parse(readFileSync(join(dir, 'settings.yaml'), 'utf8')) as {
@@ -78,7 +72,6 @@ export const fixture = (graph: string) => {
 const kinds = ['comment', 'label', 'push', 'pull_request', 'merge', 'issue', 'ask', 'back'] as const;
 const doc = <T>(name: string, fields: T) => ({ ...fields, name, path: `${name}.md`, body: `You are ${name}.` });
 
-/** A fixture as a whole graph: every agent on opencode may propose anything, only an implementor code, and `checks` fills in commands and agents. */
 export const makeTestGraph = (graph: string, checks: Record<string, Omit<Check, 'mode'>> = {}): Graph => {
   const f = fixture(graph);
   return {
@@ -104,10 +97,6 @@ export const makeTestGraph = (graph: string, checks: Record<string, Omit<Check, 
   };
 };
 
-/**
- * Puts a fake `docker` first on PATH that logs its arguments and prints `out` for the first key its arguments start
- * with; a `*` in a key matches anything and any other call succeeds silently. Each call gets its own state dir.
- */
 export const fakeDocker = (out: Record<string, string> = {}) => {
   const bin = tmp('bin');
   const log = join(bin, 'log');
@@ -148,10 +137,6 @@ export const faked = async <A>(out: Record<string, string>, f: (log: () => strin
 
 const templates = new Map<string, string>();
 
-/**
- * A temp root holding `seed`, a repo with `files` committed on main, and the path of a `data` dir; with `origin`, a
- * bare repo holding `seed`'s main at that path under the root. Each call copies one template, so its commits match across calls.
- */
 export const seeded = (name: string, files: Record<string, string>, origin?: string) => {
   const key = JSON.stringify([files, origin]);
   let template = templates.get(key);
@@ -180,7 +165,6 @@ export const start = (session: string): SessionEvent => ({
   home: `/homes/${session}`,
 });
 
-/** A session writing `content` to `path`. */
 export const wrote = (path: string, content: string): SessionEvent => ({
   type: 'tool',
   id: path,
@@ -199,7 +183,6 @@ export const result = (input: Result): SessionEvent => ({
 
 export const stop: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: '', ended: 'stop', exit: 0 };
 
-/** A session ending with `proposals` in its agentgraph block. */
 export const reply = (...proposals: unknown[]): SessionEvent => ({
   type: 'end',
   final: `Done.\n\n\`\`\`agentgraph\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,

@@ -13,11 +13,6 @@ const written = (dir: string, event: SessionEvent) =>
       })
     : Effect.void;
 
-/**
- * Plays back one list of events per session opened. A `tool` event named `write` with `{ path, content }`
- * writes that file into the session's dir before it is emitted. A list without an `end` gets one that stops cleanly
- * with the last text as the reply.
- */
 export const replaySession = (turns: SessionEvent[][]): Layer.Layer<Session> =>
   Layer.sync(Session, () => {
     let next = 0;

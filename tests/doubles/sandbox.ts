@@ -49,7 +49,6 @@ const resolveCommits = async (cwd: string, revisions: string[]) => {
 const attempts = 'refs/agentgraph/attempts/*';
 const graphs = 'refs/agentgraph/graphs/*';
 
-/** Commands on the host, with clones of the local git repo `repo` as worktrees. No network rules. */
 export const hostSandbox = (repo: string, data = dirname(repo)): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
     readBranches: () => readBranches(repo),

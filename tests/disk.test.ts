@@ -44,7 +44,6 @@ describe('pickCacheRemovals', () => {
   });
 });
 
-/** A docker holding two current sandbox setups, an unlabeled and a compose image, an orphan lower, and volumes that are data. */
 const box = {
   'image ls --filter': '',
   'image ls': [

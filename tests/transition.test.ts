@@ -14,7 +14,6 @@ import {
 import { fixture } from './fixtures.ts';
 import { type Outcome, type Run } from '../src/types.ts';
 
-// kit issue: triage (1 try), implement (4 tries), review (back to implement, 2 rounds), merge (wait, back to implement)
 const w = fixture('kit').workflows.issue!;
 const merge = fixture('kit').workflows.merge!;
 const session = (id: string) => ({ id, home: `/runs/${id}` });

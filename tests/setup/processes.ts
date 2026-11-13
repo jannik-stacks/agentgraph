@@ -4,11 +4,6 @@ import type * as ChildProcessModule from 'node:child_process';
 import { afterAll } from 'vitest';
 import { startTime } from './global.ts';
 
-/**
- * Appends the pid of every process a test worker spawns to the file in AGENTGRAPH_TEST_PROCESSES, and after each test
- * file the start time of those still running. Every spawned process keeps AGENTGRAPH_TEST_PROCESSES in its
- * environment, which is what lets the teardown kill it.
- */
 const childProcess = createRequire(import.meta.url)('node:child_process') as typeof ChildProcessModule;
 const log = process.env.AGENTGRAPH_TEST_PROCESSES;
 const marker = Symbol.for('agentgraph.recordedSpawn');

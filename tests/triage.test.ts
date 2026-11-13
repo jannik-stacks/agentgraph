@@ -31,7 +31,6 @@ afterEach(() => {
 
 const at = (s: number) => `2026-10-16T00:00:${String(s).padStart(2, '0')}.000Z`;
 
-/** A bare origin with main, and a tracker holding `issues` as `[number, author, parent?]`, #1 labelled triage by a maintainer. */
 const world = (issues: [number, string, number?][] = [[1, 'morgan']]) => {
   const { root, data } = seeded('triage', { 'README.md': 'demo\n' }, 'tracker/origin.git');
   dirs.push(root);
@@ -510,7 +509,6 @@ describe('ordering', () => {
 });
 
 describe('dispatch', () => {
-  /** A trusted comment on #1. */
   const mention = (where: ReturnType<typeof world>, body: string) =>
     appendIssueAt(
       issuePath(where.tracker, 1, 'events.jsonl'),

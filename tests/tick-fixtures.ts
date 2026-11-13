@@ -18,7 +18,6 @@ export const merging = {
     },
   },
 };
-/** Run 7 waiting at merge with its implement session kept, and pull request #8 on its branch. */
 export const waiting = (where: ReturnType<typeof world>) => {
   pullRequest(where);
   return Effect.flatMap(Store, s =>

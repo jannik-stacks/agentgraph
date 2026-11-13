@@ -40,7 +40,6 @@ const spec: SessionSpec = {
 
 const key = ['sk-bh', 'implementor', '0123456789abcdef'].join('-');
 
-/** Runs one session over a sandbox that replays `lines` and then the exit code, recording the command it got. */
 const data = mkdtempSync(join(tmpdir(), 'agentgraph-harness-'));
 
 const makeHome = () => {

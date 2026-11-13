@@ -52,14 +52,12 @@ beforeAll(async () => {
   await new Promise(resolve => setTimeout(resolve));
 });
 
-/** The `href` of every link in the HTML, with whether it is marked as the current page. */
 const links = (html: string) =>
   [...html.matchAll(/<a\b([^>]*)>/g)].map(m => ({
     href: /\bhref="([^"]*)"/.exec(m[1]!)?.[1],
     current: /\baria-current="page"/.test(m[1]!),
   }));
 
-/** The HTML of each `<nav>`, in document order. */
 const navs = (html: string) => [...html.matchAll(/<nav\b[\s\S]*?<\/nav>/g)].map(m => m[0]);
 
 describe('studio navigation', () => {

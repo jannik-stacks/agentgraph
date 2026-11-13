@@ -32,7 +32,6 @@ const overlaps = (a: Box, b: Box) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 const inside = (a: Box, b: Box) =>
   a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height;
-/** Whether the axis-parallel segment from `a` to `b` passes through the inside of `box`. */
 const crosses = (a: Point, b: Point, box: Box) =>
   Math.max(a.x, b.x) > box.x &&
   Math.min(a.x, b.x) < box.x + box.width &&

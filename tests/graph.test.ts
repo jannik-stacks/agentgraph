@@ -75,7 +75,6 @@ describe('makeWorkflowGraph', () => {
   it('leaves a wait step out of the worst case and its way back uncapped', () => {
     const { workflows, checks } = fixture('kit');
     const g = makeWorkflowGraph(workflows.issue!, checks);
-    // triage 1, then implement 4 tries and review 1 try, each visited 3 times (1 + 2 rounds)
     expect(g.worst).toBe(1 + 3 * 4 + 3 * 1);
     expect(g.edges.find(e => e.from === 'merge')).toEqual({ from: 'merge', to: 'implement', kind: 'back' });
   });

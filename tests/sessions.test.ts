@@ -16,7 +16,6 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-/** Three runs gate one check that judges each of ten items, against a harness that counts its live sessions. */
 const findPeakSessions = async (sessions: number) => {
   const root = mkdtempSync(join(tmpdir(), 'agentgraph-sessions-'));
   dirs.push(root);

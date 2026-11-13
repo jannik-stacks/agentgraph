@@ -19,7 +19,7 @@ const parse = (out: string): Proc[] =>
       : [];
   });
 
-/** Start time of a running process, so a later process that reuses its pid is not mistaken for it. */
+// UNEXPECTED: a later process may reuse a pid, so its start time tells them apart.
 export const startTime = (pid: number): string | undefined => {
   try {
     return parse(ps(['-p', String(pid)]))[0]?.started;
@@ -43,10 +43,6 @@ export const marked = (pid: number, log: string): boolean | undefined => {
   return env.split(/[\s\0]/).includes(`AGENTGRAPH_TEST_PROCESSES=${log}`);
 };
 
-/**
- * Recorded processes still running, or in a group one of them led, unless `ours` says they are not (false); `owned` when
- * it says they are (true) rather than cannot tell (undefined).
- */
 export const leftovers = (
   spawned: Map<number, string>,
   ours: (pid: number) => boolean | undefined,
@@ -63,10 +59,6 @@ export const leftovers = (
     });
 };
 
-/**
- * Gives the run its own TMPDIR, removed afterwards, records every process the tests spawn and fails the run if any of
- * them outlives it.
- */
 export default () => {
   // UNEXPECTED: oxlint and oxfmt read every ancestor directory, so a crowded system TMPDIR slows them by seconds.
   const dir = mkdtempSync('/tmp/agentgraph-test-');

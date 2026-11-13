@@ -35,7 +35,6 @@ export const w = graph.workflows.issue!;
 
 export const removeAfter = (dir: string) => onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
 
-/** A bare origin with one commit on main, a tracker with issue #7 and its `/agent` comment, and a data dir. */
 export const world = () => {
   const { root, data } = seeded(
     'run',
@@ -74,7 +73,6 @@ export const judged: SessionEvent[] = [
   result({ pass: true, why: 'no claims' }),
 ];
 
-/** The file doubles, with every session spec and every sandbox command recorded, both also in `order`. */
 export const services = (
   where: ReturnType<typeof world>,
   turns: SessionEvent[][],
@@ -139,13 +137,11 @@ export const readTrace = (data: string, id: string) => readLines<Trace>(join(dat
 
 export const readChecks = (data: string, id: string) => readLines<CheckEntry>(join(data, id, 'checks.jsonl'));
 
-/** Whether each 👀 a run gave landed, in order. */
 export const reactions = (data: string, id: string) =>
   readTrace(data, id).flatMap(t => ('applied' in t && t.applied.proposal.kind === 'react' ? [t.applied.ok] : []));
 
 export const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m.comment.body] : []));
 
-/** Drives `r` as tick does: from the store, so a run the test changed in memory is saved first. */
 export const driveStored = (flow: typeof w, r: Run, h: Graph) =>
   Effect.andThen(
     Effect.flatMap(Store, s => s.put(r)),
@@ -185,7 +181,6 @@ export const check = (issue: number, name: string, conclusion: string, at: strin
     check: { name, conclusion },
   });
 
-/** Pull request #8 on run 7's branch. */
 export const pullRequest = (where: ReturnType<typeof world>, base = 'b1') => {
   writeIssueAt(
     issuePath(where.tracker, 8),

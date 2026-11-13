@@ -57,7 +57,6 @@ import { getRounded } from '../src/stats.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
 
-/** A stand-in docker client that runs a score container's `sh -c` on the host, in the dir bound at `/work`. */
 const hostDocker = (image = true) => {
   const bin = tmp('bin');
   writeFileSync(

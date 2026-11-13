@@ -9,7 +9,6 @@ const content = join(root, 'docs');
 
 const pages = () => (readdirSync(content, { recursive: true }) as string[]).filter(p => p.endsWith('.md')).sort();
 
-/** GitHub's heading anchor: lower case, punctuation dropped, spaces to dashes, repeats numbered. */
 const anchors = (file: string) => {
   const seen = new Map<string, number>();
   return new Set(

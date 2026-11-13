@@ -375,7 +375,6 @@ describe('drive', () => {
     expect(asked.rounds).toEqual({ review: 2 });
     expect(asked.sessions.implement).toMatchObject({ id: 'i1', home: '/homes/i1', seen: { at: expect.any(String) } });
 
-    // the failed try pushed nothing; the passing one did, and opened pull request #8
     const tracker = await run(Effect.flatMap(Tracker, f => f.issue(7)));
     const pr = await run(Effect.flatMap(Tracker, f => f.issue(8)));
     expect(bodies(tracker)).toEqual(['/agent', 'Brief: add hello.txt']);
@@ -394,7 +393,6 @@ describe('drive', () => {
     expect(git(where.origin, 'show', 'refs/agentgraph/attempts/run-7/2:hello.txt')).toBe('TODO');
     expect(git(where.origin, 'show', 'refs/agentgraph/attempts/run-7/3:hello.txt')).toBe('hello');
 
-    // retry and ways back resume the implementor's session; review is fresh every time
     expect(specs.map(s => s.resume?.id)).toEqual([
       undefined,
       undefined,
@@ -451,7 +449,6 @@ describe('drive', () => {
       ['review', 'back', 0, { review: 2 }],
     ]);
 
-    // a human answers on the issue: the review runs again and the run waits for the merge
     where.human('/agent it is fine, ship it', '2026-10-17T00:00:00.000Z');
     const said = await run(Effect.flatMap(Tracker, f => Stream.runCollect(f.since('2026-10-16T23:00:00.000Z'))));
     const answer = said.flatMap(m => getEventOutcome(w, asked, m) ?? [])[0]!;

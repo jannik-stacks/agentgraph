@@ -35,7 +35,6 @@ type Body = {
 type Route = unknown | ((body: Body, headers: Headers, path: string) => Reply);
 type Call = { method: string; path: string; body?: Body; headers: Headers };
 
-/** A fetch that answers from `routes`, keyed `METHOD /path?query` or `METHOD /path`, and records every call. */
 const fake = (routes: Record<string, Route>) => {
   const calls: Call[] = [];
   const all: Record<string, Route> = {
@@ -1655,7 +1654,6 @@ describe('githubTracker', () => {
         input,
         env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', ...env },
       }).trim();
-    /** A work tree with no `.git` of its own, its repo in a private dir, as the docker sandbox lays a checkout out. */
     const repo = () => {
       const dir = tmp('work');
       const repoDir = tmp('git');
@@ -1673,10 +1671,6 @@ describe('githubTracker', () => {
       const content = Buffer.from(base64, 'base64');
       return createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
     };
-    /**
-     * The Git data API over a bare repo standing in for GitHub, sharing the checkout's objects as uploaded blobs would
-     * be. Its commits get another committer, as GitHub's signed ones do.
-     */
     const dataApi = (work: Checkout, more: Record<string, Route> = {}) => {
       const bare = tmp('bare');
       sh(['init', '-q', '--bare', bare]);

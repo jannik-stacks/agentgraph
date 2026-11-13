@@ -718,7 +718,6 @@ describe('docker checkout', () => {
   });
 });
 
-/** Real containers: `AGENTGRAPH_DOCKER=1` with the agentgraph-sandbox network and the agentgraph-sandbox:local image present. */
 describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
   it('runs a command in the sandbox image with no network', async () => {
     const dir = tmp('work');
@@ -812,10 +811,6 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
   }, 900_000);
 });
 
-/**
- * One real opencode session in docker against the model proxy: `AGENTGRAPH_LIVE=1` and `AGENTGRAPH_PROXY_KEYS` holding a key
- * for `implementor`. Uses the `fast` alias unless `AGENTGRAPH_LIVE_MODEL` names another.
- */
 describe.runIf(process.env.AGENTGRAPH_LIVE === '1')('opencode for real', () => {
   it('answers, is denied a read outside the allowlist, and resumes', async () => {
     const dir = tmp('work');

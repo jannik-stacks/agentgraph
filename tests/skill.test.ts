@@ -19,7 +19,6 @@ afterEach(() => {
   delete process.env.STUB_NO_USAGE;
 });
 
-/** A bench stand-in: a case passes when the candidate's implementor prompt says `Mind <case>.` */
 const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) =>
   ({
     run: async (dir: string, _t: unknown, jobs: typeof ran) => {
@@ -54,7 +53,6 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) =>
     propose: async () => ({}),
   }) as unknown as Parameters<typeof step>[2];
 
-/** Fills slot d1 with a fix for f1 and d2 without a why; on resume writes d2's why. Logs each call. */
 const stub = `#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
