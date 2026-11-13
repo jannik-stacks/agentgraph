@@ -4,7 +4,7 @@ limits:
   parallel: 1
 plugins:
   board:
-    project: jannik-stacks/1
+    project: acme/1
     fields:
       Status:
         working: In Progress

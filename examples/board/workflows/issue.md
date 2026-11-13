@@ -1,5 +1,5 @@
 ---
-on: { issues: { column: Agent Ready, project: jannik-stacks/1 } }
+on: { issues: { column: Agent Ready, project: acme/1 } }
 branch: agentgraph/{issue}
 steps:
   implement:
