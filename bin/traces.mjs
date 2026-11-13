@@ -1,9 +1,3 @@
-// Checks the runs in a data dir against a few invariants and fails with one line per finding:
-// - no tool call was denied,
-// - every session that started was priced,
-// - a done run of a named workflow applied its required proposal kind (`workflow=kind`, alternatives with `|`).
-// It also prints how long each run waited before its first session, without failing on it.
-// Usage: node bin/traces.mjs <data dir> [workflow=kind ...]
 import { readdirSync } from 'node:fs';
 import { readRunSync, readTraceSync } from '../src/store.ts';
 

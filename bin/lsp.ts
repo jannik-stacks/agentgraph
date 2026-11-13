@@ -1,14 +1,3 @@
-/**
- * Find references and rename across the project from the command line, through the TypeScript language server
- * the project already depends on. Positions are 1-based; the project is the current directory.
- *
- *   node bin/lsp.ts refs <file>:<line>:<col>
- *   node bin/lsp.ts rename <file>:<line>:<col> <newName> [--dry]
- *   node bin/lsp.ts symbol <name>
- *   node bin/lsp.ts rename-symbol <name> <newName> [--dry]
- *
- * `symbol` prints where a name is declared; `rename-symbol` renames it when exactly one declaration matches.
- */
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';

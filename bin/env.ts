@@ -1,13 +1,3 @@
-/**
- * Lists and collects the cache sandbox setups, dependency volumes, toolchain cache volumes and score trees hold, pins what a paused bench still needs,
- * and removes dependency volumes of dead engine processes.
- *
- *   node bin/env.ts list [--root <dir>]...
- *   node bin/env.ts collect [--cap 60g] [--root <dir>]... [--dry-run]
- *   node bin/env.ts pin <name> <glob>... [--days 14]
- *   node bin/env.ts unpin <name>
- *   node bin/env.ts sweep
- */
 import { parseArgs } from 'node:util';
 import { parseByteSize, collect, inventory, type DiskCacheEntry, pin, unpin } from '../src/disk.ts';
 import { removeOrphanedVolumes } from '../src/env.ts';

@@ -1,9 +1,3 @@
-/**
- * Creates the agentgraph GitHub App through the manifest flow and saves its id in `<dir>/<slug>/app.env`, 0600. On macOS
- * the key goes into the login Keychain, which asks on every read; elsewhere, or when the Keychain refuses, into a 0600
- * `key.pem` beside it. Point `AGENTGRAPH_APP_ENV` at the `app.env` it prints, then install the App on the repo.
- * Usage: node bin/setup-app.ts [--org <org>] [--name agentgraph] [--dir ~/.config/agentgraph] [--port 5189]
- */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
@@ -13,7 +7,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-/** The one agentgraph App: private, no webhook, and only the permissions the engine uses. */
 const makeGithubAppSetupManifest = (name: string, base: string) => ({
   name,
   url: 'https://github.com',
@@ -44,7 +37,6 @@ const saveKeyInKeychain = async (slug: string, pem: string) => {
 const escape = (text: string) =>
   text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-/** Serves the manifest page on 127.0.0.1, trades GitHub's code for the App and resolves to the saved env file. */
 export const setupApp = async ({
   dir = join(homedir(), '.config', 'agentgraph'),
   name = 'agentgraph',

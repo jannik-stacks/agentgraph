@@ -1,12 +1,3 @@
-// Links docs sections and code both ways through the `<!-- code: path#symbol -->` comments in docs/*.md.
-// A comment sits after the text it backs and is invisible to readers.
-//
-//   node bin/refs.mjs                           fails when a ref names a missing file or symbol
-//   node bin/refs.mjs --pairs                   prints every pair: docs section, then the symbol it cites
-//   node bin/refs.mjs --diff <base> [--staged]  prints what to re-check after the change since <base>, or the staged
-//                                               change: the other side of each pair that changed on one side only,
-//                                               and the docs sections that cite the same symbol
-//   node bin/refs.mjs --coverage      lists what no docs page names; fails on uncited user-facing items
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,7 +12,6 @@ const pages = readdirSync(join(root, 'docs'))
   .sort()
   .map(f => `docs/${f}`);
 
-/** GitHub's heading anchor: lower case, punctuation dropped, spaces to dashes. */
 const slug = heading =>
   heading
     .replace(/<!--.*?-->/g, '')
@@ -30,7 +20,6 @@ const slug = heading =>
     .replace(/[^\p{L}\p{N}\s_-]/gu, '')
     .replace(/ /g, '-');
 
-/** Each page's sections: heading anchor and first line, outside fenced code. */
 const splitPageSections = page => [
   { anchor: '', from: 1 },
   ...findHeadings(read(page)).map(h => ({ anchor: h.line === 1 ? '' : slug(h.text), from: h.line })),
@@ -41,7 +30,6 @@ const findFencedLines = text =>
 const sectionAt = (sections, line) => sections.findLast(s => s.from <= line).anchor;
 const where = (page, anchor) => (anchor ? `${page}#${anchor}` : page);
 
-/** Every ref: a docs section and a file, with the symbol it cites when it names one. */
 const refs = pages.flatMap(page => {
   const sections = splitPageSections(page);
   const fenced = findFencedLines(read(page));
@@ -67,7 +55,6 @@ const declaration = name =>
     `^(export\\s+)?(default\\s+)?(declare\\s+)?(async\\s+)?(const|let|var|function\\*?|class|type|interface|enum)\\s+${name.replace(/\$/g, '\\$')}\\b`
   );
 
-/** The lines of a top-level declaration, with the comment above it, in formatted source. */
 const findDeclarationRange = (text, name) => {
   const lines = text.split('\n');
   const at = lines.findIndex(line => declaration(name).test(line));
@@ -81,7 +68,6 @@ const findDeclarationRange = (text, name) => {
 
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 
-/** The lines a change since `base` (the staged one with `staged`) touches in each file, on the new side. */
 const touched = (base, staged) => {
   const lines = new Map();
   const mark = (file, from, to) => {
@@ -109,7 +95,6 @@ const touched = (base, staged) => {
   return lines;
 };
 
-/** What to re-check: the other side of each pair that changed on one side only, and the docs sections citing the same symbol. */
 const diff = (base, staged) => {
   const changed = touched(base, staged);
   const sections = new Map(pages.map(page => [page, splitPageSections(page)]));
@@ -138,7 +123,6 @@ const diff = (base, staged) => {
   return [...out].sort();
 };
 
-/** The text of a `(`, `{` or `[` at `open` up to its match. */
 const balanced = (s, open) => {
   let depth = 0;
   for (let i = open; i < s.length; i++) {
@@ -160,7 +144,6 @@ const topLevel = body => {
 };
 const strings = text => [...text.matchAll(/'([^']+)'/g)].map(m => m[1]);
 
-/** What a graph author, an agent or an operator writes or reads: schema keys and values, proposal kinds, statuses, CLI flags, env vars. */
 const userFacing = () => {
   const items = [];
   const add = (what, from, names) => names.forEach(name => items.push({ what, from, name }));
@@ -222,7 +205,6 @@ const userFacing = () => {
   return items.filter(i => !seen.has(`${i.what} ${i.name}`) && seen.add(`${i.what} ${i.name}`));
 };
 
-/** The code in a page: fenced blocks whole, and inline code spans elsewhere. */
 const findCodeLines = page => {
   const fenced = findFencedLines(read(page));
   return read(page)

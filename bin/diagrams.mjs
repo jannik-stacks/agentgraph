@@ -1,5 +1,3 @@
-// Checks that box-drawing and ASCII diagrams in fenced blocks of docs/*.md and README.md line up, in display columns.
-// Usage: node bin/diagrams.mjs [file.md ...]
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { findCodeBlocks } from './markdown.ts';
@@ -7,10 +5,10 @@ import { findCodeBlocks } from './markdown.ts';
 const root = join(import.meta.dirname, '..');
 const BOX = /[┌┐└┘│─├┤┬┴┼]/;
 const ASCII_BOX = /\+-{2,}\+/;
-const down = new Set('│├┤┬┼┌┐|+^'); // chars above a vertical that continue into it
-const up = new Set('│├┤┴┼└┘|+v'); // chars below a vertical that it continues into
-const right = new Set('─┌└├┬┴┼'); // chars with a stub to their right
-const left = new Set('─┐┘┤┬┴┼'); // chars with a stub to their left
+const down = new Set('│├┤┬┼┌┐|+^');
+const up = new Set('│├┤┴┼└┘|+v');
+const right = new Set('─┌└├┬┴┼');
+const left = new Set('─┐┘┤┬┴┼');
 const wide = [
   [0x1100, 0x115f],
   [0x2e80, 0xa4cf],
@@ -30,7 +28,6 @@ const width = g => {
   return /^[\p{M}\p{Cf}]$/u.test(g) ? 0 : 1;
 };
 
-/** One char per display column; a wide char holds its column and leaves the next one empty. */
 const cells = line => {
   const out = [];
   for (const { segment } of segmenter.segment(line)) {
@@ -42,7 +39,6 @@ const cells = line => {
   return out;
 };
 
-/** Returns the `{ line, col, message }` problems of the fenced diagrams in markdown `text`, and the diagram count. */
 function checkDiagrams(text) {
   const problems = [];
   let diagrams = 0;

@@ -1,4 +1,3 @@
-// Holds a commit message to the agentgraph example's pr-text and hygiene rules, as a push proposal. Usage: node bin/commit-msg.mjs <file>
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

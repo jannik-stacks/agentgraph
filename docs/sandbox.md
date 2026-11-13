@@ -79,6 +79,14 @@ Runs using only read-only agents skip environments, cache volumes and setup; the
 
 `bin/env.ts` lists, collects, pins and unpins cached environments. `AGENTGRAPH_ENV_HOLD_HOURS` (2) sets live-process hold time. Collection preserves live holds, pins and cache layers needed by retained environments, then removes least recently used data to meet `AGENTGRAPH_ENV_CAP` (60g). <!-- code: src/disk.ts#collect -->
 
+```sh
+node bin/env.ts list [--root <dir>]...
+node bin/env.ts collect [--cap 60g] [--root <dir>]... [--dry-run]
+node bin/env.ts pin <name> <glob>... [--days 14]
+node bin/env.ts unpin <name>
+node bin/env.ts sweep
+```
+
 Below `AGENTGRAPH_MIN_FREE_GB` (40) GB free, checked before a sandbox setup is built, automatic collection considers only references recorded in the instance or case, and never the image the current work needs. If it cannot free enough, the engine prints one `disk low` warning naming free space and the floor, and work goes on. `AGENTGRAPH_DISK_LOW=block` makes work wait with that reason instead; `AGENTGRAPH_MIN_FREE_GB=0` turns the check off. Global collection is an explicit operator action; `sweep` removes dead processes' orphaned volumes. <!-- code: src/disk.ts#ensureFreeDisk src/env.ts#removeOrphanedVolumes -->
 
 ### Toolchains

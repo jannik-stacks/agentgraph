@@ -1,6 +1,3 @@
-// Fails when the README, the docs, a graph README or a usage header in bin/ names a command that does not exist: a
-// `node bin/` file, its subcommand, a flag it does not read, or an npm script. `agi` stands for
-// `node bin/run.ts`. Usage: node bin/commands.mjs
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readUsage } from './usage.mjs';

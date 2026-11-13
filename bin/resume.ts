@@ -1,7 +1,3 @@
-/**
- * Crash-safe files and units for long bench and tune runs. A log line that a crash cut off is skipped, a unit a dead
- * process left half done goes to an attic beside it, and a run waits while the model proxy or docker is down.
- */
 import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -23,7 +19,6 @@ import { parseModelUrls } from '../src/harnesses.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
 import { readRecordSync } from '../src/store.ts';
 
-/** Appends one JSON line, first ending a line a crash left open. */
 export const appendJsonl = (path: string, v: unknown) => {
   mkdirSync(dirname(path), { recursive: true });
   const size = existsSync(path) ? statSync(path).size : 0;
@@ -59,7 +54,6 @@ export const readJsonl = <T = Record<string, unknown>>(path: string) => parseJso
 
 const owner = (path: string) => Number(readFileOrEmpty(`${path}.lock`) || 0);
 
-/** Takes the unit at `path` for this process, unless a live one holds it; a dead holder's lock is taken over. */
 export const claim = (path: string) => {
   mkdirSync(dirname(path), { recursive: true });
   for (let n = 0; n < 2; n++) {
@@ -81,10 +75,6 @@ export const release = (path: string) => {
   if (owner(path) === process.pid) rmSync(`${path}.lock`, { force: true });
 };
 
-/**
- * Removes the sandbox containers (`agentgraph-<12 hex>`) that mount anything under `dir`, the unit this process holds, so
- * a killed run's containers never outlive it; every other container is left alone. Answers the names removed.
- */
 export const removeSandboxContainersMountingDir = (dir: string) => {
   const roots = [dir, ...(existsSync(dir) ? [realpathSync(dir)] : [])];
   const names = (
@@ -124,10 +114,6 @@ export const probeUrl = (proxy?: string) => {
   return url.href;
 };
 
-/**
- * Why runs cannot work now, when they cannot: the proxy, docker or, with `net`, the package registry is out, or
- * `disk` stays low after a sweep.
- */
 export const down = async (net = false, disk?: Disk): Promise<string | undefined> => {
   const reach = (url: string) =>
     fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(10_000) }).then(
@@ -147,7 +133,6 @@ export const down = async (net = false, disk?: Disk): Promise<string | undefined
   return undefined;
 };
 
-/** Waits while `down()` has a reason, logging each wait and the recovery; backs off from 15 s to 5 min. */
 export const waitWhileServicesDown = async (
   log: (e: object) => void,
   net = false,
@@ -164,7 +149,6 @@ export const waitWhileServicesDown = async (
   }
 };
 
-/** Counts wall time the process missed, as when the machine slept, in gaps over a minute between 10 s ticks. */
 export const clock = () => {
   let last = Date.now();
   let missed = 0;
@@ -190,10 +174,6 @@ export const startChildProcess = (command: string, args: string[], options: Spaw
   return child;
 };
 
-/**
- * Ends every child `startChildProcess` started, runs `stop` once on SIGINT, SIGTERM or SIGHUP, then exits; a pause is
- * a stop and a later rerun resumes.
- */
 export const onStop = (stop: (signal: string) => void) => {
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const)
     process.once(signal, () => {

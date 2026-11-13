@@ -1,14 +1,3 @@
-/**
- * Hill-climbs a graph on one repo's replayed pull requests: each step evaluates candidate graphs with the bench and keeps
- * one only when it beats the incumbent on the select cases (fit plus validate).
- * Usage: node bin/tune.ts init <repo> --cases <dir> --splits <file> --repos <dir> --point opencode:luna [--name t1]
- *        node bin/tune.ts step <tune dir> [--k 3] [--proposers retro,history,manual] [--parallel 6] [--proposer-model gpt-6.1-sol]
- *        node bin/tune.ts run <tune dir> --iterations 8 [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
- *        node bin/tune.ts checkpoint <tune dir>
- *        node bin/tune.ts propose <tune dir> --from <graph dir> --why <text> [--as manual|skill]
- *        node bin/tune.ts status <tune dir or root> [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
- * Tunes live in <root>/<repo>/<name>; the root is AGENTGRAPH_TUNE, by default ~/.agentgraph/tune.
- */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -59,7 +48,6 @@ type Proposer = Variant['proposer'];
 
 type Tune = {
   repo: string;
-  /** The release tag at init, like `agentgraph-v0.2.0`, else the commit; every run needs its `src` tree. */
   engine: string;
   point: string;
   cases: Record<string, Split>;
@@ -67,14 +55,12 @@ type Tune = {
   keep: Partial<{ runs: number; drops: number; save: number }>;
   clone: string;
 };
-/** The latest reading of a usage window in percent, and the points used since the first, across window resets. */
 type Reading = { now: number; used: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
 
 const tuneRoot = () => process.env.AGENTGRAPH_TUNE ?? join(homedir(), '.agentgraph/tune');
 const pad = (n: number) => String(n).padStart(3, '0');
 
-/** The tune's settings, its decided variants in order and the variants under evaluation, read from its control runs. */
 export const tuneRows = (dir: string) => {
   const tune = readFileOrEmpty(join(dir, 'tune.json'));
   if (!tune) throw new Error(`${dir} has no tune.json`);
@@ -88,7 +74,6 @@ const subdirs = (dir: string) =>
       )
     : [];
 
-/** The mean gain of `b` over `a` case by case, the share of bootstrap draws above 0 and its 95% interval. */
 export const paired = (a: number[], b: number[], n = 2000) => {
   if (a.length !== b.length) throw new Error('paired scores must have the same length');
   const d = b.map((x, i) => x - a[i]!);
@@ -106,10 +91,6 @@ export const paired = (a: number[], b: number[], n = 2000) => {
 
 const keepOf = (t: Pick<Tune, 'keep'>) => ({ runs: 3, drops: 2, save: 0.15, ...t.keep });
 
-/**
- * Per case, how the candidate's runs compare with the incumbent's. A case whose incumbent runs disagree is noise and
- * never flips; a flip is a win or loss once both sides have `runs` runs and none of them overlap.
- */
 export const flipsOf = (inc: Record<string, number[]>, cand: Record<string, number[]>, runs: number) => {
   const out: Record<string, Flip> = {};
   for (const [c, x] of Object.entries(cand)) {
@@ -126,14 +107,9 @@ export const flipsOf = (inc: Record<string, number[]>, cand: Record<string, numb
 
 const count = (e: Eval | undefined, ...of: Flip[]) => Object.values(e?.flips ?? {}).filter(f => of.includes(f)).length;
 
-/** The cost the candidate saves for sure: at least `save` of usd or minutes per run, with 95% of draws below. */
 export const cheaper = (t: Pick<Tune, 'keep'>, e: Eval) =>
   (['usd', 'minutes'] as const).filter(k => (e.saved?.[k].share ?? 0) >= keepOf(t).save && e.saved![k].pDown >= 0.95);
 
-/**
- * Out when the screen drops `drops` cases and lifts none. Kept when more select cases win than lose, or when no case
- * drops and it costs less in usd or minutes.
- */
 export const decide = (t: Pick<Tune, 'keep'>, screen: Eval, full?: Eval): TuneStep['verdict'] =>
   count(screen, 'down', 'loss') >= keepOf(t).drops && !count(screen, 'up', 'win')
     ? 'screened-out'
@@ -232,17 +208,12 @@ export const makeJobInput = (dir: string, t: Tune, j: Pick<Job, 'id' | 'case' | 
 const tuneLog = (dir: string) => (e: object) =>
   appendJsonl(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
 
-/** Labels every attempt of a job's slot with the tune and the variant's iteration. */
 const labelJobRuns = async (dir: string, t: Tune, j: Job) => {
   const labels = { tune: getTuneLabel(dir), iteration: String(j.iteration) };
   for (const a of readBenchSlots(dir).get(getBenchSlot(makeJobInput(dir, t, j))) ?? [])
     if (a.run) await Effect.runPromise(writeRunLabels(a.data, a.run.id, labels));
 };
 
-/**
- * The bench as the tune drives it: one v2 run and score per job through bin/bench.ts, judged on request, `parallel` at
- * a time. The tune dir is the bench set; each variant's runs carry its `variant` label.
- */
 const bench = {
   run: async (dir: string, t: Tune, jobs: Job[], o: { parallel: number; judged?: boolean; keys?: string }) => {
     engineAt(t);
@@ -293,14 +264,12 @@ const bench = {
       await sleep(held ? 30_000 : 60_000);
     }
   },
-  /** Rows of every run of a variant, its repeats included. */
   rows: readVariantRows,
   codex: () => codexUsed(),
   propose: (o: Parameters<typeof proposeWith>[0]) => proposeWith(o),
 };
 type Io = typeof bench;
 
-/** The engine dir to run, after checking its `src` tree is the pinned engine's. */
 const engineAt = (t: Tune) => {
   const dir = agentgraphDir;
   const tree = (rev: string) => {
@@ -329,10 +298,6 @@ const git = (dir: string, args: string[], o: { graph?: string; index?: string } 
 export const readVariantDiff = (dir: string, v: Pick<Variant, 'base' | 'graph'>) =>
   v.base ? git(dir, ['diff', v.base, v.graph]) : '';
 
-/**
- * Commits `cands/<id>/graph` on the parent's graph as `refs/variant/<id>` and starts the variant's control run, which
- * keeps it pending until its decision.
- */
 const enqueue = async (
   dir: string,
   c: Pick<Variant, 'id' | 'iteration' | 'proposer' | 'rationale'>,
@@ -358,7 +323,6 @@ const freeId = (dir: string, iteration: number, proposer: string) => {
     if (!existsSync(join(dir, 'cands', n === 1 ? base : `${base}-${n}`))) return n === 1 ? base : `${base}-${n}`;
 };
 
-/** Queues a graph dir as a variant on the incumbent; the next step evaluates it. */
 export const propose = async (dir: string, from: string, why: string, proposer: Proposer = 'manual') => {
   const { steps } = tuneRows(dir);
   const parent = incumbentOf(steps);
@@ -368,7 +332,6 @@ export const propose = async (dir: string, from: string, why: string, proposer: 
   return enqueue(dir, { id, iteration: nextIteration(steps), proposer, rationale: why }, parent);
 };
 
-/** Variants started but not decided yet, after turning each `manual/*.patch` into one. */
 const pending = async (dir: string, steps: TuneStep[]) => {
   const parent = incumbentOf(steps)!;
   const patches = existsSync(join(dir, 'manual'))
@@ -396,13 +359,11 @@ const pending = async (dir: string, steps: TuneStep[]) => {
   return readTuneSteps(dir).pending;
 };
 
-/** `r` after reading `now`: a drop means the window reset, so everything read since counts as used. */
 export const reading = (r: Reading | undefined, now: number): Reading => ({
   now,
   used: getRounded((r?.used ?? 0) + (!r ? 0 : now >= r.now ? now - r.now : now)),
 });
 
-/** The first cap the budget is past, in words. */
 export const overOf = (b: Budget, limits: Limits) =>
   (
     [
@@ -412,7 +373,6 @@ export const overOf = (b: Budget, limits: Limits) =>
     ] as const
   ).flatMap(([name, r, max]) => (r && r.used > max ? [`${name} used ${r.used} points, more than ${max}`] : []))[0];
 
-/** Reads the guards, records them, and throws past a cap. */
 export const guard = (
   dir: string,
   io: Pick<Io, 'codex'>,
@@ -441,7 +401,6 @@ const spent = (before: Budget, after: Budget, k: 'codex' | 'fiveHour') => {
   return getRounded(of(after) - of(before));
 };
 
-/** Writes tune.json, the cases and the minimal graph, then evaluates that graph as the first incumbent. */
 export const init = async (
   repo: string,
   o: {
@@ -539,10 +498,6 @@ export const init = async (
   return dir;
 };
 
-/**
- * The bench graph with no reviewer and no end checks: implement with two tries against a tests check, then a human merge. A repo with a
- * toolchain line builds through the toolchain step, so the case plan's host setup is left out.
- */
 const minimal = (graph: string, commands: ReturnType<typeof pickBenchTestCommands>, toolchain?: string) => {
   cpSync(join(agentgraphDir, 'examples/bench'), graph, { recursive: true });
   rmSync(join(graph, 'agents/reviewer.md'), { force: true });
@@ -589,7 +544,6 @@ done`;
     );
 };
 
-/** One iteration: proposals, a screen on a few fit cases, the survivors on the rest of select, at most one kept. */
 export const step = async (
   dir: string,
   o: {
@@ -754,7 +708,6 @@ export const step = async (
   return out;
 };
 
-/** The incumbent on the test split with the judge panel, added to its step. */
 export const checkpoint = async (dir: string, o: { parallel?: number; keys?: string } = {}, io: Io = bench) => {
   const { tune: t, steps } = tuneRows(dir);
   const inc = incumbentOf(steps)!;
@@ -773,7 +726,6 @@ export const checkpoint = async (dir: string, o: { parallel?: number; keys?: str
   return e;
 };
 
-/** Iterations at the end of the tune in a row that kept nothing. */
 const flatOf = (steps: TuneStep[]) => {
   const kept = new Set(steps.filter(s => s.verdict === 'kept').map(s => s.iteration));
   const last = nextIteration(steps) - 1;
@@ -782,16 +734,11 @@ const flatOf = (steps: TuneStep[]) => {
   return n;
 };
 
-/** Whether the incumbent is every third keep and has no test eval yet. */
 const due = (steps: TuneStep[]) => {
   const kept = steps.filter(s => s.verdict === 'kept');
   return kept.length > 1 && kept.length % 3 === 1 && !kept.at(-1)!.evals.some(e => e.split === 'test');
 };
 
-/**
- * Steps until `iterations` more, the tune reaches iteration `until`, three iterations in a row keep nothing, a step has
- * no candidate or only infra verdicts, or a guard stops it; checkpoints every third keep. All of it reads from disk, so a rerun resumes.
- */
 export const run = async (
   dir: string,
   o: Parameters<typeof step>[1] & { iterations: number; until?: number },
@@ -811,11 +758,7 @@ export const run = async (
   if (due(tuneRows(dir).steps)) await checkpoint(dir, o, io);
 };
 
-/**
- * One screen on a tune: the incumbent's scores, its last steps, the budget used against `limits`, whether a process
- * runs it, and the variants under evaluation.
- * @internal
- */
+/** @internal */
 export const status = (dir: string, limits = limitsDefault) => {
   const { tune: t, steps, pending: open } = tuneRows(dir);
   const inc = incumbentOf(steps);

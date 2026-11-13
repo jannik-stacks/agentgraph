@@ -44,4 +44,11 @@ Docs use hidden code anchors. `node bin/refs.mjs` checks them; `--coverage` chec
 
 The studio renders `<!-- unfinished -->` and `<!-- untested -->` as status pills. Browser interaction tests visibly skip with a reason when Chrome or Chromium is unavailable. <!-- code: studio/src/Markdown.tsx#remarkStatus studio/src/Markdown.tsx#rehypeStatus tests/studio-controls.e2e.test.ts#startBrowser -->
 
-`bin/lsp.ts` provides shell access to TypeScript references and renames; positions use `file:line:col`, counted from 1.
+`bin/lsp.ts` provides shell access to TypeScript references and renames; positions use `file:line:col`, counted from 1. `symbol` prints where a name is declared; `rename-symbol` renames it when exactly one declaration matches.
+
+```sh
+node bin/lsp.ts refs <file>:<line>:<col>
+node bin/lsp.ts rename <file>:<line>:<col> <newName> [--dry]
+node bin/lsp.ts symbol <name>
+node bin/lsp.ts rename-symbol <name> <newName> [--dry]
+```

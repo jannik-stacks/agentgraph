@@ -1,4 +1,3 @@
-// Fails when a field of a graph or workflow schema is never read in src. Usage: node bin/fields.mjs
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -6,7 +5,6 @@ const src = join(import.meta.dirname, '..', 'src');
 const files = readdirSync(src, { recursive: true }).filter(f => f.endsWith('.ts'));
 const text = Object.fromEntries(files.map(f => [f, readFileSync(join(src, f), 'utf8')]));
 
-/** The text between the bracket at `open` and its match. */
 const balanced = (s, open) => {
   let depth = 0;
   for (let i = open; i < s.length; i++) {
