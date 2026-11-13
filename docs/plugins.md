@@ -50,7 +50,7 @@ Save a PNG or JPEG in sandbox `/tmp`, run `agi file put <path>`, and pass the re
 
 ## Trackers
 
-`tracker({ repo, studio, app, dir })` returns `layer(trust)`, which provides `Tracker`, plus the git remote `origin`. Optional `status(n, to, names)` displays status names. `searchIssues` searches only the repository and applies text trust rules.
+`tracker({ repo, fork, studio, app, dir })` returns `layer(trust)`, which provides `Tracker`, plus the git remote `origin`. The optional `fork` names the repository receiving work branches; `origin.fork` supplies its git origin and token. Optional `status(n, to, names)` displays status names. `searchIssues` searches only the repository and applies text trust rules.
 <!-- code: src/tracker.ts#Tracker src/tracker.ts#parseIssueSearch src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
 Select a plugin name or built-in tracker folder with `--tracker` or [instance and environment settings](local.md#named-instances-and-settings). Tracker plugins require a graph read by the host. Unknown or incompatible selections fail `agi check`.

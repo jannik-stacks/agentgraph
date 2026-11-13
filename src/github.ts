@@ -28,7 +28,7 @@ import {
   type Event,
   type Issue,
 } from './event.ts';
-import { makePlugin } from './plugin.ts';
+import { makePlugin, type TrackerHost } from './plugin.ts';
 import type { Proposal } from './proposal.ts';
 import type { SandboxError } from './sandbox.ts';
 import { type Checkout, TrackerError } from './types.ts';
@@ -371,7 +371,7 @@ const asApp = <T>(
 
 /** @internal */
 export const githubTracker = (
-  app: { repo: string; id: string; key: Redacted.Redacted },
+  app: Parameters<typeof appToken>[0] & Pick<TrackerHost, 'fork'>,
   fetch: Fetch = globalThis.fetch,
   token: AppToken = appToken(app, fetch),
   trust?: readonly string[],
@@ -379,6 +379,23 @@ export const githubTracker = (
   projectToken = readProjectToken
 ): Layer.Layer<Tracker> => {
   const request = requester(fetch);
+  const branchRepo = app.fork ?? app.repo;
+  const branchPath = `/repos/${branchRepo}`;
+  const forkToken = app.fork ? appToken({ ...app, repo: app.fork }, fetch) : token;
+  const all = <T>(path: string, more: (page: T[]) => boolean = () => true, auth?: AppToken) =>
+    Effect.gen(function* () {
+      const items: T[] = [];
+      let url: string | undefined = path;
+      while (url) {
+        const page: { data: T[]; next?: string } = yield* authed(auth ?? token, 'read', t =>
+          request<T[]>('GET', url!, t)
+        );
+        items.push(...page.data);
+        url = more(page.data) ? page.next : undefined;
+      }
+      return items;
+    });
+
   const graphql = <T>(auth: string, query: string, variables: Record<string, unknown>) =>
     request<{ data?: T; errors?: { type?: string; message: string }[] }>('POST', '/graphql', auth, {
       query,
@@ -408,7 +425,11 @@ export const githubTracker = (
     );
 
     const gh = <T>(method: string, path: string, body?: unknown, scope: TokenScope = 'read', version?: string) =>
-      authed(token, scope, t => request<T>(method, path, t, body, version)).pipe(Effect.map(r => r.data));
+      authed(
+        app.fork && (path === branchPath || path.startsWith(`${branchPath}/`) || scope === 'push') ? forkToken : token,
+        scope,
+        t => request<T>(method, path, t, body, version)
+      ).pipe(Effect.map(r => r.data));
 
     const missing = <A, R>(effect: Effect.Effect<A, TrackerError, R>) =>
       Effect.catchIf(
@@ -417,20 +438,8 @@ export const githubTracker = (
         () => Effect.succeed(undefined)
       );
 
-    const all = <T>(path: string, more: (page: T[]) => boolean = () => true) =>
-      Effect.gen(function* () {
-        const items: T[] = [];
-        let url: string | undefined = path;
-        while (url) {
-          const page: { data: T[]; next?: string } = yield* authed(token, 'read', t => request<T[]>('GET', url!, t));
-          items.push(...page.data);
-          url = more(page.data) ? page.next : undefined;
-        }
-        return items;
-      });
-
     const toIssue = (i: RestIssue, self: string, pull?: RestPull, parent?: number): Issue => {
-      const own = pull?.head.repo?.full_name === app.repo;
+      const own = pull?.head.repo?.full_name === branchRepo;
       const author = login(i.user);
       const shown = listed(i.user, i.author_association) || author === `${self}[bot]`;
       return parseIssueLinks({
@@ -445,7 +454,11 @@ export const githubTracker = (
         ...(parent !== undefined && { parent }),
         ...(pull && {
           pull: {
-            branch: own ? pull.head.ref : `${pull.head.repo?.full_name ?? 'unknown'}:${pull.head.ref}`,
+            branch: own
+              ? app.fork && !isAgentBranch(pull.head.ref)
+                ? `refs/remotes/fork/${pull.head.ref}`
+                : pull.head.ref
+              : `${pull.head.repo?.full_name ?? 'unknown'}:${pull.head.ref}`,
             base: pull.base.ref,
             head: pull.head.sha,
             ...(pull.base.sha && { baseSha: pull.base.sha }),
@@ -528,7 +541,7 @@ export const githubTracker = (
           const self = yield* me;
           const query = new URLSearchParams({
             state: listState(state),
-            head: `${app.repo.split('/')[0]}:${branch}`,
+            head: `${branchRepo.split('/')[0]}:${branch}`,
             per_page: '100',
           });
           return (yield* gh<(RestIssue & RestPull)[]>('GET', `${repo}/pulls?${query}`))
@@ -783,6 +796,30 @@ export const githubTracker = (
                 commit: { sha: c.sha, title: visible(c.commit.message.split('\n')[0]) },
               });
           }
+          if (app.fork) {
+            const activities = yield* all<{ id: number; ref: string; after: string; pushed_at: string; pusher: User }>(
+              `${branchPath}/activity?direction=desc&per_page=100`,
+              page => after(page.at(-1)?.pushed_at),
+              forkToken
+            );
+            for (const activity of activities) {
+              if (!after(activity.pushed_at) || isBot(activity.pusher) || /^0+$/.test(activity.after)) continue;
+              const pulls = open.filter(
+                p => p.head.repo?.full_name === app.fork && `refs/heads/${p.head.ref}` === activity.ref
+              );
+              for (const pull of pulls)
+                found.push({
+                  id: `push-${activity.id}`,
+                  bot: false,
+                  issue: pull.number,
+                  kind: 'commit',
+                  actor: login(activity.pusher),
+                  trusted: !trust || trust.includes(login(activity.pusher)),
+                  at: activity.pushed_at,
+                  commit: { sha: activity.after, title: 'Branch updated' },
+                });
+            }
+          }
           for (const c of said) if (after(c.created_at)) found.push(heard(numberIn(c.issue_url), c, self));
           for (const c of lined.map(submitted(reviews.flat())))
             if (after(c.created_at)) found.push(heard(numberIn(c.pull_request_url), c, self));
@@ -811,7 +848,7 @@ export const githubTracker = (
     let repositoryId: string | undefined;
     const rewrite = (branch: string, before: string, after: string) =>
       Effect.gen(function* () {
-        repositoryId ??= (yield* gh<{ node_id: string }>('GET', repo)).node_id;
+        repositoryId ??= (yield* gh<{ node_id: string }>('GET', branchPath)).node_id;
         const result = yield* gh<{ data?: { updateRefs: unknown }; errors?: { message: string }[] }>(
           'POST',
           '/graphql',
@@ -828,7 +865,8 @@ export const githubTracker = (
         );
         if (result.errors?.length || !result.data?.updateRefs) {
           const ref = yield* refPath(branch);
-          const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
+          const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${branchPath}/git/ref/${ref}`)))?.object
+            .sha;
           if (tip !== before) return yield* refuse(`${branch} moved while its ref was updated`, true);
           return yield* new TrackerError({
             message: `GitHub updateRefs ${branch}: ${result.errors?.map(e => e.message).join('; ') ?? 'no update returned'}`,
@@ -844,7 +882,8 @@ export const githubTracker = (
         held.set(branch, reported);
         const last = pushed.get(work.dir);
         const parent = last?.sha ?? work.head ?? work.base;
-        const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
+        const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${branchPath}/git/ref/${ref}`)))?.object
+          .sha;
         if (tip && tip !== parent)
           return yield* refuse(`${branch} is at ${tip}, the checkout builds on ${parent}`, true);
         const follow = last ? undefined : onto;
@@ -873,28 +912,29 @@ export const githubTracker = (
         if (tree !== from || follow) {
           if (tree !== from) yield* upload(work, from, tree);
           const commit = { message, tree, parents };
-          head = (yield* gh<{ sha: string }>('POST', `${repo}/git/commits`, commit, 'push')).sha;
+          head = (yield* gh<{ sha: string }>('POST', `${branchPath}/git/commits`, commit, 'push')).sha;
         }
-        if (head === tip) return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left, reported);
+        if (head === tip) return makePushResult(`https://github.com/${branchRepo}/commit/${head}`, left, reported);
         const force = !!follow && !merge;
         if (
           force &&
-          (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha !== tip
+          (yield* missing(gh<{ object: { sha: string } }>('GET', `${branchPath}/git/ref/${ref}`)))?.object.sha !== tip
         )
           return yield* refuse(`${branch} moved while the commit was built`, true);
         if (tip) {
           if (force) yield* rewrite(branch, tip, head);
-          else yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
-        } else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
+          else yield* gh('PATCH', `${branchPath}/git/refs/${ref}`, { sha: head, force }, 'push');
+        } else yield* gh('POST', `${branchPath}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
         yield* commitPublishedTree(work, tree).pipe(Effect.mapError(toTrackerError));
         pushed.set(work.dir, { sha: head, tree });
-        return makePushResult(`https://github.com/${app.repo}/commit/${head}`, left, reported);
+        return makePushResult(`https://github.com/${branchRepo}/commit/${head}`, left, reported);
       });
 
     const upload = (work: Checkout, from: string, to: string) =>
       Effect.gen(function* () {
         const tree = yield* entries(work, from, to);
-        const made = (yield* gh<{ sha: string }>('POST', `${repo}/git/trees`, { base_tree: from, tree }, 'push')).sha;
+        const made = (yield* gh<{ sha: string }>('POST', `${branchPath}/git/trees`, { base_tree: from, tree }, 'push'))
+          .sha;
         if (made !== to) return yield* new TrackerError({ message: `GitHub built tree ${made}, expected ${to}` });
       });
 
@@ -903,7 +943,7 @@ export const githubTracker = (
         if (!isAgentBranch(branch)) return yield* refuse(`a rebase goes to a ${branchPrefix} branch`);
         const ref = yield* refPath(branch);
         const readRefTip = Effect.map(
-          missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)),
+          missing(gh<{ object: { sha: string } }>('GET', `${branchPath}/git/ref/${ref}`)),
           r => r?.object.sha
         );
         const tip = yield* readRefTip;
@@ -937,7 +977,7 @@ export const githubTracker = (
           const message = yield* gitText(work, ['log', '-1', '--format=%B', commit]);
           head = (yield* gh<{ sha: string }>(
             'POST',
-            `${repo}/git/commits`,
+            `${branchPath}/git/commits`,
             { message, tree: next, parents: [head] },
             'push'
           )).sha;
@@ -977,7 +1017,7 @@ export const githubTracker = (
           const content = yield* git(work, ['cat-file', 'blob', sha!]);
           const stored = yield* gh<{ sha: string }>(
             'POST',
-            `${repo}/git/blobs`,
+            `${branchPath}/git/blobs`,
             { content: content.toString('base64'), encoding: 'base64' },
             'push'
           ).pipe(
@@ -1075,7 +1115,7 @@ export const githubTracker = (
         case 'rebase':
           if (work === undefined) return Effect.fail(refuse('rebase needs a checkout'));
           return Effect.map(rebase(work, p.branch, p.from, p.onto, p.head), head => ({
-            url: `https://github.com/${app.repo}/commit/${head}`,
+            url: `https://github.com/${branchRepo}/commit/${head}`,
           }));
         case 'pull_request':
           return Effect.gen(function* () {
@@ -1085,26 +1125,36 @@ export const githubTracker = (
             const note = left.length
               ? `\n\nNot pushed: ${left.map(f => `\`${f}\``).join(', ')}. agentgraph does not push files under \`.github/\` (GitHub needs the app's Workflows permission for workflow files, and they run with the repo's secrets), so a maintainer pushes them to \`${p.branch}\`.`
               : '';
-            const body = { title: p.title, head: p.branch, base: p.base, body: p.body + note };
-            const owner = app.repo.split('/')[0];
+            if (app.fork && isAgentBranch(p.base))
+              return yield* refuse('cross-fork stacked pull requests need a base branch in upstream');
+            const owner = branchRepo.split('/')[0];
+            const body = {
+              title: p.title,
+              head: app.fork ? `${owner}:${p.branch}` : p.branch,
+              ...(app.fork && { head_repo: branchRepo.split('/')[1] }),
+              base: p.base,
+              body: p.body + note,
+            };
             const made = yield* gh<Made>('POST', `${repo}/pulls`, body, 'pull_request').pipe(
               Effect.catchIf(
                 e => e.status === 422,
                 e =>
                   Effect.flatMap(
-                    gh<(Made & { body?: string | null })[]>(
+                    gh<(Made & Pick<RestPull, 'head'> & { body?: string | null })[]>(
                       'GET',
                       `${repo}/pulls?state=open&head=${owner}:${p.branch}`
                     ),
-                    ([open]) =>
-                      open
+                    pulls => {
+                      const open = pulls.find(pull => !app.fork || pull.head.repo?.full_name === branchRepo);
+                      return open
                         ? gh<Made>(
                             'PATCH',
                             `${repo}/pulls/${open.number}`,
                             { title: p.title, body: makeBodyWithStatus(body.body, getStatusHeader(open.body ?? '')) },
                             'pull_request'
                           )
-                        : Effect.fail(e)
+                        : Effect.fail(e);
+                    }
                   )
               )
             );
@@ -1279,12 +1329,13 @@ export const github = makePlugin({
   tracker: (host): TrackerSetup => {
     const app = {
       repo: host.repo,
+      ...(host.fork && { fork: host.fork }),
       ...Option.getOrThrowWith(
         host.app,
         () => new Error('the github tracker needs AGENTGRAPH_APP_ID and AGENTGRAPH_APP_KEY')
       ),
     };
-    const key = JSON.stringify([app.repo, app.id, Redacted.value(app.key), host.studio]);
+    const key = JSON.stringify([app.repo, app.fork, app.id, Redacted.value(app.key), host.studio]);
     const known = setups.get(key);
     if (known) return known;
     const token = appToken(app, currentFetch);
@@ -1296,7 +1347,13 @@ export const github = makePlugin({
         layers.set(key, layer);
         return layer;
       },
-      origin: { origin: `https://github.com/${app.repo}.git`, token: token('read') },
+      origin: {
+        origin: `https://github.com/${app.repo}.git`,
+        token: token('read'),
+        ...(app.fork && {
+          fork: { origin: `https://github.com/${app.fork}.git`, token: appToken({ ...app, repo: app.fork })('read') },
+        }),
+      },
     };
     setups.set(key, setup);
     return setup;

@@ -84,8 +84,8 @@ const findMutations = (f: ReturnType<typeof fake>) =>
     .filter(c => c.path === '/graphql')
     .map(c => /mutation[^{]*\{\s*(\w+)/.exec((c.body as { query: string }).query)?.[1]);
 
-const run = <A, E>(f: ReturnType<typeof fake>, effect: Effect.Effect<A, E, Tracker>) =>
-  Effect.runPromise(Effect.provide(effect, githubTracker(app, f.fetch)));
+const run = <A, E>(f: ReturnType<typeof fake>, effect: Effect.Effect<A, E, Tracker>, fork?: string) =>
+  Effect.runPromise(Effect.provide(effect, githubTracker({ ...app, ...(fork && { fork }) }, f.fetch)));
 
 const issue = (n: number, more: object = {}) => ({
   id: 1000 + n,
@@ -162,6 +162,153 @@ const columnPages = (headers: Headers, after?: string | null) => ({
 });
 
 describe('githubTracker', () => {
+  it('reads upstream issues and finds fork pull requests without treating foreign branches as ours', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues': [issue(7)],
+      'GET /repos/o/r/pulls': [
+        issue(8, {
+          pull_request: {},
+          ...pull(8, { head: { ref: 'agentgraph/7', sha: 'fork-head', repo: { full_name: 'fork/r' } } }),
+        }),
+        issue(9, {
+          pull_request: {},
+          ...pull(9, { head: { ref: 'agentgraph/7', sha: 'foreign-head', repo: { full_name: 'other/r' } } }),
+        }),
+      ],
+    });
+    const [issues, pulls] = await run(
+      f,
+      Effect.flatMap(Tracker, t => Effect.all([t.issues({ state: 'open' }), t.issues({ branch: 'agentgraph/7' })])),
+      'fork/r'
+    );
+    expect(issues.map(i => i.number)).toEqual([7]);
+    expect(pulls.map(p => p.pull)).toEqual([{ branch: 'agentgraph/7', base: 'main', head: 'fork-head' }]);
+    expect(
+      new URL(f.calls.find(c => c.path.includes('/pulls?'))!.path, 'https://api.github.com').searchParams.get('head')
+    ).toBe('fork:agentgraph/7');
+    expect(f.calls.some(c => c.path.startsWith('/repos/fork/r'))).toBe(false);
+  });
+
+  it.each([false, true])(
+    'opens or updates upstream pull requests with a qualified fork head (existing: %s)',
+    async existing => {
+      const f = fake({
+        'POST /repos/o/r/pulls': () =>
+          existing ? { status: 422 } : { body: { number: 8, html_url: 'https://github.com/o/r/pull/8' } },
+        'GET /repos/o/r/pulls': [
+          pull(9, { head: { ref: 'agentgraph/7', sha: 'foreign-head', repo: { full_name: 'fork/other' } } }),
+          pull(8, { head: { ref: 'agentgraph/7', sha: 'fork-head', repo: { full_name: 'fork/r' } } }),
+        ],
+        'PATCH /repos/o/r/pulls/8': { number: 8, html_url: 'https://github.com/o/r/pull/8' },
+      });
+      const result = await run(
+        f,
+        Effect.flatMap(Tracker, t =>
+          t.apply(7, {
+            kind: 'pull_request',
+            branch: 'agentgraph/7',
+            base: 'main',
+            title: 'Fix',
+            body: 'Closes #7',
+          })
+        ),
+        'fork/r'
+      );
+      expect(result).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/8' });
+      expect(f.calls.find(c => c.method === 'POST' && c.path.endsWith('/pulls'))!.body).toMatchObject({
+        head: 'fork:agentgraph/7',
+        head_repo: 'r',
+        base: 'main',
+        body: 'Closes #7',
+      });
+      expect(f.calls.filter(c => c.path.includes('head=')).map(c => c.path)).toEqual(
+        existing ? ['/repos/o/r/pulls?state=open&head=fork:agentgraph/7'] : []
+      );
+      expect(f.calls.some(c => c.path.startsWith('/repos/fork/r'))).toBe(false);
+    }
+  );
+
+  it('names non-agent fork branches separately from upstream branches', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues': [issue(8, { pull_request: {} })],
+      'GET /repos/o/r/pulls': [pull(8, { head: { ref: 'feature', sha: 'fork-head', repo: { full_name: 'fork/r' } } })],
+    });
+    const result = await run(
+      f,
+      Effect.flatMap(Tracker, t => t.issues()),
+      'fork/r'
+    );
+    expect(result[0]?.pull?.branch).toBe('refs/remotes/fork/feature');
+  });
+
+  it('polls fork pushes by pusher identity and push time, checking upstream trust', async () => {
+    const f = fake({
+      'GET /repos/fork/r/installation': { id: 10 },
+      'POST /app/installations/10/access_tokens': { token: 'fork-token', expires_at: '2999-01-01T00:00:00Z' },
+      'GET /repos/o/r/issues/comments': [],
+      'GET /repos/o/r/pulls/comments': [],
+      'GET /repos/o/r/issues/events': [],
+      'GET /repos/o/r/pulls': [pull(8, { head: { ref: 'agentgraph/7', sha: 'head', repo: { full_name: 'fork/r' } } })],
+      'GET /repos/o/r/pulls/8/reviews': [],
+      'GET /repos/fork/r/activity': [
+        { ref: 'refs/heads/agentgraph/7', after: 'one', pushed_at: '2026-10-16T12:00:00Z', pusher: { login: 'bob' } },
+        {
+          id: 1,
+          ref: 'refs/heads/agentgraph/7',
+          after: 'two',
+          pushed_at: '2026-10-16T12:01:00Z',
+          pusher: { login: 'mallory' },
+        },
+        {
+          id: 2,
+          ref: 'refs/heads/agentgraph/7',
+          after: 'bot',
+          pushed_at: '2026-10-16T12:02:00Z',
+          pusher: { login: 'helper[bot]', type: 'Bot' },
+        },
+        { ref: 'refs/heads/other', after: 'other', pushed_at: '2026-10-16T12:03:00Z', pusher: { login: 'bob' } },
+        { ref: 'refs/heads/agentgraph/7', after: 'old', pushed_at: '2026-10-15T12:00:00Z', pusher: { login: 'bob' } },
+      ],
+      'GET /repos/o/r/collaborators/bob/permission': { permission: 'write' },
+      'GET /repos/o/r/collaborators/mallory/permission': { permission: 'read' },
+    });
+    const events = await run(
+      f,
+      Effect.flatMap(Tracker, t => Stream.runCollect(t.since('2026-10-16T00:00:00Z'))),
+      'fork/r'
+    );
+    expect(events.map(e => [e.issue, e.actor, e.trusted, e.commit?.sha])).toEqual([
+      [8, 'bob', true, 'one'],
+      [8, 'mallory', false, 'two'],
+    ]);
+    expect(f.calls.find(c => c.path.startsWith('/repos/fork/r/activity'))?.headers.get('authorization')).toBe(
+      'Bearer fork-token'
+    );
+    expect(f.calls.some(c => c.path.includes('/pulls/8/commits'))).toBe(false);
+  });
+
+  it('refuses a cross-fork stack whose base is a work branch', async () => {
+    const f = fake({});
+    const result = await run(
+      f,
+      Effect.flatMap(Tracker, t =>
+        t.apply(7, {
+          kind: 'pull_request',
+          branch: 'agentgraph/7',
+          base: 'agentgraph/6',
+          title: 'Fix',
+          body: 'Closes #7',
+        })
+      ),
+      'fork/r'
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'cross-fork stacked pull requests need a base branch in upstream',
+    });
+    expect(f.calls).toEqual([]);
+  });
+
   it('searches only this repository’s issues and reuses search ETags', async () => {
     const f = fake({
       'GET /search/issues': (_body: Body, headers: Headers) =>
@@ -1671,7 +1818,7 @@ describe('githubTracker', () => {
       const content = Buffer.from(base64, 'base64');
       return createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
     };
-    const dataApi = (work: Checkout, more: Record<string, Route> = {}) => {
+    const dataApi = (work: Checkout, more: Record<string, Route> = {}, repository = app.repo) => {
       const bare = tmp('bare');
       sh(['init', '-q', '--bare', bare]);
       writeFileSync(join(bare, 'objects', 'info', 'alternates'), `${join(work.git.GIT_DIR, 'objects')}\n`);
@@ -1684,8 +1831,10 @@ describe('githubTracker', () => {
           const sha = tip(/\/git\/ref\/(.+)$/.exec(path)?.[1] ?? 'none');
           return sha ? { body: { object: { sha } } } : { status: 404 };
         },
-        'POST /repos/o/r/git/blobs': (body: { content: string }) => ({ body: { sha: blobSha(body.content) } }),
-        'POST /repos/o/r/git/trees': (body: {
+        [`POST /repos/${repository}/git/blobs`]: (body: { content: string }) => ({
+          body: { sha: blobSha(body.content) },
+        }),
+        [`POST /repos/${repository}/git/trees`]: (body: {
           base_tree: string;
           tree: { path: string; mode: string; sha: string | null }[];
         }) => {
@@ -1700,12 +1849,12 @@ describe('githubTracker', () => {
             );
           return { body: { sha: remote(['write-tree'], env) } };
         },
-        'POST /repos/o/r/git/commits': (body: { message: string; tree: string; parents: string[] }) => ({
+        [`POST /repos/${repository}/git/commits`]: (body: { message: string; tree: string; parents: string[] }) => ({
           body: {
             sha: remote(['commit-tree', body.tree, ...body.parents.flatMap(p => ['-p', p])], {}, body.message),
           },
         }),
-        'POST /repos/o/r/git/refs': (body: { ref: string; sha: string }) => {
+        [`POST /repos/${repository}/git/refs`]: (body: { ref: string; sha: string }) => {
           remote(['update-ref', body.ref, body.sha]);
           return { status: 201, body: {} };
         },
@@ -1736,6 +1885,46 @@ describe('githubTracker', () => {
       );
     const writes = (f: ReturnType<typeof fake>) =>
       f.calls.filter(c => c.method !== 'GET' && (c.path.includes('/git/') || c.path === '/graphql'));
+
+    it('publishes signed commits and rewrites branches only in the fork with its own installation token', async () => {
+      const { dir, git, base, work } = repo();
+      const f = dataApi(
+        work,
+        {
+          'GET /repos/fork/r/installation': { id: 10 },
+          'GET /repos/fork/r': { node_id: 'R_fork' },
+          'POST /app/installations/10/access_tokens': { token: 'fork-token', expires_at: '2999-01-01T00:00:00Z' },
+        },
+        'fork/r'
+      );
+      writeFileSync(join(dir, 'a.txt'), 'fork change\n');
+      const { results, head } = await run(
+        f,
+        Effect.flatMap(Tracker, t =>
+          Effect.gen(function* () {
+            const pushed = yield* t.apply(7, { kind: 'push', branch: 'agentgraph/7', message: 'Fix' }, work);
+            const head = f.remote(['rev-parse', 'agentgraph/7']);
+            git('fetch', '-q', f.remote(['rev-parse', '--absolute-git-dir']), head);
+            const rebased = yield* t.apply(7, { kind: 'rebase', branch: 'agentgraph/7', from: base, onto: base }, work);
+            return { results: [pushed, rebased], head };
+          })
+        ),
+        'fork/r'
+      );
+      expect(results.map(r => r.ok)).toEqual([true, true]);
+      expect(results.map(r => r.url)).toEqual([
+        `https://github.com/fork/r/commit/${head}`,
+        `https://github.com/fork/r/commit/${f.remote(['rev-parse', 'agentgraph/7'])}`,
+      ]);
+      const calls = f.calls.filter(
+        c => c.path.includes('/git/') || c.path === '/graphql' || c.path === '/repos/fork/r'
+      );
+      expect(calls.every(c => c.headers.get('authorization') === 'Bearer fork-token')).toBe(true);
+      expect(calls.filter(c => c.path.includes('/git/')).every(c => c.path.startsWith('/repos/fork/r/'))).toBe(true);
+      expect(f.calls.find(c => c.path === '/graphql')!.body?.variables?.input).toMatchObject({
+        repositoryId: 'R_fork',
+      });
+    });
 
     it('commits the checkout on its base through the Git data API onto a new branch', async () => {
       const { dir, git, base, work } = repo();

@@ -99,5 +99,6 @@ See [settings precedence](local.md#named-instances-and-settings). Variables link
 | `AGENTGRAPH_RUNNER` | [Runners](sandbox.md#runners) |
 | `AGENTGRAPH_SANDBOX_URL` | [Hosting](hosting.md) |
 | `AGENTGRAPH_STUDIO_URL` | [Run links](runs.md#run-links) |
+| `AGENTGRAPH_FORK` | [Working from a fork](github.md#working-from-a-fork) |
 
 Other settings: [script variables](checks.md#script-variables), [disk](sandbox.md#disk), [studio auth](plugins.md#auth).
