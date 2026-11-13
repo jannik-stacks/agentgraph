@@ -1,7 +1,3 @@
-// One JSON line per behavior the change removes from src/ or the graph scripts: a passed argument or object field, a
-// branch or fallback (`??`, `||`, a ternary, an if or an else) and an export, with the removed lines, the file and
-// line, and the hunks that replace them. A line the change adds back elsewhere is a move, not a removal. A reviewer
-// who sees one hunk never asks who relied on the line that went.
 import { findBrief, parseBrief } from './brief.mjs';
 import { addedLines, readEnvBaseSha, changedFiles, readChangeDiff } from './changes.mjs';
 

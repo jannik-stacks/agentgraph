@@ -1,5 +1,3 @@
-// A schema a change adds to a file that defines what users write, which no docs page names, so the reference falls
-// behind the code.
 import { execFileSync } from 'node:child_process';
 import { addedLines, readEnvBaseSha, changedFiles, report } from './changes.mjs';
 

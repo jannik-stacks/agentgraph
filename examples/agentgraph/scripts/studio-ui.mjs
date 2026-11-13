@@ -1,6 +1,3 @@
-// The studio's UI rules on TSX under studio/src: shared primitives instead of native controls, icons explained by a
-// tooltip, numbers before their muted arrows, one kind of spinner per level, motion only for new items, and nothing
-// that flashes while it loads. code-shape runs them.
 import { getJsxAttr, attrText, isNative, meaningful, getJsxTag, walk } from './ast.mjs';
 
 export const studioFile = path => /^studio\/src\/.*\.tsx$/.test(path) && !path.startsWith('studio/src/lab/');
@@ -42,7 +39,6 @@ const inList = parents =>
 
 const isTilde = text => /^\s*[~≈]\s*$/.test(text) || /[~≈]\s*\$/.test(text);
 
-/** Reports every studio UI rule a source breaks through `add(source, line, message)`. */
 export const studioUi = (source, program, getLineAt, add) => {
   const { path, text: code } = source;
   walk(program, (node, parents) => {

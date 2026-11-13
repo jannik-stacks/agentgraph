@@ -1,6 +1,3 @@
-// Copies a rename or removal leaves behind. A name the change takes out of every file it touches, by swapping it for
-// another, by deleting the line that declares it or by deleting its file, is looked up in the rest of the code, graphs
-// and docs, and each place that still says it is a finding.
 import { execFileSync } from 'node:child_process';
 import { basename, extname } from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -9,7 +6,6 @@ import { readEnvBaseSha, changedFiles, readChangeDiff, report } from './changes.
 const roots = ['src', 'studio', 'docs', 'examples', 'infra', 'bin'];
 const shown = 3;
 const word = /[A-Za-z_$][\w$]*(?:-[\w$]+)*|\d+|\S/g;
-/** A token that reads as a name rather than a word: camelCase, snake_case, kebab-case, or quoted in `row`. */
 const named = (token, row) =>
   /^[A-Za-z_$][\w$-]{2,}$/.test(token) &&
   (/[a-z][A-Z]|\w[_-]\w/.test(token) || ['\'', '"', '`'].some(quote => row.includes(`${quote}${token}${quote}`)));
@@ -21,7 +17,6 @@ const prose = /\.mdx?$/;
 const escape = token => token.replace(/[$.]/g, '\\$&');
 const mentions = token => new RegExp(`(?<![\\w$-])${escape(token)}(?![\\w$-])`);
 
-/** The names the hunks of one file's diff swap for others or stop declaring. */
 const gone = (path, diff) => {
   const names = [];
   for (const hunk of diff.split(/^@@.*$/m).slice(1)) {
@@ -46,7 +41,6 @@ const gone = (path, diff) => {
   return names;
 };
 
-/** A deleted graph file's or module's name, when it reads as a name: a check, bot, skill, script or `foo-bar.ts`. */
 const stem = path => {
   const name = basename(path, extname(path));
   const graphFile = /^examples\/[^/]+\//.test(path) || named(name, '');

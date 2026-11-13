@@ -1,8 +1,3 @@
-// One JSON line per (note, hunk) pair worth judging: each accepted graph note is scored against each hunk hunks.mjs
-// prints with BM25, and every hunk keeps its best few notes. Each item carries the note, the hunk and the files the
-// change touches, so a judge can tell whether the note applies and whether the change follows it.
-//
-//   node note-pairs.mjs <root>...      e.g. node note-pairs.mjs src/ studio/src/ tests/
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,7 +15,6 @@ const terms = text =>
     .map(word => word.toLowerCase().replace(/(?<=..)(?:ies|es|s)$/, ''))
     .filter(word => word.length > 2 && !stop.has(word));
 
-/** The accepted notes under `dir`, as `{ id, title, body }`. */
 export const notesIn = dir =>
   readdirSync(dir).flatMap(kind =>
     readdirSync(join(dir, kind))
@@ -33,7 +27,6 @@ export const notesIn = dir =>
       })
   );
 
-/** The pairs to judge: each hunk's best `perHunk` notes, the best `maxPairs` overall. */
 export const pairs = (notes, hunks) => {
   const docs = notes.map(note => {
     const counts = new Map();

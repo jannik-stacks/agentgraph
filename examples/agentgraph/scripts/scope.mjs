@@ -1,5 +1,3 @@
-// One JSON line per changed file the triage brief does not name, with the task, what is out of scope and the lines
-// the file gains. A file the brief names is in scope without asking anyone. Prints nothing without a brief.
 import { findBrief, parseBrief } from './brief.mjs';
 import { addedLines, readEnvBaseSha, changedFiles } from './changes.mjs';
 

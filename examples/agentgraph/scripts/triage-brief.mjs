@@ -1,11 +1,3 @@
-// Fails a triage reply that breaks the brief template: the four sections in order, at most five criteria, and each
-// criterion one line ending in the test title and test file that prove it. Every file the brief names must sit under
-// the paths in bounds.mjs, or the roots `--within` gives, have a name the safety check accepts, and the files outside
-// tests/ must fit the size check's cap. Every path the issue's Done when names must sit under those paths too, unless
-// the brief lists it as out of scope. With --width it only flags a brief naming more files outside tests/ than
-// twice the issue's Done when rows, or more criteria than Done when rows.
-//
-//   node triage-brief.mjs [--width] [--within <root>,<root>...] [reply-file]      otherwise the reply is read from the file AGENTGRAPH_REPLY names
 import { existsSync, readFileSync } from 'node:fs';
 import { capped, findSafetyRejections, maxFiles, paths } from './bounds.mjs';
 import { findIssue, findReply, parseBrief } from './brief.mjs';

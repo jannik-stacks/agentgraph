@@ -1,6 +1,3 @@
-// Runs the base's version of every test file the change edits against the change's code, in a temporary copy of the
-// worktree, and names each old test that now fails. An old test edited to pass can hide a regression; one the issue
-// changes on purpose is for the reviewer to tell apart by its title. Criterion tests of the triage brief are left out.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

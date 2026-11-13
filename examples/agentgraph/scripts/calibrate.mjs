@@ -1,12 +1,3 @@
-// Asks each candidate model a check's question about every labelled item in a fixture and prints how well the
-// answers separate the items expected to pass from those expected to fail. Run it on the host, not in a check.
-//
-//   node calibrate.mjs [--env <file>] [--models a,b] <checks-dir> <fixture.jsonl>...
-//
-// A fixture line is {"item": <text or object>, "expect": "yes" | "no", "source": "..."}; the check is the fixture's
-// base name in <checks-dir>, and its body is the question. Candidates are `decide:<ollama model>`, asked through
-// /v1/systemone for the probability of yes, and `chat:<LiteLLM alias>`, asked for PASS or FAIL on the first line.
-// The key comes from AGENTGRAPH_LLM_API_KEY, or LITELLM_MASTER_KEY in the --env file; it is never printed.
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
@@ -47,7 +38,6 @@ const decide = async (model, question, state) => {
   return json.answers.answer.noul;
 };
 
-/** The text of a LiteLLM /v1/responses call, which streams for the subscription models. */
 const respond = async (alias, prompt) => {
   const response = await fetch(`${llmUrl}/responses`, {
     method: 'POST',
@@ -79,7 +69,6 @@ const ask = (model, question, state) =>
 
 const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 
-/** The threshold that classifies the most items right, halfway between neighbouring scores. */
 const bestThreshold = rows => {
   const scores = [...new Set(rows.map(r => r.score))].sort((a, b) => a - b);
   const cuts = [0, ...scores.slice(1).map((s, i) => (s + scores[i]) / 2), 1.01];

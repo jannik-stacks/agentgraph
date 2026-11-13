@@ -1,9 +1,3 @@
-// The triage brief: the reply the triager posts on the issue, in the fixed template the triage skill gives.
-//
-//   ## Task
-//   ## Criteria        1. <one observable result> Test: it('<title>') in tests/<file>.test.ts
-//   ## Files
-//   ## Out of scope
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
@@ -13,7 +7,6 @@ export const maxCriteria = 5;
 const criterionLine = /^(\d+)\.\s+(.+?)\s+Test:\s*`?it\((['"`])(.+?)\3\)`?\s+in\s+`?([^`\s]+?)`?\.?\s*$/;
 const comment = /^## @(\S+) at \S+$/gm;
 
-/** The brief's sections by heading, and every heading in the order it appears. */
 const split = text => {
   const parts = {};
   const headings = [];
@@ -31,7 +24,6 @@ const split = text => {
 
 const items = lines => lines.map(line => line.trim()).filter(line => /^([-*]|\d+\.)\s/.test(line));
 
-/** Parses a brief. `problems` lists every way it breaks the template. */
 export const parseBrief = text => {
   const { parts, headings } = split(text);
   const problems = [];
@@ -70,7 +62,6 @@ const issueNumber = () => {
   return n && Number(n);
 };
 
-/** The local issue files under `$AGENTGRAPH_DIR/issues`. */
 const issueFiles = () => {
   if (!process.env.AGENTGRAPH_DIR) return [];
   const dir = join(process.env.AGENTGRAPH_DIR, 'issues');
@@ -83,7 +74,6 @@ const issueFiles = () => {
   }
 };
 
-/** The issue as the agent saw it, from the file `AGENTGRAPH_CONTEXT` names, else the local issue `AGENTGRAPH_ISSUE` (or the `agentgraph/<n>` branch) names. */
 export const findIssue = () => {
   if (process.env.AGENTGRAPH_CONTEXT) return readFileSync(process.env.AGENTGRAPH_CONTEXT, 'utf8');
   const n = issueNumber();
@@ -91,10 +81,8 @@ export const findIssue = () => {
   return file ? readFileSync(file, 'utf8') : undefined;
 };
 
-/** The reply of the try, from the file `AGENTGRAPH_REPLY` names. */
 export const findReply = () => (process.env.AGENTGRAPH_REPLY ? readFileSync(process.env.AGENTGRAPH_REPLY, 'utf8') : undefined);
 
-/** The last timeline entry of a context file that holds a brief, without its `@author: ` lead. */
 const briefInContext = source =>
   source
     .slice(source.indexOf('\n## Timeline\n') + 1)
@@ -104,7 +92,6 @@ const briefInContext = source =>
     .find(body => /^## Criteria\s*$/m.test(body))
     ?.trim();
 
-/** The last comment on a local issue file that holds a brief. */
 const briefIn = source => {
   if (process.env.AGENTGRAPH_CONTEXT) return briefInContext(source);
   const heads = [...source.matchAll(comment)];
@@ -112,11 +99,6 @@ const briefIn = source => {
   return bodies.reverse().find(body => /^## Criteria\s*$/m.test(body))?.trim();
 };
 
-/**
- * Finds the brief for this run: the file `AGENTGRAPH_BRIEF` names, or the last comment holding one in the context file
- * `AGENTGRAPH_CONTEXT` names, or the local issue `AGENTGRAPH_ISSUE` (or the `agentgraph/<n>` branch) names under
- * `$AGENTGRAPH_DIR/issues`, or else the one open local issue labeled `ready`.
- */
 export const findBrief = () => {
   if (process.env.AGENTGRAPH_BRIEF) return readFileSync(process.env.AGENTGRAPH_BRIEF, 'utf8');
   if (process.env.AGENTGRAPH_CONTEXT || issueNumber()) {

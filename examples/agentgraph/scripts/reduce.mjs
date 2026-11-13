@@ -1,6 +1,3 @@
-// One JSON line with the brief's criteria and the lines the change adds to code and tests, each under its file and
-// line number, so a reviewer can name what the criteria do not need. Each new function comes with the existing exports
-// whose names share a word with it, so the reviewer can say whether one of them already does its job.
 import { extname } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
 import { addedLines, readEnvBaseSha, baseText, changedFiles } from './changes.mjs';

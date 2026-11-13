@@ -1,9 +1,3 @@
-// Runs the tests related to the changed source files with coverage and fails a failing test and every added line that
-// no test runs, except lines that only make the change's rename. The repository's whole-file thresholds are left
-// out: the related tests alone never reach them, and code the change did not write is not its to cover. Reports go to
-// a temporary directory, never the worktree.
-//
-//   node coverage.mjs <root>...      e.g. node coverage.mjs src/
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,7 +13,6 @@ const files = changedFiles(sha)
   .filter(({ path, deleted }) => !deleted && code.test(path) && roots.some(root => path.startsWith(root)))
   .map(({ path }) => path);
 
-/** For each line, the fewest times any statement starting on it ran: 0 when part of the line never ran. */
 const lineHits = ({ statementMap, s }) => {
   const hits = new Map();
   for (const [id, { start }] of Object.entries(statementMap))
@@ -27,7 +20,6 @@ const lineHits = ({ statementMap, s }) => {
   return hits;
 };
 
-/** Consecutive line numbers folded into ranges. */
 const ranges = lines =>
   lines.reduce((all, line) => {
     const last = all.at(-1);

@@ -1,8 +1,3 @@
-// One JSON line per docs paragraph that names an export the change touches in src/, so a page the change leaves
-// alone is still read against the new code. A touched export is one whose declaration, with the comment above it,
-// holds a changed line.
-//
-//   node docs-mentions.mjs <code-root> <docs-root>      e.g. node docs-mentions.mjs src/ docs/
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { readEnvBaseSha, changedFiles, readChangeDiff } from './changes.mjs';
@@ -13,7 +8,6 @@ if (!code || !docs) throw new Error('usage: docs-mentions.mjs <code-root> <docs-
 const declaration = /^export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|function\*?|type|interface|class|enum)\s+([A-Za-z_$][\w$]*)/;
 const comment = /^\s*(\/\*|\*|\/\/)/;
 
-/** The exports of `lines` with the first line of each one's comment, in order. */
 const findExports = lines =>
   lines.flatMap((text, i) => {
     const name = declaration.exec(text)?.[1];

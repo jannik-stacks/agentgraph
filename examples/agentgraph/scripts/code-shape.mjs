@@ -1,7 +1,3 @@
-// Structure rules on the TypeScript a change adds under src/ and studio/src: components defined at module level,
-// routes loaded lazily, the members of a tagged `Schema.Union` tagged by one shared key, and the studio's UI rules on
-// its TSX. A softer hint, state copied in an effect, is printed without failing the check. In the graph scripts, a
-// field an item sends to a model that gathers text with no clip or limit fails.
 import { makeOffsetToLineLookup, parseSourceFileToAst, reporter, walk } from './ast.mjs';
 import { readCheckInputFiles, report } from './changes.mjs';
 import { studioFile, studioUi } from './studio-ui.mjs';
@@ -58,7 +54,6 @@ const isMixedTagUnion = (node, structs) => {
 const gathers = /\b(readFileSync|execFileSync|readCheckInputFiles)\(|Text\(/;
 const bounded = /slice\(|clip|max|limit/i;
 
-/** Fields of the items a script prints that gather text with no clip or limit, in their value or its declaration. */
 const unbounded = (program, text, getLineAt) => {
   const getNodeCode = node => text.slice(node.start, node.end);
   const declared = new Map();

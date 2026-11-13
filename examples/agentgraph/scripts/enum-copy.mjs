@@ -1,7 +1,3 @@
-// Finds a list of string literals the change adds that holds every value of a string union the code declares, or all
-// but one: a copy that misses the next value the union gains. Read the values from the declaration instead. Also finds
-// a number the change sets or compares under a name that src/ and a graph script both give that number, such as
-// `calls !== 5` in the engine and `calls: 5` in a script: two copies of one limit that drift apart.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { addedLines, readEnvBaseSha, changedFiles, report } from './changes.mjs';

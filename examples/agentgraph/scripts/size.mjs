@@ -1,9 +1,3 @@
-// Fails a change that adds more than a cap of lines, or adds to or changes more than a cap of files, outside tests/.
-// A task that needs more is two tasks. A file that only deletes lines does not count toward the file cap. A file
-// whose every changed line only swaps one word for another, the same swap across the change, is a rename and neither
-// it nor such lines count, so a rename is never left half done. The caps are the ones in bounds.mjs unless given.
-//
-//   node size.mjs [<max-added-lines> <max-files>]      e.g. node size.mjs 300 8
 import { capped, maxAddedLines, maxFiles } from './bounds.mjs';
 import { addedLines, readEnvBaseSha, changedFiles, findDominantTokenRename, ownLines, report } from './changes.mjs';
 

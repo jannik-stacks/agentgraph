@@ -1,6 +1,3 @@
-// The written rules as one table over the lines a change adds: timeless comments and docs prose, words instead of
-// symbols, headings that are names, ASCII diagram arrows, safe git ranges and refs, no way around the graph's guards,
-// nothing unfinished in shipped code, current names and no CLAUDE.md. With `--all` every tracked line counts.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -36,7 +33,6 @@ const kept = path => !path.startsWith('research/');
 const diagram = (path, kind) => kept(path) && kind === 'fence' && /\.mdx?$/.test(path);
 const launchers = new Set(['src/runner.ts', 'src/sim.ts']);
 
-/** A line that quotes the old name, or names the new one beside it, is a hint about the name. */
 const hint = ({ word, example }) => (_, text) =>
   (example !== undefined && text.includes(example.replaceAll('`', ''))) ||
   new RegExp(`(===\\s*)?['"]${word}s?['"]`, 'i').test(text);
@@ -95,7 +91,6 @@ const rules = [
 
 const longest = 30;
 
-/** A fenced code block longer than `longest` lines that the change opens on a docs page. */
 const longBlocks = ({ path, text, lines }) => {
   if (!docsPath.test(path)) return [];
   const added = new Set(lines.map(({ line }) => line));
@@ -114,7 +109,6 @@ const longBlocks = ({ path, text, lines }) => {
   return found;
 };
 
-/** A check the change adds in block or stop mode whose body names no replay that calibrated it. */
 const uncalibrated = ({ path, text, lines }) => {
   const [, front = '', ...body] = text.split(/^---\s*$/m);
   const fresh = lines.length === text.replace(/\n$/, '').split('\n').length;

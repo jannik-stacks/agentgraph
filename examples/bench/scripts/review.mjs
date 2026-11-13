@@ -1,5 +1,3 @@
-// Prints one line that points the reviewer at the change, or nothing when the change is one small edit to one
-// non-test file, which goes unreviewed. Any git error still prints the line, so review never silently drops.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 

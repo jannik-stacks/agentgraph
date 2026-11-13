@@ -1,4 +1,3 @@
-// TypeScript and TSX parsed with the parser the studio already installs, and helpers over the tree it gives.
 import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -15,7 +14,6 @@ const { parseAst } = await import(pathToFileURL(resolveParser()).href);
 
 const pickParserLang = path => ({ '.tsx': 'tsx', '.ts': 'ts', '.mts': 'ts', '.jsx': 'jsx' })[extname(path)] ?? 'js';
 
-/** The program of `code`, or the parse error message. */
 export const parseSourceFileToAst = (path, code) => {
   try {
     return { program: parseAst(code, { lang: pickParserLang(path) }) };
@@ -24,7 +22,6 @@ export const parseSourceFileToAst = (path, code) => {
   }
 };
 
-/** The 1-based line of a character offset. */
 export const makeOffsetToLineLookup = code => {
   const starts = [0];
   for (let i = 0; i < code.length; i++) if (code[i] === '\n') starts.push(i + 1);
@@ -40,7 +37,6 @@ export const makeOffsetToLineLookup = code => {
   };
 };
 
-/** Calls `visit(node, parents)` for every node, depth first, parents nearest last. */
 export const walk = (node, visit, parents = []) => {
   if (!node || typeof node !== 'object') return;
   if (Array.isArray(node)) {
@@ -55,7 +51,6 @@ export const walk = (node, visit, parents = []) => {
   }
 };
 
-/** The tag name of a JSX element, `a.b` for member names. */
 export const getJsxTag = element => {
   const name = element.openingElement?.name;
   if (!name) return '';
@@ -66,11 +61,9 @@ export const getJsxTag = element => {
 
 export const isNative = tag => /^[a-z]/.test(tag);
 
-/** The attribute `name` of a JSX element. */
 export const getJsxAttr = (element, name) =>
   element.openingElement?.attributes?.find(a => a.type === 'JSXAttribute' && a.name?.name === name);
 
-/** The literal string an attribute holds, when it holds one. */
 export const attrText = attribute => {
   const value = attribute?.value;
   if (!value) return undefined;
@@ -81,7 +74,6 @@ export const attrText = attribute => {
   return undefined;
 };
 
-/** Children that render something: whitespace-only text and empty expressions dropped. */
 export const meaningful = children =>
   (children ?? []).filter(
     child =>
@@ -89,7 +81,6 @@ export const meaningful = children =>
       !(child.type === 'JSXExpressionContainer' && child.expression?.type === 'JSXEmptyExpression')
   );
 
-/** Reports findings on the lines that count, in the shape every script check prints. */
 export const reporter = () => {
   const findings = [];
   const add = (source, line, message) => {

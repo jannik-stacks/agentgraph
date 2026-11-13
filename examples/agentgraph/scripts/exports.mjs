@@ -1,6 +1,3 @@
-// One JSON line per src/ file the change adds exports to: those exports, and the existing exports whose names share a
-// word with one of them, so a small model can say whether one already does the job. An export with no such neighbour
-// is left out, and a file with none of them.
 import { addedLines, readEnvBaseSha, changedFiles } from './changes.mjs';
 import { declaration, existingExports, sharingWords } from './neighbours.mjs';
 

@@ -1,9 +1,3 @@
-// Fails a change that touches files outside the allowed roots, writes harness memory, adds secrets, key material, a
-// huge file or a working-notes file, or changes CI. The allowed roots are the paths in bounds.mjs unless given.
-//
-//   node safety.mjs [<allowed-root>...] [--markdown <root>]... [--max-lines <file>:<n>]...
-//
-// With `--markdown`, a new markdown file must sit under one of those roots. `--max-lines` caps a file's length.
 import { readFileSync, statSync } from 'node:fs';
 import { findSafetyRejections, paths } from './bounds.mjs';
 import { addedLines, readEnvBaseSha, changedFiles, inBase, report } from './changes.mjs';
@@ -32,16 +26,13 @@ const secret = [
   [/\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@'"]+:[^\s/@'"]{3,}@/i, 'a URL with credentials'],
 ];
 
-/** Fixtures and vectors hold recorded ids; tests may also hold labelled test mnemonics. */
 const recorded = path => /(^|\/)(fixtures|vectors)\//.test(path);
 const testCode = path => recorded(path) || /(^|\/)(tests?|__tests__)\/|\.test\.[cm]?[jt]sx?$/.test(path);
 
-/** A quoted run of 12 to 24 lowercase words on a line about a mnemonic or seed, other than the BIP-39 test vector. */
 const seedPhrase = text =>
   /\b(mnemonic|seed|recovery|phrase)\b/i.test(text) &&
   [...text.matchAll(/(['"`])((?:[a-z]{3,8} ){11,23}[a-z]{3,8})\1/g)].some(m => !m[2].startsWith('abandon abandon'));
 
-/** Bits per character of `token`. */
 const entropy = token => {
   const counts = new Map();
   for (const ch of token) counts.set(ch, (counts.get(ch) ?? 0) + 1);
@@ -50,7 +41,6 @@ const entropy = token => {
   return bits;
 };
 
-/** A long token of mixed case and digits as random as a generated key. Hex digests and identifiers stay below it. */
 const randomToken = text =>
   (text.match(/[A-Za-z0-9+/_-]{24,}={0,2}/g) ?? []).some(
     token => /[a-z]/.test(token) && /[A-Z]/.test(token) && /\d/.test(token) && entropy(token) >= 4.2

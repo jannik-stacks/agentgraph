@@ -1,5 +1,3 @@
-// The exports a commit already has, and those whose names share a word with a new name, so a judge can say whether
-// one of them already does the new code's job.
 import { execFileSync } from 'node:child_process';
 
 export const declaration = /^export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|function\*?|type|interface|class|enum)\s+([A-Za-z_$][\w$]*)/;
@@ -20,7 +18,6 @@ const grep = (sha, pathspecs) => {
   }
 };
 
-/** The exported declarations under `pathspecs` at `sha`, each with its file, line, name and code. */
 export const existingExports = (sha, pathspecs) =>
   grep(sha, pathspecs)
     .split('\n')
@@ -30,7 +27,6 @@ export const existingExports = (sha, pathspecs) =>
       return name ? [{ file: m[1], line: Number(m[2]), name, code: m[3].trim().slice(0, 160) }] : [];
     });
 
-/** The existing exports whose names share a word with `name`, as `file:line: code`, each with how many words. */
 export const sharingWords = (name, existing) => {
   const mine = new Set(words(name));
   return existing

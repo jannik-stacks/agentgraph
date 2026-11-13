@@ -1,9 +1,3 @@
-// Lints and format-checks the code a change touches. oxlint runs with the repository's .oxlintrc.json, or the graph's
-// oxlintrc.json when the repository has none, plus the suspicious category; only errors on lines the change adds
-// fail, lines that only make its rename aside, since code that was already there is not this change's to fix.
-// Warnings on added lines are printed. oxfmt checks every changed file when the repository has its own
-// .oxfmtrc.json, and otherwise only new code files, against the graph's oxfmtrc.json. The sandbox image ships the oxlint
-// and oxfmt versions agentgraph locks.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';

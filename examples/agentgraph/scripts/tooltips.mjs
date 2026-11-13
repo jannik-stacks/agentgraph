@@ -1,5 +1,3 @@
-// One JSON line per tooltip a change adds under studio/src, with the element it explains, so a small model can judge
-// whether the text says what the thing is or does.
 import { getJsxAttr, attrText, makeOffsetToLineLookup, parseSourceFileToAst, getJsxTag, walk } from './ast.mjs';
 import { readCheckInputFiles } from './changes.mjs';
 

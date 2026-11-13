@@ -1,9 +1,3 @@
-// One JSON line per hunk the change makes under the given roots, with surrounding code so it reads on its own. Hunks
-// that only touch comments or blank lines are left out: the rules check covers them. So are hunks that only make
-// the change's rename (see size.mjs): the types and tests checks cover a rename, and it would crowd out the rest. A new
-// file is one item. Each item carries the triage brief's out-of-scope list when there is one.
-//
-//   node hunks.mjs <root>...      e.g. node hunks.mjs src/
 import { readFileSync } from 'node:fs';
 import { findBrief, parseBrief } from './brief.mjs';
 import { readEnvBaseSha, changedFiles, readChangeDiff, inBase, findDominantTokenRename, swapIn } from './changes.mjs';

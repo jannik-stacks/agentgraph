@@ -1,6 +1,3 @@
-// One JSON line per run status value the change touches under src/ and studio/src/: every changed line that
-// names it, with the code around it, so a reviewer follows that one value through the transitions the change makes.
-// The values are read from where the code declares them; a change that names none prints nothing.
 import { existsSync, readFileSync } from 'node:fs';
 import { readEnvBaseSha, changeText } from './changes.mjs';
 
@@ -21,7 +18,6 @@ const hunks = changeText(readEnvBaseSha(), ['src/', 'studio/src/'], context)
     return (parts.length ? parts : [head]).map(hunk => ({ file, rows: hunk.trimEnd().split('\n') }));
   });
 
-/** The rows of a hunk within `context` of a changed row that `names` it, with `…` for the rows between. */
 const around = (rows, names) => {
   const hits = rows.flatMap((row, i) => (/^[+-](?![+-]{2} )/.test(row) && names.test(row) ? [i] : []));
   if (!hits.length) return '';

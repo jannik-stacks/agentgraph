@@ -1,6 +1,3 @@
-// What a change adds under src/ or studio/src that nothing wires in: an export no other file uses, a new file nothing
-// outside tests imports, a new optional field nothing outside tests sets, and a new event type nothing outside tests
-// reads. Fields and events are matched by words, so they only fail when no line could be the use.
 import { execFileSync } from 'node:child_process';
 import { basename, extname } from 'node:path';
 import { ownLines, readEnvBaseSha, changedFiles, inBase, report } from './changes.mjs';
@@ -11,7 +8,6 @@ const code = /^(src|studio\/src)\/.*\.(ts|tsx|mts)$/;
 const optionalField = /(?:^\s*|[{;]\s*)([A-Za-z_$][\w$]*)\?:/g;
 const eventType = /\btype: '([\w-]+)';/;
 
-/** Lines that match `pattern` in the code and tests, as `{ file, line, text }`. */
 const hits = (pattern, ...flags) => {
   try {
     return execFileSync('git', ['grep', '-n', '--untracked', ...flags, '-e', pattern, '--', 'src', 'harnesses', 'agentgraph.config.ts', 'studio', 'bin', 'tests'], {
@@ -27,7 +23,6 @@ const hits = (pattern, ...flags) => {
     return [];
   }
 };
-/** A hit outside tests and outside `path`, or with `line`, outside that one line. */
 const elsewhere = (path, line) => hit =>
   !hit.file.startsWith('tests/') && (hit.file !== path || (line !== undefined && hit.line !== line));
 

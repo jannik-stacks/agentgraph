@@ -1,11 +1,3 @@
-// Runs vitest on the arguments given and prints one line when it passes. When it fails, the failing tests come
-// first, by file and full name with the first line of their error, then the end of vitest's error log and its
-// summary, so a long error log never pushes the names out of the part of the output that is kept. A run whose output
-// reports a module that could not load fails too, listing those lines, even when every test passed: a test over a
-// module that did not load tests nothing. A pass names each criterion test of the triage brief that was skipped.
-// TMPDIR is a symlink, as /tmp and /var are on macOS, so a resolved path compared with an unresolved one fails here too.
-//
-//   node tests.mjs [file...]      e.g. node tests.mjs tests/live.test.ts
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,6 +12,7 @@ const line = text => (text ?? '').split('\n').find(Boolean)?.slice(0, 200) ?? ''
 const tmp = mkdtempSync(join(tmpdir(), 'agentgraph-tests-'));
 const { FORCE_COLOR: _, ...rest } = process.env;
 mkdirSync(join(tmp, 'real'));
+// UNEXPECTED: TMPDIR is a symlink, as /tmp and /var are on macOS, so a resolved path compared with an unresolved one fails here too.
 symlinkSync(join(tmp, 'real'), join(tmp, 'linked'));
 const env = { ...rest, NO_COLOR: '1', HOME: process.env.HOME || tmp, TMPDIR: join(tmp, 'linked') };
 try {
