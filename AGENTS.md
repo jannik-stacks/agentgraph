@@ -36,7 +36,11 @@ The agentgraph bot, humans and Claude Code meet one bar here: the rules above, t
 - Pull requests merge by rebase only, so `main` stays linear.
 - The repo is public. Commits, pull requests and comments name no home folder, no email but a noreply one, and
   nothing on the operator's deny list; the example's hygiene check blocks them. Point `AGENTGRAPH_DENY` at the list,
-  or put it at `examples/agentgraph/deny.txt`, which git ignores.
+  or put it at `examples/agentgraph/deny.txt`, which git ignores. That file keeps a private word list.
+- Code, tests, docs and examples use placeholders such as `acme/mono`, `example.com` and `/Users/me`. They never name
+  real companies, people, private or client repos, hosts the operator uses, run ids or spend.
+- Private notes live in the operator's private repo, not here: UNSURE, CAVEATS and PAPERCUTS files, plans, review
+  loops, run data and repo-specific setups.
 
 ## Releasing
 
