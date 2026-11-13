@@ -15,7 +15,7 @@ it('lets in verified Cloudflare Access emails on an allowed domain and refuses t
   try {
     const { auths } = await readPlugins(
       undefined,
-      { 'cloudflare-access': { team: `${team}/some/path`, audience: 'studio-aud', domains: ['stackslabs.com'] } },
+      { 'cloudflare-access': { team: `${team}/some/path`, audience: 'studio-aud', domains: ['example.test'] } },
       { builtins: [cloudflareAccess] }
     );
     const check = auths['cloudflare-access']!({ env: {} });
@@ -32,16 +32,16 @@ it('lets in verified Cloudflare Access emails on an allowed domain and refuses t
         headers: assertion === undefined ? {} : { 'cf-access-jwt-assertion': assertion },
       });
     expect([
-      await ask(await sign('ana@stackslabs.com')),
-      await ask(await sign('bo@eu.stackslabs.com')),
-      await ask(await sign('eve@evilstackslabs.com')),
-      await ask(await sign('ana@stackslabs.com', { audience: 'other-app' })),
-      await ask(await sign('ana@stackslabs.com', { key: other.privateKey })),
+      await ask(await sign('ana@example.test')),
+      await ask(await sign('bo@eu.example.test')),
+      await ask(await sign('eve@evilexample.test')),
+      await ask(await sign('ana@example.test', { audience: 'other-app' })),
+      await ask(await sign('ana@example.test', { key: other.privateKey })),
       await ask(),
     ]).toEqual([
-      { kind: 'user', user: 'ana@stackslabs.com' },
-      { kind: 'user', user: 'bo@eu.stackslabs.com' },
-      { kind: 'refuse', why: 'eve@evilstackslabs.com is not on an allowed domain' },
+      { kind: 'user', user: 'ana@example.test' },
+      { kind: 'user', user: 'bo@eu.example.test' },
+      { kind: 'refuse', why: 'eve@evilexample.test is not on an allowed domain' },
       { kind: 'refuse', why: 'the Cloudflare Access token does not verify' },
       { kind: 'refuse', why: 'the Cloudflare Access token does not verify' },
       { kind: 'refuse', why: 'open the studio through Cloudflare Access' },

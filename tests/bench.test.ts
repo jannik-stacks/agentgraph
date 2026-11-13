@@ -427,13 +427,13 @@ describe('bin/bench.ts score and judge', () => {
   it('gates a case on its reference runs and records why it is invalid', () => {
     const root = tmp('bench-invalid');
     dirs.push(root);
-    const { repo, set, kase } = makeSumCase(root, { repo: 'leather-io/mono', test: undefined });
+    const { repo, set, kase } = makeSumCase(root, { repo: 'acme/mono', test: undefined });
     const gate = spawnSync(process.execPath, [cli, 'score', 'v2', kase, set, '--repo', repo], {
       encoding: 'utf8',
       env: hostDocker(),
     });
     expect(gate.status, gate.stderr).toBe(0);
-    expect(gate.stdout).toContain('gate demo: invalid: no test command for leather-io/mono');
+    expect(gate.stdout).toContain('gate demo: invalid: no test command for acme/mono');
     expect(gate.stdout).toContain('base hidden=not run suite=not run typecheck=not run');
     const valid = readSlotResults(set, { case: 'demo', arm: 'human', repeat: 1 })['bench/valid']!;
     expect(valid.check).toMatchObject({ pass: false, findings: expect.stringContaining('set case.test') });
@@ -890,7 +890,7 @@ describe('prices', () => {
 describe('pickBenchTestCommands', () => {
   it.each(
     [
-      'leather-io/mono',
+      'acme/mono',
       'acme/explorer',
       'acme/stacks.js',
       'acme/clarinet',
@@ -922,11 +922,11 @@ describe('pickBenchTestCommands', () => {
     },
     { fields: { hasTests: false }, expected: { hasTests: false, why: 'case disables hidden tests' } },
   ])('honors case commands: $fields', ({ fields, expected }) => {
-    expect(pickBenchTestCommands('leather-io/mono', ['tests/a.test.ts'], fields)).toMatchObject(expected);
+    expect(pickBenchTestCommands('acme/mono', ['tests/a.test.ts'], fields)).toMatchObject(expected);
     expect(pickBenchTestCommands('acme/explorer', ['tests/a.test.ts'], fields)).toMatchObject(expected);
   });
 
-  it.each(['leather-io/mono', 'acme/clarinet', 'acme/stacks-blockchain-api'])(
+  it.each(['acme/mono', 'acme/clarinet', 'acme/stacks-blockchain-api'])(
     'rejects unsupported test files in %s',
     repo => {
       expect(pickBenchTestCommands(repo, ['other/unknown.test.ts'])).toMatchObject({
@@ -1052,7 +1052,7 @@ describe('pickBenchTestCommands', () => {
     expect(pickBenchTestCommands('acme/connect', ['packages/connect/tests/a.test.ts']).test).toBe(
       "(cd packages/connect && npx vitest run 'tests/a.test.ts')"
     );
-    expect(pickBenchTestCommands('leather-io/workers', ['packages/x/src/a.spec.ts']).setup).toContain("'10.33.0'");
+    expect(pickBenchTestCommands('acme/workers', ['packages/x/src/a.spec.ts']).setup).toContain("'10.33.0'");
     expect(
       pickBenchTestCommands('acme/stacks-mesh-api', ['packages/api/tests/api/a.test.ts', 'packages/api/tests/h.ts'])
         .test
