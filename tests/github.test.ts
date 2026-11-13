@@ -251,23 +251,35 @@ describe('githubTracker', () => {
       'GET /repos/o/r/pulls': [pull(8, { head: { ref: 'agentgraph/7', sha: 'head', repo: { full_name: 'fork/r' } } })],
       'GET /repos/o/r/pulls/8/reviews': [],
       'GET /repos/fork/r/activity': [
-        { ref: 'refs/heads/agentgraph/7', after: 'one', pushed_at: '2026-10-16T12:00:00Z', pusher: { login: 'bob' } },
         {
           id: 1,
+          ref: 'refs/heads/agentgraph/7',
+          after: 'one',
+          pushed_at: '2026-10-16T12:00:00Z',
+          pusher: { login: 'bob' },
+        },
+        {
+          id: 2,
           ref: 'refs/heads/agentgraph/7',
           after: 'two',
           pushed_at: '2026-10-16T12:01:00Z',
           pusher: { login: 'mallory' },
         },
         {
-          id: 2,
+          id: 3,
           ref: 'refs/heads/agentgraph/7',
           after: 'bot',
           pushed_at: '2026-10-16T12:02:00Z',
           pusher: { login: 'helper[bot]', type: 'Bot' },
         },
-        { ref: 'refs/heads/other', after: 'other', pushed_at: '2026-10-16T12:03:00Z', pusher: { login: 'bob' } },
-        { ref: 'refs/heads/agentgraph/7', after: 'old', pushed_at: '2026-10-15T12:00:00Z', pusher: { login: 'bob' } },
+        { id: 4, ref: 'refs/heads/other', after: 'other', pushed_at: '2026-10-16T12:03:00Z', pusher: { login: 'bob' } },
+        {
+          id: 5,
+          ref: 'refs/heads/agentgraph/7',
+          after: 'old',
+          pushed_at: '2026-10-15T12:00:00Z',
+          pusher: { login: 'bob' },
+        },
       ],
       'GET /repos/o/r/collaborators/bob/permission': { permission: 'write' },
       'GET /repos/o/r/collaborators/mallory/permission': { permission: 'read' },
@@ -277,9 +289,9 @@ describe('githubTracker', () => {
       Effect.flatMap(Tracker, t => Stream.runCollect(t.since('2026-10-16T00:00:00Z'))),
       'fork/r'
     );
-    expect(events.map(e => [e.issue, e.actor, e.trusted, e.commit?.sha])).toEqual([
-      [8, 'bob', true, 'one'],
-      [8, 'mallory', false, 'two'],
+    expect(events.map(e => [e.id, e.bot, e.issue, e.actor, e.trusted, e.commit?.sha])).toEqual([
+      ['push-1', false, 8, 'bob', true, 'one'],
+      ['push-2', false, 8, 'mallory', false, 'two'],
     ]);
     expect(f.calls.find(c => c.path.startsWith('/repos/fork/r/activity'))?.headers.get('authorization')).toBe(
       'Bearer fork-token'
