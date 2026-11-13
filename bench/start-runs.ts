@@ -1,11 +1,3 @@
-/**
- * Starts a run for every case of `<set>/set.json` times each arm, point and repeat, and skips the ones already on
- * disk; each gates its case on the reference runs, then runs, scores and judges its slot through bin/bench.ts.
- * Usage: node bench/start-runs.ts <set> [--cases a,b] [--arms v2,floor] [--points opencode:luna] [--repeats 3]
- *        [--graph dir] [--label key=value]... [--parallel 3] [--max-codex 90] [--cap usd --per usd --orenv file]
- *        [--keys file] [--judges opus:1,sonnet:2|none] [--repos dir] [--dry]
- * Exits 1 while runs are left, so a queue tries again later.
- */
 import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -23,14 +15,9 @@ import { isBenchCaseValid, isBenchRunDone, readBenchSlots, readSlotRun } from '.
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
-/** The node on PATH now, so a toolchain upgrade during a long bench does not break later spawns. */
 export const nodePath = (fallback = process.execPath) =>
   spawnSync('sh', ['-c', 'command -v node'], { encoding: 'utf8' }).stdout?.trim() || fallback;
 
-/**
- * Runs `args` with node into `logFile` in its own process group; a spawn or log write error ends it with exit 1
- * instead of the driver.
- */
 export const runLogged = async (
   args: string[],
   logFile: string,
@@ -95,11 +82,6 @@ export const runQueue = async <T>(
   return stopped;
 };
 
-/**
- * Takes this run's baseline from `usage`. `check` says why no new job may start: a failed or over two minutes old
- * reading, or this run's spend, plus a job for each in flight and the next, passing `cap`. A job costs this run's
- * spend over the jobs `finished` in it, at least `per`.
- */
 export const spendGuard = async (cap: number, per: number, usage: () => Promise<number>, clock = Date.now) => {
   let last: { at: number; total: number } | undefined;
   let failed: string | undefined;
