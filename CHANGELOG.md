@@ -41,7 +41,7 @@ versions start again at 0.0.1.
 - A committed `.agentgraph/` with symlinks or submodules is refused. The studio's Inbox commands carry
   the instance's `--repo` and `--data`.
 - `start` and `say` take `--label`, repeatable; `show graph` prints the graph in use and its files.
-- `npx agentgraph <verb>` inside any repo needs no setup: the first command makes a local instance
+- `npx @jannik-stacks/agi <verb>` inside any repo needs no setup: the first command makes a local instance
   under `--data`, `AGENTGRAPH_DATA` or `~/.agentgraph`. `start`, `say`, `review`, `merge`, `export`,
   `close`, `show`, `loop`, `check`, `dispatch` and `prune-logs` take the issue number as the handle.
   `bin/forge.ts`, `--instance`, `--issue <n>` as a run selector, `--all`, `status`, `tell` from the CLI
@@ -197,7 +197,7 @@ The first versioned release.
 
 #### Hubs and checks
 
-- A hub is config: `hub.yaml`, bots, skills, checks, workflows and notes. `agentgraph check`
+- A hub is config: `hub.yaml`, bots, skills, checks, workflows and notes. `agi check`
   validates it and fails closed.
 - Checks are scripts or narrow bot judges, in modes `log`, `warn` and `block`. A script slices the
   change into hunks, items or files, and a bot answers one question per piece.

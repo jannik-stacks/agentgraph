@@ -23,7 +23,7 @@ backends, never by forking code. Each milestone ends with something you can run.
    and PR handoff, journaled idempotent apply, event dedupe, crash reconciliation, branch locks,
    resolved model per run, fault scenarios in the test doubles.
 3. **One-command stack.** agentgraph itself as a container (serve, API, AGI), added to the compose
-   stack; config only through env and the graph repo; `agentgraph doctor` checks every dependency.
+   stack; config only through env and the graph repo; `agi doctor` checks every dependency.
 4. **GitHub mode.** GitHub App, webhook receiver with signature check, tunnel for local testing,
    a test repository, the same workflows as local mode.
 5. **Portable sandbox.** A `Sandbox` interface with docker, docker plus gVisor and remote
