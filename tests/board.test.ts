@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import board from '../examples/board/plugins/board.ts';
+import board from './fixtures/triggers/plugins/board.ts';
 import type { HookContext } from '../src/plugin.ts';
 
 const settings = {

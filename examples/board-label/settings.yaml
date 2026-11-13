@@ -1,4 +1,0 @@
-limits:
-  minutes: 20
-  usd-per-run: 2
-  parallel: 1

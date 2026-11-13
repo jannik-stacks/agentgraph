@@ -28,7 +28,7 @@ Steps run in written order and choose `agent`, `run` or `wait: human`. An agent 
 
 A `run` step passes on exit 0. It may print proposals in a fenced `agentgraph` block, limited by `returns` (default `[run]`). An ungranted kind fails the try without applying proposals.
 
-A script can conditionally propose `run` to start a child workflow; the parent waits and repeats its step after the child settles. `reads: traces` exposes the run trace to the script. The `examples/retro-gate` graph uses this to request feedback after repeated tool failures. <!-- code: src/graph.ts#getStepReturns --> <!-- code: src/run/attempt.ts#runAttempt src/workflow.ts#compileWorkflow -->
+A script can conditionally propose `run` to start a child workflow; the parent waits and repeats its step after the child settles. `reads: traces` exposes the run trace to the script. A [retro gate](../tests/fixtures/retro-gate/scripts/failed-tools.mjs) uses this to start a retro after repeated tool failures. <!-- code: src/graph.ts#getStepReturns --> <!-- code: src/run/attempt.ts#runAttempt src/workflow.ts#compileWorkflow -->
 
 ## What starts a run
 
@@ -69,7 +69,7 @@ A comment needing only an answer can finish without a code change. A first sessi
 
 Column triggers poll the board on each pass. `project: owner/number` selects a board; otherwise only the repository owner's boards count. With both label and column, either can start a run and the column also adds the label. Moving a card out does not stop work.
 
-Board reads need `AGENTGRAPH_PROJECT_TOKEN` or `gh auth token` with `read:project` scope. Missing access is reported; label and comment triggers remain available. The board example's [plugin](../examples/board/plugins/board.ts) maps run statuses to project fields and needs `project` scope for writes. <!-- code: src/github.ts#githubTracker src/run/trigger.ts#tick --> <!-- code: src/workflow.ts#issueSources --> <!-- code: src/run/trigger.ts#tick --> <!-- code: src/github.ts#readProjectToken --> <!-- code: examples/board/plugins/board.ts src/github.ts#githubTracker -->
+Board reads need `AGENTGRAPH_PROJECT_TOKEN` or `gh auth token` with `read:project` scope. Missing access is reported; label and comment triggers remain available. A [board plugin](../tests/fixtures/triggers/plugins/board.ts) maps run statuses to project fields and needs `project` scope for writes. <!-- code: src/github.ts#githubTracker src/run/trigger.ts#tick --> <!-- code: src/workflow.ts#issueSources --> <!-- code: src/run/trigger.ts#tick --> <!-- code: src/github.ts#readProjectToken --> <!-- code: tests/fixtures/triggers/plugins/board.ts src/github.ts#githubTracker -->
 
 ## Trust and scope
 

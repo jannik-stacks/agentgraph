@@ -12,7 +12,8 @@ const examples = join(import.meta.dirname, '..', 'examples');
 const infra = join(import.meta.dirname, '..', 'infra', 'local');
 const graphDirs = readdirSync(examples)
   .map(name => join(examples, name))
-  .filter(dir => existsSync(join(dir, 'settings.yaml')));
+  .filter(dir => existsSync(join(dir, 'settings.yaml')))
+  .concat(join(import.meta.dirname, 'fixtures', 'triggers'));
 const readGraphAgents = async (dir: string) =>
   Object.values((await Effect.runPromise(loadGraph(dir, harnesses))).agents);
 

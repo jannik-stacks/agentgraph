@@ -42,7 +42,6 @@ The engine requires a graph. Read and edit the copied agents, workflows and chec
 | `examples/bench`         | The graph the bench replays pull requests with     |
 | `examples/dashboard`     | A studio page plugin for runs and tracker activity |
 | `examples/plugins/bench` | An example studio plugin for Bench comparisons     |
-| `examples/conflicts`     | Conflicts resolved in a run of their own           |
 
 Tune is an experimental clone-only tool for proposing graph changes through Bench, with little test coverage and unstable commands and files. Submit a candidate with `node bin/tune.ts propose <tune dir> --from <graph dir> --why <text>`.
 

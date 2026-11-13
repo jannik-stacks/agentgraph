@@ -1,7 +1,3 @@
-limits:
-  minutes: 20
-  usd-per-run: 2
-  parallel: 1
 plugins:
   board:
     project: acme/1

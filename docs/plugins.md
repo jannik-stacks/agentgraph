@@ -48,7 +48,7 @@ For image input, save a PNG or JPEG in sandbox `/tmp`, run `agi file put <path>`
 
 `on.status` receives `{ issue, repo, from, to }` after an issue's status changes. Its context supplies plugin settings, tracker search and, on GitHub, `tracker.writeField(issue, { project, field, value })`. A null value clears a project field; writing needs a token with `project` scope.
 
-Hooks run in filename order; a thrown error is logged without stopping the run. The [board example](../examples/board/plugins/board.ts) maps statuses to project fields. <!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/run/settle.ts#announce src/tracker.ts#Tracker --> <!-- code: examples/board/plugins/board.ts#settings src/plugin.ts#HookContext -->
+Hooks run in filename order; a thrown error is logged without stopping the run. A [board plugin](../tests/fixtures/triggers/plugins/board.ts) maps statuses to project fields. <!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/run/settle.ts#announce src/tracker.ts#Tracker --> <!-- code: tests/fixtures/triggers/plugins/board.ts#settings src/plugin.ts#HookContext -->
 
 ## Trackers
 

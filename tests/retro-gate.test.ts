@@ -13,7 +13,7 @@ import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import { appendIssueAt, issuePath, writeIssueAt } from './kit.ts';
 import { formatReason, type Agent, type SessionEvent } from '../src/types.ts';
 
-const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, '..', 'examples', 'retro-gate'), harnesses));
+const graph = await Effect.runPromise(loadGraph(join(import.meta.dirname, 'fixtures', 'retro-gate'), harnesses));
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -73,7 +73,7 @@ const ticks = async (where: ReturnType<typeof world>, turns: SessionEvent[][][],
   return Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
 };
 
-describe('the retro gate example', () => {
+describe('the retro gate', () => {
   it('starts a retro after more than five failed tool calls, then moves on to merge', async () => {
     const where = world();
     const retro = [start('r1'), reply({ kind: 'comment', body: 'Add pnpm to the setup.' })];
