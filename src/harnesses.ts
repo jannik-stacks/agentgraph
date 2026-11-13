@@ -30,6 +30,7 @@ export type Harness = HarnessCheck & {
     route: ModelRoute
   ) => Pick<Command, 'cmd' | 'args'> & Partial<Pick<Command, 'env' | 'readonly'>> & { input: string };
   parse: () => (line: unknown) => Piece[];
+  cumulative?: true;
 };
 
 export type Provider = {
@@ -136,6 +137,7 @@ export const makeHarnessConfigProvider = (
 };
 
 const inputFile = '.agentgraph/input';
+const usageFile = '.agentgraph/usage';
 
 /** Runs the harness on its input file, with its errors on the one stream it prints to, so the lines keep their order. */
 const wrapped = (cmd: string, args: string[]) => ({
@@ -170,6 +172,20 @@ const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usa
   return usd === undefined ? { ...u, unpriced: models[0] ?? 'unknown' } : { ...u, usd };
 };
 
+type Usage = Extract<Piece, { type: 'usage' }>;
+const counts = ['input', 'output', 'cacheRead', 'cacheWrite'] as const;
+type Counts = Partial<Pick<Usage, (typeof counts)[number]>>;
+
+const subtractUsage = (u: Usage, before: Counts): Usage => ({
+  ...u,
+  ...Object.fromEntries(
+    counts.flatMap(k => {
+      const total = u[k];
+      return total === undefined ? [] : [[k, Math.max(0, total - (before[k] ?? 0))]];
+    })
+  ),
+});
+
 const makeHomePath = async (home: string, path: string) => {
   const parts = path.split('/');
   if (parts.some(part => !part || part === '.' || part === '..'))
@@ -196,6 +212,12 @@ const writeHome = async (home: string, path: string, text: string) => {
   const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW } = constants;
   const file = await openFile(await makeHomePath(home, path), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW);
   await file.writeFile(text).finally(() => file.close());
+};
+
+const readHome = async (home: string, path: string) => {
+  const { O_RDONLY, O_NOFOLLOW } = constants;
+  const file = await openFile(await makeHomePath(home, path), O_RDONLY | O_NOFOLLOW).catch(() => undefined);
+  return file && (await file.readFile('utf8').finally(() => file.close()));
 };
 
 const makeSessionStop = (e: SandboxError) =>
@@ -255,6 +277,7 @@ export const harnessSession = (
               catch: e => new SessionStop({ reason: 'sandbox', detail: `harness ${harness.name}: ${String(e)}` }),
             });
             const homes = join(s.data, 'homes');
+            let counted: Counts = {};
             const from = spec.resume && join(homes, basename(spec.resume.home));
             const home = (!spec.fork && from) || join(homes, randomUUID());
             yield* Effect.tryPromise({
@@ -268,6 +291,7 @@ export const harnessSession = (
                   if (text === null) await rm(await makeHomePath(home, path), { force: true });
                   else await writeHome(home, path, text);
                 for (const [path, target] of Object.entries(links)) await linkHome(home, path, target);
+                if (harness.cumulative) counted = JSON.parse((await readHome(home, usageFile)) || '{}');
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });
@@ -335,7 +359,11 @@ export const harnessSession = (
                   )
                     return [];
                 }
-                if (piece.type === 'usage') return [priced(prices, [piece.model ?? model, model, route.model], piece)];
+                if (piece.type === 'usage') {
+                  const added = harness.cumulative ? subtractUsage(piece, counted) : piece;
+                  if (harness.cumulative) counted = Object.fromEntries(counts.map(k => [k, piece[k]]));
+                  return [priced(prices, [piece.model ?? model, model, route.model], added)];
+                }
                 return [piece];
               });
             };
@@ -357,7 +385,16 @@ export const harnessSession = (
                 minutes: spec.minutes,
                 ...(spec.limits && { limits: spec.limits }),
               })
-              .pipe(Stream.mapError(makeSessionStop), Stream.map(step), Stream.flattenIterable);
+              .pipe(
+                Stream.mapError(makeSessionStop),
+                Stream.map(step),
+                Stream.flattenIterable,
+                Stream.ensuring(
+                  harness.cumulative
+                    ? Effect.promise(() => writeHome(home, usageFile, JSON.stringify(counted)).catch(() => {}))
+                    : Effect.void
+                )
+              );
           })
         );
 

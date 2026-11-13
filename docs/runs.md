@@ -159,7 +159,7 @@ Each `trace.jsonl` entry has `at`, `step` and an event kind; session entries sha
 
 Runs record each tracker event they hear, once per revision, as a `spoken` line with its tracker `id` and a `bot` flag, after an `inputs` line that says since when. <!-- code: src/run/hear.ts#writeHeardEvents src/run/hear.ts#getEventKey src/run/trigger.ts#tick -->
 
-Usage events may name the model that answered; pricing uses it before the requested alias. `used` holds reported container peak memory, CPU time and OOM status, when available. <!-- code: src/types.ts#Trace src/store.ts#fileStore --> <!-- code: src/types.ts#SessionEvent src/harnesses.ts#priced harnesses/claude.ts#claude harnesses/pi.ts#pi --> <!-- code: src/docker.ts#dockerArgs src/types.ts#Exit src/remote.ts#makeBoxRunner studio/src/runs/rows.tsx -->
+Usage events may name the model that answered; pricing uses it before the requested alias. A usage event and a session's cost count only that session's run, so a resumed session adds what it spent since its last run; for a harness that reports the whole session's total, the engine keeps the last total in the session home and subtracts it. `used` holds reported container peak memory, CPU time and OOM status, when available. <!-- code: src/types.ts#Trace src/store.ts#fileStore --> <!-- code: src/types.ts#SessionEvent src/harnesses.ts#priced src/harnesses.ts#subtractUsage harnesses/codex.ts#makeCodexHarness harnesses/claude.ts#claude harnesses/pi.ts#pi --> <!-- code: src/docker.ts#dockerArgs src/types.ts#Exit src/remote.ts#makeBoxRunner studio/src/runs/rows.tsx -->
 
 ## The check record
 

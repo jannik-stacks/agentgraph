@@ -856,6 +856,14 @@ describe('pi', () => {
 
 const codexArgs = harnessArgs;
 const resumable = () => ({ id: 't1', home: makeHome() });
+const codexTurn = (input: number, cached: number, output: number) => [
+  JSON.stringify({ type: 'thread.started', thread_id: 't1' }),
+  JSON.stringify({
+    type: 'turn.completed',
+    usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output },
+  }),
+];
+const findUsage = (got: SessionEvent[]) => got.find(e => e.type === 'usage');
 
 describe('codex', () => {
   const codex = { ...spec, harness: 'codex' as const };
@@ -971,6 +979,18 @@ describe('codex', () => {
     expect(got[3]).toMatchObject({ name: 'edit', ok: false });
     expect(got[5]).toMatchObject({ input: 100, output: 5, cacheRead: 60 });
     expect(got.at(-1)).toEqual({ type: 'end', final: 'done', ended: 'stop', exit: 0 });
+  });
+
+  it('counts only what each resume adds to the session total it reports', async () => {
+    const first = await events(codex, codexTurn(1000, 600, 50));
+    const home = first.command.home!;
+    expect(findUsage(first.events)).toMatchObject({ input: 1000, cacheRead: 600, output: 50 });
+    const resumed = await events({ ...codex, resume: { id: 't1', home } }, codexTurn(3000, 2400, 80));
+    expect(findUsage(resumed.events)).toMatchObject({ input: 2000, cacheRead: 1800, output: 30 });
+    const forked = await events({ ...codex, resume: { id: 't1', home }, fork: true }, codexTurn(3500, 2400, 90));
+    expect(findUsage(forked.events)).toMatchObject({ input: 500, cacheRead: 0, output: 10 });
+    const again = await events({ ...codex, resume: { id: 't1', home } }, codexTurn(3100, 2400, 85));
+    expect(findUsage(again.events)).toMatchObject({ input: 100, cacheRead: 0, output: 5 });
   });
 
   it("ends with the failed turn's error", async () => {

@@ -35,6 +35,7 @@ export const makeCodexHarness = (): Harness => ({
     return undefined;
   },
   key: 'AGENTGRAPH_LLM_API_KEY',
+  cumulative: true,
   check: ({ tools }) => [
     ...tools
       .filter(tool => splitToolPattern(tool)[2] !== undefined && !tool.startsWith('bash('))
