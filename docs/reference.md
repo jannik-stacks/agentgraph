@@ -57,7 +57,7 @@ Committed graphs containing symlinks or submodules are refused. Each loop pass r
 | `usd-per-run` | Number; 10 | Above 0, per run |
 | `max` | Map; absent | Issue-label ceilings for `minutes` and `usd-per-run`; each defaults to its limit above |
 | `parallel` | Integer; 2 | At least 1; concurrent scripts, check commands, setups and checkouts per instance |
-| `sessions` | Integer; 4 | At least 1; concurrent sessions and judges per instance |
+| `sessions` | Integer; 2 | At least 1; concurrent sessions and judges per instance |
 
 <!-- code: src/run/execute.ts#slotsRef -->
 
