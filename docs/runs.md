@@ -49,7 +49,7 @@ The first command creates this file. Unknown fields fail. `checkout`, `graph` an
 | `loop` | `false`; outside-repo loop inclusion without `--instance` |
 | `trust` | Instance owner; trusted logins |
 | `image` | Graph image; override |
-| `limits.parallel` | Graph limit; concurrent drives |
+| `limits.parallel` | Graph limit; concurrent sandbox commands |
 | `base` | First checked-out branch; fast-forward target |
 | `owner` | First command's `git config user.name`, else OS user; local author and trusted login |
 | `tracker` | `folder`; built-in or graph plugin; stores files in `tracker/`; paths refused |
