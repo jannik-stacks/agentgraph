@@ -40,8 +40,7 @@ export const moveCheckoutOnto = (work: Checkout, onto: string, first: boolean) =
 export const runFollow = (
   w: Workflow,
   given: Run,
-  known: NonNullable<Run['base']>,
-  head: string,
+  to: Pick<NonNullable<Run['base']>, 'branch' | 'sha'> & { pull: number | undefined },
   tip: string | undefined,
   graph: Graph
 ) =>
@@ -50,42 +49,76 @@ export const runFollow = (
     const tracker = yield* Tracker;
     if (!(yield* Effect.isSuccess(store.lock(given.id)))) return;
     const run = (yield* store.get(given.id)) ?? given;
-    if (isRunDone(run)) return;
-    const base = run.base ?? known;
+    const base = run.base;
+    if (isRunDone(run) || !base) return;
     const seen = tip ?? '';
-    if (base.sha === head && (!base.from || base.tip === seen)) return;
-    const from = base.from ?? base.sha;
+    const landed = to.branch !== base.branch;
+    const stuck = `#${base.pull} moved and`;
+    const unasked = base.from !== undefined && run.status === 'waiting' && !run.reason?.includes(stuck);
+    if (!landed && !unasked && base.sha === to.sha && (base.tip ?? '') === seen) return;
     const branch = formatRunBranch(w, run, [yield* tracker.issue(run.issue)])!;
-    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
-    const applied = work.head && (yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work));
-    if (applied) yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
-    const failed = applied && !applied.ok ? applied : undefined;
+    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(to.branch, branch));
+    const last = base.from ?? base.sha;
+    const fork = (a: string, b: string) => readGit(work.git, ['merge-base', a, b]);
+    const common = work.head && (yield* fork(work.head, to.sha));
+    const from =
+      work.head &&
+      common &&
+      (yield* Effect.orElseSucceed(fork(last, work.head), () => '')) === last &&
+      (yield* fork(common, last)) === common
+        ? last
+        : common;
+    const clean =
+      from && from !== to.sha && !(landed && (yield* mergeTreeOnto(work, to.sha, work.head!, from)).files.length > 0);
+    const pull = landed ? (yield* tracker.issues({ branch })).find(p => p.state === 'open') : undefined;
+    const rebase = clean ? [{ kind: 'rebase' as const, branch, from, onto: to.sha }] : [];
+    const retarget = (pull ? [pull] : []).map(p => ({
+      kind: 'pull_request' as const,
+      branch,
+      base: to.branch,
+      title: p.title,
+      body: p.body.replace(/^Stacks on #\d+\.?\s*/gim, to.pull === undefined ? '' : `Stacks on #${to.pull}\n\n`),
+    }));
+    const done = yield* Effect.forEach([...rebase, ...retarget], p => tracker.apply(run.issue, p, work)).pipe(
+      useRunLink(run)
+    );
+    yield* writeAppliedTrace(run.id, run.step, done);
+    const failed = done.find(a => !a.ok && a.proposal.kind === 'rebase');
     const refused = failed?.moved
       ? (yield* Stream.runCollect(store.read(run.id))).filter(
           t =>
             'applied' in t &&
             t.applied.moved &&
             t.applied.proposal.kind === 'rebase' &&
-            t.applied.proposal.onto === head
+            t.applied.proposal.onto === to.sha
         ).length
       : 0;
-    const stuck = `#${base.pull} moved and ${branch} could not follow`;
     const { from: _pending, tip: _tip, ...rest } = base;
-    const { reason, ...kept } = run;
+    const { reason, base: _base, ...kept } = run;
     const asked = reason?.split(stuck)[0]!.trimEnd();
-    const body = failed && `${stuck}: ${failed.reason}. Rebase it by hand, or say what to do.`;
+    const body =
+      failed &&
+      !landed &&
+      run.status === 'waiting' &&
+      `${stuck} ${branch} could not follow: ${failed.reason}. Rebase it by hand, or say what to do.`;
     const said = [asked, body].filter(Boolean).join('\n\n');
+    const next = landed
+      ? to.pull !== undefined && { pull: to.pull, branch: to.branch, sha: to.sha }
+      : {
+          ...rest,
+          sha: to.sha,
+          ...(failed && from
+            ? { from, ...((!failed.moved || refused >= 3) && { tip: seen }) }
+            : !clean && seen && { tip: seen }),
+        };
     yield* store.put(
       yield* writeStatus(
         w,
         {
           ...kept,
           ...(said && { reason: said }),
-          base: {
-            ...rest,
-            sha: head,
-            ...(failed && { from, ...((!failed.moved || refused >= 3) && { tip: seen }) }),
-          },
+          ...(next && { base: next }),
+          ...(landed && run.checkout && { checkout: { ...run.checkout, base: to.branch } }),
         },
         graph
       )

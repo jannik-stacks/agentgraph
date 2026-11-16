@@ -19,6 +19,24 @@ import { runStepChecks } from '../src/run/check.ts';
 import { runWorkflow } from '../src/run/drive.ts';
 import { type Run, type SessionEvent, type SessionSpec, type Trace } from '../src/types.ts';
 
+const land = (where: ReturnType<typeof world>, head: string, squash: (clone: string) => void) => {
+  const clone = join(where.root, 'clone');
+  git(clone, 'checkout', '-q', 'main');
+  squash(clone);
+  git(clone, 'add', '-A');
+  git(clone, 'commit', '-q', '-m', 'Add hello (#8)');
+  git(clone, 'push', '-q', 'origin', 'main');
+  writeIssueAt(
+    issuePath(where.tracker, 8),
+    '---\ntitle: Add hello\nstate: merged\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
+  );
+  writeIssueAt(
+    issuePath(where.tracker, 8, 'pull.json'),
+    JSON.stringify({ branch: 'agentgraph/7', base: 'main', head })
+  );
+  return git(clone, 'rev-parse', 'HEAD');
+};
+
 describe('stacks', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
   const issue = small.workflows.issue!;
@@ -305,6 +323,117 @@ describe('stacks', () => {
     await run(tick(merging, 9));
     expect(rebases()).toHaveLength(2);
     expect(saved(where).base?.sha).toBe(moved);
+  });
+
+  it('rebases a restarted run whose branch still sits on an old head of #8', async () => {
+    const where = world();
+    const { move } = parent(where);
+    await services(where, [child()]).run(runWorkflow(flow, run9(), merging));
+    const moved = move('more.txt', 'more\n');
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    await run(Effect.flatMap(Store, s => s.put({ ...saved(where), status: 'stopped' })));
+    const again = await run(
+      runWorkflow(flow, begin(flow, { id: 'run-9b', issue: 9, started: '2026-10-16T00:00:02.000Z' }), merging)
+    );
+    expect(again).toMatchObject({ checkout: { branch: 'agentgraph/9' }, base: { sha: moved } });
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(moved);
+    expect(git(where.origin, 'log', '--format=%s', 'agentgraph/7..agentgraph/9')).toBe('Add bye');
+  });
+
+  it('rebases a waiting run whose recorded base claims a head its branch never reached', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const { run } = services(where, [child()]);
+    const parked = await run(runWorkflow(flow, run9(), merging));
+    const moved = move('more.txt', 'more\n');
+    await run(Effect.flatMap(Store, s => s.put({ ...parked, base: { ...parked.base!, sha: moved } })));
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(moved);
+    expect(saved(where)).toMatchObject({ step: 'merge', status: 'waiting', base: { sha: moved } });
+    expect(saved(where).base?.from).toBeUndefined();
+  });
+
+  it('takes a branch someone rebased by hand as followed and drops the ask', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const { run } = services(where, [child('hello and bye\n', 'hello.txt')]);
+    await run(runWorkflow(flow, run9(), merging));
+    const moved = move('hello.txt', 'hi\n');
+    await run(tick(merging, 9));
+    expect(saved(where).reason).toContain('could not follow');
+    const pull = pr10(where).pull;
+    const tip = git(where.origin, 'commit-tree', `${pull.head}^{tree}`, '-p', moved, '-m', 'Add bye');
+    git(where.origin, 'update-ref', 'refs/heads/agentgraph/9', tip, pull.head);
+    writeIssueAt(issuePath(where.tracker, 10, 'pull.json'), JSON.stringify({ ...pull, head: tip }));
+    await run(tick(merging, 9));
+    expect(saved(where).base).toEqual({ pull: 8, branch: 'agentgraph/7', sha: moved, tip });
+    expect(saved(where).reason).toBeUndefined();
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(tip);
+  });
+
+  it('asks about a follow that conflicted while the run worked once the run waits', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const first = services(where, [child('hello and bye\n', 'hello.txt')]);
+    const parked = await first.run(runWorkflow(flow, run9(), merging));
+    move('hello.txt', 'hi\n');
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    await run(Effect.flatMap(Store, s => s.put({ ...parked, step: 'implement', status: 'running' })));
+    await run(tick(merging, 9));
+    expect(saved(where)).toMatchObject({ status: 'waiting', reason: 'Continue?' });
+    await run(tick(merging, 9));
+    await run(tick(merging, 9));
+    expect(saved(where).reason).toMatch(/^Continue\?\n\n#8 moved and agentgraph\/9 could not follow/);
+    expect(
+      readFileSync(issuePath(where.tracker, 10, 'events.jsonl'), 'utf8').match(/#8 moved and agentgraph\/9 could not/g)
+    ).toHaveLength(1);
+  });
+
+  it('moves the branch and its pull request onto main when #8 merges by squash', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const { run } = services(where, [child()]);
+    await run(runWorkflow(flow, run9(), merging));
+    const head = move('more.txt', 'more\n');
+    await run(tick(merging, 9));
+    const main = land(where, head, clone => {
+      writeFileSync(join(clone, 'hello.txt'), 'hello\n');
+      writeFileSync(join(clone, 'more.txt'), 'more\n');
+    });
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(main);
+    expect(git(where.origin, 'log', '--format=%s', 'main..agentgraph/9')).toBe('Add bye');
+    const pr = pr10(where);
+    expect(pr.pull).toMatchObject({ base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/9') });
+    expect(pr.body).not.toContain('Stacks on');
+    expect(pr.body).toContain('agentgraph run=run-9');
+    expect(pr.diff).not.toContain('hello.txt');
+    expect(saved(where).base).toBeUndefined();
+    expect(saved(where)).toMatchObject({ step: 'merge', status: 'waiting', checkout: { base: 'main' } });
+  });
+
+  it('hands a branch that conflicts with main after #8 merged to the catch-up, which sends it back', async () => {
+    const where = world();
+    const { head } = parent(where);
+    const { run } = services(where, [
+      child('hello and bye\n', 'hello.txt'),
+      [start('a'), reply({ kind: 'ask', question: 'Which side?' })],
+    ]);
+    await run(runWorkflow(flow, run9(), merging));
+    const before = git(where.origin, 'rev-parse', 'agentgraph/9');
+    land(where, head, clone => writeFileSync(join(clone, 'hello.txt'), 'hi\n'));
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
+    expect(pr10(where).pull.base).toBe('main');
+    expect(saved(where).base).toBeUndefined();
+    expect(readTrace(where.data, 'run-9').some(t => 'applied' in t && t.applied.proposal.kind === 'rebase')).toBe(
+      false
+    );
+    await run(tick(merging, 9));
+    expect(readTrace(where.data, 'run-9')).toContainEqual(
+      expect.objectContaining({ outcome: expect.objectContaining({ kind: 'back' }) })
+    );
   });
 });
 describe('compound engineering', () => {

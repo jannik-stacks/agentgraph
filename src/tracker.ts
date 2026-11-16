@@ -596,7 +596,13 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             for (const k of findIssueNumbers(dir)) {
               const pr = await read(k);
               if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;
-              await write({ ...pr, title: p.title, body: makeBodyWithStatus(body, getStatusHeader(pr.body)) });
+              await write({
+                ...pr,
+                title: p.title,
+                body: makeBodyWithStatus(body, getStatusHeader(pr.body)),
+                pull: { ...pr.pull, base: p.base },
+              });
+              if (work && p.base !== pr.pull.base) await writeDiff(work, k, p.base, await tip(work, p.branch));
               return { proposal: p, ok: true, url: pr.url };
             }
             const head = work ? await tip(work, p.branch).catch(() => '') : '';

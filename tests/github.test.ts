@@ -1520,6 +1520,7 @@ describe('githubTracker', () => {
       const patch = f.calls.find(c => c.method === 'PATCH')!;
       expect(patch.body).toEqual({
         title: 'T',
+        base: 'agentgraph/11',
         body: '<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nB',
       });
     });
