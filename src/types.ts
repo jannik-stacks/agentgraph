@@ -1,5 +1,5 @@
 import { Data, Effect, Formatter, type Redacted, Schema, type Stream, Struct, type Types } from 'effect';
-import { Applied, Count, Event, type Issue } from './event.ts';
+import { Applied, Count, Event, Heard, type Issue } from './event.ts';
 import { PluginMetadata } from './meta.ts';
 import { Kind, Proposal } from './proposal.ts';
 import { CheckMode, ResultType } from './result.ts';
@@ -334,6 +334,16 @@ export const Trace = Schema.Union([
   Schema.Struct({ ...Line, spoken: Event, meta: RunFields.meta }),
   Schema.Struct({ ...Line, inputs: Schema.Struct({ since: Schema.String }) }),
   Schema.Struct({ ...Line, told: Schema.Struct({ text: Schema.String, by: Schema.String }) }),
+  Schema.Struct({
+    ...Line,
+    heard: Schema.Struct({
+      event: Schema.String,
+      plugin: Text,
+      does: Schema.optionalKey(Heard),
+      why: Text,
+      usd: Schema.optionalKey(Schema.Number),
+    }),
+  }),
 ]);
 export type Trace = typeof Trace.Type;
 

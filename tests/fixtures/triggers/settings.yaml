@@ -10,3 +10,5 @@ plugins:
       Needs:
         needs-answer: Stuck
         needs-review: Review
+  mention:
+    words: ['@kit-bot']

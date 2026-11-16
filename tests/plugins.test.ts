@@ -38,6 +38,22 @@ const readCheckedPlugins = async (dir: string, settings: Record<string, unknown>
   return readPlugins(graph.dir, graph.plugins);
 };
 
+const hook = (name: string, settings = '') =>
+  `import { Schema } from 'effect'; import { makePlugin } from '@jannik-stacks/agi/plugins';
+export default makePlugin({ name: '${name}', ${settings} on: { event: () => undefined, status: () => undefined } });`;
+
+it('orders hooks by the plugins keys in settings, then by filename', async () => {
+  const withSettings = 'settingsSchema: Schema.Struct({}),';
+  const dir = await makePluginDir({
+    'plugins/a.ts': hook('a', withSettings),
+    'plugins/b.ts': hook('b'),
+    'plugins/c.ts': hook('c', withSettings),
+    'plugins/d.ts': hook('d', withSettings),
+  });
+  const loaded = await readCheckedPlugins(dir, { d: {}, a: {} });
+  expect(loaded.hooks.map(h => h.plugin)).toEqual(['d', 'a', 'b', 'c']);
+});
+
 it('loads settings under a hyphenated plugin name', async () => {
   const dir = await makePluginDir({ 'plugins/pr-img.ts': source('pr-img') });
   const loaded = await readCheckedPlugins(dir, { 'pr-img': { limit: '10' } });

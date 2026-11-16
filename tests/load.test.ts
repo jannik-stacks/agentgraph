@@ -53,6 +53,22 @@ describe('compileWorkflow', () => {
     ]);
   });
 
+  it('reads what a live run hears beside what starts it, and rejects an unknown outcome', () => {
+    const steps = 'steps:\n  implement: { agent: implementor }';
+    const { workflow } = compileWorkflow(
+      'workflows/issue.md',
+      file(`on: { issues: { label: ready }, comment: answer, changes_requested: answer, merged: none }\n${steps}`),
+      names
+    );
+    expect(workflow!.on).toEqual({
+      issues: { label: 'ready' },
+      comment: 'answer',
+      changes_requested: 'answer',
+      merged: 'none',
+    });
+    expect(messages(file(`on: { issues: , comment: wake }\n${steps}`))[0]).toMatch(/^on\.comment: /);
+  });
+
   it.each([true, false])('reads carry: %s on a step', carry => {
     const { workflow, problems } = compileWorkflow(
       'workflows/issue.md',
