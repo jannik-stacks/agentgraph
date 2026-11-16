@@ -42,7 +42,7 @@ Committed graphs containing symlinks or submodules are refused. Each loop pass r
 | `commands` | Map to `true`, `false` or logins; each `true` | [Command authorization](workflows.md#commands) within `trust` |
 | `status` | Status-to-name map or `false`; `agent:<status>` | [Tracker status](workflows.md#status-on-the-issue) |
 | `auth` | Plugin name; `token` | [Studio auth](plugins.md#auth); host graphs only |
-| `plugins` | Map; absent | Plugin `settingsSchema` input |
+| `plugins` | Map; absent | Plugin `settingsSchema` input; key order is [hook order](plugins.md#status-hooks) |
 | `limits` | Map; below | Resource caps |
 
 <!-- code: src/folder.ts#GraphSettings src/docker.ts#sandboxImage src/workflow.ts#CommandSettings src/workflow.ts#commandVerbs src/event.ts#issueStatuses src/tracker.ts#makeStatusLabel src/services.ts#pickAuth src/plugin.ts#readPlugins --> <!-- code: src/services.ts#pickAuth -->
@@ -69,7 +69,7 @@ Step `limits` override the specified `memory` and `cpus` fields. See [shared per
 
 | Field | Type; default |
 | --- | --- |
-| `on` | Required event or trigger map: `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback`, `conflict` |
+| `on` | Required event or trigger map: `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback`, `conflict`; also `comment`, `approved`, `changes_requested`, `merged` |
 | `branch` | Template expanding `{issue}`, `{parent}`; absent means detached checkout |
 | `base` | Template; instance base, else repository default branch |
 | `concurrency` | `steer`, `queue`, `cancel`; `steer` ([behavior](workflows.md#comments-while-it-works)) |
@@ -91,6 +91,8 @@ See [Project boards](workflows.md#project-boards).
 `dispatch` has no fields and permits [agent dispatch](workflows.md#dispatch). Humans can dispatch any workflow.
 
 `feedback` starts [retros](workflows.md#retros). Optional `restarts: true` includes runs stopped by restart; it defaults to `false`. <!-- code: src/run/trigger.ts#feedback src/run/hear.ts#findSettledRuns src/workflow.ts#Front -->
+
+`comment`, `approved`, `changes_requested` and `merged` start nothing. Each names what that trusted event does to a live run: `answer`, `back`, `pass`, `stop` or `none`. Absent keys keep the [usual outcome](workflows.md#what-a-live-run-hears). <!-- code: src/event.ts#HeardKinds src/event.ts#Heard src/workflow.ts#getHeard -->
 
 ## Steps
 

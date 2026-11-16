@@ -1,5 +1,7 @@
-import { Effect, Stream } from 'effect';
-import type { Issue, Event } from '../event.ts';
+import { Effect, Schema, Stream } from 'effect';
+import { type Issue, type Event, type Heard, heardKinds, parseAgentRequest } from '../event.ts';
+import { type EventHook, HeardResult, readPlugins } from '../plugin.ts';
+import { type Prices, getListPriceUsd, readPrices, readPricesPath } from '../prices.ts';
 import { getSha } from '../hash.ts';
 import type { Graph } from '../folder.ts';
 import {
@@ -8,11 +10,13 @@ import {
   isRunDone,
   isQuiet,
   getEventOutcome,
+  getAgentRequest,
+  getHeard,
   fold,
   pickCommandTarget,
 } from '../workflow.ts';
 import { type IssueWithPull, getEvents } from '../context.ts';
-import { Tracker, findBranchPull, parseAgentRequest } from '../tracker.ts';
+import { Tracker, findBranchPull } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { makeContinuedMeta } from '../meta.ts';
 import { getStepReturns } from '../graph.ts';
@@ -162,14 +166,105 @@ export const findRouter = (graph: Graph) =>
     w => w.on.issue_comment && w.steps.some(s => getStepReturns(s, graph.agents).includes('tell'))
   );
 
-export const getHeardEvent = (router: string | undefined, w: Workflow, m: Event): Event => {
-  if (!router || w.on.issue_comment || !m.comment?.agentRequest || m.comment.agentRequest.command) return m;
-  const { agentRequest: _agentRequest, ...comment } = m.comment;
-  return { ...m, comment };
-};
-
 export const isHeardBy = (graph: Graph, name: string, m: Pick<Event, 'kind'>) =>
   m.kind !== 'comment' || !findRouter(graph) || !!graph.workflows[name]?.on.issue_comment;
+
+export const isRouted = (graph: Graph, w: Workflow, m: Event) =>
+  !isHeardBy(graph, w.name, m) && getAgentRequest(m)?.command === undefined;
+
+export const readHooks = (graph: Graph) =>
+  Effect.gen(function* () {
+    const tracker = yield* Tracker;
+    const { writeField } = tracker;
+    const { hooks } = yield* Effect.tryPromise(() => readPlugins(graph.dir, graph.plugins));
+    return hooks.map(hook => ({
+      ...hook,
+      context: {
+        repo: graph.repo,
+        settings: hook.settings,
+        tracker: {
+          searchIssues: (...args: Parameters<typeof tracker.searchIssues>) =>
+            Effect.runPromise(tracker.searchIssues(...args)),
+          ...(writeField && {
+            writeField: (...args: Parameters<typeof writeField>) => Effect.runPromise(writeField(...args)),
+          }),
+        },
+      },
+    }));
+  });
+
+export const readHeard = (graph: Graph, w: Workflow, run: Run, events: readonly Event[]) =>
+  Effect.gen(function* () {
+    const hooked = new Map<string, Heard>();
+    const asked = events
+      .filter(
+        m =>
+          m.trusted &&
+          !m.bot &&
+          heardKinds.some(kind => kind === m.kind) &&
+          getAgentRequest(m)?.command === undefined &&
+          isHeardBy(graph, w.name, m)
+      )
+      .toSorted((a, b) => a.at.localeCompare(b.at));
+    if (run.waiting?.on === 'limits' || asked.length === 0) return { hooked };
+    const hooks = yield* readHooks(graph).pipe(
+      Effect.map(all => all.filter(hook => hook.event)),
+      Effect.catch(e => Effect.as(Effect.logWarning('event hooks', e), undefined))
+    );
+    if (!hooks) return { hooked, held: asked[0]!.at };
+    if (hooks.length === 0) return { hooked };
+    const store = yield* Store;
+    const known = new Map(
+      (yield* Stream.runCollect(store.read(run.id))).flatMap(t => ('heard' in t ? [[t.heard.event, t.heard]] : []))
+    );
+    const pricesPath = yield* readPricesPath.pipe(Effect.orDie);
+    let prices: Prices | undefined;
+    const priceUsd: Parameters<EventHook>[1]['priceUsd'] = (model, tokens) =>
+      getListPriceUsd((prices ??= readPrices(pricesPath)), [model], {
+        input: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        output: 0,
+        ...tokens,
+      });
+    let issue: Issue | undefined;
+    for (const m of asked) {
+      const line =
+        known.get(m.id) ??
+        (yield* Effect.gen(function* () {
+          const { number, labels, author } = (issue ??= yield* (yield* Tracker).issue(run.issue));
+          let last: { plugin: string; does: Heard; why?: string } | undefined;
+          let usd: number | undefined;
+          for (const hook of hooks) {
+            const does = getHeard(w, run, m, last?.does);
+            const said = yield* Effect.tryPromise(async signal =>
+              hook.event!(
+                {
+                  event: m,
+                  issue: { number, labels, author },
+                  run: { id: run.id, workflow: run.workflow, step: run.step, status: run.status },
+                  ...(does && { does }),
+                },
+                { ...hook.context, signal, priceUsd }
+              )
+            ).pipe(
+              Effect.timeout('30 seconds'),
+              Effect.flatMap(Schema.decodeUnknownEffect(HeardResult, { onExcessProperty: 'error' })),
+              Effect.mapError(cause => ({ plugin: hook.plugin, cause }))
+            );
+            const { usd: spent = undefined, ...result } = typeof said === 'string' ? { does: said } : (said ?? {});
+            if ('does' in result) last = { ...result, plugin: hook.plugin };
+            if (spent !== undefined) usd = (usd ?? 0) + spent;
+          }
+          const line = { event: m.id, ...last, ...(usd !== undefined && { usd }) };
+          yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, heard: line });
+          return line;
+        }).pipe(Effect.catch(e => Effect.as(Effect.logWarning(`event hooks for run ${run.id}`, e), undefined))));
+      if (!line) return { hooked, held: m.at };
+      if (line.does) hooked.set(m.id, line.does);
+    }
+    return { hooked };
+  });
 
 export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWithPull) =>
   Effect.gen(function* () {
@@ -178,17 +273,23 @@ export const readHeardOutcome = (graph: Graph, w: Workflow, run: Run, t: IssueWi
     const tells = yield* readRunEvents(run);
     const runs = yield* Effect.flatMap(Store, s => s.list({ issue: run.issue }));
     const since = run.seen ?? run.started;
-    const fresh = [...getEvents(t).map(m => getHeardEvent(router, w, m)), ...tells].filter(m => m.at > since);
+    const events = getEvents(t).filter(m => m.at > since);
+    const { hooked, held } = yield* readHeard(graph, w, run, events);
+    const fresh = [...events, ...tells.filter(m => m.at > since)];
     const said = fresh.flatMap(m => {
-      const heard = { ...m, issue: run.issue };
-      const o = getEventOutcome(
-        w,
-        run,
-        heard,
-        fresh,
-        pickCommandTarget(graph, runs, heard, router, tells.includes(m) ? run : undefined)
-      );
-      return o ? [{ o, at: m.at, event: m }] : [];
+      const moved = { ...m, issue: run.issue };
+      const o =
+        tells.includes(m) || !isRouted(graph, w, m)
+          ? getEventOutcome(
+              w,
+              run,
+              moved,
+              fresh,
+              pickCommandTarget(graph, runs, moved, router, tells.includes(m) ? run : undefined),
+              hooked.get(m.id)
+            )
+          : undefined;
+      return o && (o.kind === 'stop' || held === undefined || m.at < held) ? [{ o, at: m.at, event: m }] : [];
     });
     const outcome = fold(said.map(s => s.o));
     return outcome && { outcome, at: pickNewest(...said.map(s => s.at))!, events: said.map(s => s.event) };
