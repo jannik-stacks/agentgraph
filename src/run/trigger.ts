@@ -651,14 +651,26 @@ export const tick = (
 
     for (const r of runs.map(current).filter(r => !isRunDone(r))) {
       const w = graph.workflows[r.workflow];
-      const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
-      if (!r.base || !head || !w) continue;
-      const branch = formatRunBranch(w, r, issues);
-      const tip =
-        findBranchPull(issues, branch)?.pull.head ??
-        (branch &&
-          (yield* Effect.flatMap(Sandbox, s => s.readHead(branch)).pipe(Effect.orElseSucceed(() => undefined))));
-      yield* runFollow(w, r, r.base, head, tip, makeRunGraph(graph, r)).pipe(
+      const base = r.base;
+      if (!base || !w) continue;
+      yield* Effect.gen(function* () {
+        const on = issues.find(t => t.number === base.pull) ?? (yield* tracker.issue(base.pull));
+        const merged = on.state === 'merged';
+        if (!on.pull || (on.state !== 'open' && !merged)) return;
+        const sandbox = yield* Sandbox;
+        const to = merged
+          ? {
+              branch: on.pull.base,
+              sha: yield* sandbox.readHead(on.pull.base),
+              pull: findBranchPull(issues, on.pull.base)?.number,
+            }
+          : { branch: base.branch, sha: on.pull.head, pull: base.pull };
+        const branch = formatRunBranch(w, r, issues);
+        const tip =
+          findBranchPull(issues, branch)?.pull.head ??
+          (branch && (yield* sandbox.readHead(branch).pipe(Effect.orElseSucceed(() => undefined))));
+        yield* runFollow(w, r, to, tip, makeRunGraph(graph, r));
+      }).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
             yield* Effect.logError(`follow run ${r.id}`, e);
