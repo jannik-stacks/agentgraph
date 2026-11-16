@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Context, Effect, Semaphore, Stream, Option } from 'effect';
+import { Context, Deferred, Effect, Exit, Stream, Option } from 'effect';
 import { Tracker } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { Session } from '../session.ts';
@@ -54,21 +54,64 @@ export const runShell = (
         network,
         minutes,
       })
-    ).pipe(withSessionPermit(graph))
+    ).pipe(waitForSlot(graph, 'parallel'))
   );
 
 type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit' | 'used'>;
 
-export const sessionPermitsRef = Context.Reference<Semaphore.Semaphore>('agentgraph/sessionPermits', {
-  defaultValue: () => Semaphore.makeUnsafe(1),
+type SlotRank = { stage: number; started: string };
+
+export const makeSlots = (first = 1) => {
+  let size = first;
+  const waiting: { rank: SlotRank; entered: Deferred.Deferred<void> }[] = [];
+  let held = 0;
+  const admit = () => {
+    while (held < size && waiting.length) {
+      held++;
+      Deferred.doneUnsafe(waiting.shift()!.entered, Exit.void);
+    }
+  };
+  const leave = Effect.sync(() => {
+    held--;
+    admit();
+  });
+  return (rank: SlotRank, resized = size) =>
+    <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.uninterruptibleMask(restore => {
+        const mine = { rank, entered: Deferred.makeUnsafe<void>() };
+        size = resized;
+        waiting.push(mine);
+        waiting.sort((a, b) => b.rank.stage - a.rank.stage || a.rank.started.localeCompare(b.rank.started));
+        admit();
+        return restore(Deferred.await(mine.entered)).pipe(
+          Effect.onInterrupt(() =>
+            waiting.includes(mine) ? Effect.sync(() => void waiting.splice(waiting.indexOf(mine), 1)) : leave
+          ),
+          Effect.andThen(Effect.ensuring(restore(effect), leave))
+        );
+      });
+};
+
+type Slots = ReturnType<typeof makeSlots>;
+
+export const slotsRef = Context.Reference<{ sessions: Slots; parallel: Slots; host?: Slots }>('agentgraph/slots', {
+  defaultValue: () => ({ sessions: makeSlots(), parallel: makeSlots() }),
 });
 
-const withSessionPermit =
-  (graph: Graph) =>
+export const slotRankRef = Context.Reference<() => SlotRank | undefined>('agentgraph/slotRank', {
+  defaultValue: () => () => ({ stage: Infinity, started: '' }),
+});
+
+export const waitForSlot =
+  (graph: Graph, kind: 'sessions' | 'parallel') =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    Effect.flatMap(sessionPermitsRef, permits =>
-      Effect.andThen(permits.resize(graph.limits.sessions), permits.withPermits(1)(effect))
-    );
+    Effect.gen(function* () {
+      const slots = yield* slotsRef;
+      const rank = (yield* slotRankRef)();
+      if (!rank) return yield* effect;
+      const hosted = kind === 'parallel' && slots.host ? slots.host(rank)(effect) : effect;
+      return yield* slots[kind](rank, graph.limits[kind])(hosted);
+    });
 
 export const runSession = <A = never, R = never>(
   graph: Graph,
@@ -197,7 +240,7 @@ const openSession = <A, R>(
           return write({ at: new Date().toISOString(), step, event, key });
         }),
         Effect.scoped,
-        withSessionPermit(graph),
+        waitForSlot(graph, 'sessions'),
         Effect.catchTag('SessionStop', e =>
           droppable && !started && e.reason !== 'human' && e.reason !== 'login'
             ? Effect.sync(() => {

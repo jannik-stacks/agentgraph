@@ -66,7 +66,7 @@ Hosted trackers refuse `start`, `say`, `review`, `merge`, `close` and `export`. 
 | `--once` | `loop` | One pass |
 | `--detach` | `loop` | Background; print PID after locking checkouts; logs under `<data root>/logs/` |
 | `--force` | `stop`, `restart` | SIGTERM immediately |
-| `--parallel <n>` | `loop`, `restart` | Cap drives across instances alongside `limits.parallel`; incompatible with `--once` |
+| `--parallel <n>` | `loop`, `restart` | Cap sandbox commands across instances alongside `limits.parallel`; incompatible with `--once` |
 | `--apply` | `prune-logs` | Delete logs |
 | `--from <commit>` | `import` | Starting commit; default parent, or `HEAD` for patches |
 | `--meta <file>` | `import` | JSON for `meta.engine.origin.input` |

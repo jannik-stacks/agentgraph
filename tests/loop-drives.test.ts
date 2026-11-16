@@ -1,8 +1,10 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect, Layer, Semaphore, Stream } from 'effect';
+import { Effect, Layer, Stream } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { runPass, scanIssuesAndRunningRuns, scanTrackerEvents, startLoopDrives } from '../src/run/trigger.ts';
+import { makeSlots, slotRankRef, slotsRef, waitForSlot } from '../src/run/execute.ts';
+import { runWorkflow } from '../src/run/drive.ts';
 import { folderTracker, Tracker } from '../src/tracker.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -23,9 +25,9 @@ const flow = {
 };
 const asks = [start('s'), reply({ kind: 'ask', question: 'Continue?' })];
 
-const setup = (parallel: number, holdSweep = false) => {
+const setup = (sessions: number, holdSweep = false) => {
   const where = world();
-  const graph = { ...small, workflows: { issue: flow }, limits: { ...small.limits, parallel } };
+  const graph = { ...small, workflows: { issue: flow }, limits: { ...small.limits, parallel: 1, sessions } };
   const opened: SessionSpec[] = [];
   const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const session = Layer.effect(
@@ -91,15 +93,20 @@ const setup = (parallel: number, holdSweep = false) => {
   ).pipe(Layer.provide(fileStore(where.data)));
   const layer = Layer.mergeAll(tracker, store, hostSandbox(where.origin), session);
   const drives = startLoopDrives();
+  const slots = { sessions: makeSlots(), parallel: makeSlots() };
   const pass = (g: Graph = graph) =>
     Effect.runPromise(
-      runPass(drives, fork => scanIssuesAndRunningRuns(g, 0, undefined, fork, drives.gates)).pipe(Effect.provide(layer))
+      runPass(drives, fork => scanIssuesAndRunningRuns(g, 0, undefined, fork, drives.gates)).pipe(
+        Effect.provide(layer),
+        Effect.provideService(slotsRef, slots)
+      )
     );
   let cursor = '2026-10-16T00:00:00.000Z';
   const poll = async () => {
     cursor = await Effect.runPromise(
       runPass(drives, fork => scanTrackerEvents(graph, cursor, fork, drives.gates, drives.due)).pipe(
-        Effect.provide(layer)
+        Effect.provide(layer),
+        Effect.provideService(slotsRef, slots)
       )
     );
     return cursor;
@@ -363,7 +370,7 @@ describe('loop drives', () => {
     }
   });
 
-  it('keeps limits.parallel across passes and drives a run once', async () => {
+  it('keeps limits.sessions across passes and drives a run once', async () => {
     const loop = setup(1);
     try {
       const [first] = await loop.pass();
@@ -385,7 +392,7 @@ describe('loop drives', () => {
     }
   });
 
-  it('routes a comment while every limits.parallel slot is held', async () => {
+  it('routes a comment while every session slot is held', async () => {
     const loop = setup(1);
     const router = {
       ...flow,
@@ -447,24 +454,28 @@ describe('loop drives', () => {
     }
   });
 
-  it('stops a queued run on a stop said while it waited for a permit, before any session', async () => {
+  it('stops a run on a stop said while it waited for a session slot, once its session ends', async () => {
     const loop = setup(1);
     try {
       await loop.pass();
       await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
       loop.ask();
       const [second] = await loop.pass();
+      await vi.waitFor(() => expect(readTrace(loop.where.data, second!.id).some(t => 'prompt' in t)).toBe(true), {
+        timeout: 20_000,
+      });
       say(loop.where, comment(9, 'morgan', true, '/agent:stop', '2026-10-16T00:03:00.000Z'));
       loop.release();
       await vi.waitFor(() => expect(loop.drives.driving.size).toBe(0), { timeout: 20_000 });
-      expect([await loop.status(second!.id), loop.opened.length]).toEqual(['stopped', 1]);
+      await loop.pass();
+      expect(await loop.status(second!.id)).toBe('stopped');
     } finally {
       loop.release();
       await loop.drives.stop();
     }
   });
 
-  it('leaves the end checks a later graph owes to a pass with that graph', async () => {
+  it('runs the end checks a later graph owes in a pass with that graph', async () => {
     const loop = setup(1);
     const later: Graph = {
       ...loop.graph,
@@ -483,26 +494,18 @@ describe('loop drives', () => {
       workflows: { issue: { ...flow, checks: ['present'] } },
     };
     try {
-      await loop.pass();
-      await vi.waitFor(() => expect(loop.opened).toHaveLength(1), { timeout: 20_000 });
-      loop.ask();
-      const [second] = await loop.pass();
-      say(loop.where, comment(9, 'morgan', true, '/agent:stop', '2026-10-16T00:03:00.000Z'));
-      await loop.pass(later);
-      const owed = (await loop.read(second!.id))?.owed;
       loop.release();
+      loop.ask();
+      const [, second] = await loop.pass();
       await vi.waitFor(() => expect(loop.drives.driving.size).toBe(0), { timeout: 20_000 });
-      const kept = (await loop.read(second!.id))?.owed;
+      say(loop.where, comment(9, 'morgan', true, '/agent:stop', '2026-10-16T00:03:00.000Z'));
       await loop.pass(later);
       await vi.waitFor(() => expect(loop.drives.driving.size).toBe(0), { timeout: 20_000 });
       expect([
-        owed,
-        kept,
         (await loop.read(second!.id))?.owed,
         readChecks(loop.where.data, second!.id).map(e => [e.check.check, e.version]),
-      ]).toEqual([['present'], ['present'], undefined, [['present', 'v2']]]);
+      ]).toEqual([undefined, [['present', 'v2']]]);
     } finally {
-      loop.release();
       await loop.drives.stop();
     }
   });
@@ -524,16 +527,15 @@ describe('loop drives', () => {
   it.each([
     [undefined, 4],
     [2, 2],
-  ])('caps drives of two instances under a host limit of %s, each under its own', async (cap, peak) => {
-    const host = cap === undefined ? undefined : Semaphore.makeUnsafe(cap);
+  ])('caps commands of two instances under a host limit of %s, each under its own', async (cap, peak) => {
+    const host = cap === undefined ? undefined : makeSlots(cap);
     const live = { all: 0, first: 0 };
     const peaks = { all: 0, first: 0 };
-    const ended: string[] = [];
-    const work = (id: string) =>
+    const work = (first: boolean) =>
       Effect.acquireUseRelease(
         Effect.sync(() => {
           live.all++;
-          if (id.startsWith('0')) live.first++;
+          if (first) live.first++;
           peaks.all = Math.max(peaks.all, live.all);
           peaks.first = Math.max(peaks.first, live.first);
         }),
@@ -541,25 +543,68 @@ describe('loop drives', () => {
         () =>
           Effect.sync(() => {
             live.all--;
-            if (id.startsWith('0')) live.first--;
-            ended.push(id);
+            if (first) live.first--;
           })
-      ).pipe(Effect.as(undefined));
-    const instances = [startLoopDrives(host), startLoopDrives(host)];
-    try {
-      await Promise.all(
-        instances.map((drives, k) =>
-          Effect.runPromise(
-            runPass(drives, fork =>
-              Effect.forEach(['a', 'b', 'c'], id => fork(`${k}${id}`, k === 0 ? 1 : 3, work(`${k}${id}`)))
-            ) as Effect.Effect<unknown>
+      );
+    await Promise.all(
+      [1, 3].map(parallel =>
+        Effect.runPromise(
+          Effect.forEach(
+            ['a', 'b', 'c'],
+            () => waitForSlot({ ...small, limits: { ...small.limits, parallel } }, 'parallel')(work(parallel === 1)),
+            { concurrency: 'unbounded' }
+          ).pipe(
+            Effect.provideService(slotsRef, { sessions: makeSlots(), parallel: makeSlots(), ...(host && { host }) })
           )
         )
-      );
-      await vi.waitFor(() => expect(ended).toHaveLength(6));
-      expect(peaks).toEqual({ all: peak, first: 1 });
-    } finally {
-      await Promise.all(instances.map(drives => drives.stop()));
-    }
+      )
+    );
+    expect(peaks).toEqual({ all: peak, first: 1 });
+  });
+
+  it('gives a freed slot to the run furthest along, then to the one started first', async () => {
+    const slots = makeSlots();
+    const order: string[] = [];
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
+    const queue = (name: string, stage: number, started: string) =>
+      slots({ stage, started })(Effect.sync(() => order.push(name)));
+    setTimeout(release, 20);
+    await Effect.runPromise(
+      Effect.all(
+        [
+          slots({ stage: 0, started: '' })(Effect.promise(() => held)),
+          queue('new', 0, '2'),
+          queue('late', 2, '3'),
+          queue('early', 2, '1'),
+          queue('newer', 0, '4'),
+        ],
+        { concurrency: 'unbounded' }
+      )
+    );
+    expect(order).toEqual(['early', 'late', 'new', 'newer']);
+  });
+
+  it('ranks a session by the step its run is at and its start, and work outside a drive first', async () => {
+    const where = world();
+    const ranks: unknown[] = [];
+    const session = Layer.effect(
+      Session,
+      Effect.map(Session, s => ({
+        open: (spec: SessionSpec) => Stream.unwrap(Effect.map(slotRankRef, rank => (ranks.push(rank()), s.open(spec)))),
+      }))
+    ).pipe(Layer.provide(replaySession([asks])));
+    const steps = [flow.steps[0]!, { ...flow.steps[0]!, name: 'second' }];
+    const run = { ...fresh(), step: 'second' };
+    await Effect.runPromise(
+      runWorkflow({ ...flow, steps }, run, { ...small, workflows: { issue: { ...flow, steps } } }).pipe(
+        Effect.provide(
+          Layer.mergeAll(folderTracker(where.tracker), fileStore(where.data), hostSandbox(where.origin), session)
+        )
+      )
+    );
+    expect([...ranks, Effect.runSync(slotRankRef)()]).toEqual([
+      { stage: 1, started: run.started },
+      { stage: Infinity, started: '' },
+    ]);
   });
 });

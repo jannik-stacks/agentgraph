@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
+import { Deferred, Duration, Effect, Exit, FiberSet, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine } from '../context.ts';
 import {
   Tracker,
@@ -263,11 +263,7 @@ export const tick = (
   marked = false,
   debounce = 0,
   meta?: Run['meta'],
-  fork?: (
-    id: string,
-    parallel: number | undefined,
-    effect: Effect.Effect<Run | undefined, never, Services>
-  ) => Effect.Effect<void, never, Services>,
+  fork?: (id: string, effect: Effect.Effect<Run | undefined, never, Services>) => Effect.Effect<void, never, Services>,
   defer: ((issue: number) => void) | undefined = undefined
 ): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
@@ -729,9 +725,7 @@ export const tick = (
     const running = live.filter(r => !hold(r)).toSorted((a, b) => a.started.localeCompare(b.started));
     const forkAll = (runs: Run[], f: (r: Run) => Effect.Effect<Run | undefined, StoreError, Services>) =>
       Effect.as(
-        Effect.forEach(runs, r =>
-          fork!(r.id, r.workflow === router ? undefined : graph.limits.parallel, f(r).pipe(Effect.catch(logged(r))))
-        ),
+        Effect.forEach(runs, r => fork!(r.id, f(r).pipe(Effect.catch(logged(r))))),
         []
       );
     const drive = (r: Run) => runWorkflow(graph.workflows[r.workflow]!, r, graph);
@@ -809,7 +803,7 @@ const readIssueScan = (
         true,
         debounce,
         meta,
-        fork && ((id, parallel, effect) => fork(id, parallel, Effect.provideService(effect, Tracker, tracker))),
+        fork && ((id, effect) => fork(id, Effect.provideService(effect, Tracker, tracker))),
         n => deferred.add(n)
       ).pipe(
         Effect.provideService(Tracker, {
@@ -963,16 +957,14 @@ export const scanTrackerEvents = (
     return pickNewest(cursor, ...events.map(m => m.at)) ?? cursor;
   });
 
-export const startLoopDrives = (host?: Semaphore.Semaphore) => {
+export const startLoopDrives = () => {
   const scope = Scope.makeUnsafe();
   return {
-    host,
     passes: Effect.runSync(Scope.provide(FiberSet.make(), scope)),
     driving: new Set<string>(),
     gates: new Map<number, Semaphore.Semaphore>(),
     due: new Map<number, string>(),
     cursor: new Date(Date.now() - 300_000).toISOString(),
-    permits: Semaphore.makeUnsafe(1),
     settled: [] as Run[],
     stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),
   };
@@ -988,23 +980,18 @@ export const runPass = <A, E, R>(
       drives.passes,
       Effect.gen(function* () {
         const own = yield* FiberSet.make<Run | undefined>();
-        const fork: Parameters<typeof pass>[0] = (id, parallel, effect) =>
-          Effect.andThen(
-            parallel === undefined ? Effect.void : drives.permits.resize(parallel),
-            Effect.suspend(() => {
-              if (drives.driving.has(id)) return Effect.void;
-              drives.driving.add(id);
-              return FiberSet.run(
-                own,
-                effect.pipe(
-                  drives.host && parallel !== undefined ? drives.host.withPermits(1) : identity,
-                  parallel === undefined ? identity : drives.permits.withPermits(1),
-                  Effect.tap(r => Effect.sync(() => r && drives.settled.push(r))),
-                  Effect.ensuring(Effect.sync(() => drives.driving.delete(id)))
-                )
-              );
-            })
-          );
+        const fork: Parameters<typeof pass>[0] = (id, effect) =>
+          Effect.suspend(() => {
+            if (drives.driving.has(id)) return Effect.void;
+            drives.driving.add(id);
+            return FiberSet.run(
+              own,
+              effect.pipe(
+                Effect.tap(r => Effect.sync(() => r && drives.settled.push(r))),
+                Effect.ensuring(Effect.sync(() => drives.driving.delete(id)))
+              )
+            );
+          });
         yield* Effect.andThen(
           Effect.flatMap(Effect.exit(pass(fork)), exit => Deferred.done(decided, exit)),
           FiberSet.awaitEmpty(own)

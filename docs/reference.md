@@ -56,12 +56,12 @@ Committed graphs containing symlinks or submodules are refused. Each loop pass r
 | `minutes` | Number; 30 | Above 0, per session, script or setup |
 | `usd-per-run` | Number; 10 | Above 0, per run |
 | `max` | Map; absent | Issue-label ceilings for `minutes` and `usd-per-run`; each defaults to its limit above |
-| `parallel` | Integer; 2 | At least 1, concurrent runs; routers exempt |
-| `sessions` | Integer; 4 | At least 1; concurrent sessions, scripts and judges per instance |
+| `parallel` | Integer; 2 | At least 1; concurrent scripts, check commands, setups and checkouts per instance |
+| `sessions` | Integer; 4 | At least 1; concurrent sessions and judges per instance |
 
-<!-- code: src/run/execute.ts#sessionPermitsRef -->
+<!-- code: src/run/execute.ts#slotsRef -->
 
-Step `limits` override the specified `memory` and `cpus` fields. See [shared permits](workflows.md#order-and-limits) and [`box` restrictions](sandbox.md#runners). <!-- code: src/types.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks --> <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#sessionPermitsRef src/run/check.ts#runStepChecks -->
+Step `limits` override the specified `memory` and `cpus` fields. See [shared slots](workflows.md#order-and-limits) and [`box` restrictions](sandbox.md#runners). <!-- code: src/types.ts#CommandLimits src/remote.ts#whyBoxRefused src/run/check.ts#runStepChecks --> <!-- code: src/run/execute.ts#runShell src/run/execute.ts#runSession src/run/execute.ts#slotsRef src/run/check.ts#runStepChecks -->
 
 ## Workflows
 
