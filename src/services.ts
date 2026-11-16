@@ -22,7 +22,7 @@ import { readOrUndefined } from './read.ts';
 import { none, password, token } from './auths.ts';
 import { box, local } from './runners.ts';
 import { Runner, SandboxError } from './sandbox.ts';
-import { priceTable } from './prices.ts';
+import { readPricesPath } from './prices.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
 
@@ -117,7 +117,7 @@ export const settings = Config.all({
     keys: Config.Redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
     models: Config.String('AGENTGRAPH_MODELS').pipe(Config.withDefault('')),
   }),
-  prices: Config.String('AGENTGRAPH_PRICES').pipe(Config.withDefault(priceTable)),
+  prices: readPricesPath,
   cache: Config.String('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
   checkLogs: Config.Literals(checkLogs, 'AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.String('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),

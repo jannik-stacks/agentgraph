@@ -1,7 +1,7 @@
 import { Effect, Schema, Stream } from 'effect';
 import { type Issue, type Event, type Heard, heardKinds, parseAgentRequest } from '../event.ts';
 import { type EventHook, HeardResult, readPlugins } from '../plugin.ts';
-import { type Prices, getListPriceUsd, readPrices } from '../prices.ts';
+import { type Prices, getListPriceUsd, readPrices, readPricesPath } from '../prices.ts';
 import { getSha } from '../hash.ts';
 import type { Graph } from '../folder.ts';
 import {
@@ -217,9 +217,10 @@ export const readHeard = (graph: Graph, w: Workflow, run: Run, events: readonly 
     const known = new Map(
       (yield* Stream.runCollect(store.read(run.id))).flatMap(t => ('heard' in t ? [[t.heard.event, t.heard]] : []))
     );
+    const pricesPath = yield* readPricesPath.pipe(Effect.orDie);
     let prices: Prices | undefined;
     const priceUsd: Parameters<EventHook>[1]['priceUsd'] = (model, tokens) =>
-      getListPriceUsd((prices ??= readPrices()), [model], {
+      getListPriceUsd((prices ??= readPrices(pricesPath)), [model], {
         input: 0,
         cacheRead: 0,
         cacheWrite: 0,

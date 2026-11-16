@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect } from 'effect';
+import { ConfigProvider, Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { tick } from '../src/run/trigger.ts';
 import { readHeard } from '../src/run/hear.ts';
@@ -119,7 +119,7 @@ export default makePlugin<typeof settings.Type>({
   name: '${name}',
   settingsSchema: settings,
   on: {
-    event: ({ event, issue, run, does }, { settings }) => {
+    event: ({ event, issue, run, does }, { settings, priceUsd }) => {
       appendFileSync(settings.log, JSON.stringify([event.comment?.body, issue.labels, run.step, does ?? null]) + '\\n');
       ${body}
     },
@@ -234,6 +234,30 @@ describe('tick with an on.event hook', () => {
     expect(calls().map(c => c[3])).toEqual([null, 'answer']);
     expect([...said]).toEqual([[m.id, 'pass']]);
     expect(heardLines(where)).toEqual([{ event: m.id, plugin: 'a', does: 'pass' }]);
+  });
+
+  it('prices a hook call with the instance price table', async () => {
+    const { graph } = hooked({ priced: "return { does: 'none', usd: priceUsd('m-test', { input: 3 }) };" });
+    const table = join(tmp('heard-prices'), 'prices.json');
+    writeFileSync(table, JSON.stringify({ 'acme/m-test': { input_cost_per_token: 2, output_cost_per_token: 1 } }));
+    const where = world();
+    const { run } = services(where, []);
+    const stored = (await run(
+      Effect.andThen(
+        waiting(where),
+        Effect.flatMap(Store, s => s.get('run-7'))
+      )
+    ))!;
+    const m = comment(7, 'morgan', true, 'rename hello', at(5));
+    await run(
+      readHeard(graph, issue, stored, [m]).pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromEnv({ env: { AGENTGRAPH_PRICES: table } })
+        )
+      )
+    );
+    expect(heardLines(where)).toEqual([{ event: m.id, plugin: 'priced', does: 'none', usd: 6 }]);
   });
 
   it('skips hooks for commands, bots, tells of other kinds and a run paused on limits', async () => {
