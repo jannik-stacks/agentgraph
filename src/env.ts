@@ -3,9 +3,9 @@ import { parseJson, readDirOrEmpty, readOrUndefined } from './read.ts';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { basename, dirname, join } from 'node:path';
-import { makeHostEnv } from './git.ts';
+import { makeHostEnv, readGit } from './git.ts';
 import { isOwnerRunning, ownerId, readStateDir, startHeartbeat, waitForLock } from './owner.ts';
 
 type SandboxSetup = {
@@ -48,12 +48,7 @@ export const manifest =
 
 type Skeleton = { paths: string[]; targets: string[]; digest: string };
 
-const git = (dir: string, ...args: string[]) =>
-  new Promise<string>((done, fail) =>
-    execFile('git', ['--git-dir', dir, ...args], { env: makeHostEnv(), maxBuffer: 256 << 20 }, (e, out) =>
-      e ? fail(e) : done(out.trim())
-    )
-  );
+const git = (dir: string, ...args: string[]) => Effect.runPromise(readGit({ GIT_DIR: dir }, args));
 
 /** @internal */
 export const readDependencySkeleton = async (dir: string, rev: string): Promise<Skeleton> => {
