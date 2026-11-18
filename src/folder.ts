@@ -4,7 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Result, Schema } from 'effect';
 import { parse } from 'yaml';
-import { Count, issueStatuses, labelPrefix, limitLabels, type Event, type Issue, type IssueStatus } from './event.ts';
+import { Count, issueStatuses, labelPrefix, limitLabels, type Event, type Issue } from './event.ts';
 import { Kind } from './proposal.ts';
 import { readPlugins } from './plugin.ts';
 import { formatRetiredAdvice, retiredWords } from './retired.ts';
@@ -46,26 +46,16 @@ const Limits = Schema.Struct({
 type Limits = typeof Limits.Type;
 type RunLimits = NonNullable<Run['limits']>;
 
-export type Graph = {
+export type Graph = Omit<typeof GraphSettings.Type, 'auth'> & {
   dir: string;
   repo: string;
-  plugins?: Record<string, unknown>;
-  tools?: string[];
   sha: string;
+  tools?: string[];
+  trust?: string[];
   agents: Record<string, Doc<Agent> & { readonly?: true; package?: string }>;
   skills: Record<string, Doc<SkillFile>>;
   checks: Record<string, Doc<Check> & { version: string }>;
   workflows: Record<string, Workflow>;
-  limits: Limits;
-  setup?: string;
-  toolchain?: string;
-  image?: string;
-  network?: 'egress' | 'models';
-  stacks?: boolean;
-  milestone?: string;
-  trust?: string[];
-  commands?: typeof CommandSettings.Type;
-  status?: false | Partial<Record<IssueStatus, string>>;
 };
 
 export class GraphError extends Data.TaggedError('GraphError')<{ problems: Problem[] }> {
@@ -385,6 +375,7 @@ export const loadGraph = (
     }
     if (problems.length > 0 || !settings || !registry) return yield* new GraphError({ problems });
     const tools = Object.keys(registry.tools);
+    const { auth: _, ...rest } = settings;
     const scripts = read.scripts.map(f => `${f.path}\0${f.text}`).join('\0');
     const checks = Object.fromEntries(
       Object.entries(parts.checks).map(([name, check]) => [
@@ -416,17 +407,8 @@ export const loadGraph = (
           .map(file => `${file.path}\0${file.text}\0`)
           .join('')
       ),
-      limits: settings.limits,
+      ...rest,
       ...(tools.length && { tools }),
-      ...(settings.plugins !== undefined && { plugins: settings.plugins }),
-      ...(settings.setup !== undefined && { setup: settings.setup }),
-      ...(settings.toolchain !== undefined && { toolchain: settings.toolchain }),
-      ...(settings.image !== undefined && { image: settings.image }),
-      ...(settings.network !== undefined && { network: settings.network }),
-      ...(settings.stacks !== undefined && { stacks: settings.stacks }),
-      ...(settings.milestone !== undefined && { milestone: settings.milestone }),
-      ...(settings.commands !== undefined && { commands: settings.commands }),
-      ...(settings.status !== undefined && { status: settings.status }),
       ...parts,
       agents,
       checks,
