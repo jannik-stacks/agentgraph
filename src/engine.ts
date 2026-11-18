@@ -14,6 +14,7 @@ import {
   mergePull,
   readRealPath,
   writeClosed,
+  writeImportedRun,
   writePullToRepo,
   writeReview,
 } from './instance.ts';
@@ -60,7 +61,7 @@ const readStoredRun = (data: string, id: string, versions: Record<string, string
   };
 };
 
-const readStoredRuns = ({ data, checks = {} }: Pick<EngineSettings, 'data' | 'checks'>) => {
+export const readStoredRuns = ({ data, checks = {} }: Pick<EngineSettings, 'data' | 'checks'>) => {
   const versions = Object.fromEntries(Object.entries(checks).map(([check, c]) => [check, c.version]));
   return (existsSync(data) ? readdirSync(data) : []).flatMap(id => readStoredRun(data, id, versions) ?? []);
 };
@@ -241,7 +242,6 @@ export const makeEngineHost = (plugin: string, configs: readonly EngineSettings[
       const origin = { plugin, ...from };
       const meta = Schema.decodeUnknownSync(PluginMetadata)({ engine: { origin } });
       if ('import' in submission) {
-        const { writeImportedRun } = await import('./instance.ts');
         const { checkout, tracker, change, ...more } = submission.import;
         const id = await writeImportedRun({ checkout, tracker, data }, change, { ...more, ...origin });
         await Effect.runPromise(writeRunLabels(data, id, labels));
