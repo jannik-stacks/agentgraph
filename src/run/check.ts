@@ -393,7 +393,7 @@ export const runStepChecks = (
     };
     const proposals: Applied[] = left.proposals.flatMap(p => {
       const reason = refusal(p);
-      return reason === undefined ? [] : [{ proposal: p, ok: false, reason }];
+      return reason === undefined ? [] : [{ proposal: p, status: 'refused', reason }];
     });
     const blocking = failed('block');
     const outcome: Outcome =

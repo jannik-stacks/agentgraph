@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
@@ -11,13 +12,14 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Effect, Stream } from 'effect';
+import { Effect, Schema, Stream } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { folderTracker, Tracker, writeIssueFile } from '../src/tracker.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
 import { getRunOrigin } from '../src/meta.ts';
+import { Applied } from '../src/event.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { fixture, plant, seeded } from './fixtures.ts';
 import { commit, findStatus, git, issuePath, writeIssueAt } from './kit.ts';
@@ -30,6 +32,37 @@ const temp = () => {
 };
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe('Applied', () => {
+  const proposal = { kind: 'comment', body: 'Reply' };
+  it.each([
+    { status: 'applied' },
+    { status: 'refused', reason: 'Not allowed', moved: true },
+    { status: 'skipped', reason: 'Kept local' },
+  ])('accepts $status results', fields => {
+    expect(Schema.is(Applied)({ proposal, ...fields })).toBe(true);
+  });
+
+  it('preserves a warning on a successfully applied issue', () => {
+    const applied = {
+      proposal: { kind: 'issue', title: 'Child', body: 'Work', parent: 1 },
+      status: 'applied',
+      id: '2',
+      reason: 'Created #2, but could not link its parent',
+    };
+    expect(Schema.decodeUnknownSync(Applied)(applied)).toEqual(applied);
+  });
+
+  it.each([
+    { status: 'refused' },
+    { status: 'skipped' },
+    { status: 'unknown' },
+    { ok: true },
+    { ok: false, skip: 'Kept local' },
+  ])('rejects results without a valid status and required reason: %j', fields => {
+    expect(Schema.is(Applied)({ proposal, ...fields })).toBe(false);
+  });
 });
 
 const w = fixture('kit').workflows.issue!;
@@ -69,7 +102,7 @@ describe('fileStore', () => {
         yield* store.trace('r1', {
           at: 'a',
           step: 'triage',
-          applied: { proposal: { kind: 'ask', question: 'q' }, ok: false },
+          applied: { proposal: { kind: 'ask', question: 'q' }, status: 'refused', reason: 'not allowed' },
         });
         yield* store.trace('r1', { at: 'b', step: 'triage', outcome: { kind: 'pass' }, run });
         expect(yield* store.get('r1')).toEqual(run);
@@ -206,8 +239,8 @@ describe('folderTracker', () => {
         return {
           labelled: (yield* tracker.issues({ labels: ['size:M'] })).map(t => t.number),
           children: (yield* tracker.issues({ parent: 1 })).map(t => [t.number, t.title, t.body]),
-          child: child.ok,
-          merge: merge.reason,
+          child: child.status === 'applied',
+          merge: merge.status !== 'applied' ? merge.reason : undefined,
           missing: missing._tag === 'Failure' && missing.failure.status,
           events: (yield* Stream.runCollect(tracker.since(''))).map(m => [m.kind, m.label, m.trusted]),
         };
@@ -344,7 +377,7 @@ describe('folderTracker push', () => {
 
   it('pushes from a worktree of a mirror clone, as the docker sandbox makes them', async () => {
     const { dir, origin, push } = setup();
-    expect((await push()).ok).toBe(true);
+    expect((await push()).status === 'applied').toBe(true);
     expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
   });
 
@@ -352,7 +385,7 @@ describe('folderTracker push', () => {
     const { dir, origin, work, push } = setup();
     for (let i = 0; i < 249; i++) writeFileSync(join(work, `f${i}`), `${i}\n`);
     writeFileSync(join(work, 'big'), Buffer.alloc(1_500_000, 1));
-    expect((await push()).ok).toBe(true);
+    expect((await push()).status === 'applied').toBe(true);
     expect(git(dir, '--git-dir', origin, 'ls-tree', '-r', '--name-only', 'agentgraph/1').split('\n')).toHaveLength(251);
   });
 
@@ -363,11 +396,11 @@ describe('folderTracker push', () => {
     if (only) rmSync(join(work, 'hello.txt'));
     const applied = await push();
     expect(applied).toMatchObject({
-      ok: false,
+      status: 'refused',
       held: ['.github/workflows/x.yml'],
       reason: expect.stringContaining(only ? 'Nothing pushed' : 'Not pushed'),
     });
-    expect(Boolean(applied.url)).toBe(!only);
+    expect(Boolean(applied.status !== 'skipped' ? applied.url : undefined)).toBe(!only);
     expect(git(dir, '--git-dir', origin, 'ls-tree', '-r', '--name-only', only ? 'main' : 'agentgraph/1')).toBe(
       only ? '' : 'hello.txt'
     );
@@ -388,11 +421,13 @@ describe('folderTracker push', () => {
         return [first, second, yield* tracker.apply(1, proposal, checkout)];
       }).pipe(Effect.provide(folderTracker(dir)))
     );
-    expect(results.map(r => r.ok)).toEqual([false, true, true]);
-    expect(results.map(r => r.held)).toEqual(Array.from({ length: 3 }, () => ['.github/workflows/x.yml']));
-    expect(results[1]!.url).toContain('agentgraph/1@');
-    expect(results[2]!.url).toBeUndefined();
-    expect(results.slice(1).map(r => r.reason)).toEqual([undefined, undefined]);
+    expect(results.map(r => r.status === 'applied')).toEqual([false, true, true]);
+    expect(results.map(r => (r.status !== 'skipped' ? r.held : undefined))).toEqual(
+      Array.from({ length: 3 }, () => ['.github/workflows/x.yml'])
+    );
+    expect(results[1]!.status !== 'skipped' ? results[1]!.url : undefined).toContain('agentgraph/1@');
+    expect(results[2]!.status !== 'skipped' ? results[2]!.url : undefined).toBeUndefined();
+    expect(results.slice(1).map(r => (r.status !== 'applied' ? r.reason : undefined))).toEqual([undefined, undefined]);
     expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:other.txt')).toBe('other');
     expect(git(dir, '--git-dir', origin, 'rev-list', '--count', 'agentgraph/1')).toBe('3');
   });
@@ -415,13 +450,14 @@ describe('folderTracker push', () => {
         return [first, second, opened];
       }).pipe(Effect.provide(folderTracker(dir)))
     );
-    expect(first).toMatchObject({ ok: true, held: [] });
+    expect(first).toMatchObject({ status: 'applied', held: [] });
     expect(second).toMatchObject({
-      ok: false,
+      status: 'refused',
       held: ['.github/workflows/x.yml'],
       reason: expect.stringContaining('Nothing pushed'),
     });
-    expect(second!.url).toBeUndefined();
+    expect(second).not.toHaveProperty('url');
+    assert(first?.status === 'applied' && opened?.status === 'applied');
     expect(git(dir, '--git-dir', origin, 'rev-parse', 'agentgraph/1')).toBe(first!.url!.split('@').at(-1));
     expect(readFileSync(opened!.url!, 'utf8')).toContain('Not pushed: `.github/workflows/x.yml`');
   });
@@ -431,13 +467,13 @@ describe('folderTracker push', () => {
     git(dir, '--git-dir', origin, 'branch', 'agentgraph/1', 'main');
     git(join(dir, 'seed'), 'commit', '-q', '--allow-empty', '-m', 'elsewhere');
     git(join(dir, 'seed'), 'push', '-q', '-f', 'origin', 'HEAD:agentgraph/1');
-    expect(await push()).toMatchObject({ ok: false, moved: true });
+    expect(await push()).toMatchObject({ status: 'refused', moved: true });
   });
 
   it('runs no code a session planted in its worktree', async () => {
     const { dir, work, origin, push } = setup();
     const { marker } = plant(work);
-    expect((await push()).ok).toBe(true);
+    expect((await push()).status === 'applied').toBe(true);
     expect(existsSync(marker)).toBe(false);
     expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
   });

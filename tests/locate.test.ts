@@ -13,7 +13,7 @@ const trace: Trace[] = [
     step: 'implement',
     applied: {
       proposal: { kind: 'pull_request', branch: 'b', base: 'main', title: 't', body: 'b' },
-      ok: true,
+      status: 'applied',
       url: pr,
     },
   },
@@ -22,7 +22,7 @@ const trace: Trace[] = [
     step: 'review',
     applied: {
       proposal: { kind: 'comment', body: 'Looks right.', under: '1' },
-      ok: true,
+      status: 'applied',
       url: `${pr}#discussion_r4315833405`,
       id: '4315833405',
     },
@@ -32,13 +32,17 @@ const trace: Trace[] = [
     step: 'review',
     applied: {
       proposal: { kind: 'comment', body: 'Status.' },
-      ok: true,
+      status: 'applied',
       url: 'https://github.com/o/r/issues/2#issuecomment-62',
       id: '62',
       at: '2026-10-19T15:49:59.000Z',
     },
   },
-  { at: '2026-10-19T15:51:00.000Z', step: 'review', applied: { proposal: { kind: 'react' }, ok: true, id: '99' } },
+  {
+    at: '2026-10-19T15:51:00.000Z',
+    step: 'review',
+    applied: { proposal: { kind: 'react' }, status: 'applied', id: '99' },
+  },
 ];
 
 const find = (gh: string) => {

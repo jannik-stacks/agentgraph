@@ -5,7 +5,7 @@ const trace = readFileSync(process.env.AGENTGRAPH_RUN_TRACE, 'utf8')
   .split('\n')
   .filter(Boolean)
   .map(line => JSON.parse(line));
-if (trace.some(t => t.applied?.ok && t.applied.proposal.kind === 'run')) process.exit(0);
+if (trace.some(t => t.applied?.status === 'applied' && t.applied.proposal.kind === 'run')) process.exit(0);
 const failed = new Set(
   trace.flatMap((t, i) => (t.event?.type === 'tool' && t.event.ok === false ? [`${t.key}:${t.event.id || i}`] : []))
 );

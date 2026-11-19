@@ -208,7 +208,12 @@ describe('stacks', () => {
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
           if (p.kind === 'rebase' && !p.head && refused) {
             refused = false;
-            return Effect.succeed({ proposal: p, ok: false, reason: 'temporary ref refusal', moved: true as const });
+            return Effect.succeed({
+              proposal: p,
+              status: 'refused' as const,
+              reason: 'temporary ref refusal',
+              moved: true as const,
+            });
           }
           return f.apply(n, p, work);
         },
@@ -239,7 +244,7 @@ describe('stacks', () => {
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
           p.kind === 'rebase' && !p.head
-            ? Effect.succeed({ proposal: p, ok: false, reason: 'ref refusal', moved: true as const })
+            ? Effect.succeed({ proposal: p, status: 'refused' as const, reason: 'ref refusal', moved: true as const })
             : f.apply(n, p, work),
       }))
     ).pipe(Layer.provide(folderTracker(where.tracker)));

@@ -1,6 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Effect, Stream } from 'effect';
+import { stringify } from 'yaml';
 import { expect, it, vi } from 'vitest';
 import { readInstanceEnv } from '../src/main.ts';
 import { ensureInstance } from '../src/instance.ts';
@@ -28,7 +31,7 @@ it('serves each named instance under its own name, with no run crossing over', a
   for (const i of [live!, bench!]) {
     writeFileSync(
       join(i.dir, 'instance.yaml'),
-      `checkout: ${seed}\nbase: main\nowner: o\nexported: {}\ngraph: ${starter}\n`
+      `checkout: ${seed}\nbase: main\nowner: o\nexported: {}\ngraph: ${starter}\nfork: ${i === live ? 'live' : 'bench'}/project\n`
     );
     writeRun(i.data, `run-${i.dir.split('/').at(-1)}`);
   }
@@ -62,6 +65,8 @@ it('serves each named instance under its own name, with no run crossing over', a
     expect(await listed('live')).toEqual(['live/issue run-live']);
     expect(await listed('bench')).toEqual(['bench/issue run-bench']);
     expect(await opened('?instance=bench', 'run-bench')).toMatchObject({ instance: 'bench' });
+    expect(await opened('?instance=live', 'run-live')).toMatchObject({ fork: 'live/project', repo: '' });
+    expect(await runs('?instance=bench')).toMatchObject([{ fork: 'bench/project', repo: '' }]);
     expect(await opened('?instance=live', 'run-bench')).toBeNull();
     const tail = (after: { trace: number; checks: number }) =>
       runStudioAction(`${base}/api/actions?instance=live`, actions => actions.run({ id: 'run-live', after }));
@@ -131,6 +136,7 @@ it('ignores instance settings from the shell when it serves several instances, a
   }
   vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root, names: ['left', 'right'] }));
   vi.stubEnv('AGENTGRAPH_TRACKER', 'github');
+  vi.stubEnv('AGENTGRAPH_FORK', 'shell/project');
   const warned = vi.spyOn(console, 'error').mockImplementation(() => {});
   try {
     const served = await makeServedGraphs().read();
@@ -138,12 +144,122 @@ it('ignores instance settings from the shell when it serves several instances, a
       { name: 'left', local: true, problems: [] },
       { name: 'right', local: true, problems: [] },
     ]);
-    expect(warned).toHaveBeenCalledWith(expect.stringContaining('ignoring AGENTGRAPH_TRACKER from the shell'));
+    expect(served.map(instance => instance.fork)).toEqual([undefined, undefined]);
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining('AGENTGRAPH_TRACKER'));
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining('AGENTGRAPH_FORK'));
   } finally {
     warned.mockRestore();
     vi.unstubAllEnvs();
   }
 });
+
+it.each(['issues', 'issue', 'since'] as const)(
+  'keeps each Studio fork instance credential for lazy tracker %s reads',
+  async operation => {
+    const { root: dir, seed } = seeded('studio-credentials', { 'README.md': 'hello' });
+    removeAfter(dir);
+    const root = join(dir, 'instances');
+    const { privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+    for (const name of ['left', 'right']) {
+      const instance = await ensureInstance(root, name, seed);
+      const env = join(instance.dir, 'credentials.env');
+      writeFileSync(
+        env,
+        `AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY="${privateKey}"\nAGENTGRAPH_GITHUB_TOKEN=${name}-user\n`
+      );
+      writeFileSync(
+        join(instance.dir, 'instance.yaml'),
+        stringify({
+          checkout: seed,
+          base: 'main',
+          owner: 'o',
+          exported: {},
+          graph: starter,
+          tracker: 'github',
+          repo: 'upstream/project',
+          fork: 'fork/project',
+          env,
+        })
+      );
+    }
+    vi.stubEnv('AGI_STUDIO_INSTANCES', JSON.stringify({ root, names: ['left', 'right'] }));
+    vi.stubEnv('AGENTGRAPH_GITHUB_TOKEN', 'shell-user');
+    const upstreamTokens: string[] = [];
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      const credential = new Headers(init?.headers).get('authorization')?.replace('Bearer ', '') ?? '';
+      if (path.startsWith('/repos/upstream/project/')) upstreamTokens.push(credential);
+      const issue = {
+        number: 7,
+        title: credential,
+        body: '',
+        state: 'open',
+        labels: [],
+        user: { login: 'o' },
+        author_association: 'OWNER',
+        html_url: 'https://github.com/upstream/project/issues/7',
+      };
+      const routes: Record<string, unknown> = {
+        '/app': { slug: 'helper' },
+        '/user': { login: 'o' },
+        '/repos/fork/project/installation': { id: 9 },
+        '/app/installations/9/access_tokens': { token: 'fork-app', expires_at: '2999-01-01T00:00:00Z' },
+        '/repos/fork/project/activity': [],
+        '/repos/upstream/project/issues': [issue],
+        '/repos/upstream/project/issues/7': issue,
+        '/repos/upstream/project/issues/7/comments': [],
+        '/repos/upstream/project/issues/7/events': [],
+        '/repos/upstream/project/issues/comments': [
+          {
+            id: 1,
+            body: credential,
+            user: { login: 'o' },
+            author_association: 'OWNER',
+            created_at: '2026-10-16T12:00:00Z',
+            issue_url: 'https://api.github.com/repos/upstream/project/issues/7',
+          },
+        ],
+        '/repos/upstream/project/pulls/comments': [],
+        '/repos/upstream/project/issues/events': [],
+        '/repos/upstream/project/pulls': [],
+      };
+      return new Response(JSON.stringify(routes[path] ?? { message: 'Not Found' }), {
+        status: Object.hasOwn(routes, path) ? 200 : 404,
+      });
+    });
+    try {
+      const served = await makeServedGraphs().read();
+      expect(served.map(instance => instance.problems)).toEqual([[], []]);
+      expect(fetch).not.toHaveBeenCalled();
+      const read = (instance: (typeof served)[number]) => {
+        const tracker = instance.host!.tracker;
+        if (operation === 'since')
+          return Stream.runCollect(tracker.since('2026-10-16T00:00:00Z')).pipe(
+            Effect.map(events => events.map(event => event.comment?.body))
+          );
+        if (operation === 'issue') return tracker.issue(7).pipe(Effect.map(issue => [issue.title]));
+        return tracker.issues().pipe(Effect.map(issues => issues.map(issue => issue.title)));
+      };
+      expect(await Promise.all(served.map(instance => Effect.runPromise(read(instance))))).toEqual([
+        ['left-user'],
+        ['right-user'],
+      ]);
+      vi.stubEnv('AGENTGRAPH_GITHUB_TOKEN', 'changed-shell-user');
+      expect(await Promise.all(served.map(instance => Effect.runPromise(read(instance))))).toEqual([
+        ['left-user'],
+        ['right-user'],
+      ]);
+      expect([...new Set(upstreamTokens)].toSorted()).toEqual(['left-user', 'right-user']);
+    } finally {
+      fetch.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  }
+);
 
 it.each(['plugins', 'runs'])('refuses to serve an instance named %s, which would hide a studio page', async name => {
   const { root: dir, seed } = seeded(`studio-reserved-${name}`, { 'README.md': 'hello' });

@@ -74,18 +74,36 @@ export const Event = Schema.Struct({
 });
 export type Event = Types.Mutable<typeof Event.Type>;
 
-export const Applied = Schema.Struct({
+const appliedFields = {
   operation: Text,
   issue: Schema.optionalKey(Schema.Number),
   proposal: Proposal,
-  ok: Schema.Boolean,
-  url: Text,
-  held: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
-  id: Text,
-  reason: Text,
-  moved: Schema.optionalKey(Schema.Literal(true)),
   at: Text,
-});
+};
+
+export const Applied = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal('applied'),
+    ...appliedFields,
+    url: Text,
+    held: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
+    id: Text,
+    reason: Text,
+  }),
+  Schema.Struct({
+    status: Schema.Literal('refused'),
+    ...appliedFields,
+    reason: Schema.String,
+    url: Text,
+    held: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
+    moved: Schema.optionalKey(Schema.Literal(true)),
+  }),
+  Schema.Struct({
+    status: Schema.Literal('skipped'),
+    ...appliedFields,
+    reason: Schema.String,
+  }),
+]);
 export type Applied = Types.Mutable<typeof Applied.Type>;
 
 export type RunLink = { run: string; step: string; session?: string; operation?: string };

@@ -19,6 +19,7 @@ export type ServedGraph = {
   data?: string;
   files: string[];
   local: boolean;
+  fork?: string;
   graph?: Graph;
   host?: ReturnType<typeof EngineModule.makeInstanceHost>;
   problems: Problem[];
@@ -67,7 +68,8 @@ const readInstanceServed = async ({ root, graph: explicit }: StudioInstances, na
   const { readInstance, ensureInstanceGraph } = await readModule<typeof InstanceModule>('src/instance.ts');
   const { readInstanceEnv } = await readModule<typeof MainModule>('src/main.ts');
   const { makeTrackerSetup, settings } = await readModule<typeof ServicesModule>('src/services.ts');
-  const { ConfigProvider, Effect } = await import('effect');
+  const { Tracker } = await readModule<typeof TrackerModule>('src/tracker.ts');
+  const { ConfigProvider, Effect, Layer } = await import('effect');
   const files = [join(root, name, 'instance.yaml')];
   let data: string | undefined;
   try {
@@ -76,22 +78,44 @@ const readInstanceServed = async ({ root, graph: explicit }: StudioInstances, na
     data = instance.data;
     if (instance.env) files.push(instance.env);
     const scope = await readInstanceEnv(instance, readChoice());
+    const provide = Effect.provideService(ConfigProvider.ConfigProvider, scope.config);
     const whyTracker = `the tracker folder ${instance.tracker} has no origin.git; restore it, or move ${instance.dir} aside to start anew`;
     if (scope.env.AGENTGRAPH_TRACKER === 'folder' && !existsSync(join(instance.tracker, 'origin.git')))
       throw new Error(whyTracker);
     const dir = await ensureInstanceGraph(instance, explicit ?? scope.env.AGENTGRAPH_DIR);
     scope.env.AGENTGRAPH_DIR = dir;
-    const current = await Effect.runPromise(
-      settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
-    );
+    const current = await Effect.runPromise(settings.pipe(provide));
     const setup = await makeTrackerSetup(current);
     if (setup.origin.local && !existsSync(setup.origin.origin)) throw new Error(whyTracker);
     const loaded = await loadGraph(dir, instance, scope);
     const host = await makeServedHost(instance.data, loaded.graph, {
-      layer: setup.layer(loaded.graph?.trust ?? current.trust, instance.owner),
-      origin: setup.origin,
+      layer: Layer.effect(
+        Tracker,
+        Effect.provide(Tracker, setup.layer(loaded.graph?.trust ?? current.trust, instance.owner)).pipe(provide)
+      ),
+      origin: {
+        ...setup.origin,
+        ...(setup.origin.token && { token: setup.origin.token.pipe(provide) }),
+        ...(setup.origin.fork && {
+          fork: {
+            ...setup.origin.fork,
+            ...(setup.origin.fork.token && { token: setup.origin.fork.token.pipe(provide) }),
+            ...(setup.origin.fork.pushToken && { pushToken: setup.origin.fork.pushToken.pipe(provide) }),
+          },
+        }),
+      },
     });
-    return { name, title: name, dir, data: instance.data, files, local: !!setup.origin.local, host, ...loaded };
+    return {
+      name,
+      title: name,
+      dir,
+      data: instance.data,
+      files,
+      local: !!setup.origin.local,
+      ...(current.fork && { fork: current.fork }),
+      host,
+      ...loaded,
+    };
   } catch (e) {
     const problems = [{ path: 'instance.yaml', message: (e as Error).message }];
     return {
@@ -128,7 +152,13 @@ const readPlainServed = async (): Promise<ServedGraph> => {
     config && existsSync(config) ? { AGENTGRAPH_CONFIG: config } : {}
   );
   const loaded = await loadGraph(dir, undefined, scope);
-  return { ...plain, dir, ...(await makeHost(loaded.graph)), ...loaded };
+  return {
+    ...plain,
+    dir,
+    ...(scope.env.AGENTGRAPH_FORK && { fork: scope.env.AGENTGRAPH_FORK }),
+    ...(await makeHost(loaded.graph)),
+    ...loaded,
+  };
 };
 
 const readServedGraphs = async (): Promise<ServedGraph[]> => {

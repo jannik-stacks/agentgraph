@@ -560,7 +560,7 @@ export const runAttempt = (
         Effect.gen(function* () {
           const key = getOperationKey(tried, p.issue, p, `tell:${i}`);
           const prior = yield* findAppliedBefore(tried, p.issue, key);
-          const stored = prior?.id ? yield* store.get(prior.id) : undefined;
+          const stored = prior?.status === 'applied' && prior.id ? yield* store.get(prior.id) : undefined;
           const others = (yield* store.list({ issue: p.issue })).filter(r => r.id !== run.id);
           const told = makeToldEvent(p.issue, { text: p.text, by: run.id }, new Date().toISOString());
           const target = pickCommandTarget(graph, others, told, findRouter(graph)?.name, stored);
@@ -571,7 +571,7 @@ export const runAttempt = (
     const refused = [
       ...(yield* findUndispatchable(graph, run, runs)),
       ...tells.flatMap(({ p, to, why }): Applied[] =>
-        to ? [] : [{ proposal: p, ok: false, reason: why ?? `no live run on #${p.issue} to tell` }]
+        to ? [] : [{ proposal: p, status: 'refused', reason: why ?? `no live run on #${p.issue} to tell` }]
       ),
     ];
     if (refused.length > 0) return done({ kind: 'failed', checks: [], proposals: refused, problems: [] }, tried);
@@ -580,17 +580,17 @@ export const runAttempt = (
         tried,
         p.issue,
         key,
-        Effect.map(writeTold(to!, p.text, run.id), told => ({ proposal: p, ok: true, id: told.id }))
+        Effect.map(writeTold(to!, p.text, run.id), (told): Applied => ({ proposal: p, status: 'applied', id: told.id }))
       )
     );
     const children = world.filter((p): p is Child => p.kind === 'issue');
     const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run' && p.kind !== 'tell');
     const landed = yield* Effect.gen(function* () {
       const applied = yield* writeProposals(tried, rest, to, { work, tree });
-      if (applied.some(a => !a.ok && a.proposal.kind === 'push'))
+      if (applied.some(a => a.status === 'refused' && a.proposal.kind === 'push'))
         return [
           ...applied,
-          ...children.map((proposal): Applied => ({ proposal, ok: false, reason: 'push failed; not applied' })),
+          ...children.map((proposal): Applied => ({ proposal, status: 'refused', reason: 'push failed; not applied' })),
         ];
       return [...applied, ...(yield* createIssues(w, tried, children))];
     }).pipe(
@@ -598,20 +598,20 @@ export const runAttempt = (
       Effect.catchTag('TrackerError', failure => Effect.succeed({ failure }))
     );
     if ('failure' in landed) return { failure: landed.failure, run: tried, tree };
-    if (landed.some(a => a.ok)) tried = removeThreads(tried);
-    if (tried.onto && landed.some(a => a.ok && a.proposal.kind === 'push')) {
+    if (landed.some(a => a.status !== 'refused')) tried = removeThreads(tried);
+    if (tried.onto && landed.some(a => a.status === 'applied' && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;
       tried = rest;
     }
-    const proposed = runs[0] && landed.every(a => a.ok) ? runs[0] : undefined;
+    const proposed = runs[0] && landed.every(a => a.status !== 'refused') ? runs[0] : undefined;
     const child = proposed && (yield* startProposedRun(graph, tried, proposed));
     const dispatched: Applied[] = !proposed
       ? []
       : child
-        ? [{ proposal: proposed, ok: true, id: child.id }]
-        : [{ proposal: proposed, ok: false, reason: 'its run id was taken' }];
+        ? [{ proposal: proposed, status: 'applied', id: child.id }]
+        : [{ proposal: proposed, status: 'refused', reason: 'its run id was taken' }];
     const applied = [...landed, ...delivered, ...dispatched];
-    const failed = [...landed, ...dispatched].filter(a => !a.ok);
+    const failed = [...landed, ...dispatched].filter(a => a.status === 'refused');
     const waiting = child && { on: 'run' as const, id: child.id };
     yield* writeAppliedTrace(run.id, step.name, applied);
     return done(

@@ -89,6 +89,7 @@ export const makeStudioDevApiPlugin = (
               return {
                 fixture: `${watched ? 'store' : served!.title}/${run.workflow}`,
                 repo: served?.graph?.repo ?? '',
+                ...(served?.fork && { fork: served.fork }),
                 run: pickListedRun(run, body),
                 labels: readRunLabels(data!, run.id),
                 ...makeRunSummary(run, lines),

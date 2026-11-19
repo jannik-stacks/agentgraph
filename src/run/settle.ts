@@ -128,7 +128,7 @@ export const writeEyes = (run: Run, issue: number, m: Event) =>
     };
     const applied = yield* (yield* Tracker).apply(issue, react);
     yield* (yield* Store).trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
-    return applied.ok ? { issue, undo: react } : undefined;
+    return applied.status === 'applied' ? { issue, undo: react } : undefined;
   }).pipe(Effect.catchTag('TrackerError', e => Effect.logWarning(`react for run ${run.id}`, e)));
 
 const announce = (graph: Graph, change: StatusChange) =>
@@ -188,7 +188,7 @@ const writeApplied = (run: Run, issue: number, key: string, applied: Applied) =>
 export const findAppliedBefore = (run: Run, issue: number, key: string, proposal?: Proposal) =>
   Effect.gen(function* () {
     const lines = yield* Stream.runCollect((yield* Store).read(run.id));
-    const traced = lines.findLast(t => 'applied' in t && t.applied.operation === key && t.applied.ok);
+    const traced = lines.findLast(t => 'applied' in t && t.applied.operation === key && t.applied.status !== 'refused');
     if (traced && 'applied' in traced) return traced.applied;
     const posted = proposal && (yield* (yield* Tracker).findPost(issue, proposal, key));
     return posted && (yield* writeApplied(run, issue, key, posted));
@@ -236,7 +236,7 @@ export const writeProposals = (
       let thrown: TrackerError | undefined;
       for (const [i, [issue, proposed]] of sent.entries()) {
         if (refused && !(proposed.kind === 'comment' && proposed.under !== undefined)) {
-          applied.push({ proposal: proposed, ok: false, reason: 'push failed; not applied' });
+          applied.push({ proposal: proposed, status: 'refused', reason: 'push failed; not applied' });
           continue;
         }
         const p =
@@ -254,11 +254,11 @@ export const writeProposals = (
           p.kind === 'push'
             ? yield* Effect.catchTag(write, 'TrackerError', e => {
                 thrown = e;
-                return Effect.succeed<Applied>({ proposal: p, ok: false, reason: e.message });
+                return Effect.succeed<Applied>({ proposal: p, status: 'refused', reason: e.message });
               })
             : yield* write;
         applied.push(a);
-        if (p.kind === 'push' && !a.ok) refused = true;
+        if (p.kind === 'push' && a.status === 'refused') refused = true;
       }
       if (thrown) return yield* thrown;
       return applied;

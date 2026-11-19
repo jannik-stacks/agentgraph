@@ -59,7 +59,7 @@ describe('a run branch that moved', () => {
       expect(git(where.origin, 'rev-parse', 'agentgraph/7^')).toBe(tip);
       expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe(conflict ? 'resolved' : 'pending');
       const rebases = readTrace(where.data, 'run-7').flatMap(t =>
-        'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
+        'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.status === 'applied'] : []
       );
       expect(rebases).toEqual([!conflict]);
     }
@@ -74,7 +74,12 @@ describe('a run branch that moved', () => {
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
           p.kind === 'push' && !refused
-            ? Effect.sync(() => ((refused = true), { proposal: p, ok: false, moved: true as const, reason: 'gone' }))
+            ? Effect.sync(
+                () => (
+                  (refused = true),
+                  { proposal: p, status: 'refused' as const, moved: true as const, reason: 'gone' }
+                )
+              )
             : f.apply(n, p, work),
       }))
     ).pipe(Layer.provide(folderTracker(where.tracker)));
@@ -155,7 +160,7 @@ describe('a run branch that moved', () => {
           const tracker = yield* Tracker;
           const work = yield* sandbox.checkout('main', 'agentgraph/7');
           expect(yield* tracker.apply(7, { kind: 'rebase', branch: 'agentgraph/7', from, onto }, work)).toMatchObject({
-            ok: true,
+            status: 'applied',
           });
         })
       )
@@ -169,7 +174,7 @@ describe('a run branch that moved', () => {
     expect(done.status).toBe('done');
     expect(next.specs).toHaveLength(1);
     const pushes = readTrace(where.data, 'run-7').flatMap(t =>
-      'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied.ok] : []
+      'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied.status === 'applied'] : []
     );
     expect(pushes).toEqual([true]);
     expect(git(where.origin, 'show', 'agentgraph/7:pending.txt')).toBe('pending');
@@ -178,7 +183,7 @@ describe('a run branch that moved', () => {
       expect.objectContaining({
         applied: expect.objectContaining({
           proposal: expect.objectContaining({ kind: 'rebase', onto: tip }),
-          ok: true,
+          status: 'applied',
         }),
       })
     );
@@ -196,7 +201,9 @@ describe('a run branch that moved', () => {
     expect(git(where.origin, 'rev-parse', branch)).toBe(before);
     expect(
       readTrace(where.data, 'run-7').flatMap(t =>
-        'applied' in t && ['push', 'pull_request'].includes(t.applied.proposal.kind) && t.applied.ok ? [t.applied] : []
+        'applied' in t && ['push', 'pull_request'].includes(t.applied.proposal.kind) && t.applied.status === 'applied'
+          ? [t.applied]
+          : []
       )
     ).toEqual([]);
   });
@@ -215,7 +222,9 @@ describe('a run branch that moved', () => {
     await run(runWorkflow(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
     expect((await run(Effect.flatMap(Tracker, f => f.issue(8)))).state).toBe('open');
     expect(
-      readTrace(where.data, 'run-7').some(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'merge')
+      readTrace(where.data, 'run-7').some(
+        t => 'applied' in t && t.applied.status === 'applied' && t.applied.proposal.kind === 'merge'
+      )
     ).toBe(false);
   });
 

@@ -32,6 +32,7 @@ const Line = Schema.Union([Trace, CheckEntry]);
 export const ServedRun = Schema.Struct({
   fixture: Schema.String,
   repo: Schema.String,
+  fork: Schema.optionalKey(Schema.String),
   run: RunRecord.mapFields(Struct.pick(listedRunFields)),
   labels: Schema.Record(Schema.String, Schema.String),
   trace: Schema.optionalKey(Schema.mutable(Schema.Array(Line))),

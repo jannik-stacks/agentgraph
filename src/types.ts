@@ -329,7 +329,7 @@ export const Trace = Schema.Union([
   Schema.Struct({
     ...Line,
     saved: Run.mapFields(Struct.map(Schema.optionalKey)),
-    cleared: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.Literals(Struct.keys(Run.fields))))),
+    cleared: Schema.optionalKey(Strings),
   }),
   Schema.Struct({ ...Line, spoken: Event, meta: RunFields.meta }),
   Schema.Struct({ ...Line, inputs: Schema.Struct({ since: Schema.String }) }),

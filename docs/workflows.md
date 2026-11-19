@@ -65,7 +65,7 @@ An answer-only request needs no code change. Otherwise, a first session granted 
 
 Column triggers poll each pass. `project` selects a board; otherwise only the repository owner's boards count. Either `label` or `column` can trigger work; the column also adds the configured label. Leaving the column does not stop work. <!-- code: src/github.ts#githubTracker src/run/trigger.ts#tick --> <!-- code: src/workflow.ts#issueSources --> <!-- code: src/run/trigger.ts#tick -->
 
-Missing access is reported; other triggers work. See [credentials](github.md#project-boards) and [board writes](plugins.md#status-hooks). <!-- code: src/github.ts#readProjectToken --> <!-- code: tests/fixtures/triggers/plugins/board.ts src/github.ts#githubTracker -->
+Missing access is reported; other triggers work. See [credentials](github.md#project-boards) and [board writes](plugins.md#status-hooks). <!-- code: src/github.ts#readUserToken --> <!-- code: tests/fixtures/triggers/plugins/board.ts src/github.ts#githubTracker -->
 
 ## Trust and scope
 

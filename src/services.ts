@@ -25,9 +25,11 @@ import { Runner, SandboxError } from './sandbox.ts';
 import { priceTable } from './prices.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
+import { GitHubRepository } from './settings.ts';
 
 export type Settings = {
   repo: string;
+  fork?: TrackerHost['fork'];
   graph: string;
   data: string;
   every: number;
@@ -110,7 +112,11 @@ export const readHostSettings = async (flags: Partial<Record<'data' | 'tracker',
 
 export const settings = Config.all({
   ...hostSettings,
-  repo: Config.String('AGENTGRAPH_REPO'),
+  repo: Config.schema(
+    Schema.String.check(Schema.makeFilter(value => value === '' || Schema.is(GitHubRepository)(value))),
+    'AGENTGRAPH_REPO'
+  ),
+  fork: Config.option(Config.schema(GitHubRepository, 'AGENTGRAPH_FORK')).pipe(Config.map(Option.getOrUndefined)),
   graph: Config.String('AGENTGRAPH_DIR').pipe(Config.withDefault('.agentgraph')),
   proxy: Config.all({
     url: proxyUrl,
@@ -240,12 +246,16 @@ export const pickTracker = async (
 };
 
 export const makeTrackerSetup = async (
-  s: Pick<Settings, 'repo' | 'studio' | 'app' | 'graph' | 'tracker' | 'trackerDir'>
+  s: Pick<Settings, 'repo' | 'fork' | 'studio' | 'app' | 'graph' | 'tracker' | 'trackerDir'>
 ) => {
   const picked = await pickTracker(s.tracker, findHostGraph(s));
   if ('problem' in picked) throw new Error(picked.problem);
   const dir = picked.dir ?? s.trackerDir;
-  const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(dir && { dir }) });
+  const setup = picked.tracker({
+    ...Struct.pick(s, ['repo', 'studio', 'app']),
+    ...(s.fork && { fork: s.fork }),
+    ...(dir && { dir }),
+  });
   if (setup.origin.local && dir && setup.origin.origin !== join(dir, 'origin.git'))
     throw new Error(
       `tracker ${s.tracker} keeps its issues outside ${s.trackerDir}; an instance tracker wraps the folder it is given`
@@ -266,6 +276,7 @@ export const makeProductionLayers = (setup?: TrackerSetup) => {
   return (s: Settings): Layer.Layer<Services> => {
     const key = JSON.stringify([
       s.repo,
+      s.fork,
       s.studio,
       s.graph,
       s.tracker,

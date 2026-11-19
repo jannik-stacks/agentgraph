@@ -826,7 +826,8 @@ const readIssueScan = (
           apply: (...args) =>
             tracker.apply(...args).pipe(
               Effect.tap(a =>
-                a.ok && ['issue', 'pull_request', 'merge', 'label', 'push', 'rebase'].includes(a.proposal.kind)
+                a.status === 'applied' &&
+                ['issue', 'pull_request', 'merge', 'label', 'push', 'rebase'].includes(a.proposal.kind)
                   ? Effect.andThen(
                       invalidate,
                       Effect.sync(() => closed.clear())

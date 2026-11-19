@@ -91,7 +91,14 @@ export const makeStatusLabel = (
 
 export type TrackerSetup = {
   layer: (trust?: readonly string[], as?: string) => Layer.Layer<Tracker>;
-  origin: { origin: string; local?: boolean; token?: Effect.Effect<string, TrackerError> };
+  origin: {
+    origin: string;
+    local?: boolean;
+    token?: Effect.Effect<string, TrackerError>;
+    fork?: Pick<TrackerSetup['origin'], 'origin' | 'token'> & {
+      pushToken?: TrackerSetup['origin']['token'];
+    };
+  };
 };
 
 export const parseIssueSearch = (
@@ -141,9 +148,10 @@ export const formatAgentComment = (text: string) => (text.startsWith(':') ? `/ag
 
 export const writeProposal = (issue: number, proposal: Proposal) =>
   Effect.flatMap(Tracker, tracker => tracker.apply(issue, proposal)).pipe(
-    Effect.filterOrFail(
-      applied => applied.ok,
-      applied => new TrackerError({ message: applied.reason ?? `${proposal.kind} was refused` })
+    Effect.flatMap(applied =>
+      applied.status === 'refused'
+        ? Effect.fail(new TrackerError({ message: applied.reason }))
+        : Effect.succeed(applied)
     )
   );
 
@@ -187,6 +195,7 @@ export const withheld = (author: string, what = 'comment', why = 'not a collabor
   `(${what} by @${author} withheld: ${why})`;
 
 export const branchPrefix = 'agentgraph/';
+export const forkRefPrefix = 'refs/remotes/fork/';
 export const isAgentBranch = (branch: string) => branch.startsWith(branchPrefix);
 
 export const unpushable = (path: string, modes: string[]) =>
@@ -200,17 +209,19 @@ export const makePushResult = (
   url: string | undefined,
   held: string[],
   reported: Set<string>
-): Omit<Applied, 'proposal'> => {
+):
+  | Omit<Extract<Applied, { status: 'applied' }>, 'proposal'>
+  | Omit<Extract<Applied, { status: 'refused' }>, 'proposal'> => {
   const fresh = held.filter(f => !reported.has(f));
   for (const path of held) reported.add(path);
-  return {
-    ok: fresh.length === 0,
-    held,
-    ...(url && { url }),
-    ...(fresh.length > 0 && {
-      reason: `${url ? `Pushed ${url}.` : 'Nothing pushed.'} Not pushed: ${fresh.map(f => `\`${f}\``).join(', ')}. Files under .github/ need a maintainer; do not claim they were added.`,
-    }),
-  };
+  const pushed = { held, ...(url && { url }) };
+  return fresh.length === 0
+    ? { ...pushed, status: 'applied' }
+    : {
+        ...pushed,
+        status: 'refused',
+        reason: `${url ? `Pushed ${url}.` : 'Nothing pushed.'} Not pushed: ${fresh.map(f => `\`${f}\``).join(', ')}. Files under .github/ need a maintainer; do not claim they were added.`,
+      };
 };
 
 export const parseIssueFile = (text: string) => {
@@ -462,7 +473,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
       const apply = async (n: number, p: Proposal, work?: Checkout): Promise<Applied> => {
         const no = (reason: string, away?: true): Applied => ({
           proposal: p,
-          ok: false,
+          status: 'refused',
           reason,
           ...(away && { moved: away }),
         });
@@ -474,7 +485,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             ...(p.milestone !== undefined && { milestone: p.milestone }),
             labels: p.labels ?? [],
           });
-          return { proposal: p, ok: true, url: md(k), id: String(k) };
+          return { proposal: p, status: 'applied', url: md(k), id: String(k) };
         }
         const t = await must(n);
         await adopt(n);
@@ -486,7 +497,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             const { path, line } = parent ?? {};
             const placed = { ...(path && { path }), ...(line && { line }), ...(p.under && { under: p.under }) };
             const id = await say({ issue: n, kind: 'comment', comment: { body: p.body, ...placed } });
-            return { proposal: p, ok: true, id, url: `${md(n)}#${id}` };
+            return { proposal: p, status: 'applied', id, url: `${md(n)}#${id}` };
           }
           case 'label': {
             const added = (p.add ?? []).filter(l => !t.labels.includes(l) && !p.remove?.includes(l));
@@ -496,7 +507,7 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             for (const label of added) await say({ issue: n, kind: 'label', label });
             for (const label of removed) await say({ issue: n, kind: 'unlabel', label });
             writeFileAtomic(seenPath(n), labels);
-            return { proposal: p, ok: true };
+            return { proposal: p, status: 'applied' };
           }
           case 'push': {
             if (!isAgentBranch(p.branch)) return no(`a push goes to a ${branchPrefix} branch`);
@@ -576,14 +587,14 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             }
             if (p.head) {
               await git(work, 'read-tree', '-u', '--reset', tree);
-              return { proposal: p, ok: true };
+              return { proposal: p, status: 'applied' };
             }
             const lease = `--force-with-lease=refs/heads/${p.branch}:${was}`;
             await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
             await git(work, 'read-tree', '-u', '--reset', tree);
             await Effect.runPromise(commitPublishedTree(work, tree));
             pushed.set(work.dir, head);
-            return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
+            return { proposal: p, status: 'applied', url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
           case 'pull_request': {
             const left = [...(held.get(p.branch) ?? [])];
@@ -597,13 +608,13 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
               const pr = await read(k);
               if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;
               await write({ ...pr, title: p.title, body: makeBodyWithStatus(body, getStatusHeader(pr.body)) });
-              return { proposal: p, ok: true, url: pr.url };
+              return { proposal: p, status: 'applied', url: pr.url };
             }
             const head = work ? await tip(work, p.branch).catch(() => '') : '';
             if (!head) return no(`branch ${p.branch} is not pushed`);
             const k = await open({ title: p.title, body, pull: { branch: p.branch, base: p.base, head } });
             if (work) await writeDiff(work, k, p.base, head);
-            return { proposal: p, ok: true, url: md(k) };
+            return { proposal: p, status: 'applied', url: md(k) };
           }
           case 'merge': {
             const pr = await must(p.number);
@@ -611,14 +622,14 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             if (pr.pull.head !== p.head) return no(`#${p.number} moved to ${pr.pull.head}`);
             await write({ ...pr, state: 'merged' });
             await say({ issue: p.number, kind: 'merged' });
-            return { proposal: p, ok: true, url: pr.url };
+            return { proposal: p, status: 'applied', url: pr.url };
           }
           case 'react': {
             const id = p.comment ?? `#${n}`;
             const lines = ((await readIssueFile(n, 'reactions')) ?? '').split('\n');
             if (!lines.includes(`eyes ${id}`))
               await appendFile(join(findIssueDir(dir, n), 'reactions'), `eyes ${id}\n`);
-            return { proposal: p, ok: true, id };
+            return { proposal: p, status: 'applied', id };
           }
           case 'ask':
           case 'back':
@@ -707,12 +718,12 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
           locked(async (): Promise<Applied | undefined> => {
             if (p.kind === 'comment') {
               const c = (await readTimeline(n)).find(m => m.comment && isPostedBy(m.comment.body, operation))?.comment;
-              return c && { proposal: p, ok: true, id: c.id, url: `${md(n)}#${c.id}` };
+              return c && { proposal: p, status: 'applied', id: c.id, url: `${md(n)}#${c.id}` };
             }
             if (p.kind !== 'issue') return undefined;
             for (const k of findIssueNumbers(dir))
               if (isPostedBy((await read(k))?.body ?? '', operation))
-                return { proposal: p, ok: true, url: md(k), id: String(k) };
+                return { proposal: p, status: 'applied', url: md(k), id: String(k) };
             return undefined;
           }),
       };

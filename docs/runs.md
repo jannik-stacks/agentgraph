@@ -36,6 +36,20 @@ tar -czf left-pad.tgz -C ~/.agentgraph --exclude left-pad/data/cache left-pad
 
 Restore under the data root; preserve checkout paths or update `instance.yaml`. <!-- code: src/mirror.ts#makeSandbox src/instance.ts#ensureGraph -->
 
+## Upgrade stored proposal results
+
+Before starting this version on an existing store, stop all writers (drives, loops and studio commands) and back up the instance as above. From the source checkout, run:
+
+```sh
+node bin/migrate-applied.ts ~/.agentgraph/left-pad/data
+```
+
+Pass the instance's store `data/` directory, not the data root or instance directory. The one-off migration scans immediate run folders for `run.json`, `trace.jsonl` and `trace.jsonl.zst`. It updates proposal results in `applied` entries and failed `outcome.proposals`, including saved run snapshots. Compressed traces stay compressed; other files and arbitrary metadata are unchanged. Runtime readers do not accept legacy proposal results. <!-- code: bin/migrate-applied.ts#migrateEnvelope -->
+
+Legacy `ok: true` becomes `status: applied`; `ok: false` becomes `status: refused`, never `skipped`. Existing reasons, including empty strings, stay unchanged. A refusal without a recorded reason gets `Legacy refusal (no reason recorded)`. Failed outcomes, checks and problems keep their meaning. Existing statuses are validated and retained. <!-- code: bin/migrate-applied.ts#migrateApplied -->
+
+The command parses every selected record and validates proposal results before writing anything. It does not validate unrelated fields against today's run and trace schemas: older fields are preserved, and may require separate migrations before the current engine can read them. Malformed JSON (including incomplete final rows), unknown proposal statuses, non-boolean `ok` values and conflicting `ok`/`status` values fail without modifying records. Writes replace each changed file atomically, not the whole store as one transaction. If interrupted during writes, rerun the command before restarting writers. Reruns leave migrated files untouched. <!-- code: src/store.ts#writeFileAtomic bin/migrate-applied.ts#migrateEnvelope -->
+
 ## instance.yaml
 
 The first command creates this file. Unknown fields fail. `checkout`, `graph` and `env` paths resolve against the instance folder. See [selection and precedence](local.md#named-instances-and-settings).
@@ -43,6 +57,7 @@ The first command creates this file. Unknown fields fail. `checkout`, `graph` an
 | Field | Default; purpose |
 | --- | --- |
 | `repo` | Empty; tracker repository |
+| `fork` | None; GitHub `owner/name` receiving work branches; issues stay in `repo` |
 | `checkout` | Checkout path; repository for base sync and branch exports |
 | `graph` | Checkout `.agentgraph/`; graph folder |
 | `env` | None; env file |
@@ -133,9 +148,9 @@ Readers derive `engine`, `image`, `config` and `harnesses` labels from `versions
 | `session` | End reason, resume status, dropped-resume reason, cost and `used` |
 | `setup` | `ms`, `exit` and `used` |
 | `env`, `cache` | Environment and cached files |
-| `applied` | Proposal with URL or failure reason |
+| `applied` | Proposal with `status`: `applied`, `refused` or `skipped`; refusals and skips carry a `reason`, and skips do not fail tries |
 | `outcome` | Pass, failure, back, ask, answer or stop; next state |
-| `saved` | Changes; removals in `cleared` |
+| `saved` | Changes; `cleared` lists removed field names, including names retired from the current run schema |
 | `spoken` | Command or tracker event and its source |
 | `inputs` | When input recording began |
 | `told` | Forwarded text; `by` names the sending run or `cli` |

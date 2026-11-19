@@ -239,7 +239,7 @@ const unapplied =
 export const formatFailedTryFeedback = (o: Extract<Outcome, { kind: 'failed' }>) =>
   [
     ...o.checks.map(c => `${c.check}: ${c.findings ?? 'failed'}`),
-    ...o.proposals.map(a => `${a.proposal.kind} failed: ${a.reason ?? 'not allowed'}`),
+    ...o.proposals.flatMap(a => (a.status === 'refused' ? [`${a.proposal.kind} failed: ${a.reason}`] : [])),
     ...o.problems,
   ].join('\n');
 
@@ -361,7 +361,9 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
         return transition(w, run, {
           kind: 'failed',
           checks: [],
-          proposals: [{ proposal: { kind: 'back', why: o.why }, ok: false, reason: `${step.name} has no way back` }],
+          proposals: [
+            { proposal: { kind: 'back', why: o.why }, status: 'refused', reason: `${step.name} has no way back` },
+          ],
           problems: [],
         });
       case 'ask':

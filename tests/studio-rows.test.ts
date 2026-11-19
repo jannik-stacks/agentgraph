@@ -21,6 +21,7 @@ type Row = {
 type ServedRun = {
   fixture: string;
   repo: string;
+  fork?: string;
   labels: Record<string, string>;
   run: Run;
   trace: Trace[];
@@ -76,6 +77,21 @@ const trace = [
 ] as Trace[];
 
 describe('a run as rows', () => {
+  it('shows skipped replies with their reason and does not treat their body as a published PR link', () => {
+    const line: Trace = {
+      at,
+      step: 'implement',
+      applied: {
+        proposal: { kind: 'comment', body: 'Pull request: https://github.com/o/r/pull/8' },
+        status: 'skipped',
+        reason: 'Kept local',
+      },
+    };
+    const row = runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace: [line] }, true);
+    expect(text(row.children?.[0]?.children?.[0])).toContain('skipped: Kept local');
+    expect(findTraceLinks([line])).toEqual({});
+  });
+
   const row = runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace }, true);
 
   it('labels an empty check skipped even when it does not block the workflow', () => {
@@ -127,7 +143,7 @@ describe('a run as rows', () => {
 describe("a run's pull request and branch", () => {
   const pr = 'https://github.com/o/r/pull/8';
   const wrote = (proposal: object, url?: string) =>
-    ({ at, step: 'implement', applied: { proposal, ok: true, ...(url && { url }) } }) as Trace;
+    ({ at, step: 'implement', applied: { proposal, status: 'applied', ...(url && { url }) } }) as Trace;
 
   it('is the pull request the run opened, else the one an update names, and the branch it last wrote', () => {
     const opened = wrote({ kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 't', body: 'b' }, pr);
@@ -136,7 +152,16 @@ describe("a run's pull request and branch", () => {
     const pushed = wrote({ kind: 'push', branch: 'agentgraph/2', message: 'm' }, 'https://github.com/o/r/commit/1');
     expect(findTraceLinks([status, pushed])).toEqual({ pull: pr, branch: 'agentgraph/2' });
     expect(
-      findTraceLinks([{ ...pushed, applied: { ...(pushed as { applied: object }).applied, ok: false } } as Trace])
+      findTraceLinks([
+        {
+          ...pushed,
+          applied: {
+            proposal: { kind: 'push', branch: 'agentgraph/2', message: 'm' },
+            status: 'refused',
+            reason: 'refused',
+          },
+        },
+      ])
     ).toEqual({});
     expect(findTraceLinks(trace)).toEqual({});
   });
@@ -150,6 +175,26 @@ describe("a run's pull request and branch", () => {
       renderToStaticMarkup(runRow({ fixture: 'kit/issue', repo: 'o/r', labels: {}, run, trace }).summary as never)
     ).not.toMatch(/pull\/|tree\//);
   });
+
+  it.each(['agentgraph/1', 'refs/remotes/fork/agentgraph/1', 'refs/heads/agentgraph/1'])(
+    'links fork branch %s while keeping issue links upstream',
+    branch => {
+      const head = renderToStaticMarkup(
+        runRow({
+          fixture: 'kit/issue',
+          repo: 'upstream/project',
+          fork: 'contributor/project',
+          labels: {},
+          run,
+          trace,
+          branch,
+        }).summary as never
+      );
+      expect(head).toContain('href="https://github.com/contributor/project/tree/agentgraph/1"');
+      expect(head).toContain(`href="https://github.com/upstream/project/issues/${run.issue}"`);
+      expect(head).not.toContain('tree/refs/');
+    }
+  );
 
   it('shows the spend against usd-per-run, with the label that set it', () => {
     const label = { name: 'agent:usd-per-run:40', actor: 'morgan', at };
@@ -270,14 +315,14 @@ describe('a deep link into a run', () => {
     {
       at: '2026-10-16T05:02:00.000Z',
       step: 'review',
-      applied: { proposal: { kind: 'push', branch: 'b', message: 'm' }, ok: true, url: `${pr}/commits/1` },
+      applied: { proposal: { kind: 'push', branch: 'b', message: 'm' }, status: 'applied', url: `${pr}/commits/1` },
     },
     {
       at: '2026-10-16T05:02:00.000Z',
       step: 'review',
       applied: {
         proposal: { kind: 'comment', body: 'Looks right.' },
-        ok: true,
+        status: 'applied',
         url: `${pr}#issuecomment-5`,
         id: '5',
         at: '2026-10-16T05:01:59.000Z',
@@ -487,7 +532,7 @@ describe('a run fetched on demand', async () => {
       outcome: {
         kind: 'failed',
         checks: [{ check: 'tests', pass: false, findings: long, ms: 1 }],
-        proposals: [{ ok: false, proposal: { kind: 'comment', body: long } }],
+        proposals: [{ status: 'refused', proposal: { kind: 'comment', body: long }, reason: 'refused' }],
         problems: [long],
       },
       run: { step: 'implement', status: 'running', tries: 1, rounds: {} },

@@ -3,9 +3,12 @@ import { GraphSettings, type Graph } from './folder.ts';
 import type { Workflow } from './workflow.ts';
 import { Count } from './event.ts';
 
+export const GitHubRepository = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/));
+
 export const InstanceFile = Schema.Struct({
   checkout: Schema.String,
   repo: Schema.optionalKey(Schema.String),
+  fork: Schema.optionalKey(GitHubRepository),
   graph: Schema.optionalKey(Schema.String),
   base: Schema.String,
   owner: Schema.String,

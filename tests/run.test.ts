@@ -423,7 +423,7 @@ describe('drive', () => {
     for (const t of trace) {
       if (!('saved' in t)) continue;
       Object.assign(replayed, t.saved);
-      for (const k of t.cleared ?? []) delete replayed[k];
+      for (const k of t.cleared ?? []) Reflect.deleteProperty(replayed, k);
     }
     expect(replayed).toEqual(asked);
     const resumed = trace.flatMap(t => ('saved' in t && t.saved.sessions ? [t.saved.sessions] : []));

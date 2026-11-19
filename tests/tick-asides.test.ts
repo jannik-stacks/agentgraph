@@ -20,6 +20,32 @@ import { small, merging, waiting } from './tick-fixtures.ts';
 import { type Agent, type SessionEvent, type SessionSpec, TrackerError } from '../src/types.ts';
 
 describe('tick', () => {
+  it('consumes a locally answered aside when its upstream comment is skipped', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Answer.' })]]);
+    await run(waiting(where));
+    const local = Effect.map(Tracker, t => ({
+      ...t,
+      apply: (n: number, p: Proposal, work?: Parameters<typeof t.apply>[2]) =>
+        p.kind === 'comment'
+          ? Effect.succeed({ proposal: p, status: 'skipped' as const, reason: 'Fork mode keeps replies local.' })
+          : t.apply(n, p, work),
+    }));
+    await run(tick(merging, 7).pipe(Effect.provideServiceEffect(Tracker, local)));
+    await run(tick(merging, 7).pipe(Effect.provideServiceEffect(Tracker, local)));
+    const answered = await run(Effect.flatMap(Store, s => s.get('run-7')));
+    expect(specs).toHaveLength(1);
+    expect(answered).toMatchObject({ status: 'waiting', step: 'merge' });
+    expect(answered?.waiting?.on).not.toBe('engine');
+    expect(readTrace(where.data, 'run-7')).toContainEqual(
+      expect.objectContaining({
+        applied: expect.objectContaining({ status: 'skipped', reason: 'Fork mode keeps replies local.' }),
+      })
+    );
+  });
+
   it('takes an approval that came before a later trace line of the waiting run, such as a rebase', async () => {
     const where = world();
     const at = (s: number) => `2026-10-16T00:00:0${s}.000Z`;
@@ -37,7 +63,7 @@ describe('tick', () => {
             outcome: settled,
             run: { step: 'merge', status: 'waiting', tries: 0, rounds: {} },
           },
-          { at: at(9), step: 'merge', applied: { proposal: { kind: 'label', add: ['x'] }, ok: true } }
+          { at: at(9), step: 'merge', applied: { proposal: { kind: 'label', add: ['x'] }, status: 'applied' } }
         )
       )
     );
